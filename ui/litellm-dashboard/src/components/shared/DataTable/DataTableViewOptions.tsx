@@ -5,6 +5,8 @@ import type { Table } from "@tanstack/react-table";
 import { Check, Columns3 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 interface DataTableViewOptionsProps<TData> {
   table: Table<TData>;
@@ -13,6 +15,7 @@ interface DataTableViewOptionsProps<TData> {
 }
 
 export function DataTableViewOptions<TData>({ table, label = "View", className }: DataTableViewOptionsProps<TData>) {
+  const { t } = useTranslation();
   const hideableColumns = table.getAllLeafColumns().filter((column) => column.getCanHide());
 
   if (hideableColumns.length === 0) {
@@ -44,8 +47,11 @@ export function DataTableViewOptions<TData>({ table, label = "View", className }
                 <Menu.CheckboxItemIndicator className="absolute left-2 flex size-4 items-center justify-center">
                   <Check className="size-3.5" />
                 </Menu.CheckboxItemIndicator>
-                {column.columnDef.meta?.title ??
-                  (typeof column.columnDef.header === "string" ? column.columnDef.header : column.id)}
+                {translateUiText(
+                  t,
+                  column.columnDef.meta?.title ??
+                    (typeof column.columnDef.header === "string" ? column.columnDef.header : column.id),
+                )}
               </Menu.CheckboxItem>
             ))}
           </Menu.Popup>

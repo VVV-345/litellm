@@ -13,6 +13,8 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { DEBOUNCE_WAIT_MS } from "@/utils/debounceConstants";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 import type { SearchSelectOption } from "./SearchSelect";
 
@@ -49,16 +51,20 @@ export function PaginatedSearchSelect({
   hasNextPage = false,
   isLoading = false,
   isFetchingNextPage = false,
-  placeholder = "Search…",
-  emptyText = "No results",
+  placeholder,
+  emptyText,
   errorText,
-  loadingText = "Loading…",
+  loadingText,
   disabled = false,
   className,
   inputId,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: PaginatedSearchSelectProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? "Search…";
+  const resolvedEmptyText = emptyText ?? "No results";
+  const resolvedLoadingText = loadingText ?? "Loading…";
   const selected = useMemo<SearchSelectOption | null>(() => {
     if (value === undefined || value === "") return null;
     return options.find((option) => option.value === value) ?? { label: value, value };
@@ -101,13 +107,13 @@ export function PaginatedSearchSelect({
         id={inputId}
         aria-invalid={ariaInvalid}
         aria-describedby={ariaDescribedBy}
-        placeholder={placeholder}
+        placeholder={translateUiText(t, resolvedPlaceholder)}
         showClear={value !== undefined && value !== ""}
         className={`w-full ${className ?? ""}`}
       />
       <ComboboxContent>
         <ComboboxEmpty className={errorText == null ? undefined : "text-destructive"}>
-          {errorText ?? (isLoading ? loadingText : emptyText)}
+          {errorText ?? translateUiText(t, isLoading ? resolvedLoadingText : resolvedEmptyText)}
         </ComboboxEmpty>
         <ComboboxList onScroll={handleScroll} data-testid="paginated-search-select-list">
           {(item: SearchSelectOption) => (

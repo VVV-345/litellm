@@ -8,6 +8,8 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 export interface SearchSelectOption {
   label: string;
@@ -37,12 +39,15 @@ export function SearchSelect({
   options,
   value,
   onValueChange,
-  placeholder = "Select…",
-  emptyText = "No results",
+  placeholder,
+  emptyText,
   disabled = false,
   className,
   inputId,
 }: SearchSelectProps) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? "Select…";
+  const resolvedEmptyText = emptyText ?? "No results";
   const selected =
     value === undefined || value === ""
       ? null
@@ -62,12 +67,12 @@ export function SearchSelect({
     >
       <ComboboxInput
         id={inputId}
-        placeholder={placeholder}
+        placeholder={translateUiText(t, resolvedPlaceholder)}
         showClear={value != null && value !== ""}
         className={`h-8 w-full text-sm ${className ?? ""}`}
       />
       <ComboboxContent side="bottom" collisionAvoidance={{ side: "shift", align: "shift", fallbackAxisSide: "none" }}>
-        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxEmpty>{translateUiText(t, resolvedEmptyText)}</ComboboxEmpty>
         <ComboboxList>
           {(item: SearchSelectOption) => (
             <ComboboxItem key={item.value} value={item}>
