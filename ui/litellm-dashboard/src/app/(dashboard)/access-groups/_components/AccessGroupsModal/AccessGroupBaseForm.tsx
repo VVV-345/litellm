@@ -4,6 +4,7 @@ import { ModelSelect } from "@/components/ModelSelect/ModelSelect";
 import type { FormInstance } from "antd";
 import { Form, Input, Select, Space, Tabs } from "antd";
 import { BotIcon, InfoIcon, LayersIcon, ServerIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const { TextArea } = Input;
 
@@ -21,6 +22,7 @@ interface AccessGroupBaseFormProps {
 }
 
 export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGroupBaseFormProps) {
+  const { t } = useTranslation();
   const { data: agentsData } = useAgents();
   const { data: mcpServersData } = useMCPServers();
 
@@ -32,25 +34,25 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
       label: (
         <Space align="center" size={4}>
           <InfoIcon size={16} />
-          General Info
+          {t("ui.General Info")}
         </Space>
       ),
       children: (
         <div style={{ paddingTop: 16 }}>
           <Form.Item
             name="name"
-            label="Group Name"
+            label={t("ui.Group Name")}
             rules={[
               {
                 required: true,
-                message: "Please enter the access group name",
+                message: t("ui.Please enter the access group name"),
               },
             ]}
           >
-            <Input placeholder="e.g. Engineering Team" disabled={isNameDisabled} />
+            <Input placeholder={t("ui.e.g. Engineering Team")} disabled={isNameDisabled} />
           </Form.Item>
-          <Form.Item name="description" label="Description">
-            <TextArea rows={4} placeholder="Describe the purpose of this access group..." />
+          <Form.Item name="description" label={t("ui.Description")}>
+            <TextArea rows={4} placeholder={t("ui.Describe the purpose of this access group...")} />
           </Form.Item>
         </div>
       ),
@@ -60,12 +62,12 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
       label: (
         <Space align="center" size={4}>
           <LayersIcon size={16} />
-          Models
+          {t("ui.Models")}
         </Space>
       ),
       children: (
         <div style={{ paddingTop: 16 }}>
-          <Form.Item name="modelIds" label="Allowed Models">
+          <Form.Item name="modelIds" label={t("ui.Allowed Models")}>
             <ModelSelect
               context="global"
               value={form.getFieldValue("modelIds") ?? []}
@@ -81,15 +83,15 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
       label: (
         <Space align="center" size={4}>
           <ServerIcon size={16} />
-          MCP Servers
+          {t("ui.MCP Servers")}
         </Space>
       ),
       children: (
         <div style={{ paddingTop: 16 }}>
-          <Form.Item name="mcpServerIds" label="Allowed MCP Servers">
+          <Form.Item name="mcpServerIds" label={t("ui.Allowed MCP Servers")}>
             <Select
               mode="multiple"
-              placeholder="Select MCP servers"
+              placeholder={t("ui.Select MCP servers")}
               style={{ width: "100%" }}
               optionFilterProp="label"
               allowClear
@@ -107,15 +109,15 @@ export function AccessGroupBaseForm({ form, isNameDisabled = false }: AccessGrou
       label: (
         <Space align="center" size={4}>
           <BotIcon size={16} />
-          Agents
+          {t("ui.Agents")}
         </Space>
       ),
       children: (
         <div style={{ paddingTop: 16 }}>
-          <Form.Item name="agentIds" label="Allowed Agents">
+          <Form.Item name="agentIds" label={t("ui.Allowed Agents")}>
             <Select
               mode="multiple"
-              placeholder="Select agents"
+              placeholder={t("ui.Select agents")}
               style={{ width: "100%" }}
               optionFilterProp="label"
               allowClear

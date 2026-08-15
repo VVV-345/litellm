@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Bot, Layers, MoreHorizontal, Server, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -27,11 +28,11 @@ const RESOURCE_TONES: Record<"models" | "mcpServers" | "agents", ResourceTone> =
   agents: { icon: Bot, className: "bg-purple-50 text-purple-700 ring-purple-600/20" },
 };
 
-function ResourcesCell({ group }: { group: AccessGroup }) {
+function ResourcesCell({ group, t }: { group: AccessGroup; t: TFunction }) {
   const items = [
-    { key: "models" as const, label: "Models", count: group.modelIds.length },
-    { key: "mcpServers" as const, label: "MCP Servers", count: group.mcpServerIds.length },
-    { key: "agents" as const, label: "Agents", count: group.agentIds.length },
+    { key: "models" as const, label: t("ui.Models"), count: group.modelIds.length },
+    { key: "mcpServers" as const, label: t("ui.MCP Servers"), count: group.mcpServerIds.length },
+    { key: "agents" as const, label: t("ui.Agents"), count: group.agentIds.length },
   ];
 
   return (
@@ -60,14 +61,16 @@ function ResourcesCell({ group }: { group: AccessGroup }) {
 function AccessGroupRowActions({
   group,
   onDeleteClick,
+  t,
 }: {
   group: AccessGroup;
   onDeleteClick: (group: AccessGroup) => void;
+  t: TFunction;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open access group actions"
+        aria-label={t("ui.Open access group actions")}
         data-testid={`access-group-actions-${group.id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -80,7 +83,7 @@ function AccessGroupRowActions({
           onClick={() => onDeleteClick(group)}
         >
           <Trash2 />
-          Delete access group
+          {t("ui.Delete access group")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -91,12 +94,14 @@ interface AccessGroupsTableColumnsDeps {
   canModify: boolean;
   onGroupClick: (id: string) => void;
   onDeleteClick: (group: AccessGroup) => void;
+  t: TFunction;
 }
 
 export const getAccessGroupsTableColumns = ({
   canModify,
   onGroupClick,
   onDeleteClick,
+  t,
 }: AccessGroupsTableColumnsDeps): ColumnDef<AccessGroup>[] => {
   const columns: ColumnDef<AccessGroup>[] = [
     {
@@ -136,7 +141,7 @@ export const getAccessGroupsTableColumns = ({
       header: "Resources",
       size: 220,
       enableSorting: false,
-      cell: ({ row }) => <ResourcesCell group={row.original} />,
+      cell: ({ row }) => <ResourcesCell group={row.original} t={t} />,
     },
     {
       id: "createdAt",
@@ -174,7 +179,7 @@ export const getAccessGroupsTableColumns = ({
       enableHiding: false,
       cell: ({ row }) => (
         <div className="flex justify-end">
-          <AccessGroupRowActions group={row.original} onDeleteClick={onDeleteClick} />
+          <AccessGroupRowActions group={row.original} onDeleteClick={onDeleteClick} t={t} />
         </div>
       ),
     },

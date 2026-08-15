@@ -2,6 +2,7 @@ import { AccessGroupResponse, useAccessGroups } from "@/app/(dashboard)/hooks/ac
 import { useDeleteAccessGroup } from "@/app/(dashboard)/hooks/accessGroups/useDeleteAccessGroup";
 import { Plus, SearchIcon, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import DeleteResourceModal from "@/components/common_components/DeleteResourceModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ function mapResponseToAccessGroup(r: AccessGroupResponse): AccessGroup {
 }
 
 export function AccessGroupsPage() {
+  const { t } = useTranslation();
   const { userRole } = useAuthorized();
   // Admin Viewer follows the read-parity rule: see access groups, no writes.
   const canModify = isProxyAdminRole(userRole ?? "");
@@ -62,13 +64,13 @@ export function AccessGroupsPage() {
     <div className="p-6 px-12">
       <div className="mb-4">
         <PageHeader
-          title="Access Groups"
-          subtitle="Manage resource permissions for your organization"
+          title={t("ui.Access Groups")}
+          subtitle={t("ui.Manage resource permissions for your organization")}
           actions={
             canModify ? (
               <Button onClick={() => setIsCreateModalVisible(true)}>
                 <Plus className="size-4" />
-                Create Access Group
+                {t("ui.Create Access Group")}
               </Button>
             ) : undefined
           }
@@ -81,13 +83,13 @@ export function AccessGroupsPage() {
             <SearchIcon className="size-4 text-muted-foreground" />
           </InputGroupAddon>
           <InputGroupInput
-            placeholder="Search groups by name, ID, or description..."
+            placeholder={t("ui.Search groups by name, ID, or description...")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
           {searchText && (
             <InputGroupAddon align="inline-end">
-              <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => setSearchText("")}>
+              <InputGroupButton size="icon-xs" aria-label={t("ui.Clear search")} onClick={() => setSearchText("")}>
                 <X />
               </InputGroupButton>
             </InputGroupAddon>
