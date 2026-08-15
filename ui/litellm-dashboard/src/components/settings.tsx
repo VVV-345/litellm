@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Controller, FormProvider, useForm, useFormContext } from "react-hook-form";
 
 import { Field, FieldError, FieldLabel } from "@/components/shared/form/field";
@@ -222,6 +223,7 @@ const buildCallbackPayload = (formValues: Record<string, any>, callbackName: str
 };
 
 const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, premiumUser }) => {
+  const { t } = useTranslation();
   const [callbacks, setCallbacks] = useState<AlertingObject[]>([]);
   const [isLoadingCallbacks, setIsLoadingCallbacks] = useState(true);
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -506,7 +508,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
               onTest={async (cb) => {
                 try {
                   await serviceHealthCheck(accessToken, cb.name);
-                  NotificationsManager.success("Health check triggered");
+                  NotificationsManager.success(t("ui.Health check triggered", { defaultValue: "Health check triggered" }));
                 } catch (error) {
                   NotificationsManager.fromBackend(parseErrorMessage(error));
                 }
@@ -521,7 +523,9 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
           <TabsContent value="alerting-types">
             <Card className="p-6">
               <p className="my-2">
-                Alerts are only supported for Slack Webhook URLs. Get your webhook urls from{" "}
+                {t("ui.Alerts are only supported for Slack Webhook URLs. Get your webhook urls from", {
+                  defaultValue: "Alerts are only supported for Slack Webhook URLs. Get your webhook urls from",
+                })}{" "}
                 <a href="https://api.slack.com/messaging/webhooks" target="_blank" style={{ color: "blue" }}>
                   here
                 </a>
@@ -531,7 +535,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                   <TableRow>
                     <TableHead></TableHead>
                     <TableHead></TableHead>
-                    <TableHead>Slack Webhook URL</TableHead>
+                    <TableHead>{t("ui.Slack Webhook URL", { defaultValue: "Slack Webhook URL" })}</TableHead>
                   </TableRow>
                 </TableHeader>
 
@@ -582,7 +586,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                 </TableBody>
               </Table>
               <Button size="xs" className="mt-2" onClick={handleSaveAlerts}>
-                Save Changes
+                {t("ui.Save Changes")}
               </Button>
 
               <Button
@@ -598,7 +602,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                 }}
                 className="mx-2"
               >
-                Test Alerts
+                {t("ui.Test Alerts", { defaultValue: "Test Alerts" })}
               </Button>
             </Card>
           </TabsContent>
@@ -614,7 +618,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <Dialog open={showAddCallbacksModal} onOpenChange={(open) => !open && closeAddCallbackModal()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>Add Logging Callback</DialogTitle>
+            <DialogTitle>{t("ui.Add Logging Callback")}</DialogTitle>
           </DialogHeader>
           <a
             href="https://docs.litellm.ai/docs/proxy/logging"
@@ -642,10 +646,10 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
               <div className="flex justify-end space-x-3 pt-6 mt-6 border-t border-gray-200">
                 <Button type="button" variant="outline" onClick={cancelAddCallback} disabled={isAddingCallback}>
-                  Cancel
+                  {t("ui.Cancel")}
                 </Button>
                 <Button type="submit" disabled={isAddingCallback}>
-                  {isAddingCallback ? "Adding..." : "Add Callback"}
+                  {isAddingCallback ? t("ui.Adding...") : t("ui.Add Callback")}
                 </Button>
               </div>
             </form>
@@ -656,7 +660,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <Dialog open={showEditCallback} onOpenChange={(open) => !open && closeEditCallbackModal()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>Edit Callback Settings</DialogTitle>
+            <DialogTitle>{t("ui.Edit Callback Settings")}</DialogTitle>
           </DialogHeader>
           <FormProvider {...editForm}>
             <form onSubmit={editForm.handleSubmit(updateCallbackCall)}>
@@ -683,10 +687,10 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
               <div className="flex justify-end space-x-3 pt-6 mt-6 border-t border-gray-200">
                 <Button type="button" variant="outline" onClick={closeEditCallbackModal} disabled={isUpdatingCallback}>
-                  Cancel
+                  {t("ui.Cancel")}
                 </Button>
                 <Button type="submit" disabled={isUpdatingCallback}>
-                  {isUpdatingCallback ? "Saving..." : "Save Changes"}
+                  {isUpdatingCallback ? t("ui.Saving...") : t("ui.Save Changes")}
                 </Button>
               </div>
             </form>
@@ -696,8 +700,8 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
 
       <DeleteResourceModal
         isOpen={showDeleteConfirmModal}
-        title="Delete Callback"
-        message="Are you sure you want to delete this callback? This action cannot be undone."
+        title={t("ui.Delete Callback")}
+        message={t("ui.Are you sure you want to delete this callback? This action cannot be undone.")}
         resourceInformationTitle="Callback Information"
         resourceInformation={[
           { label: "Callback Name", value: callbackToDelete?.name },
