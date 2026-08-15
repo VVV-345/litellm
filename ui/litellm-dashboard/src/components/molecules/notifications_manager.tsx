@@ -1,4 +1,5 @@
 import React from "react";
+import i18next from "@/i18n";
 import { notification as staticNotification } from "antd";
 import type { NotificationInstance } from "antd/es/notification/interface";
 import { parseErrorMessage } from "../shared/errorUtils";
@@ -24,6 +25,10 @@ type NotificationConfig = {
 };
 
 type NotificationConfigResolved = Omit<NotificationConfig, "message"> & { message: string | React.ReactNode };
+
+function translateTitle(title: string): string {
+  return i18next.t(`ui.${title}`, { defaultValue: title });
+}
 
 function defaultPlacement(): Placement {
   return "topRight";
@@ -260,7 +265,7 @@ function looksErrorPayload(input: any, status?: number): boolean {
 
 const NotificationManager = {
   error(input: string | NotificationConfig) {
-    const cfg = normalize(input, "Error");
+    const cfg = normalize(input, translateTitle("Error"));
     getNotification().error({
       ...COMMON_NOTIFICATION_PROPS,
       ...cfg,
@@ -270,7 +275,7 @@ const NotificationManager = {
   },
 
   warning(input: string | NotificationConfig) {
-    const cfg = normalize(input, "Warning");
+    const cfg = normalize(input, translateTitle("Warning"));
     getNotification().warning({
       ...COMMON_NOTIFICATION_PROPS,
       ...cfg,
@@ -280,7 +285,7 @@ const NotificationManager = {
   },
 
   info(input: string | NotificationConfig) {
-    const cfg = normalize(input, "Info");
+    const cfg = normalize(input, translateTitle("Info"));
     getNotification().info({
       ...COMMON_NOTIFICATION_PROPS,
       ...cfg,
@@ -293,14 +298,14 @@ const NotificationManager = {
     if (React.isValidElement(input)) {
       getNotification().success({
         ...COMMON_NOTIFICATION_PROPS,
-        message: "Success",
+        message: translateTitle("Success"),
         description: input,
         placement: defaultPlacement(),
         duration: 3.5,
       });
       return;
     }
-    const cfg = normalize(input as string | NotificationConfig, "Success");
+    const cfg = normalize(input as string | NotificationConfig, translateTitle("Success"));
     getNotification().success({
       ...COMMON_NOTIFICATION_PROPS,
       ...cfg,
@@ -316,7 +321,7 @@ const NotificationManager = {
 
     if (looksErrorPayload(input, status)) {
       const title = titleFor(status, description);
-      const payload = { ...base, message: title };
+      const payload = { ...base, message: translateTitle(title) };
 
       if (
         title === "Rate Limit Exceeded" ||
@@ -350,7 +355,7 @@ const NotificationManager = {
 
     // Non-error: success/info/warning classifier
     const cls = classifyGeneralMessage(description);
-    const payload = { ...base, message: cls?.title ?? "Info" };
+    const payload = { ...base, message: translateTitle(cls?.title ?? "Info") };
 
     if (cls?.kind === "success") {
       getNotification().success({ ...COMMON_NOTIFICATION_PROPS, ...payload, duration: extra?.duration ?? 3.5 });
