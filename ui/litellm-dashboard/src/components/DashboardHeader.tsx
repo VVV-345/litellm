@@ -71,7 +71,7 @@ export function DashboardHeader({ page }: DashboardHeaderProps) {
           render={<a href="https://docs.litellm.ai/docs/" target="_blank" rel="noopener noreferrer" />}
           className="text-muted-foreground"
         >
-          Docs
+          {t("common.docs")}
         </Button>
         <BlogDropdown />
         {!hideCommunityLinks && <CommunityEngagementButtons />}

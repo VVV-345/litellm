@@ -9,6 +9,7 @@ import { DeprecationBanner } from "@/components/DeprecationBanner";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { fetchProxySettings } from "@/utils/proxyUtils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTranslation } from "react-i18next";
 
 interface ProxySettings {
   PROXY_BASE_URL?: string;
@@ -16,6 +17,7 @@ interface ProxySettings {
 }
 
 export default function PlaygroundPage() {
+  const { t } = useTranslation();
   const { accessToken, userRole, userId, disabledPersonalKeyCreation, token, isViewOnly } = useAuthorized();
   const [proxySettings, setProxySettings] = useState<ProxySettings | undefined>(undefined);
 
@@ -38,9 +40,9 @@ export default function PlaygroundPage() {
   if (isViewOnly) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-8 text-center">
-        <h1 className="text-2xl font-semibold">Access Denied</h1>
+        <h1 className="text-2xl font-semibold">{t("common.accessDenied")}</h1>
         <p className="text-muted-foreground">
-          Your role does not have access to the Playground. Ask your proxy admin for access to test models.
+          {t("playground.accessDeniedDescription")}
         </p>
       </div>
     );
@@ -54,16 +56,16 @@ export default function PlaygroundPage() {
           className="mb-0 h-auto w-full shrink-0 justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0"
         >
           <TabsTrigger value="chat" className="flex-none rounded-none px-4 py-2">
-            Chat
+            {t("playground.chat")}
           </TabsTrigger>
           <TabsTrigger value="compare" className="flex-none rounded-none px-4 py-2">
-            Compare
+            {t("playground.compare")}
           </TabsTrigger>
           <TabsTrigger value="compliance" className="flex-none rounded-none px-4 py-2">
-            Compliance
+            {t("playground.compliance")}
           </TabsTrigger>
           <TabsTrigger value="agent-builder" className="flex-none rounded-none px-4 py-2">
-            Agent Builder (Experimental)
+            {t("playground.agentBuilder")}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="chat" className="mt-0 h-full min-h-0 min-w-0 overflow-hidden data-hidden:hidden">

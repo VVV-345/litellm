@@ -15,6 +15,16 @@ export function I18nProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const language = savedLanguage();
     if (language && language !== i18next.language) void i18next.changeLanguage(language);
+
+    const updateDocumentLanguage = (nextLanguage: string) => {
+      document.documentElement.lang = nextLanguage;
+    };
+    updateDocumentLanguage(i18next.language);
+    i18next.on("languageChanged", updateDocumentLanguage);
+
+    return () => {
+      i18next.off("languageChanged", updateDocumentLanguage);
+    };
   }, []);
 
   return <I18nextProvider i18n={i18next}>{children}</I18nextProvider>;

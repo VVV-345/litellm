@@ -4,6 +4,62 @@
     "english": "English",
     "chinese": "中文"
   },
+  "common": {
+    "loading": "Loading...",
+    "noData": "No data",
+    "selectOptions": "Select options",
+    "noOptionsFound": "No options found",
+    "createOption": "Create \"{{option}}\"",
+    "accessDenied": "Access Denied",
+    "close": "Close",
+    "docs": "Docs",
+    "adminOnly": "{{pageTitle}} is only available to admin users.",
+    "deprecationTitle": "{{featureName}} is on a draft deprecation list",
+    "deprecationDescription": "{{featureName}} is one of several experimental features we're considering removing, potentially as early as {{date}}. This list is a draft and is not final. If you rely on this feature, please share feedback on the",
+    "deprecationDiscussion": "deprecation discussion",
+    "licenseExpired": "Your LiteLLM Enterprise license expired on {{date}}",
+    "licenseExpires": "Your LiteLLM Enterprise license {{countdown}} ({{date}})",
+    "licenseExpiresToday": "expires today",
+    "licenseExpiresOneDay": "expires in 1 day",
+    "licenseExpiresDays": "expires in {{days}} days",
+    "licenseExpiredDescription": "Enterprise features are now disabled. Reach out to {{email}} to restore access",
+    "licenseCriticalDescription": "Renew now to avoid losing enterprise features. Reach out to {{email}}",
+    "licenseWarningDescription": "Renew before it lapses to keep enterprise features. Reach out to {{email}}"
+  },
+  "login": {
+    "adminUiDisabled": "Admin UI Disabled",
+    "adminUiDisabledDescription": "The Admin UI has been disabled by the administrator. To re-enable it, please update the following environment variable:",
+    "title": "Login",
+    "subtitle": "Access your LiteLLM Admin UI.",
+    "defaultCredentials": "Default Credentials",
+    "defaultCredentialsDescription": "By default, Username is admin and Password is your LiteLLM Proxy MASTER_KEY.",
+    "credentialsHelp": "Need to set UI credentials or SSO?",
+    "checkDocumentation": "Check the documentation",
+    "worker": "Worker",
+    "chooseWorker": "Choose a worker to connect to",
+    "username": "Username",
+    "enterUsername": "Enter your username",
+    "usernameRequired": "Please enter your username",
+    "password": "Password",
+    "enterPassword": "Enter your password",
+    "passwordRequired": "Please enter your password",
+    "loggingIn": "Logging in...",
+    "login": "Login",
+    "loginWithSso": "Login with SSO",
+    "configureSso": "Please configure SSO to log in with SSO.",
+    "ssoEnabled": "Single Sign-On (SSO) is enabled. LiteLLM no longer automatically redirects to the SSO login flow upon loading this page. To re-enable auto-redirect-to-SSO, set AUTO_REDIRECT_UI_LOGIN_TO_SSO=true in your environment configuration."
+  },
+  "playground": {
+    "accessDeniedDescription": "Your role does not have access to the Playground. Ask your proxy admin for access to test models.",
+    "chat": "Chat",
+    "compare": "Compare",
+    "compliance": "Compliance",
+    "agentBuilder": "Agent Builder (Experimental)"
+  },
+  "oauth": {
+    "complete": "Authorization complete. You may close this window and return to the LiteLLM dashboard.",
+    "closeManually": "If the window does not close automatically, everything is still saved. You can close it manually."
+  },
   "nav": {
     "groups": {
       "aiGateway": "AI Gateway",

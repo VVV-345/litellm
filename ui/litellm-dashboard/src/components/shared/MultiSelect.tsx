@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Combobox,
   ComboboxChip,
@@ -33,25 +34,25 @@ interface MultiSelectProps {
 
 const matchesQuery = (option: MultiSelectOption, query: string): boolean => {
   const normalizedQuery = query.trim().toLowerCase();
-  return (
-    !normalizedQuery ||
-    option.label.toLowerCase().includes(normalizedQuery) ||
-    option.value.toLowerCase().includes(normalizedQuery) ||
-    (option.description?.toLowerCase().includes(normalizedQuery) ?? false)
-  );
+  if (!normalizedQuery) return true;
+  const matchesLabel = option.label.toLowerCase().includes(normalizedQuery);
+  const matchesValue = option.value.toLowerCase().includes(normalizedQuery);
+  const matchesDescription = option.description?.toLowerCase().includes(normalizedQuery) ?? false;
+  return matchesLabel || matchesValue || matchesDescription;
 };
 
 export function MultiSelect({
   options,
   value = [],
   onValueChange,
-  placeholder = "Select options",
-  emptyText = "No options found",
+  placeholder,
+  emptyText,
   disabled = false,
   loading = false,
   allowCustomValues = false,
   className,
 }: MultiSelectProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const safeOptions = options.filter(
     (option): option is MultiSelectOption =>
@@ -70,8 +71,10 @@ export function MultiSelect({
   const customOptionExists = safeOptions.some((option) => option.value.toLowerCase() === customOption.toLowerCase());
   const items =
     allowCustomValues && customOption && !customOptionExists
-      ? [...safeOptions, { label: `Create "${customOption}"`, value: customOption }]
+      ? [...safeOptions, { label: t("common.createOption", { option: customOption }), value: customOption }]
       : safeOptions;
+  const resolvedPlaceholder = placeholder ?? t("common.selectOptions");
+  const resolvedEmptyText = emptyText ?? t("common.noOptionsFound");
 
   return (
     <Combobox
@@ -100,13 +103,13 @@ export function MultiSelect({
           }
         </ComboboxValue>
         <ComboboxChipsInput
-          placeholder={loading ? "Loading..." : placeholder}
+          placeholder={loading ? t("common.loading") : resolvedPlaceholder}
           className="h-5 min-w-24 flex-1 border-0 bg-transparent py-0 text-sm"
-          aria-label={placeholder}
+          aria-label={resolvedPlaceholder}
         />
       </ComboboxChips>
       <ComboboxContent>
-        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxEmpty>{resolvedEmptyText}</ComboboxEmpty>
         <ComboboxList>
           {(option: MultiSelectOption) => (
             <ComboboxItem key={option.value} value={option}>
