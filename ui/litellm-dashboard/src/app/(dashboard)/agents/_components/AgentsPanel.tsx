@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Info, Plus } from "lucide-react";
 import { getAgentsList, deleteAgentCall } from "@/components/networking";
 import AddAgentForm from "./add_agent_form";
@@ -31,6 +32,7 @@ interface AgentsResponse {
 }
 
 const AgentsPanel: React.FC<AgentsPanelProps> = ({ accessToken, userRole, teams }) => {
+  const { t, i18n } = useTranslation();
   const [agentsList, setAgentsList] = useState<Agent[]>([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,7 +122,7 @@ const AgentsPanel: React.FC<AgentsPanelProps> = ({ accessToken, userRole, teams 
     setIsDeleting(true);
     try {
       await deleteAgentCall(accessToken, agentToDelete.id);
-      NotificationsManager.success(`Agent "${agentToDelete.name}" deleted successfully`);
+      NotificationsManager.success(t("ui.Agent \"{{name}}\" deleted successfully", { name: agentToDelete.name }));
       await refetchAgents(healthCheckEnabled);
     } catch (error) {
       console.error("Error deleting agent:", error);
@@ -138,24 +140,22 @@ const AgentsPanel: React.FC<AgentsPanelProps> = ({ accessToken, userRole, teams 
   return (
     <div className="w-full mx-auto flex-auto overflow-y-auto m-8 p-2">
       <div className="flex flex-col gap-2 mb-4">
-        <h1 className="text-2xl font-bold">Agents</h1>
+        <h1 className="text-2xl font-bold">{t("ui.Agents")}</h1>
         <p className="text-sm text-muted-foreground">
-          List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents
-          public.
+          {t("ui.List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.")}
         </p>
         <Alert className="mb-3">
           <Info />
-          <AlertTitle>Why do agents need keys?</AlertTitle>
+          <AlertTitle>{t("ui.Why do agents need keys?")}</AlertTitle>
           <AlertDescription>
-            Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from
-            the Virtual Keys page.
+            {t("ui.Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.")}
           </AlertDescription>
         </Alert>
         {isAdmin && (
           <div className="mt-2 flex items-center gap-4">
             <Button onClick={handleAddAgent} disabled={!accessToken}>
               <Plus />
-              Add New Agent
+              {t("ui.Add New Agent")}
             </Button>
           </div>
         )}
@@ -198,15 +198,19 @@ const AgentsPanel: React.FC<AgentsPanelProps> = ({ accessToken, userRole, teams 
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Agent</AlertDialogTitle>
+              <AlertDialogTitle>{t("ui.Delete Agent")}</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete agent: {agentToDelete.name}? This action cannot be undone.
+                {i18n.language === "zh-CN"
+                  ? t("ui.Are you sure you want to delete agent: {{name}}? This action cannot be undone.", {
+                      name: agentToDelete.name,
+                    })
+                  : `Are you sure you want to delete agent: ${agentToDelete.name}? This action cannot be undone.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("ui.Cancel")}</AlertDialogCancel>
               <Button variant="destructive" onClick={handleDeleteConfirm} disabled={isDeleting}>
-                Delete
+                {t("ui.Delete")}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
