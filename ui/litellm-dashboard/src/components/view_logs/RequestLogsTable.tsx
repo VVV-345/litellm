@@ -3,6 +3,7 @@
 import type { ColumnFiltersState, OnChangeFn, PaginationState, SortingState } from "@tanstack/react-table";
 import { ScrollText } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable, DataTableFilterDrawer, DataTableToolbar } from "@/components/shared/DataTable";
 
@@ -35,16 +36,19 @@ interface RequestLogsTableProps {
 }
 
 function RequestLogsEmptyState({ filtered }: { filtered: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <ScrollText className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">{filtered ? "No matching requests" : "No requests yet"}</div>
+      <div className="text-sm font-medium text-foreground">
+        {filtered ? t("ui.No matching requests") : t("ui.No requests yet")}
+      </div>
       <div className="max-w-xs text-center text-sm text-muted-foreground">
         {filtered
-          ? "No requests match your filters for this time range."
-          : "Requests proxied through LiteLLM will appear here."}
+          ? t("ui.No requests match your filters for this time range.")
+          : t("ui.Requests proxied through LiteLLM will appear here.")}
       </div>
     </div>
   );
@@ -71,6 +75,7 @@ export function RequestLogsTable({
   logsWindow,
   toolbarChildren,
 }: RequestLogsTableProps) {
+  const { t } = useTranslation();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const columns = useMemo(() => {
@@ -96,7 +101,7 @@ export function RequestLogsTable({
       columnFilters={columnFilters}
       onColumnFiltersChange={onColumnFiltersChange}
       isLoading={isLoading}
-      loadingMessage="Loading request logs…"
+      loadingMessage={t("ui.Loading request logs…")}
       noDataMessage={<RequestLogsEmptyState filtered={isFiltered} />}
       size="compact"
       onRowClick={onRowClick}
@@ -106,7 +111,7 @@ export function RequestLogsTable({
             table={table}
             searchValue={searchValue}
             onSearchChange={onSearchChange}
-            searchPlaceholder="Search by Request ID"
+            searchPlaceholder={t("ui.Search by Request ID")}
             onRefresh={onRefresh}
             isRefreshing={isRefreshing}
             onOpenFilters={() => setFiltersOpen(true)}
@@ -119,8 +124,8 @@ export function RequestLogsTable({
             table={table}
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
-            title="Filters"
-            description="Narrow down request logs"
+            title={t("ui.Filters")}
+            description={t("ui.Narrow down request logs")}
           >
             {({ get, set }) => <RequestLogsFilters get={get} set={set} teams={teams} logsWindow={logsWindow} />}
           </DataTableFilterDrawer>

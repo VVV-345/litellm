@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-table";
 import { Users } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { UserInfo } from "@/components/networking";
 import {
@@ -57,13 +58,14 @@ const FILTER_LABELS: Record<string, string> = {
 };
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <Users className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No users found</div>
-      <div className="text-sm text-muted-foreground">Try adjusting your search or filters.</div>
+      <div className="text-sm font-medium text-foreground">{t("ui.No users found")}</div>
+      <div className="text-sm text-muted-foreground">{t("ui.Try adjusting your search or filters.")}</div>
     </div>
   );
 }
@@ -89,6 +91,7 @@ export function UsersTable({
   onDeleteUser,
   onResetPassword,
 }: UsersTableProps) {
+  const { t } = useTranslation();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const columns = useMemo(() => {
@@ -149,7 +152,7 @@ export function UsersTable({
       rowSelection={rowSelection}
       onRowSelectionChange={onRowSelectionChange}
       isLoading={isLoading}
-      loadingMessage="Loading users…"
+      loadingMessage={t("ui.Loading…", { defaultValue: "Loading users…" })}
       noDataMessage={<EmptyState />}
       size="compact"
       toolbar={(table) => (
@@ -158,7 +161,7 @@ export function UsersTable({
             table={table}
             searchValue={searchValue}
             onSearchChange={onSearchChange}
-            searchPlaceholder="Search by email…"
+            searchPlaceholder={t("ui.Search by email…")}
             onOpenFilters={() => setFiltersOpen(true)}
             filterLabels={FILTER_LABELS}
             formatFilterValue={formatFilterValue}
@@ -167,8 +170,8 @@ export function UsersTable({
             table={table}
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
-            title="Filters"
-            description="Narrow down your users"
+            title={t("ui.Filters")}
+            description={t("ui.Narrow down your users")}
           >
             {({ get, set }) => (
               <>
@@ -176,7 +179,7 @@ export function UsersTable({
                   <Input
                     value={(get("user_id") as string) ?? ""}
                     onChange={(event) => set("user_id", event.target.value)}
-                    placeholder="Enter user ID…"
+                    placeholder={t("ui.Enter user ID…")}
                     data-testid="users-filter-user-id"
                   />
                 </DataTableFilterField>
@@ -184,7 +187,7 @@ export function UsersTable({
                   <Input
                     value={(get("sso_user_id") as string) ?? ""}
                     onChange={(event) => set("sso_user_id", event.target.value)}
-                    placeholder="Enter SSO ID…"
+                    placeholder={t("ui.Enter SSO ID…")}
                     data-testid="users-filter-sso-id"
                   />
                 </DataTableFilterField>
@@ -193,8 +196,8 @@ export function UsersTable({
                     options={roleOptions}
                     value={(get("user_role") as string) || undefined}
                     onValueChange={(value) => set("user_role", value)}
-                    placeholder="Select a role…"
-                    emptyText="No roles found"
+                    placeholder={t("ui.Select a role…")}
+                    emptyText={t("ui.No roles found")}
                   />
                 </DataTableFilterField>
                 <DataTableFilterField label="Team">
@@ -202,8 +205,8 @@ export function UsersTable({
                     options={teamOptions}
                     value={(get("team") as string) || undefined}
                     onValueChange={(value) => set("team", value)}
-                    placeholder="Select a team…"
-                    emptyText="No teams found"
+                    placeholder={t("ui.Select a team…")}
+                    emptyText={t("ui.No teams found")}
                   />
                 </DataTableFilterField>
               </>

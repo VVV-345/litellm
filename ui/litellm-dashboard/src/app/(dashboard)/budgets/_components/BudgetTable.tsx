@@ -2,6 +2,7 @@
 
 import { Inbox, ShieldAlert } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import {
   BUDGET_DURATION_FILTER_OPTIONS,
@@ -81,22 +82,26 @@ const normalizeCreatedAt = (draft: CreatedAtFilterValue): CreatedAtFilterValue |
 };
 
 function EmptyState({ hasQuery }: { hasQuery: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <Inbox className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">{hasQuery ? "No matching budgets" : "No budgets yet"}</div>
+      <div className="text-sm font-medium text-foreground">
+        {hasQuery ? t("ui.No matching budgets") : t("ui.No budgets yet")}
+      </div>
       <div className="text-sm text-muted-foreground">
         {hasQuery
-          ? "No budget matches your search or filters."
-          : "Create a budget to set spend, TPM and RPM limits for customers."}
+          ? t("ui.No budget matches your search or filters.")
+          : t("ui.Create a budget to set spend, TPM and RPM limits for customers.")}
       </div>
     </div>
   );
 }
 
 function ErrorState({ error }: { error: Error }) {
+  const { t } = useTranslation();
   const forbidden = error instanceof ApiError && error.status === 403;
   return (
     <div className="flex flex-col items-center gap-1 py-6">
@@ -104,10 +109,10 @@ function ErrorState({ error }: { error: Error }) {
         <ShieldAlert className="size-5 text-muted-foreground" />
       </div>
       <div className="text-sm font-medium text-foreground">
-        {forbidden ? "You do not have access to budgets" : "Could not load budgets"}
+        {forbidden ? t("ui.You do not have access to budgets") : t("ui.Could not load budgets")}
       </div>
       <div className="text-sm text-muted-foreground">
-        {forbidden ? "Ask a proxy admin to grant you the admin viewer role." : error.message}
+        {forbidden ? t("ui.Ask a proxy admin to grant you the admin viewer role.") : error.message}
       </div>
     </div>
   );
@@ -210,6 +215,7 @@ function BudgetFilterFields({ get, set }: FilterDraft) {
 }
 
 const BudgetTable: React.FC<BudgetTableProps> = ({ list, canModify, onEditClick, onDeleteClick }) => {
+  const { t } = useTranslation();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const columns = useMemo(
@@ -239,7 +245,7 @@ const BudgetTable: React.FC<BudgetTableProps> = ({ list, canModify, onEditClick,
       columnFilters={list.columnFilters}
       onColumnFiltersChange={list.onColumnFiltersChange}
       isLoading={list.isLoading}
-      loadingMessage="Loading budgets…"
+      loadingMessage={t("ui.Loading budgets…")}
       noDataMessage={emptyMessage}
       size="compact"
       toolbar={(table) => (
@@ -248,7 +254,7 @@ const BudgetTable: React.FC<BudgetTableProps> = ({ list, canModify, onEditClick,
             table={table}
             searchValue={list.searchValue}
             onSearchChange={list.onSearchChange}
-            searchPlaceholder="Search by budget ID…"
+            searchPlaceholder={t("ui.Search by budget ID…")}
             onOpenFilters={() => setFiltersOpen(true)}
             onRefresh={list.refetch}
             isRefreshing={list.isFetching}
@@ -259,8 +265,8 @@ const BudgetTable: React.FC<BudgetTableProps> = ({ list, canModify, onEditClick,
             table={table}
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
-            title="Filters"
-            description="Narrow down your budgets"
+            title={t("ui.Filters")}
+            description={t("ui.Narrow down your budgets")}
           >
             {(draft) => <BudgetFilterFields {...draft} />}
           </DataTableFilterDrawer>
