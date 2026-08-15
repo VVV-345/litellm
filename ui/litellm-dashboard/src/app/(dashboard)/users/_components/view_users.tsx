@@ -1,5 +1,6 @@
 import { parseAsString, useQueryState } from "nuqs";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import BulkEditUserModal from "./BulkEditUsers";
 import { CreateUserButton } from "@/components/CreateUserButton";
@@ -60,6 +61,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
   teams,
   orgAdminOrgIds,
 }) => {
+  const { t } = useTranslation();
   const isProxyAdmin = userRole ? isProxyAdminRole(userRole) : false;
   const queryClient = useQueryClient();
 
@@ -380,7 +382,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
                   variant={selectionMode ? "default" : "outline"}
                   data-testid="toggle-user-selection"
                 >
-                  {selectionMode ? "Cancel Selection" : "Select Users"}
+                  {selectionMode ? t("usersPage.cancelSelection") : t("usersPage.selectUsers")}
                 </Button>
               )}
 
@@ -391,7 +393,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
                   disabled={selectedUsers.length === 0}
                   data-testid="bulk-edit-users"
                 >
-                  Bulk Edit ({selectedUsers.length} selected)
+                  {t("usersPage.bulkEdit", { count: selectedUsers.length })}
                 </Button>
               )}
             </>
@@ -403,10 +405,10 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
         <Tabs defaultValue="users" className="gap-0">
           <TabsList variant="line" className="mb-4">
             <TabsTrigger value="users" className="flex-none data-active:text-primary after:bg-primary">
-              Users
+              {t("usersPage.users")}
             </TabsTrigger>
             <TabsTrigger value="default-settings" className="flex-none data-active:text-primary after:bg-primary">
-              Default User Settings
+              {t("usersPage.defaultSettings")}
             </TabsTrigger>
           </TabsList>
 

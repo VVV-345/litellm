@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cva.config";
 import { rolesWithCapability } from "../utils/capabilities";
 import {
@@ -402,8 +403,6 @@ const prettify = (key: string): string =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 
-const labelText = (item: MenuItem): string => (typeof item.label === "string" ? item.label : prettify(item.key));
-
 // Breadcrumb ("Section" / "Page") for the top bar, derived from the same nav config.
 export const getBreadcrumb = (page: string): { section: string | null; title: string } => {
   for (const group of menuGroups) {
@@ -430,6 +429,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   disableVectorStoresForInternalUsers,
   allowVectorStoresForTeamAdmins,
 }) => {
+  const { t } = useTranslation();
   const { userId, accessToken, userRole, isViewOnly } = useAuthorized();
   const isOrgAdmin = useIsOrgAdmin();
   const { data: teams } = useTeams();
@@ -528,10 +528,43 @@ const Sidebar_: React.FC<SidebarProps> = ({
     setPage(item.page);
   };
 
+  const translatedLabel = (item: MenuItem) => t(item.key === "4" ? "nav.usage" : `nav.${item.key}`);
+
+  const renderLabel = (item: MenuItem) => {
+    const label = translatedLabel(item);
+    if (item.key === "cost-optimization" || item.key === "projects") {
+      return (
+        <span className="flex items-center gap-2">
+          {label} <BetaBadge />
+        </span>
+      );
+    }
+    if (item.key === "settings") {
+      return (
+        <span className="flex items-center gap-2">
+          {label} <NewBadge />
+        </span>
+      );
+    }
+    if (item.key === "admin-panel") {
+      return (
+        <span className="flex items-center gap-2">
+          {label}
+          <NewBadge dot>
+            <span />
+          </NewBadge>
+        </span>
+      );
+    }
+    return label;
+  };
+
   const renderLeaf = (item: MenuItem, isChild: boolean) => {
     const active = selectedKey === item.key;
     const size = isChild ? "sub" : "default";
-    const label = <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{item.label}</span>;
+    const label = (
+      <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{renderLabel(item)}</span>
+    );
 
     if (item.external_url) {
       return (
@@ -540,7 +573,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
           href={item.external_url}
           target="_blank"
           rel="noopener noreferrer"
-          title={collapsed ? labelText(item) : undefined}
+          title={collapsed ? translatedLabel(item) : undefined}
           data-active={active || undefined}
           className={cn(sidebarMenuButtonVariants({ isActive: active, size }))}
         >
@@ -557,7 +590,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
         key={item.key}
         href={href}
         onClick={(e) => handleLeafClick(e, item)}
-        title={collapsed ? labelText(item) : undefined}
+        title={collapsed ? translatedLabel(item) : undefined}
         data-active={active || undefined}
         className={cn(sidebarMenuButtonVariants({ isActive: active, size }))}
       >
@@ -580,10 +613,10 @@ const Sidebar_: React.FC<SidebarProps> = ({
         <SidebarMenuButton
           isActive={active}
           onClick={() => toggleGroup(item.key)}
-          title={collapsed ? labelText(item) : undefined}
+          title={collapsed ? translatedLabel(item) : undefined}
         >
           {item.icon}
-          <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{item.label}</span>
+          <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{renderLabel(item)}</span>
           <ChevronRight
             className={cn(
               "size-4 shrink-0 transition-transform group-data-[collapsed=true]/sidebar:hidden",
@@ -645,7 +678,14 @@ const Sidebar_: React.FC<SidebarProps> = ({
           {visibleGroups.map((group, gi) => (
             <SidebarGroup key={group.groupLabel}>
               {gi > 0 && <SidebarSeparator className="hidden group-data-[collapsed=true]/sidebar:block" />}
-              <SidebarGroupLabel>{group.groupLabel}</SidebarGroupLabel>
+              <SidebarGroupLabel>
+                {t(
+                  `nav.groups.${group.groupLabel
+                    .toLowerCase()
+                    .replace(/\s+(\w)/g, (_, letter) => letter.toUpperCase())
+                    .replace(/\s/g, "")}`,
+                )}
+              </SidebarGroupLabel>
               <SidebarMenu>{group.items.map((item) => renderItem(item))}</SidebarMenu>
             </SidebarGroup>
           ))}

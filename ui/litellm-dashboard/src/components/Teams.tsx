@@ -9,6 +9,7 @@ import { Accordion, AccordionBody, AccordionHeader, TextInput } from "@tremor/re
 import { Button, Form, Input, Layout, Modal, Select, Switch, Tabs, theme, Tooltip, Typography } from "antd";
 import { Plus, Users } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button as UIButton } from "@/components/ui/button";
@@ -92,6 +93,7 @@ const getAdminOrganizations = (
 
 // @deprecated
 const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser = false }) => {
+  const { t } = useTranslation();
   const { data: organizationsData } = useOrganizations();
   const organizations = organizationsData ?? null;
   const { data: teamMetadataSchemaFields = [], isLoading: isTeamMetadataSchemaLoading } = useTeamMetadataSchema();
@@ -410,7 +412,7 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
   const tabItems = [
     {
       key: "your-teams",
-      label: "Your Teams",
+      label: t("teamsPage.yourTeams"),
       children: (
         <>
           <TeamsTable
@@ -459,14 +461,14 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
     },
     {
       key: "available-teams",
-      label: "Available Teams",
+      label: t("teamsPage.availableTeams"),
       children: <AvailableTeamsPanel accessToken={accessToken} userID={userID} />,
     },
     ...(isProxyAdminRole(userRole || "")
       ? [
           {
             key: "default-settings",
-            label: "Default Team Settings",
+            label: t("teamsPage.defaultSettings"),
             children: <TeamSSOSettings accessToken={accessToken} userID={userID || ""} userRole={userRole || ""} />,
           },
         ]
@@ -498,8 +500,8 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
           <div className="mb-4">
             <PageHeader
               icon={<Users className="size-5" />}
-              title="Teams"
-              subtitle="Manage teams, members, and their access to models and budgets"
+              title={t("teamsPage.title")}
+              subtitle={t("teamsPage.subtitle")}
             />
           </div>
 
@@ -510,7 +512,7 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
                 <div className="flex items-center gap-4 pr-4">
                   <UIButton onClick={() => setIsTeamModalVisible(true)} data-testid="create-team-button">
                     <Plus className="size-4" />
-                    Create Team
+                    {t("teamsPage.createTeam")}
                   </UIButton>
                   <div className="h-6 w-px bg-gray-200" />
                 </div>
@@ -522,7 +524,7 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
 
       {canCreateOrManageTeams(userRole, userID, organizations) && (
         <Modal
-          title="Create Team"
+          title={t("teamsPage.createTeam")}
           open={isTeamModalVisible}
           width={1000}
           footer={null}
@@ -533,7 +535,7 @@ const Teams: React.FC<TeamProps> = ({ accessToken, userID, userRole, premiumUser
           <Form form={form} onFinish={handleCreate} labelCol={{ span: 8 }} wrapperCol={{ span: 16 }} labelAlign="left">
             <>
               <Form.Item
-                label="Team Name"
+                label={t("teamsPage.teamName")}
                 name="team_alias"
                 rules={[
                   {
