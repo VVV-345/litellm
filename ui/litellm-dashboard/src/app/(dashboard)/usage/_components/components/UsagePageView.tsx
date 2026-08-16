@@ -774,12 +774,12 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                                   <div className="bg-white p-4 shadow-lg rounded-lg border">
                                     <p className="font-bold">{data.date}</p>
                                     <p className="text-cyan-500">
-                                      Spend: ${formatNumberWithCommas(data.metrics.spend, 2)}
+                                      {ui("Spend")}: ${formatNumberWithCommas(data.metrics.spend, 2)}
                                     </p>
-                                    <p className="text-gray-600">Requests: {data.metrics.api_requests}</p>
-                                    <p className="text-gray-600">Successful: {data.metrics.successful_requests}</p>
-                                    <p className="text-gray-600">Failed: {data.metrics.failed_requests}</p>
-                                    <p className="text-gray-600">Tokens: {data.metrics.total_tokens}</p>
+                                    <p className="text-gray-600">{ui("Requests")}: {data.metrics.api_requests}</p>
+                                    <p className="text-gray-600">{ui("Successful")}: {data.metrics.successful_requests}</p>
+                                    <p className="text-gray-600">{ui("Failed")}: {data.metrics.failed_requests}</p>
+                                    <p className="text-gray-600">{ui("Tokens")}: {data.metrics.total_tokens}</p>
                                   </div>
                                 );
                               }}
@@ -794,14 +794,15 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                         <ShadcnCard data-testid="gateway-requests-by-endpoint">
                           <CardHeader>
                             <CardTitle className="text-base font-semibold">
-                              Gateway Requests by Endpoint
+                              {ui("Gateway Requests by Endpoint")}
                               <Tooltip>
                                 <TooltipTrigger
                                   render={<Info className="ml-2 inline size-4 text-gray-400 hover:text-gray-600" />}
                                 />
                                 <TooltipContent>
-                                  Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A
-                                  endpoints across the whole deployment.
+                                  {ui(
+                                    "Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.",
+                                  )}
                                 </TooltipContent>
                               </Tooltip>
                             </CardTitle>
@@ -882,18 +883,18 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                                         <div className="bg-white p-4 shadow-lg rounded-lg border">
                                           <p className="font-bold">{data.key}</p>
                                           <p className="text-cyan-500">
-                                            Spend: ${formatNumberWithCommas(data.spend, 2)}
+                                            {ui("Spend")}: ${formatNumberWithCommas(data.spend, 2)}
                                           </p>
                                           <p className="text-gray-600">
-                                            Total Requests: {data.requests.toLocaleString()}
+                                            {ui("Total Requests")}: {data.requests.toLocaleString()}
                                           </p>
                                           <p className="text-green-600">
-                                            Successful: {data.successful_requests.toLocaleString()}
+                                            {ui("Successful")}: {data.successful_requests.toLocaleString()}
                                           </p>
                                           <p className="text-red-600">
-                                            Failed: {data.failed_requests.toLocaleString()}
+                                            {ui("Failed")}: {data.failed_requests.toLocaleString()}
                                           </p>
-                                          <p className="text-gray-600">Tokens: {data.tokens.toLocaleString()}</p>
+                                          <p className="text-gray-600">{ui("Tokens")}: {data.tokens.toLocaleString()}</p>
                                         </div>
                                       );
                                     }}

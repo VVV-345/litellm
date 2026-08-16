@@ -200,7 +200,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
           value={row.original.action}
           onValueChange={(value: string | null) => value && onCategoryUpdate(row.original.id, "action", value)}
         >
-          <SelectTrigger size="sm" className="w-full" aria-label="Action">
+          <SelectTrigger size="sm" className="w-full" aria-label={ui("Action")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
@@ -214,7 +214,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
       ),
     },
     {
-      header: "Severity Threshold",
+      header: ui("Severity Threshold"),
       accessorKey: "severity_threshold",
       size: 180,
       cell: ({ row }) => (
@@ -225,7 +225,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
             value && onCategoryUpdate(row.original.id, "severity_threshold", value)
           }
         >
-          <SelectTrigger size="sm" className="w-full" aria-label="Severity Threshold">
+          <SelectTrigger size="sm" className="w-full" aria-label={ui("Severity Threshold")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
