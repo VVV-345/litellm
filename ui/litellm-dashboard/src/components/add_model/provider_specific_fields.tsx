@@ -3,8 +3,10 @@ import { UploadOutlined } from "@ant-design/icons";
 import { Text, TextInput } from "@tremor/react";
 import { Button as Button2, Col, Form, Input, Row, Select, Typography, Upload, UploadProps } from "antd";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { CredentialItem, ProviderCredentialFieldMetadata } from "../networking";
 import { provider_map, Providers } from "../provider_info_helpers";
+import { translateUiText } from "@/utils/i18nText";
 const { Link } = Typography;
 
 interface ProviderSpecificFieldsProps {
@@ -99,6 +101,8 @@ export const createCredentialFromModel = (provider: string, modelData: any): Cre
 };
 
 const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selectedProvider, uploadProps }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const selectedProviderEnum = Providers[selectedProvider as keyof typeof Providers] as Providers;
   const form = Form.useFormInstance(); // Get form instance from context
 
@@ -221,7 +225,7 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
       {isLoading && allFields.length === 0 && (
         <Row>
           <Col span={24}>
-            <Text className="mb-2">Loading provider fields...</Text>
+            <Text className="mb-2">{ui("Loading provider fields...")}</Text>
           </Col>
         </Row>
       )}
@@ -229,7 +233,7 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
         <Row>
           <Col span={24}>
             <Text className="mb-2 text-red-500">
-              {loadError instanceof Error ? loadError.message : "Failed to load provider credential fields"}
+              {loadError instanceof Error ? loadError.message : ui("Failed to load provider credential fields")}
             </Text>
           </Col>
         </Row>
@@ -239,7 +243,7 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
           <Form.Item
             label={field.label}
             name={field.key}
-            rules={field.required ? [{ required: true, message: "Required" }] : undefined}
+            rules={field.required ? [{ required: true, message: ui("Required") }] : undefined}
             tooltip={field.tooltip}
             className={field.key === "vertex_credentials" ? "mb-0" : undefined}
           >
@@ -260,7 +264,7 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
                   }
                 }}
               >
-                <Button2 icon={<UploadOutlined />}>Click to Upload</Button2>
+                <Button2 icon={<UploadOutlined />}>{ui("Click to Upload")}</Button2>
               </Upload>
             ) : field.type === "textarea" ? (
               <Input.TextArea
@@ -283,7 +287,7 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
           {field.key === "vertex_credentials" && (
             <Row>
               <Col>
-                <Text className="mb-3 mt-1">Give a gcp service account(.json file)</Text>
+                <Text className="mb-3 mt-1">{ui("Give a gcp service account(.json file)")}</Text>
               </Col>
             </Row>
           )}
@@ -294,12 +298,12 @@ const ProviderSpecificFields: React.FC<ProviderSpecificFieldsProps> = ({ selecte
               <Col span={10}></Col>
               <Col span={10}>
                 <Text className="mb-2">
-                  The actual model your azure deployment uses. Used for accurate cost tracking. Select name from{" "}
+                  {ui("The actual model your azure deployment uses. Used for accurate cost tracking. Select name from")} {" "}
                   <Link
                     href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
                     target="_blank"
                   >
-                    here
+                    {ui("here")}
                   </Link>
                 </Text>
               </Col>
