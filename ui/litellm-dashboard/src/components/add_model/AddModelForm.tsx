@@ -8,6 +8,7 @@ import type { FormInstance } from "antd";
 import { Select as AntdSelect, Button, Card, Col, Form, Modal, Row, Tooltip, Typography, Alert } from "antd";
 import type { UploadProps } from "antd/es/upload";
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import TeamDropdown from "../common_components/team_dropdown";
 import type { Team } from "../key_team_helpers/key_list";
 import { type CredentialItem, type ProviderCreateInfo, modelAvailableCall } from "../networking";
@@ -20,6 +21,7 @@ import ConnectionErrorDisplay from "./model_connection_test";
 import ProviderSpecificFields from "./provider_specific_fields";
 import { TEST_MODES } from "./add_model_modes";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import { translateUiText } from "@/utils/i18nText";
 
 interface AddModelFormProps {
   form: FormInstance; // For the Add Model tab
@@ -52,6 +54,8 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
   teams,
   credentials,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const [testMode, setTestMode] = useState<string>("chat");
   const [isResultModalVisible, setIsResultModalVisible] = useState<boolean>(false);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
@@ -109,7 +113,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
 
   return (
     <>
-      <Title level={2}>Add Model</Title>
+      <Title level={2}>{ui("Add Model")}</Title>
 
       <Card>
         <Form
@@ -128,10 +132,10 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
             {requiresTeamScope && (
               <>
                 <Form.Item
-                  label="Select Team"
+                  label={ui("Select Team")}
                   name="team_id"
-                  rules={[{ required: true, message: "Please select a team to continue" }]}
-                  tooltip="Select the team for which you want to add this model"
+                  rules={[{ required: true, message: ui("Please select a team to continue") }]}
+                  tooltip={ui("Select the team for which you want to add this model")}
                 >
                   <TeamDropdown
                     onChange={(value) => {
@@ -141,8 +145,8 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 </Form.Item>
                 {!teamAdminSelectedTeam && (
                   <Alert
-                    message="Team Selection Required"
-                    description="As a team admin, you need to select your team first before adding models."
+                    message={ui("Team Selection Required")}
+                    description={ui("As a team admin, you need to select your team first before adding models.")}
                     type="info"
                     showIcon
                     className="mb-4"
@@ -153,10 +157,10 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
             {(isAdmin || (isTeamAdmin && teamAdminSelectedTeam)) && (
               <>
                 <Form.Item
-                  rules={[{ required: true, message: "Required" }]}
-                  label="Provider:"
+                  rules={[{ required: true, message: ui("Required") }]}
+                  label={ui("Provider:")}
                   name="custom_llm_provider"
-                  tooltip="E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc."
+                  tooltip={ui("E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.")}
                   labelCol={{ span: 10 }}
                   labelAlign="left"
                 >
@@ -164,7 +168,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                     virtual={false}
                     showSearch
                     loading={isProviderMetadataLoading}
-                    placeholder={isProviderMetadataLoading ? "Loading providers..." : "Select a provider"}
+                    placeholder={ui(isProviderMetadataLoading ? "Loading providers..." : "Select a provider")}
                     optionFilterProp="data-label"
                     onChange={(value) => {
                       setSelectedProvider(value as Providers);
@@ -208,7 +212,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 <ConditionalPublicModelName />
 
                 {/* Select Mode */}
-                <Form.Item label="Mode" name="mode" className="mb-1">
+                <Form.Item label={ui("Mode")} name="mode" className="mb-1">
                   <AntdSelect
                     style={{ width: "100%" }}
                     value={testMode}
@@ -220,9 +224,9 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                   <Col span={10}></Col>
                   <Col span={10}>
                     <Text className="mb-5 mt-1">
-                      <strong>Optional</strong> - LiteLLM endpoint to use when health checking this model{" "}
+                      <strong>{ui("Optional")}</strong> - {ui("LiteLLM endpoint to use when health checking this model")}{" "}
                       <Link href="https://docs.litellm.ai/docs/proxy/health#health" target="_blank">
-                        Learn more
+                        {ui("Learn more")}
                       </Link>
                     </Text>
                   </Col>
@@ -231,18 +235,18 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 {/* Credentials */}
                 <div className="mb-4">
                   <Typography.Text className="text-sm text-gray-500 mb-2">
-                    Either select existing credentials OR enter new provider credentials below
+                    {ui("Either select existing credentials OR enter new provider credentials below")}
                   </Typography.Text>
                 </div>
 
-                <Form.Item label="Existing Credentials" name="litellm_credential_name" initialValue={null}>
+                <Form.Item label={ui("Existing Credentials")} name="litellm_credential_name" initialValue={null}>
                   <AntdSelect
                     showSearch
-                    placeholder="Select or search for existing credentials"
+                    placeholder={ui("Select or search for existing credentials")}
                     optionFilterProp="children"
                     filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                     options={[
-                      { value: null, label: "None" },
+                      { value: null, label: ui("None") },
                       ...credentials.map((credential) => ({
                         value: credential.credential_name,
                         label: credential.credential_name,
@@ -267,7 +271,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                         <>
                           <div className="flex items-center my-4">
                             <div className="grow border-t border-gray-200"></div>
-                            <span className="px-4 text-gray-500 text-sm">OR</span>
+                            <span className="px-4 text-gray-500 text-sm">{ui("OR")}</span>
                             <div className="grow border-t border-gray-200"></div>
                           </div>
                           <ProviderSpecificFields selectedProvider={selectedProvider} uploadProps={uploadProps} />
@@ -279,20 +283,20 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 </Form.Item>
                 <div className="flex items-center my-4">
                   <div className="grow border-t border-gray-200"></div>
-                  <span className="px-4 text-gray-500 text-sm">Additional Model Info Settings</span>
+                  <span className="px-4 text-gray-500 text-sm">{ui("Additional Model Info Settings")}</span>
                   <div className="grow border-t border-gray-200"></div>
                 </div>
                 {/* Team-only Model Switch - Only show for proxy admins, not team admins */}
                 {(isAdmin || !isTeamAdmin) && (
                   <Form.Item
-                    label="Team-BYOK Model"
-                    tooltip="Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys."
+                    label={ui("Team-BYOK Model")}
+                    tooltip={ui("Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.")}
                     className="mb-4"
                   >
                     <Tooltip
                       title={
                         !premiumUser
-                          ? "This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team."
+                          ? ui("This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.")
                           : ""
                       }
                       placement="top"
@@ -314,14 +318,14 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 {/* Conditional Team Selection */}
                 {isTeamOnly && !requiresTeamScope && (
                   <Form.Item
-                    label="Select Team"
+                    label={ui("Select Team")}
                     name="team_id"
                     className="mb-4"
-                    tooltip="Only keys for this team will be able to call this model."
+                    tooltip={ui("Only keys for this team will be able to call this model.")}
                     rules={[
                       {
                         required: isTeamOnly && !isAdmin,
-                        message: "Please select a team.",
+                        message: ui("Please select a team."),
                       },
                     ]}
                   >
@@ -331,15 +335,15 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                 {isAdmin && (
                   <>
                     <Form.Item
-                      label="Model Access Group"
+                      label={ui("Model Access Group")}
                       name="model_access_group"
                       className="mb-4"
-                      tooltip="Use model access groups to give users access to select models, and add new ones to the group over time."
+                      tooltip={ui("Use model access groups to give users access to select models, and add new ones to the group over time.")}
                     >
                       <AntdSelect
                         mode="tags"
                         showSearch
-                        placeholder="Select existing groups or type to create new ones"
+                        placeholder={ui("Select existing groups or type to create new ones")}
                         optionFilterProp="children"
                         tokenSeparators={[","]}
                         options={modelAccessGroups.map((group) => ({
@@ -363,15 +367,15 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
               </>
             )}
             <div className="flex justify-between items-center mb-4">
-              <Tooltip title="Get help on our github">
-                <Typography.Link href="https://github.com/BerriAI/litellm/issues">Need Help?</Typography.Link>
+              <Tooltip title={ui("Get help on our github")}>
+                <Typography.Link href="https://github.com/BerriAI/litellm/issues">{ui("Need Help?")}</Typography.Link>
               </Tooltip>
               <div className="space-x-2">
                 <Button data-testid="test-connect-btn" onClick={handleTestConnection} loading={isTestingConnection}>
-                  Test Connect
+                  {ui("Test Connect")}
                 </Button>
                 <Button data-testid="add-model-btn" htmlType="submit">
-                  Add Model
+                  {ui("Add Model")}
                 </Button>
               </div>
             </div>
@@ -381,7 +385,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
 
       {/* Test Connection Results Modal */}
       <Modal
-        title="Connection Test Results"
+        title={ui("Connection Test Results")}
         open={isResultModalVisible}
         onCancel={() => {
           setIsResultModalVisible(false);
@@ -395,7 +399,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
               setIsTestingConnection(false);
             }}
           >
-            Close
+            {ui("Close")}
           </Button>,
         ]}
         width={700}
