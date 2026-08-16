@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Plus, Upload } from "lucide-react";
 import { validateBlockedWordsFile } from "@/components/networking";
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -12,6 +13,7 @@ import PatternTable from "./PatternTable";
 import KeywordTable from "./KeywordTable";
 import ContentCategoryConfiguration from "./ContentCategoryConfiguration";
 import CompetitorIntentConfiguration, { CompetitorIntentConfig } from "./CompetitorIntentConfiguration";
+import { translateUiText } from "@/utils/i18nText";
 
 interface PrebuiltPattern {
   name: string;
@@ -102,6 +104,8 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
   competitorIntentConfig = null,
   onCompetitorIntentChange,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const [patternModalVisible, setPatternModalVisible] = useState(false);
   const [keywordModalVisible, setKeywordModalVisible] = useState(false);
   const [customPatternModalVisible, setCustomPatternModalVisible] = useState(false);
@@ -230,9 +234,9 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>Pattern Detection</CardTitle>
+            <CardTitle>{ui("Pattern Detection")}</CardTitle>
               <p className="text-sm font-normal text-muted-foreground">
-                Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)
+                {ui("Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)")}
               </p>
             </div>
           </CardHeader>
@@ -240,11 +244,11 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
             <div className="mb-4 flex flex-wrap gap-2">
               <Button onClick={() => setPatternModalVisible(true)}>
                 <Plus />
-                Add prebuilt pattern
+                {ui("Add prebuilt pattern")}
               </Button>
               <Button variant="outline" onClick={() => setCustomPatternModalVisible(true)}>
                 <Plus />
-                Add custom regex
+                {ui("Add custom regex")}
               </Button>
             </div>
             <PatternTable
@@ -260,9 +264,9 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle>Blocked Keywords</CardTitle>
+            <CardTitle>{ui("Blocked Keywords")}</CardTitle>
               <p className="text-sm font-normal text-muted-foreground">
-                Block or mask specific sensitive terms and phrases
+                {ui("Block or mask specific sensitive terms and phrases")}
               </p>
             </div>
           </CardHeader>
@@ -270,7 +274,7 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
             <div className="mb-4 flex flex-wrap gap-2">
               <Button onClick={() => setKeywordModalVisible(true)}>
                 <Plus />
-                Add keyword
+                {ui("Add keyword")}
               </Button>
               <input
                 ref={fileInputRef}
@@ -286,7 +290,7 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
                 onClick={() => fileInputRef.current?.click()}
               >
                 {uploadValidating ? <UiLoadingSpinner className="size-4" /> : <Upload />}
-                Upload YAML file
+                {ui("Upload YAML file")}
               </Button>
             </div>
             <KeywordTable keywords={blockedWords} onActionChange={onBlockedWordUpdate} onRemove={onBlockedWordRemove} />

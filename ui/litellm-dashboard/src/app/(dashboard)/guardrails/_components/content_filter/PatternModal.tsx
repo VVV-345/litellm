@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -15,6 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ACTION_ITEMS } from "./action_options";
 import { ABOVE_ANTD_MODAL } from "./dialog_layering";
+import { translateUiText } from "@/utils/i18nText";
 
 interface PrebuiltPattern {
   name: string;
@@ -56,6 +58,8 @@ const PatternModal: React.FC<PatternModalProps> = ({
   onAdd,
   onCancel,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const selectedPattern = prebuiltPatterns.find((pattern) => pattern.name === selectedPatternName) ?? null;
   const patternGroups = categories
     .map((category) => ({
@@ -68,12 +72,12 @@ const PatternModal: React.FC<PatternModalProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className={`max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px] ${ABOVE_ANTD_MODAL}`}>
         <DialogHeader>
-          <DialogTitle>Add prebuilt pattern</DialogTitle>
+          <DialogTitle>{ui("Add prebuilt pattern")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
           <div>
-            <p className="font-semibold">Pattern type</p>
+            <p className="font-semibold">{ui("Pattern type")}</p>
             <Combobox
               items={patternGroups}
               value={selectedPattern}
@@ -81,9 +85,9 @@ const PatternModal: React.FC<PatternModalProps> = ({
               itemToStringLabel={(pattern: PrebuiltPattern) => pattern.display_name}
               filter={matchesPatternQuery}
             >
-              <ComboboxInput className="mt-2 w-full" placeholder="Choose pattern type" />
+              <ComboboxInput className="mt-2 w-full" placeholder={ui("Choose pattern type")} />
               <ComboboxContent>
-                <ComboboxEmpty>No matching patterns</ComboboxEmpty>
+                <ComboboxEmpty>{ui("No matching patterns")}</ComboboxEmpty>
                 <ComboboxList>
                   {(group: PatternGroup) => (
                     <ComboboxGroup key={group.category} items={group.items}>
@@ -103,16 +107,16 @@ const PatternModal: React.FC<PatternModalProps> = ({
           </div>
 
           <div>
-            <p className="font-semibold">Action</p>
+            <p className="font-semibold">{ui("Action")}</p>
             <p className="mt-1 mb-2 text-muted-foreground">
-              Choose what action the guardrail should take when this pattern is detected
+              {ui("Choose what action the guardrail should take when this pattern is detected")}
             </p>
             <Select
               items={ACTION_ITEMS}
               value={patternAction}
               onValueChange={(value: string | null) => value && onActionChange(value as "BLOCK" | "MASK")}
             >
-              <SelectTrigger className="w-full" aria-label="Action">
+              <SelectTrigger className="w-full" aria-label={ui("Action")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false}>
@@ -128,9 +132,9 @@ const PatternModal: React.FC<PatternModalProps> = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {ui("Cancel")}
           </Button>
-          <Button onClick={onAdd}>Add</Button>
+          <Button onClick={onAdd}>{ui("Add")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
