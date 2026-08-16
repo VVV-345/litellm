@@ -111,7 +111,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
           letterSpacing: "0.05em",
         }}
       >
-        Basic Information
+        {t("ui.Basic Information")}
       </Typography.Text>
       <Divider style={{ marginTop: 8, marginBottom: 16 }} />
 
@@ -119,17 +119,17 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
         <Col span={12}>
           <Form.Item
             name="project_alias"
-            label="Project Name"
-            rules={[{ required: true, message: "Please enter a project name" }]}
+            label={t("ui.Project Name")}
+            rules={[{ required: true, message: t("ui.Please enter a project name") }]}
           >
-            <Input placeholder="e.g. Customer Support Bot" />
+            <Input placeholder={t("ui.e.g. Customer Support Bot")} />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item name="team_id" label="Team" rules={[{ required: true, message: "Please select a team" }]}>
+          <Form.Item name="team_id" label={t("ui.Team")} rules={[{ required: true, message: t("ui.Please select a team") }]}>
             <Select
               showSearch
-              placeholder="Search or select a team"
+              placeholder={t("ui.Search or select a team")}
               onChange={handleTeamChange}
               allowClear
               optionLabelProp="label"
@@ -156,7 +156,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
       <Row>
         <Col span={24}>
           <Form.Item name="description" label={t("ui.Description")}>
-            <Input.TextArea placeholder="Describe the purpose of this project" rows={3} />
+            <Input.TextArea placeholder={t("ui.Describe the purpose of this project")} rows={3} />
           </Form.Item>
         </Col>
       </Row>
@@ -165,12 +165,12 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
         <Col span={24}>
           <Form.Item
             name="models"
-            label="Allowed Models (scoped to selected team's models)"
-            help={!selectedTeam ? "Select a team first to see available models" : undefined}
+            label={t("ui.Allowed Models (scoped to selected team's models)")}
+            help={!selectedTeam ? t("ui.Select a team first to see available models") : undefined}
           >
             <Select
               mode="multiple"
-              placeholder={selectedTeam ? "Select models" : "Select a team first"}
+              placeholder={selectedTeam ? t("ui.Select models") : t("ui.Select a team first")}
               disabled={!selectedTeam}
               allowClear
               maxTagCount="responsive"
@@ -181,7 +181,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
               }}
             >
               <Select.Option key="all-team-models" value="all-team-models">
-                All Team Models
+                {t("ui.All Team Models")}
               </Select.Option>
               {modelsToPick.map((model) => (
                 <Select.Option key={model} value={model}>
@@ -195,7 +195,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
 
       <Row gutter={24}>
         <Col span={12}>
-          <Form.Item name="max_budget" label="Max Budget (USD)">
+          <Form.Item name="max_budget" label={t("ui.Max Budget (USD)")}>
             <InputNumber prefix="$" style={{ width: "100%" }} placeholder="0.00" min={0} precision={2} />
           </Form.Item>
         </Col>
@@ -216,13 +216,13 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                 key: "1",
                 label: (
                   <Typography.Text strong style={{ color: "#374151" }}>
-                    Advanced Settings
+                    {t("ui.Advanced Settings")}
                   </Typography.Text>
                 ),
                 children: (
                   <>
                     <Flex align="center" gap={12}>
-                      <Typography.Text strong>Block Project</Typography.Text>
+                      <Typography.Text strong>{t("ui.Block Project")}</Typography.Text>
                       <Form.Item name="isBlocked" valuePropName="checked" noStyle>
                         <Switch />
                       </Form.Item>
@@ -234,7 +234,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                             banner
                             type="warning"
                             showIcon
-                            message="All API requests using keys under this project will be rejected."
+                            message={t("ui.All API requests using keys under this project will be rejected.")}
                             style={{ marginTop: 12 }}
                           />
                         ) : null
@@ -243,11 +243,11 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
 
                     <Divider />
 
-                    <Form.Item label="Guardrails" name="guardrails" help="Select existing guardrails or enter new ones">
+                    <Form.Item label={t("ui.Guardrails")} name="guardrails" help={t("ui.Select existing guardrails or enter new ones")}>
                       <Select
                         mode="tags"
                         style={{ width: "100%" }}
-                        placeholder="Select or enter guardrails"
+                        placeholder={t("ui.Select or enter guardrails")}
                         options={guardrailsList.map((name) => ({
                           value: name,
                           label: name,
@@ -258,7 +258,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                     <Divider />
 
                     <Typography.Text strong style={{ display: "block", marginBottom: 12 }}>
-                      Model-Specific Limits
+                      {t("ui.Model-Specific Limits")}
                     </Typography.Text>
                     <Form.List name="modelLimits">
                       {(fields, { add, remove }) => (
@@ -269,34 +269,34 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                                 {...restField}
                                 name={[name, "model"]}
                                 rules={[
-                                  { required: true, message: "Missing model" },
+                                  { required: true, message: t("ui.Missing model") },
                                   {
                                     validator: (_, value) => {
                                       if (!value) return Promise.resolve();
                                       const all = form.getFieldValue("modelLimits") ?? [];
                                       const dupes = all.filter((entry: { model?: string }) => entry?.model === value);
                                       if (dupes.length > 1) {
-                                        return Promise.reject(new Error("Duplicate model"));
+                                        return Promise.reject(new Error(t("ui.Duplicate model")));
                                       }
                                       return Promise.resolve();
                                     },
                                   },
                                 ]}
                               >
-                                <Input placeholder="Model name (e.g. gpt-4)" />
+                                <Input placeholder={t("ui.Model name (e.g. gpt-4)")} />
                               </Form.Item>
                               <Form.Item {...restField} name={[name, "tpm"]}>
-                                <InputNumber placeholder="TPM Limit" min={0} />
+                                <InputNumber placeholder={t("ui.TPM Limit")} min={0} />
                               </Form.Item>
                               <Form.Item {...restField} name={[name, "rpm"]}>
-                                <InputNumber placeholder="RPM Limit" min={0} />
+                                <InputNumber placeholder={t("ui.RPM Limit")} min={0} />
                               </Form.Item>
                               <MinusCircleOutlined onClick={() => remove(name)} style={{ color: "#ef4444" }} />
                             </Space>
                           ))}
                           <Form.Item>
                             <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                              Add Model Limit
+                              {t("ui.Add Model Limit")}
                             </Button>
                           </Form.Item>
                         </>
@@ -306,7 +306,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                     <Divider />
 
                     <Typography.Text strong style={{ display: "block", marginBottom: 12 }}>
-                      Metadata
+                      {t("ui.Metadata")}
                     </Typography.Text>
                     <Form.List name="metadata">
                       {(fields, { add, remove }) => (
@@ -317,35 +317,35 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
                                 {...restField}
                                 name={[name, "key"]}
                                 rules={[
-                                  { required: true, message: "Missing key" },
+                                  { required: true, message: t("ui.Missing key") },
                                   {
                                     validator: (_, value) => {
                                       if (!value) return Promise.resolve();
                                       const all = form.getFieldValue("metadata") ?? [];
                                       const dupes = all.filter((entry: { key?: string }) => entry?.key === value);
                                       if (dupes.length > 1) {
-                                        return Promise.reject(new Error("Duplicate key"));
+                                        return Promise.reject(new Error(t("ui.Duplicate key")));
                                       }
                                       return Promise.resolve();
                                     },
                                   },
                                 ]}
                               >
-                                <Input placeholder="Key" />
+                                <Input placeholder={t("ui.Key")} />
                               </Form.Item>
                               <Form.Item
                                 {...restField}
                                 name={[name, "value"]}
-                                rules={[{ required: true, message: "Missing value" }]}
+                                rules={[{ required: true, message: t("ui.Missing value") }]}
                               >
-                                <Input placeholder="Value" />
+                                <Input placeholder={t("ui.Value")} />
                               </Form.Item>
                               <MinusCircleOutlined onClick={() => remove(name)} style={{ color: "#ef4444" }} />
                             </Space>
                           ))}
                           <Form.Item>
                             <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
-                              Add Key-Value Pair
+                              {t("ui.Add Key-Value Pair")}
                             </Button>
                           </Form.Item>
                         </>

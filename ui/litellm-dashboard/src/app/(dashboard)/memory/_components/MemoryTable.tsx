@@ -34,12 +34,12 @@ function MemoryEmptyState({ hasActiveSearch }: { hasActiveSearch: boolean }) {
         <Database className="size-5 text-muted-foreground" />
       </div>
       <div className="text-sm font-medium text-foreground">
-        {hasActiveSearch ? "No matching memories" : t("ui.No memories stored yet")}
+        {hasActiveSearch ? t("ui.No matching memories") : t("ui.No memories stored yet")}
       </div>
       <div className="text-sm text-muted-foreground">
         {hasActiveSearch
-          ? "No memories have keys starting with your search."
-          : "Memories your agents store under /v1/memory will appear here."}
+          ? t("ui.No memories have keys starting with your search.")
+          : t("ui.Memories your agents store under /v1/memory will appear here.")}
       </div>
     </div>
   );
@@ -76,7 +76,7 @@ export function MemoryTable({
       onPaginationChange={onPaginationChange}
       rowCount={rowCount}
       isLoading={isLoading}
-      loadingMessage="Loading memories…"
+      loadingMessage={t("ui.Loading memories…")}
       noDataMessage={<MemoryEmptyState hasActiveSearch={hasActiveSearch} />}
       size="compact"
       toolbar={(table) => (
@@ -84,7 +84,7 @@ export function MemoryTable({
           table={table}
           searchValue={searchValue}
           onSearchChange={onSearchChange}
-          searchPlaceholder='Filter by key prefix, e.g. "user:"'
+          searchPlaceholder={t('ui.Filter by key prefix, e.g. "user:"')}
           onRefresh={onRefresh}
           isRefreshing={isRefreshing}
           showViewOptions={false}

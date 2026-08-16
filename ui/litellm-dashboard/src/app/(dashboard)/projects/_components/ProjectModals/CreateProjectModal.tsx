@@ -1,5 +1,6 @@
 import { Modal, Form, Button, Typography } from "antd";
 import { FolderAddOutlined } from "@ant-design/icons";
+import { useTranslation } from "react-i18next";
 import MessageManager from "@/components/molecules/message_manager";
 import { useCreateProject, ProjectCreateParams } from "@/app/(dashboard)/hooks/projects/useCreateProject";
 import { ProjectBaseForm, ProjectFormValues } from "./ProjectBaseForm";
@@ -11,6 +12,7 @@ interface CreateProjectModalProps {
 }
 
 export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps) {
+  const { t } = useTranslation();
   const [form] = Form.useForm<ProjectFormValues>();
   const createMutation = useCreateProject();
 
@@ -24,12 +26,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
 
       createMutation.mutate(params, {
         onSuccess: () => {
-          MessageManager.success("Project created successfully");
+          MessageManager.success(t("ui.Project created successfully"));
           form.resetFields();
           onClose();
         },
         onError: (error) => {
-          MessageManager.error(error.message || "Failed to create project");
+          MessageManager.error(error.message || t("ui.Failed to create project"));
         },
       });
     } catch (error) {
@@ -46,7 +48,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     <Modal
       title={
         <Typography.Text strong style={{ fontSize: 18 }}>
-          Create New Project
+          {t("ui.Create New Project")}
         </Typography.Text>
       }
       open={isOpen}
@@ -55,7 +57,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
       destroyOnHidden
       footer={[
         <Button key="cancel" onClick={handleCancel}>
-          Cancel
+          {t("ui.Cancel")}
         </Button>,
         <Button
           key="submit"
@@ -64,7 +66,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
           loading={createMutation.isPending}
           onClick={handleSubmit}
         >
-          Create Project
+          {t("ui.Create Project")}
         </Button>,
       ]}
     >

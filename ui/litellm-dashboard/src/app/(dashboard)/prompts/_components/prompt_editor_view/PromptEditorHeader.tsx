@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowLeftIcon, SaveIcon, ClockIcon, LoaderCircleIcon } from "lucide-react";
 import PromptCodeSnippets from "./PromptCodeSnippets";
 import { Button } from "@/components/ui/button";
@@ -42,15 +43,16 @@ const PromptEditorHeader: React.FC<PromptEditorHeaderProps> = ({
   environment,
   onEnvironmentChange,
 }) => {
+  const { t } = useTranslation();
   return (
     <div className="bg-background border-b border-border px-6 py-3 flex items-center justify-between">
       <div className="flex items-center space-x-3">
         <Button variant="ghost" onClick={onBack} size="sm">
           <ArrowLeftIcon />
-          Back
+          {t("ui.Back")}
         </Button>
         <Input
-          aria-label="Prompt name"
+          aria-label={t("ui.Prompt name")}
           value={promptName}
           onChange={(e) => onNameChange(e.target.value)}
           className="text-base font-medium border-none shadow-none"
@@ -58,17 +60,17 @@ const PromptEditorHeader: React.FC<PromptEditorHeaderProps> = ({
         />
         {version && <Badge>{version}</Badge>}
         <Select value={environment} onValueChange={(value) => onEnvironmentChange(String(value))}>
-          <SelectTrigger size="sm" className="w-[140px]" aria-label="Environment">
+          <SelectTrigger size="sm" className="w-[140px]" aria-label={t("ui.Environment")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="development">Development</SelectItem>
-            <SelectItem value="staging">Staging</SelectItem>
-            <SelectItem value="production">Production</SelectItem>
+            <SelectItem value="development">{t("ui.Development")}</SelectItem>
+            <SelectItem value="staging">{t("ui.Staging")}</SelectItem>
+            <SelectItem value="production">{t("ui.Production")}</SelectItem>
           </SelectContent>
         </Select>
-        <Badge variant="secondary">Draft</Badge>
-        <span className="text-xs text-muted-foreground">Unsaved changes</span>
+        <Badge variant="secondary">{t("ui.Draft")}</Badge>
+        <span className="text-xs text-muted-foreground">{t("ui.Unsaved changes")}</span>
       </div>
       <div className="flex items-center space-x-2">
         <PromptCodeSnippets
@@ -82,12 +84,12 @@ const PromptEditorHeader: React.FC<PromptEditorHeaderProps> = ({
         {editMode && onShowHistory && (
           <Button variant="outline" onClick={onShowHistory}>
             <ClockIcon />
-            History
+            {t("ui.History")}
           </Button>
         )}
         <Button onClick={onSave} disabled={isSaving}>
           {isSaving ? <LoaderCircleIcon className="animate-spin" /> : <SaveIcon />}
-          {editMode ? "Update" : "Save"}
+          {editMode ? t("ui.Update") : t("ui.Save")}
         </Button>
       </div>
     </div>

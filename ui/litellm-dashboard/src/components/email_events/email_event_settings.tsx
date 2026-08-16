@@ -51,7 +51,7 @@ const EmailEventSettings: React.FC<EmailEventSettingsProps> = ({ accessToken }) 
 
     try {
       await updateEmailEventSettings(accessToken, { settings: eventSettings });
-      NotificationsManager.success("Email event settings updated successfully");
+      NotificationsManager.success(t("ui.Email event settings updated successfully"));
     } catch (error) {
       console.error("Failed to update email event settings:", error);
       NotificationsManager.fromBackend(error);
@@ -63,7 +63,7 @@ const EmailEventSettings: React.FC<EmailEventSettingsProps> = ({ accessToken }) 
 
     try {
       await resetEmailEventSettings(accessToken);
-      NotificationsManager.success("Email event settings reset to defaults");
+      NotificationsManager.success(t("ui.Email event settings reset to defaults"));
       // Refresh settings after reset
       fetchEventSettings();
     } catch (error) {
@@ -76,9 +76,9 @@ const EmailEventSettings: React.FC<EmailEventSettingsProps> = ({ accessToken }) 
   const getEventDescription = (event: EmailEvent): string => {
     // Convert event name to a sentence with more context
     if (event.includes("Virtual Key Created")) {
-      return "An email will be sent to the user when a new virtual key is created with their user ID";
+      return t("ui.An email will be sent to the user when a new virtual key is created with their user ID");
     } else if (event.includes("New User Invitation")) {
-      return "An email will be sent to the email address of the user when a new user is created";
+      return t("ui.An email will be sent to the email address of the user when a new user is created");
     } else {
       // Handle any other event type from the API
       const words = event
@@ -92,8 +92,10 @@ const EmailEventSettings: React.FC<EmailEventSettingsProps> = ({ accessToken }) 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Email Notifications</CardTitle>
-        <p className="text-sm text-muted-foreground">Select which events should trigger email notifications.</p>
+        <CardTitle className="text-base">{t("ui.Email Notifications")}</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {t("ui.Select which events should trigger email notifications.")}
+        </p>
       </CardHeader>
 
       <CardContent>
@@ -127,7 +129,7 @@ const EmailEventSettings: React.FC<EmailEventSettingsProps> = ({ accessToken }) 
             {t("ui.Save Changes")}
           </Button>
           <Button variant="secondary" onClick={handleResetSettings} disabled={loading}>
-            Reset to Defaults
+            {t("ui.Reset to Defaults")}
           </Button>
         </div>
       </CardContent>

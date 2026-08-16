@@ -72,7 +72,7 @@ const ClaudeCodePluginsPanel: React.FC<ClaudeCodePluginsPanelProps> = ({ accessT
       fetchPlugins();
     } catch (error) {
       console.error("Error deleting skill:", error);
-      NotificationsManager.error("Failed to delete skill");
+      NotificationsManager.error(t("ui.Failed to delete skill"));
     } finally {
       setIsDeleting(false);
       setPluginToDelete(null);
@@ -92,9 +92,9 @@ const ClaudeCodePluginsPanel: React.FC<ClaudeCodePluginsPanelProps> = ({ accessT
       ) : (
         <>
           <div className="flex flex-col gap-2 mb-4">
-            <h1 className="text-2xl font-bold">Skills</h1>
+            <h1 className="text-2xl font-bold">{t("ui.Skills")}</h1>
             <p className="text-sm text-gray-600">
-              Register Claude Code skills. Published skills appear in the Skill Hub for all users and are served via{" "}
+              {t("ui.Register Claude Code skills. Published skills appear in the Skill Hub for all users and are served via")}{" "}
               <code className="bg-gray-100 px-1 rounded-sm">/claude-code/marketplace.json</code>.
             </p>
             <div className="mt-2 flex gap-2">
@@ -133,16 +133,17 @@ const ClaudeCodePluginsPanel: React.FC<ClaudeCodePluginsPanelProps> = ({ accessT
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Skill</AlertDialogTitle>
+              <AlertDialogTitle>{t("ui.Delete Skill")}</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete skill: <strong>{pluginToDelete.displayName}</strong>?
+                {t("ui.Are you sure you want to delete skill:")}{" "}
+                <strong>{pluginToDelete.displayName}</strong>?
               </AlertDialogDescription>
-              <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+              <p className="text-sm text-muted-foreground">{t("ui.This action cannot be undone.")}</p>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("ui.Cancel")}</AlertDialogCancel>
               <Button variant="destructive" onClick={handleDeleteConfirm} disabled={isDeleting}>
-                Delete
+                {t("ui.Delete")}
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

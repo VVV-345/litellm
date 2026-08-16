@@ -74,12 +74,12 @@ export function EditProjectModal({ isOpen, project, onClose, onSuccess }: EditPr
         { projectId: project.project_id, params },
         {
           onSuccess: () => {
-            MessageManager.success("Project updated successfully");
+            MessageManager.success(t("ui.Project updated successfully"));
             onSuccess?.();
             onClose();
           },
           onError: (error) => {
-            MessageManager.error(error.message || "Failed to update project");
+            MessageManager.error(error.message || t("ui.Failed to update project"));
           },
         },
       );
@@ -92,7 +92,7 @@ export function EditProjectModal({ isOpen, project, onClose, onSuccess }: EditPr
     <Modal
       title={
         <Typography.Text strong style={{ fontSize: 18 }}>
-          Edit Project
+          {t("ui.Edit Project")}
         </Typography.Text>
       }
       open={isOpen}
@@ -101,7 +101,7 @@ export function EditProjectModal({ isOpen, project, onClose, onSuccess }: EditPr
       destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onClose}>
-          Cancel
+          {t("ui.Cancel")}
         </Button>,
         <Button
           key="submit"

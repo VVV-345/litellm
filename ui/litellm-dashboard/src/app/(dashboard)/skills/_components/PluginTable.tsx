@@ -51,7 +51,7 @@ const PluginTable: React.FC<PluginTableProps> = ({ pluginsList, isLoading, onDel
       sorting={sorting}
       onSortingChange={setSorting}
       isLoading={isLoading}
-      loadingMessage="Loading skills…"
+      loadingMessage={t("ui.Loading skills…")}
       noDataMessage={<EmptyState />}
       size="compact"
     />

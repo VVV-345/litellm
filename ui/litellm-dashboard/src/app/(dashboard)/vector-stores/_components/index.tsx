@@ -101,7 +101,7 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
     setIsDeleting(true);
     try {
       await vectorStoreDeleteCall(accessToken, vectorStoreToDelete);
-      NotificationsManager.success("Vector store deleted successfully");
+      NotificationsManager.success(t("ui.Vector store deleted successfully"));
       fetchVectorStores();
     } catch (error) {
       console.error("Error deleting vector store:", error);
@@ -145,14 +145,14 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
           <h1 className="text-xl font-semibold tracking-tight text-foreground">{t("ui.Vector Store Management")}</h1>
           <div className="flex items-center space-x-2">
             {lastRefreshed && <p className="text-sm text-muted-foreground">Last Refreshed: {lastRefreshed}</p>}
-            <Button variant="outline" size="icon-sm" aria-label="Refresh" onClick={handleRefreshClick}>
+            <Button variant="outline" size="icon-sm" aria-label={t("ui.Refresh")} onClick={handleRefreshClick}>
               <RefreshCw className="size-4" />
             </Button>
           </div>
         </div>
 
         <p className="mb-4 text-sm text-muted-foreground">
-          You can use vector stores to store and retrieve LLM embeddings.
+          {t("ui.You can use vector stores to store and retrieve LLM embeddings.")}
         </p>
 
         <Tabs defaultValue="create" onValueChange={onTabChange}>
@@ -164,11 +164,11 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
               {t("ui.Manage Vector Stores")}
             </TabsTrigger>
             <TabsTrigger value="test" className="flex-none rounded-none px-4 py-2">
-              Test Vector Store
+              {t("ui.Test Vector Store")}
             </TabsTrigger>
             {isProxyAdminRole(userRole || "") && (
               <TabsTrigger value="indexes" className="flex-none rounded-none px-4 py-2">
-                Indexes
+                {t("ui.Indexes")}
               </TabsTrigger>
             )}
           </TabsList>
@@ -179,7 +179,7 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
 
           <TabsContent keepMounted={hasVisited("manage")} value="manage">
             <Button className="mb-4" onClick={() => setIsCreateModalVisible(true)}>
-              + Add Vector Store
+              {t("ui.+ Add Vector Store")}
             </Button>
 
             <div className="grid grid-cols-1 gap-2 pt-2 pb-2 w-full mt-2">
@@ -216,10 +216,10 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
         {/* Delete Confirmation Modal */}
         <DeleteResourceModal
           isOpen={isDeleteModalOpen}
-          title="Delete Vector Store"
-          message="Are you sure you want to delete this vector store? This action cannot be undone."
-          resourceInformationTitle="Vector Store Information"
-          resourceInformation={[{ label: "Vector Store ID", value: vectorStoreToDelete, code: true }]}
+          title={t("ui.Delete Vector Store")}
+          message={t("ui.Are you sure you want to delete this vector store? This action cannot be undone.")}
+          resourceInformationTitle={t("ui.Vector Store Information")}
+          resourceInformation={[{ label: t("ui.Vector Store ID"), value: vectorStoreToDelete, code: true }]}
           onCancel={() => setIsDeleteModalOpen(false)}
           onOk={confirmDelete}
           confirmLoading={isDeleting}

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CodeIcon, CopyIcon } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { coy } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -28,6 +29,7 @@ const PromptCodeSnippets: React.FC<PromptCodeSnippetsProps> = ({
   version = "1",
   proxySettings,
 }) => {
+  const { t } = useTranslation();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<"curl" | "python" | "javascript">("curl");
   const [selectedTab, setSelectedTab] = useState("basic");
@@ -238,18 +240,18 @@ main();`;
     <>
       <Button variant="outline" onClick={showModal}>
         <CodeIcon />
-        Get Code
+        {t("ui.Get Code")}
       </Button>
 
       <Dialog open={isModalVisible} onOpenChange={(open) => !open && handleCancel()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Generated Code</DialogTitle>
+            <DialogTitle>{t("ui.Generated Code")}</DialogTitle>
           </DialogHeader>
           <div className="flex justify-between items-center mb-4">
             <div>
               <label htmlFor="prompt-code-language" className="font-medium block mb-1 text-foreground">
-                Language
+                {t("ui.Language")}
               </label>
               <Select
                 value={selectedLanguage}
@@ -259,9 +261,9 @@ main();`;
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="curl">cURL</SelectItem>
-                  <SelectItem value="python">Python (OpenAI SDK)</SelectItem>
-                  <SelectItem value="javascript">JavaScript (OpenAI SDK)</SelectItem>
+                  <SelectItem value="curl">{t("ui.cURL")}</SelectItem>
+                  <SelectItem value="python">{t("ui.Python (OpenAI SDK)")}</SelectItem>
+                  <SelectItem value="javascript">{t("ui.JavaScript (OpenAI SDK)")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -269,19 +271,19 @@ main();`;
               variant="outline"
               onClick={() => {
                 navigator.clipboard.writeText(generatedCode);
-                NotificationsManager.success("Copied to clipboard!");
+                NotificationsManager.success(t("ui.Copied to clipboard!"));
               }}
             >
               <CopyIcon />
-              Copy to Clipboard
+              {t("ui.Copy to Clipboard")}
             </Button>
           </div>
 
           <Tabs value={selectedTab} onValueChange={(value) => setSelectedTab(String(value))}>
-            <TabsList aria-label="Generated code type">
-              <TabsTrigger value="basic">Basic</TabsTrigger>
-              <TabsTrigger value="messages">With Messages</TabsTrigger>
-              <TabsTrigger value="version">With Version</TabsTrigger>
+            <TabsList aria-label={t("ui.Generated code type")}>
+              <TabsTrigger value="basic">{t("ui.Basic")}</TabsTrigger>
+              <TabsTrigger value="messages">{t("ui.With Messages")}</TabsTrigger>
+              <TabsTrigger value="version">{t("ui.With Version")}</TabsTrigger>
             </TabsList>
           </Tabs>
 

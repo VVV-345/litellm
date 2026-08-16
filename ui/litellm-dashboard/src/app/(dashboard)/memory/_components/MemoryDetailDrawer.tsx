@@ -36,35 +36,35 @@ export function MemoryDetailDrawer({ row, onClose }: MemoryDetailDrawerProps) {
     >
       <SheetContent className="overflow-y-auto data-[side=right]:w-full data-[side=right]:max-w-full data-[side=right]:sm:w-[720px] data-[side=right]:sm:max-w-full">
         <SheetHeader className="border-b">
-          <SheetTitle>{row ? <code className={CODE_CLASS}>{row.key}</code> : "Memory"}</SheetTitle>
+          <SheetTitle>{row ? <code className={CODE_CLASS}>{row.key}</code> : t("ui.Memory")}</SheetTitle>
         </SheetHeader>
         {row && (
           <div className="flex flex-col gap-4 px-4 pb-4">
             <div className="flex flex-wrap gap-x-8 gap-y-3">
               <div>
-                <span className={`block ${LABEL_CLASS}`}>Memory ID</span>
+                <span className={`block ${LABEL_CLASS}`}>{t("ui.Memory ID")}</span>
                 <code className={CODE_CLASS}>{row.memory_id}</code>
               </div>
               <div>
-                <span className={`block ${LABEL_CLASS}`}>User ID</span>
+                <span className={`block ${LABEL_CLASS}`}>{t("ui.User ID")}</span>
                 <span className={row.user_id ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
                   {row.user_id ?? "-"}
                 </span>
               </div>
               <div>
-                <span className={`block ${LABEL_CLASS}`}>Team ID</span>
+                <span className={`block ${LABEL_CLASS}`}>{t("ui.Team ID")}</span>
                 <span className={row.team_id ? "text-sm text-foreground" : "text-sm text-muted-foreground"}>
                   {row.team_id ?? "-"}
                 </span>
               </div>
             </div>
             <div>
-              <span className={LABEL_CLASS}>Value</span>
+              <span className={LABEL_CLASS}>{t("ui.Value")}</span>
               <p className={`${BLOCK_CLASS} text-[13px]`}>{row.value}</p>
             </div>
             {row.metadata !== undefined && row.metadata !== null && (
               <div>
-                <span className={LABEL_CLASS}>Metadata</span>
+                <span className={LABEL_CLASS}>{t("ui.Metadata")}</span>
                 <p className={`${BLOCK_CLASS} text-xs`}>{JSON.stringify(row.metadata, null, 2)}</p>
               </div>
             )}

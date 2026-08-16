@@ -98,7 +98,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
       try {
         metadata = metadataString ? JSON.parse(metadataString) : {};
       } catch (e) {
-        NotificationsManager.fromBackend("Invalid JSON in metadata field");
+        NotificationsManager.fromBackend(t("ui.Invalid JSON in metadata field"));
         return;
       }
 
@@ -111,7 +111,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
       };
 
       await vectorStoreUpdateCall(accessToken, updateData);
-      NotificationsManager.success("Vector store updated successfully");
+      NotificationsManager.success(t("ui.Vector store updated successfully"));
       setIsEditing(false);
       fetchVectorStoreDetails();
     } catch (error) {
@@ -124,9 +124,9 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
     return (
       <div className="p-4 max-w-full">
         <Button icon={ArrowLeftIcon} variant="light" className="mb-4" onClick={onClose}>
-          Back to Vector Stores
+          {t("ui.Back to Vector Stores")}
         </Button>
-        <Title>Vector store not found</Title>
+        <Title>{t("ui.Vector store not found")}</Title>
         <Text className="text-gray-500">
           Vector store {vectorStoreId} could not be loaded. It may have been deleted.
         </Text>
@@ -135,7 +135,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
   }
 
   if (!vectorStoreDetails) {
-    return <div>Loading...</div>;
+    return <div>{t("ui.Loading...")}</div>;
   }
 
   return (
@@ -143,18 +143,22 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
       <div className="flex justify-between items-center mb-6">
         <div>
           <Button icon={ArrowLeftIcon} variant="light" className="mb-4" onClick={onClose}>
-            Back to Vector Stores
+            {t("ui.Back to Vector Stores")}
           </Button>
           <Title>Vector Store ID: {vectorStoreDetails.vector_store_id}</Title>
-          <Text className="text-gray-500">{vectorStoreDetails.vector_store_description || "No description"}</Text>
+          <Text className="text-gray-500">
+            {vectorStoreDetails.vector_store_description || t("ui.No description")}
+          </Text>
         </div>
-        {is_admin && !isEditing && <Button onClick={() => setIsEditing(true)}>Edit Vector Store</Button>}
+        {is_admin && !isEditing && (
+          <Button onClick={() => setIsEditing(true)}>{t("ui.Edit Vector Store")}</Button>
+        )}
       </div>
 
       <TabGroup>
         <TabList className="mb-6">
-          <Tab>Details</Tab>
-          <Tab>Test Vector Store</Tab>
+          <Tab>{t("ui.Details")}</Tab>
+          <Tab>{t("ui.Test Vector Store")}</Tab>
         </TabList>
 
         <TabPanels>
@@ -163,19 +167,19 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
             {isEditing ? (
               <div>
                 <div className="flex justify-between items-center mb-4">
-                  <Title>Edit Vector Store</Title>
+                  <Title>{t("ui.Edit Vector Store")}</Title>
                 </div>
                 <Card>
                   <Form form={form} onFinish={handleSave} layout="vertical" initialValues={vectorStoreDetails}>
                     <Form.Item
-                      label="Vector Store ID"
+                      label={t("ui.Vector Store ID")}
                       name="vector_store_id"
-                      rules={[{ required: true, message: "Please input a vector store ID" }]}
+                      rules={[{ required: true, message: t("ui.Please input a vector store ID") }]}
                     >
                       <Input disabled />
                     </Form.Item>
 
-                    <Form.Item label="Vector Store Name" name="vector_store_name">
+                    <Form.Item label={t("ui.Vector Store Name")} name="vector_store_name">
                       <Input />
                     </Form.Item>
 
@@ -186,14 +190,14 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                     <Form.Item
                       label={
                         <span>
-                          Provider{" "}
-                          <Tooltip title="Select the provider for this vector store">
+                          {t("ui.Provider")}{" "}
+                          <Tooltip title={t("ui.Select the provider for this vector store")}>
                             <InfoCircleOutlined style={{ marginLeft: "4px" }} />
                           </Tooltip>
                         </span>
                       }
                       name="custom_llm_provider"
-                      rules={[{ required: true, message: "Please select a provider" }]}
+                      rules={[{ required: true, message: t("ui.Please select a provider") }]}
                     >
                       <Select2>
                         {Object.entries(Providers).map(([providerEnum, providerDisplayName]) => {
@@ -216,20 +220,20 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                     {/* Credentials */}
                     <div className="mb-4">
                       <Text className="text-sm text-gray-500 mb-2">
-                        Either select existing credentials OR enter provider credentials below
+                        {t("ui.Either select existing credentials OR enter provider credentials below")}
                       </Text>
                     </div>
 
-                    <Form.Item label="Existing Credentials" name="litellm_credential_name">
+                    <Form.Item label={t("ui.Existing Credentials")} name="litellm_credential_name">
                       <Select2
                         showSearch
-                        placeholder="Select or search for existing credentials"
+                        placeholder={t("ui.Select or search for existing credentials")}
                         optionFilterProp="children"
                         filterOption={(input, option) =>
                           (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
                         }
                         options={[
-                          { value: null, label: "None" },
+                          { value: null, label: t("ui.None") },
                           ...credentials.map((credential) => ({
                             value: credential.credential_name,
                             label: credential.credential_name,
@@ -241,15 +245,15 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
 
                     <div className="flex items-center my-4">
                       <div className="grow border-t border-gray-200"></div>
-                      <span className="px-4 text-gray-500 text-sm">OR</span>
+                      <span className="px-4 text-gray-500 text-sm">{t("ui.OR")}</span>
                       <div className="grow border-t border-gray-200"></div>
                     </div>
 
                     <Form.Item
                       label={
                         <span>
-                          Metadata{" "}
-                          <Tooltip title="JSON metadata for the vector store">
+                          {t("ui.Metadata")}{" "}
+                          <Tooltip title={t("ui.JSON metadata for the vector store")}>
                             <InfoCircleOutlined style={{ marginLeft: "4px" }} />
                           </Tooltip>
                         </span>
@@ -264,7 +268,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                     </Form.Item>
 
                     <div className="flex justify-end space-x-2">
-                      <AntButton onClick={() => setIsEditing(false)}>Cancel</AntButton>
+                      <AntButton onClick={() => setIsEditing(false)}>{t("ui.Cancel")}</AntButton>
                       <AntButton type="primary" htmlType="submit">
                         {t("ui.Save Changes")}
                       </AntButton>
@@ -275,17 +279,19 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
             ) : (
               <div>
                 <div className="flex justify-between items-center mb-4">
-                  <Title>Vector Store Details</Title>
-                  {is_admin && <Button onClick={() => setIsEditing(true)}>Edit Vector Store</Button>}
+                  <Title>{t("ui.Vector Store Details")}</Title>
+                  {is_admin && (
+                    <Button onClick={() => setIsEditing(true)}>{t("ui.Edit Vector Store")}</Button>
+                  )}
                 </div>
                 <Card>
                   <div className="space-y-4">
                     <div>
-                      <Text className="font-medium">ID</Text>
+                      <Text className="font-medium">{t("ui.ID")}</Text>
                       <Text>{vectorStoreDetails.vector_store_id}</Text>
                     </div>
                     <div>
-                      <Text className="font-medium">Name</Text>
+                      <Text className="font-medium">{t("ui.Name")}</Text>
                       <Text>{vectorStoreDetails.vector_store_name || "-"}</Text>
                     </div>
                     <div>
@@ -293,7 +299,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                       <Text>{vectorStoreDetails.vector_store_description || "-"}</Text>
                     </div>
                     <div>
-                      <Text className="font-medium">Provider</Text>
+                      <Text className="font-medium">{t("ui.Provider")}</Text>
                       <div className="flex items-center space-x-2 mt-1">
                         {(() => {
                           const provider = vectorStoreDetails.custom_llm_provider || "bedrock";
@@ -309,13 +315,13 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                       </div>
                     </div>
                     <div>
-                      <Text className="font-medium">Metadata</Text>
+                      <Text className="font-medium">{t("ui.Metadata")}</Text>
                       <div className="bg-gray-50 p-3 rounded-sm mt-2 font-mono text-xs overflow-auto max-h-48">
                         <pre>{metadataString}</pre>
                       </div>
                     </div>
                     <div>
-                      <Text className="font-medium">Created</Text>
+                      <Text className="font-medium">{t("ui.Created")}</Text>
                       <Text>
                         {vectorStoreDetails.created_at ? new Date(vectorStoreDetails.created_at).toLocaleString() : "-"}
                       </Text>

@@ -133,6 +133,7 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
   onCallbackChange,
   disabled = false,
 }) => {
+  const { t } = useTranslation();
   const { control } = useFormContext<CallbackFormValues>();
   const inputId = React.useId();
   const selectedConfig = callbackConfigs.find((config) => config.id === selectedCallback) ?? null;
@@ -141,10 +142,10 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
     <Controller
       control={control}
       name="callback"
-      rules={disabled ? undefined : { required: "Please select a callback" }}
+      rules={disabled ? undefined : { required: t("ui.Please select a callback") }}
       render={({ field, fieldState }) => (
         <Field>
-          <FieldLabel htmlFor={inputId}>Callback</FieldLabel>
+          <FieldLabel htmlFor={inputId}>{t("ui.Callback")}</FieldLabel>
           <Combobox
             items={callbackConfigs}
             value={selectedConfig}
@@ -161,14 +162,14 @@ export const CallbackSelector: React.FC<CallbackSelectorProps> = ({
           >
             <ComboboxInput
               id={inputId}
-              placeholder="Choose a logging callback..."
+              placeholder={t("ui.Choose a logging callback...")}
               className="w-full"
               disabled={disabled}
               onBlur={field.onBlur}
               aria-invalid={fieldState.error !== undefined || undefined}
             />
             <ComboboxContent>
-              <ComboboxEmpty>No results</ComboboxEmpty>
+              <ComboboxEmpty>{t("ui.No results")}</ComboboxEmpty>
               <ComboboxList>
                 {(callbackConfig: CallbackConfigOption) => (
                   <ComboboxItem key={callbackConfig.id} value={callbackConfig}>
@@ -266,7 +267,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
         setCallbackConfigs(data || []);
       })
       .catch((error) => {
-        NotificationsManager.fromBackend("Failed to load callback configs: " + parseErrorMessage(error));
+        NotificationsManager.fromBackend(t("ui.Failed to load callback configs: ") + parseErrorMessage(error));
       });
   }, [accessToken]);
 
@@ -353,7 +354,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
     try {
       await setCallbacksCall(accessToken, payload);
       NotificationsManager.success(
-        isEdit ? "Callback updated successfully" : `Callback ${callbackName} added successfully`,
+        isEdit ? t("ui.Callback updated successfully") : `Callback ${callbackName} added successfully`,
       );
 
       if (isEdit) {
@@ -445,7 +446,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
     } catch (error) {
       NotificationsManager.fromBackend(error);
     }
-    NotificationsManager.success("Alerts updated successfully");
+    NotificationsManager.success(t("ui.Alerts updated successfully"));
   };
 
   const handleDeleteCallback = (callback: any) => {
@@ -488,11 +489,11 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
       <div className="grid grid-cols-1 gap-2 p-8 w-full mt-2">
         <Tabs defaultValue="logging-callbacks">
           <TabsList variant="line">
-            <TabsTrigger value="logging-callbacks">Logging Callbacks</TabsTrigger>
-            <TabsTrigger value="cloudzero-cost-tracking">CloudZero Cost Tracking</TabsTrigger>
-            <TabsTrigger value="alerting-types">Alerting Types</TabsTrigger>
+            <TabsTrigger value="logging-callbacks">{t("ui.Logging Callbacks")}</TabsTrigger>
+            <TabsTrigger value="cloudzero-cost-tracking">{t("ui.CloudZero Cost Tracking")}</TabsTrigger>
+            <TabsTrigger value="alerting-types">{t("ui.Alerting Types")}</TabsTrigger>
             <TabsTrigger value="alerting-settings">{t("ui.Alerting Settings")}</TabsTrigger>
-            <TabsTrigger value="email-alerts">Email Alerts</TabsTrigger>
+            <TabsTrigger value="email-alerts">{t("ui.Email Alerts")}</TabsTrigger>
           </TabsList>
           <TabsContent value="logging-callbacks">
             <LoggingCallbacksTable
@@ -568,7 +569,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                         )}
                       </TableCell>
                       <TableCell className="whitespace-normal break-words">
-                        <p>{value}</p>
+                        <p>{t(`ui.${value}`, { defaultValue: value })}</p>
                       </TableCell>
                       <TableCell>
                         <Input
@@ -594,7 +595,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
                   try {
                     await serviceHealthCheck(accessToken, "slack");
                     NotificationsManager.success(
-                      "Alert test triggered. Test request to slack made - check logs/alerts on slack to verify",
+                      t("ui.Alert test triggered. Test request to slack made - check logs/alerts on slack to verify"),
                     );
                   } catch (error) {
                     NotificationsManager.fromBackend(parseErrorMessage(error));
@@ -626,8 +627,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
             target="_blank"
             style={{ color: "blue" }}
           >
-            {" "}
-            LiteLLM Docs: Logging
+            {t("ui.LiteLLM Docs: Logging")}
           </a>
 
           <FormProvider {...addForm}>
@@ -702,10 +702,10 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
         isOpen={showDeleteConfirmModal}
         title={t("ui.Delete Callback")}
         message={t("ui.Are you sure you want to delete this callback? This action cannot be undone.")}
-        resourceInformationTitle="Callback Information"
+        resourceInformationTitle={t("ui.Callback Information")}
         resourceInformation={[
           { label: t("ui.Callback Name"), value: callbackToDelete?.name },
-          { label: "Mode", value: callbackToDelete?.mode || "success" },
+          { label: t("ui.Mode"), value: callbackToDelete?.mode || "success" },
         ]}
         onCancel={() => {
           setShowDeleteConfirmModal(false);

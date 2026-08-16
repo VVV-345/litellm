@@ -3,6 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { Copy, MoreHorizontal, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/shared/table_cells";
 import { buttonVariants } from "@/components/ui/button";
@@ -31,10 +32,11 @@ function formatFileSize(bytes?: number): string {
 }
 
 function DocumentRowActions({ document, onRemove }: { document: DocumentUpload; onRemove: (uid: string) => void }) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open document actions"
+        aria-label={t("ui.Open document actions")}
         data-testid={`document-actions-${document.uid}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -43,10 +45,10 @@ function DocumentRowActions({ document, onRemove }: { document: DocumentUpload; 
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem
           data-testid="document-action-copy"
-          onClick={() => void copyToClipboard(document.uid, "Document ID copied to clipboard")}
+          onClick={() => void copyToClipboard(document.uid, t("ui.Document ID copied to clipboard"))}
         >
           <Copy />
-          Copy document ID
+          {t("ui.Copy document ID")}
         </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"
@@ -54,7 +56,7 @@ function DocumentRowActions({ document, onRemove }: { document: DocumentUpload; 
           onClick={() => onRemove(document.uid)}
         >
           <Trash2 />
-          Remove
+          {t("ui.Remove")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -70,8 +72,8 @@ export const getDocumentsTableColumns = ({ onRemove, t }: DocumentsTableColumnsD
   {
     id: "name",
     accessorKey: "name",
-    meta: { title: "Name" },
-    header: "Name",
+    meta: { title: t("ui.Name") },
+    header: t("ui.Name"),
     enableSorting: false,
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
@@ -87,13 +89,13 @@ export const getDocumentsTableColumns = ({ onRemove, t }: DocumentsTableColumnsD
   {
     id: "status",
     accessorKey: "status",
-    meta: { title: "Status", skeleton: "badge" },
-    header: "Status",
+    meta: { title: t("ui.Status"), skeleton: "badge" },
+    header: t("ui.Status"),
     size: 150,
     enableSorting: false,
     cell: ({ row }) => {
       const config = STATUS_CONFIG[row.original.status] ?? { tone: "neutral", label: row.original.status };
-      return <StatusBadge tone={config.tone} label={config.label} />;
+      return <StatusBadge tone={config.tone} label={t(config.label)} />;
     },
   },
   {

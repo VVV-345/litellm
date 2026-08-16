@@ -82,7 +82,7 @@ const PromptTable: React.FC<PromptTableProps> = ({
       sorting={sorting}
       onSortingChange={setSorting}
       isLoading={isLoading}
-      loadingMessage="Loading prompts…"
+      loadingMessage={t("ui.Loading prompts…")}
       noDataMessage={<EmptyState />}
       size="compact"
     />

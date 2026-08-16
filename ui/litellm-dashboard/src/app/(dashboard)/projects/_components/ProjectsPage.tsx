@@ -59,12 +59,12 @@ export function ProjectsPage() {
     <div className="p-6 px-12">
       <div className="mb-4">
         <PageHeader
-          title="Projects"
+          title={t("ui.Projects")}
           subtitle={t("ui.Manage projects within your teams")}
           actions={
             <Button onClick={() => setIsCreateModalVisible(true)}>
               <Plus className="size-4" />
-              Create Project
+              {t("ui.Create Project")}
             </Button>
           }
         />
@@ -76,13 +76,13 @@ export function ProjectsPage() {
             <SearchIcon className="size-4 text-muted-foreground" />
           </InputGroupAddon>
           <InputGroupInput
-            placeholder="Search projects by name, ID, description, or team..."
+            placeholder={t("ui.Search projects by name, ID, description, or team...")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
           {searchText && (
             <InputGroupAddon align="inline-end">
-              <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => setSearchText("")}>
+              <InputGroupButton size="icon-xs" aria-label={t("ui.Clear search")} onClick={() => setSearchText("")}>
                 <X />
               </InputGroupButton>
             </InputGroupAddon>

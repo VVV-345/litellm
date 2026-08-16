@@ -146,19 +146,20 @@ function DurationFilter({ selected, onChange }: { selected: string[]; onChange: 
 }
 
 function BudgetFilterFields({ get, set }: FilterDraft) {
+  const { t } = useTranslation();
   const maxBudget = (get("max_budget") as MaxBudgetFilterValue | undefined) ?? {};
   const created = (get("created_at") as CreatedAtFilterValue | undefined) ?? {};
   const unlimitedOnly = maxBudget.unlimitedOnly === true;
 
   return (
     <>
-      <DataTableFilterField label="Reset">
+      <DataTableFilterField label={t("ui.Reset")}>
         <DurationFilter
           selected={(get("budget_duration") as string[] | undefined) ?? []}
           onChange={(selected) => set("budget_duration", selected)}
         />
       </DataTableFilterField>
-      <DataTableFilterField label="Max Budget (USD)">
+      <DataTableFilterField label={t("ui.Max Budget (USD)")}>
         <div className="flex items-center gap-2">
           <Input
             type="number"
@@ -167,8 +168,8 @@ function BudgetFilterFields({ get, set }: FilterDraft) {
             value={maxBudget.min ?? ""}
             disabled={unlimitedOnly}
             onChange={(event) => set("max_budget", normalizeMaxBudget({ ...maxBudget, min: event.target.value }))}
-            placeholder="Min"
-            aria-label="Minimum max budget"
+            placeholder={t("ui.Min")}
+            aria-label={t("ui.Minimum max budget")}
             data-testid="budget-filter-max-budget-min"
           />
           <Input
@@ -178,8 +179,8 @@ function BudgetFilterFields({ get, set }: FilterDraft) {
             value={maxBudget.max ?? ""}
             disabled={unlimitedOnly}
             onChange={(event) => set("max_budget", normalizeMaxBudget({ ...maxBudget, max: event.target.value }))}
-            placeholder="Max"
-            aria-label="Maximum max budget"
+            placeholder={t("ui.Max")}
+            aria-label={t("ui.Maximum max budget")}
             data-testid="budget-filter-max-budget-max"
           />
         </div>
@@ -189,23 +190,23 @@ function BudgetFilterFields({ get, set }: FilterDraft) {
             onCheckedChange={(checked) => set("max_budget", normalizeMaxBudget({ unlimitedOnly: checked === true }))}
             data-testid="budget-filter-max-budget-unlimited"
           />
-          Unlimited only
+          {t("ui.Unlimited only")}
         </Label>
       </DataTableFilterField>
-      <DataTableFilterField label="Created">
+      <DataTableFilterField label={t("ui.Created")}>
         <div className="flex items-center gap-2">
           <Input
             type="date"
             value={created.from ?? ""}
             onChange={(event) => set("created_at", normalizeCreatedAt({ ...created, from: event.target.value }))}
-            aria-label="Created from"
+            aria-label={t("ui.Created from")}
             data-testid="budget-filter-created-from"
           />
           <Input
             type="date"
             value={created.to ?? ""}
             onChange={(event) => set("created_at", normalizeCreatedAt({ ...created, to: event.target.value }))}
-            aria-label="Created to"
+            aria-label={t("ui.Created to")}
             data-testid="budget-filter-created-to"
           />
         </div>

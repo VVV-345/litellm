@@ -31,10 +31,10 @@ function EmptyState({ isFiltered }: { isFiltered: boolean }) {
         <FolderKanban className="size-5 text-muted-foreground" />
       </div>
       <div className="text-sm font-medium text-foreground">
-        {isFiltered ? "No matching projects" : t("ui.No projects yet")}
+        {isFiltered ? t("ui.No matching projects") : t("ui.No projects yet")}
       </div>
       <div className="text-sm text-muted-foreground">
-        {isFiltered ? "Try a different search term." : t("ui.Create a project to organize keys within your teams.")}
+        {isFiltered ? t("ui.Try a different search term.") : t("ui.Create a project to organize keys within your teams.")}
       </div>
     </div>
   );
@@ -87,7 +87,7 @@ export function ProjectsTable({
         />
       )}
       isLoading={isLoading}
-      loadingMessage="Loading projects…"
+      loadingMessage={t("ui.Loading projects…")}
       noDataMessage={<EmptyState isFiltered={isFiltered} />}
       size="compact"
     />

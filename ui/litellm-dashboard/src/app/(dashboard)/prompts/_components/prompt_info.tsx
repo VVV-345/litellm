@@ -79,7 +79,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
       }
       setSelectedVersion(response.prompt_spec.version || null);
     } catch (error) {
-      NotificationsManager.fromBackend("Failed to load prompt information");
+      NotificationsManager.fromBackend(t("ui.Failed to load prompt information"));
       console.error("Error fetching prompt info:", error);
     } finally {
       setLoading(false);
@@ -126,11 +126,11 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
   }, [selectedEnv]);
 
   if (loading && !promptData) {
-    return <div className="p-4">Loading...</div>;
+    return <div className="p-4">{t("ui.Loading...")}</div>;
   }
 
   if (!promptData) {
-    return <div className="p-4">Prompt not found</div>;
+    return <div className="p-4">{t("ui.Prompt not found")}</div>;
   }
 
   const formatDate = (dateString?: string) => {
@@ -163,7 +163,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
       onClose();
     } catch (error) {
       console.error("Error deleting prompt:", error);
-      NotificationsManager.fromBackend("Failed to delete prompt");
+      NotificationsManager.fromBackend(t("ui.Failed to delete prompt"));
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -200,11 +200,11 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
     <div className="p-4">
       <div>
         <TremorButton icon={ArrowLeftIcon} variant="light" onClick={onClose} className="mb-4">
-          Back to Prompts
+          {t("ui.Back to Prompts")}
         </TremorButton>
         <div className="flex justify-between items-start mb-4">
           <div>
-            <Title>Prompt Details</Title>
+            <Title>{t("ui.Prompt Details")}</Title>
             <div className="flex items-center cursor-pointer">
               <Text className="text-gray-500 font-mono">{basePromptId}</Text>
               <Button
@@ -234,7 +234,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
               onClick={() => onEdit?.(rawApiResponse)}
               className="flex items-center"
             >
-              Prompt Studio
+              {t("ui.Prompt Studio")}
             </TremorButton>
             {isAdmin && (
               <TremorButton
@@ -243,7 +243,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                 onClick={handleDeleteClick}
                 className="flex items-center"
               >
-                Delete Prompt
+                {t("ui.Delete Prompt")}
               </TremorButton>
             )}
           </div>
@@ -298,16 +298,16 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
               if (latest) handleVersionClick(latest);
             }}
           >
-            Go to latest
+            {t("ui.Go to latest")}
           </TremorButton>
         </div>
       )}
 
       <TabGroup>
         <TabList className="mb-4">
-          <Tab key="overview">Overview</Tab>
-          {promptTemplate ? <Tab key="prompt-template">Prompt Template</Tab> : <></>}
-          <Tab key="raw-json">Raw JSON</Tab>
+          <Tab key="overview">{t("ui.Overview")}</Tab>
+          {promptTemplate ? <Tab key="prompt-template">{t("ui.Prompt Template")}</Tab> : <></>}
+          <Tab key="raw-json">{t("ui.Raw JSON")}</Tab>
         </TabList>
 
         <TabPanels>
@@ -315,7 +315,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
           <TabPanel>
             <Grid numItems={1} numItemsSm={2} numItemsLg={4} className="gap-4">
               <Card>
-                <Text>Version</Text>
+                <Text>{t("ui.Version")}</Text>
                 <div className="mt-2">
                   <Title>{currentVersion}</Title>
                   <Badge color="blue" className="mt-1">
@@ -325,21 +325,21 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
               </Card>
 
               <Card>
-                <Text>Prompt Type</Text>
+                <Text>{t("ui.Prompt Type")}</Text>
                 <div className="mt-2">
                   <Title>{promptData.prompt_info?.prompt_type || "-"}</Title>
                 </div>
               </Card>
 
               <Card>
-                <Text>Created By</Text>
+                <Text>{t("ui.Created By")}</Text>
                 <div className="mt-2">
                   <Title className="text-sm">{promptData.created_by || "-"}</Title>
                 </div>
               </Card>
 
               <Card>
-                <Text>Created At</Text>
+                <Text>{t("ui.Created At")}</Text>
                 <div className="mt-2">
                   <Title className="text-sm">{formatDate(promptData.created_at)}</Title>
                   <Text className="text-xs">{t("ui.Updated")}: {formatDate(promptData.updated_at)}</Text>
@@ -351,14 +351,14 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
             <Card className="mt-6">
               <Title className="mb-3">Version History — {selectedEnv}</Title>
               {loadingVersions ? (
-                <Text>Loading versions...</Text>
+                <Text>{t("ui.Loading versions...")}</Text>
               ) : versionHistory.length > 0 ? (
                 <Table>
                   <TableHead>
                     <TableRow>
-                      <TableHeaderCell>Version</TableHeaderCell>
-                      <TableHeaderCell>Created By</TableHeaderCell>
-                      <TableHeaderCell>Date</TableHeaderCell>
+                      <TableHeaderCell>{t("ui.Version")}</TableHeaderCell>
+                      <TableHeaderCell>{t("ui.Created By")}</TableHeaderCell>
+                      <TableHeaderCell>{t("ui.Date")}</TableHeaderCell>
                       <TableHeaderCell>{t("ui.Actions")}</TableHeaderCell>
                     </TableRow>
                   </TableHead>
@@ -379,7 +379,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                             <span className={isSelected ? "font-bold" : ""}>v{vNum}</span>
                             {isLatest && (
                               <Badge color="blue" className="ml-2" size="xs">
-                                latest
+                                {t("ui.latest")}
                               </Badge>
                             )}
                           </TableCell>
@@ -408,7 +408,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                                 onEdit?.(editData);
                               }}
                             >
-                              Edit
+                              {t("ui.Edit")}
                             </TremorButton>
                           </TableCell>
                         </TableRow>
@@ -427,7 +427,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
             <TabPanel>
               <Card>
                 <div className="flex justify-between items-center mb-4">
-                  <Title>Prompt Template</Title>
+                  <Title>{t("ui.Prompt Template")}</Title>
                   <Button
                     type="text"
                     size="small"
@@ -439,20 +439,20 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                         : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                     }`}
                   >
-                    {copiedStates["prompt-content"] ? "Copied!" : "Copy Content"}
+                    {copiedStates["prompt-content"] ? t("ui.Copied!") : t("ui.Copy Content")}
                   </Button>
                 </div>
 
                 <div className="space-y-4">
                   <div>
-                    <Text className="font-medium">Template ID</Text>
+                    <Text className="font-medium">{t("ui.Template ID")}</Text>
                     <div className="font-mono text-sm bg-gray-50 p-2 rounded-sm">
                       {promptTemplate.litellm_prompt_id}
                     </div>
                   </div>
 
                   <div>
-                    <Text className="font-medium">Content</Text>
+                    <Text className="font-medium">{t("ui.Content")}</Text>
                     <div className="mt-2 p-4 bg-gray-50 rounded-md border overflow-auto max-h-96">
                       <pre className="text-sm text-gray-800 whitespace-pre-wrap">{promptTemplate.content}</pre>
                     </div>
@@ -460,7 +460,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
 
                   {promptTemplate.metadata && Object.keys(promptTemplate.metadata).length > 0 && (
                     <div>
-                      <Text className="font-medium">Template Metadata</Text>
+                      <Text className="font-medium">{t("ui.Template Metadata")}</Text>
                       <div className="mt-2 p-3 bg-gray-50 rounded-md border">
                         <pre className="text-xs text-gray-800 whitespace-pre-wrap overflow-auto max-h-64">
                           {JSON.stringify(promptTemplate.metadata, null, 2)}
@@ -477,7 +477,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
           <TabPanel>
             <Card>
               <div className="flex justify-between items-center mb-4">
-                <Title>Raw API Response</Title>
+                <Title>{t("ui.Raw API Response")}</Title>
                 <Button
                   type="text"
                   size="small"
@@ -489,7 +489,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                       : "text-gray-500 hover:text-gray-700 hover:bg-gray-100"
                   }`}
                 >
-                  {copiedStates["raw-json"] ? "Copied!" : "Copy JSON"}
+                  {copiedStates["raw-json"] ? t("ui.Copied!") : t("ui.Copy JSON")}
                 </Button>
               </div>
 
@@ -505,18 +505,18 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
 
       {/* Delete Confirmation Modal */}
       <Modal
-        title="Delete Prompt"
+        title={t("ui.Delete Prompt")}
         open={showDeleteConfirm}
         onOk={handleDeleteConfirm}
         onCancel={handleDeleteCancel}
         confirmLoading={isDeleting}
-        okText="Delete"
+        okText={t("ui.Delete")}
         okButtonProps={{ danger: true }}
       >
         <p>
           Are you sure you want to delete prompt: <strong>{basePromptId}</strong>?
         </p>
-        <p>This action cannot be undone.</p>
+        <p>{t("ui.This action cannot be undone.")}</p>
       </Modal>
     </div>
   );

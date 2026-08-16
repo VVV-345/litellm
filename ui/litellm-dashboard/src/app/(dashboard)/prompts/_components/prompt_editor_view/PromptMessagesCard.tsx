@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { PlusIcon, TrashIcon, GripVerticalIcon } from "lucide-react";
 import VariableTextArea from "../variable_textarea";
 import { Message } from "./types";
@@ -21,6 +22,7 @@ const PromptMessagesCard: React.FC<PromptMessagesCardProps> = ({
   onRemoveMessage,
   onMoveMessage,
 }) => {
+  const { t } = useTranslation();
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -50,7 +52,7 @@ const PromptMessagesCard: React.FC<PromptMessagesCardProps> = ({
   return (
     <Card className="p-3">
       <div className="mb-2">
-        <p className="text-sm font-medium">Prompt messages</p>
+        <p className="text-sm font-medium">{t("ui.Prompt messages")}</p>
         <p className="text-muted-foreground text-xs mt-1">
           Use <code className="bg-muted px-1 rounded-sm text-xs">{"{{variable}}"}</code> syntax for template variables
         </p>
@@ -81,9 +83,9 @@ const PromptMessagesCard: React.FC<PromptMessagesCardProps> = ({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">User</SelectItem>
-                  <SelectItem value="assistant">Assistant</SelectItem>
-                  <SelectItem value="system">System</SelectItem>
+                  <SelectItem value="user">{t("ui.User")}</SelectItem>
+                  <SelectItem value="assistant">{t("ui.Assistant")}</SelectItem>
+                  <SelectItem value="system">{t("ui.System")}</SelectItem>
                 </SelectContent>
               </ShadcnSelect>
               <div className="flex items-center gap-1">
@@ -107,7 +109,7 @@ const PromptMessagesCard: React.FC<PromptMessagesCardProps> = ({
                 value={message.content}
                 onChange={(value) => onUpdateMessage(index, "content", value)}
                 rows={3}
-                placeholder="Enter prompt content..."
+                placeholder={t("ui.Enter prompt content...")}
               />
             </div>
           </div>
@@ -115,7 +117,7 @@ const PromptMessagesCard: React.FC<PromptMessagesCardProps> = ({
       </div>
       <Button variant="ghost" size="sm" onClick={onAddMessage} className="mt-2">
         <PlusIcon size={14} className="mr-1" />
-        Add message
+        {t("ui.Add message")}
       </Button>
     </Card>
   );

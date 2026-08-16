@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { TokenUsage } from "@/components/chat_ui/ResponseMetrics";
 import { Message } from "./types";
@@ -6,6 +7,7 @@ import { convertToDotPrompt, extractVariables } from "../utils";
 import { getProxyBaseUrl, getGlobalLitellmHeaderName } from "@/components/networking";
 
 export const useConversation = (prompt: any, accessToken: string | null) => {
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
@@ -37,12 +39,12 @@ export const useConversation = (prompt: any, accessToken: string | null) => {
 
   const handleSendMessage = async () => {
     if (!accessToken) {
-      NotificationsManager.fromBackend("Access token is required");
+      NotificationsManager.fromBackend(t("ui.Access token is required"));
       return;
     }
 
     if (extractedVariables.length > 0 && !allVariablesFilled) {
-      NotificationsManager.fromBackend("Please fill in all template variables");
+      NotificationsManager.fromBackend(t("ui.Please fill in all template variables"));
       return;
     }
 
@@ -198,14 +200,14 @@ export const useConversation = (prompt: any, accessToken: string | null) => {
       abortController.abort();
       setAbortController(null);
       setIsLoading(false);
-      NotificationsManager.info("Request cancelled");
+      NotificationsManager.info(t("ui.Request cancelled"));
     }
   };
 
   const handleClearConversation = () => {
     setMessages([]);
     setVariablesFilled(false);
-    NotificationsManager.success("Chat history cleared.");
+    NotificationsManager.success(t("ui.Chat history cleared."));
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

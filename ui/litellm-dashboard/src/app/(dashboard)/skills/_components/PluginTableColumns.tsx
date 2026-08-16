@@ -2,6 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Copy, MoreHorizontal, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -31,12 +32,13 @@ const CATEGORY_BADGE_CLASS: Record<ReturnType<typeof getCategoryBadgeColor>, str
 };
 
 function PluginCategoryBadge({ category }: { category?: string }) {
+  const { t } = useTranslation();
   return (
     <Badge
       variant="outline"
       className={cn("whitespace-nowrap font-normal", CATEGORY_BADGE_CLASS[getCategoryBadgeColor(category)])}
     >
-      {category || "Uncategorized"}
+      {category || t("ui.Uncategorized")}
     </Badge>
   );
 }
@@ -48,10 +50,11 @@ interface PluginRowActionsProps {
 }
 
 function PluginRowActions({ plugin, isAdmin, onDeleteClick }: PluginRowActionsProps) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open skill actions"
+        aria-label={t("ui.Open skill actions")}
         data-testid={`plugin-actions-${plugin.name}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -60,10 +63,10 @@ function PluginRowActions({ plugin, isAdmin, onDeleteClick }: PluginRowActionsPr
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem
           data-testid="plugin-action-copy"
-          onClick={() => void copyToClipboard(plugin.id, "Skill ID copied")}
+          onClick={() => void copyToClipboard(plugin.id, t("ui.Skill ID copied"))}
         >
           <Copy />
-          Copy skill ID
+          {t("ui.Copy skill ID")}
         </DropdownMenuItem>
         {isAdmin && (
           <>
@@ -74,7 +77,7 @@ function PluginRowActions({ plugin, isAdmin, onDeleteClick }: PluginRowActionsPr
               onClick={() => onDeleteClick(plugin.name, plugin.name)}
             >
               <Trash2 />
-              Delete
+              {t("ui.Delete")}
             </DropdownMenuItem>
           </>
         )}
@@ -115,11 +118,11 @@ export const getPluginTableColumns = ({
   {
     id: "version",
     accessorKey: "version",
-    meta: { title: "Version" },
-    header: "Version",
+    meta: { title: t("ui.Version") },
+    header: t("ui.Version"),
     size: 100,
     enableSorting: false,
-    cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.version || "N/A"}</span>,
+    cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.version || t("ui.N/A")}</span>,
   },
   {
     id: "description",
@@ -132,7 +135,7 @@ export const getPluginTableColumns = ({
       const description = row.original.description;
       return (
         <span className="block max-w-72 truncate text-sm text-muted-foreground" title={description}>
-          {description || "No description"}
+          {description || t("ui.No description")}
         </span>
       );
     },
@@ -140,8 +143,8 @@ export const getPluginTableColumns = ({
   {
     id: "category",
     accessorKey: "category",
-    meta: { title: "Category", skeleton: "badge" },
-    header: "Category",
+    meta: { title: t("ui.Category"), skeleton: "badge" },
+    header: t("ui.Category"),
     size: 150,
     enableSorting: false,
     cell: ({ row }) => <PluginCategoryBadge category={row.original.category} />,
@@ -149,20 +152,20 @@ export const getPluginTableColumns = ({
   {
     id: "enabled",
     accessorKey: "enabled",
-    meta: { title: "Public", skeleton: "badge" },
-    header: "Public",
+    meta: { title: t("ui.Public"), skeleton: "badge" },
+    header: t("ui.Public"),
     size: 100,
     enableSorting: false,
     cell: ({ row }) => (
-      <StatusBadge tone={row.original.enabled ? "success" : "neutral"} label={row.original.enabled ? "Yes" : "No"} />
+      <StatusBadge tone={row.original.enabled ? "success" : "neutral"} label={row.original.enabled ? t("ui.Yes") : t("ui.No")} />
     ),
   },
   {
     id: "created_at",
     accessorKey: "created_at",
     sortingFn: "datetime",
-    meta: { title: "Created At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created At" />,
+    meta: { title: t("ui.Created At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Created At")} />,
     size: 160,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} />,

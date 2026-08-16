@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import ToolModal from "../tool_modal";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { createPromptCall, updatePromptCall, getPromptInfo } from "@/components/networking";
@@ -15,13 +16,14 @@ import DotpromptViewTab from "./DotpromptViewTab";
 import VersionHistorySidePanel from "./VersionHistorySidePanel";
 
 const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess, accessToken, initialPromptData }) => {
+  const { t } = useTranslation();
   const getInitialPrompt = (): PromptType => {
     if (initialPromptData) {
       try {
         return parseExistingPrompt(initialPromptData);
       } catch (error) {
         console.error("Error parsing existing prompt:", error);
-        NotificationsManager.fromBackend("Failed to parse prompt data");
+        NotificationsManager.fromBackend(t("ui.Failed to parse prompt data"));
       }
     }
     return {
@@ -142,7 +144,7 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
       setShowToolModal(false);
       setEditingToolIndex(null);
     } catch (error) {
-      NotificationsManager.fromBackend("Invalid JSON format");
+      NotificationsManager.fromBackend(t("ui.Invalid JSON format"));
     }
   };
 
@@ -172,7 +174,7 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
       // NotificationsManager.success(`Loaded version v${versionNum}`);
     } catch (error) {
       console.error("Error loading version:", error);
-      NotificationsManager.fromBackend("Failed to load prompt version");
+      NotificationsManager.fromBackend(t("ui.Failed to load prompt version"));
     }
   };
 
@@ -186,12 +188,12 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
 
   const handleSave = async () => {
     if (!accessToken) {
-      NotificationsManager.fromBackend("Access token is required");
+      NotificationsManager.fromBackend(t("ui.Access token is required"));
       return;
     }
 
     if (!prompt.name || prompt.name.trim() === "") {
-      NotificationsManager.fromBackend("Please enter a valid prompt name");
+      NotificationsManager.fromBackend(t("ui.Please enter a valid prompt name"));
       return;
     }
 
@@ -215,16 +217,16 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
 
       if (editMode && initialPromptData?.prompt_spec?.prompt_id) {
         await updatePromptCall(accessToken, initialPromptData.prompt_spec.prompt_id, promptData);
-        NotificationsManager.success("Prompt updated successfully!");
+        NotificationsManager.success(t("ui.Prompt updated successfully!"));
       } else {
         await createPromptCall(accessToken, promptData);
-        NotificationsManager.success("Prompt created successfully!");
+        NotificationsManager.success(t("ui.Prompt created successfully!"));
       }
       onSuccess();
       onClose();
     } catch (error) {
       console.error("Error saving prompt:", error);
-      NotificationsManager.fromBackend(editMode ? "Failed to update prompt" : "Failed to save prompt");
+      NotificationsManager.fromBackend(editMode ? t("ui.Failed to update prompt") : t("ui.Failed to save prompt"));
     } finally {
       setIsSaving(false);
       setShowNameModal(false);
@@ -321,7 +323,7 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
                   }`}
                   onClick={() => setViewMode("pretty")}
                 >
-                  PRETTY
+                  {t("ui.PRETTY")}
                 </button>
                 <button
                   className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
@@ -329,7 +331,7 @@ const PromptEditorView: React.FC<PromptEditorViewProps> = ({ onClose, onSuccess,
                   }`}
                   onClick={() => setViewMode("dotprompt")}
                 >
-                  DOTPROMPT
+                  {t("ui.DOTPROMPT")}
                 </button>
               </div>
             </div>

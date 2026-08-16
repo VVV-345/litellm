@@ -226,7 +226,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         };
         setToken(mcpServer.server_id, browserHeldToken, userID);
         NotificationsManager.success(
-          "Token held for this browser session. Tools can now be loaded and configured; the token is not saved to LiteLLM.",
+          ui("Token held for this browser session. Tools can now be loaded and configured; the token is not saved to LiteLLM."),
         );
         return;
       }
@@ -247,7 +247,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
       authorizedIdentityRef.current = getOAuthAuthorizationIdentity(form.getFieldsValue(true));
 
       NotificationsManager.success(
-        "OAuth authorization successful! Please click 'Update MCP Server' to save the credentials.",
+        ui("OAuth authorization successful! Please click 'Update MCP Server' to save the credentials."),
       );
     },
     onBeforeRedirect: persistEditUiState,
@@ -536,11 +536,11 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         setTools(toolsResponse.tools);
       } else {
         setTools([]);
-        setToolsError(toolsResponse.message || "Failed to load tools");
+        setToolsError(toolsResponse.message || ui("Failed to load tools"));
       }
     } catch (error) {
       setTools([]);
-      setToolsError(error instanceof Error ? error.message : "Failed to load tools");
+      setToolsError(error instanceof Error ? error.message : ui("Failed to load tools"));
     } finally {
       setIsLoadingTools(false);
     }
@@ -576,8 +576,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         setTools([]);
         setToolsError(
           isBrowserHeldTokenMode
-            ? "Authorize with the upstream (browser-only, in the Authentication section) to load and configure this server's tools."
-            : "Authenticate with this server in the Tools tab to load and configure its tools.",
+            ? ui("Authorize with the upstream (browser-only, in the Authentication section) to load and configure this server's tools.")
+            : ui("Authenticate with this server in the Tools tab to load and configure its tools."),
         );
         return;
       }
@@ -596,11 +596,11 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         setTools(toolsResponse.tools);
       } else {
         setTools([]);
-        setToolsError(toolsResponse.message || "Failed to load tools");
+        setToolsError(toolsResponse.message || ui("Failed to load tools"));
       }
     } catch (error) {
       setTools([]);
-      setToolsError(error instanceof Error ? error.message : "Failed to load tools");
+      setToolsError(error instanceof Error ? error.message : ui("Failed to load tools"));
     } finally {
       setIsLoadingTools(false);
     }
@@ -629,7 +629,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
             <span className="font-medium">{searchValue}</span>
-            <span className="text-gray-400 text-xs ml-1">create new group</span>
+            <span className="text-gray-400 text-xs ml-1">{ui("create new group")}</span>
           </div>
         ),
       });
@@ -781,11 +781,11 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             };
 
             if (!stdioFields.command) {
-              NotificationsManager.fromBackend("Stdio configuration must include a command");
+              NotificationsManager.fromBackend(ui("Stdio configuration must include a command"));
               return;
             }
           } catch {
-            NotificationsManager.fromBackend("Invalid JSON in stdio configuration");
+            NotificationsManager.fromBackend(ui("Invalid JSON in stdio configuration"));
             return;
           }
         } else {
@@ -802,7 +802,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 }, {});
               }
             } catch {
-              NotificationsManager.fromBackend("Invalid JSON in stdio env configuration");
+              NotificationsManager.fromBackend(ui("Invalid JSON in stdio env configuration"));
               return;
             }
           }
@@ -812,7 +812,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
 
           const parsedCommand = rawCommand ? String(rawCommand).trim() : "";
           if (!parsedCommand) {
-            NotificationsManager.fromBackend("Stdio transport requires a command");
+            NotificationsManager.fromBackend(ui("Stdio transport requires a command"));
             return;
           }
 
@@ -835,7 +835,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         try {
           tokenValidation = JSON.parse(rawTokenValidationJson);
         } catch {
-          NotificationsManager.fromBackend("Invalid JSON in Token Validation Rules");
+          NotificationsManager.fromBackend(ui("Invalid JSON in Token Validation Rules"));
           return;
         }
       }
@@ -993,7 +993,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         }
       }
 
-      NotificationsManager.success("MCP Server updated successfully");
+      NotificationsManager.success(ui("MCP Server updated successfully"));
       setAppMayNotMatchUpstream(false);
       onSuccess(updated);
     } catch (error: any) {
@@ -1060,7 +1060,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 label={ui("MCP Server URL")}
                 name="url"
                 rules={[
-                  { required: true, message: "Please enter a server URL" },
+                  { required: true, message: ui("Please enter a server URL") },
                   { validator: (_, value) => validateMCPServerUrl(value) },
                 ]}
               >
@@ -1077,13 +1077,13 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 label={
                   <span className="text-sm font-medium text-gray-700 flex items-center">
                     {ui("OpenAPI Spec URL")}
-                    <Tooltip title="URL to an OpenAPI specification (JSON or YAML). MCP tools will be automatically generated from the API endpoints defined in the spec.">
+                    <Tooltip title={ui("URL to an OpenAPI specification (JSON or YAML). MCP tools will be automatically generated from the API endpoints defined in the spec.")}>
                       <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                     </Tooltip>
                   </span>
                 }
                 name="spec_path"
-                rules={[{ required: true, message: "Please enter an OpenAPI spec URL" }]}
+                rules={[{ required: true, message: ui("Please enter an OpenAPI spec URL") }]}
               >
                 <Input
                   placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
@@ -1096,7 +1096,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
               label={
                 <span className="text-sm font-medium text-gray-700 flex items-center">
                   {ui("Max Concurrent Requests (optional)")}
-                  <Tooltip title="Maximum number of tool calls LiteLLM will run against this server at the same time. Additional calls wait for a free slot. Leave blank for no limit.">
+                  <Tooltip title={ui("Maximum number of tool calls LiteLLM will run against this server at the same time. Additional calls wait for a free slot. Leave blank for no limit.")}>
                     <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                   </Tooltip>
                 </span>
@@ -1123,12 +1123,12 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                     <Select.Option value="token">{ui("Token")}</Select.Option>
                     <Select.Option value="basic">{ui("Basic Auth")}</Select.Option>
                     <Select.Option value="oauth2">{ui("OAuth")}</Select.Option>
-                    <Select.Option value="oauth2_token_exchange">OAuth Token Exchange (OBO)</Select.Option>
-                    <Select.Option value="oauth2_id_jag">ID-JAG (Okta Cross App Access)</Select.Option>
-                    <Select.Option value="aws_sigv4">AWS SigV4 (Bedrock AgentCore MCPs)</Select.Option>
-                    <Select.Option value="true_passthrough">True Passthrough (no LiteLLM auth)</Select.Option>
+                    <Select.Option value="oauth2_token_exchange">{ui("OAuth Token Exchange (OBO)")}</Select.Option>
+                    <Select.Option value="oauth2_id_jag">{ui("ID-JAG (Okta Cross App Access)")}</Select.Option>
+                    <Select.Option value="aws_sigv4">{ui("AWS SigV4 (Bedrock AgentCore MCPs)")}</Select.Option>
+                    <Select.Option value="true_passthrough">{ui("True Passthrough (no LiteLLM auth)")}</Select.Option>
                     <Select.Option value="oauth_delegate">
-                      OAuth Delegate (client-supplied upstream token)
+                      {ui("OAuth Delegate (client-supplied upstream token)")}
                     </Select.Option>
                   </Select>
                 </Form.Item>
@@ -1159,7 +1159,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 <Form.Item
                   label={ui("Command")}
                   name="command"
-                  rules={[{ required: true, message: "Please enter a command for stdio transport" }]}
+                  rules={[{ required: true, message: ui("Please enter a command for stdio transport") }]}
                 >
                   <Input
                     placeholder={ui("e.g., npx")}
@@ -1178,7 +1178,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 </Form.Item>
 
                 <Form.Item
-                  label="Environment (JSON object)"
+                  label={ui("Environment (JSON object)")}
                   name="env_json"
                   rules={[
                     {
@@ -1189,9 +1189,9 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                             return Promise.resolve();
                           }
-                          return Promise.reject(new Error("Env must be a JSON object"));
+                          return Promise.reject(new Error(ui("Env must be a JSON object")));
                         } catch {
-                          return Promise.reject(new Error("Please enter valid JSON"));
+                          return Promise.reject(new Error(ui("Please enter valid JSON")));
                         }
                       },
                     },
@@ -1213,8 +1213,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
               <Form.Item
                 label={
                   <span className="text-sm font-medium text-gray-700 flex items-center">
-                    Authentication Value
-                    <Tooltip title="Token, password, or header value to send with each request for the selected auth type.">
+                    {ui("Authentication Value")}
+                    <Tooltip title={ui("Token, password, or header value to send with each request for the selected auth type.")}>
                       <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                     </Tooltip>
                   </span>
@@ -1224,13 +1224,13 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   {
                     validator: (_, value) =>
                       value && typeof value === "string" && value.trim() === ""
-                        ? Promise.reject(new Error("Authentication value cannot be empty"))
+                        ? Promise.reject(new Error(ui("Authentication value cannot be empty")))
                         : Promise.resolve(),
                   },
                 ]}
               >
                 <Input.Password
-                  placeholder="Enter token or secret (leave blank to keep existing)"
+                  placeholder={ui("Enter token or secret (leave blank to keep existing)")}
                   className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </Form.Item>
@@ -1243,8 +1243,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                     type="warning"
                     showIcon
                     className="mb-4 rounded-lg"
-                    message="This server has no OAuth flow set"
-                    description="Choose Machine-to-Machine (M2M) or Interactive (PKCE) so LiteLLM authenticates it the way you intend, then save. Until it is set, LiteLLM falls back to interactive per-user auth and treats a machine-to-machine credential shape conservatively."
+                    message={ui("This server has no OAuth flow set")}
+                    description={ui("Choose Machine-to-Machine (M2M) or Interactive (PKCE) so LiteLLM authenticates it the way you intend, then save. Until it is set, LiteLLM falls back to interactive per-user auth and treats a machine-to-machine credential shape conservatively.")}
                   />
                 )}
                 <OAuthFormFields
@@ -1267,21 +1267,21 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             {!isStdioTransport && isAwsSigV4AuthType && (
               <>
                 <p className="text-sm text-gray-500 mb-2">
-                  For MCP servers hosted on AWS Bedrock AgentCore.{" "}
+                  {ui("For MCP servers hosted on AWS Bedrock AgentCore.")}{" "}
                   <a
                     href="https://docs.litellm.ai/docs/mcp_aws_sigv4"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-500 hover:text-blue-700"
                   >
-                    View docs &rarr;
+                    {ui("View docs &rarr;")}
                   </a>
                 </p>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Region
-                      <Tooltip title="AWS region for SigV4 signing (e.g., us-east-1)">
+                      {ui("AWS Region")}
+                      <Tooltip title={ui("AWS region for SigV4 signing (e.g., us-east-1)")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1290,15 +1290,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   rules={[]}
                 >
                   <Input
-                    placeholder="us-east-1 (leave blank to keep existing)"
+                    placeholder={ui("us-east-1 (leave blank to keep existing)")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Service Name
-                      <Tooltip title="AWS service name for SigV4 signing. Defaults to 'bedrock-agentcore'.">
+                      {ui("AWS Service Name")}
+                      <Tooltip title={ui("AWS service name for SigV4 signing. Defaults to 'bedrock-agentcore'.")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1306,15 +1306,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   name={["credentials", "aws_service_name"]}
                 >
                   <Input
-                    placeholder="bedrock-agentcore (leave blank to keep existing)"
+                    placeholder={ui("bedrock-agentcore (leave blank to keep existing)")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Access Key ID
-                      <Tooltip title="Optional. If not provided, falls back to the boto3 credential chain (IAM role, env vars, etc.).">
+                      {ui("AWS Access Key ID")}
+                      <Tooltip title={ui("Optional. If not provided, falls back to the boto3 credential chain (IAM role, env vars, etc.).")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1323,15 +1323,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   rules={[]}
                 >
                   <Input.Password
-                    placeholder="Leave blank to keep existing"
+                    placeholder={ui("Leave blank to keep existing")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Secret Access Key
-                      <Tooltip title="Optional. Required if AWS Access Key ID is provided.">
+                      {ui("AWS Secret Access Key")}
+                      <Tooltip title={ui("Optional. Required if AWS Access Key ID is provided.")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1340,15 +1340,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   rules={[]}
                 >
                   <Input.Password
-                    placeholder="Leave blank to keep existing"
+                    placeholder={ui("Leave blank to keep existing")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Session Token
-                      <Tooltip title="Optional. Only needed for temporary STS credentials.">
+                      {ui("AWS Session Token")}
+                      <Tooltip title={ui("Optional. Only needed for temporary STS credentials.")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1356,15 +1356,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   name={["credentials", "aws_session_token"]}
                 >
                   <Input.Password
-                    placeholder="Leave blank to keep existing"
+                    placeholder={ui("Leave blank to keep existing")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Role ARN
-                      <Tooltip title="Optional. IAM role ARN to assume via STS before signing. If set, LiteLLM calls sts:AssumeRole to get temporary credentials.">
+                      {ui("AWS Role ARN")}
+                      <Tooltip title={ui("Optional. IAM role ARN to assume via STS before signing. If set, LiteLLM calls sts:AssumeRole to get temporary credentials.")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1372,15 +1372,15 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   name={["credentials", "aws_role_name"]}
                 >
                   <Input
-                    placeholder="Leave blank to keep existing"
+                    placeholder={ui("Leave blank to keep existing")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
                 <Form.Item
                   label={
                     <span className="text-sm font-medium text-gray-700 flex items-center">
-                      AWS Session Name
-                      <Tooltip title="Optional. Session name for the AssumeRole call — appears in CloudTrail logs. Auto-generated if omitted.">
+                      {ui("AWS Session Name")}
+                      <Tooltip title={ui("Optional. Session name for the AssumeRole call — appears in CloudTrail logs. Auto-generated if omitted.")}>
                         <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                       </Tooltip>
                     </span>
@@ -1388,7 +1388,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                   name={["credentials", "aws_session_name"]}
                 >
                   <Input
-                    placeholder="Leave blank to keep existing"
+                    placeholder={ui("Leave blank to keep existing")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>

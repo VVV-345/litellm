@@ -3,6 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { Copy, MoreHorizontal, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { CellTooltip, DateCell, IdentityCell, StatusBadge, StatusTone } from "@/components/shared/table_cells";
@@ -69,10 +70,11 @@ interface PromptRowActionsProps {
 }
 
 function PromptRowActions({ prompt, isAdmin, onDeleteClick }: PromptRowActionsProps) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open prompt actions"
+        aria-label={t("ui.Open prompt actions")}
         data-testid={`prompt-actions-${prompt.prompt_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -81,10 +83,10 @@ function PromptRowActions({ prompt, isAdmin, onDeleteClick }: PromptRowActionsPr
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem
           data-testid="prompt-action-copy"
-          onClick={() => void copyToClipboard(prompt.prompt_id, "Prompt ID copied")}
+          onClick={() => void copyToClipboard(prompt.prompt_id, t("ui.Prompt ID copied"))}
         >
           <Copy />
-          Copy prompt ID
+          {t("ui.Copy prompt ID")}
         </DropdownMenuItem>
         {isAdmin && (
           <>
@@ -95,7 +97,7 @@ function PromptRowActions({ prompt, isAdmin, onDeleteClick }: PromptRowActionsPr
               onClick={() => onDeleteClick?.(prompt.prompt_id, prompt.prompt_id || "Unknown Prompt")}
             >
               <Trash2 />
-              Delete
+              {t("ui.Delete")}
             </DropdownMenuItem>
           </>
         )}
@@ -122,8 +124,8 @@ export const getPromptTableColumns = ({
   {
     id: "prompt_id",
     accessorKey: "prompt_id",
-    meta: { title: "Prompt ID" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Prompt ID" />,
+    meta: { title: t("ui.Prompt ID") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Prompt ID")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => (
@@ -137,8 +139,8 @@ export const getPromptTableColumns = ({
   },
   {
     id: "model",
-    meta: { title: "Model" },
-    header: "Model",
+    meta: { title: t("ui.Model") },
+    header: t("ui.Model"),
     size: 200,
     enableSorting: false,
     cell: ({ row }) => <PromptModelCell prompt={row.original} modelHubData={modelHubData} />,
@@ -147,8 +149,8 @@ export const getPromptTableColumns = ({
     id: "created_at",
     accessorKey: "created_at",
     sortingFn: "datetime",
-    meta: { title: "Created At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created At" />,
+    meta: { title: t("ui.Created At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Created At")} />,
     size: 160,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} />,
@@ -166,8 +168,8 @@ export const getPromptTableColumns = ({
   {
     id: "environment",
     accessorKey: "environment",
-    meta: { title: "Environment", skeleton: "badge" },
-    header: "Environment",
+    meta: { title: t("ui.Environment"), skeleton: "badge" },
+    header: t("ui.Environment"),
     size: 130,
     enableSorting: false,
     cell: ({ row }) => {
@@ -178,8 +180,8 @@ export const getPromptTableColumns = ({
   {
     id: "created_by",
     accessorKey: "created_by",
-    meta: { title: "Created By" },
-    header: "Created By",
+    meta: { title: t("ui.Created By") },
+    header: t("ui.Created By"),
     size: 160,
     enableSorting: false,
     cell: ({ row }) => {
@@ -194,8 +196,8 @@ export const getPromptTableColumns = ({
   {
     id: "prompt_type",
     accessorKey: "prompt_info.prompt_type",
-    meta: { title: "Type" },
-    header: "Type",
+    meta: { title: t("ui.Type") },
+    header: t("ui.Type"),
     size: 140,
     enableSorting: false,
     cell: ({ row }) => {
