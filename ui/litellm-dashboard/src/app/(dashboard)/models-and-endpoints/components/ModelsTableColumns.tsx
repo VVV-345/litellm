@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, Info, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import { ProviderLogo } from "@/components/molecules/models/ProviderLogo";
@@ -13,6 +14,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Switch } from "@/components/ui/switch";
 import { getDisplayModelName } from "@/components/view_model/model_name_display";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { translateUiText } from "@/utils/i18nText";
 
 export const MODEL_ID_COLUMN_ID = "model_info_id";
 export const MODEL_NAME_COLUMN_ID = "model_name";
@@ -345,6 +347,7 @@ export interface ModelsTableColumnDeps {
   onDeleteClick?: (modelId: string) => void;
   onTogglePauseClick?: (modelId: string, blocked: boolean) => void | Promise<void>;
   pausingModelId?: string | null;
+  t?: TFunction;
 }
 
 export const getModelsTableColumns = ({
@@ -355,12 +358,15 @@ export const getModelsTableColumns = ({
   onDeleteClick,
   onTogglePauseClick,
   pausingModelId,
-}: ModelsTableColumnDeps): ColumnDef<ModelData>[] => [
+  t,
+}: ModelsTableColumnDeps): ColumnDef<ModelData>[] => {
+  const ui = (value: string) => (t ? translateUiText(t, value) : value);
+  return [
   {
     id: MODEL_ID_COLUMN_ID,
     accessorFn: (row) => row.model_info.id,
-    meta: { title: "Model ID" },
-    header: "Model ID",
+    meta: { title: ui("Model ID") },
+    header: ui("Model ID"),
     enableSorting: false,
     size: 140,
     minSize: 90,
@@ -375,8 +381,8 @@ export const getModelsTableColumns = ({
   {
     id: MODEL_NAME_COLUMN_ID,
     accessorFn: (row) => row.model_name ?? "",
-    meta: { title: "Model Information", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Model Information" />,
+    meta: { title: ui("Model Information"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Model Information")} />,
     enableSorting: true,
     size: 280,
     minSize: 160,
@@ -387,7 +393,7 @@ export const getModelsTableColumns = ({
   {
     id: CREDENTIALS_COLUMN_ID,
     accessorFn: (row) => row.litellm_params?.litellm_credential_name ?? "",
-    meta: { title: "Credentials" },
+    meta: { title: ui("Credentials") },
     header: () => <CredentialsHeader />,
     enableSorting: false,
     size: 180,
@@ -397,8 +403,8 @@ export const getModelsTableColumns = ({
   {
     id: CREATED_BY_COLUMN_ID,
     accessorFn: (row) => row.model_info.created_by ?? "",
-    meta: { title: "Created By", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created By" />,
+    meta: { title: ui("Created By"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Created By")} />,
     enableSorting: true,
     size: 180,
     minSize: 110,
@@ -407,8 +413,8 @@ export const getModelsTableColumns = ({
   {
     id: UPDATED_AT_COLUMN_ID,
     accessorFn: (row) => row.model_info.updated_at ?? "",
-    meta: { title: "Updated At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" />,
+    meta: { title: ui("Updated At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Updated At")} />,
     enableSorting: true,
     size: 140,
     minSize: 100,
@@ -417,8 +423,8 @@ export const getModelsTableColumns = ({
   {
     id: COSTS_COLUMN_ID,
     accessorFn: (row) => row.input_cost,
-    meta: { title: "Costs" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Costs" />,
+    meta: { title: ui("Costs") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Costs")} />,
     enableSorting: true,
     size: 130,
     minSize: 90,
@@ -427,8 +433,8 @@ export const getModelsTableColumns = ({
   {
     id: TEAM_ID_COLUMN_ID,
     accessorFn: (row) => row.model_info.team_id ?? "",
-    meta: { title: "Team ID" },
-    header: "Team ID",
+    meta: { title: ui("Team ID") },
+    header: ui("Team ID"),
     enableSorting: false,
     size: 140,
     minSize: 90,
@@ -443,8 +449,8 @@ export const getModelsTableColumns = ({
   {
     id: ACCESS_GROUPS_COLUMN_ID,
     accessorFn: (row) => row.model_info.access_groups ?? [],
-    meta: { title: "Model Access Group", skeleton: "chips" },
-    header: "Model Access Group",
+    meta: { title: ui("Model Access Group"), skeleton: "chips" },
+    header: ui("Model Access Group"),
     enableSorting: false,
     size: 200,
     minSize: 120,
@@ -453,22 +459,22 @@ export const getModelsTableColumns = ({
   {
     id: STATUS_COLUMN_ID,
     accessorFn: (row) => row.model_info.db_model,
-    meta: { title: "Status", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Status" />,
+    meta: { title: ui("Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Status")} />,
     enableSorting: true,
     size: 140,
     minSize: 100,
     cell: ({ row }) =>
       row.original.model_info.db_model ? (
-        <StatusBadge tone="info" label="DB Model" />
+        <StatusBadge tone="info" label={ui("DB Model")} />
       ) : (
-        <StatusBadge tone="neutral" label="Config Model" />
+        <StatusBadge tone="neutral" label={ui("Config Model")} />
       ),
   },
   {
     id: "actions",
-    meta: { title: "Actions", className: "text-right", headerClassName: "text-right" },
-    header: "Actions",
+    meta: { title: ui("Actions"), className: "text-right", headerClassName: "text-right" },
+    header: ui("Actions"),
     enableSorting: false,
     enableHiding: false,
     enableResizing: false,
@@ -485,4 +491,5 @@ export const getModelsTableColumns = ({
       />
     ),
   },
-];
+  ];
+};
