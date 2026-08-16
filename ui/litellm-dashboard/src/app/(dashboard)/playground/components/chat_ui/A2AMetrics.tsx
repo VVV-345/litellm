@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTranslation } from "react-i18next";
 
 export interface A2ATaskMetadata {
   taskId?: string;
@@ -82,6 +83,7 @@ const copyToClipboard = (text: string) => {
 };
 
 const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, totalLatency }) => {
+  const { t } = useTranslation();
   const [showDetails, setShowDetails] = useState(false);
 
   if (!a2aMetadata && !timeToFirstToken && !totalLatency) return null;
@@ -94,7 +96,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
       {/* A2A Metadata Header */}
       <div className="flex items-center mb-2 text-gray-600">
         <Bot className="mr-1.5 size-4 text-blue-500" />
-        <span className="font-medium text-gray-700">A2A Metadata</span>
+        <span className="font-medium text-gray-700">{t("ui.A2A Metadata")}</span>
       </div>
 
       {/* Main metrics row */}
@@ -127,7 +129,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
               <Clock className="mr-1 size-3" />
               {(totalLatency / 1000).toFixed(2)}s
             </TooltipTrigger>
-            <TooltipContent>Total latency</TooltipContent>
+            <TooltipContent>{t("ui.Total latency")}</TooltipContent>
           </Tooltip>
         )}
 
@@ -137,7 +139,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
             <TooltipTrigger render={<span className="flex items-center text-green-600" />}>
               TTFT: {(timeToFirstToken / 1000).toFixed(2)}s
             </TooltipTrigger>
-            <TooltipContent>Time to first token</TooltipContent>
+            <TooltipContent>{t("ui.Time to first token")}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -204,7 +206,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
               }
             >
               {showDetails ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-              Details
+              {t("ui.Details")}
             </CollapsibleTrigger>
           </Collapsible>
         )}
@@ -217,7 +219,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
             {/* Status message */}
             {status?.message && (
               <div className="mb-2">
-                <span className="font-medium text-gray-700">Status Message:</span>
+                <span className="font-medium text-gray-700">{t("ui.Status Message:")}</span>
                 <span className="ml-2">{status.message}</span>
               </div>
             )}
@@ -225,7 +227,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
             {/* Full IDs */}
             {taskId && (
               <div className="mb-1.5 flex items-center">
-                <span className="font-medium text-gray-700 w-24">Task ID:</span>
+                <span className="font-medium text-gray-700 w-24">{t("ui.Task ID:")}</span>
                 <code className="ml-2 px-2 py-1 bg-white border border-gray-200 rounded-sm text-xs font-mono">
                   {taskId}
                 </code>
@@ -244,7 +246,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
 
             {contextId && (
               <div className="mb-1.5 flex items-center">
-                <span className="font-medium text-gray-700 w-24">Session ID:</span>
+                <span className="font-medium text-gray-700 w-24">{t("ui.Session ID:")}</span>
                 <code className="ml-2 px-2 py-1 bg-white border border-gray-200 rounded-sm text-xs font-mono">
                   {contextId}
                 </code>
@@ -264,7 +266,7 @@ const A2AMetrics: React.FC<A2AMetricsProps> = ({ a2aMetadata, timeToFirstToken, 
             {/* Metadata fields */}
             {metadata && Object.keys(metadata).length > 0 && (
               <div className="mt-3">
-                <span className="font-medium text-gray-700">Custom Metadata:</span>
+                <span className="font-medium text-gray-700">{t("ui.Custom Metadata:")}</span>
                 <pre className="mt-1.5 p-2 bg-white border border-gray-200 rounded-sm text-xs font-mono overflow-x-auto whitespace-pre-wrap">
                   {JSON.stringify(metadata, null, 2)}
                 </pre>

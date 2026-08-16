@@ -1,6 +1,7 @@
 "use client";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
+import { useTranslation } from "react-i18next";
 import { DEBOUNCE_WAIT_MS } from "@/utils/debounceConstants";
 import { Eraser, FileText, Plus, Trash2 } from "lucide-react";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
@@ -58,6 +59,7 @@ const GENERIC_FOLLOW_UPS = [
 const SUGGESTED_PROMPTS = ["Write me a poem", "Explain quantum computing", "Draft a polite email requesting a meeting"];
 const DEFAULT_ENDPOINT = EndpointId.CHAT_COMPLETIONS;
 export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: CompareUIProps) {
+  const { t } = useTranslation();
   const [comparisons, setComparisons] = useState<ComparisonInstance[]>([
     {
       id: "1",
@@ -482,7 +484,7 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
       return;
     }
     if (!effectiveApiKey) {
-      NotificationsManager.fromBackend("Please provide a Virtual Key or select Current UI Session");
+      NotificationsManager.fromBackend(t("ui.Please provide a Virtual Key or select Current UI Session"));
       return;
     }
     const targetComparisons = comparisons;
@@ -692,20 +694,20 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
         <div className="border-b px-4 py-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Virtual Key Source</span>
+              <span className="text-sm font-medium text-gray-600">{t("ui.Virtual Key Source")}</span>
               <Select
                 value={apiKeySource}
                 onValueChange={(value) => setApiKeySource(value as "session" | "custom")}
                 disabled={disabledPersonalKeyCreation}
               >
-                <SelectTrigger className="w-48" aria-label="Virtual Key Source">
-                  <SelectValue>{apiKeySource === "custom" ? "Virtual Key" : "Current UI Session"}</SelectValue>
+                <SelectTrigger className="w-48" aria-label={t("ui.Virtual Key Source")}>
+                  <SelectValue>{apiKeySource === "custom" ? t("ui.Virtual Key") : t("ui.Current UI Session")}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="session" disabled={!canUseSessionKey}>
-                    Current UI Session
+                    {t("ui.Current UI Session")}
                   </SelectItem>
-                  <SelectItem value="custom">Virtual Key</SelectItem>
+                  <SelectItem value="custom">{t("ui.Virtual Key")}</SelectItem>
                 </SelectContent>
               </Select>
               {apiKeySource === "custom" && (
@@ -713,15 +715,15 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
                   type="password"
                   value={customApiKey}
                   onChange={(event) => setCustomApiKey(event.target.value)}
-                  placeholder="Enter Virtual Key"
+                  placeholder={t("ui.Enter Virtual Key")}
                   className="w-56"
                 />
               )}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Endpoint</span>
+              <span className="text-sm font-medium text-gray-600">{t("ui.Endpoint")}</span>
               <Select value={selectedEndpoint} onValueChange={(value) => setSelectedEndpoint(value as EndpointIdType)}>
-                <SelectTrigger className="w-56" aria-label="Endpoint">
+                <SelectTrigger className="w-56" aria-label={t("ui.Endpoint")}>
                   <SelectValue>{endpointConfig.label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -736,17 +738,19 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
             <div className="flex items-center gap-3">
               <Button variant="outline" onClick={clearAllChats} disabled={!hasMessages}>
                 <Eraser />
-                Clear All Chats
+                {t("ui.Clear All Chats")}
               </Button>
               <Tooltip>
                 <TooltipTrigger render={<span className="inline-flex" />}>
                   <Button variant="outline" onClick={addComparison} disabled={comparisons.length >= maxComparisons}>
                     <Plus />
-                    Add Comparison
+                    {t("ui.Add Comparison")}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {comparisons.length >= maxComparisons ? "Compare up to 3 models at a time" : "Add another comparison"}
+                  {comparisons.length >= maxComparisons
+                    ? t("ui.Compare up to 3 models at a time")
+                    : t("ui.Add another comparison")}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -778,7 +782,7 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
             <div className="border border-gray-200 shadow-lg rounded-xl bg-white p-4">
               <div className="flex items-center justify-between gap-4 mb-3 min-h-8">
                 {hasAttachment ? (
-                  <span className="text-sm text-gray-500">Attachment ready to send</span>
+                  <span className="text-sm text-gray-500">{t("ui.Attachment ready to send")}</span>
                 ) : showSuggestedPrompts ? (
                   <div className="flex items-center gap-2 overflow-x-auto">
                     {SUGGESTED_PROMPTS.map((prompt) => (
@@ -825,19 +829,19 @@ export default function CompareUI({ accessToken, disabledPersonalKeyCreation }: 
                       ) : (
                         <img
                           src={uploadedFilePreviewUrl || ""}
-                          alt="Upload preview"
+                          alt={t("ui.Upload preview")}
                           className="w-10 h-10 rounded-md border border-gray-200 object-cover"
                         />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-900 truncate">{uploadedFile.name}</div>
-                      <div className="text-xs text-gray-500">{isUploadedFilePdf ? "PDF" : "Image"}</div>
+                      <div className="text-xs text-gray-500">{isUploadedFilePdf ? t("ui.PDF") : t("ui.Image")}</div>
                     </div>
                     <button
                       className="flex items-center justify-center w-6 h-6 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-full transition-colors"
                       onClick={handleRemoveFile}
-                      aria-label="Remove attachment"
+                      aria-label={t("ui.Remove attachment")}
                     >
                       <Trash2 className="size-3" />
                     </button>

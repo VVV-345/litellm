@@ -2,11 +2,13 @@ import { useDisableShowPrompts } from "@/app/(dashboard)/hooks/useDisableShowPro
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Github, Slack } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 const iconBtnClass =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 cursor-pointer";
 
 export const CommunityEngagementButtons: React.FC = () => {
+  const { t } = useTranslation();
   const disableShowPrompts = useDisableShowPrompts();
 
   if (disableShowPrompts) {
@@ -16,7 +18,7 @@ export const CommunityEngagementButtons: React.FC = () => {
   return (
     <div
       className="flex items-center gap-0.5 rounded-md border border-gray-200/80 bg-gray-50 px-0.5 py-0"
-      aria-label="Community links"
+      aria-label={t("nav.communityLinks")}
     >
       <TooltipProvider>
         <Tooltip>
@@ -27,13 +29,13 @@ export const CommunityEngagementButtons: React.FC = () => {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={iconBtnClass}
-                aria-label="Join Slack"
+                aria-label={t("nav.joinSlack")}
               />
             }
           >
             <Slack className="size-[18px]" />
           </TooltipTrigger>
-          <TooltipContent>LiteLLM Slack community</TooltipContent>
+          <TooltipContent>{t("nav.slackCommunity")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -43,13 +45,13 @@ export const CommunityEngagementButtons: React.FC = () => {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={iconBtnClass}
-                aria-label="LiteLLM on GitHub"
+                aria-label={t("nav.litellmOnGitHub")}
               />
             }
           >
             <Github className="size-[18px]" />
           </TooltipTrigger>
-          <TooltipContent>LiteLLM on GitHub</TooltipContent>
+          <TooltipContent>{t("nav.litellmOnGitHub")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </div>

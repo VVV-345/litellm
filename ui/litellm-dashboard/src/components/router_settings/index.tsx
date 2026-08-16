@@ -170,7 +170,7 @@ const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, 
 
     try {
       await setCallbacksCall(accessToken, payload);
-      NotificationsManager.success("router settings updated successfully");
+      NotificationsManager.success(t("ui.router settings updated successfully"));
     } catch (error) {
       NotificationsManager.fromBackend("Failed to update router settings: " + error);
     }
@@ -192,7 +192,7 @@ const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, 
 
       {/* Actions - Sticky at bottom */}
       <div className="border-t border-gray-200 pt-6 flex justify-end gap-3">
-        <Button onClick={() => window.location.reload()}>Reset</Button>
+        <Button onClick={() => window.location.reload()}>{t("ui.Reset")}</Button>
         <Button type="primary" onClick={handleSaveChanges}>
           {t("ui.Save Changes")}
         </Button>

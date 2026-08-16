@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { BlogDropdown } from "./Navbar/BlogDropdown/BlogDropdown";
 import { CommunityEngagementButtons } from "./Navbar/CommunityEngagementButtons/CommunityEngagementButtons";
 import { NAV_PRODUCT_LINK_CLASS } from "./Navbar/navProductLinkClass";
@@ -42,6 +43,7 @@ const Navbar: React.FC<NavbarProps> = ({
   const hideCommunityLinks = useDisableShowPrompts();
   const { isControlPlane, selectedWorker } = useWorker();
   const showWorkerSwitch = isControlPlane && selectedWorker !== null;
+  const { t } = useTranslation();
 
   const imageUrl = logoUrl || `${baseUrl}/get_image`;
 
@@ -133,7 +135,7 @@ const Navbar: React.FC<NavbarProps> = ({
             )}
 
             <nav
-              aria-label="Product documentation"
+              aria-label={t("nav.productDocumentation")}
               className={`flex min-w-0 items-center gap-2 ${showWorkerSwitch ? "border-l border-gray-200 pl-4" : ""}`}
             >
               <a
@@ -142,7 +144,7 @@ const Navbar: React.FC<NavbarProps> = ({
                 rel="noopener noreferrer"
                 className={NAV_PRODUCT_LINK_CLASS}
               >
-                Docs
+                {t("common.docs")}
                 {/* Layout parity with Blog chevron — intentional single-level link */}
                 <ChevronDown className="pointer-events-none size-2.5 opacity-0" aria-hidden />
               </a>

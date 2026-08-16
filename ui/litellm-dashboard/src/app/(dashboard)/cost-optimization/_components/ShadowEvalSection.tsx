@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { useInfiniteKeys } from "@/app/(dashboard)/hooks/keys/useKeys";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
@@ -54,14 +56,16 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
   </Badge>
 );
 
-const SliceTable: React.FC<{ groupHeader: string; slices: readonly ShadowEvalSlice[] }> = ({ groupHeader, slices }) => (
+const SliceTable: React.FC<{ groupHeader: string; slices: readonly ShadowEvalSlice[] }> = ({ groupHeader, slices }) => {
+  const { t } = useTranslation();
+  return (
   <Table>
     <TableHeader>
       <TableRow>
         <TableHead>{groupHeader}</TableHead>
         {["Judged turns", "Router wins", "Current model wins", "Ties", "Judge confidence"].map((label) => (
           <TableHead key={label} className="text-right">
-            {label}
+            {t(`ui.${label}`)}
           </TableHead>
         ))}
       </TableRow>
@@ -72,7 +76,7 @@ const SliceTable: React.FC<{ groupHeader: string; slices: readonly ShadowEvalSli
           <TableCell className="font-medium text-foreground">
             {slice.group}
             {slice.turn_count < MIN_TURNS_FOR_CONFIDENCE && (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">(low sample)</span>
+              <span className="ml-2 text-xs font-normal text-muted-foreground">{t("ui.(low sample)")}</span>
             )}
           </TableCell>
           <TableCell className="text-right tabular-nums">{slice.turn_count.toLocaleString()}</TableCell>
@@ -86,19 +90,21 @@ const SliceTable: React.FC<{ groupHeader: string; slices: readonly ShadowEvalSli
       ))}
     </TableBody>
   </Table>
-);
+  );
+};
 
 const VerdictBar: React.FC<{ results: NonNullable<ShadowEvalJob["results"]> }> = ({ results }) => {
+  const { t } = useTranslation();
   const routerWins = results.overall_shadow_win_rate_pct;
   const ties = results.overall_tie_rate_pct;
   const segments = [
-    { label: "Router won", value: routerWins, fill: "bg-emerald-500" },
-    { label: "Tie", value: ties, fill: "bg-emerald-200" },
-    { label: "Current model won", value: Math.max(0, 100 - routerWins - ties), fill: "bg-muted-foreground/30" },
+    { label: t("ui.Router won"), value: routerWins, fill: "bg-emerald-500" },
+    { label: t("ui.Tie"), value: ties, fill: "bg-emerald-200" },
+    { label: t("ui.Current model won"), value: Math.max(0, 100 - routerWins - ties), fill: "bg-muted-foreground/30" },
   ];
   return (
     <div className="space-y-2 border-b px-6 py-4">
-      <div className="flex h-2 w-full overflow-hidden rounded-full" role="img" aria-label="Verdict breakdown">
+      <div className="flex h-2 w-full overflow-hidden rounded-full" role="img" aria-label={t("ui.Verdict breakdown")}>
         {segments
           .filter((segment) => segment.value > 0)
           .map((segment) => (
@@ -117,23 +123,24 @@ const VerdictBar: React.FC<{ results: NonNullable<ShadowEvalJob["results"]> }> =
   );
 };
 
-const emptyResultsText = (job: ShadowEvalJob, resultsError: boolean): string => {
-  if (resultsError) return "Results could not be loaded. Retrying.";
-  if (isActive(job)) return "Collecting verdicts. Results appear as sampled requests are judged.";
-  if (job.judged_count === 0) return "No verdicts were recorded for this job.";
-  return "Loading results...";
+const emptyResultsText = (job: ShadowEvalJob, resultsError: boolean, t: TFunction): string => {
+  if (resultsError) return t("ui.Results could not be loaded. Retrying.");
+  if (isActive(job)) return t("ui.Collecting verdicts. Results appear as sampled requests are judged.");
+  if (job.judged_count === 0) return t("ui.No verdicts were recorded for this job.");
+  return t("ui.Loading results...");
 };
 
 const ResultsBody: React.FC<{ job: ShadowEvalJob; resultsError?: boolean }> = ({ job, resultsError = false }) => {
+  const { t } = useTranslation();
   const results = job.results;
   if (!results || (results.by_tier.length === 0 && results.by_current_model.length === 0)) {
-    return <p className="px-6 py-8 text-center text-sm text-muted-foreground">{emptyResultsText(job, resultsError)}</p>;
+    return <p className="px-6 py-8 text-center text-sm text-muted-foreground">{emptyResultsText(job, resultsError, t)}</p>;
   }
   return (
     <>
       <div className="flex flex-col gap-1 border-b px-6 py-4">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          Router matched or beat your current model
+          {t("ui.Router matched or beat your current model")}
         </p>
         <p className="text-3xl font-semibold text-foreground">
           {pct(results.overall_shadow_win_rate_pct + results.overall_tie_rate_pct)}
@@ -142,11 +149,11 @@ const ResultsBody: React.FC<{ job: ShadowEvalJob; resultsError?: boolean }> = ({
       </div>
       <VerdictBar results={results} />
       {results.by_current_model.length > 0 && (
-        <SliceTable groupHeader="Compared against" slices={results.by_current_model} />
+        <SliceTable groupHeader={t("ui.Compared against")} slices={results.by_current_model} />
       )}
       {results.by_tier.length > 0 && (
         <div className={results.by_current_model.length > 0 ? "border-t" : ""}>
-          <SliceTable groupHeader="Prompt difficulty" slices={results.by_tier} />
+          <SliceTable groupHeader={t("ui.Prompt difficulty")} slices={results.by_tier} />
         </div>
       )}
     </>
@@ -160,6 +167,7 @@ const JobResults: React.FC<{
   resultsError?: boolean;
   readOnly?: boolean;
 }> = ({ job, onStop, stopPending, resultsError = false, readOnly = false }) => {
+  const { t } = useTranslation();
   const active = isActive(job);
   const remaining = endsIn(job.ends_at);
   return (
@@ -180,13 +188,13 @@ const JobResults: React.FC<{
         </div>
         {active && !readOnly && (
           <Button variant="outline" size="sm" onClick={onStop} disabled={stopPending}>
-            {stopPending ? "Stopping..." : "Stop"}
+            {stopPending ? t("ui.Stopping...") : t("ui.Stop")}
           </Button>
         )}
       </div>
       {(job.error_count ?? 0) > 0 && job.last_error != null && (
         <p className="border-b bg-red-50 px-6 py-2 text-xs text-destructive">
-          Last failure: <span className="font-mono">{job.last_error}</span>
+          {t("ui.Last failure:")} <span className="font-mono">{job.last_error}</span>
         </p>
       )}
       <ResultsBody job={job} resultsError={resultsError} />
@@ -202,12 +210,13 @@ interface CostMapEntry {
 }
 
 const useJudgeModelOptions = (): SearchSelectOption[] => {
+  const { t } = useTranslation();
   const { data: costMap } = useModelCostMap();
   return useMemo(() => {
     const pinned: SearchSelectOption[] = RECOMMENDED_JUDGE_MODELS.map((model) => ({
       label: model,
       value: model,
-      sublabel: "Recommended",
+      sublabel: t("ui.Recommended"),
     }));
     if (!costMap) return pinned;
     const pinnedNames = new Set<string>(RECOMMENDED_JUDGE_MODELS);
@@ -245,6 +254,7 @@ const Field: React.FC<{ label: string; htmlFor?: string; className?: string; chi
 );
 
 const KeySelect: React.FC<{ value: string; onChange: (token: string) => void }> = ({ value, onChange }) => {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteKeys(50, {
     selectedKeyAlias: search || null,
@@ -271,14 +281,15 @@ const KeySelect: React.FC<{ value: string; onChange: (token: string) => void }> 
       hasNextPage={hasNextPage}
       isFetchingNextPage={isFetchingNextPage}
       isLoading={isPending}
-      placeholder="Search keys by alias"
-      emptyText="No matching keys"
-      errorText={isError ? "Keys could not be loaded. Refresh the page to retry." : undefined}
+      placeholder={t("ui.Search keys by alias")}
+      emptyText={t("ui.No matching keys")}
+      errorText={isError ? t("ui.Keys could not be loaded. Refresh the page to retry.") : undefined}
     />
   );
 };
 
 const StartForm: React.FC = () => {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [apiKeyId, setApiKeyId] = useState("");
   const [routerName, setRouterName] = useState("");
@@ -319,27 +330,28 @@ const StartForm: React.FC = () => {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-foreground">Start a shadow eval</CardTitle>
+        <CardTitle className="text-sm font-medium text-foreground">{t("ui.Start a shadow eval")}</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Duplicates a sampled slice of the key&apos;s traffic through the auto-router and has an LLM judge compare both
-          answers blind. The router&apos;s answers are never served to users; judge calls bill to the shadowed key.
+          {t(
+            "ui.Duplicates a sampled slice of the key's traffic through the auto-router and has an LLM judge compare both answers blind. The router's answers are never served to users; judge calls bill to the shadowed key.",
+          )}
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Key to shadow" htmlFor="shadow-eval-key">
+          <Field label={t("ui.Key to shadow")} htmlFor="shadow-eval-key">
             <KeySelect value={apiKeyId} onChange={setApiKeyId} />
           </Field>
-          <Field label="Auto-router">
+          <Field label={t("ui.Auto-router")}>
             <SearchSelect
               options={routerOptions}
               value={routerName}
               onValueChange={setRouterName}
-              placeholder="Select an auto-router"
-              emptyText="No auto-routers configured"
+              placeholder={t("ui.Select an auto-router")}
+              emptyText={t("ui.No auto-routers configured")}
             />
           </Field>
-          <Field label="Traffic sampled" htmlFor="shadow-eval-pct">
+          <Field label={t("ui.Traffic sampled")} htmlFor="shadow-eval-pct">
             <div className="flex items-center gap-2">
               <Input
                 id="shadow-eval-pct"
@@ -351,29 +363,31 @@ const StartForm: React.FC = () => {
                 value={percentage}
                 onChange={(e) => setPercentage(e.target.value)}
               />
-              <span className="text-sm text-muted-foreground">% of traffic</span>
+              <span className="text-sm text-muted-foreground">{t("ui.% of traffic")}</span>
             </div>
             <div>
               {percentage.trim() !== "" && !percentageValid && (
-                <p className="text-xs text-destructive">Enter a value from 0.1 to 100</p>
+                <p className="text-xs text-destructive">{t("ui.Enter a value from 0.1 to 100")}</p>
               )}
             </div>
           </Field>
-          <Field label="Duration">
+          <Field label={t("ui.Duration")}>
             <Select value={durationDays} onValueChange={(v: string | null) => setDurationDays(v ?? "7")}>
               <SelectTrigger className="w-full">
-                <SelectValue>{DURATION_OPTIONS.find((o) => o.value === durationDays)?.label}</SelectValue>
+                <SelectValue>
+                  {t(`ui.${DURATION_OPTIONS.find((o) => o.value === durationDays)?.label}`)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {DURATION_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(`ui.${option.label}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Turn budget">
+          <Field label={t("ui.Turn budget")}>
             <div className="flex items-center gap-2">
               <Input
                 type="number"
@@ -383,24 +397,24 @@ const StartForm: React.FC = () => {
                 value={maxTurns}
                 onChange={(e) => setMaxTurns(e.target.value)}
               />
-              <span className="text-sm text-muted-foreground">turns judged, max</span>
+              <span className="text-sm text-muted-foreground">{t("ui.turns judged, max")}</span>
             </div>
             {maxTurns.trim() !== "" && !maxTurnsValid && (
-              <p className="text-xs text-destructive">Enter a value from 1 to 2000</p>
+              <p className="text-xs text-destructive">{t("ui.Enter a value from 1 to 2000")}</p>
             )}
           </Field>
-          <Field label="Judge model" className="sm:col-span-2">
+          <Field label={t("ui.Judge model")} className="sm:col-span-2">
             <SearchSelect
               options={judgeModelOptions}
               value={judgeModel}
               onValueChange={setJudgeModel}
-              placeholder="Select a judge model"
-              emptyText="No chat models available"
+              placeholder={t("ui.Select a judge model")}
+              emptyText={t("ui.No chat models available")}
             />
           </Field>
         </div>
         <Button disabled={!valid || start.isPending} onClick={handleStart}>
-          {start.isPending ? "Starting..." : "Start shadow eval"}
+          {start.isPending ? t("ui.Starting...") : t("ui.Start shadow eval")}
         </Button>
       </CardContent>
     </Card>
@@ -450,6 +464,7 @@ const PreviousJob: React.FC<{ job: ShadowEvalJob }> = ({ job }) => {
 };
 
 const PreviousJobs: React.FC<{ jobs: readonly ShadowEvalJob[] }> = ({ jobs }) => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (jobs.length === 0) return null;
   return (
@@ -460,8 +475,10 @@ const PreviousJobs: React.FC<{ jobs: readonly ShadowEvalJob[] }> = ({ jobs }) =>
         onClick={() => setOpen((prev) => !prev)}
         className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left hover:bg-muted/50"
       >
-        <span className="text-sm font-medium text-foreground">Previous evaluations ({jobs.length})</span>
-        <span className="text-xs text-muted-foreground">{open ? "Hide" : "Show"}</span>
+        <span className="text-sm font-medium text-foreground">
+          {t("ui.Previous evaluations")} ({jobs.length})
+        </span>
+        <span className="text-xs text-muted-foreground">{open ? t("ui.Hide") : t("ui.Show")}</span>
       </button>
       {open && (
         <div className="border-t">
@@ -490,6 +507,7 @@ const JobCard: React.FC<{ job: ShadowEvalJob; readOnly: boolean }> = ({ job, rea
 };
 
 const ShadowEvalSection: React.FC = () => {
+  const { t } = useTranslation();
   const { data: jobs, error, isPending } = useShadowEvalJobs();
   const { isViewOnly } = useAuthorized();
   const { showcased, listed } = useMemo(() => {
@@ -504,18 +522,21 @@ const ShadowEvalSection: React.FC = () => {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-2">
-        <h2 className="text-xl font-semibold text-foreground">Shadow eval</h2>
+        <h2 className="text-xl font-semibold text-foreground">{t("ui.Shadow eval")}</h2>
         <p className="text-sm text-muted-foreground">
-          Would the auto-router have answered as well as the models you use today? Find out on your real traffic, before
-          switching anything.
+          {t(
+            "ui.Would the auto-router have answered as well as the models you use today? Find out on your real traffic, before switching anything.",
+          )}
         </p>
       </div>
 
       {error != null && (
-        <p className="text-sm text-destructive">Existing evaluations could not be loaded. Refresh the page to retry.</p>
+        <p className="text-sm text-destructive">
+          {t("ui.Existing evaluations could not be loaded. Refresh the page to retry.")}
+        </p>
       )}
 
-      {isPending && error == null && <p className="text-sm text-muted-foreground">Loading evaluations...</p>}
+      {isPending && error == null && <p className="text-sm text-muted-foreground">{t("ui.Loading evaluations...")}</p>}
 
       {showcased.map((job) => (
         <JobCard key={job.job_id} job={job} readOnly={isViewOnly} />

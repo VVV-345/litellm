@@ -28,7 +28,7 @@ const TagFilteringToggle: React.FC<TagFilteringToggleProps> = ({ enabled, router
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:text-blue-800 underline"
                 >
-                  Learn more
+                  {t("ui.Learn more")}
                 </a>
               </>
             )}

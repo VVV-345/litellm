@@ -1,4 +1,5 @@
 import { FileText, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 
 interface FilePreviewCardProps {
@@ -8,6 +9,7 @@ interface FilePreviewCardProps {
 }
 
 function FilePreviewCard({ file, previewUrl, onRemove }: FilePreviewCardProps) {
+  const { t } = useTranslation();
   const isPdf = file.name.toLowerCase().endsWith(".pdf");
 
   return (
@@ -21,14 +23,14 @@ function FilePreviewCard({ file, previewUrl, onRemove }: FilePreviewCardProps) {
           ) : (
             <img
               src={previewUrl || ""}
-              alt="Upload preview"
+              alt={t("ui.Upload preview")}
               className="w-10 h-10 rounded-md border border-gray-200 object-cover"
             />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-gray-900 truncate">{file.name}</div>
-          <div className="text-xs text-gray-500">{isPdf ? "PDF" : "Image"}</div>
+          <div className="text-xs text-gray-500">{isPdf ? t("ui.PDF") : t("ui.Image")}</div>
         </div>
         <Button
           type="button"

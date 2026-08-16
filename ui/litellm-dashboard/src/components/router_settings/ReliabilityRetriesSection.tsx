@@ -15,7 +15,7 @@ const ReliabilityRetriesSection: React.FC<ReliabilityRetriesSectionProps> = ({
   return (
     <div className="space-y-6">
       <div className="max-w-3xl">
-        <h3 className="text-sm font-medium text-gray-900">Reliability & Retries</h3>
+        <h3 className="text-sm font-medium text-gray-900">{t("ui.Reliability & Retries")}</h3>
         <p className="text-xs text-gray-500 mt-1">{t("ui.Configure retry logic and failure handling")}</p>
       </div>
 
