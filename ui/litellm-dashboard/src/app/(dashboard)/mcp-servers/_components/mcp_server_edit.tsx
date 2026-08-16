@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Form, Select, Button as AntdButton, Tooltip, Input, InputNumber, Alert } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { Button, TabGroup, TabList, Tab, TabPanels, TabPanel } from "@tremor/react";
@@ -47,6 +48,7 @@ import {
   normalizeToolOverrideMap,
   TOOL_DISPLAY_NAME_PATTERN,
 } from "./utils";
+import { translateUiText } from "@/utils/i18nText";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { useMcpOAuthFlow } from "@/hooks/useMcpOAuthFlow";
 import { getSecureItem, setSecureItem } from "@/utils/secureStorage";
@@ -80,6 +82,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
   onSuccess,
   availableAccessGroups,
 }) => {
+  const { t } = useTranslation();
+  const ui = (value: string) => translateUiText(t, value);
   const [form] = Form.useForm();
   const [costConfig, setCostConfig] = useState<MCPServerCostInfo>({});
   const [tools, setTools] = useState<any[]>([]);
@@ -1000,8 +1004,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
   return (
     <TabGroup>
       <TabList className="grid w-full grid-cols-2">
-        <Tab>Server Configuration</Tab>
-        <Tab>Cost Configuration</Tab>
+        <Tab>{ui("Server Configuration")}</Tab>
+        <Tab>{ui("Cost Configuration")}</Tab>
       </TabList>
       <TabPanels className="mt-6">
         <TabPanel>
@@ -1013,7 +1017,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             layout="vertical"
           >
             <Form.Item
-              label="MCP Server Name"
+              label={ui("MCP Server Name")}
               name="server_name"
               rules={[
                 {
@@ -1024,7 +1028,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
               <Input className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" />
             </Form.Item>
             <Form.Item
-              label="Alias"
+              label={ui("Alias")}
               name="alias"
               rules={[
                 {
@@ -1037,23 +1041,23 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
               />
             </Form.Item>
-            <Form.Item label="Description" name="description">
+            <Form.Item label={ui("Description")} name="description">
               <Input className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" />
             </Form.Item>
             <MCPLogoSelector value={logoUrl} onChange={setLogoUrl} />
-            <Form.Item label="Transport Type" name="transport" rules={[{ required: true }]}>
+            <Form.Item label={ui("Transport Type")} name="transport" rules={[{ required: true }]}>
               <Select onChange={handleTransportChange}>
-                <Select.Option value="http">Streamable HTTP (Recommended)</Select.Option>
-                <Select.Option value="sse">Server-Sent Events (SSE)</Select.Option>
-                <Select.Option value="stdio">Standard Input/Output (stdio)</Select.Option>
-                <Select.Option value={TRANSPORT.OPENAPI}>OpenAPI Spec</Select.Option>
+                <Select.Option value="http">{ui("Streamable HTTP (Recommended)")}</Select.Option>
+                <Select.Option value="sse">{ui("Server-Sent Events (SSE)")}</Select.Option>
+                <Select.Option value="stdio">{ui("Standard Input/Output (stdio)")}</Select.Option>
+                <Select.Option value={TRANSPORT.OPENAPI}>{ui("OpenAPI Spec")}</Select.Option>
               </Select>
             </Form.Item>
 
             {/* URL field - only for HTTP/SSE */}
             {isMCPTransport && (
               <Form.Item
-                label="MCP Server URL"
+                label={ui("MCP Server URL")}
                 name="url"
                 rules={[
                   { required: true, message: "Please enter a server URL" },
@@ -1061,7 +1065,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
                 ]}
               >
                 <Input
-                  placeholder="https://your-mcp-server.com"
+                  placeholder={ui("https://your-mcp-server.com")}
                   className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </Form.Item>
@@ -1072,7 +1076,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
               <Form.Item
                 label={
                   <span className="text-sm font-medium text-gray-700 flex items-center">
-                    OpenAPI Spec URL
+                    {ui("OpenAPI Spec URL")}
                     <Tooltip title="URL to an OpenAPI specification (JSON or YAML). MCP tools will be automatically generated from the API endpoints defined in the spec.">
                       <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                     </Tooltip>
@@ -1091,7 +1095,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             <Form.Item
               label={
                 <span className="text-sm font-medium text-gray-700 flex items-center">
-                  Max Concurrent Requests (optional)
+                  {ui("Max Concurrent Requests (optional)")}
                   <Tooltip title="Maximum number of tool calls LiteLLM will run against this server at the same time. Additional calls wait for a free slot. Leave blank for no limit.">
                     <InfoCircleOutlined className="ml-2 text-blue-400 hover:text-blue-600 cursor-help" />
                   </Tooltip>
@@ -1102,7 +1106,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
               <InputNumber
                 min={1}
                 precision={0}
-                placeholder="e.g. 10"
+                placeholder={ui("e.g. 10")}
                 style={{ width: "100%" }}
                 className="rounded-lg"
               />
@@ -1111,14 +1115,14 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             {/* Authentication - for HTTP, SSE, and OpenAPI */}
             {!isStdioTransport && (
               <>
-                <Form.Item label="Authentication" name="auth_type" rules={[{ required: true }]}>
+                <Form.Item label={ui("Authentication")} name="auth_type" rules={[{ required: true }]}>
                   <Select virtual={false}>
-                    <Select.Option value="none">None</Select.Option>
-                    <Select.Option value="api_key">API Key</Select.Option>
-                    <Select.Option value="bearer_token">Bearer Token</Select.Option>
-                    <Select.Option value="token">Token</Select.Option>
-                    <Select.Option value="basic">Basic Auth</Select.Option>
-                    <Select.Option value="oauth2">OAuth</Select.Option>
+                    <Select.Option value="none">{ui("None")}</Select.Option>
+                    <Select.Option value="api_key">{ui("API Key")}</Select.Option>
+                    <Select.Option value="bearer_token">{ui("Bearer Token")}</Select.Option>
+                    <Select.Option value="token">{ui("Token")}</Select.Option>
+                    <Select.Option value="basic">{ui("Basic Auth")}</Select.Option>
+                    <Select.Option value="oauth2">{ui("OAuth")}</Select.Option>
                     <Select.Option value="oauth2_token_exchange">OAuth Token Exchange (OBO)</Select.Option>
                     <Select.Option value="oauth2_id_jag">ID-JAG (Okta Cross App Access)</Select.Option>
                     <Select.Option value="aws_sigv4">AWS SigV4 (Bedrock AgentCore MCPs)</Select.Option>
@@ -1149,27 +1153,26 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             {isStdioTransport && (
               <div className="rounded-lg border border-gray-200 p-4 space-y-4">
                 <p className="text-sm text-gray-600">
-                  Configure the stdio transport used to launch the MCP server process. You can either fill in the fields
-                  below or paste a JSON configuration.
+                  {ui("Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.")}
                 </p>
 
                 <Form.Item
-                  label="Command"
+                  label={ui("Command")}
                   name="command"
                   rules={[{ required: true, message: "Please enter a command for stdio transport" }]}
                 >
                   <Input
-                    placeholder="e.g., npx"
+                    placeholder={ui("e.g., npx")}
                     className="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                   />
                 </Form.Item>
 
-                <Form.Item label="Args" name="args">
+                <Form.Item label={ui("Args")} name="args">
                   <Select
                     mode="tags"
                     size="large"
                     tokenSeparators={[","]}
-                    placeholder="Add args (press enter or comma)"
+                    placeholder={ui("Add args (press enter or comma)")}
                     className="rounded-lg"
                   />
                 </Form.Item>
@@ -1447,8 +1450,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             </div>
 
             <div className="flex justify-end gap-2">
-              <AntdButton onClick={onCancel}>Cancel</AntdButton>
-              <Button type="submit">Save Changes</Button>
+              <AntdButton onClick={onCancel}>{ui("Cancel")}</AntdButton>
+              <Button type="submit">{ui("Save Changes")}</Button>
             </div>
           </Form>
         </TabPanel>
@@ -1458,8 +1461,8 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
             <MCPServerCostConfig value={costConfig} onChange={setCostConfig} tools={tools} disabled={isLoadingTools} />
 
             <div className="flex justify-end gap-2">
-              <AntdButton onClick={onCancel}>Cancel</AntdButton>
-              <Button onClick={() => form.submit()}>Save Changes</Button>
+              <AntdButton onClick={onCancel}>{ui("Cancel")}</AntdButton>
+              <Button onClick={() => form.submit()}>{ui("Save Changes")}</Button>
             </div>
           </div>
         </TabPanel>
