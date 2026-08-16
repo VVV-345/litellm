@@ -132,8 +132,8 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
   const totals = activity?.totals;
   const hasRequests = totals != null && totals.api_requests + totals.cache_hits + totals.failed_requests > 0;
   const statCards = [
-    { label: "Cache Hit Ratio", value: `${hasRequests ? totals.cache_hit_ratio.toFixed(2) : "0"}%` },
-    { label: "Cache Hits", value: valueFormatterNumbers(totals?.cache_hits ?? 0) },
+    { label: t("ui.Cache Hit Ratio"), value: `${hasRequests ? totals.cache_hit_ratio.toFixed(2) : "0"}%` },
+    { label: t("ui.Cache Hits"), value: valueFormatterNumbers(totals?.cache_hits ?? 0) },
     { label: t("ui.Cached Completion Tokens"), value: valueFormatterNumbers(totals?.cached_completion_tokens ?? 0) },
   ];
 
@@ -142,22 +142,26 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
       <div className="mt-2 flex w-full items-center justify-between">
         <TabsList>
           <TabsTrigger value="analytics" className="flex-none">
-            Cache Analytics
+            {t("ui.Cache Analytics")}
           </TabsTrigger>
           <TabsTrigger value="health" className="flex-none">
-            Cache Health
+            {t("ui.Cache Health")}
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex-none">
             {t("ui.Cache Settings")}
           </TabsTrigger>
           <TabsTrigger value="coordination" className="flex-none">
-            Coordination Redis
+            {t("ui.Coordination Redis")}
           </TabsTrigger>
         </TabsList>
 
         <div className="flex items-center space-x-2">
-          {lastRefreshed && <p className="text-sm text-muted-foreground">Last Refreshed: {lastRefreshed}</p>}
-          <Button variant="outline" size="icon-sm" onClick={handleRefreshClick} aria-label="Refresh">
+          {lastRefreshed && (
+            <p className="text-sm text-muted-foreground">
+              {t("ui.Last Refreshed")}: {lastRefreshed}
+            </p>
+          )}
+          <Button variant="outline" size="icon-sm" onClick={handleRefreshClick} aria-label={t("ui.Refresh")}>
             <RefreshCw />
           </Button>
         </div>
@@ -167,26 +171,29 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
         <Card>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              Analytics for LiteLLM&apos;s{" "}
+              {t("ui.Analytics for LiteLLM's")}{" "}
               <a
                 href="https://docs.litellm.ai/docs/proxy/caching"
                 target="_blank"
                 rel="noreferrer"
                 className="underline"
               >
-                response cache
+                {t("ui.response cache")}
               </a>{" "}
-              (e.g. Redis / in-memory): requests answered from cache without calling the LLM provider. Provider-side{" "}
+              {t(
+                "ui.(e.g. Redis / in-memory): requests answered from cache without calling the LLM provider. Provider-side",
+              )}{" "}
               <a
                 href="https://docs.litellm.ai/docs/completion/prompt_caching"
                 target="_blank"
                 rel="noreferrer"
                 className="underline"
               >
-                prompt caching
+                {t("ui.prompt caching")}
               </a>{" "}
-              (cached input tokens from Anthropic, OpenAI, etc.) is not shown here; see &quot;Prompt Caching
-              Metrics&quot; on the Usage page or individual requests in the Logs page.
+              {t(
+                'ui.(cached input tokens from Anthropic, OpenAI, etc.) is not shown here; see "Prompt Caching Metrics" on the Usage page or individual requests in the Logs page.',
+              )}
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -206,10 +213,10 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
                       ))
                     }
                   </ComboboxValue>
-                  <ComboboxChipsInput placeholder="Select Virtual Keys" className="border-0 bg-transparent" />
+                  <ComboboxChipsInput placeholder={t("ui.Select Virtual Keys")} className="border-0 bg-transparent" />
                 </ComboboxChips>
                 <ComboboxContent>
-                  <ComboboxEmpty>No virtual keys found</ComboboxEmpty>
+                  <ComboboxEmpty>{t("ui.No virtual keys found")}</ComboboxEmpty>
                   <ComboboxList>
                     {(key: string) => (
                       <ComboboxItem key={key} value={key}>
@@ -236,10 +243,10 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
                       ))
                     }
                   </ComboboxValue>
-                  <ComboboxChipsInput placeholder="Select Models" className="border-0 bg-transparent" />
+                  <ComboboxChipsInput placeholder={t("ui.Select Models")} className="border-0 bg-transparent" />
                 </ComboboxChips>
                 <ComboboxContent>
-                  <ComboboxEmpty>No models found</ComboboxEmpty>
+                  <ComboboxEmpty>{t("ui.No models found")}</ComboboxEmpty>
                   <ComboboxList>
                     {(model: string) => (
                       <ComboboxItem key={model} value={model}>

@@ -275,7 +275,7 @@ export default function RequestLogsPanel({ accessToken, token, userRole, userID,
         keyData={selectedKeyInfo}
         teams={allTeams ?? []}
         onClose={() => setSelectedKeyIdInfoView(null)}
-        backButtonText="Back to Logs"
+        backButtonText={t("ui.Back to Logs")}
       />
     );
   }

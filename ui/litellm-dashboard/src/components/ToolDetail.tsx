@@ -3,6 +3,7 @@
 import { ArrowLeft, History, Wrench } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +58,7 @@ function getDefaultLogsDateRange(): { start: string; end: string } {
 }
 
 export function ToolDetail({ toolName, onBack, accessToken }: ToolDetailProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [inputPolicySaving, setInputPolicySaving] = useState(false);
@@ -285,7 +287,7 @@ export function ToolDetail({ toolName, onBack, accessToken }: ToolDetailProps) {
           <section className="rounded-lg border border-border bg-card p-5 shadow-xs">
             <h2 className="mb-1 text-sm font-semibold">Input Policy</h2>
             <p className="mb-3 text-xs text-muted-foreground">
-              {inputDesc ?? "Controls what data this tool is allowed to accept."}
+              {inputDesc ?? t("ui.Controls what data this tool is allowed to accept.")}
             </p>
             <PolicySelect
               value={tool.input_policy}
@@ -302,7 +304,7 @@ export function ToolDetail({ toolName, onBack, accessToken }: ToolDetailProps) {
           <section className="rounded-lg border border-border bg-card p-5 shadow-xs">
             <h2 className="mb-1 text-sm font-semibold">Output Policy</h2>
             <p className="mb-3 text-xs text-muted-foreground">
-              {outputDesc ?? "Controls how this tool's output is trusted by downstream tools."}
+              {outputDesc ?? t("ui.Controls how this tool's output is trusted by downstream tools.")}
             </p>
             <PolicySelect
               value={tool.output_policy}
@@ -378,7 +380,7 @@ export function ToolDetail({ toolName, onBack, accessToken }: ToolDetailProps) {
                 >
                   <ComboboxInput placeholder="Select key" showClear className="w-full min-w-50" />
                   <ComboboxContent>
-                    <ComboboxEmpty>No keys found</ComboboxEmpty>
+                    <ComboboxEmpty>{t("ui.No keys found")}</ComboboxEmpty>
                     <ComboboxList>
                       {(item: KeyItem) => (
                         <ComboboxItem key={item.value} value={item}>

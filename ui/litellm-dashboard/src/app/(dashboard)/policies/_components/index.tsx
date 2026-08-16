@@ -531,7 +531,7 @@ const PoliciesPanel: React.FC<PoliciesPanelProps> = ({ accessToken, userRole }) 
                 <strong>{ui("Models")}</strong> - {ui("Applies only when specific models are used")}
               </li>
               <li>
-                <strong>Tags</strong> - Matches tags from key/team <code>metadata.tags</code> or tags passed dynamically
+                <strong>{ui("Tags")}</strong> - Matches tags from key/team <code>metadata.tags</code> or tags passed dynamically
                 in the request body (<code>metadata.tags</code>). Use this to enforce policies across groups, e.g.
                 &quot;all keys tagged <code>healthcare</code> get HIPAA guardrails.&quot; Supports wildcards (
                 <code>prod-*</code>).

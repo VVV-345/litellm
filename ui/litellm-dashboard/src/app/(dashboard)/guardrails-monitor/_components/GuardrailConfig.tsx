@@ -7,6 +7,8 @@ import {
 } from "@ant-design/icons";
 import { Button, Input, Select, Switch } from "antd";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 interface GuardrailConfigProps {
   guardrailName: string;
@@ -27,6 +29,7 @@ const versions = [
 ];
 
 export function GuardrailConfig({ guardrailName, guardrailType, provider }: GuardrailConfigProps) {
+  const { t } = useTranslation();
   const [action, setAction] = useState("block");
   const [enabled, setEnabled] = useState(true);
   const [customCode, setCustomCode] = useState("");
@@ -49,7 +52,7 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
       <div className="bg-white border border-gray-200 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-700">Version:</span>
+            <span className="text-sm font-medium text-gray-700">{translateUiText(t, "Version:")}</span>
             <Select
               value={version}
               onChange={setVersion}
@@ -57,11 +60,11 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
               style={{ width: 140 }}
             />
             <Button type="link" size="small" onClick={() => setShowVersionHistory(!showVersionHistory)}>
-              {showVersionHistory ? "Hide history" : "View history"}
+              {showVersionHistory ? translateUiText(t, "Hide history") : translateUiText(t, "View history")}
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Button icon={<RollbackOutlined />}>Revert</Button>
+            <Button icon={<RollbackOutlined />}>{translateUiText(t, "Revert")}</Button>
             <Button type="primary" icon={<SaveOutlined />}>
               Save as v{parseInt(version.replace("v", ""), 10) + 1}
             </Button>
@@ -97,62 +100,68 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
 
       {/* Parameters */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Parameters</h3>
+        <h3 className="text-base font-semibold text-gray-900 mb-1">{translateUiText(t, "Parameters")}</h3>
         <p className="text-xs text-gray-500 mb-5">Configure {guardrailName} behavior</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Action on Failure</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              {translateUiText(t, "Action on Failure")}
+            </label>
             <Select
               value={action}
               onChange={setAction}
               style={{ width: "100%" }}
               options={[
-                { value: "block", label: "Block Request" },
-                { value: "flag", label: "Flag for Review" },
-                { value: "log", label: "Log Only" },
-                { value: "fallback", label: "Use Fallback Response" },
+                { value: "block", label: translateUiText(t, "Block Request") },
+                { value: "flag", label: translateUiText(t, "Flag for Review") },
+                { value: "log", label: translateUiText(t, "Log Only") },
+                { value: "fallback", label: translateUiText(t, "Use Fallback Response") },
               ]}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Provider</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">{translateUiText(t, "Provider")}</label>
             <Select
               style={{ width: "100%" }}
               defaultValue={provider}
               options={[
-                { value: "bedrock", label: "AWS Bedrock Guardrails" },
-                { value: "google", label: "Google Cloud AI Safety" },
-                { value: "litellm", label: "LiteLLM Built-in" },
-                { value: "custom", label: "Custom Code" },
+                { value: "bedrock", label: translateUiText(t, "AWS Bedrock Guardrails") },
+                { value: "google", label: translateUiText(t, "Google Cloud AI Safety") },
+                { value: "litellm", label: translateUiText(t, "LiteLLM Built-in") },
+                { value: "custom", label: translateUiText(t, "Custom Code") },
               ]}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Guardrail Type</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              {translateUiText(t, "Guardrail Type")}
+            </label>
             <Select
               style={{ width: "100%" }}
               defaultValue={guardrailType}
               options={[
-                { value: "Content Safety", label: "Content Safety" },
-                { value: "PII", label: "PII Detection" },
-                { value: "Topic", label: "Topic Restriction" },
-                { value: "prompt_injection", label: "Prompt Injection" },
-                { value: "custom", label: "Custom" },
+                { value: "Content Safety", label: translateUiText(t, "Content Safety") },
+                { value: "PII", label: translateUiText(t, "PII Detection") },
+                { value: "Topic", label: translateUiText(t, "Topic Restriction") },
+                { value: "prompt_injection", label: translateUiText(t, "Prompt Injection") },
+                { value: "custom", label: translateUiText(t, "Custom") },
               ]}
             />
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Categories (comma-separated)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              {translateUiText(t, "Categories (comma-separated)")}
+            </label>
             <Input defaultValue="violence, hate_speech, sexual_content, self_harm, illegal_activity" />
           </div>
 
           <div className="md:col-span-2 flex items-center gap-3">
             <Switch checked={enabled} onChange={setEnabled} />
-            <span className="text-sm text-gray-700">Guardrail enabled in production</span>
+            <span className="text-sm text-gray-700">{translateUiText(t, "Guardrail enabled in production")}</span>
           </div>
         </div>
       </div>
@@ -163,9 +172,11 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
           <div>
             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
               <CodeOutlined className="text-gray-500" />
-              Custom Code Override
+              {translateUiText(t, "Custom Code Override")}
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">Replace the built-in guardrail with custom evaluation code</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {translateUiText(t, "Replace the built-in guardrail with custom evaluation code")}
+            </p>
           </div>
           <Switch checked={useCustomCode} onChange={setUseCustomCode} />
         </div>
@@ -188,9 +199,9 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
 
       {/* Re-run on Failing Logs */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-1">Test Configuration</h3>
+        <h3 className="text-base font-semibold text-gray-900 mb-1">{translateUiText(t, "Test Configuration")}</h3>
         <p className="text-xs text-gray-500 mb-4">
-          Re-run this guardrail on recent failing logs to validate your changes
+          {translateUiText(t, "Re-run this guardrail on recent failing logs to validate your changes")}
         </p>
 
         <div className="flex items-center gap-3">
@@ -200,16 +211,16 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
             loading={rerunStatus === "running"}
             onClick={handleRerun}
           >
-            {rerunStatus === "running" ? "Running on 10 samples..." : "Re-run on failing logs"}
+            {rerunStatus === "running" ? translateUiText(t, "Running on 10 samples...") : translateUiText(t, "Re-run on failing logs")}
           </Button>
 
           {rerunStatus === "success" && (
             <span className="text-sm text-green-600 flex items-center gap-2">
-              <CheckCircleOutlined /> 7/10 would now pass with new config
+              <CheckCircleOutlined /> {translateUiText(t, "7/10 would now pass with new config")}
             </span>
           )}
 
-          {rerunStatus === "error" && <span className="text-sm text-red-600">Error running tests</span>}
+          {rerunStatus === "error" && <span className="text-sm text-red-600">{translateUiText(t, "Error running tests")}</span>}
         </div>
       </div>
     </div>

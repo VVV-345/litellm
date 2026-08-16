@@ -9,7 +9,7 @@ import { DataTable, DataTableFilterDrawer, DataTableToolbar } from "@/components
 
 import type { Team } from "../key_team_helpers/key_list";
 import type { LogEntry } from "./columns";
-import { LOG_FILTER_LABELS, type LogsWindow } from "./log_filter_logic";
+import { getLogFilterLabels, type LogsWindow } from "./log_filter_logic";
 import { RequestLogsFilters } from "./RequestLogsFilters";
 import { getRequestLogsTableColumns } from "./RequestLogsTableColumns";
 
@@ -79,9 +79,9 @@ export function RequestLogsTable({
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const columns = useMemo(() => {
-    const deps = { onKeyHashClick, onSessionClick };
+    const deps = { onKeyHashClick, onSessionClick, t };
     return getRequestLogsTableColumns(deps);
-  }, [onKeyHashClick, onSessionClick]);
+  }, [onKeyHashClick, onSessionClick, t]);
 
   const isFiltered = columnFilters.length > 0 || searchValue !== "";
 
@@ -115,7 +115,7 @@ export function RequestLogsTable({
             onRefresh={onRefresh}
             isRefreshing={isRefreshing}
             onOpenFilters={() => setFiltersOpen(true)}
-            filterLabels={LOG_FILTER_LABELS}
+            filterLabels={getLogFilterLabels(t)}
             showViewOptions={false}
           >
             {toolbarChildren}

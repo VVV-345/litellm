@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/cva.config";
 import { copyToClipboard } from "@/utils/dataUtils";
 import { translateUiText } from "@/utils/i18nText";
+import { useTranslation } from "react-i18next";
 
 export interface ModelHubData {
   model_group: string;
@@ -62,10 +63,12 @@ interface ModelHubRowActionsProps {
 }
 
 function ModelHubRowActions({ model, onModelClick }: ModelHubRowActionsProps) {
+  const { t } = useTranslation();
+  const ui = (value: string) => translateUiText(t, value);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open model actions"
+        aria-label={ui("Open model actions")}
         data-testid={`model-hub-actions-${model.model_group}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -74,14 +77,14 @@ function ModelHubRowActions({ model, onModelClick }: ModelHubRowActionsProps) {
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem data-testid="model-hub-action-details" onClick={() => onModelClick(model)}>
           <Info />
-          View details
+          {ui("View details")}
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid="model-hub-action-copy"
-          onClick={() => void copyToClipboard(model.model_group, "Model name copied")}
+          onClick={() => void copyToClipboard(model.model_group, ui("Model name copied"))}
         >
           <Copy />
-          Copy model name
+          {ui("Copy model name")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -102,8 +105,8 @@ export const getModelHubTableColumns = ({
   {
     id: "model_group",
     accessorKey: "model_group",
-    meta: { title: "Public Model Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Public Model Name" />,
+    meta: { title: ui("Public Model Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Public Model Name")} />,
     size: 220,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -114,8 +117,8 @@ export const getModelHubTableColumns = ({
   {
     id: "providers",
     accessorKey: "providers",
-    meta: { title: "Provider", skeleton: "chips", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Provider" />,
+    meta: { title: ui("Provider"), skeleton: "chips", className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Provider")} />,
     size: 150,
     enableSorting: true,
     sortingFn: (rowA, rowB) => rowA.original.providers.join(", ").localeCompare(rowB.original.providers.join(", ")),
@@ -136,8 +139,8 @@ export const getModelHubTableColumns = ({
   {
     id: "mode",
     accessorKey: "mode",
-    meta: { title: "Mode", className: "hidden lg:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Mode" />,
+    meta: { title: ui("Mode"), className: "hidden lg:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Mode")} />,
     size: 110,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -151,8 +154,8 @@ export const getModelHubTableColumns = ({
   {
     id: "max_input_tokens",
     accessorKey: "max_input_tokens",
-    meta: { title: "Tokens", className: "hidden lg:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Tokens" />,
+    meta: { title: ui("Tokens"), className: "hidden lg:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Tokens")} />,
     size: 110,
     enableSorting: true,
     sortingFn: (rowA, rowB) => {
@@ -173,8 +176,8 @@ export const getModelHubTableColumns = ({
   {
     id: "input_cost_per_token",
     accessorKey: "input_cost_per_token",
-    meta: { title: "Cost/1M", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Cost/1M" />,
+    meta: { title: ui("Cost/1M"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Cost/1M")} />,
     size: 110,
     enableSorting: true,
     sortingFn: (rowA, rowB) => {
@@ -196,8 +199,8 @@ export const getModelHubTableColumns = ({
   },
   {
     id: "capabilities",
-    meta: { title: "Features", skeleton: "chips" },
-    header: "Features",
+    meta: { title: ui("Features"), skeleton: "chips" },
+    header: ui("Features"),
     size: 220,
     enableSorting: false,
     cell: ({ row }) => {
@@ -219,8 +222,8 @@ export const getModelHubTableColumns = ({
   {
     id: "is_public_model_group",
     accessorKey: "is_public_model_group",
-    meta: { title: "Public", skeleton: "badge", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Public" />,
+    meta: { title: ui("Public"), skeleton: "badge", className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Public")} />,
     size: 100,
     enableSorting: true,
     sortingFn: (rowA, rowB) => {
@@ -230,9 +233,9 @@ export const getModelHubTableColumns = ({
     },
     cell: ({ row }) =>
       row.original.is_public_model_group === true ? (
-        <StatusBadge tone="success" label="Yes" />
+        <StatusBadge tone="success" label={ui("Yes")} />
       ) : (
-        <StatusBadge tone="neutral" label="No" />
+        <StatusBadge tone="neutral" label={ui("No")} />
       ),
   },
   {

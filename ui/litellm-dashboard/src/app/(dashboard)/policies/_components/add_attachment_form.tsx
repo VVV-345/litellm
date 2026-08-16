@@ -167,7 +167,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
       if (successCount > 0 && failed.length === 0) {
         NotificationsManager.success(
-          successCount === 1 ? "Attachment created successfully" : `${successCount} attachments created successfully`,
+          successCount === 1 ? ui("Attachment created successfully") : `${successCount} attachments created successfully`,
         );
       } else if (successCount > 0 && failed.length > 0) {
         NotificationsManager.fromBackend(`${successCount} attachments created, ${failed.length} failed`);

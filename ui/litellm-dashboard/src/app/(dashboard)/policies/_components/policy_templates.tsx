@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import MessageManager from "@/components/molecules/message_manager";
 import { ShieldCheck, ShieldAlert, FlaskConical, CircleDollarSign, CheckCircle2 } from "lucide-react";
 import { getPolicyTemplates } from "@/components/networking";
+import { useTranslation } from "react-i18next";
 
 interface PolicyTemplateCardProps {
   title: string;
@@ -33,6 +34,7 @@ const PolicyTemplateCard: React.FC<PolicyTemplateCardProps> = ({
   complexity,
   onUseTemplate,
 }) => {
+  const { t } = useTranslation();
   return (
     <Card className="h-full transition-shadow hover:shadow-md">
       <CardContent className="flex h-full flex-col">
@@ -40,7 +42,7 @@ const PolicyTemplateCard: React.FC<PolicyTemplateCardProps> = ({
           <div className={`rounded-lg p-2 ${iconBg}`}>
             <Icon className={`size-6 ${iconColor}`} />
           </div>
-          <Badge variant="outline">{complexity} Complexity</Badge>
+          <Badge variant="outline">{complexity} {t("ui.Complexity", { defaultValue: "Complexity" })}</Badge>
         </div>
 
         <h3 className="mb-2 text-base font-semibold">{title}</h3>
@@ -58,14 +60,14 @@ const PolicyTemplateCard: React.FC<PolicyTemplateCardProps> = ({
 
         {inherits && (
           <div className="mb-4 text-xs">
-            <span className="text-muted-foreground">Inherits from: </span>
+            <span className="text-muted-foreground">{t("ui.Inherits from: ", { defaultValue: "Inherits from: " })}</span>
             <span className="rounded-sm bg-muted px-2 py-0.5 font-medium">{inherits}</span>
           </div>
         )}
 
         <div className="mb-6">
           <span className="mb-2 block text-xs font-medium tracking-wider text-muted-foreground uppercase">
-            Included Guardrails
+            {t("ui.Included Guardrails", { defaultValue: "Included Guardrails" })}
           </span>
           <div className="flex flex-wrap gap-2">
             {guardrails.map((g) => (
@@ -77,9 +79,8 @@ const PolicyTemplateCard: React.FC<PolicyTemplateCardProps> = ({
         </div>
 
         <Button className="mt-auto w-full" onClick={onUseTemplate}>
-          Use Template
-        </Button>
-      </CardContent>
+          {t("ui.Use Template", { defaultValue: "Use Template" })}
+        </Button>      </CardContent>
     </Card>
   );
 };
@@ -106,6 +107,7 @@ const PolicyTemplates: React.FC<PolicyTemplatesProps> = ({
   onTemplatesLoaded,
   accessToken,
 }) => {
+  const { t } = useTranslation();
   const [templates, setTemplates] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
@@ -159,7 +161,7 @@ const PolicyTemplates: React.FC<PolicyTemplatesProps> = ({
         onTemplatesLoaded?.(data);
       } catch (error) {
         console.error("Error fetching policy templates:", error);
-        MessageManager.error("Failed to fetch policy templates");
+        MessageManager.error(t("ui.Failed to fetch policy templates", { defaultValue: "Failed to fetch policy templates" }));
       } finally {
         setIsLoading(false);
       }
@@ -182,16 +184,16 @@ const PolicyTemplates: React.FC<PolicyTemplatesProps> = ({
     <div className="space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-lg font-medium">Policy Templates</h2>
+          <h2 className="text-lg font-medium">{t("ui.Policy Templates", { defaultValue: "Policy Templates" })}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Start with a pre-configured policy template to quickly set up guardrails for your organization.
+            {t("ui.Start with a pre-configured policy template to quickly set up guardrails for your organization.", { defaultValue: "Start with a pre-configured policy template to quickly set up guardrails for your organization." })}
           </p>
         </div>
         <Button variant="outline" onClick={onOpenAiSuggestion}>
           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1l1.5 3.5L13 6l-3.5 1.5L8 11 6.5 7.5 3 6l3.5-1.5L8 1zm4 7l.75 1.75L14.5 10.5l-1.75.75L12 13l-.75-1.75L9.5 10.5l1.75-.75L12 8zM4 9l.75 1.75L6.5 11.5l-1.75.75L4 14l-.75-1.75L1.5 11.5l1.75-.75L4 9z" />
           </svg>
-          Use AI to find templates
+          {t("ui.Use AI to find templates", { defaultValue: "Use AI to find templates" })}
         </Button>
       </div>
 
@@ -201,10 +203,10 @@ const PolicyTemplates: React.FC<PolicyTemplatesProps> = ({
           <div className="w-52 shrink-0">
             <div className="sticky top-4">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold">Categories</span>
+                <span className="text-sm font-semibold">{t("ui.Categories", { defaultValue: "Categories" })}</span>
                 {selectedTags.size > 0 && (
                   <button onClick={handleClearAll} className="text-xs text-primary hover:underline">
-                    Clear all
+                    {t("ui.Clear all", { defaultValue: "Clear all" })}
                   </button>
                 )}
               </div>
@@ -255,9 +257,9 @@ const PolicyTemplates: React.FC<PolicyTemplatesProps> = ({
 
           {filteredTemplates.length === 0 && (
             <div className="py-12 text-center text-muted-foreground">
-              <p>No templates match the selected filters.</p>
+              <p>{t("ui.No templates match the selected filters.", { defaultValue: "No templates match the selected filters." })}</p>
               <button onClick={handleClearAll} className="mt-2 text-sm text-primary hover:underline">
-                Clear all filters
+                {t("ui.Clear all filters", { defaultValue: "Clear all filters" })}
               </button>
             </div>
           )}

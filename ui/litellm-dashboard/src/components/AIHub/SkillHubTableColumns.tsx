@@ -18,6 +18,7 @@ import { cn } from "@/lib/cva.config";
 import { copyToClipboard } from "@/utils/dataUtils";
 import { translateUiText } from "@/utils/i18nText";
 import { Plugin } from "@/components/claude_code_plugins/types";
+import { useTranslation } from "react-i18next";
 
 function getSkillSourceLink(skill: Plugin): { url: string; label: string } | null {
   const src = skill.source;
@@ -40,10 +41,12 @@ interface SkillHubRowActionsProps {
 }
 
 function SkillHubRowActions({ skill, onSkillClick }: SkillHubRowActionsProps) {
+  const { t } = useTranslation();
+  const ui = (value: string) => translateUiText(t, value);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open skill actions"
+        aria-label={ui("Open skill actions")}
         data-testid={`skill-hub-actions-${skill.id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -52,14 +55,14 @@ function SkillHubRowActions({ skill, onSkillClick }: SkillHubRowActionsProps) {
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem data-testid="skill-hub-action-details" onClick={() => onSkillClick(skill)}>
           <Info />
-          View details
+          {ui("View details")}
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid="skill-hub-action-copy"
-          onClick={() => void copyToClipboard(skill.name, "Skill name copied")}
+          onClick={() => void copyToClipboard(skill.name, ui("Skill name copied"))}
         >
           <Copy />
-          Copy skill name
+          {ui("Copy skill name")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -105,8 +108,8 @@ export const getSkillHubTableColumns = ({
   {
     id: "category",
     accessorKey: "category",
-    meta: { title: "Category", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Category" />,
+    meta: { title: ui("Category"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Category")} />,
     size: 130,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -120,8 +123,8 @@ export const getSkillHubTableColumns = ({
   {
     id: "domain",
     accessorKey: "domain",
-    meta: { title: "Domain" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Domain" />,
+    meta: { title: ui("Domain") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Domain")} />,
     size: 130,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -129,8 +132,8 @@ export const getSkillHubTableColumns = ({
   },
   {
     id: "source",
-    meta: { title: "Source" },
-    header: "Source",
+    meta: { title: ui("Source") },
+    header: ui("Source"),
     size: 200,
     enableSorting: false,
     cell: ({ row }) => {
@@ -153,14 +156,14 @@ export const getSkillHubTableColumns = ({
   {
     id: "enabled",
     accessorKey: "enabled",
-    meta: { title: "Status", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Status" />,
+    meta: { title: ui("Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Status")} />,
     size: 100,
     enableSorting: true,
     cell: ({ row }) => (
       <StatusBadge
         tone={row.original.enabled ? "success" : "neutral"}
-        label={row.original.enabled ? "Public" : "Draft"}
+        label={row.original.enabled ? ui("Public") : ui("Draft")}
       />
     ),
   },

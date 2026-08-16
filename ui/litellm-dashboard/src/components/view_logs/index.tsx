@@ -36,7 +36,7 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
 
   if (!accessToken || !token || !userRole || !userID) {
     return (
-      <div role="status" aria-busy="true" aria-label="Loading" className="flex h-64 items-center justify-center">
+      <div role="status" aria-busy="true" aria-label={t("ui.Loading")} className="flex h-64 items-center justify-center">
         <UiLoadingSpinner className="size-8 text-primary" />
       </div>
     );

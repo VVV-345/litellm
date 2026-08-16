@@ -21,13 +21,16 @@ interface TagTableProps {
 const DEFAULT_SORTING: SortingState = [{ id: "created_at", desc: true }];
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <Inbox className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No tags yet</div>
-      <div className="text-sm text-muted-foreground">Create a tag to start routing and restricting model usage.</div>
+      <div className="text-sm font-medium text-foreground">{t("ui.No tags yet")}</div>
+      <div className="text-sm text-muted-foreground">
+        {t("ui.Create a tag to start routing and restricting model usage.")}
+      </div>
     </div>
   );
 }
@@ -50,7 +53,7 @@ const TagTable: React.FC<TagTableProps> = ({ data, onEdit, onDelete, onSelectTag
       sorting={sorting}
       onSortingChange={setSorting}
       isLoading={isLoading}
-      loadingMessage="Loading tags…"
+      loadingMessage={t("ui.Loading tags…")}
       noDataMessage={<EmptyState />}
       size="compact"
     />

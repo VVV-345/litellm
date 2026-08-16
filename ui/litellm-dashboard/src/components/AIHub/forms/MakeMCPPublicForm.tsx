@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/cva.config";
 import { makeMCPPublicCall } from "../../networking";
 import NotificationsManager from "../../molecules/notifications_manager";
+import { useTranslation } from "react-i18next";
 import { MCPServerData } from "@/components/AIHub/MCPHubTableColumns";
 
 const STEP_TITLES = ["Select Servers", "Confirm"];
@@ -39,6 +40,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedServers, setSelectedServers] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const { t } = useTranslation();
 
   const handleClose = () => {
     setCurrentStep(0);
@@ -49,7 +51,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
   const handleNext = () => {
     if (currentStep === 0) {
       if (selectedServers.size === 0) {
-        NotificationsManager.fromBackend("Please select at least one MCP server to make public");
+        NotificationsManager.fromBackend(t("ui.Please select at least one MCP server to make public"));
         return;
       }
       setCurrentStep(1);
@@ -112,7 +114,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
       onSuccess();
     } catch (error) {
       console.error("Error making MCP servers public:", error);
-      NotificationsManager.fromBackend("Failed to make MCP servers public. Please try again.");
+      NotificationsManager.fromBackend(t("ui.Failed to make MCP servers public. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -126,7 +128,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Select MCP Servers to Make Public</h3>
+          <h3 className="text-lg font-semibold">{t("ui.Select MCP Servers to Make Public")}</h3>
           <div className="flex items-center space-x-2">
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
@@ -141,15 +143,14 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
         </div>
 
         <p className="text-sm text-gray-600">
-          Select the MCP servers you want to be visible on the public model hub. Users will still require a valid
-          Virtual Key to use these servers.
+          {t("ui.Select the MCP servers you want to be visible on the public model hub. Users will still require a valid Virtual Key to use these servers.")}
         </p>
 
         <div className="max-h-96 overflow-y-auto border rounded-lg p-4">
           <div className="space-y-3">
             {mcpHubData.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                <p>No MCP servers available.</p>
+                <p>{t("ui.No MCP servers available.")}</p>
               </div>
             ) : (
               mcpHubData.map((server) => {
@@ -166,7 +167,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-medium break-words">{server.server_name}</p>
-                        {isPublic && <Badge>Public</Badge>}
+                        {isPublic && <Badge>{t("ui.Public")}</Badge>}
                         <Badge variant="secondary">{server.transport}</Badge>
                         <Badge variant={statusVariant(server.status)}>{server.status || "unknown"}</Badge>
                       </div>
@@ -205,7 +206,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
   const renderStep2Content = () => {
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Confirm Making MCP Servers Public</h3>
+        <h3 className="text-lg font-semibold">{t("ui.Confirm Making MCP Servers Public")}</h3>
 
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-sm text-yellow-800">
@@ -215,7 +216,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
         </div>
 
         <div className="space-y-3">
-          <p className="font-medium">MCP Servers to be made public:</p>
+          <p className="font-medium">{t("ui.MCP Servers to be made public:")}</p>
           <div className="max-h-48 overflow-y-auto border rounded-lg p-3">
             <div className="space-y-2">
               {Array.from(selectedServers).map((serverId) => {
@@ -269,20 +270,20 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
     return (
       <div className="flex justify-between mt-6">
         <Button variant="outline" onClick={currentStep === 0 ? handleClose : handlePrevious}>
-          {currentStep === 0 ? "Cancel" : "Previous"}
+          {currentStep === 0 ? t("ui.Cancel") : t("ui.Previous")}
         </Button>
 
         <div className="flex space-x-2">
           {currentStep === 0 && (
             <Button onClick={handleNext} disabled={selectedServers.size === 0}>
-              Next
+              {t("ui.Next")}
             </Button>
           )}
 
           {currentStep === 1 && (
             <Button onClick={handleSubmit} disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
-              Make Public
+              {t("ui.Make Public")}
             </Button>
           )}
         </div>
@@ -294,7 +295,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && handleClose()} disablePointerDismissal>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[1200px]">
         <DialogHeader>
-          <DialogTitle>Make MCP Servers Public</DialogTitle>
+          <DialogTitle>{t("ui.Make MCP Servers Public")}</DialogTitle>
         </DialogHeader>
 
         <div>
@@ -316,7 +317,7 @@ const MakeMCPPublicForm: React.FC<MakeMCPPublicFormProps> = ({
                   {index + 1}
                 </span>
                 <span className={cn("text-sm", currentStep === index ? "font-medium" : "text-muted-foreground")}>
-                  {title}
+                  {t(`ui.${title}`)}
                 </span>
               </li>
             ))}

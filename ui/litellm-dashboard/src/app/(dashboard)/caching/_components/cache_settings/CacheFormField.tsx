@@ -1,5 +1,6 @@
 import { Form, Input, Select, Switch } from "antd";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { CacheField } from "./cacheSettingsFields";
 
 export interface EmbeddingModelOption {
@@ -15,47 +16,48 @@ interface CacheFormFieldProps {
   isSecretConfigured?: boolean;
 }
 
-const renderControl = (
-  field: CacheField,
-  embeddingModels: EmbeddingModelOption[],
-  placeholder: string,
-): React.ReactNode => {
-  switch (field.type) {
-    case "boolean":
-      return <Switch />;
-    case "password":
-      return <Input.Password placeholder={placeholder} autoComplete="new-password" />;
-    case "integer":
-    case "float":
-      return <Input inputMode="decimal" placeholder={placeholder} />;
-    case "list":
-      return <Input.TextArea rows={4} placeholder={placeholder} />;
-    case "model-select":
-      return (
-        <Select
-          showSearch
-          allowClear
-          placeholder="Search and select a model..."
-          options={embeddingModels}
-          optionFilterProp="label"
-          style={{ width: "100%" }}
-        />
-      );
-    default:
-      return <Input placeholder={placeholder} />;
-  }
-};
+const CacheFormField: React.FC<CacheFormFieldProps> = ({ field, embeddingModels, isSecretConfigured = false }) => {
+  const { t } = useTranslation();
+  const placeholder = isSecretConfigured ? t("ui.Already set. Enter a new value to replace it.") : t(field.helpText);
 
-const CacheFormField: React.FC<CacheFormFieldProps> = ({ field, embeddingModels, isSecretConfigured = false }) => (
-  <Form.Item
-    name={field.name}
-    label={field.label}
-    extra={field.helpText}
-    rules={field.rules}
-    valuePropName={field.type === "boolean" ? "checked" : "value"}
-  >
-    {renderControl(field, embeddingModels, isSecretConfigured ? SECRET_ALREADY_SET_PLACEHOLDER : field.helpText)}
-  </Form.Item>
-);
+  const renderControl = (): React.ReactNode => {
+    switch (field.type) {
+      case "boolean":
+        return <Switch />;
+      case "password":
+        return <Input.Password placeholder={placeholder} autoComplete="new-password" />;
+      case "integer":
+      case "float":
+        return <Input inputMode="decimal" placeholder={placeholder} />;
+      case "list":
+        return <Input.TextArea rows={4} placeholder={placeholder} />;
+      case "model-select":
+        return (
+          <Select
+            showSearch
+            allowClear
+            placeholder={t("ui.Search and select a model...")}
+            options={embeddingModels}
+            optionFilterProp="label"
+            style={{ width: "100%" }}
+          />
+        );
+      default:
+        return <Input placeholder={placeholder} />;
+    }
+  };
+
+  return (
+    <Form.Item
+      name={field.name}
+      label={t(field.label)}
+      extra={t(field.helpText)}
+      rules={field.rules}
+      valuePropName={field.type === "boolean" ? "checked" : "value"}
+    >
+      {renderControl()}
+    </Form.Item>
+  );
+};
 
 export default CacheFormField;

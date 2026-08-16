@@ -3,6 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { CellTooltip, DateCell, IdentityCell } from "@/components/shared/table_cells";
@@ -23,10 +24,11 @@ export const DYNAMIC_SPEND_TAG_DESCRIPTION =
 const isDynamicSpendTag = (tag: Tag) => tag.description === DYNAMIC_SPEND_TAG_DESCRIPTION;
 
 function TagNameCell({ tag, onSelectTag }: { tag: Tag; onSelectTag: (tagName: string) => void }) {
+  const { t } = useTranslation();
   if (isDynamicSpendTag(tag)) {
     return (
       <CellTooltip
-        content="You cannot view the information of a dynamically generated spend tag"
+        content={t("ui.You cannot view the information of a dynamically generated spend tag")}
         trigger={<span className="block max-w-60 truncate font-mono text-xs text-muted-foreground">{tag.name}</span>}
       />
     );
@@ -42,9 +44,10 @@ function TagNameCell({ tag, onSelectTag }: { tag: Tag; onSelectTag: (tagName: st
 }
 
 function TagModelsCell({ tag }: { tag: Tag }) {
+  const { t } = useTranslation();
   const models = tag.models ?? [];
   if (models.length === 0) {
-    return <Badge variant="secondary">All Models</Badge>;
+    return <Badge variant="secondary">{t("ui.All Models")}</Badge>;
   }
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -70,12 +73,13 @@ interface TagRowActionsProps {
 }
 
 function TagRowActions({ tag, onEdit, onDelete }: TagRowActionsProps) {
+  const { t } = useTranslation();
   const isDynamic = isDynamicSpendTag(tag);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open tag actions"
+        aria-label={t("ui.Open tag actions")}
         data-testid={`tag-actions-${tag.name}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -85,21 +89,21 @@ function TagRowActions({ tag, onEdit, onDelete }: TagRowActionsProps) {
         <DropdownMenuItem
           disabled={isDynamic}
           data-testid="tag-action-edit"
-          title={isDynamic ? "Dynamically generated spend tags cannot be edited" : undefined}
+          title={isDynamic ? t("ui.Dynamically generated spend tags cannot be edited") : undefined}
           onClick={() => onEdit(tag)}
         >
           <Pencil />
-          Edit
+          {t("ui.Edit")}
         </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"
           disabled={isDynamic}
           data-testid="tag-action-delete"
-          title={isDynamic ? "Dynamically generated spend tags cannot be deleted" : undefined}
+          title={isDynamic ? t("ui.Dynamically generated spend tags cannot be deleted") : undefined}
           onClick={() => onDelete(tag.name)}
         >
           <Trash2 />
-          Delete
+          {t("ui.Delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -117,8 +121,8 @@ export const getTagTableColumns = ({ onSelectTag, onEdit, onDelete, t }: TagTabl
   {
     id: "name",
     accessorKey: "name",
-    meta: { title: "Tag Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Tag Name" />,
+    meta: { title: t("ui.Tag Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Tag Name")} />,
     size: 260,
     enableSorting: true,
     cell: ({ row }) => <TagNameCell tag={row.original} onSelectTag={onSelectTag} />,
@@ -141,8 +145,8 @@ export const getTagTableColumns = ({ onSelectTag, onEdit, onDelete, t }: TagTabl
   },
   {
     id: "models",
-    meta: { title: "Allowed Models", skeleton: "chips" },
-    header: "Allowed Models",
+    meta: { title: t("ui.Allowed Models"), skeleton: "chips" },
+    header: t("ui.Allowed Models"),
     size: 240,
     enableSorting: false,
     cell: ({ row }) => <TagModelsCell tag={row.original} />,
@@ -151,8 +155,8 @@ export const getTagTableColumns = ({ onSelectTag, onEdit, onDelete, t }: TagTabl
     id: "created_at",
     accessorKey: "created_at",
     sortingFn: "datetime",
-    meta: { title: "Created" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created" />,
+    meta: { title: t("ui.Created") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Created")} />,
     size: 150,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} precision="date" />,

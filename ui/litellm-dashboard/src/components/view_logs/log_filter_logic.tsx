@@ -32,18 +32,18 @@ export const LOG_FILTER_IDS = {
   USER_ID: "user_id",
 } as const;
 
-export const LOG_FILTER_LABELS: Record<string, string> = {
-  [LOG_FILTER_IDS.TEAM_ID]: "Team ID",
-  [LOG_FILTER_IDS.STATUS]: "Status",
-  [LOG_FILTER_IDS.KEY_ALIAS]: "Key Alias",
-  [LOG_FILTER_IDS.END_USER]: "End User",
-  [LOG_FILTER_IDS.ERROR_CODE]: "Error Code",
-  [LOG_FILTER_IDS.ERROR_MESSAGE]: "Error Message",
-  [LOG_FILTER_IDS.KEY_HASH]: "Key Hash",
-  [LOG_FILTER_IDS.SESSION_ID]: "Session ID",
-  [LOG_FILTER_IDS.MODEL_ID]: "Model",
-  [LOG_FILTER_IDS.PUBLIC_MODEL_OR_SEARCH_TOOL]: "Public model / search tool",
-};
+export const getLogFilterLabels = (t: (key: string) => string): Record<string, string> => ({
+  [LOG_FILTER_IDS.TEAM_ID]: t("ui.Team ID"),
+  [LOG_FILTER_IDS.STATUS]: t("ui.Status"),
+  [LOG_FILTER_IDS.KEY_ALIAS]: t("ui.Key Alias"),
+  [LOG_FILTER_IDS.END_USER]: t("ui.End User"),
+  [LOG_FILTER_IDS.ERROR_CODE]: t("ui.Error Code"),
+  [LOG_FILTER_IDS.ERROR_MESSAGE]: t("ui.Error Message"),
+  [LOG_FILTER_IDS.KEY_HASH]: t("ui.Key Hash"),
+  [LOG_FILTER_IDS.SESSION_ID]: t("ui.Session ID"),
+  [LOG_FILTER_IDS.MODEL_ID]: t("ui.Model"),
+  [LOG_FILTER_IDS.PUBLIC_MODEL_OR_SEARCH_TOOL]: t("ui.Public model / search tool"),
+});
 
 export interface LogsWindow {
   start_date: string;

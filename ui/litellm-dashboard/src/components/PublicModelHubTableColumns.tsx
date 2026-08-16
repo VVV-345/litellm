@@ -1,12 +1,12 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { CellTooltip, IdentityCell, StatusBadge, type StatusTone } from "@/components/shared/table_cells";
 import { Badge } from "@/components/ui/badge";
 import { getProviderLogoAndName } from "@/components/provider_info_helpers";
-import { useTranslation } from "react-i18next";
+
+const identityT = (key: string): string => key.replace(/^ui\./, "");
 
 export interface ModelGroupInfo {
   model_group: string;
@@ -162,10 +162,10 @@ function OverflowChips({ items }: { items: string[] }) {
 
 interface PublicModelHubColumnsDeps {
   onModelClick: (model: ModelGroupInfo) => void;
+  t?: (key: string) => string;
 }
 
-export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumnsDeps): ColumnDef<ModelGroupInfo>[] => {
-  const { t } = useTranslation();
+export const getPublicModelHubColumns = ({ onModelClick, t = identityT }: PublicModelHubColumnsDeps): ColumnDef<ModelGroupInfo>[] => {
   return [
   {
     id: "model_group",
@@ -318,10 +318,10 @@ export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumns
 
 interface PublicAgentHubColumnsDeps {
   onAgentClick: (agent: AgentCard) => void;
+  t?: (key: string) => string;
 }
 
-export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumnsDeps): ColumnDef<AgentCard>[] => {
-  const { t } = useTranslation();
+export const getPublicAgentHubColumns = ({ onAgentClick, t = identityT }: PublicAgentHubColumnsDeps): ColumnDef<AgentCard>[] => {
   return [
   {
     id: "name",
@@ -413,10 +413,10 @@ export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumns
 
 interface PublicMCPHubColumnsDeps {
   onServerClick: (server: MCPServerData) => void;
+  t?: (key: string) => string;
 }
 
-export const getPublicMCPHubColumns = ({ onServerClick }: PublicMCPHubColumnsDeps): ColumnDef<MCPServerData>[] => {
-  const { t } = useTranslation();
+export const getPublicMCPHubColumns = ({ onServerClick, t = identityT }: PublicMCPHubColumnsDeps): ColumnDef<MCPServerData>[] => {
   return [
   {
     id: "server_name",

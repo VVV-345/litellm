@@ -57,23 +57,34 @@ export const AgentIcon = ({ size = 12 }: { size?: number }) => (
   </svg>
 );
 
-export const LlmBadge = ({ count }: { count?: number }) => (
-  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-medium whitespace-nowrap">
-    <SparkleIcon />
-    {count != null ? count : "LLM"}
-  </span>
-);
+import { useTranslation } from "react-i18next";
 
-export const McpBadge = ({ count }: { count?: number }) => (
-  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-medium whitespace-nowrap">
-    <WrenchIcon />
-    {count != null ? count : "MCP"}
-  </span>
-);
+export const LlmBadge = ({ count }: { count?: number }) => {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-[11px] font-medium whitespace-nowrap">
+      <SparkleIcon />
+      {count != null ? count : t("ui.LLM")}
+    </span>
+  );
+};
 
-export const AgentBadge = ({ count }: { count?: number }) => (
-  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full text-[11px] font-medium whitespace-nowrap">
-    <AgentIcon />
-    {count != null ? count : "Agent"}
-  </span>
-);
+export const McpBadge = ({ count }: { count?: number }) => {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[11px] font-medium whitespace-nowrap">
+      <WrenchIcon />
+      {count != null ? count : t("ui.MCP")}
+    </span>
+  );
+};
+
+export const AgentBadge = ({ count }: { count?: number }) => {
+  const { t } = useTranslation();
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full text-[11px] font-medium whitespace-nowrap">
+      <AgentIcon />
+      {count != null ? count : t("ui.Agent")}
+    </span>
+  );
+};

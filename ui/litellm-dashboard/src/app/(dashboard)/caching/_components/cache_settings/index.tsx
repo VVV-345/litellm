@@ -41,7 +41,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
       setRedisType(toRedisType(currentValues.redis_type));
     } catch (error) {
       console.error("Failed to load cache settings:", error);
-      NotificationsManager.fromBackend("Failed to load cache settings");
+      NotificationsManager.fromBackend(t("ui.Failed to load cache settings"));
     }
   }, [accessToken, form]);
 
@@ -88,14 +88,14 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
         buildCachePayload(redisType, values, { forTesting: true }),
       );
       if (result.status === "success") {
-        NotificationsManager.success("Cache connection test successful!");
+        NotificationsManager.success(t("ui.Cache connection test successful!"));
       } else {
-        NotificationsManager.fromBackend(`Connection test failed: ${result.message || result.error}`);
+        NotificationsManager.fromBackend(`${t("ui.Connection test failed: ")}${result.message || result.error}`);
       }
     } catch (error) {
       console.error("Test connection error:", error);
       NotificationsManager.fromBackend(
-        `Connection test failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        `${t("ui.Connection test failed: ")}${error instanceof Error ? error.message : t("ui.Unknown error")}`,
       );
     } finally {
       setIsTesting(false);
@@ -114,11 +114,11 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
     setIsSaving(true);
     try {
       await updateCacheSettingsCall(accessToken, buildCachePayload(redisType, values, { forTesting: false }));
-      NotificationsManager.success("Cache settings updated successfully");
+      NotificationsManager.success(t("ui.Cache settings updated successfully"));
       await loadCacheSettings();
     } catch (error) {
       console.error("Failed to save cache settings:", error);
-      NotificationsManager.fromBackend("Failed to update cache settings");
+      NotificationsManager.fromBackend(t("ui.Failed to update cache settings"));
     } finally {
       setIsSaving(false);
     }
@@ -133,7 +133,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
       <Form form={form} layout="vertical" requiredMark={false} className="space-y-6">
         <div className="max-w-3xl">
           <h3 className="text-sm font-medium text-gray-900">{t("ui.Cache Settings")}</h3>
-          <p className="text-xs text-gray-500 mt-1">Configure Redis cache for LiteLLM</p>
+          <p className="text-xs text-gray-500 mt-1">{t("ui.Configure Redis cache for LiteLLM")}</p>
         </div>
 
         <RedisTypeSelector
@@ -144,7 +144,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
 
         <div className="pt-4 border-t border-gray-200">
           <CacheFieldSection
-            title="Connection Settings"
+            title={t("ui.Connection Settings")}
             section="connection"
             redisType={redisType}
             embeddingModels={embeddingModels}
@@ -155,7 +155,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
         {redisType === "cluster" && (
           <div className="pt-4 border-t border-gray-200">
             <CacheFieldSection
-              title="Cluster Configuration"
+              title={t("ui.Cluster Configuration")}
               section="cluster"
               redisType={redisType}
               embeddingModels={embeddingModels}
@@ -167,7 +167,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
         {redisType === "sentinel" && (
           <div className="pt-4 border-t border-gray-200">
             <CacheFieldSection
-              title="Sentinel Configuration"
+              title={t("ui.Sentinel Configuration")}
               section="sentinel"
               redisType={redisType}
               embeddingModels={embeddingModels}
@@ -179,7 +179,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
         {redisType === "semantic" && (
           <div className="pt-4 border-t border-gray-200">
             <CacheFieldSection
-              title="Semantic Configuration"
+              title={t("ui.Semantic Configuration")}
               section="semantic"
               redisType={redisType}
               embeddingModels={embeddingModels}
@@ -189,26 +189,26 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
 
         <Accordion className="mt-4">
           <AccordionHeader>
-            <span className="text-sm font-medium text-gray-900">Advanced Settings</span>
+            <span className="text-sm font-medium text-gray-900">{t("ui.Advanced Settings")}</span>
           </AccordionHeader>
           <AccordionBody>
             <div className="space-y-6">
               <CacheFieldSection
-                title="SSL Settings"
+                title={t("ui.SSL Settings")}
                 section="ssl"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
                 headingLevel="h5"
               />
               <CacheFieldSection
-                title="Cache Management"
+                title={t("ui.Cache Management")}
                 section="cacheManagement"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
                 headingLevel="h5"
               />
               <CacheFieldSection
-                title="GCP Authentication"
+                title={t("ui.GCP Authentication")}
                 section="gcp"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
@@ -221,10 +221,10 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
 
       <div className="border-t border-gray-200 pt-6 flex justify-end gap-3">
         <Button variant="secondary" size="sm" onClick={handleTestConnection} disabled={isTesting} className="text-sm">
-          {isTesting ? "Testing..." : "Test Connection"}
+          {isTesting ? t("ui.Testing...") : t("ui.Test Connection")}
         </Button>
         <Button size="sm" onClick={handleSaveChanges} disabled={isSaving} className="text-sm font-medium">
-          {isSaving ? "Saving..." : t("ui.Save Changes")}
+          {isSaving ? t("ui.Saving...") : t("ui.Save Changes")}
         </Button>
       </div>
     </div>

@@ -42,6 +42,8 @@ const TOOL_ICONS: Record<string, string> = {
 };
 
 const ToolCallDisplay: React.FC<{ step: ToolCallStep }> = ({ step }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const icon = TOOL_ICONS[step.tool_name] || "🔧";
   const args = step.arguments;
   const dateRange = args.start_date && args.end_date ? `${args.start_date} → ${args.end_date}` : "";
@@ -63,7 +65,7 @@ const ToolCallDisplay: React.FC<{ step: ToolCallStep }> = ({ step }) => {
           {icon} {step.tool_label}
         </div>
         {dateRange && <div className="text-gray-500 mt-0.5">{dateRange}</div>}
-        {filter && <div className="text-gray-500 mt-0.5">Filter: {filter}</div>}
+        {filter && <div className="text-gray-500 mt-0.5">{ui("Filter")}: {filter}</div>}
         {step.status === "error" && step.error && <div className="text-red-600 mt-0.5">{step.error}</div>}
       </div>
     </div>
@@ -210,7 +212,7 @@ const UsageAIChatPanel: React.FC<UsageAIChatPanelProps> = ({ open, onClose, acce
       if (error?.name === "AbortError" || abortController.signal.aborted) {
         return;
       }
-      const errorMsg = error?.message || "Failed to get response. Please try again.";
+      const errorMsg = error?.message || ui("Failed to get response. Please try again.");
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${errorMsg}` }]);
       setStreamingContent("");
     } finally {

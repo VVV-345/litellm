@@ -409,18 +409,18 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                     <p className="font-bold">{data.date}</p>
                     {showFlatCost ? (
                       <>
-                        <p className="text-cyan-500">Request cost: ${formatNumberWithCommas(requestSpend, 2)}</p>
-                        <p className="text-violet-500">Flat cost: ${formatNumberWithCommas(flatCost, 2)}</p>
+                        <p className="text-cyan-500">{ui("Request cost")}: ${formatNumberWithCommas(requestSpend, 2)}</p>
+                        <p className="text-violet-500">{ui("Flat cost")}: ${formatNumberWithCommas(flatCost, 2)}</p>
                         <p className="font-semibold">
-                          Total cost: ${formatNumberWithCommas(requestSpend + flatCost, 2)}
+                          {ui("Total cost")}: ${formatNumberWithCommas(requestSpend + flatCost, 2)}
                         </p>
                       </>
                     ) : (
                       <p className="text-cyan-500">{ui("Total Spend")}: ${formatNumberWithCommas(data.metrics.spend, 2)}</p>
                     )}
                     <p className="text-gray-600">{ui("Total Requests")}: {data.metrics.api_requests}</p>
-                    <p className="text-gray-600">Successful: {data.metrics.successful_requests}</p>
-                    <p className="text-gray-600">Failed: {data.metrics.failed_requests}</p>
+                    <p className="text-gray-600">{ui("Successful")}: {data.metrics.successful_requests}</p>
+                    <p className="text-gray-600">{ui("Failed")}: {data.metrics.failed_requests}</p>
                     <p className="text-gray-600">{ui("Total Tokens")}: {data.metrics.total_tokens}</p>
                     <p className="text-gray-600">
                       Total {capitalizedEntityLabel}s: {entityCount}
@@ -459,7 +459,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <CardContent className="flex flex-col space-y-4">
             <div className="flex flex-col space-y-2">
               <h3 className="text-lg font-medium text-foreground">Spend Per {capitalizedEntityLabel}</h3>
-              <p className="text-xs text-muted-foreground">Showing Top 5 by Spend</p>
+              <p className="text-xs text-muted-foreground">{ui("Showing Top 5 by Spend")}</p>
               <div className="flex items-center text-sm text-gray-500">
                 <span>Get Started by Tracking cost per {capitalizedEntityLabel} </span>
                 <a
@@ -488,13 +488,13 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                     return (
                       <div className="bg-white p-4 shadow-lg rounded-lg border">
                         <p className="font-bold">{data.metadata.alias}</p>
-                        <p className="text-cyan-500">Spend: ${formatNumberWithCommas(data.metrics.spend, 4)}</p>
-                        <p className="text-gray-600">Requests: {data.metrics.api_requests.toLocaleString()}</p>
+                        <p className="text-cyan-500">{ui("Spend")}: ${formatNumberWithCommas(data.metrics.spend, 4)}</p>
+                        <p className="text-gray-600">{ui("Requests")}: {data.metrics.api_requests.toLocaleString()}</p>
                         <p className="text-green-600">
-                          Successful: {data.metrics.successful_requests.toLocaleString()}
+                          {ui("Successful")}: {data.metrics.successful_requests.toLocaleString()}
                         </p>
-                        <p className="text-red-600">Failed: {data.metrics.failed_requests.toLocaleString()}</p>
-                        <p className="text-gray-600">Tokens: {data.metrics.total_tokens.toLocaleString()}</p>
+                        <p className="text-red-600">{ui("Failed")}: {data.metrics.failed_requests.toLocaleString()}</p>
+                        <p className="text-gray-600">{ui("Tokens")}: {data.metrics.total_tokens.toLocaleString()}</p>
                       </div>
                     );
                   }}
@@ -601,10 +601,10 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   );
 
   const tabs: readonly { key: string; label: string; content: ReactNode }[] = [
-    { key: "cost", label: "Cost", content: costPanel },
+    { key: "cost", label: ui("Cost"), content: costPanel },
     {
       key: "models",
-      label: entityType === "agent" ? "Request / Token Consumption" : "Model Activity",
+      label: entityType === "agent" ? ui("Request / Token Consumption") : ui("Model Activity"),
       content: (
         <>
           <div className="flex justify-end mt-2 mb-4">
@@ -615,14 +615,14 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       ),
     },
     ...(showAgentBreakdown
-      ? [{ key: "agents", label: "Agent Activity", content: <ActivityMetrics modelMetrics={agentMetrics} /> }]
+      ? [{ key: "agents", label: ui("Agent Activity"), content: <ActivityMetrics modelMetrics={agentMetrics} /> }]
       : []),
     {
       key: "keys",
-      label: "Key Activity",
+      label: ui("Key Activity"),
       content: <ActivityMetrics modelMetrics={keyMetrics} hidePromptCachingMetrics={entityType === "agent"} />,
     },
-    { key: "endpoints", label: "Endpoint Activity", content: <EndpointUsage userSpendData={spendData} /> },
+    { key: "endpoints", label: ui("Endpoint Activity"), content: <EndpointUsage userSpendData={spendData} /> },
   ];
 
   return (
@@ -636,12 +636,12 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
               update periodically as data loads. Moving off of this page will stop and reset this. To continue using the
               UI in the meantime,{" "}
               <a href={window.location.href} target="_blank" rel="noopener noreferrer">
-                open a new tab <ExternalLink className="inline size-3.5 align-text-bottom" />
+                {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
               </a>
               .
             </span>
             <Button variant="destructive" onClick={cancel}>
-              Stop
+              {ui("Stop")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -662,12 +662,12 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
               Charts will update periodically as data loads. Moving off of this page will stop and reset this. To
               continue using the UI in the meantime,{" "}
               <a href={window.location.href} target="_blank" rel="noopener noreferrer">
-                open a new tab <ExternalLink className="inline size-3.5 align-text-bottom" />
+                {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
               </a>
               .
             </span>
             <Button variant="destructive" onClick={agentCancel}>
-              Stop
+              {ui("Stop")}
             </Button>
           </AlertDescription>
         </Alert>

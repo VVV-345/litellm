@@ -1000,7 +1000,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 <Alert variant="info" className="mb-5">
                   <AlertTitle>{ui("Reusable credentials are automatically tracked as tags")}</AlertTitle>
                   <AlertDescription className="text-inherit">
-                    When a reusable credential is used, it will appear as a tag prefixed with{" "}
+                    {ui("When a reusable credential is used, it will appear as a tag prefixed with")}{" "}
                     <code className="rounded bg-black/5 px-1 py-0.5 font-mono text-xs">Credential: </code>
                     {ui("in this view.")}
                   </AlertDescription>

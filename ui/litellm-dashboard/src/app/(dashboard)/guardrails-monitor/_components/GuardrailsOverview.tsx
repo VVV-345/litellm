@@ -89,7 +89,7 @@ export function GuardrailsOverview({
 
   const columns: ColumnDef<PerformanceRow>[] = [
     {
-      header: "Guardrail",
+      header: translateUiText(t, "Guardrail"),
       accessorKey: "name",
       enableSorting: false,
       cell: ({ row }) => (
@@ -103,7 +103,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: "Provider",
+      header: translateUiText(t, "Provider"),
       accessorKey: "provider",
       enableSorting: false,
       cell: ({ row }) => (
@@ -117,14 +117,14 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Requests" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={translateUiText(t, "Requests")} />,
       accessorKey: "requestsEvaluated",
       meta: { numeric: true },
       sortDescFirst: false,
       cell: ({ row }) => row.original.requestsEvaluated.toLocaleString(),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Fail Rate" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={translateUiText(t, "Fail Rate")} />,
       accessorKey: "failRate",
       meta: { numeric: true },
       sortDescFirst: false,
@@ -144,7 +144,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Avg. latency added" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={translateUiText(t, "Avg. latency added")} />,
       accessorKey: "avgLatency",
       meta: { numeric: true },
       sortDescFirst: false,
@@ -165,7 +165,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: "Status",
+      header: translateUiText(t, "Status"),
       accessorKey: "status",
       enableSorting: false,
       cell: ({ row }) => (
@@ -202,14 +202,14 @@ export function GuardrailsOverview({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Shield className="size-5 text-indigo-500" />
-            <h1 className="text-xl font-semibold text-gray-900">Guardrails Monitor</h1>
+            <h1 className="text-xl font-semibold text-gray-900">{translateUiText(t, "Guardrails Monitor")}</h1>
           </div>
-          <p className="text-sm text-gray-500">Monitor guardrail performance across all requests</p>
+          <p className="text-sm text-gray-500">{translateUiText(t, "Monitor guardrail performance across all requests")}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" title="Coming soon">
+          <Button variant="outline" title={translateUiText(t, "Coming soon")}>
             <Download className="size-4" />
-            Export Data
+            {translateUiText(t, "Export Data")}
           </Button>
         </div>
       </div>
@@ -223,19 +223,19 @@ export function GuardrailsOverview({
           icon={<TriangleAlert className="size-4 text-red-400" />}
         />
         <MetricCard
-          label="Pass Rate"
+          label={translateUiText(t, "Pass Rate")}
           value={`${metrics.passRate}%`}
           valueColor="text-green-600"
           icon={<TrendingUp className="size-4 text-green-400" />}
         />
         <MetricCard
-          label="Avg. latency added"
+          label={translateUiText(t, "Avg. latency added")}
           value={`${metrics.avgLatency}ms`}
           valueColor={
             metrics.avgLatency > 150 ? "text-red-600" : metrics.avgLatency > 50 ? "text-amber-600" : "text-green-600"
           }
         />
-        <MetricCard label="Active Guardrails" value={metrics.count} />
+        <MetricCard label={translateUiText(t, "Active Guardrails")} value={metrics.count} />
       </div>
 
       <div className="mb-6">
@@ -246,11 +246,11 @@ export function GuardrailsOverview({
         {(isLoading || error) && (
           <div className="mb-2 flex items-center gap-2">
             {isLoading && (
-              <span role="status" aria-busy="true" aria-label="Loading" className="inline-flex">
+              <span role="status" aria-busy="true" aria-label={translateUiText(t, "Loading")} className="inline-flex">
                 <UiLoadingSpinner className="size-4 text-primary" />
               </span>
             )}
-            {error && <span className="text-sm text-red-600">Failed to load data. Try again.</span>}
+            {error && <span className="text-sm text-red-600">{translateUiText(t, "Failed to load data. Try again.")}</span>}
           </div>
         )}
         <DataTable
@@ -269,9 +269,9 @@ export function GuardrailsOverview({
           toolbar={() => (
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h5 className="mb-0 text-base font-semibold text-gray-900">Guardrail Performance</h5>
+                <h5 className="mb-0 text-base font-semibold text-gray-900">{translateUiText(t, "Guardrail Performance")}</h5>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Click a guardrail to view details, logs, and configuration
+                  {translateUiText(t, "Click a guardrail to view details, logs, and configuration")}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -279,7 +279,7 @@ export function GuardrailsOverview({
                   variant="outline"
                   size="icon"
                   onClick={() => setEvaluationModalOpen(true)}
-                  title="Evaluation settings"
+                  title={translateUiText(t, "Evaluation settings")}
                 >
                   <Settings className="size-4" />
                 </Button>

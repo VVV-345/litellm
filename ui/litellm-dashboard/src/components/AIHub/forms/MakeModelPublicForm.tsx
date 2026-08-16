@@ -61,7 +61,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
   const handleNext = () => {
     if (currentStep === 0) {
       if (selectedModels.size === 0) {
-        NotificationsManager.fromBackend("Please select at least one model to make public");
+        NotificationsManager.fromBackend(t("ui.Please select at least one model to make public"));
         return;
       }
       setCurrentStep(1);
@@ -128,7 +128,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
       onSuccess();
     } catch (error) {
       console.error("Error making model groups public:", error);
-      NotificationsManager.fromBackend("Failed to make model groups public. Please try again.");
+      NotificationsManager.fromBackend(t("ui.Failed to make model groups public. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -157,8 +157,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
         </div>
 
         <p className="text-sm text-gray-600">
-          Select the models you want to be visible on the public model hub. Users will still require a valid Virtual Key
-          to use these models.
+          {t("ui.Select the models you want to be visible on the public model hub. Users will still require a valid Virtual Key to use these models.")}
         </p>
 
         {/* Filters */}
@@ -173,7 +172,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
           <div className="space-y-3">
             {filteredData.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                <p>No models match the current filters.</p>
+                <p>{t("ui.No models match the current filters.")}</p>
               </div>
             ) : (
               filteredData.map((model) => (
@@ -218,7 +217,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
   const renderStep2Content = () => {
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Confirm Making Models Public</h3>
+        <h3 className="text-lg font-semibold">{t("ui.Confirm Making Models Public")}</h3>
 
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-sm text-yellow-800">
@@ -228,7 +227,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
         </div>
 
         <div className="space-y-3">
-          <p className="font-medium">Models to be made public:</p>
+          <p className="font-medium">{t("ui.Models to be made public:")}</p>
           <div className="max-h-48 overflow-y-auto border rounded-lg p-3">
             <div className="space-y-2">
               {Array.from(selectedModels).map((modelGroup) => {
@@ -279,23 +278,22 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
     return (
       <div className="flex justify-between mt-6">
         <Button variant="outline" onClick={currentStep === 0 ? handleClose : handlePrevious}>
-          {currentStep === 0 ? "Cancel" : "Previous"}
+          {currentStep === 0 ? t("ui.Cancel") : t("ui.Previous")}
         </Button>
 
         <div className="flex space-x-2">
           {currentStep === 0 && (
             <Button onClick={handleNext} disabled={selectedModels.size === 0}>
-              Next
+              {t("ui.Next")}
             </Button>
           )}
 
           {currentStep === 1 && (
             <Button onClick={handleSubmit} disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
-              Make Public
+              {t("ui.Make Public")}
             </Button>
-          )}
-        </div>
+          )}        </div>
       </div>
     );
   };
@@ -304,7 +302,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && handleClose()} disablePointerDismissal>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[1200px]">
         <DialogHeader>
-          <DialogTitle>Make Models Public</DialogTitle>
+          <DialogTitle>{t("ui.Make Models Public")}</DialogTitle>
         </DialogHeader>
 
         <div>
@@ -326,7 +324,7 @@ const MakeModelPublicForm: React.FC<MakeModelPublicFormProps> = ({
                   {index + 1}
                 </span>
                 <span className={cn("text-sm", currentStep === index ? "font-medium" : "text-muted-foreground")}>
-                  {title}
+                  {t(`ui.${title}`)}
                 </span>
               </li>
             ))}

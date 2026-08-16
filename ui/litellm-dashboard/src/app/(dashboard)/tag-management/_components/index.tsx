@@ -50,7 +50,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
       setTags(Object.values(response));
     } catch (error) {
       console.error("Error fetching tags:", error);
-      NotificationsManager.fromBackend("Error fetching tags: " + error);
+      NotificationsManager.fromBackend(t("ui.Error fetching tags: ") + error);
     } finally {
       setIsLoadingTags(false);
     }
@@ -75,12 +75,12 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
         rpm_limit: formValues.rpm_limit,
         budget_duration: formValues.budget_duration,
       });
-      NotificationsManager.success("Tag created successfully");
+      NotificationsManager.success(t("ui.Tag created successfully"));
       setIsCreateModalVisible(false);
       fetchTags();
     } catch (error) {
       console.error("Error creating tag:", error);
-      NotificationsManager.fromBackend("Error creating tag: " + error);
+      NotificationsManager.fromBackend(t("ui.Error creating tag: ") + error);
     }
   };
 
@@ -94,11 +94,11 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
     setIsDeleting(true);
     try {
       await tagDeleteCall(accessToken, tagToDelete);
-      NotificationsManager.success("Tag deleted successfully");
+      NotificationsManager.success(t("ui.Tag deleted successfully"));
       fetchTags();
     } catch (error) {
       console.error("Error deleting tag:", error);
-      NotificationsManager.fromBackend("Error deleting tag: " + error);
+      NotificationsManager.fromBackend(t("ui.Error deleting tag: ") + error);
     } finally {
       setIsDeleting(false);
       setIsDeleteModalOpen(false);
@@ -116,7 +116,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
           }
         } catch (error) {
           console.error("Error fetching models:", error);
-          NotificationsManager.fromBackend("Error fetching models: " + error);
+          NotificationsManager.fromBackend(t("ui.Error fetching models: ") + error);
         }
       };
       fetchModels();
@@ -146,19 +146,18 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
             <h1>{t("ui.Tag Management")}</h1>
             <div className="flex items-center space-x-2">
               {lastRefreshed && <p className="text-sm">Last Refreshed: {lastRefreshed}</p>}
-              <Button variant="outline" size="icon-sm" aria-label="Refresh tags" onClick={handleRefreshClick}>
+              <Button variant="outline" size="icon-sm" aria-label={t("ui.Refresh tags")} onClick={handleRefreshClick}>
                 <RefreshCw />
               </Button>
             </div>
           </div>
 
           <div className="mb-4 text-sm">
-            Click on a tag name to view and edit its details.
+            {t("ui.Click on a tag name to view and edit its details.")}
             <p>
-              You can use tags to restrict the usage of certain LLMs based on tags passed in the request. Read more
-              about tag routing{" "}
+              {t("ui.You can use tags to restrict the usage of certain LLMs based on tags passed in the request. Read more about tag routing")}{" "}
               <a href="https://docs.litellm.ai/docs/proxy/tag_routing" target="_blank" rel="noopener noreferrer">
-                here
+                {t("ui.here")}
               </a>
               .
             </p>
@@ -194,10 +193,10 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
           {/* Delete Confirmation Modal */}
           <DeleteResourceModal
             isOpen={isDeleteModalOpen}
-            title="Delete Tag"
-            message="Are you sure you want to delete this tag? This action cannot be undone."
-            resourceInformationTitle="Tag Information"
-            resourceInformation={[{ label: "Tag Name", value: tagToDelete, code: true }]}
+            title={t("ui.Delete Tag")}
+            message={t("ui.Are you sure you want to delete this tag? This action cannot be undone.")}
+            resourceInformationTitle={t("ui.Tag Information")}
+            resourceInformation={[{ label: t("ui.Tag Name"), value: tagToDelete, code: true }]}
             onCancel={() => {
               setIsDeleteModalOpen(false);
               setTagToDelete(null);

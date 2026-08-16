@@ -21,16 +21,19 @@ interface SkillHubDashboardProps {
 }
 
 function SkillsEmptyState({ filtered }: { filtered: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <Inbox className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">{filtered ? "No matching skills" : "No skills yet"}</div>
+      <div className="text-sm font-medium text-foreground">
+        {filtered ? t("ui.No matching skills") : t("ui.No skills yet")}
+      </div>
       <div className="text-sm text-muted-foreground">
         {filtered
-          ? "Adjust the search or domain filter to see more skills."
-          : "Skills added here will appear for developers."}
+          ? t("ui.Adjust the search or domain filter to see more skills.")
+          : t("ui.Skills added here will appear for developers.")}
       </div>
     </div>
   );
@@ -81,8 +84,8 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
   const columns = useMemo(() => getSkillHubTableColumns({ onSkillClick: setSelectedSkill, t }), [t]);
 
   const domainItems = useMemo(
-    () => [{ value: ALL_DOMAINS, label: "All Domains" }, ...domains.map((d) => ({ value: d, label: d }))],
-    [domains],
+    () => [{ value: ALL_DOMAINS, label: t("ui.All Domains") }, ...domains.map((d) => ({ value: d, label: d }))],
+    [domains, t],
   );
 
   const hasActiveFilter = search.trim().length > 0 || domainFilter != null;
@@ -104,15 +107,15 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-4">
         <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 mb-1">Total Skills</div>
+          <div className="text-xs text-gray-500 mb-1">{t("ui.Total Skills")}</div>
           <div className="text-2xl font-semibold text-gray-900">{totalSkills}</div>
         </div>
         <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 mb-1">Namespaces</div>
+          <div className="text-xs text-gray-500 mb-1">{t("ui.Namespaces")}</div>
           <div className="text-2xl font-semibold text-gray-900">{namespaces.length}</div>
         </div>
         <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 mb-1">Domains</div>
+          <div className="text-xs text-gray-500 mb-1">{t("ui.Domains")}</div>
           <div className="text-2xl font-semibold text-gray-900">{domains.length}</div>
         </div>
       </div>
@@ -143,7 +146,7 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
                 <Search className="size-4 text-muted-foreground" />
               </InputGroupAddon>
               <InputGroupInput
-                placeholder="Search by name, namespace, or tag…"
+                placeholder={t("ui.Search by name, namespace, or tag…")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -152,7 +155,7 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
                   <InputGroupButton
                     size="icon-xs"
                     variant="ghost"
-                    aria-label="Clear search"
+                    aria-label={t("ui.Clear search")}
                     onClick={() => setSearch("")}
                   >
                     <X className="size-3.5" />
@@ -170,7 +173,7 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
           sorting={sorting}
           onSortingChange={setSorting}
           isLoading={isLoading}
-          loadingMessage="Loading skills…"
+          loadingMessage={t("ui.Loading skills…")}
           noDataMessage={<SkillsEmptyState filtered={hasActiveFilter} />}
           size="compact"
         />

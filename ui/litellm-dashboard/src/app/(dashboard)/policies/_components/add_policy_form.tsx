@@ -330,10 +330,10 @@ const AddPolicyForm: React.FC<AddPolicyFormProps> = ({
 
       if (isEditing && editingPolicy) {
         await updatePolicy(accessToken, editingPolicy.policy_id, data as PolicyUpdateRequest);
-        NotificationsManager.success("Policy updated successfully");
+        NotificationsManager.success(ui("Policy updated successfully"));
       } else {
         await createPolicy(accessToken, data as PolicyCreateRequest);
-        NotificationsManager.success("Policy created successfully");
+        NotificationsManager.success(ui("Policy created successfully"));
       }
 
       resetForm();
