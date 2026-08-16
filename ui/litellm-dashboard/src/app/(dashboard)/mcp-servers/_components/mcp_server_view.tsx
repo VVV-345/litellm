@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,6 +58,7 @@ export const MCPServerView: React.FC<MCPServerViewProps> = ({
   availableAccessGroups,
   initialTabIndex = 0,
 }) => {
+  const { t } = useTranslation();
   // Open the editing Settings tab on first render when returning from the edit OAuth
   // redirect, so the "token fetched" feedback shows where the user left off (Settings=2).
   const returningFromEditOAuth = isReturningFromEditOAuth(isProxyAdmin, mcpServer.server_id);
@@ -215,7 +218,7 @@ export const MCPServerView: React.FC<MCPServerViewProps> = ({
               <h2 className="text-lg font-medium">MCP Server Settings</h2>
               {editing ? null : (
                 <Button variant="outline" onClick={() => setEditing(true)}>
-                  Edit Settings
+                  {translateUiText(t, "Edit Settings")}
                 </Button>
               )}
             </div>
@@ -243,7 +246,7 @@ export const MCPServerView: React.FC<MCPServerViewProps> = ({
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4 py-3">
-                  <p className="text-sm font-medium text-muted-foreground">Description</p>
+                  <p className="text-sm font-medium text-muted-foreground">{translateUiText(t, "Description")}</p>
                   <div className="col-span-2 text-sm">
                     {mcpServer.description || <span className="text-muted-foreground">—</span>}
                   </div>

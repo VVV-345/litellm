@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import {
   vectorStoreListCall,
@@ -27,6 +28,7 @@ interface VectorStoreProps {
 }
 
 const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID, userRole }) => {
+  const { t } = useTranslation();
   const [vectorStores, setVectorStores] = useState<VectorStore[]>([]);
   const [isLoadingVectorStores, setIsLoadingVectorStores] = useState(true);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -140,7 +142,7 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
     <div className="mx-4 h-[75vh]">
       <div className="gap-2 p-8 h-[75vh] w-full mt-2">
         <div className="flex justify-between mt-2 w-full items-center mb-4">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Vector Store Management</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{t("ui.Vector Store Management")}</h1>
           <div className="flex items-center space-x-2">
             {lastRefreshed && <p className="text-sm text-muted-foreground">Last Refreshed: {lastRefreshed}</p>}
             <Button variant="outline" size="icon-sm" aria-label="Refresh" onClick={handleRefreshClick}>
@@ -156,10 +158,10 @@ const VectorStoreManagement: React.FC<VectorStoreProps> = ({ accessToken, userID
         <Tabs defaultValue="create" onValueChange={onTabChange}>
           <TabsList variant="line" className="mb-6 h-auto w-full justify-start rounded-none border-b p-0">
             <TabsTrigger value="create" className="flex-none rounded-none px-4 py-2">
-              Create Vector Store
+              {t("ui.Create Vector Store")}
             </TabsTrigger>
             <TabsTrigger value="manage" className="flex-none rounded-none px-4 py-2">
-              Manage Vector Stores
+              {t("ui.Manage Vector Stores")}
             </TabsTrigger>
             <TabsTrigger value="test" className="flex-none rounded-none px-4 py-2">
               Test Vector Store

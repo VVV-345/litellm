@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Button, Form } from "antd";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { StatusBadge } from "@/components/shared/table_cells/status_badge";
 import {
@@ -20,6 +21,7 @@ import {
 } from "./coordinationRedisUtils";
 
 const CoordinationRedisSettings: React.FC = () => {
+  const { t } = useTranslation();
   const [form] = Form.useForm<CoordinationFormValues>();
   const [selectedRedisType, setSelectedRedisType] = useState<CoordinationRedisType | null>(null);
 
@@ -151,7 +153,7 @@ const CoordinationRedisSettings: React.FC = () => {
           {testConnection.isPending ? "Testing..." : "Test Connection"}
         </Button>
         <Button type="primary" onClick={handleSaveChanges} loading={updateSettings.isPending}>
-          {updateSettings.isPending ? "Saving..." : "Save Changes"}
+          {updateSettings.isPending ? "Saving..." : t("ui.Save Changes")}
         </Button>
       </div>
     </div>

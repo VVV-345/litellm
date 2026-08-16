@@ -20,6 +20,7 @@ import RoutePreview from "./route_preview";
 import NotificationsManager from "./molecules/notifications_manager";
 import PassThroughSecuritySection from "./common_components/PassThroughSecuritySection";
 import PassThroughGuardrailsSection from "./common_components/PassThroughGuardrailsSection";
+import { useTranslation } from "react-i18next";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"];
 const { Option } = Select;
@@ -71,6 +72,7 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
   premiumUser = false,
   onEndpointUpdated,
 }) => {
+  const { t } = useTranslation();
   const [endpointData, setEndpointData] = useState<PassThroughEndpoint | null>(initialEndpointData);
   const [loading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -281,7 +283,7 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                   <div className="space-x-2">
                     {!isEditing && (
                       <>
-                        <TremorButton onClick={() => setIsEditing(true)}>Edit Settings</TremorButton>
+                        <TremorButton onClick={() => setIsEditing(true)}>{t("ui.Edit Settings")}</TremorButton>
                         <TremorButton onClick={handleDeleteEndpoint} variant="secondary" color="red">
                           Delete Endpoint
                         </TremorButton>
@@ -380,7 +382,7 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
 
                     <div className="flex justify-end gap-2 mt-6">
                       <Button onClick={() => setIsEditing(false)}>Cancel</Button>
-                      <TremorButton>Save Changes</TremorButton>
+                      <TremorButton>{t("ui.Save Changes")}</TremorButton>
                     </div>
                   </Form>
                 ) : (

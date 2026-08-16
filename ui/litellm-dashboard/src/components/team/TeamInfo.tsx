@@ -34,6 +34,7 @@ import { Button, Form, Input, InputNumber, Select, Space, Switch, Tabs, Tag, Too
 import MessageManager from "@/components/molecules/message_manager";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { copyToClipboard as utilCopyToClipboard } from "../../utils/dataUtils";
 import AccessGroupSelector from "../common_components/AccessGroupSelector";
 import BudgetDurationDropdown from "../common_components/budget_duration_dropdown";
@@ -211,6 +212,7 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
   const [isTeamSaving, setIsTeamSaving] = useState(false);
   const [teamModelAliases, setTeamModelAliases] = useState<Record<string, string>>({});
   const routerSettingsRef = React.useRef<RouterSettingsAccordionRef>(null);
+  const { t } = useTranslation();
   const [organization, setOrganization] = useState<Organization | null>(null);
   const { userRole, userId } = useAuthorized();
   const canEditTeamEstimates = isProxyAdminRole(userRole);
@@ -935,7 +937,7 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
                         setIsEditing(true);
                       }}
                     >
-                      Edit Settings
+                      {t("ui.Edit Settings")}
                     </Button>
                   )}
                 </div>
@@ -1530,7 +1532,7 @@ const TeamInfoView: React.FC<TeamInfoProps> = ({
                           htmlType="submit"
                           loading={isTeamSaving}
                         >
-                          Save Changes
+                          {t("ui.Save Changes")}
                         </Button>
                       </div>
                     </div>

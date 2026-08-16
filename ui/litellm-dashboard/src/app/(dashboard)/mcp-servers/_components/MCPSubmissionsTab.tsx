@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import {
   SearchIcon,
   CheckIcon,
@@ -436,6 +438,7 @@ interface MCPSubmissionsTabProps {
 }
 
 export function MCPSubmissionsTab({ accessToken }: MCPSubmissionsTabProps) {
+  const { t } = useTranslation();
   const [summary, setSummary] = useState<MCPSubmissionsSummary>({
     total: 0,
     pending_review: 0,
@@ -552,7 +555,7 @@ export function MCPSubmissionsTab({ accessToken }: MCPSubmissionsTabProps) {
       />
 
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total Submitted" value={summary.total} color="text-gray-900" />
+        <StatCard label={translateUiText(t, "Total Submitted")} value={summary.total} color="text-gray-900" />
         <StatCard label="Pending Review" value={summary.pending_review} color="text-yellow-600" />
         <StatCard label="Active" value={summary.active} color="text-green-600" />
         <StatCard label="Rejected" value={summary.rejected} color="text-red-600" />
@@ -574,7 +577,7 @@ export function MCPSubmissionsTab({ accessToken }: MCPSubmissionsTabProps) {
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           className="border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
         >
-          <option value="all">All Status</option>
+          <option value="all">{translateUiText(t, "All Status")}</option>
           <option value="pending_review">Pending Review</option>
           <option value="active">Active</option>
           <option value="rejected">Rejected</option>

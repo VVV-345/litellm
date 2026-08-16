@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Card,
   Text,
@@ -32,6 +33,7 @@ interface TagInfoViewProps {
 }
 
 const TagInfoView: React.FC<TagInfoViewProps> = ({ tagId, onClose, accessToken, is_admin, editTag }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [tagDetails, setTagDetails] = useState<Tag | null>(null);
   const [isEditing, setIsEditing] = useState<boolean>(editTag);
@@ -144,7 +146,7 @@ const TagInfoView: React.FC<TagInfoViewProps> = ({ tagId, onClose, accessToken, 
               <Input className="rounded-md border-gray-300" />
             </Form.Item>
 
-            <Form.Item label="Description" name="description">
+            <Form.Item label={t("ui.Description")} name="description">
               <Input.TextArea rows={4} />
             </Form.Item>
 
@@ -220,7 +222,7 @@ const TagInfoView: React.FC<TagInfoViewProps> = ({ tagId, onClose, accessToken, 
 
             <div className="flex justify-end space-x-2">
               <Button onClick={() => setIsEditing(false)}>Cancel</Button>
-              <Button type="submit">Save Changes</Button>
+              <Button type="submit">{t("ui.Save Changes")}</Button>
             </div>
           </Form>
         </Card>
@@ -234,7 +236,7 @@ const TagInfoView: React.FC<TagInfoViewProps> = ({ tagId, onClose, accessToken, 
                 <Text>{tagDetails.name}</Text>
               </div>
               <div>
-                <Text className="font-medium">Description</Text>
+                <Text className="font-medium">{t("ui.Description")}</Text>
                 <Text>{tagDetails.description || "-"}</Text>
               </div>
               <div>
@@ -256,7 +258,7 @@ const TagInfoView: React.FC<TagInfoViewProps> = ({ tagId, onClose, accessToken, 
                 <Text>{tagDetails.created_at ? new Date(tagDetails.created_at).toLocaleString() : "-"}</Text>
               </div>
               <div>
-                <Text className="font-medium">Last Updated</Text>
+                <Text className="font-medium">{t("ui.Last Updated")}</Text>
                 <Text>{tagDetails.updated_at ? new Date(tagDetails.updated_at).toLocaleString() : "-"}</Text>
               </div>
             </div>

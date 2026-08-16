@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { DateRangePicker, DateRangePickerValue, Text } from "@tremor/react";
 
 interface UsageDatePickerProps {
@@ -15,10 +16,11 @@ interface UsageDatePickerProps {
 const UsageDatePicker: React.FC<UsageDatePickerProps> = ({
   value,
   onValueChange,
-  label = "Select Time Range",
+  label,
   className = "",
   showTimeRange = true,
 }) => {
+  const { t } = useTranslation();
   const [showSelectedFeedback, setShowSelectedFeedback] = useState(false);
   const datePickerRef = useRef<HTMLDivElement>(null);
 
@@ -110,7 +112,11 @@ const UsageDatePicker: React.FC<UsageDatePickerProps> = ({
 
   return (
     <div className={className}>
-      {label && <Text className="mb-2">{label}</Text>}
+      {label !== undefined ? (
+        <Text className="mb-2">{label}</Text>
+      ) : (
+        <Text className="mb-2">{t("ui.Select Time Range")}</Text>
+      )}
 
       {/* Container with relative positioning for absolute placement */}
       <div className="relative w-fit">

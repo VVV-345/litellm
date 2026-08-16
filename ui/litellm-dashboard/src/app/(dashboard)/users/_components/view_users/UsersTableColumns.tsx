@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, Info, KeyRound, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { UserInfo } from "@/components/networking";
@@ -76,6 +77,7 @@ export interface UsersTableColumnsDeps {
   onUserClick: (userId: string, openInEditMode?: boolean) => void;
   onDeleteUser: (user: UserInfo) => void;
   onResetPassword: (userId: string) => void;
+  t: TFunction;
 }
 
 export const getUsersTableColumns = ({
@@ -84,6 +86,7 @@ export const getUsersTableColumns = ({
   onUserClick,
   onDeleteUser,
   onResetPassword,
+  t,
 }: UsersTableColumnsDeps): ColumnDef<UserInfo>[] => {
   const baseColumns: ColumnDef<UserInfo>[] = [
     {
@@ -233,16 +236,16 @@ export const getUsersTableColumns = ({
     {
       id: "updated_at",
       accessorKey: "updated_at",
-      meta: { title: "Updated At" },
-      header: "Updated At",
+      meta: { title: t("ui.Updated At") },
+      header: t("ui.Updated At"),
       size: 130,
       enableSorting: false,
       cell: ({ row }) => <DateCell value={row.original.updated_at} precision="date" />,
     },
     {
       id: "actions",
-      meta: { title: "Actions", className: "text-right", headerClassName: "text-right" },
-      header: () => <span className="sr-only">Actions</span>,
+      meta: { title: t("ui.Actions"), className: "text-right", headerClassName: "text-right" },
+      header: () => <span className="sr-only">{t("ui.Actions")}</span>,
       size: 60,
       enableSorting: false,
       enableHiding: false,

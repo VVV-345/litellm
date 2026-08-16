@@ -34,6 +34,7 @@ import ObjectPermissionsView from "../object_permissions_view";
 import { RegenerateKeyModal } from "../organisms/RegenerateKeyModal";
 import { parseErrorMessage } from "../shared/errorUtils";
 import { KeyEditView } from "./key_edit_view";
+import { useTranslation } from "react-i18next";
 
 interface KeyInfoViewProps {
   keyId: string;
@@ -75,6 +76,7 @@ export default function KeyInfoView({
   backButtonText = "Back to Keys",
 }: KeyInfoViewProps) {
   const { accessToken, userId: userID, userRole, premiumUser } = useAuthorized();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canEditGuardrails = premiumUser || (userRole != null && rolesWithWriteAccess.includes(userRole));
   const { teams: teamsData } = useTeams();
@@ -731,7 +733,7 @@ export default function KeyInfoView({
                 <h3 className="text-lg font-medium">Key Settings</h3>
                 {!isEditing && canModifyKey && (
                   <Button variant="outline" onClick={() => setIsEditing(true)}>
-                    Edit Settings
+                    {t("ui.Edit Settings")}
                   </Button>
                 )}
               </div>

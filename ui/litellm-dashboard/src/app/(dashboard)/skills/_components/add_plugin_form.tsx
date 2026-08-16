@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal, Form, Input, Select } from "antd";
 import MessageManager from "@/components/molecules/message_manager";
 import { Button } from "@tremor/react";
@@ -77,6 +78,7 @@ const PREDEFINED_CATEGORIES = [
 ];
 
 const AddPluginForm: React.FC<AddPluginFormProps> = ({ visible, onClose, accessToken, onSuccess }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [urlPreview, setUrlPreview] = useState<SkillSourcePreview | null>(null);
@@ -211,7 +213,7 @@ const AddPluginForm: React.FC<AddPluginFormProps> = ({ visible, onClose, accessT
 
         {/* Skill Name */}
         <Form.Item
-          label="Skill Name"
+          label={t("ui.Skill Name")}
           name="name"
           rules={[
             { required: true, message: "Please enter skill name" },
@@ -246,7 +248,7 @@ const AddPluginForm: React.FC<AddPluginFormProps> = ({ visible, onClose, accessT
         </div>
 
         {/* Description */}
-        <Form.Item label="Description (Optional)" name="description" tooltip="Brief description of what the skill does">
+        <Form.Item label={`${t("ui.Description")} (Optional)`} name="description" tooltip="Brief description of what the skill does">
           <TextArea rows={3} placeholder="A skill that helps with..." maxLength={500} className="rounded-lg" />
         </Form.Item>
 

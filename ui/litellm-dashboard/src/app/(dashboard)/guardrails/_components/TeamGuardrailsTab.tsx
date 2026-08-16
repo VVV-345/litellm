@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 import { DEBOUNCE_WAIT_MS } from "@/utils/debounceConstants";
 import {
@@ -745,6 +747,7 @@ interface TeamGuardrailsTabProps {
 }
 
 export function TeamGuardrailsTab({ accessToken }: TeamGuardrailsTabProps) {
+  const { t } = useTranslation();
   const { userRole } = useAuthorized();
   const isAdmin = userRole ? isProxyAdminRole(userRole) : false;
   const [guardrails, setGuardrails] = useState<TeamGuardrail[]>([]);
@@ -898,7 +901,7 @@ export function TeamGuardrailsTab({ accessToken }: TeamGuardrailsTabProps) {
     <div className="flex h-full">
       <div className={`flex-1 min-w-0 p-6 overflow-auto ${selected ? "border-r border-gray-200" : ""}`}>
         <div className="grid grid-cols-4 gap-4 mb-6">
-          <StatCard label="Total Submitted" value={totalCount} color="text-gray-900" />
+          <StatCard label={translateUiText(t, "Total Submitted")} value={totalCount} color="text-gray-900" />
           <StatCard label="Pending Review" value={pendingCount} color="text-yellow-600" />
           <StatCard label="Active" value={activeCount} color="text-green-600" />
           <StatCard label="Rejected" value={rejectedCount} color="text-red-600" />
@@ -919,7 +922,7 @@ export function TeamGuardrailsTab({ accessToken }: TeamGuardrailsTabProps) {
             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
             className="border border-gray-200 rounded-md px-3 py-2 text-sm text-gray-700 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
           >
-            <option value="all">All Status</option>
+            <option value="all">{translateUiText(t, "All Status")}</option>
             <option value="pending">Pending Review</option>
             <option value="active">Active</option>
             <option value="rejected">Rejected</option>
@@ -937,7 +940,7 @@ export function TeamGuardrailsTab({ accessToken }: TeamGuardrailsTabProps) {
           {isLoading && <div className="text-center py-12 text-gray-500 text-sm">Loading submissions…</div>}
           {error && <div className="text-center py-12 text-red-600 text-sm">{error}</div>}
           {!isLoading && !error && filtered.length === 0 && (
-            <div className="text-center py-12 text-gray-400 text-sm">No guardrails match your filters.</div>
+            <div className="text-center py-12 text-gray-400 text-sm">{translateUiText(t, "No guardrails match your filters.")}</div>
           )}
           {!isLoading &&
             !error &&

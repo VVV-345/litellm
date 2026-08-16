@@ -1,4 +1,6 @@
 import React, { useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { Alert, Form, Select, Tooltip, Collapse, Input, Space, Button, Switch } from "antd";
 import { InfoCircleOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { MCPServer, AUTH_TYPE } from "@/components/mcp_tools/types";
@@ -22,6 +24,7 @@ const MCPPermissionManagement: React.FC<MCPPermissionManagementProps> = ({
   setSearchValue,
   getAccessGroupOptions,
 }) => {
+  const { t } = useTranslation();
   const form = Form.useFormInstance();
   const watchedAuthType = Form.useWatch("auth_type", form);
   const isOAuth2 = watchedAuthType === AUTH_TYPE.OAUTH2;
@@ -108,9 +111,11 @@ const MCPPermissionManagement: React.FC<MCPPermissionManagementProps> = ({
           <div className="flex items-center">
             <div className="flex items-center space-x-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <h3 className="text-lg font-semibold text-gray-900">Permission Management / Access Control</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {translateUiText(t, "Permission Management / Access Control")}
+              </h3>
             </div>
-            <p className="text-sm text-gray-600 ml-4">Configure access permissions and security settings (Optional)</p>
+            <p className="text-sm text-gray-600 ml-4">{translateUiText(t, "Configure access permissions and security settings (Optional)")}</p>
           </div>
         }
         key="permissions"
@@ -127,7 +132,7 @@ const MCPPermissionManagement: React.FC<MCPPermissionManagementProps> = ({
                 </Tooltip>
               </span>
               <p className="text-sm text-gray-600 mt-1">
-                Enable if this server should be &quot;public&quot; to all keys.
+                {t("ui.Enable if this server should be \"public\" to all keys.")}
               </p>
             </div>
             <Form.Item
@@ -238,7 +243,7 @@ const MCPPermissionManagement: React.FC<MCPPermissionManagementProps> = ({
             <Select
               mode="tags"
               showSearch
-              placeholder="Select existing groups or type to create new ones"
+              placeholder={t("ui.Select existing groups or type to create new ones")}
               optionFilterProp="value"
               filterOption={(input, option) => (option?.value ?? "").toLowerCase().includes(input.toLowerCase())}
               onSearch={(value) => setSearchValue(value)}
@@ -323,7 +328,7 @@ const MCPPermissionManagement: React.FC<MCPPermissionManagementProps> = ({
                     </Space>
                   ))}
                   <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} block>
-                    Add Static Header
+                    {t("ui.Add Static Header")}
                   </Button>
                 </div>
               )}

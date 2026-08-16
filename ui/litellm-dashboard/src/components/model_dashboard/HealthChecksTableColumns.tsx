@@ -7,6 +7,7 @@ import { Team } from "@/components/key_team_helpers/key_list";
 import { createSelectionColumn, DataTableSortHeader } from "@/components/shared/DataTable";
 import { IdentityCell, StatusBadge, type StatusTone } from "@/components/shared/table_cells";
 import { cn } from "@/lib/cva.config";
+import { useTranslation } from "react-i18next";
 
 export interface HealthStatus {
   status: string;
@@ -215,7 +216,9 @@ export const getHealthChecksTableColumns = ({
   onShowSuccess,
   onSelectModel,
   teams,
-}: HealthChecksTableColumnsDeps): ColumnDef<HealthCheckData>[] => [
+}: HealthChecksTableColumnsDeps): ColumnDef<HealthCheckData>[] => {
+  const { t } = useTranslation();
+  return [
   createSelectionColumn<HealthCheckData>({
     rowAriaLabel: (row) => `Select ${row.original.model_info?.id ?? row.original.model_name}`,
   }),
@@ -241,8 +244,8 @@ export const getHealthChecksTableColumns = ({
   {
     id: "model_name",
     accessorKey: "model_name",
-    meta: { title: "Model Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Model Name" variant="header-cycle" />,
+    meta: { title: t("ui.Model Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model Name")} variant="header-cycle" />,
     size: 200,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -279,8 +282,8 @@ export const getHealthChecksTableColumns = ({
   {
     id: "health_status",
     accessorKey: "health_status",
-    meta: { title: "Health Status", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Health Status" variant="header-cycle" />,
+    meta: { title: t("ui.Health Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Health Status")} variant="header-cycle" />,
     size: 170,
     enableSorting: true,
     sortingFn: (rowA, rowB) => {
@@ -399,8 +402,8 @@ export const getHealthChecksTableColumns = ({
   },
   {
     id: "actions",
-    meta: { title: "Actions", className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    meta: { title: t("ui.Actions"), className: "text-right", headerClassName: "text-right" },
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 80,
     enableSorting: false,
     enableHiding: false,
@@ -411,3 +414,4 @@ export const getHealthChecksTableColumns = ({
     ),
   },
 ];
+};

@@ -19,6 +19,7 @@ import { userAgentSummaryCall, tagDauCall, tagWauCall, tagMauCall, tagDistinctCa
 import PerUserUsage from "./per_user_usage";
 import type { DateRangePickerValue } from "@tremor/react";
 import { ChartLoader } from "./shared/chart_loader";
+import { useTranslation } from "react-i18next";
 
 // New interfaces for the updated API response
 interface TagActiveUsersResponse {
@@ -59,6 +60,7 @@ interface UserAgentActivityProps {
 }
 
 const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, userRole, dateValue, onDateChange }) => {
+  const { t } = useTranslation();
   // Maximum number of categories to show in charts to prevent color palette overflow
   const MAX_CATEGORIES = 10;
 
@@ -444,7 +446,7 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
                           <p className="text-lg font-semibold">{formatAbbreviatedNumber(tag.successful_requests)}</p>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">Total Tokens</p>
+                          <p className="text-sm text-gray-600">{t("ui.Total Tokens")}</p>
                           <p className="text-lg font-semibold">{formatAbbreviatedNumber(tag.total_tokens)}</p>
                         </div>
                         <div>
@@ -467,7 +469,7 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
                         <p className="text-lg font-semibold">-</p>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-600">Total Tokens</p>
+                        <p className="text-sm text-gray-600">{t("ui.Total Tokens")}</p>
                         <p className="text-lg font-semibold">-</p>
                       </div>
                       <div>

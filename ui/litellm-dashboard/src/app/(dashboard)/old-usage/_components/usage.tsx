@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 import ViewUserSpend from "@/components/view_user_spend";
 import { ProxySettings } from "@/components/user_dashboard";
@@ -91,6 +92,7 @@ const TeamSpendBarList: React.FC<{ data: TeamSpendTotal[] }> = ({ data }) => {
 };
 
 const UsagePage: React.FC<UsagePageProps> = ({ accessToken, token, userRole, userID, keys, premiumUser }) => {
+  const { t } = useTranslation();
   const canViewGlobalSpend = hasCapability(userRole, "viewGlobalSpend");
   const currentDate = new Date();
   const [keySpendData, setKeySpendData] = useState<any[]>([]);
@@ -551,9 +553,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ accessToken, token, userRole, use
 
           {isAdminOrAdminViewer(userRole) && (
             <>
-              <TabsTrigger value="team-based-usage">Team Based Usage</TabsTrigger>
-              <TabsTrigger value="customer-usage">Customer Usage</TabsTrigger>
-              <TabsTrigger value="tag-based-usage">Tag Based Usage</TabsTrigger>
+              <TabsTrigger value="team-based-usage">{t("ui.Team Based Usage")}</TabsTrigger>
+              <TabsTrigger value="customer-usage">{t("ui.Customer Usage")}</TabsTrigger>
+              <TabsTrigger value="tag-based-usage">{t("ui.Tag Based Usage")}</TabsTrigger>
             </>
           )}
         </TabsList>

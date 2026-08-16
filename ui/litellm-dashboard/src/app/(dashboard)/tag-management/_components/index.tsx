@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TagInfoView from "./tag_info";
@@ -27,6 +28,7 @@ interface TagProps {
 }
 
 const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) => {
+  const { t } = useTranslation();
   const [tags, setTags] = useState<Tag[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(true);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -141,7 +143,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
       ) : (
         <div className="mt-2 h-[75vh] w-full gap-2 p-8">
           <div className="mt-2 mb-4 flex w-full items-center justify-between">
-            <h1>Tag Management</h1>
+            <h1>{t("ui.Tag Management")}</h1>
             <div className="flex items-center space-x-2">
               {lastRefreshed && <p className="text-sm">Last Refreshed: {lastRefreshed}</p>}
               <Button variant="outline" size="icon-sm" aria-label="Refresh tags" onClick={handleRefreshClick}>
@@ -163,7 +165,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
           </div>
 
           <Button className="mb-4" onClick={() => setIsCreateModalVisible(true)}>
-            + Create New Tag
+            {t("ui.+ Create New Tag")}
           </Button>
 
           <div className="mt-2 grid h-[75vh] w-full grid-cols-1 gap-2 pt-2 pb-2">

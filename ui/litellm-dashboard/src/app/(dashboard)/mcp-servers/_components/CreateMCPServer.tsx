@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { Modal, Tooltip, Form, Select, Input, InputNumber, Collapse } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import { Button, TextInput } from "@tremor/react";
@@ -85,6 +87,7 @@ const CreateMCPServer: React.FC<CreateMCPServerProps> = ({
   prefillData,
   onBackToDiscovery,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [isLoading, setIsLoading] = useState(false);
   const [costConfig, setCostConfig] = useState<MCPServerCostInfo>({});
@@ -623,7 +626,7 @@ const CreateMCPServer: React.FC<CreateMCPServerProps> = ({
             }}
           />
           <h2 className="text-xl font-semibold text-gray-900">
-            {isAdmin ? "Add New MCP Server" : "Submit MCP Server for Review"}
+            {isAdmin ? translateUiText(t, "Add New MCP Server") : "Submit MCP Server for Review"}
           </h2>
         </div>
       }
@@ -694,7 +697,7 @@ const CreateMCPServer: React.FC<CreateMCPServerProps> = ({
             </Form.Item>
 
             <Form.Item
-              label={<span className="text-sm font-medium text-gray-700">Description</span>}
+              label={<span className="text-sm font-medium text-gray-700">{translateUiText(t, "Description")}</span>}
               name="description"
               rules={[
                 {
@@ -727,7 +730,7 @@ const CreateMCPServer: React.FC<CreateMCPServerProps> = ({
               rules={[{ required: true, message: "Please select a transport type" }]}
             >
               <Select
-                placeholder="Select transport"
+                placeholder={translateUiText(t, "Select transport")}
                 className="rounded-lg"
                 size="large"
                 onChange={handleTransportChange}
@@ -963,7 +966,7 @@ const CreateMCPServer: React.FC<CreateMCPServerProps> = ({
               Cancel
             </Button>
             <Button variant="primary" loading={isLoading}>
-              {isLoading ? "Creating..." : "Add MCP Server"}
+              {isLoading ? t("ui.Creating...") : t("ui.Add MCP Server")}
             </Button>
           </div>
         </Form>

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { useTranslation } from "react-i18next";
 
 function CredentialProviderCell({ provider }: { provider: string | undefined }) {
   if (!provider) {
@@ -93,6 +94,7 @@ export const getCredentialsTableColumns = ({
   onEdit,
   onDelete,
 }: CredentialsTableColumnsDeps): ColumnDef<CredentialItem>[] => {
+  const { t } = useTranslation();
   const dataColumns: ColumnDef<CredentialItem>[] = [
     {
       id: "credential_name",
@@ -125,7 +127,7 @@ export const getCredentialsTableColumns = ({
     {
       id: "actions",
       meta: { className: "text-right", headerClassName: "text-right" },
-      header: () => <span className="sr-only">Actions</span>,
+      header: () => <span className="sr-only">{t("ui.Actions")}</span>,
       size: 64,
       enableSorting: false,
       enableHiding: false,

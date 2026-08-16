@@ -1,1201 +1,1267 @@
 {
-  "language": {
-    "switch": "中文",
-    "english": "English",
-    "chinese": "中文"
-  },
-  "common": {
-    "loading": "Loading...",
-    "noData": "No data",
-    "selectOptions": "Select options",
-    "noOptionsFound": "No options found",
-    "createOption": "Create \"{{option}}\"",
-    "accessDenied": "Access Denied",
-    "close": "Close",
-    "docs": "Docs",
-    "adminOnly": "{{pageTitle}} is only available to admin users.",
-    "deprecationTitle": "{{featureName}} is on a draft deprecation list",
-    "deprecationDescription": "{{featureName}} is one of several experimental features we're considering removing, potentially as early as {{date}}. This list is a draft and is not final. If you rely on this feature, please share feedback on the",
-    "deprecationDiscussion": "deprecation discussion",
-    "licenseExpired": "Your LiteLLM Enterprise license expired on {{date}}",
-    "licenseExpires": "Your LiteLLM Enterprise license {{countdown}} ({{date}})",
-    "licenseExpiresToday": "expires today",
-    "licenseExpiresOneDay": "expires in 1 day",
-    "licenseExpiresDays": "expires in {{days}} days",
-    "licenseExpiredDescription": "Enterprise features are now disabled. Reach out to {{email}} to restore access",
-    "licenseCriticalDescription": "Renew now to avoid losing enterprise features. Reach out to {{email}}",
-    "licenseWarningDescription": "Renew before it lapses to keep enterprise features. Reach out to {{email}}"
-  },
-  "login": {
-    "adminUiDisabled": "Admin UI Disabled",
-    "adminUiDisabledDescription": "The Admin UI has been disabled by the administrator. To re-enable it, please update the following environment variable:",
-    "title": "Login",
-    "subtitle": "Access your LiteLLM Admin UI.",
-    "defaultCredentials": "Default Credentials",
-    "defaultCredentialsDescription": "By default, Username is admin and Password is your LiteLLM Proxy MASTER_KEY.",
-    "credentialsHelp": "Need to set UI credentials or SSO?",
-    "checkDocumentation": "Check the documentation",
-    "worker": "Worker",
-    "chooseWorker": "Choose a worker to connect to",
-    "username": "Username",
-    "enterUsername": "Enter your username",
-    "usernameRequired": "Please enter your username",
-    "password": "Password",
-    "enterPassword": "Enter your password",
-    "passwordRequired": "Please enter your password",
-    "loggingIn": "Logging in...",
-    "login": "Login",
-    "loginWithSso": "Login with SSO",
-    "configureSso": "Please configure SSO to log in with SSO.",
-    "ssoEnabled": "Single Sign-On (SSO) is enabled. LiteLLM no longer automatically redirects to the SSO login flow upon loading this page. To re-enable auto-redirect-to-SSO, set AUTO_REDIRECT_UI_LOGIN_TO_SSO=true in your environment configuration."
-  },
-  "playground": {
-    "accessDeniedDescription": "Your role does not have access to the Playground. Ask your proxy admin for access to test models.",
-    "chat": "Chat",
-    "compare": "Compare",
-    "compliance": "Compliance",
-    "agentBuilder": "Agent Builder (Experimental)"
-  },
-  "oauth": {
-    "complete": "Authorization complete. You may close this window and return to the LiteLLM dashboard.",
-    "closeManually": "If the window does not close automatically, everything is still saved. You can close it manually."
-  },
-  "ui": {
-    "Loading…": "Loading…",
-    "Loading...": "Loading...",
-    "No data": "No data",
-    "No results": "No results",
-    "Search…": "Search…",
-    "Select…": "Select…",
-    "Search": "Search",
-    "Filters": "Filters",
-    "Apply Filters": "Apply Filters",
-    "Clear all": "Clear all",
-    "Reset": "Reset",
-    "Refresh": "Refresh",
-    "Columns": "Columns",
-    "Rows per page": "Rows per page",
-    "Showing {{start}}-{{end}} of {{rowCount}}": "Showing {{start}}-{{end}} of {{rowCount}}",
-    "Page {{page}} of {{pageCount}}": "Page {{page}} of {{pageCount}}",
-    "Go to first page": "Go to first page",
-    "Go to previous page": "Go to previous page",
-    "Go to next page": "Go to next page",
-    "Go to last page": "Go to last page",
-    "Ascending": "Ascending",
-    "Descending": "Descending",
-    "No requests yet": "No requests yet",
-    "No matching requests": "No matching requests",
-    "No users found": "No users found",
-    "No matching organizations": "No matching organizations",
-    "No organizations yet": "No organizations yet",
-    "No matching budgets": "No matching budgets",
-    "No budgets yet": "No budgets yet",
-    "Unlimited": "Unlimited",
-    "Unlimited only": "Unlimited only",
-    "Not set": "Not set",
-    "Edit": "Edit",
-    "Delete": "Delete",
-    "Edit user": "Edit user",
-    "Reset password": "Reset password",
-    "Copy user ID": "Copy user ID",
-    "Delete user": "Delete user",
-    "Edit budget": "Edit budget",
-    "Delete budget": "Delete budget",
-    "Open user actions": "Open user actions",
-    "Open organization actions": "Open organization actions",
-    "Open budget actions": "Open budget actions",
-    "Organization ID": "Organization ID",
-    "Organization Name": "Organization Name",
-    "User ID": "User ID",
-    "Email": "Email",
-    "Status": "Status",
-    "Role": "Role",
-    "Team": "Team",
-    "Created": "Created",
-    "Created At": "Created At",
-    "Updated At": "Updated At",
-    "Spend (USD)": "Spend (USD)",
-    "Budget (USD)": "Budget (USD)",
-    "Global Proxy Role": "Global Proxy Role",
-    "User Alias": "User Alias",
-    "Virtual Keys": "Virtual Keys",
-    "Models": "Models",
-    "Members": "Members",
-    "Max Budget": "Max Budget",
-    "TPM": "TPM",
-    "RPM": "RPM",
-    "Key Alias": "Key Alias",
-    "Key Hash": "Key Hash",
-    "Session ID": "Session ID",
-    "Request ID": "Request ID",
-    "Cost": "Cost",
-    "Duration (s)": "Duration (s)",
-    "TTFT (s)": "TTFT (s)",
-    "Model": "Model",
-    "Tokens": "Tokens",
-    "Internal User": "Internal User",
-    "End User": "End User",
-    "Tags": "Tags",
-    "Success": "Success",
-    "Failure": "Failure",
-    "Active": "Active",
-    "Inactive": "Inactive"
-    ,"Search by email…": "Search by email…"
-    ,"Enter user ID…": "Enter user ID…"
-    ,"Enter SSO ID…": "Enter SSO ID…"
-    ,"Select a role…": "Select a role…"
-    ,"Select a team…": "Select a team…"
-    ,"No roles found": "No roles found"
-    ,"No teams found": "No teams found"
-    ,"Narrow down your users": "Narrow down your users"
-    ,"No matching users": "No matching users"
-    ,"Try adjusting your search or filters.": "Try adjusting your search or filters."
-    ,"No organizations match your search. Try a different name or ID.": "No organizations match your search. Try a different name or ID."
-    ,"Create an organization to group teams, models, and budgets.": "Create an organization to group teams, models, and budgets."
-    ,"Click on an organization ID to view its details.": "Click on an organization ID to view its details."
-    ,"Search by Organization Name": "Search by Organization Name"
-    ,"Search by Organization ID": "Search by Organization ID"
-    ,"Loading organizations…": "Loading organizations…"
-    ,"Narrow down your budgets": "Narrow down your budgets"
-    ,"Search by budget ID…": "Search by budget ID…"
-    ,"No budget matches your search or filters.": "No budget matches your search or filters."
-    ,"Create a budget to set spend, TPM and RPM limits for customers.": "Create a budget to set spend, TPM and RPM limits for customers."
-    ,"You do not have access to budgets": "You do not have access to budgets"
-    ,"Ask a proxy admin to grant you the admin viewer role.": "Ask a proxy admin to grant you the admin viewer role."
-    ,"Could not load budgets": "Could not load budgets"
-    ,"Loading budgets…": "Loading budgets…"
-    ,"Request Logs": "Request Logs"
-    ,"Search by Request ID": "Search by Request ID"
-    ,"Narrow down request logs": "Narrow down request logs"
-    ,"Loading request logs…": "Loading request logs…"
-    ,"Search or select a team": "Search or select a team"
-    ,"Search a key alias": "Search a key alias"
-    ,"Search a model": "Search a model"
-    ,"Search an end user": "Search an end user"
-    ,"No key aliases found": "No key aliases found"
-    ,"No models found": "No models found"
-    ,"No end users in this time range": "No end users in this time range"
-    ,"Select or type an error code": "Select or type an error code"
-    ,"No error codes found": "No error codes found"
-    ,"All Statuses": "All Statuses"
-    ,"Enter error message…": "Enter error message…"
-    ,"Enter key hash…": "Enter key hash…"
-    ,"Enter session ID…": "Enter session ID…"
-    ,"Enter public model or search tool…": "Enter public model or search tool…"
-    ,"Enterprise Feature.": "Enterprise Feature."
-    ,"Loading teams...": "Loading teams..."
-    ,"No teams found": "No teams found"
-    ,"Search teams by name or ID…": "Search teams by name or ID…"
-    ,"Narrow down your teams": "Narrow down your teams"
-    ,"Select an organization…": "Select an organization…"
-    ,"No organizations found": "No organizations found"
-    ,"Enter team alias…": "Enter team alias…"
-    ,"Enter team ID…": "Enter team ID…"
-    ,"Delete Team?": "Delete Team?"
-    ,"Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone.": "Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone."
-    ,"Regenerate Virtual Key": "Regenerate Virtual Key"
-    ,"Expiration is required for expired keys": "Expiration is required for expired keys"
-    ,"Close": "Close"
-    ,"Copied": "Copied"
-    ,"Copy Key": "Copy Key"
-    ,"Cancel": "Cancel"
-    ,"Regenerate": "Regenerate"
-    ,"Save it now, you will not see it again": "Save it now, you will not see it again"
-    ,"No alias set": "No alias set"
-    ,"Virtual Key": "Virtual Key"
-    ,"Key Alias": "Key Alias"
-    ,"Max Budget (USD)": "Max Budget (USD)"
-    ,"TPM Limit": "TPM Limit"
-    ,"RPM Limit": "RPM Limit"
-    ,"Expire Key": "Expire Key"
-    ,"Grace Period": "Grace Period"
-    ,"Never": "Never"
-    ,"Add Logging Callback": "Add Logging Callback"
-    ,"Edit Callback Settings": "Edit Callback Settings"
-    ,"Add Callback": "Add Callback"
-    ,"Adding...": "Adding..."
-    ,"Saving...": "Saving..."
-    ,"Save Changes": "Save Changes"
-    ,"Delete Callback": "Delete Callback"
-    ,"Are you sure you want to delete this callback? This action cannot be undone.": "Are you sure you want to delete this callback? This action cannot be undone."
-    ,"Health check triggered": "Health check triggered"
-    ,"Alerts are only supported for Slack Webhook URLs. Get your webhook urls from": "Alerts are only supported for Slack Webhook URLs. Get your webhook urls from"
-    ,"Slack Webhook URL": "Slack Webhook URL"
-    ,"Test Alerts": "Test Alerts"
-    ,"Create New Key": "Create New Key"
-    ,"Key Ownership": "Key Ownership"
-    ,"Owned By": "Owned By"
-    ,"Select who will own this Virtual Key": "Select who will own this Virtual Key"
-    ,"You": "You"
-    ,"Service Account": "Service Account"
-    ,"Another User": "Another User"
-    ,"Agent": "Agent"
-    ,"New": "New"
-    ,"The user who will own this key and be responsible for its usage": "The user who will own this key and be responsible for its usage"
-    ,"Type email to search for users": "Type email to search for users"
-    ,"Searching...": "Searching..."
-    ,"Create User": "Create User"
-    ,"Search by email to find users": "Search by email to find users"
-    ,"Select Agent": "Select Agent"
-    ,"Select an agent": "Select an agent"
-    ,"This key will be used by the selected agent to make requests to LiteLLM": "This key will be used by the selected agent to make requests to LiteLLM"
-    ,"Organization": "Organization"
-    ,"The organization this key belongs to. Selecting an organization filters the available teams.": "The organization this key belongs to. Selecting an organization filters the available teams."
-    ,"The team this key belongs to, which determines available models and budget limits": "The team this key belongs to, which determines available models and budget limits"
-    ,"Project": "Project"
-    ,"Assign this key to a project. Selecting a project will lock the team to the project's team.": "Assign this key to a project. Selecting a project will lock the team to the project's team."
-    ,"Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team.": "Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team."
-    ,"Key Details": "Key Details"
-    ,"Key Name": "Key Name"
-    ,"Service Account ID": "Service Account ID"
-    ,"A descriptive name to identify this key": "A descriptive name to identify this key"
-    ,"Unique identifier for this service account": "Unique identifier for this service account"
-    ,"Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models.": "Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models."
-    ,"Select models": "Select models"
-    ,"All Team Models": "All Team Models"
-    ,"All Proxy Models": "All Proxy Models"
-    ,"Key Type": "Key Type"
-    ,"Select the type of key to determine what routes and operations this key can access": "Select the type of key to determine what routes and operations this key can access"
-    ,"Select key type": "Select key type"
-    ,"Create Key": "Create Key"
-    ,"Create New User": "Create New User"
-    ,"Save your Key": "Save your Key"
-    ,"Key being created, this might take 30s": "Key being created, this might take 30s"
-    ,"Type": "Type"
-    ,"to confirm deletion:": "to confirm deletion:"
-    ,"Deleting...": "Deleting..."
-    ,"Warning": "Warning"
-    ,"Error": "Error"
-    ,"Authentication Error": "Authentication Error"
-    ,"Access Denied": "Access Denied"
-    ,"Service Unavailable": "Service Unavailable"
-    ,"Budget Exceeded": "Budget Exceeded"
-    ,"Feature Unavailable": "Feature Unavailable"
-    ,"Routing Error": "Routing Error"
-    ,"Already Exists": "Already Exists"
-    ,"Content Blocked": "Content Blocked"
-    ,"Validation Error": "Validation Error"
-    ,"Integration Error": "Integration Error"
-    ,"Not Found": "Not Found"
-    ,"Rate Limit Exceeded": "Rate Limit Exceeded"
-    ,"Server Error": "Server Error"
-    ,"Request Error": "Request Error"
-    ,"Info": "Info"
-    ,"Feature Notice": "Feature Notice"
-    ,"Configuration Warning": "Configuration Warning"
-    ,"Rate Limit": "Rate Limit"
-    ,"Access Groups": "Access Groups"
-    ,"Manage resource permissions for your organization": "Manage resource permissions for your organization"
-    ,"Create Access Group": "Create Access Group"
-    ,"Search groups by name, ID, or description...": "Search groups by name, ID, or description..."
-    ,"Clear search": "Clear search"
-    ,"No matching access groups": "No matching access groups"
-    ,"No access groups yet": "No access groups yet"
-    ,"Try a different search term.": "Try a different search term."
-    ,"Create an access group to manage resource permissions for your organization.": "Create an access group to manage resource permissions for your organization."
-    ,"Loading access groups…": "Loading access groups…"
-    ,"Back": "Back"
-    ,"Access group not found": "Access group not found"
-    ,"Copy access group ID": "Copy access group ID"
-    ,"Edit Access Group": "Edit Access Group"
-    ,"Group Details": "Group Details"
-    ,"by": "by"
-    ,"Last Updated": "Last Updated"
-    ,"Attached Keys": "Attached Keys"
-    ,"Show Less": "Show Less"
-    ,"View All ({{count}})": "View All ({{count}})"
-    ,"No keys attached": "No keys attached"
-    ,"Attached Teams": "Attached Teams"
-    ,"No teams attached": "No teams attached"
-    ,"MCP Servers": "MCP Servers"
-    ,"Agents": "Agents"
-    ,"No models assigned to this group": "No models assigned to this group"
-    ,"No MCP servers assigned to this group": "No MCP servers assigned to this group"
-    ,"No agents assigned to this group": "No agents assigned to this group"
-    ,"No guardrails yet": "No guardrails yet"
-    ,"Add a guardrail to start filtering requests and responses.": "Add a guardrail to start filtering requests and responses."
-    ,"Loading guardrails…": "Loading guardrails…"
-    ,"Open guardrail actions": "Open guardrail actions"
-    ,"Config guardrails are defined in the config file and cannot be deleted from the dashboard.": "Config guardrails are defined in the config file and cannot be deleted from the dashboard."
-    ,"Guardrail ID": "Guardrail ID"
-    ,"Provider": "Provider"
-    ,"Mode": "Mode"
-    ,"Default On": "Default On"
-    ,"Default Off": "Default Off"
-    ,"Guardrail Garden": "Guardrail Garden"
-    ,"Guardrails": "Guardrails"
-    ,"Test Playground": "Test Playground"
-    ,"Submitted Guardrails": "Submitted Guardrails"
-    ,"Add New Guardrail": "Add New Guardrail"
-    ,"Add Provider Guardrail": "Add Provider Guardrail"
-    ,"Create Custom Code Guardrail": "Create Custom Code Guardrail"
-    ,"Delete Guardrail": "Delete Guardrail"
-    ,"Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.": "Are you sure you want to delete guardrail: {{name}}? This action cannot be undone."
-    ,"Guardrail Information": "Guardrail Information"
-    ,"Guardrail \"{{name}}\" deleted successfully": "Guardrail \"{{name}}\" deleted successfully"
-    ,"Search guardrails": "Search guardrails"
-    ,"LiteLLM Content Filter": "LiteLLM Content Filter"
-    ,"Show less": "Show less"
-    ,"Show all ({{count}})": "Show all ({{count}})"
-    ,"Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost.": "Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost."
-    ,"Partner Guardrails": "Partner Guardrails"
-    ,"Third-party guardrail integrations from leading AI security providers.": "Third-party guardrail integrations from leading AI security providers."
-    ,"All Available Servers": "All Available Servers"
-    ,"All Servers": "All Servers"
-    ,"Personal": "Personal"
-    ,"All Access Groups": "All Access Groups"
-    ,"Deleted MCP Server successfully": "Deleted MCP Server successfully"
-    ,"Missing required authentication parameters.": "Missing required authentication parameters."
-    ,"Delete MCP Server?": "Delete MCP Server?"
-    ,"This action is permanent and cannot be undone. All associated configurations will be removed.": "This action is permanent and cannot be undone. All associated configurations will be removed."
-    ,"ID": "ID"
-    ,"URL": "URL"
-    ,"Configure and manage your MCP servers": "Configure and manage your MCP servers"
-    ,"Add New MCP Server": "Add New MCP Server"
-    ,"Submit MCP Server": "Submit MCP Server"
-    ,"Toolsets": "Toolsets"
-    ,"Connect": "Connect"
-    ,"Semantic Filter": "Semantic Filter"
-    ,"Network Settings": "Network Settings"
-    ,"Submitted MCPs": "Submitted MCPs"
-    ,"Access Group": "Access Group"
-    ,"About access groups": "About access groups"
-    ,"An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers.": "An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers."
-    ,"Search by name, alias, URL, or ID": "Search by name, alias, URL, or ID"
-    ,"Sort": "Sort"
-    ,"of": "of"
-    ,"servers": "servers"
-    ,"Loading MCP servers...": "Loading MCP servers..."
-    ,"No MCP servers configured. Click '+ Add New MCP Server' to get started.": "No MCP servers configured. Click '+ Add New MCP Server' to get started."
-    ,"No servers match the current filters or search.": "No servers match the current filters or search."
-    ,"Recently created": "Recently created"
-    ,"Recently updated": "Recently updated"
-    ,"Name (A→Z)": "Name (A→Z)"
-    ,"Health (unhealthy first)": "Health (unhealthy first)"
-    ,"No policies found": "No policies found"
-    ,"Create a policy to bundle guardrails and apply them across teams.": "Create a policy to bundle guardrails and apply them across teams."
-    ,"Loading policies…": "Loading policies…"
-    ,"Open policy actions": "Open policy actions"
-    ,"Edit policy": "Edit policy"
-    ,"Delete policy": "Delete policy"
-    ,"Config": "Config"
-    ,"Description": "Description"
-    ,"Inherits From": "Inherits From"
-    ,"Guardrails (Add)": "Guardrails (Add)"
-    ,"Guardrails (Remove)": "Guardrails (Remove)"
-    ,"Model Condition": "Model Condition"
-    ,"No models found": "No models found"
-    ,"No models match your search or filters. Try resetting them.": "No models match your search or filters. Try resetting them."
-    ,"Loading models…": "Loading models…"
-    ,"Search model names…": "Search model names…"
-    ,"Current team": "Current team"
-    ,"View": "View"
-    ,"Current Team Models": "Current Team Models"
-    ,"All Available Models": "All Available Models"
-    ,"Model Settings": "Model Settings"
-    ,"Filters": "Filters"
-    ,"Narrow down models + endpoints": "Narrow down models + endpoints"
-    ,"Reset Filters": "Reset Filters"
-    ,"Public Model Name": "Public Model Name"
-    ,"Filter by Public Model Name": "Filter by Public Model Name"
-    ,"All Model Access Groups": "All Model Access Groups"
-    ,"Filter by Model Access Group": "Filter by Model Access Group"
-    ,"No model access groups found": "No model access groups found"
-    ,"Wildcard Models (*)": "Wildcard Models (*)"
-    ,"Model ID": "Model ID"
-    ,"Model Information": "Model Information"
-    ,"Credentials": "Credentials"
-    ,"About credential types": "About credential types"
-    ,"Credential types": "Credential types"
-    ,"Reusable": "Reusable"
-    ,"Credentials saved in LiteLLM that can be added to models repeatedly.": "Credentials saved in LiteLLM that can be added to models repeatedly."
-    ,"Manual": "Manual"
-    ,"Credentials added directly during model creation or defined in the config file.": "Credentials added directly during model creation or defined in the config file."
-    ,"Created By": "Created By"
-    ,"Updated At": "Updated At"
-    ,"Costs": "Costs"
-    ,"Team ID": "Team ID"
-    ,"Model Access Group": "Model Access Group"
-    ,"Status": "Status"
-    ,"DB Model": "DB Model"
-    ,"Config Model": "Config Model"
-    ,"Actions": "Actions"
-    ,"LiteLLM Model Name": "LiteLLM Model Name"
-    ,"Copy LiteLLM model name": "Copy LiteLLM model name"
-    ,"Defined in config": "Defined in config"
-    ,"Unknown": "Unknown"
-    ,"Unknown date": "Unknown date"
-    ,"Cost per 1M tokens": "Cost per 1M tokens"
-    ,"Create guardrail": "Create guardrail"
-    ,"Guardrail Name": "Guardrail Name"
-    ,"Please enter a guardrail name": "Please enter a guardrail name"
-    ,"Enter a name for this guardrail": "Enter a name for this guardrail"
-    ,"Guardrail Provider": "Guardrail Provider"
-    ,"Please select a provider": "Please select a provider"
-    ,"Select a guardrail provider": "Select a guardrail provider"
-    ,"How the guardrail should be applied": "How the guardrail should be applied"
-    ,"Please select a mode": "Please select a mode"
-    ,"Recommended": "Recommended"
-    ,"Always On": "Always On"
-    ,"If enabled, this guardrail will be applied to all requests by default.": "If enabled, this guardrail will be applied to all requests by default."
-    ,"Yes": "Yes"
-    ,"No": "No"
-    ,"Skip system messages in guardrail": "Skip system messages in guardrail"
-    ,"Use global default": "Use global default"
-    ,"Yes — exclude from guardrail scan": "Yes — exclude from guardrail scan"
-    ,"No — always include in scan": "No — always include in scan"
-    ,"Skip tool messages in guardrail": "Skip tool messages in guardrail"
-    ,"Call type": "Call type"
-    ,"Select a call type": "Select a call type"
-    ,"More call types coming soon.": "More call types coming soon."
-    ,"End session after X violations": "End session after X violations"
-    ,"e.g. 3": "e.g. 3"
-    ,"On violation": "On violation"
-    ,"Message the user hears": "Message the user hears"
-    ,"e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.": "e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678."
-    ,"optional": "optional"
-    ,"Edit": "Edit"
-    ,"Previous": "Previous"
-    ,"Next": "Next"
-    ,"Create Guardrail": "Create Guardrail"
-    ,"Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).": "Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions)."
-    ,"Allowed Models": "Allowed Models"
-    ,"Restrict which models this agent can call. Leave empty to allow all.": "Restrict which models this agent can call. Leave empty to allow all."
-    ,"Loading models...": "Loading models..."
-    ,"Select models (leave empty for all)": "Select models (leave empty for all)"
-    ,"Allowed Agents (Sub-Agents)": "Allowed Agents (Sub-Agents)"
-    ,"Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all.": "Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all."
-    ,"Loading agents...": "Loading agents..."
-    ,"Select agents (leave empty for all)": "Select agents (leave empty for all)"
-    ,"Allowed MCP Servers": "Allowed MCP Servers"
-    ,"Select which MCP servers or access groups this agent can access": "Select which MCP servers or access groups this agent can access"
-    ,"Select MCP servers or access groups (optional)": "Select MCP servers or access groups (optional)"
-    ,"Tracing": "Tracing"
-    ,"Require x-litellm-trace-id on calls TO this agent": "Require x-litellm-trace-id on calls TO this agent"
-    ,"Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).": "Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent)."
-    ,"Require x-litellm-trace-id on calls BY this agent": "Require x-litellm-trace-id on calls BY this agent"
-    ,"Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.": "Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking."
-    ,"Budgets & Rate Limits": "Budgets & Rate Limits"
-    ,"Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits.": "Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits."
-    ,"Session Budgets": "Session Budgets"
-    ,"Max Iterations": "Max Iterations"
-    ,"Hard cap on LLM calls per session": "Hard cap on LLM calls per session"
-    ,"Max Budget Per Session ($)": "Max Budget Per Session ($)"
-    ,"Max spend per trace before returning 429": "Max spend per trace before returning 429"
-    ,"Agent Rate Limits": "Agent Rate Limits"
-    ,"Global rate limits applied across all callers of this agent.": "Global rate limits applied across all callers of this agent."
-    ,"TPM Limit": "TPM Limit"
-    ,"RPM Limit": "RPM Limit"
-    ,"Per-Session Rate Limits": "Per-Session Rate Limits"
-    ,"Rate limits per session (x-litellm-trace-id). Each session gets its own counters.": "Rate limits per session (x-litellm-trace-id). Each session gets its own counters."
-    ,"Session TPM Limit": "Session TPM Limit"
-    ,"Session RPM Limit": "Session RPM Limit"
-    ,"Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.": "Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent."
-    ,"Agent Type": "Agent Type"
-    ,"Select the type of agent you want to create": "Select the type of agent you want to create"
-    ,"Not listed?": "Not listed?"
-    ,"Custom / Other": "Custom / Other"
-    ,"For agents that don't follow a standard protocol — just needs a virtual key": "For agents that don't follow a standard protocol — just needs a virtual key"
-    ,"Please enter an agent name": "Please enter an agent name"
-    ,"e.g. my-custom-agent": "e.g. my-custom-agent"
-    ,"Describe what this agent does…": "Describe what this agent does…"
-    ,"Assign to Team": "Assign to Team"
-    ,"Optionally assign this agent to a team. The agent and its key will belong to the selected team.": "Optionally assign this agent to a team. The agent and its key will belong to the selected team."
-    ,"Create a new key for this agent": "Create a new key for this agent"
-    ,"A dedicated key scoped to this agent.": "A dedicated key scoped to this agent."
-    ,"Key Name": "Key Name"
-    ,"e.g. my-agent-key": "e.g. my-agent-key"
-    ,"Assign an existing key": "Assign an existing key"
-    ,"Re-assign a key you already have to this agent.": "Re-assign a key you already have to this agent."
-    ,"Search by key name…": "Search by key name…"
-    ,"Skip for now — I'll assign a key later": "Skip for now — I'll assign a key later"
-    ,"Agent Created!": "Agent Created!"
-    ,"Key": "Key"
-    ,"has been assigned to this agent.": "has been assigned to this agent."
-    ,"No key assigned. You can create one from the Virtual Keys page.": "No key assigned. You can create one from the Virtual Keys page."
-    ,"Add New Agent": "Add New Agent"
-    ,"Entitlements": "Entitlements"
-    ,"Governance": "Governance"
-    ,"Agent Management": "Agent Management"
-    ,"Ready": "Ready"
-    ,"← Back": "← Back"
-    ,"Create Agent →": "Create Agent →"
-    ,"Creating...": "Creating..."
-    ,"Done": "Done"
-    ,"Failed to load agent information": "Failed to load agent information"
-    ,"Agent updated successfully": "Agent updated successfully"
-    ,"Failed to update agent": "Failed to update agent"
-    ,"Agent not found": "Agent not found"
-    ,"Back to Agents List": "Back to Agents List"
-    ,"Back to Agent": "Back to Agent"
-    ,"Back to Agents": "Back to Agents"
-    ,"Overview": "Overview"
-    ,"Settings": "Settings"
-    ,"Display Name": "Display Name"
-    ,"Protocol Version": "Protocol Version"
-    ,"Streaming": "Streaming"
-    ,"Push Notifications": "Push Notifications"
-    ,"State Transition History": "State Transition History"
-    ,"configured": "configured"
-    ,"Make Public": "Make Public"
-    ,"Icon URL": "Icon URL"
-    ,"Documentation URL": "Documentation URL"
-    ,"Unlimited": "Unlimited"
-    ,"MCP Tool Permissions": "MCP Tool Permissions"
-    ,"MCP Access Groups": "MCP Access Groups"
-    ,"Tool permissions per server": "Tool permissions per server"
-    ,"Tags": "Tags"
-    ,"Examples": "Examples"
-    ,"Agent Settings": "Agent Settings"
-    ,"Edit Settings": "Edit Settings"
-    ,"Rate Limits": "Rate Limits"
-    ,"Save Changes": "Save Changes"
-    ,"Click \"Edit Settings\" to modify agent configuration.": "Click \"Edit Settings\" to modify agent configuration."
-    ,"About Policies": "About Policies"
-    ,"Use policies to group guardrails and control which ones run for specific teams, keys, or models.": "Use policies to group guardrails and control which ones run for specific teams, keys, or models."
-    ,"Why use policies?": "Why use policies?"
-    ,"Enable/disable specific guardrails for teams, keys, or models": "Enable/disable specific guardrails for teams, keys, or models"
-    ,"Group guardrails into a single policy": "Group guardrails into a single policy"
-    ,"Inherit from existing policies and override what you need": "Inherit from existing policies and override what you need"
-    ,"Learn more in the documentation ->": "Learn more in the documentation ->"
-    ,"Failed to fetch policies": "Failed to fetch policies"
-    ,"Failed to fetch attachments": "Failed to fetch attachments"
-    ,"Policy \"{{name}}\" deleted successfully": "Policy \"{{name}}\" deleted successfully"
-    ,"Failed to delete policy": "Failed to delete policy"
-    ,"Authentication required": "Authentication required"
-    ,"Failed to load guardrails. Please try again.": "Failed to load guardrails. Please try again."
-    ,"Failed to configure template. Please try again.": "Failed to configure template. Please try again."
-    ,"Created {{count}} guardrails! Complete the policy form to save.": "Created {{count}} guardrails! Complete the policy form to save."
-    ,"Template ready! Complete the policy form to save.": "Template ready! Complete the policy form to save."
-    ,"Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually.": "Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually."
-    ,"Failed to create guardrails. Please try again.": "Failed to create guardrails. Please try again."
-    ,"Templates": "Templates"
-    ,"Policies": "Policies"
-    ,"Attachments": "Attachments"
-    ,"Policy Simulator": "Policy Simulator"
-    ,"Add New Policy": "Add New Policy"
-    ,"Delete Policy": "Delete Policy"
-    ,"Are you sure you want to delete policy: {{name}}? This action cannot be undone.": "Are you sure you want to delete policy: {{name}}? This action cannot be undone."
-    ,"Policy Information": "Policy Information"
-    ,"About Policy Attachments": "About Policy Attachments"
-    ,"Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally.": "Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally."
-    ,"Attachment Scopes:": "Attachment Scopes:"
-    ,"Global (*)": "Global (*)"
-    ,"Applies to all requests": "Applies to all requests"
-    ,"Teams": "Teams"
-    ,"Applies only to specific teams": "Applies only to specific teams"
-    ,"Keys": "Keys"
-    ,"Applies only to specific API keys (supports wildcards like dev-*)": "Applies only to specific API keys (supports wildcards like dev-*)"
-    ,"Models": "Models"
-    ,"Applies only when specific models are used": "Applies only when specific models are used"
-    ,"Learn more about attachments ->": "Learn more about attachments ->"
-    ,"Enterprise Feature Notice": "Enterprise Feature Notice"
-    ,"Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases.": "Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases."
-    ,"Add New Attachment": "Add New Attachment"
-    ,"Delete Attachment": "Delete Attachment"
-    ,"Are you sure you want to delete this attachment? This action cannot be undone.": "Are you sure you want to delete this attachment? This action cannot be undone."
-    ,"Attachment Information": "Attachment Information"
-    ,"Attachment ID": "Attachment ID"
-    ,"Policy": "Policy"
-    ,"Scope": "Scope"
-    ,"Server Configuration": "Server Configuration"
-    ,"Cost Configuration": "Cost Configuration"
-    ,"MCP Server Name": "MCP Server Name"
-    ,"Alias": "Alias"
-    ,"Transport Type": "Transport Type"
-    ,"Streamable HTTP (Recommended)": "Streamable HTTP (Recommended)"
-    ,"Server-Sent Events (SSE)": "Server-Sent Events (SSE)"
-    ,"Standard Input/Output (stdio)": "Standard Input/Output (stdio)"
-    ,"OpenAPI Spec": "OpenAPI Spec"
-    ,"MCP Server URL": "MCP Server URL"
-    ,"https://your-mcp-server.com": "https://your-mcp-server.com"
-    ,"OpenAPI Spec URL": "OpenAPI Spec URL"
-    ,"Max Concurrent Requests (optional)": "Max Concurrent Requests (optional)"
-    ,"e.g. 10": "e.g. 10"
-    ,"Authentication": "Authentication"
-    ,"None": "None"
-    ,"API Key": "API Key"
-    ,"Bearer Token": "Bearer Token"
-    ,"Token": "Token"
-    ,"Basic Auth": "Basic Auth"
-    ,"OAuth": "OAuth"
-    ,"Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.": "Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration."
-    ,"Command": "Command"
-    ,"e.g., npx": "e.g., npx"
-    ,"Args": "Args"
-    ,"Add args (press enter or comma)": "Add args (press enter or comma)"
-    ,"Cost Tracking Settings": "Cost Tracking Settings"
-    ,"Configure cost discounts and margins for different LLM providers. Changes are saved automatically.": "Configure cost discounts and margins for different LLM providers. Changes are saved automatically."
-    ,"Provider Discounts": "Provider Discounts"
-    ,"Apply percentage-based discounts to reduce costs for specific providers": "Apply percentage-based discounts to reduce costs for specific providers"
-    ,"Discounts": "Discounts"
-    ,"Test It": "Test It"
-    ,"Add Provider Discount": "Add Provider Discount"
-    ,"Loading configuration...": "Loading configuration..."
-    ,"No provider discounts configured": "No provider discounts configured"
-    ,"Click \"Add Provider Discount\" to get started": "Click \"Add Provider Discount\" to get started"
-    ,"Fee/Price Margin": "Fee/Price Margin"
-    ,"Add fees or margins to LLM costs for internal billing and cost recovery": "Add fees or margins to LLM costs for internal billing and cost recovery"
-    ,"Add Provider Margin": "Add Provider Margin"
-    ,"No provider margins configured": "No provider margins configured"
-    ,"Click \"Add Provider Margin\" to get started": "Click \"Add Provider Margin\" to get started"
-    ,"Pricing Calculator": "Pricing Calculator"
-    ,"Estimate LLM costs based on expected token usage and request volume": "Estimate LLM costs based on expected token usage and request volume"
-    ,"Remove Provider Discount": "Remove Provider Discount"
-    ,"Remove Provider Margin": "Remove Provider Margin"
-    ,"Are you sure you want to remove the {{noun}} for {{name}}?": "Are you sure you want to remove the {{noun}} for {{name}}?"
-    ,"Remove": "Remove"
-    ,"Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount).": "Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount)."
-    ,"Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount.": "Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount."
-    ,"Global Usage": "Global Usage"
-    ,"Your Usage": "Your Usage"
-    ,"Organization Usage": "Organization Usage"
-    ,"Team Usage": "Team Usage"
-    ,"Customer Usage": "Customer Usage"
-    ,"Tag Usage": "Tag Usage"
-    ,"Agent Usage (A2A)": "Agent Usage (A2A)"
-    ,"User Usage": "User Usage"
-    ,"User Agent Activity": "User Agent Activity"
-    ,"View usage across all resources": "View usage across all resources"
-    ,"View your usage": "View your usage"
-    ,"View your own usage": "View your own usage"
-    ,"View usage across all organizations": "View usage across all organizations"
-    ,"View usage by team": "View usage by team"
-    ,"View usage by customer accounts": "View usage by customer accounts"
-    ,"View usage grouped by tags": "View usage grouped by tags"
-    ,"View usage by AI agents": "View usage by AI agents"
-    ,"View usage by individual users": "View usage by individual users"
-    ,"View detailed user agent activity logs": "View detailed user agent activity logs"
-    ,"Usage View": "Usage View"
-    ,"Select the usage data you want to view": "Select the usage data you want to view"
-    ,"Public Model Name": "Public Model Name"
-    ,"Litellm Model Name": "Litellm Model Name"
-    ,"Model": "Model"
-    ,"Spend (USD)": "Spend (USD)"
-    ,"Successful": "Successful"
-    ,"Failed": "Failed"
-    ,"Tokens": "Tokens"
-    ,"Spend": "Spend"
-    ,"Gateway Requests by Endpoint": "Gateway Requests by Endpoint"
-    ,"Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.": "Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment."
-    ,"Table View": "Table View"
-    ,"Chart View": "Chart View"
-    ,"Provider": "Provider"
-    ,"Spend by Provider": "Spend by Provider"
-    ,"Show Zero Spend": "Show Zero Spend"
-    ,"Show Unknown": "Show Unknown"
-    ,"Requests that failed to route to a provider": "Requests that failed to route to a provider"
-    ,"No provider usage data": "No provider usage data"
-    ,"Endpoint": "Endpoint"
-    ,"Successful / Failed": "Successful / Failed"
-    ,"Successful requests": "Successful requests"
-    ,"Total Request": "Total Request"
-    ,"Success Rate": "Success Rate"
-    ,"Total Tokens": "Total Tokens"
-    ,"No endpoint usage data": "No endpoint usage data"
-    ,"Success vs Failed Requests by Endpoint": "Success vs Failed Requests by Endpoint"
-    ,"Endpoint Usage Trends": "Endpoint Usage Trends"
-    ,"Filter by user": "Filter by user"
-    ,"Select user to filter...": "Select user to filter..."
-    ,"Cost": "Cost"
-    ,"Model Activity": "Model Activity"
-    ,"Key Activity": "Key Activity"
-    ,"MCP Server Activity": "MCP Server Activity"
-    ,"Endpoint Activity": "Endpoint Activity"
-    ,"Ask AI": "Ask AI"
-    ,"Export Data": "Export Data"
-    ,"Project Spend": "Project Spend"
-    ,"Usage Metrics": "Usage Metrics"
-    ,"Total Requests": "Total Requests"
-    ,"Successful Requests": "Successful Requests"
-    ,"Failed Requests": "Failed Requests"
-    ,"Average Cost per Request": "Average Cost per Request"
-    ,"Input Tokens": "Input Tokens"
-    ,"Output Tokens": "Output Tokens"
-    ,"Cache Read Tokens": "Cache Read Tokens"
-    ,"Cache Write Tokens": "Cache Write Tokens"
-    ,"Daily Spend": "Daily Spend"
-    ,"Top Virtual Keys": "Top Virtual Keys"
-    ,"Top Public Model Names": "Top Public Model Names"
-    ,"Top Litellm Models": "Top Litellm Models"
-    ,"Reusable credentials are automatically tracked as tags": "Reusable credentials are automatically tracked as tags"
-    ,"in this view.": "in this view."
-    ,"Export Usage Data": "Export Usage Data"
-    ,"Stop": "Stop"
-    ,"Currently fetching spend data: fetched": "Currently fetching spend data: fetched"
-    ,"of this page will stop and reset this. To continue using the UI in the meantime,": "of this page will stop and reset this. To continue using the UI in the meantime,"
-    ,"open a new tab": "open a new tab"
-    ,"Showing partial data ({{current}}/{{total}} pages loaded)": "Showing partial data ({{current}}/{{total}} pages loaded)"
-    ,"Filter by {{entity}}": "Filter by {{entity}}"
-    ,"Select {{entity}} to filter...": "Select {{entity}} to filter..."
-    ,"Request cost": "Request cost"
-    ,"Flat cost": "Flat cost"
-    ,"Total Spend": "Total Spend"
-    ,"Requests": "Requests"
-    ,"Spend by {{entity}}": "Spend by {{entity}}"
-    ,"Spend Per {{entity}}": "Spend Per {{entity}}"
-    ,"Showing Top 5 by Spend": "Showing Top 5 by Spend"
-    ,"Get Started by Tracking cost per {{entity}}": "Get Started by Tracking cost per {{entity}}"
-    ,"Top Agents": "Top Agents"
-    ,"Top Agents Driving Spend": "Top Agents Driving Spend"
-    ,"Provider Usage": "Provider Usage"
-    ,"{{entity}} Spend Overview": "{{entity}} Spend Overview"
-    ,"Request / Token Consumption": "Request / Token Consumption"
-    ,"Agent Activity": "Agent Activity"
-    ,"Filter by team": "Filter by team"
-    ,"Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.": "Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined."
-    ,"Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.": "Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below."
-    ,"Simple Mode": "Simple Mode"
-    ,"Pick guardrails from a list. All run in parallel.": "Pick guardrails from a list. All run in parallel."
-    ,"NEW": "NEW"
-    ,"Flow Builder": "Flow Builder"
-    ,"Define steps, conditions, and error responses.": "Define steps, conditions, and error responses."
-    ,"Create New Policy": "Create New Policy"
-    ,"You'll be redirected to the full-screen Flow Builder to design your policy logic visually.": "You'll be redirected to the full-screen Flow Builder to design your policy logic visually."
-    ,"Continue to Builder": "Continue to Builder"
-    ,"Edit Policy": "Edit Policy"
-    ,"Policy Name": "Policy Name"
-    ,"Please enter a policy name": "Please enter a policy name"
-    ,"Policy name can only contain letters, numbers, hyphens, and underscores": "Policy name can only contain letters, numbers, hyphens, and underscores"
-    ,"e.g., global-baseline, healthcare-compliance": "e.g., global-baseline, healthcare-compliance"
-    ,"Description": "Description"
-    ,"Describe what this policy does...": "Describe what this policy does..."
-    ,"Inheritance": "Inheritance"
-    ,"Inherit From": "Inherit From"
-    ,"Inherit guardrails from another policy. The child policy will include all guardrails from the parent.": "Inherit guardrails from another policy. The child policy will include all guardrails from the parent."
-    ,"Select a parent policy (optional)": "Select a parent policy (optional)"
-    ,"Guardrails": "Guardrails"
-    ,"Guardrails to Add": "Guardrails to Add"
-    ,"These guardrails will be added to requests matching this policy": "These guardrails will be added to requests matching this policy"
-    ,"Select guardrails to add": "Select guardrails to add"
-    ,"Guardrails to Remove": "Guardrails to Remove"
-    ,"These guardrails will be removed from inherited guardrails": "These guardrails will be removed from inherited guardrails"
-    ,"Select guardrails to remove (from inherited)": "Select guardrails to remove (from inherited)"
-    ,"Resolved Guardrails": "Resolved Guardrails"
-    ,"These are the final guardrails that will be applied (including inheritance):": "These are the final guardrails that will be applied (including inheritance):"
-    ,"Conditions (Optional)": "Conditions (Optional)"
-    ,"Model Scope": "Model Scope"
-    ,"By default, this policy will run on all models. You can optionally restrict it to specific models below.": "By default, this policy will run on all models. You can optionally restrict it to specific models below."
-    ,"Model Condition Type": "Model Condition Type"
-    ,"Select Model": "Select Model"
-    ,"Custom Regex Pattern": "Custom Regex Pattern"
-    ,"Model (Optional)": "Model (Optional)"
-    ,"Regex Pattern (Optional)": "Regex Pattern (Optional)"
-    ,"Select a specific model to apply this policy to. Leave empty to apply to all models.": "Select a specific model to apply this policy to. Leave empty to apply to all models."
-    ,"Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models.": "Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models."
-    ,"Leave empty to apply to all models": "Leave empty to apply to all models"
-    ,"Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)": "Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)"
-    ,"Update Policy": "Update Policy"
-    ,"Create Policy Attachment": "Create Policy Attachment"
-    ,"Policies": "Policies"
-    ,"Please select at least one policy": "Please select at least one policy"
-    ,"Select policies to attach": "Select policies to attach"
-    ,"Scope Type": "Scope Type"
-    ,"Specific (teams, keys, models, or tags)": "Specific (teams, keys, models, or tags)"
-    ,"Global (applies to all requests)": "Global (applies to all requests)"
-    ,"Teams": "Teams"
-    ,"Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)": "Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)"
-    ,"Loading teams...": "Loading teams..."
-    ,"Select or enter team aliases": "Select or enter team aliases"
-    ,"Keys": "Keys"
-    ,"Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)": "Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)"
-    ,"Loading keys...": "Loading keys..."
-    ,"Select or enter key aliases": "Select or enter key aliases"
-    ,"Models": "Models"
-    ,"Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.": "Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models."
-    ,"Loading models...": "Loading models..."
-    ,"Select or enter model names (e.g., gpt-4, bedrock/*)": "Select or enter model names (e.g., gpt-4, bedrock/*)"
-    ,"Tags": "Tags"
-    ,"Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.": "Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix."
-    ,"Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).": "Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu)."
-    ,"Type a tag and press Enter (e.g. healthcare, prod-*)": "Type a tag and press Enter (e.g. healthcare, prod-*)"
-    ,"Estimate Impact": "Estimate Impact"
-    ,"Create Attachment": "Create Attachment"
-    ,"Add blocked keyword": "Add blocked keyword"
-    ,"Keyword": "Keyword"
-    ,"Enter sensitive keyword or phrase": "Enter sensitive keyword or phrase"
-    ,"Action": "Action"
-    ,"Choose what action the guardrail should take when this keyword is detected": "Choose what action the guardrail should take when this keyword is detected"
-    ,"Description (optional)": "Description (optional)"
-    ,"Explain why this keyword is sensitive": "Explain why this keyword is sensitive"
-    ,"Add prebuilt pattern": "Add prebuilt pattern"
-    ,"Pattern type": "Pattern type"
-    ,"Choose pattern type": "Choose pattern type"
-    ,"No matching patterns": "No matching patterns"
-    ,"Choose what action the guardrail should take when this pattern is detected": "Choose what action the guardrail should take when this pattern is detected"
-    ,"Add custom regex pattern": "Add custom regex pattern"
-    ,"Pattern name": "Pattern name"
-    ,"e.g., internal_id, employee_code": "e.g., internal_id, employee_code"
-    ,"Regex pattern": "Regex pattern"
-    ,"e.g., ID-[0-9]{6}": "e.g., ID-[0-9]{6}"
-    ,"Enter a valid regular expression to match sensitive data": "Enter a valid regular expression to match sensitive data"
-    ,"Delete": "Delete"
-    ,"No keywords added.": "No keywords added."
-    ,"Type": "Type"
-    ,"Prebuilt": "Prebuilt"
-    ,"Custom": "Custom"
-    ,"No patterns added.": "No patterns added."
-    ,"Category": "Category"
-    ,"Severity Threshold": "Severity Threshold"
-    ,"No categories configured.": "No categories configured."
-    ,"Content Categories": "Content Categories"
-    ,"categories configured": "{{count}} categories configured"
-    ,"patterns configured": "{{count}} patterns configured"
-    ,"keywords configured": "{{count}} keywords configured"
-    ,"Pattern Detection": "Pattern Detection"
-    ,"Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)": "Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)"
-    ,"Add custom regex": "Add custom regex"
-    ,"Blocked Keywords": "Blocked Keywords"
-    ,"Block or mask specific sensitive terms and phrases": "Block or mask specific sensitive terms and phrases"
-    ,"Add keyword": "Add keyword"
-    ,"Upload YAML file": "Upload YAML file"
-    ,"Content Filter Configuration": "Content Filter Configuration"
-    ,"You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom.": "You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom."
-    ,"Add Model": "Add Model"
-    ,"Select Team": "Select Team"
-    ,"Please select a team to continue": "Please select a team to continue"
-    ,"Select the team for which you want to add this model": "Select the team for which you want to add this model"
-    ,"Team Selection Required": "Team Selection Required"
-    ,"As a team admin, you need to select your team first before adding models.": "As a team admin, you need to select your team first before adding models."
-    ,"Required": "Required"
-    ,"Provider:": "Provider:"
-    ,"E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.": "E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc."
-    ,"Loading providers...": "Loading providers..."
-    ,"Select a provider": "Select a provider"
-    ,"Mode": "Mode"
-    ,"Optional": "Optional"
-    ,"LiteLLM endpoint to use when health checking this model": "LiteLLM endpoint to use when health checking this model"
-    ,"Learn more": "Learn more"
-    ,"Either select existing credentials OR enter new provider credentials below": "Either select existing credentials OR enter new provider credentials below"
-    ,"Existing Credentials": "Existing Credentials"
-    ,"Select or search for existing credentials": "Select or search for existing credentials"
-    ,"OR": "OR"
-    ,"Additional Model Info Settings": "Additional Model Info Settings"
-    ,"Team-BYOK Model": "Team-BYOK Model"
-    ,"Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.": "Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys."
-    ,"This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.": "This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team."
-    ,"Please select a team.": "Please select a team."
-    ,"Only keys for this team will be able to call this model.": "Only keys for this team will be able to call this model."
-    ,"Model Access Group": "Model Access Group"
-    ,"Use model access groups to give users access to select models, and add new ones to the group over time.": "Use model access groups to give users access to select models, and add new ones to the group over time."
-    ,"Select existing groups or type to create new ones": "Select existing groups or type to create new ones"
-    ,"Get help on our github": "Get help on our github"
-    ,"Need Help?": "Need Help?"
-    ,"Test Connect": "Test Connect"
-    ,"Connection Test Results": "Connection Test Results"
-    ,"Discount Percentage": "Discount Percentage"
-    ,"Actions": "Actions"
-    ,"Save discount for": "Save discount for"
-    ,"Cancel editing discount for": "Cancel editing discount for"
-    ,"Edit discount for": "Edit discount for"
-    ,"Remove discount for": "Remove discount for"
-    ,"Global (All Providers)": "Global (All Providers)"
-    ,"Margin": "Margin"
-    ,"Save margin for": "Save margin for"
-    ,"Cancel editing margin for": "Cancel editing margin for"
-    ,"Edit margin for": "Edit margin for"
-    ,"Remove margin for": "Remove margin for"
-    ,"Per Day": "Per Day"
-    ,"Per Month": "Per Month"
-    ,"Day": "Day"
-    ,"Month": "Month"
-    ,"Select a model": "Select a model"
-    ,"Remove model row": "Remove model row"
-    ,"Add Another Model": "Add Another Model"
-    ,"Filter": "Filter"
-    ,"Ask about your spend, models, keys, and trends": "Ask about your spend, models, keys, and trends"
-    ,"Select a model (optional, defaults to gpt-4o-mini)": "Select a model (optional, defaults to gpt-4o-mini)"
-    ,"Loading models…": "Loading models…"
-    ,"No models found": "No models found"
-    ,"Ask a question about your usage": "Ask a question about your usage"
-    ,"Thinking...": "Thinking..."
-    ,"Ask about your usage...": "Ask about your usage..."
-    ,"Send": "Send"
-    ,"Clear chat": "Clear chat"
-    ,"Enter to send": "Enter to send"
-    ,"Request cost": "Request cost"
-    ,"Flat cost": "Flat cost"
-    ,"Total cost": "Total cost"
-    ,"Total {{entity}}s": "Total {{entity}}s"
-    ,"...and {{count}} more": "...and {{count}} more"
-    ,"Blocked topics": "Blocked topics"
-    ,"Select a content category": "Select a content category"
-    ,"No matching categories": "No matching categories"
-    ,"Preview": "Preview"
-    ,"Unable to load category content": "Unable to load category content"
-    ,"View {{type}} for": "View {{type}} for"
-    ,"Content will load when expanded": "Content will load when expanded"
-    ,"No blocked topics selected. Add topics to detect and block harmful content.": "No blocked topics selected. Add topics to detect and block harmful content."
-    ,"Competitor Intent Filter": "Competitor Intent Filter"
-    ,"Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list.": "Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list."
-    ,"Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list.": "Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list."
-    ,"Airline (auto-load competitors from IATA)": "Airline (auto-load competitors from IATA)"
-    ,"Generic (specify competitors manually)": "Generic (specify competitors manually)"
-    ,"Your Brand (brand_self)": "Your Brand (brand_self)"
-    ,"Select your airline from the list (excluded from competitors) or type to add a custom term": "Select your airline from the list (excluded from competitors) or type to add a custom term"
-    ,"Names/codes users use for your brand": "Names/codes users use for your brand"
-    ,"Loading airlines...": "Loading airlines..."
-    ,"Search or select airline, or type to add custom": "Search or select airline, or type to add custom"
-    ,"Type and press Enter to add": "Type and press Enter to add"
-    ,"Locations (optional)": "Locations (optional)"
-    ,"Countries, cities, airports for disambiguation (e.g. qatar, doha)": "Countries, cities, airports for disambiguation (e.g. qatar, doha)"
-    ,"Competitors": "Competitors"
-    ,"Competitor names to detect (required for generic type)": "Competitor names to detect (required for generic type)"
-    ,"Policy: Competitor comparison": "Policy: Competitor comparison"
-    ,"Policy: Possible competitor comparison": "Policy: Possible competitor comparison"
-    ,"Refuse (block request)": "Refuse (block request)"
-    ,"Reframe (suggest alternative)": "Reframe (suggest alternative)"
-    ,"Reframe (suggest alternative to backend LLM)": "Reframe (suggest alternative to backend LLM)"
-    ,"Confidence thresholds": "Confidence thresholds"
-    ,"Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent.": "Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent."
-    ,"High (≥)": "High (≥)"
-    ,"Medium (≥)": "Medium (≥)"
-    ,"Low (≥)": "Low (≥)"
-    ,"Treat as full competitor comparison -> uses \"Competitor comparison\" policy": "Treat as full competitor comparison -> uses \"Competitor comparison\" policy"
-    ,"Treat as possible comparison -> uses \"Possible competitor comparison\" policy": "Treat as possible comparison -> uses \"Possible competitor comparison\" policy"
-    ,"Log only; allow request. Below Low -> allow with no action": "Log only; allow request. Below Low -> allow with no action"
-    ,"Raise thresholds to be more permissive; lower them to be stricter.": "Raise thresholds to be more permissive; lower them to be stricter."
-    ,"Advanced Settings": "Advanced Settings"
-    ,"Custom Pricing": "Custom Pricing"
-    ,"Attached Knowledge Bases (RAG)": "Attached Knowledge Bases (RAG)"
-    ,"Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.": "Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases."
-    ,"Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.": "Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores."
-    ,"Select knowledge bases (optional)": "Select knowledge bases (optional)"
-    ,"Apply safety guardrails to this key to filter content or enforce policies": "Apply safety guardrails to this key to filter content or enforce policies"
-    ,"Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.": "Select existing guardrails. Go to 'Guardrails' tab to create new guardrails."
-    ,"Select or enter guardrails": "Select or enter guardrails"
-    ,"Select or enter tags": "Select or enter tags"
-    ,"PTU Count": "PTU Count"
-    ,"Calculated Cost per PTU / Hour (USD)": "Calculated Cost per PTU / Hour (USD)"
-    ,"PTU Effective From (UTC)": "PTU Effective From (UTC)"
-    ,"PTU Effective To (UTC)": "PTU Effective To (UTC)"
-    ,"Pricing Model": "Pricing Model"
-    ,"Per Million Tokens": "Per Million Tokens"
-    ,"Per Second": "Per Second"
-    ,"Input Cost (per 1M tokens)": "Input Cost (per 1M tokens)"
-    ,"Output Cost (per 1M tokens)": "Output Cost (per 1M tokens)"
-    ,"Cache Read Cost (per 1M tokens)": "Cache Read Cost (per 1M tokens)"
-    ,"Cache Write Cost (per 1M tokens)": "Cache Write Cost (per 1M tokens)"
-    ,"Cost Per Second": "Cost Per Second"
-    ,"Use in pass through routes": "Use in pass through routes"
-    ,"Allow using these credentials in pass through routes.": "Allow using these credentials in pass through routes."
-    ,"LiteLLM Params": "LiteLLM Params"
-    ,"Optional litellm params used for making a litellm.completion() call.": "Optional litellm params used for making a litellm.completion() call."
-    ,"Pass JSON of litellm supported params": "Pass JSON of litellm supported params"
-    ,"Loading provider fields...": "Loading provider fields..."
-    ,"Failed to load provider credential fields": "Failed to load provider credential fields"
-    ,"Click to Upload": "Click to Upload"
-    ,"Give a gcp service account(.json file)": "Give a gcp service account(.json file)"
-    ,"The actual model your azure deployment uses. Used for accurate cost tracking. Select name from": "The actual model your azure deployment uses. Used for accurate cost tracking. Select name from"
-    ,"here": "here"
-    ,"General Info": "General Info"
-    ,"Group Name": "Group Name"
-    ,"Please enter the access group name": "Please enter the access group name"
-    ,"e.g. Engineering Team": "e.g. Engineering Team"
-    ,"Describe the purpose of this access group...": "Describe the purpose of this access group..."
-    ,"Allowed Models": "Allowed Models"
-    ,"Allowed MCP Servers": "Allowed MCP Servers"
-    ,"Select MCP servers": "Select MCP servers"
-    ,"Allowed Agents": "Allowed Agents"
-    ,"Select agents": "Select agents"
-    ,"Access group created successfully": "Access group created successfully"
-    ,"Create Group": "Create Group"
-    ,"Access group updated successfully": "Access group updated successfully"
-    ,"Open access group actions": "Open access group actions"
-    ,"Delete access group": "Delete access group"
-    ,"SSO Settings": "SSO Settings"
-    ,"Security Settings": "Security Settings"
-    ,"SSO Configuration Deprecated": "SSO Configuration Deprecated"
-    ,"Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration.": "Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration."
-    ,"Edit SSO Settings": "Edit SSO Settings"
-    ,"Add SSO": "Add SSO"
-    ,"Allowed IPs": "Allowed IPs"
-    ,"UI Access Control": "UI Access Control"
-    ,"Manage Allowed IP Addresses": "Manage Allowed IP Addresses"
-    ,"Add IP Address": "Add IP Address"
-    ,"IP Address": "IP Address"
-    ,"Action": "Action"
-    ,"Add Allowed IP Address": "Add Allowed IP Address"
-    ,"Please enter an IP address": "Please enter an IP address"
-    ,"Enter IP address": "Enter IP address"
-    ,"Confirm Delete": "Confirm Delete"
-    ,"Yes": "Yes"
-    ,"Are you sure you want to delete the IP address: {{ip}}?": "Are you sure you want to delete the IP address: {{ip}}?"
-    ,"UI Access Control Settings": "UI Access Control Settings"
-    ,"Login without SSO": "Login without SSO"
-    ,"If you need to login without sso, you can access": "If you need to login without sso, you can access"
-    ,"SCIM": "SCIM"
-    ,"UI Settings": "UI Settings"
-    ,"Logging Settings": "Logging Settings"
-    ,"Hashicorp Vault": "Hashicorp Vault"
-    ,"Plugins": "Plugins"
-    ,"Admin Access": "Admin Access"
-    ,"Go to 'Internal Users' page to add other admins.": "Go to 'Internal Users' page to add other admins."
-    ,"IP address added successfully": "IP address added successfully"
-    ,"IP address deleted successfully": "IP address deleted successfully"
-    ,"UI Access Control settings updated successfully": "UI Access Control settings updated successfully"
-    ,"less": "less"
-    ,"more": "more"
-    ,"status": "status"
-    ,"created": "created"
-    ,"pr": "pr"
-    ,"type": "type"
-    ,"step": "step"
-    ,"seq": "seq"
-    ,"time": "time"
-    ,"data": "data"
-    ,"No events recorded": "No events recorded"
-    ,"Run": "Run"
-    ,"Workflow Runs": "Workflow Runs"
-    ,"Durable state tracking for agents and automated workflows": "Durable state tracking for agents and automated workflows"
-    ,"Loading workflow runs…": "Loading workflow runs…"
-    ,"No workflow runs yet": "No workflow runs yet"
-    ,"Search runs…": "Search runs…"
-    ,"Narrow down workflow runs": "Narrow down workflow runs"
-    ,"All statuses": "All statuses"
-    ,"pending": "Pending"
-    ,"running": "Running"
-    ,"paused": "Paused"
-    ,"completed": "Completed"
-    ,"failed": "Failed"
-    ,"Filter by type…": "Filter by type…"
-    ,"Workflow run details": "Workflow run details"
-    ,"Metadata, timeline and messages for the selected workflow run": "Metadata, timeline and messages for the selected workflow run"
-    ,"close": "close"
-    ,"Timeline": "Timeline"
-    ,"event": "event"
-    ,"events": "events"
-    ,"Messages": "Messages"
-    ,"No messages": "No messages"
-    ,"No agents yet": "No agents yet"
-    ,"Add an agent to make it available in your organization.": "Add an agent to make it available in your organization."
-    ,"Loading agents…": "Loading agents…"
-    ,"Health Check": "Health Check"
-    ,"When enabled, only agents with reachable URLs are shown": "When enabled, only agents with reachable URLs are shown"
-    ,"Open agent actions": "Open agent actions"
-    ,"Agent Name": "Agent Name"
-    ,"Agent ID": "Agent ID"
-    ,"N/A": "N/A"
-    ,"Needs Setup": "Needs Setup"
-    ,"Actions": "Actions"
-    ,"Loading keys...": "Loading keys..."
-    ,"No virtual key assigned to this agent.": "No virtual key assigned to this agent."
-    ,"Unnamed key": "Unnamed key"
-    ,"List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.": "List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public."
-    ,"Why do agents need keys?": "Why do agents need keys?"
-    ,"Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.": "Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page."
-    ,"Add New Agent": "Add New Agent"
-    ,"Delete Agent": "Delete Agent"
-    ,"Agent \"{{name}}\" deleted successfully": "Agent \"{{name}}\" deleted successfully"
-    ,"Are you sure you want to delete agent: {{name}}? This action cannot be undone.": "Are you sure you want to delete agent: {{name}}? This action cannot be undone."
-  },
-  "nav": {
-    "groups": {
-      "aiGateway": "AI Gateway",
-      "observability": "Observability",
-      "accessControl": "Access Control",
-      "developerTools": "Developer Tools",
-      "settings": "SETTINGS"
+    "language": {
+        "switch": "中文",
+        "english": "English",
+        "chinese": "中文"
     },
-    "api-keys": "Virtual Keys",
-    "llm-playground": "Playground",
-    "models": "Models + Endpoints",
-    "agentic": "Agentic",
-    "agents": "Agents",
-    "workflows": "Workflow Runs",
-    "memory": "Memory",
-    "mcp-servers": "MCP Servers",
-    "skills": "Skills",
-    "guardrails": "Guardrails",
-    "policies": "Policies",
-    "tools": "Tools",
-    "search-tools": "Search Tools",
-    "vector-stores": "Vector Stores",
-    "tool-policies": "Tool Policies",
-    "new_usage": "Usage",
-    "cost-optimization": "Cost Optimization",
-    "logs": "Logs",
-    "guardrails-monitor": "Guardrails Monitor",
-    "teams": "Teams",
-    "projects": "Projects",
-    "users": "Internal Users",
-    "organizations": "Organizations",
-    "access-groups": "Access Groups",
-    "budgets": "Budgets",
-    "api_ref": "API Reference",
-    "model-hub-table": "AI Hub",
-    "learning-resources": "Learning Resources",
-    "caching": "Response Cache",
-    "experimental": "Experimental",
-    "prompts": "Prompts",
-    "transform-request": "API Playground",
-    "tag-management": "Tag Management",
-    "usage": "Old Usage",
-    "settings": "Settings",
-    "router-settings": "Router Settings",
-    "logging-and-alerts": "Logging & Alerts",
-    "admin-panel": "Admin Settings",
-    "cost-tracking": "Cost Tracking",
-    "ui-theme": "UI Theme"
-  },
-  "models": {
-    "title": "Model Management",
-    "allModels": "All Models",
-    "yourModels": "Your Models",
-    "addModel": "Add Model",
-    "autoRouters": "Auto-Routers",
-    "llmCredentials": "LLM Credentials",
-    "passThrough": "Pass-Through Endpoints",
-    "health": "Health Status",
-    "retrySettings": "Model Retry Settings",
-    "modelGroupAlias": "Model Group Aliases",
-    "priceData": "Price Data",
-    "adminDescription": "Add and manage models for the proxy",
-    "teamDescription": "Add models for teams you are an admin for.",
-    "lastRefreshed": "Last Refreshed: {{time}}",
-    "refresh": "Refresh models"
-  },
-  "virtualKeys": {
-    "title": "Virtual Keys",
-    "subtitle": "Every key that authenticates requests to the gateway.",
-    "loading": "Loading keys...",
-    "loadingKey": "Loading key...",
-    "noData": "No keys found",
-    "search": "Search by key alias…",
-    "filters": "Filters",
-    "filtersDescription": "Narrow down virtual keys",
-    "team": "Team",
-    "organization": "Organization",
-    "userId": "User ID",
-    "keyId": "Key ID",
-    "selectTeam": "Select a team…",
-    "noTeams": "No teams found",
-    "selectOrganization": "Select an organization…",
-    "noOrganizations": "No organizations found",
-    "enterUserId": "Enter User ID…",
-    "enterKeyId": "Enter Key ID…",
-    "createdAt": "Created At",
-    "createdBy": "Created By",
-    "expires": "Expires",
-    "spendBudget": "Spend / Budget",
-    "budgetReset": "Budget Reset",
-    "budget": "Budget"
-  },
-  "teamsPage": {
-    "title": "Teams",
-    "subtitle": "Manage teams, members, and their access to models and budgets",
-    "yourTeams": "Your Teams",
-    "availableTeams": "Available Teams",
-    "defaultSettings": "Default Team Settings",
-    "createTeam": "Create Team",
-    "teamName": "Team Name"
-  },
-  "usersPage": {
-    "users": "Users",
-    "defaultSettings": "Default User Settings",
-    "selectUsers": "Select Users",
-    "cancelSelection": "Cancel Selection",
-    "bulkEdit": "Bulk Edit ({{count}} selected)",
-    "search": "Search by email…"
-  }
+    "common": {
+        "loading": "Loading...",
+        "noData": "No data",
+        "selectOptions": "Select options",
+        "noOptionsFound": "No options found",
+        "createOption": "Create \"{{option}}\"",
+        "accessDenied": "Access Denied",
+        "close": "Close",
+        "docs": "Docs",
+        "adminOnly": "{{pageTitle}} is only available to admin users.",
+        "deprecationTitle": "{{featureName}} is on a draft deprecation list",
+        "deprecationDescription": "{{featureName}} is one of several experimental features we're considering removing, potentially as early as {{date}}. This list is a draft and is not final. If you rely on this feature, please share feedback on the",
+        "deprecationDiscussion": "deprecation discussion",
+        "licenseExpired": "Your LiteLLM Enterprise license expired on {{date}}",
+        "licenseExpires": "Your LiteLLM Enterprise license {{countdown}} ({{date}})",
+        "licenseExpiresToday": "expires today",
+        "licenseExpiresOneDay": "expires in 1 day",
+        "licenseExpiresDays": "expires in {{days}} days",
+        "licenseExpiredDescription": "Enterprise features are now disabled. Reach out to {{email}} to restore access",
+        "licenseCriticalDescription": "Renew now to avoid losing enterprise features. Reach out to {{email}}",
+        "licenseWarningDescription": "Renew before it lapses to keep enterprise features. Reach out to {{email}}"
+    },
+    "login": {
+        "adminUiDisabled": "Admin UI Disabled",
+        "adminUiDisabledDescription": "The Admin UI has been disabled by the administrator. To re-enable it, please update the following environment variable:",
+        "title": "Login",
+        "subtitle": "Access your LiteLLM Admin UI.",
+        "defaultCredentials": "Default Credentials",
+        "defaultCredentialsDescription": "By default, Username is admin and Password is your LiteLLM Proxy MASTER_KEY.",
+        "credentialsHelp": "Need to set UI credentials or SSO?",
+        "checkDocumentation": "Check the documentation",
+        "worker": "Worker",
+        "chooseWorker": "Choose a worker to connect to",
+        "username": "Username",
+        "enterUsername": "Enter your username",
+        "usernameRequired": "Please enter your username",
+        "password": "Password",
+        "enterPassword": "Enter your password",
+        "passwordRequired": "Please enter your password",
+        "loggingIn": "Logging in...",
+        "login": "Login",
+        "loginWithSso": "Login with SSO",
+        "configureSso": "Please configure SSO to log in with SSO.",
+        "ssoEnabled": "Single Sign-On (SSO) is enabled. LiteLLM no longer automatically redirects to the SSO login flow upon loading this page. To re-enable auto-redirect-to-SSO, set AUTO_REDIRECT_UI_LOGIN_TO_SSO=true in your environment configuration."
+    },
+    "playground": {
+        "accessDeniedDescription": "Your role does not have access to the Playground. Ask your proxy admin for access to test models.",
+        "chat": "Chat",
+        "compare": "Compare",
+        "compliance": "Compliance",
+        "agentBuilder": "Agent Builder (Experimental)"
+    },
+    "oauth": {
+        "complete": "Authorization complete. You may close this window and return to the LiteLLM dashboard.",
+        "closeManually": "If the window does not close automatically, everything is still saved. You can close it manually."
+    },
+    "ui": {
+        "Loading…": "Loading…",
+        "Loading...": "Loading...",
+        "No data": "No data",
+        "No results": "No results",
+        "Search…": "Search…",
+        "Select…": "Select…",
+        "Search": "Search",
+        "Filters": "Filters",
+        "Apply Filters": "Apply Filters",
+        "Clear all": "Clear all",
+        "Reset": "Reset",
+        "Refresh": "Refresh",
+        "Columns": "Columns",
+        "Rows per page": "Rows per page",
+        "Showing {{start}}-{{end}} of {{rowCount}}": "Showing {{start}}-{{end}} of {{rowCount}}",
+        "Page {{page}} of {{pageCount}}": "Page {{page}} of {{pageCount}}",
+        "Go to first page": "Go to first page",
+        "Go to previous page": "Go to previous page",
+        "Go to next page": "Go to next page",
+        "Go to last page": "Go to last page",
+        "Ascending": "Ascending",
+        "Descending": "Descending",
+        "No requests yet": "No requests yet",
+        "No matching requests": "No matching requests",
+        "No requests match your filters for this time range.": "No requests match your filters for this time range.",
+        "Requests proxied through LiteLLM will appear here.": "Requests proxied through LiteLLM will appear here.",
+        "No users found": "No users found",
+        "No matching organizations": "No matching organizations",
+        "No organizations yet": "No organizations yet",
+        "No matching budgets": "No matching budgets",
+        "No budgets yet": "No budgets yet",
+        "Unlimited": "Unlimited",
+        "Unlimited only": "Unlimited only",
+        "Not set": "Not set",
+        "Edit": "Edit",
+        "Delete": "Delete",
+        "Edit user": "Edit user",
+        "Reset password": "Reset password",
+        "Copy user ID": "Copy user ID",
+        "Delete user": "Delete user",
+        "Edit budget": "Edit budget",
+        "Delete budget": "Delete budget",
+        "Open user actions": "Open user actions",
+        "Open organization actions": "Open organization actions",
+        "Open budget actions": "Open budget actions",
+        "Organization ID": "Organization ID",
+        "Organization Name": "Organization Name",
+        "User ID": "User ID",
+        "Email": "Email",
+        "Status": "Status",
+        "Role": "Role",
+        "Team": "Team",
+        "Created": "Created",
+        "Created At": "Created At",
+        "Updated At": "Updated At",
+        "Spend (USD)": "Spend (USD)",
+        "Budget (USD)": "Budget (USD)",
+        "Global Proxy Role": "Global Proxy Role",
+        "User Alias": "User Alias",
+        "Virtual Keys": "Virtual Keys",
+        "Models": "Models",
+        "Members": "Members",
+        "Max Budget": "Max Budget",
+        "TPM": "TPM",
+        "RPM": "RPM",
+        "Key Alias": "Key Alias",
+        "Key Hash": "Key Hash",
+        "Session ID": "Session ID",
+        "Request ID": "Request ID",
+        "Cost": "Cost",
+        "Duration (s)": "Duration (s)",
+        "TTFT (s)": "TTFT (s)",
+        "Model": "Model",
+        "Tokens": "Tokens",
+        "Internal User": "Internal User",
+        "End User": "End User",
+        "Tags": "Tags",
+        "Success": "Success",
+        "Failure": "Failure",
+        "Active": "Active",
+        "Inactive": "Inactive",
+        "Search by email…": "Search by email…",
+        "Enter user ID…": "Enter user ID…",
+        "Enter SSO ID…": "Enter SSO ID…",
+        "Select a role…": "Select a role…",
+        "Select a team…": "Select a team…",
+        "No roles found": "No roles found",
+        "No teams found": "No teams found",
+        "Narrow down your users": "Narrow down your users",
+        "No matching users": "No matching users",
+        "Try adjusting your search or filters.": "Try adjusting your search or filters.",
+        "No organizations match your search. Try a different name or ID.": "No organizations match your search. Try a different name or ID.",
+        "Create an organization to group teams, models, and budgets.": "Create an organization to group teams, models, and budgets.",
+        "Click on an organization ID to view its details.": "Click on an organization ID to view its details.",
+        "Search by Organization Name": "Search by Organization Name",
+        "Search by Organization ID": "Search by Organization ID",
+        "Loading organizations…": "Loading organizations…",
+        "Narrow down your budgets": "Narrow down your budgets",
+        "Search by budget ID…": "Search by budget ID…",
+        "No budget matches your search or filters.": "No budget matches your search or filters.",
+        "Create a budget to set spend, TPM and RPM limits for customers.": "Create a budget to set spend, TPM and RPM limits for customers.",
+        "You do not have access to budgets": "You do not have access to budgets",
+        "Ask a proxy admin to grant you the admin viewer role.": "Ask a proxy admin to grant you the admin viewer role.",
+        "Could not load budgets": "Could not load budgets",
+        "Loading budgets…": "Loading budgets…",
+        "Request Logs": "Request Logs",
+        "Search by Request ID": "Search by Request ID",
+        "Narrow down request logs": "Narrow down request logs",
+        "Loading request logs…": "Loading request logs…",
+        "Search or select a team": "Search or select a team",
+        "Search a key alias": "Search a key alias",
+        "Search a model": "Search a model",
+        "Search an end user": "Search an end user",
+        "No key aliases found": "No key aliases found",
+        "No models found": "No models found",
+        "No end users in this time range": "No end users in this time range",
+        "Select or type an error code": "Select or type an error code",
+        "No error codes found": "No error codes found",
+        "All Statuses": "All Statuses",
+        "Enter error message…": "Enter error message…",
+        "Enter key hash…": "Enter key hash…",
+        "Enter session ID…": "Enter session ID…",
+        "Enter public model or search tool…": "Enter public model or search tool…",
+        "Enterprise Feature.": "Enterprise Feature.",
+        "Loading teams...": "Loading teams...",
+        "Search teams by name or ID…": "Search teams by name or ID…",
+        "Narrow down your teams": "Narrow down your teams",
+        "Select an organization…": "Select an organization…",
+        "No organizations found": "No organizations found",
+        "Enter team alias…": "Enter team alias…",
+        "Enter team ID…": "Enter team ID…",
+        "Delete Team?": "Delete Team?",
+        "Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone.": "Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone.",
+        "Regenerate Virtual Key": "Regenerate Virtual Key",
+        "Expiration is required for expired keys": "Expiration is required for expired keys",
+        "Close": "Close",
+        "Copied": "Copied",
+        "Copy Key": "Copy Key",
+        "Cancel": "Cancel",
+        "Regenerate": "Regenerate",
+        "Save it now, you will not see it again": "Save it now, you will not see it again",
+        "No alias set": "No alias set",
+        "Virtual Key": "Virtual Key",
+        "Max Budget (USD)": "Max Budget (USD)",
+        "TPM Limit": "TPM Limit",
+        "RPM Limit": "RPM Limit",
+        "Expire Key": "Expire Key",
+        "Grace Period": "Grace Period",
+        "Never": "Never",
+        "Add Logging Callback": "Add Logging Callback",
+        "Edit Callback Settings": "Edit Callback Settings",
+        "Add Callback": "Add Callback",
+        "Adding...": "Adding...",
+        "Saving...": "Saving...",
+        "Save Changes": "Save Changes",
+        "Delete Callback": "Delete Callback",
+        "Are you sure you want to delete this callback? This action cannot be undone.": "Are you sure you want to delete this callback? This action cannot be undone.",
+        "Health check triggered": "Health check triggered",
+        "Alerts are only supported for Slack Webhook URLs. Get your webhook urls from": "Alerts are only supported for Slack Webhook URLs. Get your webhook urls from",
+        "Slack Webhook URL": "Slack Webhook URL",
+        "Test Alerts": "Test Alerts",
+        "Create New Key": "Create New Key",
+        "Key Ownership": "Key Ownership",
+        "Owned By": "Owned By",
+        "Select who will own this Virtual Key": "Select who will own this Virtual Key",
+        "You": "You",
+        "Service Account": "Service Account",
+        "Another User": "Another User",
+        "Agent": "Agent",
+        "New": "New",
+        "The user who will own this key and be responsible for its usage": "The user who will own this key and be responsible for its usage",
+        "Type email to search for users": "Type email to search for users",
+        "Searching...": "Searching...",
+        "Create User": "Create User",
+        "Search by email to find users": "Search by email to find users",
+        "Select Agent": "Select Agent",
+        "Select an agent": "Select an agent",
+        "This key will be used by the selected agent to make requests to LiteLLM": "This key will be used by the selected agent to make requests to LiteLLM",
+        "Organization": "Organization",
+        "The organization this key belongs to. Selecting an organization filters the available teams.": "The organization this key belongs to. Selecting an organization filters the available teams.",
+        "The team this key belongs to, which determines available models and budget limits": "The team this key belongs to, which determines available models and budget limits",
+        "Project": "Project",
+        "Assign this key to a project. Selecting a project will lock the team to the project's team.": "Assign this key to a project. Selecting a project will lock the team to the project's team.",
+        "Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team.": "Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team.",
+        "Key Details": "Key Details",
+        "Key Name": "Key Name",
+        "Service Account ID": "Service Account ID",
+        "A descriptive name to identify this key": "A descriptive name to identify this key",
+        "Unique identifier for this service account": "Unique identifier for this service account",
+        "Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models.": "Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models.",
+        "Select models": "Select models",
+        "All Team Models": "All Team Models",
+        "All Proxy Models": "All Proxy Models",
+        "Key Type": "Key Type",
+        "Select the type of key to determine what routes and operations this key can access": "Select the type of key to determine what routes and operations this key can access",
+        "Select key type": "Select key type",
+        "Create Key": "Create Key",
+        "Create New User": "Create New User",
+        "Save your Key": "Save your Key",
+        "Key being created, this might take 30s": "Key being created, this might take 30s",
+        "Type": "Type",
+        "to confirm deletion:": "to confirm deletion:",
+        "Deleting...": "Deleting...",
+        "Warning": "Warning",
+        "Error": "Error",
+        "Authentication Error": "Authentication Error",
+        "Access Denied": "Access Denied",
+        "Service Unavailable": "Service Unavailable",
+        "Budget Exceeded": "Budget Exceeded",
+        "Feature Unavailable": "Feature Unavailable",
+        "Routing Error": "Routing Error",
+        "Already Exists": "Already Exists",
+        "Content Blocked": "Content Blocked",
+        "Validation Error": "Validation Error",
+        "Integration Error": "Integration Error",
+        "Not Found": "Not Found",
+        "Rate Limit Exceeded": "Rate Limit Exceeded",
+        "Server Error": "Server Error",
+        "Request Error": "Request Error",
+        "Info": "Info",
+        "Feature Notice": "Feature Notice",
+        "Configuration Warning": "Configuration Warning",
+        "Rate Limit": "Rate Limit",
+        "Access Groups": "Access Groups",
+        "Manage resource permissions for your organization": "Manage resource permissions for your organization",
+        "Create Access Group": "Create Access Group",
+        "Search groups by name, ID, or description...": "Search groups by name, ID, or description...",
+        "Clear search": "Clear search",
+        "No matching access groups": "No matching access groups",
+        "No access groups yet": "No access groups yet",
+        "Try a different search term.": "Try a different search term.",
+        "Create an access group to manage resource permissions for your organization.": "Create an access group to manage resource permissions for your organization.",
+        "Loading access groups…": "Loading access groups…",
+        "Back": "Back",
+        "Access group not found": "Access group not found",
+        "Copy access group ID": "Copy access group ID",
+        "Edit Access Group": "Edit Access Group",
+        "Group Details": "Group Details",
+        "by": "by",
+        "Last Updated": "Last Updated",
+        "Attached Keys": "Attached Keys",
+        "Show Less": "Show Less",
+        "View All ({{count}})": "View All ({{count}})",
+        "No keys attached": "No keys attached",
+        "Attached Teams": "Attached Teams",
+        "No teams attached": "No teams attached",
+        "MCP Servers": "MCP Servers",
+        "Agents": "Agents",
+        "No models assigned to this group": "No models assigned to this group",
+        "No MCP servers assigned to this group": "No MCP servers assigned to this group",
+        "No agents assigned to this group": "No agents assigned to this group",
+        "No guardrails yet": "No guardrails yet",
+        "Add a guardrail to start filtering requests and responses.": "Add a guardrail to start filtering requests and responses.",
+        "Loading guardrails…": "Loading guardrails…",
+        "Open guardrail actions": "Open guardrail actions",
+        "Config guardrails are defined in the config file and cannot be deleted from the dashboard.": "Config guardrails are defined in the config file and cannot be deleted from the dashboard.",
+        "Guardrail ID": "Guardrail ID",
+        "Provider": "Provider",
+        "Mode": "Mode",
+        "Default On": "Default On",
+        "Default Off": "Default Off",
+        "Guardrail Garden": "Guardrail Garden",
+        "Guardrails": "Guardrails",
+        "Test Playground": "Test Playground",
+        "Submitted Guardrails": "Submitted Guardrails",
+        "Add New Guardrail": "Add New Guardrail",
+        "Add Provider Guardrail": "Add Provider Guardrail",
+        "Create Custom Code Guardrail": "Create Custom Code Guardrail",
+        "Delete Guardrail": "Delete Guardrail",
+        "Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.": "Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.",
+        "Guardrail Information": "Guardrail Information",
+        "Guardrail \"{{name}}\" deleted successfully": "Guardrail \"{{name}}\" deleted successfully",
+        "Search guardrails": "Search guardrails",
+        "LiteLLM Content Filter": "LiteLLM Content Filter",
+        "Show less": "Show less",
+        "Show all ({{count}})": "Show all ({{count}})",
+        "Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost.": "Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost.",
+        "Partner Guardrails": "Partner Guardrails",
+        "Third-party guardrail integrations from leading AI security providers.": "Third-party guardrail integrations from leading AI security providers.",
+        "All Available Servers": "All Available Servers",
+        "All Servers": "All Servers",
+        "Personal": "Personal",
+        "All Access Groups": "All Access Groups",
+        "Deleted MCP Server successfully": "Deleted MCP Server successfully",
+        "Missing required authentication parameters.": "Missing required authentication parameters.",
+        "Delete MCP Server?": "Delete MCP Server?",
+        "This action is permanent and cannot be undone. All associated configurations will be removed.": "This action is permanent and cannot be undone. All associated configurations will be removed.",
+        "ID": "ID",
+        "URL": "URL",
+        "Configure and manage your MCP servers": "Configure and manage your MCP servers",
+        "Add New MCP Server": "Add New MCP Server",
+        "Submit MCP Server": "Submit MCP Server",
+        "Toolsets": "Toolsets",
+        "Connect": "Connect",
+        "Semantic Filter": "Semantic Filter",
+        "Network Settings": "Network Settings",
+        "Submitted MCPs": "Submitted MCPs",
+        "Access Group": "Access Group",
+        "About access groups": "About access groups",
+        "An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers.": "An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers.",
+        "Search by name, alias, URL, or ID": "Search by name, alias, URL, or ID",
+        "Sort": "Sort",
+        "of": "of",
+        "servers": "servers",
+        "Loading MCP servers...": "Loading MCP servers...",
+        "No MCP servers configured. Click '+ Add New MCP Server' to get started.": "No MCP servers configured. Click '+ Add New MCP Server' to get started.",
+        "No servers match the current filters or search.": "No servers match the current filters or search.",
+        "Recently created": "Recently created",
+        "Recently updated": "Recently updated",
+        "Name (A→Z)": "Name (A→Z)",
+        "Health (unhealthy first)": "Health (unhealthy first)",
+        "No policies found": "No policies found",
+        "Create a policy to bundle guardrails and apply them across teams.": "Create a policy to bundle guardrails and apply them across teams.",
+        "Loading policies…": "Loading policies…",
+        "Open policy actions": "Open policy actions",
+        "Edit policy": "Edit policy",
+        "Delete policy": "Delete policy",
+        "Config": "Config",
+        "Description": "Description",
+        "Inherits From": "Inherits From",
+        "Guardrails (Add)": "Guardrails (Add)",
+        "Guardrails (Remove)": "Guardrails (Remove)",
+        "Model Condition": "Model Condition",
+        "No models match your search or filters. Try resetting them.": "No models match your search or filters. Try resetting them.",
+        "Loading models…": "Loading models…",
+        "Search model names…": "Search model names…",
+        "Current team": "Current team",
+        "View": "View",
+        "Current Team Models": "Current Team Models",
+        "All Available Models": "All Available Models",
+        "Model Settings": "Model Settings",
+        "Narrow down models + endpoints": "Narrow down models + endpoints",
+        "Reset Filters": "Reset Filters",
+        "Public Model Name": "Public Model Name",
+        "Filter by Public Model Name": "Filter by Public Model Name",
+        "All Model Access Groups": "All Model Access Groups",
+        "Filter by Model Access Group": "Filter by Model Access Group",
+        "No model access groups found": "No model access groups found",
+        "Wildcard Models (*)": "Wildcard Models (*)",
+        "Model ID": "Model ID",
+        "Model Information": "Model Information",
+        "Credentials": "Credentials",
+        "About credential types": "About credential types",
+        "Credential types": "Credential types",
+        "Reusable": "Reusable",
+        "Credentials saved in LiteLLM that can be added to models repeatedly.": "Credentials saved in LiteLLM that can be added to models repeatedly.",
+        "Manual": "Manual",
+        "Credentials added directly during model creation or defined in the config file.": "Credentials added directly during model creation or defined in the config file.",
+        "Created By": "Created By",
+        "Costs": "Costs",
+        "Team ID": "Team ID",
+        "Model Access Group": "Model Access Group",
+        "DB Model": "DB Model",
+        "Config Model": "Config Model",
+        "Actions": "Actions",
+        "LiteLLM Model Name": "LiteLLM Model Name",
+        "Copy LiteLLM model name": "Copy LiteLLM model name",
+        "Defined in config": "Defined in config",
+        "Unknown": "Unknown",
+        "Unknown date": "Unknown date",
+        "Cost per 1M tokens": "Cost per 1M tokens",
+        "Create guardrail": "Create guardrail",
+        "Guardrail Name": "Guardrail Name",
+        "Please enter a guardrail name": "Please enter a guardrail name",
+        "Enter a name for this guardrail": "Enter a name for this guardrail",
+        "Guardrail Provider": "Guardrail Provider",
+        "Please select a provider": "Please select a provider",
+        "Select a guardrail provider": "Select a guardrail provider",
+        "How the guardrail should be applied": "How the guardrail should be applied",
+        "Please select a mode": "Please select a mode",
+        "Recommended": "Recommended",
+        "Always On": "Always On",
+        "If enabled, this guardrail will be applied to all requests by default.": "If enabled, this guardrail will be applied to all requests by default.",
+        "Yes": "Yes",
+        "No": "No",
+        "Skip system messages in guardrail": "Skip system messages in guardrail",
+        "Use global default": "Use global default",
+        "Yes — exclude from guardrail scan": "Yes — exclude from guardrail scan",
+        "No — always include in scan": "No — always include in scan",
+        "Skip tool messages in guardrail": "Skip tool messages in guardrail",
+        "Call type": "Call type",
+        "Select a call type": "Select a call type",
+        "More call types coming soon.": "More call types coming soon.",
+        "End session after X violations": "End session after X violations",
+        "e.g. 3": "e.g. 3",
+        "On violation": "On violation",
+        "Message the user hears": "Message the user hears",
+        "e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.": "e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.",
+        "optional": "optional",
+        "Previous": "Previous",
+        "Next": "Next",
+        "Create Guardrail": "Create Guardrail",
+        "Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).": "Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).",
+        "Allowed Models": "Allowed Models",
+        "Restrict which models this agent can call. Leave empty to allow all.": "Restrict which models this agent can call. Leave empty to allow all.",
+        "Loading models...": "Loading models...",
+        "Select models (leave empty for all)": "Select models (leave empty for all)",
+        "Allowed Agents (Sub-Agents)": "Allowed Agents (Sub-Agents)",
+        "Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all.": "Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all.",
+        "Loading agents...": "Loading agents...",
+        "Select agents (leave empty for all)": "Select agents (leave empty for all)",
+        "Allowed MCP Servers": "Allowed MCP Servers",
+        "Select which MCP servers or access groups this agent can access": "Select which MCP servers or access groups this agent can access",
+        "Select MCP servers or access groups (optional)": "Select MCP servers or access groups (optional)",
+        "Tracing": "Tracing",
+        "Require x-litellm-trace-id on calls TO this agent": "Require x-litellm-trace-id on calls TO this agent",
+        "Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).": "Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).",
+        "Require x-litellm-trace-id on calls BY this agent": "Require x-litellm-trace-id on calls BY this agent",
+        "Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.": "Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.",
+        "Budgets & Rate Limits": "Budgets & Rate Limits",
+        "Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits.": "Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits.",
+        "Session Budgets": "Session Budgets",
+        "Max Iterations": "Max Iterations",
+        "Hard cap on LLM calls per session": "Hard cap on LLM calls per session",
+        "Max Budget Per Session ($)": "Max Budget Per Session ($)",
+        "Max spend per trace before returning 429": "Max spend per trace before returning 429",
+        "Agent Rate Limits": "Agent Rate Limits",
+        "Global rate limits applied across all callers of this agent.": "Global rate limits applied across all callers of this agent.",
+        "Per-Session Rate Limits": "Per-Session Rate Limits",
+        "Rate limits per session (x-litellm-trace-id). Each session gets its own counters.": "Rate limits per session (x-litellm-trace-id). Each session gets its own counters.",
+        "Session TPM Limit": "Session TPM Limit",
+        "Session RPM Limit": "Session RPM Limit",
+        "Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.": "Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.",
+        "Agent Type": "Agent Type",
+        "Select the type of agent you want to create": "Select the type of agent you want to create",
+        "Not listed?": "Not listed?",
+        "Custom / Other": "Custom / Other",
+        "For agents that don't follow a standard protocol — just needs a virtual key": "For agents that don't follow a standard protocol — just needs a virtual key",
+        "Please enter an agent name": "Please enter an agent name",
+        "e.g. my-custom-agent": "e.g. my-custom-agent",
+        "Describe what this agent does…": "Describe what this agent does…",
+        "Assign to Team": "Assign to Team",
+        "Optionally assign this agent to a team. The agent and its key will belong to the selected team.": "Optionally assign this agent to a team. The agent and its key will belong to the selected team.",
+        "Create a new key for this agent": "Create a new key for this agent",
+        "A dedicated key scoped to this agent.": "A dedicated key scoped to this agent.",
+        "e.g. my-agent-key": "e.g. my-agent-key",
+        "Assign an existing key": "Assign an existing key",
+        "Re-assign a key you already have to this agent.": "Re-assign a key you already have to this agent.",
+        "Search by key name…": "Search by key name…",
+        "Skip for now — I'll assign a key later": "Skip for now — I'll assign a key later",
+        "Agent Created!": "Agent Created!",
+        "Key": "Key",
+        "has been assigned to this agent.": "has been assigned to this agent.",
+        "No key assigned. You can create one from the Virtual Keys page.": "No key assigned. You can create one from the Virtual Keys page.",
+        "Add New Agent": "Add New Agent",
+        "Entitlements": "Entitlements",
+        "Governance": "Governance",
+        "Agent Management": "Agent Management",
+        "Ready": "Ready",
+        "← Back": "← Back",
+        "Create Agent →": "Create Agent →",
+        "Creating...": "Creating...",
+        "Done": "Done",
+        "Failed to load agent information": "Failed to load agent information",
+        "Agent updated successfully": "Agent updated successfully",
+        "Failed to update agent": "Failed to update agent",
+        "Agent not found": "Agent not found",
+        "Back to Agents List": "Back to Agents List",
+        "Back to Agent": "Back to Agent",
+        "Back to Agents": "Back to Agents",
+        "Overview": "Overview",
+        "Settings": "Settings",
+        "Display Name": "Display Name",
+        "Protocol Version": "Protocol Version",
+        "Streaming": "Streaming",
+        "Push Notifications": "Push Notifications",
+        "State Transition History": "State Transition History",
+        "configured": "configured",
+        "Make Public": "Make Public",
+        "Icon URL": "Icon URL",
+        "Documentation URL": "Documentation URL",
+        "MCP Tool Permissions": "MCP Tool Permissions",
+        "MCP Access Groups": "MCP Access Groups",
+        "Tool permissions per server": "Tool permissions per server",
+        "Examples": "Examples",
+        "Agent Settings": "Agent Settings",
+        "Edit Settings": "Edit Settings",
+        "Rate Limits": "Rate Limits",
+        "Click \"Edit Settings\" to modify agent configuration.": "Click \"Edit Settings\" to modify agent configuration.",
+        "About Policies": "About Policies",
+        "Use policies to group guardrails and control which ones run for specific teams, keys, or models.": "Use policies to group guardrails and control which ones run for specific teams, keys, or models.",
+        "Why use policies?": "Why use policies?",
+        "Enable/disable specific guardrails for teams, keys, or models": "Enable/disable specific guardrails for teams, keys, or models",
+        "Group guardrails into a single policy": "Group guardrails into a single policy",
+        "Inherit from existing policies and override what you need": "Inherit from existing policies and override what you need",
+        "Learn more in the documentation ->": "Learn more in the documentation ->",
+        "Failed to fetch policies": "Failed to fetch policies",
+        "Failed to fetch attachments": "Failed to fetch attachments",
+        "Policy \"{{name}}\" deleted successfully": "Policy \"{{name}}\" deleted successfully",
+        "Failed to delete policy": "Failed to delete policy",
+        "Authentication required": "Authentication required",
+        "Failed to load guardrails. Please try again.": "Failed to load guardrails. Please try again.",
+        "Failed to configure template. Please try again.": "Failed to configure template. Please try again.",
+        "Created {{count}} guardrails! Complete the policy form to save.": "Created {{count}} guardrails! Complete the policy form to save.",
+        "Template ready! Complete the policy form to save.": "Template ready! Complete the policy form to save.",
+        "Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually.": "Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually.",
+        "Failed to create guardrails. Please try again.": "Failed to create guardrails. Please try again.",
+        "Templates": "Templates",
+        "Policies": "Policies",
+        "Attachments": "Attachments",
+        "Policy Simulator": "Policy Simulator",
+        "Add New Policy": "Add New Policy",
+        "Delete Policy": "Delete Policy",
+        "Are you sure you want to delete policy: {{name}}? This action cannot be undone.": "Are you sure you want to delete policy: {{name}}? This action cannot be undone.",
+        "Policy Information": "Policy Information",
+        "About Policy Attachments": "About Policy Attachments",
+        "Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally.": "Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally.",
+        "Attachment Scopes:": "Attachment Scopes:",
+        "Global (*)": "Global (*)",
+        "Applies to all requests": "Applies to all requests",
+        "Teams": "Teams",
+        "Applies only to specific teams": "Applies only to specific teams",
+        "Keys": "Keys",
+        "Applies only to specific API keys (supports wildcards like dev-*)": "Applies only to specific API keys (supports wildcards like dev-*)",
+        "Applies only when specific models are used": "Applies only when specific models are used",
+        "Learn more about attachments ->": "Learn more about attachments ->",
+        "Enterprise Feature Notice": "Enterprise Feature Notice",
+        "Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases.": "Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases.",
+        "Add New Attachment": "Add New Attachment",
+        "Delete Attachment": "Delete Attachment",
+        "Are you sure you want to delete this attachment? This action cannot be undone.": "Are you sure you want to delete this attachment? This action cannot be undone.",
+        "Attachment Information": "Attachment Information",
+        "Attachment ID": "Attachment ID",
+        "Policy": "Policy",
+        "Scope": "Scope",
+        "Server Configuration": "Server Configuration",
+        "Cost Configuration": "Cost Configuration",
+        "MCP Server Name": "MCP Server Name",
+        "Alias": "Alias",
+        "Transport Type": "Transport Type",
+        "Streamable HTTP (Recommended)": "Streamable HTTP (Recommended)",
+        "Server-Sent Events (SSE)": "Server-Sent Events (SSE)",
+        "Standard Input/Output (stdio)": "Standard Input/Output (stdio)",
+        "OpenAPI Spec": "OpenAPI Spec",
+        "MCP Server URL": "MCP Server URL",
+        "https://your-mcp-server.com": "https://your-mcp-server.com",
+        "OpenAPI Spec URL": "OpenAPI Spec URL",
+        "Max Concurrent Requests (optional)": "Max Concurrent Requests (optional)",
+        "e.g. 10": "e.g. 10",
+        "Authentication": "Authentication",
+        "None": "None",
+        "API Key": "API Key",
+        "Bearer Token": "Bearer Token",
+        "Token": "Token",
+        "Basic Auth": "Basic Auth",
+        "OAuth": "OAuth",
+        "Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.": "Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.",
+        "Command": "Command",
+        "e.g., npx": "e.g., npx",
+        "Args": "Args",
+        "Add args (press enter or comma)": "Add args (press enter or comma)",
+        "Cost Tracking Settings": "Cost Tracking Settings",
+        "Configure cost discounts and margins for different LLM providers. Changes are saved automatically.": "Configure cost discounts and margins for different LLM providers. Changes are saved automatically.",
+        "Provider Discounts": "Provider Discounts",
+        "Apply percentage-based discounts to reduce costs for specific providers": "Apply percentage-based discounts to reduce costs for specific providers",
+        "Discounts": "Discounts",
+        "Test It": "Test It",
+        "Add Provider Discount": "Add Provider Discount",
+        "Loading configuration...": "Loading configuration...",
+        "No provider discounts configured": "No provider discounts configured",
+        "Click \"Add Provider Discount\" to get started": "Click \"Add Provider Discount\" to get started",
+        "Fee/Price Margin": "Fee/Price Margin",
+        "Add fees or margins to LLM costs for internal billing and cost recovery": "Add fees or margins to LLM costs for internal billing and cost recovery",
+        "Add Provider Margin": "Add Provider Margin",
+        "No provider margins configured": "No provider margins configured",
+        "Click \"Add Provider Margin\" to get started": "Click \"Add Provider Margin\" to get started",
+        "Pricing Calculator": "Pricing Calculator",
+        "Estimate LLM costs based on expected token usage and request volume": "Estimate LLM costs based on expected token usage and request volume",
+        "Remove Provider Discount": "Remove Provider Discount",
+        "Remove Provider Margin": "Remove Provider Margin",
+        "Are you sure you want to remove the {{noun}} for {{name}}?": "Are you sure you want to remove the {{noun}} for {{name}}?",
+        "Remove": "Remove",
+        "Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount).": "Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount).",
+        "Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount.": "Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount.",
+        "Global Usage": "Global Usage",
+        "Your Usage": "Your Usage",
+        "Organization Usage": "Organization Usage",
+        "Team Usage": "Team Usage",
+        "Customer Usage": "Customer Usage",
+        "Tag Usage": "Tag Usage",
+        "Agent Usage (A2A)": "Agent Usage (A2A)",
+        "User Usage": "User Usage",
+        "User Agent Activity": "User Agent Activity",
+        "View usage across all resources": "View usage across all resources",
+        "View your usage": "View your usage",
+        "View your own usage": "View your own usage",
+        "View usage across all organizations": "View usage across all organizations",
+        "View usage by team": "View usage by team",
+        "View usage by customer accounts": "View usage by customer accounts",
+        "View usage grouped by tags": "View usage grouped by tags",
+        "View usage by AI agents": "View usage by AI agents",
+        "View usage by individual users": "View usage by individual users",
+        "View detailed user agent activity logs": "View detailed user agent activity logs",
+        "Usage View": "Usage View",
+        "Select the usage data you want to view": "Select the usage data you want to view",
+        "Litellm Model Name": "Litellm Model Name",
+        "Successful": "Successful",
+        "Failed": "Failed",
+        "Spend": "Spend",
+        "Gateway Requests by Endpoint": "Gateway Requests by Endpoint",
+        "Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.": "Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.",
+        "Table View": "Table View",
+        "Chart View": "Chart View",
+        "Spend by Provider": "Spend by Provider",
+        "Show Zero Spend": "Show Zero Spend",
+        "Show Unknown": "Show Unknown",
+        "Requests that failed to route to a provider": "Requests that failed to route to a provider",
+        "No provider usage data": "No provider usage data",
+        "Endpoint": "Endpoint",
+        "Successful / Failed": "Successful / Failed",
+        "Successful requests": "Successful requests",
+        "Total Request": "Total Request",
+        "Success Rate": "Success Rate",
+        "Total Tokens": "Total Tokens",
+        "No endpoint usage data": "No endpoint usage data",
+        "Success vs Failed Requests by Endpoint": "Success vs Failed Requests by Endpoint",
+        "Endpoint Usage Trends": "Endpoint Usage Trends",
+        "Filter by user": "Filter by user",
+        "Select user to filter...": "Select user to filter...",
+        "Model Activity": "Model Activity",
+        "Key Activity": "Key Activity",
+        "MCP Server Activity": "MCP Server Activity",
+        "Endpoint Activity": "Endpoint Activity",
+        "Ask AI": "Ask AI",
+        "Export Data": "Export Data",
+        "Project Spend": "Project Spend",
+        "Usage Metrics": "Usage Metrics",
+        "Total Requests": "Total Requests",
+        "Successful Requests": "Successful Requests",
+        "Failed Requests": "Failed Requests",
+        "Average Cost per Request": "Average Cost per Request",
+        "Input Tokens": "Input Tokens",
+        "Output Tokens": "Output Tokens",
+        "Cache Read Tokens": "Cache Read Tokens",
+        "Cache Write Tokens": "Cache Write Tokens",
+        "Daily Spend": "Daily Spend",
+        "Top Virtual Keys": "Top Virtual Keys",
+        "Top Public Model Names": "Top Public Model Names",
+        "Top Litellm Models": "Top Litellm Models",
+        "Reusable credentials are automatically tracked as tags": "Reusable credentials are automatically tracked as tags",
+        "in this view.": "in this view.",
+        "Export Usage Data": "Export Usage Data",
+        "Stop": "Stop",
+        "Currently fetching spend data: fetched": "Currently fetching spend data: fetched",
+        "of this page will stop and reset this. To continue using the UI in the meantime,": "of this page will stop and reset this. To continue using the UI in the meantime,",
+        "open a new tab": "open a new tab",
+        "Showing partial data ({{current}}/{{total}} pages loaded)": "Showing partial data ({{current}}/{{total}} pages loaded)",
+        "Filter by {{entity}}": "Filter by {{entity}}",
+        "Select {{entity}} to filter...": "Select {{entity}} to filter...",
+        "Request cost": "Request cost",
+        "Flat cost": "Flat cost",
+        "Total Spend": "Total Spend",
+        "Requests": "Requests",
+        "Spend by {{entity}}": "Spend by {{entity}}",
+        "Spend Per {{entity}}": "Spend Per {{entity}}",
+        "Showing Top 5 by Spend": "Showing Top 5 by Spend",
+        "Get Started by Tracking cost per {{entity}}": "Get Started by Tracking cost per {{entity}}",
+        "Top Agents": "Top Agents",
+        "Top Agents Driving Spend": "Top Agents Driving Spend",
+        "Provider Usage": "Provider Usage",
+        "{{entity}} Spend Overview": "{{entity}} Spend Overview",
+        "Request / Token Consumption": "Request / Token Consumption",
+        "Agent Activity": "Agent Activity",
+        "Filter by team": "Filter by team",
+        "Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.": "Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.",
+        "Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.": "Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.",
+        "Simple Mode": "Simple Mode",
+        "Pick guardrails from a list. All run in parallel.": "Pick guardrails from a list. All run in parallel.",
+        "NEW": "NEW",
+        "Flow Builder": "Flow Builder",
+        "Define steps, conditions, and error responses.": "Define steps, conditions, and error responses.",
+        "Create New Policy": "Create New Policy",
+        "You'll be redirected to the full-screen Flow Builder to design your policy logic visually.": "You'll be redirected to the full-screen Flow Builder to design your policy logic visually.",
+        "Continue to Builder": "Continue to Builder",
+        "Edit Policy": "Edit Policy",
+        "Policy Name": "Policy Name",
+        "Please enter a policy name": "Please enter a policy name",
+        "Policy name can only contain letters, numbers, hyphens, and underscores": "Policy name can only contain letters, numbers, hyphens, and underscores",
+        "e.g., global-baseline, healthcare-compliance": "e.g., global-baseline, healthcare-compliance",
+        "Describe what this policy does...": "Describe what this policy does...",
+        "Inheritance": "Inheritance",
+        "Inherit From": "Inherit From",
+        "Inherit guardrails from another policy. The child policy will include all guardrails from the parent.": "Inherit guardrails from another policy. The child policy will include all guardrails from the parent.",
+        "Select a parent policy (optional)": "Select a parent policy (optional)",
+        "Guardrails to Add": "Guardrails to Add",
+        "These guardrails will be added to requests matching this policy": "These guardrails will be added to requests matching this policy",
+        "Select guardrails to add": "Select guardrails to add",
+        "Guardrails to Remove": "Guardrails to Remove",
+        "These guardrails will be removed from inherited guardrails": "These guardrails will be removed from inherited guardrails",
+        "Select guardrails to remove (from inherited)": "Select guardrails to remove (from inherited)",
+        "Resolved Guardrails": "Resolved Guardrails",
+        "These are the final guardrails that will be applied (including inheritance):": "These are the final guardrails that will be applied (including inheritance):",
+        "Conditions (Optional)": "Conditions (Optional)",
+        "Model Scope": "Model Scope",
+        "By default, this policy will run on all models. You can optionally restrict it to specific models below.": "By default, this policy will run on all models. You can optionally restrict it to specific models below.",
+        "Model Condition Type": "Model Condition Type",
+        "Select Model": "Select Model",
+        "Custom Regex Pattern": "Custom Regex Pattern",
+        "Model (Optional)": "Model (Optional)",
+        "Regex Pattern (Optional)": "Regex Pattern (Optional)",
+        "Select a specific model to apply this policy to. Leave empty to apply to all models.": "Select a specific model to apply this policy to. Leave empty to apply to all models.",
+        "Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models.": "Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models.",
+        "Leave empty to apply to all models": "Leave empty to apply to all models",
+        "Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)": "Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)",
+        "Update Policy": "Update Policy",
+        "Create Policy Attachment": "Create Policy Attachment",
+        "Please select at least one policy": "Please select at least one policy",
+        "Select policies to attach": "Select policies to attach",
+        "Scope Type": "Scope Type",
+        "Specific (teams, keys, models, or tags)": "Specific (teams, keys, models, or tags)",
+        "Global (applies to all requests)": "Global (applies to all requests)",
+        "Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)": "Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)",
+        "Select or enter team aliases": "Select or enter team aliases",
+        "Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)": "Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)",
+        "Loading keys...": "Loading keys...",
+        "Select or enter key aliases": "Select or enter key aliases",
+        "Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.": "Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.",
+        "Select or enter model names (e.g., gpt-4, bedrock/*)": "Select or enter model names (e.g., gpt-4, bedrock/*)",
+        "Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.": "Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.",
+        "Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).": "Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).",
+        "Type a tag and press Enter (e.g. healthcare, prod-*)": "Type a tag and press Enter (e.g. healthcare, prod-*)",
+        "Estimate Impact": "Estimate Impact",
+        "Create Attachment": "Create Attachment",
+        "Add blocked keyword": "Add blocked keyword",
+        "Keyword": "Keyword",
+        "Enter sensitive keyword or phrase": "Enter sensitive keyword or phrase",
+        "Action": "Action",
+        "Choose what action the guardrail should take when this keyword is detected": "Choose what action the guardrail should take when this keyword is detected",
+        "Description (optional)": "Description (optional)",
+        "Explain why this keyword is sensitive": "Explain why this keyword is sensitive",
+        "Add prebuilt pattern": "Add prebuilt pattern",
+        "Pattern type": "Pattern type",
+        "Choose pattern type": "Choose pattern type",
+        "No matching patterns": "No matching patterns",
+        "Choose what action the guardrail should take when this pattern is detected": "Choose what action the guardrail should take when this pattern is detected",
+        "Add custom regex pattern": "Add custom regex pattern",
+        "Pattern name": "Pattern name",
+        "e.g., internal_id, employee_code": "e.g., internal_id, employee_code",
+        "Regex pattern": "Regex pattern",
+        "e.g., ID-[0-9]{6}": "e.g., ID-[0-9]{6}",
+        "Enter a valid regular expression to match sensitive data": "Enter a valid regular expression to match sensitive data",
+        "No keywords added.": "No keywords added.",
+        "Prebuilt": "Prebuilt",
+        "Custom": "Custom",
+        "No patterns added.": "No patterns added.",
+        "Category": "Category",
+        "Severity Threshold": "Severity Threshold",
+        "No categories configured.": "No categories configured.",
+        "Content Categories": "Content Categories",
+        "categories configured": "{{count}} categories configured",
+        "patterns configured": "{{count}} patterns configured",
+        "keywords configured": "{{count}} keywords configured",
+        "Pattern Detection": "Pattern Detection",
+        "Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)": "Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)",
+        "Add custom regex": "Add custom regex",
+        "Blocked Keywords": "Blocked Keywords",
+        "Block or mask specific sensitive terms and phrases": "Block or mask specific sensitive terms and phrases",
+        "Add keyword": "Add keyword",
+        "Upload YAML file": "Upload YAML file",
+        "Content Filter Configuration": "Content Filter Configuration",
+        "You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom.": "You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom.",
+        "Add Model": "Add Model",
+        "Select Team": "Select Team",
+        "Please select a team to continue": "Please select a team to continue",
+        "Select the team for which you want to add this model": "Select the team for which you want to add this model",
+        "Team Selection Required": "Team Selection Required",
+        "As a team admin, you need to select your team first before adding models.": "As a team admin, you need to select your team first before adding models.",
+        "Required": "Required",
+        "Provider:": "Provider:",
+        "E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.": "E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.",
+        "Loading providers...": "Loading providers...",
+        "Select a provider": "Select a provider",
+        "Optional": "Optional",
+        "LiteLLM endpoint to use when health checking this model": "LiteLLM endpoint to use when health checking this model",
+        "Learn more": "Learn more",
+        "Either select existing credentials OR enter new provider credentials below": "Either select existing credentials OR enter new provider credentials below",
+        "Existing Credentials": "Existing Credentials",
+        "Select or search for existing credentials": "Select or search for existing credentials",
+        "OR": "OR",
+        "Additional Model Info Settings": "Additional Model Info Settings",
+        "Team-BYOK Model": "Team-BYOK Model",
+        "Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.": "Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.",
+        "This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.": "This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.",
+        "Please select a team.": "Please select a team.",
+        "Only keys for this team will be able to call this model.": "Only keys for this team will be able to call this model.",
+        "Use model access groups to give users access to select models, and add new ones to the group over time.": "Use model access groups to give users access to select models, and add new ones to the group over time.",
+        "Select existing groups or type to create new ones": "Select existing groups or type to create new ones",
+        "Get help on our github": "Get help on our github",
+        "Need Help?": "Need Help?",
+        "Test Connect": "Test Connect",
+        "Connection Test Results": "Connection Test Results",
+        "Discount Percentage": "Discount Percentage",
+        "Save discount for": "Save discount for",
+        "Cancel editing discount for": "Cancel editing discount for",
+        "Edit discount for": "Edit discount for",
+        "Remove discount for": "Remove discount for",
+        "Global (All Providers)": "Global (All Providers)",
+        "Margin": "Margin",
+        "Save margin for": "Save margin for",
+        "Cancel editing margin for": "Cancel editing margin for",
+        "Edit margin for": "Edit margin for",
+        "Remove margin for": "Remove margin for",
+        "Per Day": "Per Day",
+        "Per Month": "Per Month",
+        "Day": "Day",
+        "Month": "Month",
+        "Select a model": "Select a model",
+        "Remove model row": "Remove model row",
+        "Add Another Model": "Add Another Model",
+        "Filter": "Filter",
+        "Ask about your spend, models, keys, and trends": "Ask about your spend, models, keys, and trends",
+        "Select a model (optional, defaults to gpt-4o-mini)": "Select a model (optional, defaults to gpt-4o-mini)",
+        "Ask a question about your usage": "Ask a question about your usage",
+        "Thinking...": "Thinking...",
+        "Ask about your usage...": "Ask about your usage...",
+        "Send": "Send",
+        "Clear chat": "Clear chat",
+        "Enter to send": "Enter to send",
+        "Total cost": "Total cost",
+        "Total {{entity}}s": "Total {{entity}}s",
+        "...and {{count}} more": "...and {{count}} more",
+        "Blocked topics": "Blocked topics",
+        "Select a content category": "Select a content category",
+        "No matching categories": "No matching categories",
+        "Preview": "Preview",
+        "Unable to load category content": "Unable to load category content",
+        "View {{type}} for": "View {{type}} for",
+        "Content will load when expanded": "Content will load when expanded",
+        "No blocked topics selected. Add topics to detect and block harmful content.": "No blocked topics selected. Add topics to detect and block harmful content.",
+        "Competitor Intent Filter": "Competitor Intent Filter",
+        "Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list.": "Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list.",
+        "Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list.": "Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list.",
+        "Airline (auto-load competitors from IATA)": "Airline (auto-load competitors from IATA)",
+        "Generic (specify competitors manually)": "Generic (specify competitors manually)",
+        "Your Brand (brand_self)": "Your Brand (brand_self)",
+        "Select your airline from the list (excluded from competitors) or type to add a custom term": "Select your airline from the list (excluded from competitors) or type to add a custom term",
+        "Names/codes users use for your brand": "Names/codes users use for your brand",
+        "Loading airlines...": "Loading airlines...",
+        "Search or select airline, or type to add custom": "Search or select airline, or type to add custom",
+        "Type and press Enter to add": "Type and press Enter to add",
+        "Locations (optional)": "Locations (optional)",
+        "Countries, cities, airports for disambiguation (e.g. qatar, doha)": "Countries, cities, airports for disambiguation (e.g. qatar, doha)",
+        "Competitors": "Competitors",
+        "Competitor names to detect (required for generic type)": "Competitor names to detect (required for generic type)",
+        "Policy: Competitor comparison": "Policy: Competitor comparison",
+        "Policy: Possible competitor comparison": "Policy: Possible competitor comparison",
+        "Refuse (block request)": "Refuse (block request)",
+        "Reframe (suggest alternative)": "Reframe (suggest alternative)",
+        "Reframe (suggest alternative to backend LLM)": "Reframe (suggest alternative to backend LLM)",
+        "Confidence thresholds": "Confidence thresholds",
+        "Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent.": "Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent.",
+        "High (≥)": "High (≥)",
+        "Medium (≥)": "Medium (≥)",
+        "Low (≥)": "Low (≥)",
+        "Treat as full competitor comparison -> uses \"Competitor comparison\" policy": "Treat as full competitor comparison -> uses \"Competitor comparison\" policy",
+        "Treat as possible comparison -> uses \"Possible competitor comparison\" policy": "Treat as possible comparison -> uses \"Possible competitor comparison\" policy",
+        "Log only; allow request. Below Low -> allow with no action": "Log only; allow request. Below Low -> allow with no action",
+        "Raise thresholds to be more permissive; lower them to be stricter.": "Raise thresholds to be more permissive; lower them to be stricter.",
+        "Advanced Settings": "Advanced Settings",
+        "Custom Pricing": "Custom Pricing",
+        "Attached Knowledge Bases (RAG)": "Attached Knowledge Bases (RAG)",
+        "Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.": "Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.",
+        "Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.": "Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.",
+        "Select knowledge bases (optional)": "Select knowledge bases (optional)",
+        "Apply safety guardrails to this key to filter content or enforce policies": "Apply safety guardrails to this key to filter content or enforce policies",
+        "Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.": "Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.",
+        "Select or enter guardrails": "Select or enter guardrails",
+        "Select or enter tags": "Select or enter tags",
+        "PTU Count": "PTU Count",
+        "Calculated Cost per PTU / Hour (USD)": "Calculated Cost per PTU / Hour (USD)",
+        "PTU Effective From (UTC)": "PTU Effective From (UTC)",
+        "PTU Effective To (UTC)": "PTU Effective To (UTC)",
+        "Pricing Model": "Pricing Model",
+        "Per Million Tokens": "Per Million Tokens",
+        "Per Second": "Per Second",
+        "Input Cost (per 1M tokens)": "Input Cost (per 1M tokens)",
+        "Output Cost (per 1M tokens)": "Output Cost (per 1M tokens)",
+        "Cache Read Cost (per 1M tokens)": "Cache Read Cost (per 1M tokens)",
+        "Cache Write Cost (per 1M tokens)": "Cache Write Cost (per 1M tokens)",
+        "Cost Per Second": "Cost Per Second",
+        "Use in pass through routes": "Use in pass through routes",
+        "Allow using these credentials in pass through routes.": "Allow using these credentials in pass through routes.",
+        "LiteLLM Params": "LiteLLM Params",
+        "Optional litellm params used for making a litellm.completion() call.": "Optional litellm params used for making a litellm.completion() call.",
+        "Pass JSON of litellm supported params": "Pass JSON of litellm supported params",
+        "Loading provider fields...": "Loading provider fields...",
+        "Failed to load provider credential fields": "Failed to load provider credential fields",
+        "Click to Upload": "Click to Upload",
+        "Give a gcp service account(.json file)": "Give a gcp service account(.json file)",
+        "The actual model your azure deployment uses. Used for accurate cost tracking. Select name from": "The actual model your azure deployment uses. Used for accurate cost tracking. Select name from",
+        "here": "here",
+        "General Info": "General Info",
+        "Group Name": "Group Name",
+        "Please enter the access group name": "Please enter the access group name",
+        "e.g. Engineering Team": "e.g. Engineering Team",
+        "Describe the purpose of this access group...": "Describe the purpose of this access group...",
+        "Select MCP servers": "Select MCP servers",
+        "Allowed Agents": "Allowed Agents",
+        "Select agents": "Select agents",
+        "Access group created successfully": "Access group created successfully",
+        "Create Group": "Create Group",
+        "Access group updated successfully": "Access group updated successfully",
+        "Open access group actions": "Open access group actions",
+        "Delete access group": "Delete access group",
+        "SSO Settings": "SSO Settings",
+        "Security Settings": "Security Settings",
+        "SSO Configuration Deprecated": "SSO Configuration Deprecated",
+        "Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration.": "Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration.",
+        "Edit SSO Settings": "Edit SSO Settings",
+        "Add SSO": "Add SSO",
+        "Allowed IPs": "Allowed IPs",
+        "UI Access Control": "UI Access Control",
+        "Manage Allowed IP Addresses": "Manage Allowed IP Addresses",
+        "Add IP Address": "Add IP Address",
+        "IP Address": "IP Address",
+        "Add Allowed IP Address": "Add Allowed IP Address",
+        "Please enter an IP address": "Please enter an IP address",
+        "Enter IP address": "Enter IP address",
+        "Confirm Delete": "Confirm Delete",
+        "Are you sure you want to delete the IP address: {{ip}}?": "Are you sure you want to delete the IP address: {{ip}}?",
+        "UI Access Control Settings": "UI Access Control Settings",
+        "Login without SSO": "Login without SSO",
+        "If you need to login without sso, you can access": "If you need to login without sso, you can access",
+        "SCIM": "SCIM",
+        "UI Settings": "UI Settings",
+        "Logging Settings": "Logging Settings",
+        "Hashicorp Vault": "Hashicorp Vault",
+        "Plugins": "Plugins",
+        "Admin Access": "Admin Access",
+        "Go to 'Internal Users' page to add other admins.": "Go to 'Internal Users' page to add other admins.",
+        "IP address added successfully": "IP address added successfully",
+        "IP address deleted successfully": "IP address deleted successfully",
+        "UI Access Control settings updated successfully": "UI Access Control settings updated successfully",
+        "less": "less",
+        "more": "more",
+        "status": "status",
+        "created": "created",
+        "pr": "pr",
+        "type": "type",
+        "step": "step",
+        "seq": "seq",
+        "time": "time",
+        "data": "data",
+        "No events recorded": "No events recorded",
+        "Run": "Run",
+        "Workflow Runs": "Workflow Runs",
+        "Durable state tracking for agents and automated workflows": "Durable state tracking for agents and automated workflows",
+        "Loading workflow runs…": "Loading workflow runs…",
+        "No workflow runs yet": "No workflow runs yet",
+        "Search runs…": "Search runs…",
+        "Narrow down workflow runs": "Narrow down workflow runs",
+        "All statuses": "All statuses",
+        "pending": "Pending",
+        "running": "Running",
+        "paused": "Paused",
+        "completed": "Completed",
+        "failed": "Failed",
+        "Filter by type…": "Filter by type…",
+        "Workflow run details": "Workflow run details",
+        "Metadata, timeline and messages for the selected workflow run": "Metadata, timeline and messages for the selected workflow run",
+        "close": "close",
+        "Timeline": "Timeline",
+        "event": "event",
+        "events": "events",
+        "Messages": "Messages",
+        "No messages": "No messages",
+        "No agents yet": "No agents yet",
+        "Add an agent to make it available in your organization.": "Add an agent to make it available in your organization.",
+        "Loading agents…": "Loading agents…",
+        "Health Check": "Health Check",
+        "When enabled, only agents with reachable URLs are shown": "When enabled, only agents with reachable URLs are shown",
+        "Open agent actions": "Open agent actions",
+        "Agent Name": "Agent Name",
+        "Agent ID": "Agent ID",
+        "N/A": "N/A",
+        "Needs Setup": "Needs Setup",
+        "No virtual key assigned to this agent.": "No virtual key assigned to this agent.",
+        "Unnamed key": "Unnamed key",
+        "List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.": "List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.",
+        "Why do agents need keys?": "Why do agents need keys?",
+        "Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.": "Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.",
+        "Delete Agent": "Delete Agent",
+        "Agent \"{{name}}\" deleted successfully": "Agent \"{{name}}\" deleted successfully",
+        "Are you sure you want to delete agent: {{name}}? This action cannot be undone.": "Are you sure you want to delete agent: {{name}}? This action cannot be undone.",
+        "No Redis configured. Redis is highly recommended": "No Redis configured. Redis is highly recommended",
+        "Updated": "Updated",
+        "Manage Single Sign-On authentication settings": "Manage Single Sign-On authentication settings",
+        "No SSO Configuration Found": "No SSO Configuration Found",
+        "Configure Single Sign-On (SSO) to enable seamless authentication for your team members using your identity provider.": "Configure Single Sign-On (SSO) to enable seamless authentication for your team members using your identity provider.",
+        "Configure SSO": "Configure SSO",
+        "Cache Settings": "Cache Settings",
+        "Select Time Range": "Select Time Range",
+        "Select range": "Select range",
+        "Cached Completion Tokens": "Cached Completion Tokens",
+        "Cache Hits vs API Requests": "Cache Hits vs API Requests",
+        "Cached Completion Tokens vs Generated Completion Tokens": "Cached Completion Tokens vs Generated Completion Tokens",
+        "Total saved": "Total saved",
+        "No tool usage in this range.": "No tool usage in this range.",
+        "Select models above to see cost estimates": "Select models above to see cost estimates",
+        "No guardrails available": "No guardrails available",
+        "Select Guardrails to Test": "Select Guardrails to Test",
+        "Total Submitted": "Total Submitted",
+        "All Status": "All Status",
+        "No guardrails match your filters.": "No guardrails match your filters.",
+        "Total Evaluations": "Total Evaluations",
+        "Blocked Requests": "Blocked Requests",
+        "Request Outcomes Over Time": "Request Outcomes Over Time",
+        "No chart data for this period": "No chart data for this period",
+        "No data for this period": "No data for this period",
+        "Alerting Settings": "Alerting Settings",
+        "Callback Name": "Callback Name",
+        "No callbacks configured": "No callbacks configured",
+        "Add your first callback to start logging data to external services.": "Add your first callback to start logging data to external services.",
+        "No deleted keys found": "No deleted keys found",
+        "No deleted teams found": "No deleted teams found",
+        "Select transport": "Select transport",
+        "Add Variable": "Add Variable",
+        "Permission Management / Access Control": "Permission Management / Access Control",
+        "Configure access permissions and security settings (Optional)": "Configure access permissions and security settings (Optional)",
+        "Enable if this server should be \"public\" to all keys.": "Enable if this server should be \"public\" to all keys.",
+        "No memories stored yet": "No memories stored yet",
+        "Link Management": "Link Management",
+        "Manage the links that are displayed under 'Useful Links' on the public model hub.": "Manage the links that are displayed under 'Useful Links' on the public model hub.",
+        "Manage Existing Links": "Manage Existing Links",
+        "No links added yet. Add a new link above.": "No links added yet. Add a new link above.",
+        "Select Models to Make Public": "Select Models to Make Public",
+        "Team Based Usage": "Team Based Usage",
+        "Tag Based Usage": "Tag Based Usage",
+        "No limit": "No limit",
+        "NSFW Content Filter (Australia)": "NSFW Content Filter (Australia)",
+        "NSFW Content Filter (Basic)": "NSFW Content Filter (Basic)",
+        "NSFW Content Filter (All Regions)": "NSFW Content Filter (All Regions)",
+        "Singapore PDPA — Personal Data Protection": "Singapore PDPA — Personal Data Protection",
+        "Singapore MAS — AI Risk Management for Financial Institutions": "Singapore MAS — AI Risk Management for Financial Institutions",
+        "Manage projects within your teams": "Manage projects within your teams",
+        "No projects yet": "No projects yet",
+        "Create a project to organize keys within your teams.": "Create a project to organize keys within your teams.",
+        "No prompts yet": "No prompts yet",
+        "Add a prompt to start managing reusable templates.": "Add a prompt to start managing reusable templates.",
+        "Routing Settings": "Routing Settings",
+        "Configure how requests are routed to deployments": "Configure how requests are routed to deployments",
+        "Enable Tag Filtering": "Enable Tag Filtering",
+        "Configure retry logic and failure handling": "Configure retry logic and failure handling",
+        "Search Tools": "Search Tools",
+        "Configure and manage your search providers": "Configure and manage your search providers",
+        "+ Add New Search Tool": "+ Add New Search Tool",
+        "Search Tool ID": "Search Tool ID",
+        "No search tools configured": "No search tools configured",
+        "Add a search tool to enable web search for your models.": "Add a search tool to enable web search for your models.",
+        "+ Add Skill": "+ Add Skill",
+        "Skill Name": "Skill Name",
+        "No skills found": "No skills found",
+        "Add one to get started.": "Add one to get started.",
+        "Tag Management": "Tag Management",
+        "+ Create New Tag": "+ Create New Tag",
+        "Total Tools Discovered": "Total Tools Discovered",
+        "No tools discovered": "No tools discovered",
+        "Original Request": "Original Request",
+        "The request you would send to LiteLLM /chat/completions endpoint.": "The request you would send to LiteLLM /chat/completions endpoint.",
+        "Transformed Request": "Transformed Request",
+        "Overall Usage": "Overall Usage",
+        "Total Successful Requests": "Total Successful Requests",
+        "Default User Settings": "Default User Settings",
+        "Internal User (View Only)": "Internal User (View Only)",
+        "No reset": "No reset",
+        "Vector Store Management": "Vector Store Management",
+        "Create Vector Store": "Create Vector Store",
+        "Manage Vector Stores": "Manage Vector Stores",
+        "Upload documents and select a provider to create a new vector store with embedded content.": "Upload documents and select a provider to create a new vector store with embedded content.",
+        "Step 1: Upload Documents": "Step 1: Upload Documents",
+        "Upload one or more documents (PDF, TXT, DOCX, MD). Maximum file size: 50MB per file.": "Upload one or more documents (PDF, TXT, DOCX, MD). Maximum file size: 50MB per file.",
+        "Step 2: Configure Vector Store": "Step 2: Configure Vector Store",
+        "Health and Endpoint Status": "Health and Endpoint Status",
+        "Search Models:": "Search Models:",
+        "Model Name": "Model Name",
+        "Health Status": "Health Status",
+        "No models available": "No models available",
+        "Requests per day": "Requests per day",
+        "Success vs Failed Requests": "Success vs Failed Requests",
+        "Total Tokens Over Time": "Total Tokens Over Time",
+        "Total Requests Over Time": "Total Requests Over Time",
+        "Add Static Header": "Add Static Header",
+        "Add MCP Server": "Add MCP Server",
+        "Web Search": "Web Search",
+        "Prompt Tokens": "Prompt Tokens",
+        "Completion Tokens": "Completion Tokens",
+        "Audit Logs": "Audit Logs",
+        "Deleted Keys": "Deleted Keys",
+        "Deleted Teams": "Deleted Teams",
+        "Api Requests": "Api Requests",
+        "Cache Read Input Tokens": "Cache Read Input Tokens",
+        "Cache Creation Input Tokens": "Cache Creation Input Tokens",
+        "Model Usage": "Model Usage"
+    },
+    "nav": {
+        "groups": {
+            "aiGateway": "AI Gateway",
+            "observability": "Observability",
+            "accessControl": "Access Control",
+            "developerTools": "Developer Tools",
+            "settings": "SETTINGS"
+        },
+        "api-keys": "Virtual Keys",
+        "llm-playground": "Playground",
+        "models": "Models + Endpoints",
+        "agentic": "Agentic",
+        "agents": "Agents",
+        "workflows": "Workflow Runs",
+        "memory": "Memory",
+        "mcp-servers": "MCP Servers",
+        "skills": "Skills",
+        "guardrails": "Guardrails",
+        "policies": "Policies",
+        "tools": "Tools",
+        "search-tools": "Search Tools",
+        "vector-stores": "Vector Stores",
+        "tool-policies": "Tool Policies",
+        "new_usage": "Usage",
+        "cost-optimization": "Cost Optimization",
+        "logs": "Logs",
+        "guardrails-monitor": "Guardrails Monitor",
+        "teams": "Teams",
+        "projects": "Projects",
+        "users": "Internal Users",
+        "organizations": "Organizations",
+        "access-groups": "Access Groups",
+        "budgets": "Budgets",
+        "api_ref": "API Reference",
+        "model-hub-table": "AI Hub",
+        "learning-resources": "Learning Resources",
+        "caching": "Response Cache",
+        "experimental": "Experimental",
+        "prompts": "Prompts",
+        "transform-request": "API Playground",
+        "tag-management": "Tag Management",
+        "usage": "Old Usage",
+        "settings": "Settings",
+        "router-settings": "Router Settings",
+        "logging-and-alerts": "Logging & Alerts",
+        "admin-panel": "Admin Settings",
+        "cost-tracking": "Cost Tracking",
+        "ui-theme": "UI Theme"
+    },
+    "models": {
+        "title": "Model Management",
+        "allModels": "All Models",
+        "yourModels": "Your Models",
+        "addModel": "Add Model",
+        "autoRouters": "Auto-Routers",
+        "llmCredentials": "LLM Credentials",
+        "passThrough": "Pass-Through Endpoints",
+        "health": "Health Status",
+        "retrySettings": "Model Retry Settings",
+        "modelGroupAlias": "Model Group Aliases",
+        "priceData": "Price Data",
+        "adminDescription": "Add and manage models for the proxy",
+        "teamDescription": "Add models for teams you are an admin for.",
+        "lastRefreshed": "Last Refreshed: {{time}}",
+        "refresh": "Refresh models"
+    },
+    "virtualKeys": {
+        "title": "Virtual Keys",
+        "subtitle": "Every key that authenticates requests to the gateway.",
+        "loading": "Loading keys...",
+        "loadingKey": "Loading key...",
+        "noData": "No keys found",
+        "search": "Search by key alias…",
+        "filters": "Filters",
+        "filtersDescription": "Narrow down virtual keys",
+        "team": "Team",
+        "organization": "Organization",
+        "userId": "User ID",
+        "keyId": "Key ID",
+        "selectTeam": "Select a team…",
+        "noTeams": "No teams found",
+        "selectOrganization": "Select an organization…",
+        "noOrganizations": "No organizations found",
+        "enterUserId": "Enter User ID…",
+        "enterKeyId": "Enter Key ID…",
+        "createdAt": "Created At",
+        "createdBy": "Created By",
+        "expires": "Expires",
+        "spendBudget": "Spend / Budget",
+        "budgetReset": "Budget Reset",
+        "budget": "Budget"
+    },
+    "teamsPage": {
+        "title": "Teams",
+        "subtitle": "Manage teams, members, and their access to models and budgets",
+        "yourTeams": "Your Teams",
+        "availableTeams": "Available Teams",
+        "defaultSettings": "Default Team Settings",
+        "createTeam": "Create Team",
+        "teamName": "Team Name"
+    },
+    "usersPage": {
+        "users": "Users",
+        "defaultSettings": "Default User Settings",
+        "selectUsers": "Select Users",
+        "cancelSelection": "Cancel Selection",
+        "bulkEdit": "Bulk Edit ({{count}} selected)",
+        "search": "Search by email…"
+    }
 }

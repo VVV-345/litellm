@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import { useFieldArray, type Control } from "react-hook-form";
 
 import { useInfiniteTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
@@ -186,10 +187,15 @@ interface SettingsViewProps {
 }
 
 const SettingsView = ({ values, roleOptions }: SettingsViewProps) => {
+  const { t } = useTranslation();
   const roleLabel = roleOptions.find((option) => option.value === values.user_role)?.label ?? values.user_role;
   const durationValue = values.budget_duration === "" ? NO_RESET : values.budget_duration;
-  const durationLabel =
-    BUDGET_DURATION_OPTIONS.find((option) => option.value === durationValue)?.label ?? values.budget_duration;
+  const durationOption = BUDGET_DURATION_OPTIONS.find((option) => option.value === durationValue);
+  const durationLabel = durationOption
+    ? durationOption.value === NO_RESET
+      ? t("ui.No reset")
+      : durationOption.label
+    : values.budget_duration;
 
   return (
     <div className="flex flex-col gap-4">
@@ -228,6 +234,7 @@ interface SettingsFormProps {
 }
 
 const SettingsForm = ({ initialValues, roleOptions, updateSettings, onCancel, onSaved }: SettingsFormProps) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const form = useZodForm(defaultUserSettingsSchema, { defaultValues: initialValues });
   const { isDirty } = form.formState;
@@ -307,7 +314,7 @@ const SettingsForm = ({ initialValues, roleOptions, updateSettings, onCancel, on
               <SelectContent>
                 {BUDGET_DURATION_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {option.value === NO_RESET ? t("ui.No reset") : option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -347,25 +354,28 @@ const SettingsForm = ({ initialValues, roleOptions, updateSettings, onCancel, on
           Cancel
         </Button>
         <Button type="submit" disabled={!isDirty || mutation.isPending}>
-          {mutation.isPending ? "Saving..." : "Save Changes"}
+          {mutation.isPending ? "Saving..." : t("ui.Save Changes")}
         </Button>
       </div>
     </form>
   );
 };
 
-const SettingsCard = ({ action, children }: { action?: React.ReactNode; children: React.ReactNode }) => (
-  <Card>
-    <CardHeader>
-      <CardTitle>Default User Settings</CardTitle>
-      <CardDescription>
-        Applied to every new internal user created through SSO or the user management APIs.
-      </CardDescription>
-      {action !== undefined && <CardAction>{action}</CardAction>}
-    </CardHeader>
-    <CardContent>{children}</CardContent>
-  </Card>
-);
+const SettingsCard = ({ action, children }: { action?: React.ReactNode; children: React.ReactNode }) => {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("ui.Default User Settings")}</CardTitle>
+        <CardDescription>
+          Applied to every new internal user created through SSO or the user management APIs.
+        </CardDescription>
+        {action !== undefined && <CardAction>{action}</CardAction>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+};
 
 export interface DefaultUserSettingsFormProps {
   possibleUIRoles?: Record<string, Record<string, string>> | null;
@@ -378,6 +388,7 @@ export const DefaultUserSettingsForm = ({
   fetchSettings = defaultFetchSettings,
   updateSettings = defaultUpdateSettings,
 }: DefaultUserSettingsFormProps) => {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = React.useState(false);
   const { data, isPending, isError } = useQuery({ queryKey: SETTINGS_QUERY_KEY, queryFn: fetchSettings });
 
@@ -412,7 +423,7 @@ export const DefaultUserSettingsForm = ({
       action={
         isEditing ? undefined : (
           <Button type="button" onClick={() => setIsEditing(true)}>
-            Edit Settings
+            {t("ui.Edit Settings")}
           </Button>
         )
       }

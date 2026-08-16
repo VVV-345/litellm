@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { Inbox } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 import { Tag } from "@/components/tag_management/types";
@@ -32,9 +33,13 @@ function EmptyState() {
 }
 
 const TagTable: React.FC<TagTableProps> = ({ data, onEdit, onDelete, onSelectTag, isLoading = false }) => {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
-  const columns = useMemo(() => getTagTableColumns({ onSelectTag, onEdit, onDelete }), [onSelectTag, onEdit, onDelete]);
+  const columns = useMemo(
+    () => getTagTableColumns({ onSelectTag, onEdit, onDelete, t }),
+    [onSelectTag, onEdit, onDelete, t],
+  );
 
   return (
     <DataTable

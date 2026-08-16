@@ -1,6 +1,7 @@
 import { Text, TextInput } from "@tremor/react";
 import { Button as AntButton, Form, Modal, Select } from "antd";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import NumericalInput from "../shared/numerical_input";
 import BudgetDurationDropdown from "../common_components/budget_duration_dropdown";
 
@@ -50,6 +51,7 @@ const MemberModal = <T extends BaseMember>({
 }: MemberModalProps<T>) => {
   const [form] = Form.useForm();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { t } = useTranslation();
 
   // Reset form and set initial values when modal becomes visible or initialData changes
   useEffect(() => {
@@ -236,7 +238,7 @@ const MemberModal = <T extends BaseMember>({
             Cancel
           </AntButton>
           <AntButton type="default" htmlType="submit" loading={isSubmitting}>
-            {mode === "add" ? (isSubmitting ? "Adding..." : "Add Member") : isSubmitting ? "Saving..." : "Save Changes"}
+            {mode === "add" ? (isSubmitting ? "Adding..." : "Add Member") : isSubmitting ? "Saving..." : t("ui.Save Changes")}
           </AntButton>
         </div>
       </Form>

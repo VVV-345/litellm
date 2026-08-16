@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -72,6 +73,7 @@ interface SearchToolTableColumnsDeps {
   onView: (searchToolId: string) => void;
   onEdit: (searchToolId: string) => void;
   onDelete: (searchToolId: string) => void;
+  t: TFunction;
 }
 
 export const getSearchToolTableColumns = ({
@@ -79,12 +81,13 @@ export const getSearchToolTableColumns = ({
   onView,
   onEdit,
   onDelete,
+  t,
 }: SearchToolTableColumnsDeps): ColumnDef<SearchTool>[] => [
   {
     id: "search_tool_id",
     accessorKey: "search_tool_id",
-    meta: { title: "Search Tool ID" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Search Tool ID" />,
+    meta: { title: t("ui.Search Tool ID") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Search Tool ID")} />,
     size: 200,
     enableSorting: true,
     cell: ({ row }) => {
@@ -135,8 +138,8 @@ export const getSearchToolTableColumns = ({
   {
     id: "updated_at",
     accessorKey: "updated_at",
-    meta: { title: "Updated At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" />,
+    meta: { title: t("ui.Updated At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Updated At")} />,
     size: 130,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.updated_at} precision="date" />,
@@ -155,7 +158,7 @@ export const getSearchToolTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

@@ -2,6 +2,7 @@ import { InfoCircleOutlined } from "@ant-design/icons";
 import { Button, SelectItem, TextInput, Textarea } from "@tremor/react";
 import { Checkbox, Form, Input, Select, Tooltip } from "antd";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { all_admin_roles } from "@/utils/roles";
 import BudgetDurationDropdown from "@/components/common_components/budget_duration_dropdown";
 import { getModelDisplayName } from "@/components/key_team_helpers/fetch_available_models_team_key";
@@ -46,6 +47,7 @@ export function UserEditView({
   isBulkEdit = false,
   objectPermission,
 }: UserEditViewProps) {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [unlimitedBudget, setUnlimitedBudget] = useState(false);
   const canEditMcpPermissions = !isBulkEdit && all_admin_roles.includes(userRole || "");
@@ -252,7 +254,7 @@ export function UserEditView({
         <Button variant="secondary" type="button" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit">Save Changes</Button>
+        <Button type="submit">{t("ui.Save Changes")}</Button>
       </div>
     </Form>
   );

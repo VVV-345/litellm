@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { Form, Input, Select, Button, Tooltip, Typography } from "antd";
 import { InfoCircleOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 
@@ -20,6 +22,7 @@ const SCOPE_OPTIONS = [
  * The parent form reads the ``env_vars`` field from the form values.
  */
 const EnvVarsSection: React.FC = () => {
+  const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
       <div className="flex items-center gap-2 mb-1">
@@ -97,7 +100,7 @@ const EnvVarsSection: React.FC = () => {
               </div>
             ))}
             <Button type="dashed" onClick={() => add({ scope: "global" })} icon={<PlusOutlined />} block>
-              Add Variable
+              {translateUiText(t, "Add Variable")}
             </Button>
           </div>
         )}

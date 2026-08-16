@@ -1,8 +1,10 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { GitBranch, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
+import { translateUiText } from "@/utils/i18nText";
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { IdentityCell, ModelsCell } from "@/components/shared/table_cells";
 import { buttonVariants } from "@/components/ui/button";
@@ -55,13 +57,17 @@ interface RoutingGroupsTableColumnsDeps {
   onEdit: (group: RoutingGroup) => void;
   onDelete: (group: RoutingGroup) => void;
   onToggleUsage: (group: RoutingGroup) => void;
+  t?: TFunction;
 }
 
 export const getRoutingGroupsTableColumns = ({
   onEdit,
   onDelete,
   onToggleUsage,
-}: RoutingGroupsTableColumnsDeps): ColumnDef<RoutingGroup>[] => [
+  t,
+}: RoutingGroupsTableColumnsDeps): ColumnDef<RoutingGroup>[] => {
+  const ui = (value: string) => (t ? translateUiText(t, value) : value);
+  return [
   {
     id: "group_name",
     accessorKey: "group_name",
@@ -98,7 +104,7 @@ export const getRoutingGroupsTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{ui("Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,
@@ -109,3 +115,4 @@ export const getRoutingGroupsTableColumns = ({
     ),
   },
 ];
+};

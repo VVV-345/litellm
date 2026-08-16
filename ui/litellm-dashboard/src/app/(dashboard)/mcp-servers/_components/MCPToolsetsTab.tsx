@@ -1,4 +1,6 @@
 import React, { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { Button, Text, Title } from "@tremor/react";
 import { Modal, Form, Input, message, Spin } from "antd";
 import { PlusIcon } from "@heroicons/react/outline";
@@ -137,6 +139,7 @@ interface CreateToolsetModalProps {
 }
 
 function CreateToolsetModal({ open, onClose, onSave, accessToken, initialToolset }: CreateToolsetModalProps) {
+  const { t } = useTranslation();
   const [form] = Form.useForm<ToolsetFormValues>();
   const [selectedTools, setSelectedTools] = useState<MCPToolsetTool[]>(initialToolset?.tools || []);
   const [saving, setSaving] = useState(false);
@@ -202,7 +205,7 @@ function CreateToolsetModal({ open, onClose, onSave, accessToken, initialToolset
           >
             <Input placeholder="e.g. github-linear-tools" />
           </Form.Item>
-          <Form.Item label="Description" name="description" className="flex-1 mb-0">
+          <Form.Item label={translateUiText(t, "Description")} name="description" className="flex-1 mb-0">
             <Input placeholder="Optional description" />
           </Form.Item>
         </div>
@@ -279,7 +282,7 @@ function CreateToolsetModal({ open, onClose, onSave, accessToken, initialToolset
           Cancel
         </Button>
         <Button onClick={handleSubmit} loading={saving}>
-          {initialToolset ? "Save Changes" : "Create Toolset"}
+          {initialToolset ? translateUiText(t, "Save Changes") : "Create Toolset"}
         </Button>
       </div>
     </Modal>
@@ -349,6 +352,7 @@ function ToolsetUsageGuide() {
 }
 
 export function MCPToolsetsTab({ accessToken, userRole }: MCPToolsetsTabProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: toolsets = [], isLoading } = useMCPToolsets();
   const { data: mcpServers = [] } = useMCPServers();
@@ -398,9 +402,10 @@ export function MCPToolsetsTab({ accessToken, userRole }: MCPToolsetsTabProps) {
       serverPrefixById,
       onEditClick: setEditToolset,
       onDeleteClick: setDeleteId,
+      t,
     };
     return getMCPToolsetTableColumns(deps);
-  }, [isAdmin, serverPrefixById]);
+  }, [isAdmin, serverPrefixById, t]);
 
   return (
     <div className="mt-4">

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SortingState } from "@tanstack/react-table";
 import { Inbox, Search, X } from "lucide-react";
 import { Plugin } from "@/components/claude_code_plugins/types";
@@ -47,6 +48,7 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
   const [domainFilter, setDomainFilter] = useState<string | undefined>(undefined);
   const [selectedSkill, setSelectedSkill] = useState<Plugin | null>(null);
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
+  const { t } = useTranslation();
 
   // Derived stats
   const totalSkills = skills.length;
@@ -76,7 +78,7 @@ const SkillHubDashboard: React.FC<SkillHubDashboardProps> = ({
     return result;
   }, [skills, search, domainFilter]);
 
-  const columns = useMemo(() => getSkillHubTableColumns({ onSkillClick: setSelectedSkill }), []);
+  const columns = useMemo(() => getSkillHubTableColumns({ onSkillClick: setSelectedSkill, t }), [t]);
 
   const domainItems = useMemo(
     () => [{ value: ALL_DOMAINS, label: "All Domains" }, ...domains.map((d) => ({ value: d, label: d }))],

@@ -461,7 +461,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
             value:
               (userToDelete && possibleUIRoles?.[userToDelete.user_role]?.ui_label) || userToDelete?.user_role || "-",
           },
-          { label: "Total Spend (USD)", value: userToDelete?.spend?.toFixed(2) },
+          { label: `${t("ui.Total Spend")} (USD)`, value: userToDelete?.spend?.toFixed(2) },
         ]}
         onCancel={cancelDelete}
         onOk={confirmDelete}

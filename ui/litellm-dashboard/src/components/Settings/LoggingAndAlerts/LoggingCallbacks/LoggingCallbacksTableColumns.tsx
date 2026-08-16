@@ -1,8 +1,10 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { MoreHorizontal, Pencil, Play, Trash2 } from "lucide-react";
 
+import { translateUiText } from "@/utils/i18nText";
 import { StatusBadge, type StatusTone } from "@/components/shared/table_cells";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -83,6 +85,7 @@ interface LoggingCallbacksTableColumnsDeps {
   onTest: (callback: AlertingObject) => void | Promise<void>;
   onEdit: (callback: AlertingObject) => void;
   onDelete: (callback: AlertingObject) => void;
+  t?: TFunction;
 }
 
 export const getLoggingCallbacksTableColumns = ({
@@ -90,12 +93,15 @@ export const getLoggingCallbacksTableColumns = ({
   onTest,
   onEdit,
   onDelete,
-}: LoggingCallbacksTableColumnsDeps): ColumnDef<CallbackRow>[] => [
+  t,
+}: LoggingCallbacksTableColumnsDeps): ColumnDef<CallbackRow>[] => {
+  const ui = (value: string) => (t ? translateUiText(t, value) : value);
+  return [
   {
     id: "name",
     accessorKey: "name",
-    meta: { title: "Callback Name" },
-    header: "Callback Name",
+    meta: { title: ui("Callback Name") },
+    header: ui("Callback Name"),
     enableSorting: false,
     cell: ({ row }) => {
       const id = row.original.name;
@@ -121,7 +127,7 @@ export const getLoggingCallbacksTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{ui("Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,
@@ -132,3 +138,4 @@ export const getLoggingCallbacksTableColumns = ({
     ),
   },
 ];
+};

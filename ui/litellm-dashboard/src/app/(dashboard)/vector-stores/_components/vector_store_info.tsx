@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Card, Text, Title, Button, Badge, TabGroup, TabList, Tab, TabPanels, TabPanel } from "@tremor/react";
 import { Form, Input, Select as Select2, Tooltip, Button as AntButton } from "antd";
 import { InfoCircleOutlined } from "@ant-design/icons";
@@ -31,6 +32,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
   is_admin,
   editVectorStore,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [vectorStoreDetails, setVectorStoreDetails] = useState<VectorStore | null>(null);
   const [loadFailed, setLoadFailed] = useState<boolean>(false);
@@ -177,7 +179,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                       <Input />
                     </Form.Item>
 
-                    <Form.Item label="Description" name="vector_store_description">
+                    <Form.Item label={t("ui.Description")} name="vector_store_description">
                       <Input.TextArea rows={4} />
                     </Form.Item>
 
@@ -264,7 +266,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                     <div className="flex justify-end space-x-2">
                       <AntButton onClick={() => setIsEditing(false)}>Cancel</AntButton>
                       <AntButton type="primary" htmlType="submit">
-                        Save Changes
+                        {t("ui.Save Changes")}
                       </AntButton>
                     </div>
                   </Form>
@@ -287,7 +289,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                       <Text>{vectorStoreDetails.vector_store_name || "-"}</Text>
                     </div>
                     <div>
-                      <Text className="font-medium">Description</Text>
+                      <Text className="font-medium">{t("ui.Description")}</Text>
                       <Text>{vectorStoreDetails.vector_store_description || "-"}</Text>
                     </div>
                     <div>
@@ -319,7 +321,7 @@ const VectorStoreInfoView: React.FC<VectorStoreInfoViewProps> = ({
                       </Text>
                     </div>
                     <div>
-                      <Text className="font-medium">Last Updated</Text>
+                      <Text className="font-medium">{t("ui.Last Updated")}</Text>
                       <Text>
                         {vectorStoreDetails.updated_at ? new Date(vectorStoreDetails.updated_at).toLocaleString() : "-"}
                       </Text>

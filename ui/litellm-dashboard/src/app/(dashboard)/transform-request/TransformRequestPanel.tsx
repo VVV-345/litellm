@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,7 @@ interface TransformRequestPanelProps {
 }
 
 const TransformRequestPanel: React.FC<TransformRequestPanelProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const [originalRequestJSON, setOriginalRequestJSON] = useState(`{
   "model": "openai/gpt-4o",
   "messages": [
@@ -134,8 +136,8 @@ ${formattedBody}
         {/* Original Request Panel */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl font-bold">Original Request</CardTitle>
-            <CardDescription>The request you would send to LiteLLM /chat/completions endpoint.</CardDescription>
+            <CardTitle className="text-2xl font-bold">{t("ui.Original Request")}</CardTitle>
+            <CardDescription>{t("ui.The request you would send to LiteLLM /chat/completions endpoint.")}</CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -159,7 +161,7 @@ ${formattedBody}
         {/* Transformed Request Panel */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl font-bold">Transformed Request</CardTitle>
+            <CardTitle className="text-2xl font-bold">{t("ui.Transformed Request")}</CardTitle>
             <CardDescription>How LiteLLM transforms your request for the specified provider.</CardDescription>
             <p className="mt-2 text-xs text-muted-foreground">Note: Sensitive headers are not shown.</p>
           </CardHeader>

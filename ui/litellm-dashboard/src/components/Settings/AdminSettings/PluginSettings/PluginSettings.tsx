@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, Card, Form, Input, Modal, Space, Table, Typography } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { getConfigFieldSetting, updateConfigFieldSetting } from "@/components/networking";
@@ -17,6 +18,7 @@ interface Plugin {
 
 export default function PluginSettings() {
   const { accessToken } = useAuthorized();
+  const { t } = useTranslation();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -80,7 +82,7 @@ export default function PluginSettings() {
       key: "name",
       render: (v: string) => <Text code>{v}</Text>,
     },
-    { title: "Display Name", dataIndex: "display_name", key: "display_name" },
+    { title: t("ui.Display Name"), dataIndex: "display_name", key: "display_name" },
     {
       title: "URL",
       dataIndex: "url",
@@ -98,7 +100,7 @@ export default function PluginSettings() {
       render: (v?: string) => (v ? <Text code>{"•".repeat(8)}</Text> : <Text type="secondary">—</Text>),
     },
     {
-      title: "Actions",
+      title: t("ui.Actions"),
       key: "actions",
       render: (_: unknown, __: Plugin, idx: number) => (
         <Space>
@@ -143,7 +145,7 @@ export default function PluginSettings() {
           >
             <Input placeholder="litellm-platform-plugin" />
           </Form.Item>
-          <Form.Item name="display_name" label="Display Name" rules={[{ required: true, message: "Required" }]}>
+          <Form.Item name="display_name" label={t("ui.Display Name")} rules={[{ required: true, message: "Required" }]}>
             <Input placeholder="Agent Control Plane" />
           </Form.Item>
           <Form.Item

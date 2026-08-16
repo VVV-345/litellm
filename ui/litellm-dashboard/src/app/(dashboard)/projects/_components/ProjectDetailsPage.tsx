@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useProjectDetails } from "@/app/(dashboard)/hooks/projects/useProjectDetails";
 import { useTeam } from "@/app/(dashboard)/hooks/teams/useTeams";
 import { BarChart } from "@/components/shared/charts";
@@ -32,6 +33,7 @@ interface ProjectDetailProps {
 const utilisationTone = (percent: number) => (percent >= 90 ? "over" : percent >= 70 ? "warning" : "default");
 
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
+  const { t } = useTranslation();
   const { data: project, isLoading } = useProjectDetails(projectId);
   const { data: teamData } = useTeam(project?.team_id ?? undefined);
   // teamInfoCall returns { team_id, team_info: {...}, keys, team_memberships }
@@ -112,7 +114,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         </CardHeader>
         <CardContent>
           <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Description</dt>
+            <dt className="text-muted-foreground">{t("ui.Description")}</dt>
             <dd className="text-foreground">{project.description || "—"}</dd>
             <dt className="text-muted-foreground">Created</dt>
             <dd className="flex items-center gap-1 text-foreground">
@@ -124,7 +126,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                 </>
               )}
             </dd>
-            <dt className="text-muted-foreground">Last Updated</dt>
+            <dt className="text-muted-foreground">{t("ui.Last Updated")}</dt>
             <dd className="flex items-center gap-1 text-foreground">
               {new Date(project.updated_at).toLocaleString()}
               {project.updated_by && (

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Card,
   Text,
@@ -73,6 +74,7 @@ export default function UserInfoView({
   initialTab = 0,
   startInEditMode = false,
 }: UserInfoViewProps) {
+  const { t } = useTranslation();
   const [userData, setUserData] = useState<UserInfoV2Response | null>(null);
   const [teamDetails, setTeamDetails] = useState<TeamDisplayInfo[]>([]);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -432,7 +434,7 @@ export default function UserInfoView({
             value: (userData.user_role && possibleUIRoles?.[userData.user_role]?.ui_label) || userData.user_role || "-",
           },
           {
-            label: "Total Spend (USD)",
+            label: `${t("ui.Total Spend")} (USD)`,
             value: userData.spend !== null && userData.spend !== undefined ? userData.spend.toFixed(2) : undefined,
           },
         ]}
@@ -478,7 +480,7 @@ export default function UserInfoView({
                         <TableHead>
                           <TableRow>
                             <TableHeaderCell>Team Name</TableHeaderCell>
-                            {isProxyAdmin && <TableHeaderCell className="text-right">Actions</TableHeaderCell>}
+                            {isProxyAdmin && <TableHeaderCell className="text-right">{t("ui.Actions")}</TableHeaderCell>}
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -536,7 +538,7 @@ export default function UserInfoView({
               <div className="flex justify-between items-center mb-4">
                 <Title>User Settings</Title>
                 {!isEditing && userRole && rolesWithWriteAccess.includes(userRole) && (
-                  <Button onClick={() => setIsEditing(true)}>Edit Settings</Button>
+                  <Button onClick={() => setIsEditing(true)}>{t("ui.Edit Settings")}</Button>
                 )}
               </div>
 
@@ -594,7 +596,7 @@ export default function UserInfoView({
                   </div>
 
                   <div>
-                    <Text className="font-medium">Last Updated</Text>
+                    <Text className="font-medium">{t("ui.Last Updated")}</Text>
                     <Text>{userData.updated_at ? new Date(userData.updated_at).toLocaleString() : "Unknown"}</Text>
                   </div>
 

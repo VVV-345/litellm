@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Alert,
   Col,
@@ -41,6 +42,7 @@ interface ProjectBaseFormProps {
 }
 
 export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
+  const { t } = useTranslation();
   const { accessToken, userId, userRole } = useAuthorized();
   const { data: teams } = useTeams();
 
@@ -153,7 +155,7 @@ export function ProjectBaseForm({ form }: ProjectBaseFormProps) {
 
       <Row>
         <Col span={24}>
-          <Form.Item name="description" label="Description">
+          <Form.Item name="description" label={t("ui.Description")}>
             <Input.TextArea placeholder="Describe the purpose of this project" rows={3} />
           </Form.Item>
         </Col>

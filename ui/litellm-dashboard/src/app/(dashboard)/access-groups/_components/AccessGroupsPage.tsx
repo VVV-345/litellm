@@ -116,7 +116,7 @@ export function AccessGroupsPage() {
         resourceInformation={[
           { label: "ID", value: groupToDelete?.id, code: true },
           { label: "Name", value: groupToDelete?.name },
-          { label: "Description", value: groupToDelete?.description || "—" },
+          { label: t("ui.Description"), value: groupToDelete?.description || "—" },
         ]}
         onCancel={() => setGroupToDelete(null)}
         onOk={() => {

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -117,6 +118,7 @@ const SingleModelBreakdown: React.FC<{
 };
 
 const MultiCostResults: React.FC<MultiCostResultsProps> = ({ multiResult, timePeriod }) => {
+  const { t } = useTranslation();
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
   const validEntries = multiResult.entries.filter((e) => e.result !== null);
@@ -130,7 +132,7 @@ const MultiCostResults: React.FC<MultiCostResultsProps> = ({ multiResult, timePe
   if (!hasAnyResult && !isAnyLoading && !hasAnyError) {
     return (
       <div className="py-6 text-center border border-dashed border-gray-300 rounded-lg bg-gray-50">
-        <p className="text-gray-500">Select models above to see cost estimates</p>
+        <p className="text-gray-500">{t("ui.Select models above to see cost estimates")}</p>
       </div>
     );
   }

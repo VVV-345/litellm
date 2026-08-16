@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Form, Input, Switch, Collapse, Select, Space, Tooltip } from "antd";
 import { Button as AntButton } from "antd";
 import { PlusOutlined, MinusCircleOutlined, InfoCircleOutlined } from "@ant-design/icons";
@@ -18,6 +19,7 @@ interface AgentFormFieldsProps {
  * Uses shared configuration from agent_config.ts
  */
 const AgentFormFields: React.FC<AgentFormFieldsProps> = ({ showAgentName = true, visiblePanels }) => {
+  const { t } = useTranslation();
   const shouldShow = (key: string) => !visiblePanels || visiblePanels.includes(key);
   return (
     <>
@@ -232,7 +234,7 @@ const AgentFormFields: React.FC<AgentFormFieldsProps> = ({ showAgentName = true,
                       </Space>
                     ))}
                     <AntButton type="dashed" onClick={() => add()} icon={<PlusOutlined />} style={{ width: "100%" }}>
-                      Add Static Header
+                      {t("ui.Add Static Header")}
                     </AntButton>
                   </>
                 )}

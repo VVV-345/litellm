@@ -1,5 +1,6 @@
 import { Button } from "antd";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "../molecules/notifications_manager";
 import { getCallbacksCall, getRouterSettingsCall, setCallbacksCall } from "../networking";
 import RouterSettingsForm, { RouterSettingsFormValue } from "./RouterSettingsForm";
@@ -16,6 +17,7 @@ interface routingStrategyArgs {
 }
 
 const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, userID }) => {
+  const { t } = useTranslation();
   const [formValue, setFormValue] = useState<RouterSettingsFormValue>({
     routerSettings: {},
     selectedStrategy: null,
@@ -192,7 +194,7 @@ const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, 
       <div className="border-t border-gray-200 pt-6 flex justify-end gap-3">
         <Button onClick={() => window.location.reload()}>Reset</Button>
         <Button type="primary" onClick={handleSaveChanges}>
-          Save Changes
+          {t("ui.Save Changes")}
         </Button>
       </div>
     </div>

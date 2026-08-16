@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef, OnChangeFn, SortingState } from "@tanstack/react-table";
 import { Download, Settings, Shield, TrendingUp, TriangleAlert } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { DataTable, DataTableSortHeader } from "@/components/shared/DataTable";
 import { getGuardrailsUsageOverview } from "@/components/networking";
 import { type PerformanceRow } from "@/components/GuardrailsMonitor/mockData";
@@ -43,6 +45,7 @@ export function GuardrailsOverview({
   endDate,
   onSelectGuardrail,
 }: GuardrailsOverviewProps) {
+  const { t } = useTranslation();
   const [sortBy, setSortBy] = useState<SortKey>("failRate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [evaluationModalOpen, setEvaluationModalOpen] = useState(false);
@@ -212,9 +215,9 @@ export function GuardrailsOverview({
       </div>
 
       <div className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-4">
-        <MetricCard label="Total Evaluations" value={metrics.totalRequests.toLocaleString()} />
+        <MetricCard label={translateUiText(t, "Total Evaluations")} value={metrics.totalRequests.toLocaleString()} />
         <MetricCard
-          label="Blocked Requests"
+          label={translateUiText(t, "Blocked Requests")}
           value={metrics.totalBlocked.toLocaleString()}
           valueColor="text-red-600"
           icon={<TriangleAlert className="size-4 text-red-400" />}
@@ -255,7 +258,7 @@ export function GuardrailsOverview({
           data={sorted}
           getRowId={(row) => row.id}
           isLoading={isLoading}
-          noDataMessage="No data for this period"
+          noDataMessage={translateUiText(t, "No data for this period")}
           onRowClick={(row) => onSelectGuardrail(row.id)}
           rowClassName={() => "cursor-pointer"}
           sortingMode="server"

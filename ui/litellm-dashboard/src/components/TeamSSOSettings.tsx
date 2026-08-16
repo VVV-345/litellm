@@ -25,6 +25,7 @@ import { getModelDisplayName } from "./key_team_helpers/fetch_available_models_t
 import NotificationsManager from "./molecules/notifications_manager";
 import { ModelSelect } from "./ModelSelect/ModelSelect";
 import OrganizationDropdown from "./common_components/OrganizationDropdown";
+import { useTranslation } from "react-i18next";
 
 interface TeamSSOSettingsProps {
   accessToken: string | null;
@@ -110,6 +111,7 @@ const DEFAULT_VALUES: SettingsValues = {
 };
 
 const TeamSSOSettings: React.FC<TeamSSOSettingsProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState<boolean>(true);
   const [values, setValues] = useState<SettingsValues>(DEFAULT_VALUES);
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -211,13 +213,13 @@ const TeamSSOSettings: React.FC<TeamSSOSettingsProps> = ({ accessToken }) => {
                 ) : (
                   <Save data-icon="inline-start" />
                 )}
-                Save Changes
+                {t("ui.Save Changes")}
               </Button>
             </div>
           ) : (
             <Button type="button" variant="outline" onClick={() => setIsEditing(true)}>
               <Edit data-icon="inline-start" />
-              Edit Settings
+              {t("ui.Edit Settings")}
             </Button>
           )}
         </CardAction>

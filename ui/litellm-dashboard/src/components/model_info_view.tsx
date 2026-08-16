@@ -54,6 +54,7 @@ import DeleteResourceModal from "./common_components/DeleteResourceModal";
 import EditAutoRouterModal from "./edit_auto_router/edit_auto_router_modal";
 import ReuseCredentialsModal from "./model_add/reuse_credentials";
 import NotificationsManager from "./molecules/notifications_manager";
+import { useTranslation } from "react-i18next";
 import {
   CredentialItem,
   credentialCreateCall,
@@ -207,6 +208,7 @@ export default function ModelInfoView({
   onModelUpdate,
   modelAccessGroups,
 }: ModelInfoViewProps) {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
   const [localModelData, setLocalModelData] = useState<any>(null);
@@ -819,7 +821,7 @@ export default function ModelInfoView({
                   {canEditModel ? (
                     !isEditing && (
                       <TremorButton onClick={() => setIsEditing(true)} className="flex items-center">
-                        Edit Settings
+                        {t("ui.Edit Settings")}
                       </TremorButton>
                     )
                   ) : (
@@ -904,7 +906,7 @@ export default function ModelInfoView({
                   <div className="space-y-4">
                     <div className="space-y-4">
                       <div>
-                        <Text className="font-medium">Model Name</Text>
+                        <Text className="font-medium">{t("ui.Model Name")}</Text>
                         {isEditing ? (
                           <Form.Item name="model_name" className="mb-0">
                             <TextInput placeholder="Enter model name" />
@@ -1541,7 +1543,7 @@ export default function ModelInfoView({
                           Cancel
                         </TremorButton>
                         <TremorButton variant="primary" onClick={() => form.submit()} loading={isSaving}>
-                          Save Changes
+                          {t("ui.Save Changes")}
                         </TremorButton>
                       </div>
                     )}
@@ -1571,7 +1573,7 @@ export default function ModelInfoView({
         resourceInformationTitle="Model Information"
         resourceInformation={[
           {
-            label: "Model Name",
+            label: t("ui.Model Name"),
             value: modelData?.model_name || "Not Set",
           },
           {

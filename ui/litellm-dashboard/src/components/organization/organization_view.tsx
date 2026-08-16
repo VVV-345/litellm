@@ -25,6 +25,7 @@ import {
 import ObjectPermissionsView from "../object_permissions_view";
 import MemberModal from "../team/EditMembership";
 import { OrgSettingsForm } from "./org-settings/OrgSettingsForm";
+import { useTranslation } from "react-i18next";
 
 interface OrganizationInfoProps {
   organizationId: string;
@@ -45,6 +46,7 @@ const OrganizationInfoView: React.FC<OrganizationInfoProps> = ({
   userModels,
   editOrg,
 }) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: orgData, isLoading: loading } = useOrganization(organizationId);
   const [isEditing, setIsEditing] = useState(false);
@@ -178,7 +180,7 @@ const OrganizationInfoView: React.FC<OrganizationInfoProps> = ({
                 <p className="text-sm text-muted-foreground">Organization Details</p>
                 <div className="mt-2 text-sm text-foreground">
                   <p>Created: {new Date(orgData.created_at).toLocaleDateString()}</p>
-                  <p>Updated: {new Date(orgData.updated_at).toLocaleDateString()}</p>
+                  <p>{t("ui.Updated")}: {new Date(orgData.updated_at).toLocaleDateString()}</p>
                   <p>Created By: {orgData.created_by}</p>
                 </div>
               </CardContent>
@@ -276,7 +278,7 @@ const OrganizationInfoView: React.FC<OrganizationInfoProps> = ({
             <CardContent>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-foreground">Organization Settings</h2>
-                {canEditOrg && !isEditing && <Button onClick={() => setIsEditing(true)}>Edit Settings</Button>}
+                {canEditOrg && !isEditing && <Button onClick={() => setIsEditing(true)}>{t("ui.Edit Settings")}</Button>}
               </div>
 
               {isEditing ? (

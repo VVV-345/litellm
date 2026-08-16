@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Text, Title } from "@tremor/react";
 import { Form, Input, Modal, Select } from "antd";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import DeleteResourceModal from "@/components/common_components/DeleteResourceModal";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import {
@@ -23,6 +24,7 @@ interface SearchToolsProps {
 }
 
 const SearchTools: React.FC<SearchToolsProps> = ({ accessToken, userRole, userID }) => {
+  const { t } = useTranslation();
   const {
     data: searchTools,
     isLoading: isLoadingTools,
@@ -181,7 +183,7 @@ const SearchTools: React.FC<SearchToolsProps> = ({ accessToken, userRole, userID
         <Input.Password placeholder="Enter API key" />
       </Form.Item>
 
-      <Form.Item name="description" label="Description">
+      <Form.Item name="description" label={t("ui.Description")}>
         <Input.TextArea rows={3} placeholder="Description of this search tool" />
       </Form.Item>
     </Form>
@@ -241,7 +243,7 @@ const SearchTools: React.FC<SearchToolsProps> = ({ accessToken, userRole, userID
                   label: "Provider",
                   value: providerInfo?.ui_friendly_name || toolToDelete.litellm_params.search_provider,
                 },
-                { label: "Description", value: toolToDelete.search_tool_info?.description || "-" },
+                { label: t("ui.Description"), value: toolToDelete.search_tool_info?.description || "-" },
               ]
             : []
         }
@@ -273,11 +275,11 @@ const SearchTools: React.FC<SearchToolsProps> = ({ accessToken, userRole, userID
         {renderEditForm()}
       </Modal>
 
-      <Title>Search Tools</Title>
-      <Text className="text-tremor-content mt-2">Configure and manage your search providers</Text>
+      <Title>{t("ui.Search Tools")}</Title>
+      <Text className="text-tremor-content mt-2">{t("ui.Configure and manage your search providers")}</Text>
       {isAdminRole(userRole) && (
         <Button className="mt-4 mb-4" onClick={() => setCreateModalVisible(true)}>
-          + Add New Search Tool
+          {t("ui.+ Add New Search Tool")}
         </Button>
       )}
 

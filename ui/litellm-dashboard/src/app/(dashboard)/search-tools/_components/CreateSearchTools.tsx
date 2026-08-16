@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, TextInput } from "@tremor/react";
 import { Form, Input, Modal, Select, Tooltip, Typography } from "antd";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Logo } from "@/components/molecules/logo/Logo";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { createSearchTool, fetchAvailableSearchProviders } from "@/components/networking";
@@ -54,6 +55,7 @@ const CreateSearchTool: React.FC<CreateSearchToolProps> = ({
   isModalVisible,
   setModalVisible,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [isLoading, setIsLoading] = useState(false);
   const [formValues, setFormValues] = useState<Record<string, any>>({});
@@ -253,7 +255,7 @@ const CreateSearchTool: React.FC<CreateSearchToolProps> = ({
             </Form.Item>
 
             <Form.Item
-              label={<span className="text-sm font-medium text-gray-700">Description (Optional)</span>}
+              label={<span className="text-sm font-medium text-gray-700">{t("ui.Description")} (Optional)</span>}
               name="description"
             >
               <TextArea

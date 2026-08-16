@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Card,
   Title,
@@ -43,6 +44,7 @@ export interface PromptInfoProps {
 }
 
 const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessToken, isAdmin, onDelete, onEdit }) => {
+  const { t } = useTranslation();
   const [promptData, setPromptData] = useState<PromptSpec | null>(null);
   const [promptTemplate, setPromptTemplate] = useState<PromptTemplateBase | null>(null);
   const [rawApiResponse, setRawApiResponse] = useState<any>(null);
@@ -340,7 +342,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                 <Text>Created At</Text>
                 <div className="mt-2">
                   <Title className="text-sm">{formatDate(promptData.created_at)}</Title>
-                  <Text className="text-xs">Updated: {formatDate(promptData.updated_at)}</Text>
+                  <Text className="text-xs">{t("ui.Updated")}: {formatDate(promptData.updated_at)}</Text>
                 </div>
               </Card>
             </Grid>
@@ -357,7 +359,7 @@ const PromptInfoView: React.FC<PromptInfoProps> = ({ promptId, onClose, accessTo
                       <TableHeaderCell>Version</TableHeaderCell>
                       <TableHeaderCell>Created By</TableHeaderCell>
                       <TableHeaderCell>Date</TableHeaderCell>
-                      <TableHeaderCell>Actions</TableHeaderCell>
+                      <TableHeaderCell>{t("ui.Actions")}</TableHeaderCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

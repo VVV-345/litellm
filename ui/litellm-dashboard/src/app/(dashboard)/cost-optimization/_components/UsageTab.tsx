@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { AreaChart, BarChart, CustomLegend, DonutChart, SEQUENTIAL_COLOR_RAMP } from "@/components/shared/charts";
 import AdvancedDatePicker from "@/components/shared/advanced_date_picker";
@@ -78,6 +79,7 @@ const SummaryCard = ({ label, value, hint, info }: { label: string; value: strin
 );
 
 const UsageTab: React.FC<UsageTabProps> = ({ accessToken, activity }) => {
+  const { t } = useTranslation();
   const { dateValue, onDateChange, results, loading, isFetchingMore } = activity;
 
   const startTime = dateValue.from ?? null;
@@ -187,7 +189,7 @@ const UsageTab: React.FC<UsageTabProps> = ({ accessToken, activity }) => {
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
-          label="Total saved"
+          label={t("ui.Total saved")}
           value={usd(totalSaved)}
           hint={loading || isFetchingMore ? "Loading..." : "Compression + prompt caching + auto-router"}
         />
@@ -288,7 +290,7 @@ const UsageTab: React.FC<UsageTabProps> = ({ accessToken, activity }) => {
           <CardContent>
             {topTools.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                {toolSpendLoading ? "Loading..." : "No tool usage in this range."}
+                {toolSpendLoading ? "Loading..." : t("ui.No tool usage in this range.")}
               </p>
             ) : (
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

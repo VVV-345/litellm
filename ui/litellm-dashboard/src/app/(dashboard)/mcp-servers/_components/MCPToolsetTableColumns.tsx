@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, Link2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/cva.config";
 import { getProxyBaseUrl } from "@/components/networking";
 import { MCPToolset } from "@/components/mcp_tools/types";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { translateUiText } from "@/utils/i18nText";
 
 // Display-only. Toolsets persist {server_id, bare tool_name}; the gateway serves
 // each tool prefixed as "{server-prefix}-{tool}". Render that qualified form so
@@ -92,6 +94,7 @@ interface MCPToolsetTableColumnsDeps {
   serverPrefixById: Map<string, string>;
   onEditClick: (toolset: MCPToolset) => void;
   onDeleteClick: (toolsetId: string) => void;
+  t?: TFunction;
 }
 
 export const getMCPToolsetTableColumns = ({
@@ -99,6 +102,7 @@ export const getMCPToolsetTableColumns = ({
   serverPrefixById,
   onEditClick,
   onDeleteClick,
+  t,
 }: MCPToolsetTableColumnsDeps): ColumnDef<MCPToolset>[] => [
   {
     id: "toolset_id",
@@ -129,8 +133,8 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "description",
     accessorKey: "description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: t ? translateUiText(t, "Description") : undefined },
+    header: t ? translateUiText(t, "Description") : undefined,
     size: 200,
     enableSorting: false,
     cell: ({ row }) => (
@@ -176,7 +180,7 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t ? translateUiText(t, "Actions") : undefined}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

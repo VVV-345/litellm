@@ -101,7 +101,7 @@ const PricingCalculator: React.FC<PricingCalculatorProps> = ({ accessToken, mode
             <TableHead className="w-[18%]">{ui("Output Tokens")}</TableHead>
             <TableHead className="w-[20%]">{ui("Requests")}/{timePeriod === "day" ? ui("Day") : ui("Month")}</TableHead>
             <TableHead className="w-[50px]">
-              <span className="sr-only">Actions</span>
+              <span className="sr-only">{t("ui.Actions")}</span>
             </TableHead>
           </TableRow>
         </TableHeader>

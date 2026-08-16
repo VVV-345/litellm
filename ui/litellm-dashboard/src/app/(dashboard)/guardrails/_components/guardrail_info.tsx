@@ -11,6 +11,8 @@ import { Badge, Card, Grid, Tab, TabGroup, TabList, TabPanel, TabPanels, Text, T
 import { Button, Divider, Form, Input, Select, Tooltip } from "antd";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Logo } from "@/components/molecules/logo/Logo";
 import ContentFilterManager, { formatContentFilterDataForAPI } from "./content_filter/ContentFilterManager";
@@ -36,6 +38,7 @@ export interface GuardrailInfoProps {
 }
 
 const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose, accessToken, isAdmin }) => {
+  const { t } = useTranslation();
   const [guardrailData, setGuardrailData] = useState<any>(null);
   const [guardrailProviderSpecificParams, setGuardrailProviderSpecificParams] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -628,7 +631,7 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                         Edit Code
                       </Button>
                     ) : (
-                      <Button onClick={() => setIsEditing(true)}>Edit Settings</Button>
+                      <Button onClick={() => setIsEditing(true)}>{translateUiText(t, "Edit Settings")}</Button>
                     ))}
                 </div>
 
@@ -786,7 +789,7 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                         Cancel
                       </Button>
                       <Button type="primary" htmlType="submit">
-                        Save Changes
+                        {translateUiText(t, "Save Changes")}
                       </Button>
                     </div>
                   </Form>

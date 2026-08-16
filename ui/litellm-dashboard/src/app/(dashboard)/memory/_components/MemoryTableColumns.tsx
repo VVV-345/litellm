@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { MemoryRow } from "@/components/networking";
@@ -55,12 +56,14 @@ export interface MemoryTableColumnsDeps {
   onViewClick: (row: MemoryRow) => void;
   onEditClick: (row: MemoryRow) => void;
   onDeleteClick: (row: MemoryRow) => void;
+  t: TFunction;
 }
 
 export const getMemoryTableColumns = ({
   onViewClick,
   onEditClick,
   onDeleteClick,
+  t,
 }: MemoryTableColumnsDeps): ColumnDef<MemoryRow>[] => [
   {
     id: "memory_id",
@@ -123,8 +126,8 @@ export const getMemoryTableColumns = ({
   {
     id: "updated_at",
     accessorKey: "updated_at",
-    meta: { title: "Updated" },
-    header: "Updated",
+    meta: { title: t("ui.Updated") },
+    header: t("ui.Updated"),
     size: 170,
     enableSorting: false,
     cell: ({ row }) => <DateCell value={row.original.updated_at} />,
@@ -132,7 +135,7 @@ export const getMemoryTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

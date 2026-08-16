@@ -19,6 +19,7 @@ import { copyToClipboard, formatNumberWithCommas } from "@/utils/dataUtils";
 
 import { Team } from "../key_team_helpers/key_list";
 import { Organization } from "../networking";
+import { useTranslation } from "react-i18next";
 
 interface ResourceTone {
   icon: typeof Users;
@@ -135,6 +136,7 @@ export const getTeamTableColumns = ({
   onEditTeam,
   onDeleteTeam,
 }: TeamTableColumnsDeps): ColumnDef<Team>[] => {
+  const { t } = useTranslation();
   const canManage = userRole === "Admin";
 
   return [
@@ -259,8 +261,8 @@ export const getTeamTableColumns = ({
     {
       id: "updated_at",
       accessorKey: "updated_at",
-      meta: { title: "Updated" },
-      header: "Updated",
+      meta: { title: t("ui.Updated") },
+      header: t("ui.Updated"),
       size: 130,
       enableSorting: false,
       cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Never" />,
@@ -268,7 +270,7 @@ export const getTeamTableColumns = ({
     {
       id: "actions",
       meta: { className: "text-right", headerClassName: "text-right" },
-      header: () => <span className="sr-only">Actions</span>,
+      header: () => <span className="sr-only">{t("ui.Actions")}</span>,
       size: 60,
       enableSorting: false,
       enableHiding: false,

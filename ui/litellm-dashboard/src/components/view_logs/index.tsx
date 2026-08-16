@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import useCan from "@/app/(dashboard)/hooks/useCan";
 import DeletedKeysPage from "../DeletedKeysPage/DeletedKeysPage";
 import DeletedTeamsPage from "../DeletedTeamsPage/DeletedTeamsPage";
@@ -28,6 +29,7 @@ const DELETED_KEYS_TAB: LogsTab = { id: "deleted keys", label: "Deleted Keys" };
 const DELETED_TEAMS_TAB: LogsTab = { id: "deleted teams", label: "Deleted Teams" };
 
 export default function SpendLogsTable({ accessToken, token, userRole, userID, premiumUser }: SpendLogsTableProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<LogsTabId>(REQUEST_LOGS_TAB.id);
   const canViewAuditLogs = useCan("viewAuditLogs");
   const canViewDeletedTeams = useCan("viewDeletedTeams");
@@ -41,10 +43,10 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
   }
 
   const tabs: LogsTab[] = [
-    REQUEST_LOGS_TAB,
-    ...(canViewAuditLogs ? [AUDIT_LOGS_TAB] : []),
-    DELETED_KEYS_TAB,
-    ...(canViewDeletedTeams ? [DELETED_TEAMS_TAB] : []),
+    { ...REQUEST_LOGS_TAB, label: t("ui.Request Logs") },
+    ...(canViewAuditLogs ? [{ ...AUDIT_LOGS_TAB, label: t("ui.Audit Logs") }] : []),
+    { ...DELETED_KEYS_TAB, label: t("ui.Deleted Keys") },
+    ...(canViewDeletedTeams ? [{ ...DELETED_TEAMS_TAB, label: t("ui.Deleted Teams") }] : []),
   ];
 
   const renderPanel = (tabId: LogsTabId) => {

@@ -491,7 +491,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
             <TabsTrigger value="logging-callbacks">Logging Callbacks</TabsTrigger>
             <TabsTrigger value="cloudzero-cost-tracking">CloudZero Cost Tracking</TabsTrigger>
             <TabsTrigger value="alerting-types">Alerting Types</TabsTrigger>
-            <TabsTrigger value="alerting-settings">Alerting Settings</TabsTrigger>
+            <TabsTrigger value="alerting-settings">{t("ui.Alerting Settings")}</TabsTrigger>
             <TabsTrigger value="email-alerts">Email Alerts</TabsTrigger>
           </TabsList>
           <TabsContent value="logging-callbacks">
@@ -704,7 +704,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
         message={t("ui.Are you sure you want to delete this callback? This action cannot be undone.")}
         resourceInformationTitle="Callback Information"
         resourceInformation={[
-          { label: "Callback Name", value: callbackToDelete?.name },
+          { label: t("ui.Callback Name"), value: callbackToDelete?.name },
           { label: "Mode", value: callbackToDelete?.mode || "success" },
         ]}
         onCancel={() => {

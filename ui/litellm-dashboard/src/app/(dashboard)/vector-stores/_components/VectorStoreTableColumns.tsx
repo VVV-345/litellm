@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -103,12 +104,14 @@ interface VectorStoreTableColumnsDeps {
   onView: (vectorStoreId: string) => void;
   onEdit: (vectorStoreId: string) => void;
   onDelete: (vectorStoreId: string) => void;
+  t: TFunction;
 }
 
 export const getVectorStoreTableColumns = ({
   onView,
   onEdit,
   onDelete,
+  t,
 }: VectorStoreTableColumnsDeps): ColumnDef<VectorStore>[] => [
   {
     id: "vector_store_id",
@@ -145,8 +148,8 @@ export const getVectorStoreTableColumns = ({
   {
     id: "vector_store_description",
     accessorKey: "vector_store_description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: t("ui.Description") },
+    header: t("ui.Description"),
     size: 280,
     enableSorting: false,
     cell: ({ row }) => {
@@ -189,8 +192,8 @@ export const getVectorStoreTableColumns = ({
     id: "updated_at",
     accessorKey: "updated_at",
     sortingFn: "datetime",
-    meta: { title: "Updated At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" />,
+    meta: { title: t("ui.Updated At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Updated At")} />,
     size: 150,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.updated_at} precision="date" />,
@@ -198,7 +201,7 @@ export const getVectorStoreTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

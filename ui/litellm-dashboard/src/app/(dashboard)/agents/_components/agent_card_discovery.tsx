@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, CircleAlert, CircleCheck, Info, Link as LinkIcon, RotateCw, Search, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { useDebouncedCallback } from "@tanstack/react-pacer/debouncer";
 import { DiscoveredAgentCard, discoverAgentCardCall } from "@/components/networking";
@@ -66,6 +67,7 @@ const AgentCardDiscovery: React.FC<AgentCardDiscoveryProps> = ({
   // When the parent drives discovery, ``manualUrl`` is unused — the URL
   // comes from ``discoveryRequest.url`` directly. When the parent hasn't
   // supplied a plan, the admin types into this field manually.
+  const { t } = useTranslation();
   const [manualUrl, setManualUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -348,7 +350,7 @@ const AgentCardDiscovery: React.FC<AgentCardDiscoveryProps> = ({
               <Input value={editedName} onChange={(e) => setEditedName(e.target.value)} placeholder="Agent name" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">{t("ui.Description")}</label>
               <Textarea
                 className="field-sizing-fixed min-h-0"
                 value={editedDescription}

@@ -2,6 +2,7 @@ import { InfoCircleOutlined } from "@ant-design/icons";
 import { Accordion, AccordionBody, AccordionHeader, Button, TextInput, Title } from "@tremor/react";
 import { Form, Input, Modal, Select as Select2, Tooltip } from "antd";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import BudgetDurationDropdown from "@/components/common_components/budget_duration_dropdown";
 import NumericalInput from "@/components/shared/numerical_input";
 
@@ -23,6 +24,7 @@ interface CreateTagModalProps {
 }
 
 const CreateTagModal: React.FC<CreateTagModalProps> = ({ visible, onCancel, onSubmit, availableModels }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
 
   const handleFinish = (values: any) => {
@@ -42,7 +44,7 @@ const CreateTagModal: React.FC<CreateTagModalProps> = ({ visible, onCancel, onSu
           <TextInput />
         </Form.Item>
 
-        <Form.Item label="Description" name="description">
+        <Form.Item label={t("ui.Description")} name="description">
           <Input.TextArea rows={4} />
         </Form.Item>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { LayersIcon } from "lucide-react";
 
 import { ProjectResponse } from "@/app/(dashboard)/hooks/projects/useProjects";
@@ -54,12 +55,14 @@ interface ProjectsTableColumnsDeps {
   onProjectClick: (projectId: string) => void;
   teamAliasMap: Map<string, string>;
   isTeamsLoading: boolean;
+  t: TFunction;
 }
 
 export const getProjectsTableColumns = ({
   onProjectClick,
   teamAliasMap,
   isTeamsLoading,
+  t,
 }: ProjectsTableColumnsDeps): ColumnDef<ProjectResponse>[] => [
   {
     id: "project_id",
@@ -135,8 +138,8 @@ export const getProjectsTableColumns = ({
   {
     id: "updated_at",
     accessorKey: "updated_at",
-    meta: { title: "Updated" },
-    header: "Updated",
+    meta: { title: t("ui.Updated") },
+    header: t("ui.Updated"),
     size: 140,
     enableSorting: false,
     cell: ({ row }) => <DateCell value={row.original.updated_at} precision="date" />,

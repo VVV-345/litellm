@@ -46,6 +46,7 @@ import { generateCodeSnippet } from "@/components/chat_ui/CodeSnippets";
 import { getEndpointType } from "@/components/chat_ui/mode_endpoint_mapping";
 import { MessageType } from "@/components/chat_ui/types";
 import { getProviderLogoAndName } from "./provider_info_helpers";
+import { useTranslation } from "react-i18next";
 
 interface PublicModelHubProps {
   accessToken?: string | null;
@@ -65,6 +66,7 @@ function PublicHubEmptyState({ title, body }: { title: string; body: string }) {
 }
 
 const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded = false }) => {
+  const { t } = useTranslation();
   const [modelHubData, setModelHubData] = useState<ModelGroupInfo[] | null>(null);
   const [agentHubData, setAgentHubData] = useState<AgentCard[] | null>(null);
   const [mcpHubData, setMcpHubData] = useState<MCPServerData[] | null>(null);
@@ -566,7 +568,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
             {/* Health and Endpoint Status - only shown when not embedded */}
             {!isEmbedded && (
               <Card className="mb-10 p-8 bg-white border border-gray-200 rounded-lg shadow-xs">
-                <h2 className="text-2xl font-semibold mb-6 text-gray-900">Health and Endpoint Status</h2>
+                <h2 className="text-2xl font-semibold mb-6 text-gray-900">{t("ui.Health and Endpoint Status")}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <p className="text-green-600 font-medium text-sm">Service status: {serviceStatus}</p>
                 </div>
@@ -593,7 +595,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 p-6 bg-gray-50 rounded-lg border border-gray-200">
                     <div>
                       <div className="flex items-center space-x-2 mb-3">
-                        <p className="text-sm font-medium text-gray-700">Search Models:</p>
+                        <p className="text-sm font-medium text-gray-700">{t("ui.Search Models:")}</p>
                         <Tooltip>
                           <TooltipTrigger render={<Info className="w-4 h-4 text-gray-400 cursor-help" />} />
                           <TooltipContent side="top">
@@ -698,7 +700,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                     loadingMessage="Loading models…"
                     noDataMessage={
                       <PublicHubEmptyState
-                        title={modelHubData?.length ? "No matching models" : "No models available"}
+                        title={modelHubData?.length ? "No matching models" : t("ui.No models available")}
                         body={
                           modelHubData?.length
                             ? "Adjust the search or filters to see more models."
@@ -884,7 +886,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                     <p className="text-lg font-semibold mb-4">Model Overview</p>
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <p className="font-medium">Model Name:</p>
+                        <p className="font-medium">{t("ui.Model Name")}:</p>
                         <p>{selectedModel.model_group}</p>
                       </div>
                       <div>
@@ -1128,7 +1130,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                         <p>{selectedAgent.version}</p>
                       </div>
                       <div className="col-span-2">
-                        <p className="font-medium">Description:</p>
+                        <p className="font-medium">{t("ui.Description")}:</p>
                         <p>{selectedAgent.description}</p>
                       </div>
                       {selectedAgent.url && (
@@ -1443,7 +1445,7 @@ print(response.model_dump(mode='json', exclude_none=True))`;
                         </Badge>
                       </div>
                       <div className="col-span-2">
-                        <p className="font-medium">Description:</p>
+                        <p className="font-medium">{t("ui.Description")}:</p>
                         <p>{selectedMcpServer.mcp_info?.description || "-"}</p>
                       </div>
                     </div>

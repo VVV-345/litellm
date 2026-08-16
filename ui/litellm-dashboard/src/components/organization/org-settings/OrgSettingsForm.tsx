@@ -21,6 +21,7 @@ import { fetchClient } from "@/lib/http/api";
 
 import { buildOrgPatch, orgToForm, type OrgPatchBody } from "./mapper";
 import { orgSettingsSchema } from "./schema";
+import { useTranslation } from "react-i18next";
 
 export const NO_RESET = "never";
 
@@ -56,6 +57,7 @@ export const OrgSettingsForm = ({
   onSaved,
   patchOrganization = defaultPatchOrganization,
 }: OrgSettingsFormProps) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const form = useZodForm(orgSettingsSchema, { defaultValues: orgToForm(org) });
   const { isDirty } = form.formState;
@@ -112,7 +114,7 @@ export const OrgSettingsForm = ({
               <SelectContent>
                 {BUDGET_DURATION_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {option.value === NO_RESET ? t("ui.No reset") : option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -161,7 +163,7 @@ export const OrgSettingsForm = ({
             Cancel
           </Button>
           <Button type="submit" disabled={!isDirty || mutation.isPending}>
-            {mutation.isPending ? "Saving..." : "Save Changes"}
+            {mutation.isPending ? "Saving..." : t("ui.Save Changes")}
           </Button>
         </div>
       </div>

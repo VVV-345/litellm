@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { PlusCircleIcon, PencilIcon, TrashIcon } from "@heroicons/react/outline";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
@@ -27,6 +28,7 @@ const ModelAliasManager: React.FC<ModelAliasManagerProps> = ({
   const [aliases, setAliases] = useState<AliasItem[]>([]);
   const [newAlias, setNewAlias] = useState({ aliasName: "", targetModel: "" });
   const [editingAlias, setEditingAlias] = useState<AliasItem | null>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     // Convert object to array for display
@@ -195,7 +197,7 @@ const ModelAliasManager: React.FC<ModelAliasManagerProps> = ({
               <TableRow>
                 <TableHead className="py-1 h-8">Alias Name</TableHead>
                 <TableHead className="py-1 h-8">Target Model</TableHead>
-                <TableHead className="py-1 h-8">Actions</TableHead>
+                <TableHead className="py-1 h-8">{t("ui.Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

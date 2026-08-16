@@ -1,5 +1,6 @@
 import { DateRangePickerValue } from "@tremor/react";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import UsageDatePicker from "@/components/shared/usage_date_picker";
 import { BarChart } from "@/components/shared/charts";
@@ -68,6 +69,7 @@ interface CachePageProps {
 // Helper function to deep-parse a JSON string if possible
 
 const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole, userID, premiumUser }) => {
+  const { t } = useTranslation();
   const [selectedApiKeys, setSelectedApiKeys] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
@@ -132,7 +134,7 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
   const statCards = [
     { label: "Cache Hit Ratio", value: `${hasRequests ? totals.cache_hit_ratio.toFixed(2) : "0"}%` },
     { label: "Cache Hits", value: valueFormatterNumbers(totals?.cache_hits ?? 0) },
-    { label: "Cached Completion Tokens", value: valueFormatterNumbers(totals?.cached_completion_tokens ?? 0) },
+    { label: t("ui.Cached Completion Tokens"), value: valueFormatterNumbers(totals?.cached_completion_tokens ?? 0) },
   ];
 
   return (
@@ -146,7 +148,7 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
             Cache Health
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex-none">
-            Cache Settings
+            {t("ui.Cache Settings")}
           </TabsTrigger>
           <TabsTrigger value="coordination" className="flex-none">
             Coordination Redis
@@ -271,7 +273,7 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
 
             <Card className="mt-4">
               <CardHeader>
-                <CardTitle className="text-base font-semibold">Cache Hits vs API Requests</CardTitle>
+                <CardTitle className="text-base font-semibold">{t("ui.Cache Hits vs API Requests")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <BarChart
@@ -289,7 +291,7 @@ const CacheDashboard: React.FC<CachePageProps> = ({ accessToken, token, userRole
             <Card className="mt-6">
               <CardHeader>
                 <CardTitle className="text-base font-semibold">
-                  Cached Completion Tokens vs Generated Completion Tokens
+                  {t("ui.Cached Completion Tokens vs Generated Completion Tokens")}
                 </CardTitle>
               </CardHeader>
               <CardContent>

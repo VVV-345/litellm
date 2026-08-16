@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { Wrench, CircleCheck, Search, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +71,7 @@ const ToolRow: React.FC<ToolRowProps> = ({
   onDisplayNameChange,
   onDescriptionChange,
 }) => {
+  const { t } = useTranslation();
   const displayNameValue = toolNameToDisplayName[tool.name] || "";
   const isDisplayNameInvalid = displayNameValue !== "" && !TOOL_DISPLAY_NAME_PATTERN.test(displayNameValue);
 
@@ -113,7 +116,7 @@ const ToolRow: React.FC<ToolRowProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <div>
-            <p className="mb-1 block text-xs font-medium">Display Name</p>
+            <p className="mb-1 block text-xs font-medium">{translateUiText(t, "Display Name")}</p>
             <Input
               placeholder={tool.name}
               value={toolNameToDisplayName[tool.name] || ""}
@@ -131,7 +134,7 @@ const ToolRow: React.FC<ToolRowProps> = ({
             )}
           </div>
           <div>
-            <p className="mb-1 block text-xs font-medium">Description</p>
+            <p className="mb-1 block text-xs font-medium">{translateUiText(t, "Description")}</p>
             <Textarea
               className="field-sizing-fixed"
               placeholder={tool.description || "No description"}

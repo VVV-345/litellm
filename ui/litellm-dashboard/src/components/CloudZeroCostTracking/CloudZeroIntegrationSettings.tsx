@@ -22,6 +22,7 @@ import { CheckCircle, Pencil, Play, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import CloudZeroUpdateModal from "./CloudZeroUpdateModal";
 import { CloudZeroSettings } from "./types";
+import { useTranslation } from "react-i18next";
 
 interface CloudZeroIntegrationSettingsProps {
   settings: CloudZeroSettings;
@@ -43,6 +44,7 @@ const DetailRow = ({ label, children }: DetailRowProps) => (
 const NotConfigured = () => <span className="text-muted-foreground italic">Not configured</span>;
 
 export function CloudZeroIntegrationSettings({ settings, onSettingsUpdated }: CloudZeroIntegrationSettingsProps) {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -160,7 +162,7 @@ export function CloudZeroIntegrationSettings({ settings, onSettingsUpdated }: Cl
             </dl>
 
             <div className="mt-6 flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Actions</span>
+              <span className="text-sm text-muted-foreground">{t("ui.Actions")}</span>
               <Separator className="flex-1" />
             </div>
 

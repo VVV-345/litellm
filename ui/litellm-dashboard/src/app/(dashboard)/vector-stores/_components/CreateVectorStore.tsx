@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Card, Title, Text } from "@tremor/react";
 import { Upload, Button, Select, Form, Alert, Tooltip, Input } from "antd";
 import MessageManager from "@/components/molecules/message_manager";
@@ -26,6 +27,7 @@ interface CreateVectorStoreProps {
 }
 
 const CreateVectorStore: React.FC<CreateVectorStoreProps> = ({ accessToken, onSuccess }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [documents, setDocuments] = useState<DocumentUpload[]>([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -189,18 +191,18 @@ const CreateVectorStore: React.FC<CreateVectorStoreProps> = ({ accessToken, onSu
   return (
     <div className="space-y-6">
       <div>
-        <Title>Create Vector Store</Title>
+        <Title>{t("ui.Create Vector Store")}</Title>
         <Text className="text-gray-500">
-          Upload documents and select a provider to create a new vector store with embedded content.
+          {t("ui.Upload documents and select a provider to create a new vector store with embedded content.")}
         </Text>
       </div>
 
       {/* Upload Area */}
       <Card>
         <div className="mb-4">
-          <Text className="font-medium">Step 1: Upload Documents</Text>
+          <Text className="font-medium">{t("ui.Step 1: Upload Documents")}</Text>
           <Text className="text-sm text-gray-500 block mt-1">
-            Upload one or more documents (PDF, TXT, DOCX, MD). Maximum file size: 50MB per file.
+            {t("ui.Upload one or more documents (PDF, TXT, DOCX, MD). Maximum file size: 50MB per file.")}
           </Text>
         </div>
         <Dragger {...uploadProps}>
@@ -226,7 +228,7 @@ const CreateVectorStore: React.FC<CreateVectorStoreProps> = ({ accessToken, onSu
       <Card>
         <div className="space-y-4">
           <div>
-            <Text className="font-medium">Step 2: Configure Vector Store</Text>
+            <Text className="font-medium">{t("ui.Step 2: Configure Vector Store")}</Text>
             <Text className="text-sm text-gray-500 block mt-1">
               Choose the provider and optionally provide a name and description for your vector store.
             </Text>
@@ -255,7 +257,7 @@ const CreateVectorStore: React.FC<CreateVectorStoreProps> = ({ accessToken, onSu
             <Form.Item
               label={
                 <span>
-                  Description{" "}
+                  {t("ui.Description")}{" "}
                   <Tooltip title="Optional: Describe what this vector store contains">
                     <InfoCircleOutlined style={{ marginLeft: "4px" }} />
                   </Tooltip>
@@ -380,7 +382,7 @@ const CreateVectorStore: React.FC<CreateVectorStoreProps> = ({ accessToken, onSu
               loading={isCreating}
               disabled={documents.length === 0 || !selectedProvider}
             >
-              {isCreating ? "Creating Vector Store..." : "Create Vector Store"}
+              {isCreating ? "Creating Vector Store..." : t("ui.Create Vector Store")}
             </Button>
           </div>
         </div>

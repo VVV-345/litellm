@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { MemoryRow } from "@/components/networking";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -25,6 +26,7 @@ function formatTimestamp(ts?: string): string {
 }
 
 export function MemoryDetailDrawer({ row, onClose }: MemoryDetailDrawerProps) {
+  const { t } = useTranslation();
   return (
     <Sheet
       open={!!row}
@@ -73,7 +75,7 @@ export function MemoryDetailDrawer({ row, onClose }: MemoryDetailDrawerProps) {
               </span>
               <span aria-hidden="true">·</span>
               <span>
-                Updated {formatTimestamp(row.updated_at)}
+                {t("ui.Updated")} {formatTimestamp(row.updated_at)}
                 {row.updated_by ? ` by ${row.updated_by}` : ""}
               </span>
             </div>

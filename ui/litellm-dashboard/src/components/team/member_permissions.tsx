@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { RotateCw, Save } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "../molecules/notifications_manager";
 import { getPermissionInfo } from "./permission_definitions";
 
@@ -20,6 +21,7 @@ const MemberPermissions: React.FC<MemberPermissionsProps> = ({ teamId, accessTok
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const { t } = useTranslation();
 
   const fetchPermissions = async () => {
     try {
@@ -88,7 +90,7 @@ const MemberPermissions: React.FC<MemberPermissionsProps> = ({ teamId, accessTok
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               <Save className="size-3.5" />
-              Save Changes
+              {t("ui.Save Changes")}
             </Button>
           </div>
         )}
@@ -103,7 +105,7 @@ const MemberPermissions: React.FC<MemberPermissionsProps> = ({ teamId, accessTok
               <TableRow>
                 <TableHead>Method</TableHead>
                 <TableHead>Endpoint</TableHead>
-                <TableHead>Description</TableHead>
+                <TableHead>{t("ui.Description")}</TableHead>
                 <TableHead className="sticky right-0 bg-white shadow-[-4px_0_4px_-4px_rgba(0,0,0,0.1)] text-center">
                   Allow Access
                 </TableHead>

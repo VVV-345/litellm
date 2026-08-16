@@ -2,6 +2,7 @@
 
 import { Inbox } from "lucide-react";
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 import { DocumentUpload } from "@/components/vector_store_management/types";
@@ -26,7 +27,8 @@ function EmptyState() {
 }
 
 const DocumentsTable: React.FC<DocumentsTableProps> = ({ documents, onRemove }) => {
-  const columns = useMemo(() => getDocumentsTableColumns({ onRemove }), [onRemove]);
+  const { t } = useTranslation();
+  const columns = useMemo(() => getDocumentsTableColumns({ onRemove, t }), [onRemove, t]);
 
   return (
     <DataTable

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Form, Input, Modal, Select, Space, Typography } from "antd";
 import type { RoutingGroup, RoutingStrategy } from "./types";
 
@@ -44,6 +45,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
   saving,
 }) => {
   const [form] = Form.useForm<FormValues>();
+  const { t } = useTranslation();
   const selectedStrategy = Form.useWatch("routing_strategy", form);
 
   const initialValues: FormValues = {
@@ -92,7 +94,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
       open={open}
       onCancel={onClose}
       onOk={handleSubmit}
-      okText={mode === "create" ? "Create Group" : "Save Changes"}
+      okText={mode === "create" ? "Create Group" : t("ui.Save Changes")}
       cancelText="Cancel"
       confirmLoading={saving}
       destroyOnClose

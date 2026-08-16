@@ -1,1201 +1,1267 @@
 {
-  "language": {
-    "switch": "English",
-    "english": "English",
-    "chinese": "中文"
-  },
-  "common": {
-    "loading": "正在加载...",
-    "noData": "暂无数据",
-    "selectOptions": "选择选项",
-    "noOptionsFound": "未找到选项",
-    "createOption": "创建“{{option}}”",
-    "accessDenied": "访问被拒绝",
-    "close": "关闭",
-    "docs": "文档",
-    "adminOnly": "仅管理员用户可以访问{{pageTitle}}。",
-    "deprecationTitle": "{{featureName}} 已列入弃用草案",
-    "deprecationDescription": "{{featureName}} 是我们正考虑移除的实验性功能之一，最早可能在 {{date}} 移除。此列表尚处于草案阶段，并非最终决定。若你依赖此功能，请在以下页面提供反馈：",
-    "deprecationDiscussion": "弃用讨论",
-    "licenseExpired": "你的 LiteLLM Enterprise 许可证已于 {{date}} 到期",
-    "licenseExpires": "你的 LiteLLM Enterprise 许可证将于 {{countdown}} 到期（{{date}}）",
-    "licenseExpiresToday": "今天",
-    "licenseExpiresOneDay": "1 天后",
-    "licenseExpiresDays": "{{days}} 天后",
-    "licenseExpiredDescription": "企业版功能现已禁用。请联系 {{email}} 恢复访问权限",
-    "licenseCriticalDescription": "请立即续订，以免失去企业版功能。请联系 {{email}}",
-    "licenseWarningDescription": "请在到期前续订以继续使用企业版功能。请联系 {{email}}"
-  },
-  "login": {
-    "adminUiDisabled": "管理界面已禁用",
-    "adminUiDisabledDescription": "管理员已禁用管理界面。要重新启用，请更新以下环境变量：",
-    "title": "登录",
-    "subtitle": "访问 LiteLLM 管理界面。",
-    "defaultCredentials": "默认凭据",
-    "defaultCredentialsDescription": "默认用户名为 admin，密码为你的 LiteLLM Proxy MASTER_KEY。",
-    "credentialsHelp": "需要设置 UI 凭据或 SSO？",
-    "checkDocumentation": "查看文档",
-    "worker": "工作节点",
-    "chooseWorker": "选择要连接的工作节点",
-    "username": "用户名",
-    "enterUsername": "输入用户名",
-    "usernameRequired": "请输入用户名",
-    "password": "密码",
-    "enterPassword": "输入密码",
-    "passwordRequired": "请输入密码",
-    "loggingIn": "正在登录...",
-    "login": "登录",
-    "loginWithSso": "使用 SSO 登录",
-    "configureSso": "请先配置 SSO 后再使用 SSO 登录。",
-    "ssoEnabled": "已启用单点登录（SSO）。LiteLLM 不再在加载此页面时自动跳转到 SSO 登录流程。要重新启用自动跳转，请在环境配置中设置 AUTO_REDIRECT_UI_LOGIN_TO_SSO=true。"
-  },
-  "playground": {
-    "accessDeniedDescription": "你的角色没有访问试用场的权限。请联系代理管理员以获取测试模型的权限。",
-    "chat": "对话",
-    "compare": "对比",
-    "compliance": "合规",
-    "agentBuilder": "智能体构建器（实验性）"
-  },
-  "oauth": {
-    "complete": "授权已完成。你可以关闭此窗口并返回 LiteLLM 控制台。",
-    "closeManually": "如果窗口未自动关闭，授权结果仍已保存。你可以手动关闭此窗口。"
-  },
-  "ui": {
-    "Loading…": "正在加载…",
-    "Loading...": "正在加载...",
-    "No data": "暂无数据",
-    "No results": "暂无结果",
-    "Search…": "搜索…",
-    "Select…": "选择…",
-    "Search": "搜索",
-    "Filters": "筛选",
-    "Apply Filters": "应用筛选",
-    "Clear all": "清除全部",
-    "Reset": "重置",
-    "Refresh": "刷新",
-    "Columns": "列",
-    "Rows per page": "每页行数",
-    "Showing {{start}}-{{end}} of {{rowCount}}": "显示第 {{start}}-{{end}} 条，共 {{rowCount}} 条",
-    "Page {{page}} of {{pageCount}}": "第 {{page}} 页，共 {{pageCount}} 页",
-    "Go to first page": "转到第一页",
-    "Go to previous page": "转到上一页",
-    "Go to next page": "转到下一页",
-    "Go to last page": "转到最后一页",
-    "Ascending": "升序",
-    "Descending": "降序",
-    "No requests yet": "暂无请求",
-    "No matching requests": "没有匹配的请求",
-    "No users found": "未找到用户",
-    "No matching organizations": "没有匹配的组织",
-    "No organizations yet": "暂无组织",
-    "No matching budgets": "没有匹配的预算",
-    "No budgets yet": "暂无预算",
-    "Unlimited": "不限",
-    "Unlimited only": "仅不限额",
-    "Not set": "未设置",
-    "Edit": "编辑",
-    "Delete": "删除",
-    "Edit user": "编辑用户",
-    "Reset password": "重置密码",
-    "Copy user ID": "复制用户 ID",
-    "Delete user": "删除用户",
-    "Edit budget": "编辑预算",
-    "Delete budget": "删除预算",
-    "Open user actions": "打开用户操作",
-    "Open organization actions": "打开组织操作",
-    "Open budget actions": "打开预算操作",
-    "Organization ID": "组织 ID",
-    "Organization Name": "组织名称",
-    "User ID": "用户 ID",
-    "Email": "邮箱",
-    "Status": "状态",
-    "Role": "角色",
-    "Team": "团队",
-    "Created": "创建时间",
-    "Created At": "创建时间",
-    "Updated At": "更新时间",
-    "Spend (USD)": "消费（美元）",
-    "Budget (USD)": "预算（美元）",
-    "Global Proxy Role": "全局代理角色",
-    "User Alias": "用户别名",
-    "Virtual Keys": "虚拟密钥",
-    "Models": "模型",
-    "Members": "成员",
-    "Max Budget": "最大预算",
-    "TPM": "TPM",
-    "RPM": "RPM",
-    "Key Alias": "密钥别名",
-    "Key Hash": "密钥哈希",
-    "Session ID": "会话 ID",
-    "Request ID": "请求 ID",
-    "Cost": "成本",
-    "Duration (s)": "耗时（秒）",
-    "TTFT (s)": "首字节时间（秒）",
-    "Model": "模型",
-    "Tokens": "令牌数",
-    "Internal User": "内部用户",
-    "End User": "最终用户",
-    "Tags": "标签",
-    "Success": "成功",
-    "Failure": "失败",
-    "Active": "启用",
-    "Inactive": "停用"
-    ,"Search by email…": "按邮箱搜索…"
-    ,"Enter user ID…": "输入用户 ID…"
-    ,"Enter SSO ID…": "输入 SSO ID…"
-    ,"Select a role…": "选择角色…"
-    ,"Select a team…": "选择团队…"
-    ,"No roles found": "未找到角色"
-    ,"No teams found": "未找到团队"
-    ,"Narrow down your users": "缩小用户范围"
-    ,"No matching users": "没有匹配的用户"
-    ,"Try adjusting your search or filters.": "请调整搜索条件或筛选条件。"
-    ,"No organizations match your search. Try a different name or ID.": "没有匹配的组织，请尝试其他名称或 ID。"
-    ,"Create an organization to group teams, models, and budgets.": "创建组织以管理团队、模型和预算。"
-    ,"Click on an organization ID to view its details.": "点击组织 ID 查看详情。"
-    ,"Search by Organization Name": "按组织名称搜索"
-    ,"Search by Organization ID": "按组织 ID 搜索"
-    ,"Loading organizations…": "正在加载组织…"
-    ,"Narrow down your budgets": "缩小预算范围"
-    ,"Search by budget ID…": "按预算 ID 搜索…"
-    ,"No budget matches your search or filters.": "没有匹配搜索或筛选条件的预算。"
-    ,"Create a budget to set spend, TPM and RPM limits for customers.": "创建预算以设置客户的消费、TPM 和 RPM 限制。"
-    ,"You do not have access to budgets": "你没有访问预算的权限"
-    ,"Ask a proxy admin to grant you the admin viewer role.": "请联系代理管理员授予你管理员查看者角色。"
-    ,"Could not load budgets": "无法加载预算"
-    ,"Loading budgets…": "正在加载预算…"
-    ,"Request Logs": "请求日志"
-    ,"Search by Request ID": "按请求 ID 搜索"
-    ,"Narrow down request logs": "缩小请求日志范围"
-    ,"Loading request logs…": "正在加载请求日志…"
-    ,"Search or select a team": "搜索或选择团队"
-    ,"Search a key alias": "搜索密钥别名"
-    ,"Search a model": "搜索模型"
-    ,"Search an end user": "搜索最终用户"
-    ,"No key aliases found": "未找到密钥别名"
-    ,"No models found": "未找到模型"
-    ,"No end users in this time range": "此时间范围内没有最终用户"
-    ,"Select or type an error code": "选择或输入错误代码"
-    ,"No error codes found": "未找到错误代码"
-    ,"All Statuses": "全部状态"
-    ,"Enter error message…": "输入错误消息…"
-    ,"Enter key hash…": "输入密钥哈希…"
-    ,"Enter session ID…": "输入会话 ID…"
-    ,"Enter public model or search tool…": "输入公共模型或搜索工具…"
-    ,"Enterprise Feature.": "企业版功能。"
-    ,"Loading teams...": "正在加载团队..."
-    ,"No teams found": "未找到团队"
-    ,"Search teams by name or ID…": "按名称或 ID 搜索团队…"
-    ,"Narrow down your teams": "缩小团队范围"
-    ,"Select an organization…": "选择组织…"
-    ,"No organizations found": "未找到组织"
-    ,"Enter team alias…": "输入团队别名…"
-    ,"Enter team ID…": "输入团队 ID…"
-    ,"Delete Team?": "删除团队？"
-    ,"Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone.": "确定要删除此团队吗？团队的所有密钥及其创建的模型也会被删除，且无法撤销。"
-    ,"Regenerate Virtual Key": "重新生成虚拟密钥"
-    ,"Expiration is required for expired keys": "已过期密钥必须设置新的过期时间"
-    ,"Close": "关闭"
-    ,"Copied": "已复制"
-    ,"Copy Key": "复制密钥"
-    ,"Cancel": "取消"
-    ,"Regenerate": "重新生成"
-    ,"Save it now, you will not see it again": "请立即保存，之后将无法再次查看"
-    ,"No alias set": "未设置别名"
-    ,"Virtual Key": "虚拟密钥"
-    ,"Key Alias": "密钥别名"
-    ,"Max Budget (USD)": "最大预算（美元）"
-    ,"TPM Limit": "TPM 限制"
-    ,"RPM Limit": "RPM 限制"
-    ,"Expire Key": "密钥过期时间"
-    ,"Grace Period": "宽限期"
-    ,"Never": "永不过期"
-    ,"Add Logging Callback": "添加日志回调"
-    ,"Edit Callback Settings": "编辑回调设置"
-    ,"Add Callback": "添加回调"
-    ,"Adding...": "正在添加..."
-    ,"Saving...": "正在保存..."
-    ,"Save Changes": "保存更改"
-    ,"Delete Callback": "删除回调"
-    ,"Are you sure you want to delete this callback? This action cannot be undone.": "确定要删除此回调吗？此操作无法撤销。"
-    ,"Health check triggered": "健康检查已触发"
-    ,"Alerts are only supported for Slack Webhook URLs. Get your webhook urls from": "告警目前仅支持 Slack Webhook URL。你可以从以下位置获取 Webhook URL："
-    ,"Slack Webhook URL": "Slack Webhook URL"
-    ,"Test Alerts": "测试告警"
-    ,"Create New Key": "创建新密钥"
-    ,"Key Ownership": "密钥归属"
-    ,"Owned By": "归属者"
-    ,"Select who will own this Virtual Key": "选择此虚拟密钥的归属者"
-    ,"You": "你"
-    ,"Service Account": "服务账户"
-    ,"Another User": "其他用户"
-    ,"Agent": "智能体"
-    ,"New": "新建"
-    ,"The user who will own this key and be responsible for its usage": "将拥有此密钥并负责其使用的用户"
-    ,"Type email to search for users": "输入邮箱搜索用户"
-    ,"Searching...": "正在搜索..."
-    ,"Create User": "创建用户"
-    ,"Search by email to find users": "按邮箱搜索用户"
-    ,"Select Agent": "选择智能体"
-    ,"Select an agent": "选择智能体"
-    ,"This key will be used by the selected agent to make requests to LiteLLM": "此密钥将由所选智能体用于向 LiteLLM 发起请求"
-    ,"Organization": "组织"
-    ,"The organization this key belongs to. Selecting an organization filters the available teams.": "此密钥所属的组织。选择组织后会筛选可用团队。"
-    ,"The team this key belongs to, which determines available models and budget limits": "此密钥所属的团队，并决定可用模型和预算限制"
-    ,"Project": "项目"
-    ,"Assign this key to a project. Selecting a project will lock the team to the project's team.": "将此密钥分配给项目。选择项目后，团队将锁定为该项目所属的团队。"
-    ,"Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team.": "请选择团队以继续配置虚拟密钥。如果看不到任何团队，请联系代理管理员为你提供模型访问权限或将你加入团队。"
-    ,"Key Details": "密钥详情"
-    ,"Key Name": "密钥名称"
-    ,"Service Account ID": "服务账户 ID"
-    ,"A descriptive name to identify this key": "用于识别此密钥的描述性名称"
-    ,"Unique identifier for this service account": "此服务账户的唯一标识符"
-    ,"Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models.": "选择此密钥可以访问的模型。选择“所有团队模型”可访问团队中的全部模型。留空则允许访问所有模型。"
-    ,"Select models": "选择模型"
-    ,"All Team Models": "所有团队模型"
-    ,"All Proxy Models": "所有代理模型"
-    ,"Key Type": "密钥类型"
-    ,"Select the type of key to determine what routes and operations this key can access": "选择密钥类型，以确定此密钥可以访问的路由和操作"
-    ,"Select key type": "选择密钥类型"
-    ,"Create Key": "创建密钥"
-    ,"Create New User": "创建新用户"
-    ,"Save your Key": "保存你的密钥"
-    ,"Key being created, this might take 30s": "正在创建密钥，可能需要 30 秒"
-    ,"Type": "请输入"
-    ,"to confirm deletion:": "以确认删除："
-    ,"Deleting...": "正在删除..."
-    ,"Warning": "警告"
-    ,"Error": "错误"
-    ,"Authentication Error": "身份验证错误"
-    ,"Access Denied": "访问被拒绝"
-    ,"Service Unavailable": "服务不可用"
-    ,"Budget Exceeded": "预算超限"
-    ,"Feature Unavailable": "功能不可用"
-    ,"Routing Error": "路由错误"
-    ,"Already Exists": "已存在"
-    ,"Content Blocked": "内容已拦截"
-    ,"Validation Error": "校验错误"
-    ,"Integration Error": "集成错误"
-    ,"Not Found": "未找到"
-    ,"Rate Limit Exceeded": "超出速率限制"
-    ,"Server Error": "服务器错误"
-    ,"Request Error": "请求错误"
-    ,"Info": "提示"
-    ,"Feature Notice": "功能提示"
-    ,"Configuration Warning": "配置警告"
-    ,"Rate Limit": "速率限制"
-    ,"Access Groups": "访问组"
-    ,"Manage resource permissions for your organization": "管理组织的资源权限"
-    ,"Create Access Group": "创建访问组"
-    ,"Search groups by name, ID, or description...": "按名称、ID 或描述搜索组..."
-    ,"Clear search": "清除搜索"
-    ,"No matching access groups": "没有匹配的访问组"
-    ,"No access groups yet": "暂无访问组"
-    ,"Try a different search term.": "请尝试其他搜索词。"
-    ,"Create an access group to manage resource permissions for your organization.": "创建访问组以管理组织的资源权限。"
-    ,"Loading access groups…": "正在加载访问组…"
-    ,"Back": "返回"
-    ,"Access group not found": "未找到访问组"
-    ,"Copy access group ID": "复制访问组 ID"
-    ,"Edit Access Group": "编辑访问组"
-    ,"Group Details": "组详情"
-    ,"by": "由"
-    ,"Last Updated": "最后更新"
-    ,"Attached Keys": "已关联密钥"
-    ,"Show Less": "收起"
-    ,"View All ({{count}})": "查看全部（{{count}}）"
-    ,"No keys attached": "未关联密钥"
-    ,"Attached Teams": "已关联团队"
-    ,"No teams attached": "未关联团队"
-    ,"MCP Servers": "MCP 服务器"
-    ,"Agents": "智能体"
-    ,"No models assigned to this group": "此组未分配模型"
-    ,"No MCP servers assigned to this group": "此组未分配 MCP 服务器"
-    ,"No agents assigned to this group": "此组未分配智能体"
-    ,"No guardrails yet": "暂无防护栏"
-    ,"Add a guardrail to start filtering requests and responses.": "添加防护栏以开始过滤请求和响应。"
-    ,"Loading guardrails…": "正在加载防护栏…"
-    ,"Open guardrail actions": "打开防护栏操作"
-    ,"Config guardrails are defined in the config file and cannot be deleted from the dashboard.": "配置文件中的防护栏无法在控制台删除。"
-    ,"Guardrail ID": "防护栏 ID"
-    ,"Provider": "供应商"
-    ,"Mode": "模式"
-    ,"Default On": "默认开启"
-    ,"Default Off": "默认关闭"
-    ,"Guardrail Garden": "防护栏中心"
-    ,"Guardrails": "防护栏"
-    ,"Test Playground": "测试试用场"
-    ,"Submitted Guardrails": "已提交的防护栏"
-    ,"Add New Guardrail": "添加新防护栏"
-    ,"Add Provider Guardrail": "添加供应商防护栏"
-    ,"Create Custom Code Guardrail": "创建自定义代码防护栏"
-    ,"Delete Guardrail": "删除防护栏"
-    ,"Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.": "确定要删除防护栏“{{name}}”吗？此操作无法撤销。"
-    ,"Guardrail Information": "防护栏信息"
-    ,"Guardrail \"{{name}}\" deleted successfully": "防护栏“{{name}}”删除成功"
-    ,"Search guardrails": "搜索防护栏"
-    ,"LiteLLM Content Filter": "LiteLLM 内容过滤器"
-    ,"Show less": "收起"
-    ,"Show all ({{count}})": "查看全部（{{count}}）"
-    ,"Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost.": "由 LiteLLM 提供支持的内置防护栏。零延迟、无外部依赖且无需额外费用。"
-    ,"Partner Guardrails": "合作伙伴防护栏"
-    ,"Third-party guardrail integrations from leading AI security providers.": "来自领先 AI 安全供应商的第三方防护栏集成。"
-    ,"All Available Servers": "所有可用服务器"
-    ,"All Servers": "所有服务器"
-    ,"Personal": "个人"
-    ,"All Access Groups": "所有访问组"
-    ,"Deleted MCP Server successfully": "MCP 服务器删除成功"
-    ,"Missing required authentication parameters.": "缺少必要的身份验证参数。"
-    ,"Delete MCP Server?": "删除 MCP 服务器？"
-    ,"This action is permanent and cannot be undone. All associated configurations will be removed.": "此操作是永久性的且无法撤销，所有关联配置都将被移除。"
-    ,"ID": "ID"
-    ,"URL": "URL"
-    ,"Configure and manage your MCP servers": "配置和管理你的 MCP 服务器"
-    ,"Add New MCP Server": "添加 MCP 服务器"
-    ,"Submit MCP Server": "提交 MCP 服务器"
-    ,"Toolsets": "工具集"
-    ,"Connect": "连接"
-    ,"Semantic Filter": "语义过滤器"
-    ,"Network Settings": "网络设置"
-    ,"Submitted MCPs": "已提交的 MCP"
-    ,"Access Group": "访问组"
-    ,"About access groups": "关于访问组"
-    ,"An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers.": "MCP 访问组是一组有权限访问特定 MCP 服务器的用户或团队，可用于控制和管理谁能连接哪些服务器。"
-    ,"Search by name, alias, URL, or ID": "按名称、别名、URL 或 ID 搜索"
-    ,"Sort": "排序"
-    ,"of": "/"
-    ,"servers": "个服务器"
-    ,"Loading MCP servers...": "正在加载 MCP 服务器..."
-    ,"No MCP servers configured. Click '+ Add New MCP Server' to get started.": "尚未配置 MCP 服务器。点击“+ 添加 MCP 服务器”开始。"
-    ,"No servers match the current filters or search.": "没有服务器符合当前筛选条件或搜索内容。"
-    ,"Recently created": "最近创建"
-    ,"Recently updated": "最近更新"
-    ,"Name (A→Z)": "名称（A→Z）"
-    ,"Health (unhealthy first)": "健康状态（不健康优先）"
-    ,"No policies found": "未找到策略"
-    ,"Create a policy to bundle guardrails and apply them across teams.": "创建策略，将防护栏组合起来并应用于各个团队。"
-    ,"Loading policies…": "正在加载策略…"
-    ,"Open policy actions": "打开策略操作"
-    ,"Edit policy": "编辑策略"
-    ,"Delete policy": "删除策略"
-    ,"Config": "配置"
-    ,"Description": "描述"
-    ,"Inherits From": "继承自"
-    ,"Guardrails (Add)": "防护栏（添加）"
-    ,"Guardrails (Remove)": "防护栏（移除）"
-    ,"Model Condition": "模型条件"
-    ,"No models found": "未找到模型"
-    ,"No models match your search or filters. Try resetting them.": "没有模型符合搜索或筛选条件，请尝试重置筛选。"
-    ,"Loading models…": "正在加载模型…"
-    ,"Search model names…": "搜索模型名称…"
-    ,"Current team": "当前团队"
-    ,"View": "视图"
-    ,"Current Team Models": "当前团队模型"
-    ,"All Available Models": "所有可用模型"
-    ,"Model Settings": "模型设置"
-    ,"Filters": "筛选条件"
-    ,"Narrow down models + endpoints": "缩小模型和端点范围"
-    ,"Reset Filters": "重置筛选"
-    ,"Public Model Name": "公开模型名称"
-    ,"Filter by Public Model Name": "按公开模型名称筛选"
-    ,"All Model Access Groups": "所有模型访问组"
-    ,"Filter by Model Access Group": "按模型访问组筛选"
-    ,"No model access groups found": "未找到模型访问组"
-    ,"Wildcard Models (*)": "通配模型（*）"
-    ,"Model ID": "模型 ID"
-    ,"Model Information": "模型信息"
-    ,"Credentials": "凭据"
-    ,"About credential types": "关于凭据类型"
-    ,"Credential types": "凭据类型"
-    ,"Reusable": "可复用"
-    ,"Credentials saved in LiteLLM that can be added to models repeatedly.": "保存在 LiteLLM 中、可重复添加到模型的凭据。"
-    ,"Manual": "手动"
-    ,"Credentials added directly during model creation or defined in the config file.": "创建模型时直接添加或在配置文件中定义的凭据。"
-    ,"Created By": "创建者"
-    ,"Updated At": "更新时间"
-    ,"Costs": "成本"
-    ,"Team ID": "团队 ID"
-    ,"Model Access Group": "模型访问组"
-    ,"Status": "状态"
-    ,"DB Model": "数据库模型"
-    ,"Config Model": "配置模型"
-    ,"Actions": "操作"
-    ,"LiteLLM Model Name": "LiteLLM 模型名称"
-    ,"Copy LiteLLM model name": "复制 LiteLLM 模型名称"
-    ,"Defined in config": "在配置中定义"
-    ,"Unknown": "未知"
-    ,"Unknown date": "未知日期"
-    ,"Cost per 1M tokens": "每百万 Token 成本"
-    ,"Create guardrail": "创建防护栏"
-    ,"Guardrail Name": "防护栏名称"
-    ,"Please enter a guardrail name": "请输入防护栏名称"
-    ,"Enter a name for this guardrail": "请输入防护栏名称"
-    ,"Guardrail Provider": "防护栏供应商"
-    ,"Please select a provider": "请选择供应商"
-    ,"Select a guardrail provider": "请选择防护栏供应商"
-    ,"How the guardrail should be applied": "设置防护栏的应用方式"
-    ,"Please select a mode": "请选择模式"
-    ,"Recommended": "推荐"
-    ,"Always On": "始终开启"
-    ,"If enabled, this guardrail will be applied to all requests by default.": "启用后，此防护栏默认应用于所有请求。"
-    ,"Yes": "是"
-    ,"No": "否"
-    ,"Skip system messages in guardrail": "防护栏中跳过系统消息"
-    ,"Use global default": "使用全局默认值"
-    ,"Yes — exclude from guardrail scan": "是，排除在防护栏扫描之外"
-    ,"No — always include in scan": "否，始终包含在扫描中"
-    ,"Skip tool messages in guardrail": "防护栏中跳过工具消息"
-    ,"Call type": "调用类型"
-    ,"Select a call type": "请选择调用类型"
-    ,"More call types coming soon.": "更多调用类型即将推出。"
-    ,"End session after X violations": "违规 X 次后结束会话"
-    ,"e.g. 3": "例如 3"
-    ,"On violation": "违规时"
-    ,"Message the user hears": "用户看到的消息"
-    ,"e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.": "例如：无法继续此对话，请通过 1-800-774-2678 联系我们。"
-    ,"optional": "可选"
-    ,"Edit": "编辑"
-    ,"Previous": "上一步"
-    ,"Next": "下一步"
-    ,"Create Guardrail": "创建防护栏"
-    ,"Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).": "配置此智能体可使用的模型、智能体和 MCP 工具。留空则允许全部使用（仍受密钥和团队权限限制）。"
-    ,"Allowed Models": "允许的模型"
-    ,"Restrict which models this agent can call. Leave empty to allow all.": "限制此智能体可调用的模型，留空则允许全部。"
-    ,"Loading models...": "正在加载模型..."
-    ,"Select models (leave empty for all)": "选择模型（留空表示全部）"
-    ,"Allowed Agents (Sub-Agents)": "允许的智能体（子智能体）"
-    ,"Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all.": "限制此智能体可调用的子智能体，留空则允许全部。"
-    ,"Loading agents...": "正在加载智能体..."
-    ,"Select agents (leave empty for all)": "选择智能体（留空表示全部）"
-    ,"Allowed MCP Servers": "允许的 MCP 服务器"
-    ,"Select which MCP servers or access groups this agent can access": "选择此智能体可访问的 MCP 服务器或访问组"
-    ,"Select MCP servers or access groups (optional)": "选择 MCP 服务器或访问组（可选）"
-    ,"Tracing": "追踪"
-    ,"Require x-litellm-trace-id on calls TO this agent": "要求调用此智能体时携带 x-litellm-trace-id"
-    ,"Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).": "仅接受携带 trace-id 的智能体调用（例如作为子智能体使用时）。"
-    ,"Require x-litellm-trace-id on calls BY this agent": "要求此智能体发起调用时携带 x-litellm-trace-id"
-    ,"Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.": "要求此智能体发起的 LLM/MCP 调用携带 x-litellm-trace-id，以便进行会话追踪。"
-    ,"Budgets & Rate Limits": "预算和速率限制"
-    ,"Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits.": "请在追踪中启用“要求此智能体发起调用时携带 x-litellm-trace-id”，以配置预算和速率限制。"
-    ,"Session Budgets": "会话预算"
-    ,"Max Iterations": "最大迭代次数"
-    ,"Hard cap on LLM calls per session": "每个会话的 LLM 调用次数上限"
-    ,"Max Budget Per Session ($)": "每个会话最大预算（美元）"
-    ,"Max spend per trace before returning 429": "每次追踪在返回 429 前允许的最大花费"
-    ,"Agent Rate Limits": "智能体速率限制"
-    ,"Global rate limits applied across all callers of this agent.": "应用于所有调用此智能体的调用方的全局速率限制。"
-    ,"TPM Limit": "TPM 限制"
-    ,"RPM Limit": "RPM 限制"
-    ,"Per-Session Rate Limits": "每会话速率限制"
-    ,"Rate limits per session (x-litellm-trace-id). Each session gets its own counters.": "每个会话的速率限制（x-litellm-trace-id），每个会话使用独立计数器。"
-    ,"Session TPM Limit": "会话 TPM 限制"
-    ,"Session RPM Limit": "会话 RPM 限制"
-    ,"Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.": "为此智能体应用防护栏，所选防护栏将在此智能体发起的所有调用中运行。"
-    ,"Agent Type": "智能体类型"
-    ,"Select the type of agent you want to create": "选择要创建的智能体类型"
-    ,"Not listed?": "未找到所需类型？"
-    ,"Custom / Other": "自定义 / 其他"
-    ,"For agents that don't follow a standard protocol — just needs a virtual key": "适用于不遵循标准协议的智能体，只需要虚拟密钥"
-    ,"Please enter an agent name": "请输入智能体名称"
-    ,"e.g. my-custom-agent": "例如 my-custom-agent"
-    ,"Describe what this agent does…": "描述此智能体的功能…"
-    ,"Assign to Team": "分配给团队"
-    ,"Optionally assign this agent to a team. The agent and its key will belong to the selected team.": "可选，将此智能体分配给团队，智能体及其密钥将归属于所选团队。"
-    ,"Create a new key for this agent": "为此智能体创建新密钥"
-    ,"A dedicated key scoped to this agent.": "专用于此智能体的密钥。"
-    ,"Key Name": "密钥名称"
-    ,"e.g. my-agent-key": "例如 my-agent-key"
-    ,"Assign an existing key": "分配现有密钥"
-    ,"Re-assign a key you already have to this agent.": "将已有密钥重新分配给此智能体。"
-    ,"Search by key name…": "按密钥名称搜索…"
-    ,"Skip for now — I'll assign a key later": "暂时跳过，稍后再分配密钥"
-    ,"Agent Created!": "智能体已创建！"
-    ,"Key": "密钥"
-    ,"has been assigned to this agent.": "已分配给此智能体。"
-    ,"No key assigned. You can create one from the Virtual Keys page.": "未分配密钥，你可以在虚拟密钥页面创建。"
-    ,"Add New Agent": "添加新智能体"
-    ,"Entitlements": "授权范围"
-    ,"Governance": "治理"
-    ,"Agent Management": "智能体管理"
-    ,"Ready": "完成"
-    ,"← Back": "← 返回"
-    ,"Create Agent →": "创建智能体 →"
-    ,"Creating...": "正在创建..."
-    ,"Done": "完成"
-    ,"Failed to load agent information": "加载智能体信息失败"
-    ,"Agent updated successfully": "智能体更新成功"
-    ,"Failed to update agent": "更新智能体失败"
-    ,"Agent not found": "未找到智能体"
-    ,"Back to Agents List": "返回智能体列表"
-    ,"Back to Agent": "返回智能体"
-    ,"Back to Agents": "返回智能体列表"
-    ,"Overview": "概览"
-    ,"Settings": "设置"
-    ,"Display Name": "显示名称"
-    ,"Protocol Version": "协议版本"
-    ,"Streaming": "流式传输"
-    ,"Push Notifications": "推送通知"
-    ,"State Transition History": "状态转换历史"
-    ,"configured": "已配置"
-    ,"Make Public": "设为公开"
-    ,"Icon URL": "图标 URL"
-    ,"Documentation URL": "文档 URL"
-    ,"Unlimited": "无限制"
-    ,"MCP Tool Permissions": "MCP 工具权限"
-    ,"MCP Access Groups": "MCP 访问组"
-    ,"Tool permissions per server": "每个服务器的工具权限"
-    ,"Tags": "标签"
-    ,"Examples": "示例"
-    ,"Agent Settings": "智能体设置"
-    ,"Edit Settings": "编辑设置"
-    ,"Rate Limits": "速率限制"
-    ,"Save Changes": "保存更改"
-    ,"Click \"Edit Settings\" to modify agent configuration.": "点击“编辑设置”修改智能体配置。"
-    ,"About Policies": "关于策略"
-    ,"Use policies to group guardrails and control which ones run for specific teams, keys, or models.": "使用策略组合防护栏，并控制哪些防护栏应用于特定团队、密钥或模型。"
-    ,"Why use policies?": "为什么使用策略？"
-    ,"Enable/disable specific guardrails for teams, keys, or models": "为团队、密钥或模型启用/禁用特定防护栏"
-    ,"Group guardrails into a single policy": "将多个防护栏组合到一个策略中"
-    ,"Inherit from existing policies and override what you need": "继承现有策略并按需覆盖"
-    ,"Learn more in the documentation ->": "在文档中了解更多 ->"
-    ,"Failed to fetch policies": "获取策略失败"
-    ,"Failed to fetch attachments": "获取附件失败"
-    ,"Policy \"{{name}}\" deleted successfully": "策略“{{name}}”删除成功"
-    ,"Failed to delete policy": "删除策略失败"
-    ,"Authentication required": "需要身份验证"
-    ,"Failed to load guardrails. Please try again.": "加载防护栏失败，请重试。"
-    ,"Failed to configure template. Please try again.": "配置模板失败，请重试。"
-    ,"Created {{count}} guardrails! Complete the policy form to save.": "已创建 {{count}} 个防护栏！请完成策略表单以保存。"
-    ,"Template ready! Complete the policy form to save.": "模板已准备就绪！请完成策略表单以保存。"
-    ,"Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually.": "创建 {{count}} 个防护栏失败：{{names}}。你可能需要手动创建。"
-    ,"Failed to create guardrails. Please try again.": "创建防护栏失败，请重试。"
-    ,"Templates": "模板"
-    ,"Policies": "策略"
-    ,"Attachments": "附件"
-    ,"Policy Simulator": "策略模拟器"
-    ,"Add New Policy": "添加新策略"
-    ,"Delete Policy": "删除策略"
-    ,"Are you sure you want to delete policy: {{name}}? This action cannot be undone.": "确定要删除策略“{{name}}”吗？此操作无法撤销。"
-    ,"Policy Information": "策略信息"
-    ,"About Policy Attachments": "关于策略附件"
-    ,"Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally.": "策略附件控制策略的应用范围。策略必须关联到特定团队、密钥、模型、标签或全局后才会生效。"
-    ,"Attachment Scopes:": "附件范围："
-    ,"Global (*)": "全局（*）"
-    ,"Applies to all requests": "应用于所有请求"
-    ,"Teams": "团队"
-    ,"Applies only to specific teams": "仅应用于特定团队"
-    ,"Keys": "密钥"
-    ,"Applies only to specific API keys (supports wildcards like dev-*)": "仅应用于特定 API 密钥（支持 dev-* 等通配符）"
-    ,"Models": "模型"
-    ,"Applies only when specific models are used": "仅在使用特定模型时应用"
-    ,"Learn more about attachments ->": "了解更多附件信息 ->"
-    ,"Enterprise Feature Notice": "企业版功能提示"
-    ,"Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases.": "策略附件的部分功能将在后续版本中提供给 LiteLLM 企业版。"
-    ,"Add New Attachment": "添加新附件"
-    ,"Delete Attachment": "删除附件"
-    ,"Are you sure you want to delete this attachment? This action cannot be undone.": "确定要删除此附件吗？此操作无法撤销。"
-    ,"Attachment Information": "附件信息"
-    ,"Attachment ID": "附件 ID"
-    ,"Policy": "策略"
-    ,"Scope": "范围"
-    ,"Server Configuration": "服务器配置"
-    ,"Cost Configuration": "成本配置"
-    ,"MCP Server Name": "MCP 服务器名称"
-    ,"Alias": "别名"
-    ,"Transport Type": "传输类型"
-    ,"Streamable HTTP (Recommended)": "可流式 HTTP（推荐）"
-    ,"Server-Sent Events (SSE)": "服务器发送事件（SSE）"
-    ,"Standard Input/Output (stdio)": "标准输入/输出（stdio）"
-    ,"OpenAPI Spec": "OpenAPI 规范"
-    ,"MCP Server URL": "MCP 服务器 URL"
-    ,"https://your-mcp-server.com": "https://your-mcp-server.com"
-    ,"OpenAPI Spec URL": "OpenAPI 规范 URL"
-    ,"Max Concurrent Requests (optional)": "最大并发请求数（可选）"
-    ,"e.g. 10": "例如 10"
-    ,"Authentication": "身份验证"
-    ,"None": "无"
-    ,"API Key": "API 密钥"
-    ,"Bearer Token": "Bearer Token"
-    ,"Token": "Token"
-    ,"Basic Auth": "基本身份验证"
-    ,"OAuth": "OAuth"
-    ,"Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.": "配置用于启动 MCP 服务器进程的 stdio 传输。你可以填写以下字段，或粘贴 JSON 配置。"
-    ,"Command": "命令"
-    ,"e.g., npx": "例如 npx"
-    ,"Args": "参数"
-    ,"Add args (press enter or comma)": "添加参数（按 Enter 或逗号）"
-    ,"Cost Tracking Settings": "成本追踪设置"
-    ,"Configure cost discounts and margins for different LLM providers. Changes are saved automatically.": "为不同 LLM 供应商配置成本折扣和加价，修改会自动保存。"
-    ,"Provider Discounts": "供应商折扣"
-    ,"Apply percentage-based discounts to reduce costs for specific providers": "为特定供应商应用百分比折扣以降低成本"
-    ,"Discounts": "折扣"
-    ,"Test It": "测试"
-    ,"Add Provider Discount": "添加供应商折扣"
-    ,"Loading configuration...": "正在加载配置..."
-    ,"No provider discounts configured": "尚未配置供应商折扣"
-    ,"Click \"Add Provider Discount\" to get started": "点击“添加供应商折扣”开始"
-    ,"Fee/Price Margin": "费用/价格加价"
-    ,"Add fees or margins to LLM costs for internal billing and cost recovery": "为 LLM 成本增加费用或加价，用于内部计费和成本回收"
-    ,"Add Provider Margin": "添加供应商加价"
-    ,"No provider margins configured": "尚未配置供应商加价"
-    ,"Click \"Add Provider Margin\" to get started": "点击“添加供应商加价”开始"
-    ,"Pricing Calculator": "价格计算器"
-    ,"Estimate LLM costs based on expected token usage and request volume": "根据预计 Token 用量和请求量估算 LLM 成本"
-    ,"Remove Provider Discount": "移除供应商折扣"
-    ,"Remove Provider Margin": "移除供应商加价"
-    ,"Are you sure you want to remove the {{noun}} for {{name}}?": "确定要移除 {{name}} 的{{noun}}吗？"
-    ,"Remove": "移除"
-    ,"Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount).": "选择供应商并设置折扣百分比，输入 0% 到 100% 之间的值（例如 5 表示 5% 折扣）。"
-    ,"Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount.": "选择供应商（或选择“Global”应用于所有供应商）并配置加价，可使用百分比或固定金额。"
-    ,"Global Usage": "全局用量"
-    ,"Your Usage": "我的用量"
-    ,"Organization Usage": "组织用量"
-    ,"Team Usage": "团队用量"
-    ,"Customer Usage": "客户用量"
-    ,"Tag Usage": "标签用量"
-    ,"Agent Usage (A2A)": "智能体用量（A2A）"
-    ,"User Usage": "用户用量"
-    ,"User Agent Activity": "用户智能体活动"
-    ,"View usage across all resources": "查看所有资源的用量"
-    ,"View your usage": "查看你的用量"
-    ,"View your own usage": "查看你自己的用量"
-    ,"View usage across all organizations": "查看所有组织的用量"
-    ,"View usage by team": "按团队查看用量"
-    ,"View usage by customer accounts": "按客户账户查看用量"
-    ,"View usage grouped by tags": "按标签分组查看用量"
-    ,"View usage by AI agents": "按 AI 智能体查看用量"
-    ,"View usage by individual users": "按用户查看用量"
-    ,"View detailed user agent activity logs": "查看详细的用户智能体活动日志"
-    ,"Usage View": "用量视图"
-    ,"Select the usage data you want to view": "选择要查看的用量数据"
-    ,"Public Model Name": "公开模型名称"
-    ,"Litellm Model Name": "LiteLLM 模型名称"
-    ,"Model": "模型"
-    ,"Spend (USD)": "花费（美元）"
-    ,"Successful": "成功"
-    ,"Failed": "失败"
-    ,"Tokens": "Token 数"
-    ,"Spend": "花费"
-    ,"Gateway Requests by Endpoint": "按端点统计网关请求"
-    ,"Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.": "每次请求由网关中间件响应时计数，覆盖整个部署中的 LLM、MCP 和 A2A 端点。"
-    ,"Table View": "表格视图"
-    ,"Chart View": "图表视图"
-    ,"Provider": "供应商"
-    ,"Spend by Provider": "按供应商统计花费"
-    ,"Show Zero Spend": "显示零花费"
-    ,"Show Unknown": "显示未知项"
-    ,"Requests that failed to route to a provider": "未能路由到供应商的请求"
-    ,"No provider usage data": "暂无供应商用量数据"
-    ,"Endpoint": "端点"
-    ,"Successful / Failed": "成功 / 失败"
-    ,"Successful requests": "成功请求"
-    ,"Total Request": "请求总数"
-    ,"Success Rate": "成功率"
-    ,"Total Tokens": "Token 总数"
-    ,"No endpoint usage data": "暂无端点用量数据"
-    ,"Success vs Failed Requests by Endpoint": "各端点成功与失败请求"
-    ,"Endpoint Usage Trends": "端点用量趋势"
-    ,"Filter by user": "按用户筛选"
-    ,"Select user to filter...": "选择用户进行筛选..."
-    ,"Cost": "成本"
-    ,"Model Activity": "模型活动"
-    ,"Key Activity": "密钥活动"
-    ,"MCP Server Activity": "MCP 服务器活动"
-    ,"Endpoint Activity": "端点活动"
-    ,"Ask AI": "询问 AI"
-    ,"Export Data": "导出数据"
-    ,"Project Spend": "项目花费"
-    ,"Usage Metrics": "用量指标"
-    ,"Total Requests": "请求总数"
-    ,"Successful Requests": "成功请求数"
-    ,"Failed Requests": "失败请求数"
-    ,"Average Cost per Request": "平均每请求成本"
-    ,"Input Tokens": "输入 Token"
-    ,"Output Tokens": "输出 Token"
-    ,"Cache Read Tokens": "缓存读取 Token"
-    ,"Cache Write Tokens": "缓存写入 Token"
-    ,"Daily Spend": "每日花费"
-    ,"Top Virtual Keys": "花费最高的虚拟密钥"
-    ,"Top Public Model Names": "花费最高的公开模型"
-    ,"Top Litellm Models": "花费最高的 LiteLLM 模型"
-    ,"Reusable credentials are automatically tracked as tags": "可复用凭据会自动作为标签进行追踪"
-    ,"in this view.": "显示在此视图中。"
-    ,"Export Usage Data": "导出用量数据"
-    ,"Stop": "停止"
-    ,"Currently fetching spend data: fetched": "正在获取花费数据，已获取"
-    ,"of this page will stop and reset this. To continue using the UI in the meantime,": "离开此页面会停止并重置。你可以同时继续使用界面，"
-    ,"open a new tab": "打开新标签页"
-    ,"Showing partial data ({{current}}/{{total}} pages loaded)": "当前显示部分数据（已加载 {{current}}/{{total}} 页）"
-    ,"Filter by {{entity}}": "按 {{entity}} 筛选"
-    ,"Select {{entity}} to filter...": "选择 {{entity}} 进行筛选..."
-    ,"Request cost": "请求成本"
-    ,"Flat cost": "固定成本"
-    ,"Total Spend": "总花费"
-    ,"Requests": "请求数"
-    ,"Spend by {{entity}}": "按 {{entity}} 统计花费"
-    ,"Spend Per {{entity}}": "每个 {{entity}} 的花费"
-    ,"Showing Top 5 by Spend": "显示花费最高的 5 项"
-    ,"Get Started by Tracking cost per {{entity}}": "开始追踪每个 {{entity}} 的成本"
-    ,"Top Agents": "花费最高的智能体"
-    ,"Top Agents Driving Spend": "消耗花费最多的智能体"
-    ,"Provider Usage": "供应商用量"
-    ,"{{entity}} Spend Overview": "{{entity}} 花费概览"
-    ,"Request / Token Consumption": "请求 / Token 消耗"
-    ,"Agent Activity": "智能体活动"
-    ,"Filter by team": "按团队筛选"
-    ,"Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.": "包括未能路由到供应商的请求、工具使用失败以及无法确定供应商的其他请求错误。"
-    ,"Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.": "由网关在响应请求时统计，与花费日志无关。该数据覆盖整个部署，因此不会与下方按密钥或模型的明细一致。"
-    ,"Simple Mode": "简单模式"
-    ,"Pick guardrails from a list. All run in parallel.": "从列表中选择 Guardrail，所有 Guardrail 将并行运行。"
-    ,"NEW": "新功能"
-    ,"Flow Builder": "流程构建器"
-    ,"Define steps, conditions, and error responses.": "定义步骤、条件和错误响应。"
-    ,"Create New Policy": "创建新策略"
-    ,"You'll be redirected to the full-screen Flow Builder to design your policy logic visually.": "你将跳转到全屏流程构建器，以可视化方式设计策略逻辑。"
-    ,"Continue to Builder": "继续使用构建器"
-    ,"Edit Policy": "编辑策略"
-    ,"Policy Name": "策略名称"
-    ,"Please enter a policy name": "请输入策略名称"
-    ,"Policy name can only contain letters, numbers, hyphens, and underscores": "策略名称只能包含字母、数字、连字符和下划线"
-    ,"e.g., global-baseline, healthcare-compliance": "例如：global-baseline、healthcare-compliance"
-    ,"Description": "描述"
-    ,"Describe what this policy does...": "描述此策略的作用..."
-    ,"Inheritance": "继承"
-    ,"Inherit From": "继承自"
-    ,"Inherit guardrails from another policy. The child policy will include all guardrails from the parent.": "从其他策略继承 Guardrail，子策略将包含父策略的所有 Guardrail。"
-    ,"Select a parent policy (optional)": "选择父策略（可选）"
-    ,"Guardrails": "Guardrail"
-    ,"Guardrails to Add": "要添加的 Guardrail"
-    ,"These guardrails will be added to requests matching this policy": "匹配此策略的请求将添加这些 Guardrail"
-    ,"Select guardrails to add": "选择要添加的 Guardrail"
-    ,"Guardrails to Remove": "要移除的 Guardrail"
-    ,"These guardrails will be removed from inherited guardrails": "这些 Guardrail 将从继承的 Guardrail 中移除"
-    ,"Select guardrails to remove (from inherited)": "选择要移除的 Guardrail（来自继承项）"
-    ,"Resolved Guardrails": "解析后的 Guardrail"
-    ,"These are the final guardrails that will be applied (including inheritance):": "以下是最终应用的 Guardrail（包括继承项）："
-    ,"Conditions (Optional)": "条件（可选）"
-    ,"Model Scope": "模型范围"
-    ,"By default, this policy will run on all models. You can optionally restrict it to specific models below.": "默认情况下，此策略将在所有模型上运行，你也可以在下方限制为特定模型。"
-    ,"Model Condition Type": "模型条件类型"
-    ,"Select Model": "选择模型"
-    ,"Custom Regex Pattern": "自定义正则表达式"
-    ,"Model (Optional)": "模型（可选）"
-    ,"Regex Pattern (Optional)": "正则表达式（可选）"
-    ,"Select a specific model to apply this policy to. Leave empty to apply to all models.": "选择应用此策略的特定模型，留空则应用于所有模型。"
-    ,"Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models.": "输入用于匹配模型的正则表达式（例如 gpt-4.* 或 bedrock/.*），留空则应用于所有模型。"
-    ,"Leave empty to apply to all models": "留空则应用于所有模型"
-    ,"Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)": "留空则应用于所有模型（例如 gpt-4.* 或 bedrock/claude-.*）"
-    ,"Update Policy": "更新策略"
-    ,"Create Policy Attachment": "创建策略附件"
-    ,"Policies": "策略"
-    ,"Please select at least one policy": "请至少选择一个策略"
-    ,"Select policies to attach": "选择要关联的策略"
-    ,"Scope Type": "范围类型"
-    ,"Specific (teams, keys, models, or tags)": "特定范围（团队、密钥、模型或标签）"
-    ,"Global (applies to all requests)": "全局（应用于所有请求）"
-    ,"Teams": "团队"
-    ,"Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)": "选择团队别名或输入自定义模式，支持通配符（例如 healthcare-*）"
-    ,"Loading teams...": "正在加载团队..."
-    ,"Select or enter team aliases": "选择或输入团队别名"
-    ,"Keys": "密钥"
-    ,"Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)": "选择密钥别名或输入自定义模式，支持通配符（例如 dev-*）"
-    ,"Loading keys...": "正在加载密钥..."
-    ,"Select or enter key aliases": "选择或输入密钥别名"
-    ,"Models": "模型"
-    ,"Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.": "此附件适用的模型名称，支持通配符（例如 gpt-4*），留空则应用于所有模型。"
-    ,"Loading models...": "正在加载模型..."
-    ,"Select or enter model names (e.g., gpt-4, bedrock/*)": "选择或输入模型名称（例如 gpt-4、bedrock/*）"
-    ,"Tags": "标签"
-    ,"Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.": "匹配密钥或团队元数据中的标签，可使用精确值（例如 healthcare）或通配符模式（例如 health-*），其中 * 匹配任意后缀。"
-    ,"Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).": "匹配密钥/团队 metadata.tags 或请求体中动态传入的标签，可使用 * 后缀通配符（例如 prod-* 匹配 prod-us、prod-eu）。"
-    ,"Type a tag and press Enter (e.g. healthcare, prod-*)": "输入标签并按 Enter（例如 healthcare、prod-*）"
-    ,"Estimate Impact": "估算影响"
-    ,"Create Attachment": "创建附件"
-    ,"Add blocked keyword": "添加屏蔽关键词"
-    ,"Keyword": "关键词"
-    ,"Enter sensitive keyword or phrase": "输入敏感关键词或短语"
-    ,"Action": "操作"
-    ,"Choose what action the guardrail should take when this keyword is detected": "选择检测到此关键词时 Guardrail 应采取的操作"
-    ,"Description (optional)": "描述（可选）"
-    ,"Explain why this keyword is sensitive": "说明此关键词敏感的原因"
-    ,"Add prebuilt pattern": "添加预置正则"
-    ,"Pattern type": "正则类型"
-    ,"Choose pattern type": "选择正则类型"
-    ,"No matching patterns": "没有匹配的正则"
-    ,"Choose what action the guardrail should take when this pattern is detected": "选择检测到此正则时 Guardrail 应采取的操作"
-    ,"Add custom regex pattern": "添加自定义正则"
-    ,"Pattern name": "正则名称"
-    ,"e.g., internal_id, employee_code": "例如：internal_id、employee_code"
-    ,"Regex pattern": "正则表达式"
-    ,"e.g., ID-[0-9]{6}": "例如：ID-[0-9]{6}"
-    ,"Enter a valid regular expression to match sensitive data": "输入有效的正则表达式以匹配敏感数据"
-    ,"Delete": "删除"
-    ,"No keywords added.": "尚未添加关键词。"
-    ,"Type": "类型"
-    ,"Prebuilt": "预置"
-    ,"Custom": "自定义"
-    ,"No patterns added.": "尚未添加正则。"
-    ,"Category": "分类"
-    ,"Severity Threshold": "严重程度阈值"
-    ,"No categories configured.": "尚未配置分类。"
-    ,"Content Categories": "内容分类"
-    ,"categories configured": "已配置 {{count}} 个分类"
-    ,"patterns configured": "已配置 {{count}} 个正则"
-    ,"keywords configured": "已配置 {{count}} 个关键词"
-    ,"Pattern Detection": "正则检测"
-    ,"Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)": "使用正则检测敏感信息（社保号、信用卡、API 密钥等）"
-    ,"Add custom regex": "添加自定义正则"
-    ,"Blocked Keywords": "屏蔽关键词"
-    ,"Block or mask specific sensitive terms and phrases": "屏蔽或掩码特定敏感词和短语"
-    ,"Add keyword": "添加关键词"
-    ,"Upload YAML file": "上传 YAML 文件"
-    ,"Content Filter Configuration": "内容过滤配置"
-    ,"You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom.": "正则或关键词有未保存的更改，请记得点击底部的“保存更改”。"
-    ,"Add Model": "添加模型"
-    ,"Select Team": "选择团队"
-    ,"Please select a team to continue": "请选择团队后继续"
-    ,"Select the team for which you want to add this model": "选择要添加此模型的团队"
-    ,"Team Selection Required": "需要选择团队"
-    ,"As a team admin, you need to select your team first before adding models.": "作为团队管理员，添加模型前需要先选择团队。"
-    ,"Required": "必填"
-    ,"Provider:": "供应商："
-    ,"E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.": "例如 OpenAI、Azure OpenAI、Anthropic、Bedrock 等。"
-    ,"Loading providers...": "正在加载供应商..."
-    ,"Select a provider": "选择供应商"
-    ,"Mode": "模式"
-    ,"Optional": "可选"
-    ,"LiteLLM endpoint to use when health checking this model": "健康检查此模型时使用的 LiteLLM 端点"
-    ,"Learn more": "了解更多"
-    ,"Either select existing credentials OR enter new provider credentials below": "选择已有凭据，或在下方输入新的供应商凭据"
-    ,"Existing Credentials": "已有凭据"
-    ,"Select or search for existing credentials": "选择或搜索已有凭据"
-    ,"OR": "或"
-    ,"Additional Model Info Settings": "其他模型信息设置"
-    ,"Team-BYOK Model": "团队 BYOK 模型"
-    ,"Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.": "仅允许此团队使用该模型与凭据组合，适用于团队接入自己的 OpenAI 密钥。"
-    ,"This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.": "此功能仅限企业版，升级 Premium 后可将模型与凭据组合限制到指定团队。"
-    ,"Please select a team.": "请选择团队。"
-    ,"Only keys for this team will be able to call this model.": "只有该团队的密钥可以调用此模型。"
-    ,"Model Access Group": "模型访问组"
-    ,"Use model access groups to give users access to select models, and add new ones to the group over time.": "使用模型访问组为用户提供指定模型的访问权限，并可随时向组中添加模型。"
-    ,"Select existing groups or type to create new ones": "选择已有组或输入以创建新组"
-    ,"Get help on our github": "在 GitHub 上获取帮助"
-    ,"Need Help?": "需要帮助？"
-    ,"Test Connect": "测试连接"
-    ,"Connection Test Results": "连接测试结果"
-    ,"Discount Percentage": "折扣百分比"
-    ,"Actions": "操作"
-    ,"Save discount for": "保存折扣："
-    ,"Cancel editing discount for": "取消编辑折扣："
-    ,"Edit discount for": "编辑折扣："
-    ,"Remove discount for": "移除折扣："
-    ,"Global (All Providers)": "全局（所有供应商）"
-    ,"Margin": "加价"
-    ,"Save margin for": "保存加价："
-    ,"Cancel editing margin for": "取消编辑加价："
-    ,"Edit margin for": "编辑加价："
-    ,"Remove margin for": "移除加价："
-    ,"Per Day": "每天"
-    ,"Per Month": "每月"
-    ,"Day": "天"
-    ,"Month": "月"
-    ,"Select a model": "选择模型"
-    ,"Remove model row": "移除模型行"
-    ,"Add Another Model": "添加另一个模型"
-    ,"Filter": "筛选"
-    ,"Ask about your spend, models, keys, and trends": "询问花费、模型、密钥和趋势"
-    ,"Select a model (optional, defaults to gpt-4o-mini)": "选择模型（可选，默认为 gpt-4o-mini）"
-    ,"Loading models…": "正在加载模型…"
-    ,"No models found": "未找到模型"
-    ,"Ask a question about your usage": "询问有关用量的问题"
-    ,"Thinking...": "思考中..."
-    ,"Ask about your usage...": "询问有关用量的问题..."
-    ,"Send": "发送"
-    ,"Clear chat": "清空对话"
-    ,"Enter to send": "按 Enter 发送"
-    ,"Request cost": "请求成本"
-    ,"Flat cost": "固定成本"
-    ,"Total cost": "总成本"
-    ,"Total {{entity}}s": "{{entity}}总数"
-    ,"...and {{count}} more": "...还有 {{count}} 项"
-    ,"Blocked topics": "屏蔽主题"
-    ,"Select a content category": "选择内容分类"
-    ,"No matching categories": "没有匹配的分类"
-    ,"Preview": "预览"
-    ,"Unable to load category content": "无法加载分类内容"
-    ,"View {{type}} for": "查看以下内容的 {{type}}："
-    ,"Content will load when expanded": "展开后加载内容"
-    ,"No blocked topics selected. Add topics to detect and block harmful content.": "尚未选择屏蔽主题，请添加主题以检测并屏蔽有害内容。"
-    ,"Competitor Intent Filter": "竞品意图过滤器"
-    ,"Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list.": "拦截或改写竞品比较问题。启用后，航空公司类型会从 IATA 自动加载竞品，通用类型需要手动填写竞品列表。"
-    ,"Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list.": "拦截或改写竞品比较问题。航空公司类型使用主要航空公司（排除你的品牌），通用类型需要手动填写竞品列表。"
-    ,"Airline (auto-load competitors from IATA)": "航空公司（从 IATA 自动加载竞品）"
-    ,"Generic (specify competitors manually)": "通用（手动指定竞品）"
-    ,"Your Brand (brand_self)": "你的品牌（brand_self）"
-    ,"Select your airline from the list (excluded from competitors) or type to add a custom term": "从列表中选择你的航空公司（将从竞品中排除），或输入自定义词条"
-    ,"Names/codes users use for your brand": "用户用于称呼你品牌的名称或代码"
-    ,"Loading airlines...": "正在加载航空公司..."
-    ,"Search or select airline, or type to add custom": "搜索或选择航空公司，或输入自定义词条"
-    ,"Type and press Enter to add": "输入后按 Enter 添加"
-    ,"Locations (optional)": "位置（可选）"
-    ,"Countries, cities, airports for disambiguation (e.g. qatar, doha)": "用于消歧的国家、城市或机场（例如 qatar、doha）"
-    ,"Competitors": "竞品"
-    ,"Competitor names to detect (required for generic type)": "要检测的竞品名称（通用类型必填）"
-    ,"Policy: Competitor comparison": "策略：竞品比较"
-    ,"Policy: Possible competitor comparison": "策略：可能的竞品比较"
-    ,"Refuse (block request)": "拒绝（拦截请求）"
-    ,"Reframe (suggest alternative)": "改写（建议替代方案）"
-    ,"Reframe (suggest alternative to backend LLM)": "改写（向后端 LLM 建议替代方案）"
-    ,"Confidence thresholds": "置信度阈值"
-    ,"Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent.": "按置信度（0–1）分类竞品意图。置信度越高，意图越强。"
-    ,"High (≥)": "高（≥）"
-    ,"Medium (≥)": "中（≥）"
-    ,"Low (≥)": "低（≥）"
-    ,"Treat as full competitor comparison -> uses \"Competitor comparison\" policy": "视为完整竞品比较，使用“竞品比较”策略"
-    ,"Treat as possible comparison -> uses \"Possible competitor comparison\" policy": "视为可能的竞品比较，使用“可能的竞品比较”策略"
-    ,"Log only; allow request. Below Low -> allow with no action": "仅记录并允许请求。低于低阈值时允许请求且不采取操作"
-    ,"Raise thresholds to be more permissive; lower them to be stricter.": "提高阈值会更宽松，降低阈值会更严格。"
-    ,"Advanced Settings": "高级设置"
-    ,"Custom Pricing": "自定义定价"
-    ,"Attached Knowledge Bases (RAG)": "已关联知识库（RAG）"
-    ,"Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.": "用于 RAG 的向量存储，每次请求此模型时都会自动从这些知识库检索上下文。"
-    ,"Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.": "选择要关联的向量存储，此模型的请求将自动使用它们进行 RAG。请在工具 > 向量存储中完成设置。"
-    ,"Select knowledge bases (optional)": "选择知识库（可选）"
-    ,"Apply safety guardrails to this key to filter content or enforce policies": "为此密钥应用安全 Guardrail，以过滤内容或执行策略"
-    ,"Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.": "选择已有 Guardrail，前往“Guardrail”选项卡创建新的 Guardrail。"
-    ,"Select or enter guardrails": "选择或输入 Guardrail"
-    ,"Select or enter tags": "选择或输入标签"
-    ,"PTU Count": "PTU 数量"
-    ,"Calculated Cost per PTU / Hour (USD)": "每 PTU 每小时计算成本（美元）"
-    ,"PTU Effective From (UTC)": "PTU 生效时间（UTC）"
-    ,"PTU Effective To (UTC)": "PTU 失效时间（UTC）"
-    ,"Pricing Model": "定价模型"
-    ,"Per Million Tokens": "每百万 Token"
-    ,"Per Second": "每秒"
-    ,"Input Cost (per 1M tokens)": "输入成本（每百万 Token）"
-    ,"Output Cost (per 1M tokens)": "输出成本（每百万 Token）"
-    ,"Cache Read Cost (per 1M tokens)": "缓存读取成本（每百万 Token）"
-    ,"Cache Write Cost (per 1M tokens)": "缓存写入成本（每百万 Token）"
-    ,"Cost Per Second": "每秒成本"
-    ,"Use in pass through routes": "用于透传路由"
-    ,"Allow using these credentials in pass through routes.": "允许在透传路由中使用这些凭据。"
-    ,"LiteLLM Params": "LiteLLM 参数"
-    ,"Optional litellm params used for making a litellm.completion() call.": "用于调用 litellm.completion() 的可选 LiteLLM 参数。"
-    ,"Pass JSON of litellm supported params": "传入 LiteLLM 支持的参数 JSON"
-    ,"Loading provider fields...": "正在加载供应商字段..."
-    ,"Failed to load provider credential fields": "加载供应商凭据字段失败"
-    ,"Click to Upload": "点击上传"
-    ,"Give a gcp service account(.json file)": "提供 GCP 服务账号（.json 文件）"
-    ,"The actual model your azure deployment uses. Used for accurate cost tracking. Select name from": "Azure 部署实际使用的模型，用于准确的成本追踪，请从此处选择名称"
-    ,"here": "此处"
-    ,"General Info": "基本信息"
-    ,"Group Name": "组名称"
-    ,"Please enter the access group name": "请输入访问组名称"
-    ,"e.g. Engineering Team": "例如：工程团队"
-    ,"Describe the purpose of this access group...": "描述此访问组的用途..."
-    ,"Allowed Models": "允许的模型"
-    ,"Allowed MCP Servers": "允许的 MCP 服务器"
-    ,"Select MCP servers": "选择 MCP 服务器"
-    ,"Allowed Agents": "允许的智能体"
-    ,"Select agents": "选择智能体"
-    ,"Access group created successfully": "访问组创建成功"
-    ,"Create Group": "创建组"
-    ,"Access group updated successfully": "访问组更新成功"
-    ,"Open access group actions": "打开访问组操作"
-    ,"Delete access group": "删除访问组"
-    ,"SSO Settings": "SSO 设置"
-    ,"Security Settings": "安全设置"
-    ,"SSO Configuration Deprecated": "SSO 配置已弃用"
-    ,"Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration.": "此页面上的 SSO 设置已弃用，并将在未来版本中移除。请使用 SSO 设置选项卡配置 SSO。"
-    ,"Edit SSO Settings": "编辑 SSO 设置"
-    ,"Add SSO": "添加 SSO"
-    ,"Allowed IPs": "允许的 IP"
-    ,"UI Access Control": "界面访问控制"
-    ,"Manage Allowed IP Addresses": "管理允许的 IP 地址"
-    ,"Add IP Address": "添加 IP 地址"
-    ,"IP Address": "IP 地址"
-    ,"Action": "操作"
-    ,"Add Allowed IP Address": "添加允许的 IP 地址"
-    ,"Please enter an IP address": "请输入 IP 地址"
-    ,"Enter IP address": "输入 IP 地址"
-    ,"Confirm Delete": "确认删除"
-    ,"Yes": "是"
-    ,"Are you sure you want to delete the IP address: {{ip}}?": "确定要删除 IP 地址 {{ip}} 吗？"
-    ,"UI Access Control Settings": "界面访问控制设置"
-    ,"Login without SSO": "不使用 SSO 登录"
-    ,"If you need to login without sso, you can access": "如果需要不使用 SSO 登录，可以访问"
-    ,"SCIM": "SCIM"
-    ,"UI Settings": "界面设置"
-    ,"Logging Settings": "日志设置"
-    ,"Hashicorp Vault": "Hashicorp Vault"
-    ,"Plugins": "插件"
-    ,"Admin Access": "管理员访问"
-    ,"Go to 'Internal Users' page to add other admins.": "前往“内部用户”页面添加其他管理员。"
-    ,"IP address added successfully": "IP 地址添加成功"
-    ,"IP address deleted successfully": "IP 地址删除成功"
-    ,"UI Access Control settings updated successfully": "界面访问控制设置更新成功"
-    ,"less": "收起"
-    ,"more": "展开"
-    ,"status": "状态"
-    ,"created": "创建时间"
-    ,"pr": "PR"
-    ,"type": "类型"
-    ,"step": "步骤"
-    ,"seq": "序号"
-    ,"time": "时间"
-    ,"data": "数据"
-    ,"No events recorded": "暂无事件记录"
-    ,"Run": "运行"
-    ,"Workflow Runs": "工作流运行"
-    ,"Durable state tracking for agents and automated workflows": "跟踪智能体和自动化工作流的持久状态"
-    ,"Loading workflow runs…": "正在加载工作流运行…"
-    ,"No workflow runs yet": "暂无工作流运行"
-    ,"Search runs…": "搜索运行记录…"
-    ,"Narrow down workflow runs": "缩小工作流运行范围"
-    ,"All statuses": "全部状态"
-    ,"pending": "等待中"
-    ,"running": "运行中"
-    ,"paused": "已暂停"
-    ,"completed": "已完成"
-    ,"failed": "失败"
-    ,"Filter by type…": "按类型筛选…"
-    ,"Workflow run details": "工作流运行详情"
-    ,"Metadata, timeline and messages for the selected workflow run": "所选工作流运行的元数据、时间线和消息"
-    ,"close": "关闭"
-    ,"Timeline": "时间线"
-    ,"event": "个事件"
-    ,"events": "个事件"
-    ,"Messages": "消息"
-    ,"No messages": "暂无消息"
-    ,"No agents yet": "暂无智能体"
-    ,"Add an agent to make it available in your organization.": "添加智能体后即可在组织中使用。"
-    ,"Loading agents…": "正在加载智能体…"
-    ,"Health Check": "健康检查"
-    ,"When enabled, only agents with reachable URLs are shown": "启用后，仅显示 URL 可访问的智能体"
-    ,"Open agent actions": "打开智能体操作"
-    ,"Agent Name": "智能体名称"
-    ,"Agent ID": "智能体 ID"
-    ,"N/A": "不适用"
-    ,"Needs Setup": "需要设置"
-    ,"Actions": "操作"
-    ,"Loading keys...": "正在加载密钥..."
-    ,"No virtual key assigned to this agent.": "此智能体未分配虚拟密钥。"
-    ,"Unnamed key": "未命名密钥"
-    ,"List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.": "列出组织中可用的 A2A 规范智能体。前往 AI Hub 可将智能体公开。"
-    ,"Why do agents need keys?": "为什么智能体需要密钥？"
-    ,"Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.": "密钥用于限定智能体的访问范围，并允许其调用 MCP 工具。创建智能体时或在虚拟密钥页面为其分配密钥。"
-    ,"Add New Agent": "添加新智能体"
-    ,"Delete Agent": "删除智能体"
-    ,"Agent \"{{name}}\" deleted successfully": "智能体“{{name}}”删除成功"
-    ,"Are you sure you want to delete agent: {{name}}? This action cannot be undone.": "确定要删除智能体“{{name}}”吗？此操作无法撤销。"
-  },
-  "nav": {
-    "groups": {
-      "aiGateway": "AI 网关",
-      "observability": "可观测性",
-      "accessControl": "访问控制",
-      "developerTools": "开发者工具",
-      "settings": "设置"
+    "language": {
+        "switch": "English",
+        "english": "English",
+        "chinese": "中文"
     },
-    "api-keys": "虚拟密钥",
-    "llm-playground": "试用场",
-    "models": "模型和端点",
-    "agentic": "智能体",
-    "agents": "智能体",
-    "workflows": "工作流运行",
-    "memory": "记忆",
-    "mcp-servers": "MCP 服务器",
-    "skills": "技能",
-    "guardrails": "防护栏",
-    "policies": "策略",
-    "tools": "工具",
-    "search-tools": "搜索工具",
-    "vector-stores": "向量存储",
-    "tool-policies": "工具策略",
-    "new_usage": "用量",
-    "cost-optimization": "成本优化",
-    "logs": "日志",
-    "guardrails-monitor": "防护栏监控",
-    "teams": "团队",
-    "projects": "项目",
-    "users": "内部用户",
-    "organizations": "组织",
-    "access-groups": "访问组",
-    "budgets": "预算",
-    "api_ref": "API 参考",
-    "model-hub-table": "AI Hub",
-    "learning-resources": "学习资源",
-    "caching": "响应缓存",
-    "experimental": "实验功能",
-    "prompts": "提示词",
-    "transform-request": "API 试用场",
-    "tag-management": "标签管理",
-    "usage": "旧版用量",
-    "settings": "设置",
-    "router-settings": "路由设置",
-    "logging-and-alerts": "日志和告警",
-    "admin-panel": "管理员设置",
-    "cost-tracking": "成本追踪",
-    "ui-theme": "界面主题"
-  },
-  "models": {
-    "title": "模型管理",
-    "allModels": "全部模型",
-    "yourModels": "你的模型",
-    "addModel": "添加模型",
-    "autoRouters": "自动路由器",
-    "llmCredentials": "LLM 凭据",
-    "passThrough": "透传端点",
-    "health": "健康状态",
-    "retrySettings": "模型重试设置",
-    "modelGroupAlias": "模型组别名",
-    "priceData": "价格数据",
-    "adminDescription": "为代理添加和管理模型",
-    "teamDescription": "为你担任管理员的团队添加模型。",
-    "lastRefreshed": "上次刷新：{{time}}",
-    "refresh": "刷新模型"
-  },
-  "virtualKeys": {
-    "title": "虚拟密钥",
-    "subtitle": "所有用于请求网关身份验证的密钥。",
-    "loading": "正在加载密钥...",
-    "loadingKey": "正在加载密钥...",
-    "noData": "未找到密钥",
-    "search": "按密钥别名搜索…",
-    "filters": "筛选",
-    "filtersDescription": "缩小虚拟密钥范围",
-    "team": "团队",
-    "organization": "组织",
-    "userId": "用户 ID",
-    "keyId": "密钥 ID",
-    "selectTeam": "选择团队…",
-    "noTeams": "未找到团队",
-    "selectOrganization": "选择组织…",
-    "noOrganizations": "未找到组织",
-    "enterUserId": "输入用户 ID…",
-    "enterKeyId": "输入密钥 ID…",
-    "createdAt": "创建时间",
-    "createdBy": "创建者",
-    "expires": "过期时间",
-    "spendBudget": "消费 / 预算",
-    "budgetReset": "预算重置",
-    "budget": "预算"
-  },
-  "teamsPage": {
-    "title": "团队",
-    "subtitle": "管理团队、成员及其模型和预算访问权限",
-    "yourTeams": "你的团队",
-    "availableTeams": "可加入团队",
-    "defaultSettings": "默认团队设置",
-    "createTeam": "创建团队",
-    "teamName": "团队名称"
-  },
-  "usersPage": {
-    "users": "用户",
-    "defaultSettings": "默认用户设置",
-    "selectUsers": "选择用户",
-    "cancelSelection": "取消选择",
-    "bulkEdit": "批量编辑（已选 {{count}} 个）",
-    "search": "按邮箱搜索…"
-  }
+    "common": {
+        "loading": "正在加载...",
+        "noData": "暂无数据",
+        "selectOptions": "选择选项",
+        "noOptionsFound": "未找到选项",
+        "createOption": "创建“{{option}}”",
+        "accessDenied": "访问被拒绝",
+        "close": "关闭",
+        "docs": "文档",
+        "adminOnly": "仅管理员用户可以访问{{pageTitle}}。",
+        "deprecationTitle": "{{featureName}} 已列入弃用草案",
+        "deprecationDescription": "{{featureName}} 是我们正考虑移除的实验性功能之一，最早可能在 {{date}} 移除。此列表尚处于草案阶段，并非最终决定。若你依赖此功能，请在以下页面提供反馈：",
+        "deprecationDiscussion": "弃用讨论",
+        "licenseExpired": "你的 LiteLLM Enterprise 许可证已于 {{date}} 到期",
+        "licenseExpires": "你的 LiteLLM Enterprise 许可证将于 {{countdown}} 到期（{{date}}）",
+        "licenseExpiresToday": "今天",
+        "licenseExpiresOneDay": "1 天后",
+        "licenseExpiresDays": "{{days}} 天后",
+        "licenseExpiredDescription": "企业版功能现已禁用。请联系 {{email}} 恢复访问权限",
+        "licenseCriticalDescription": "请立即续订，以免失去企业版功能。请联系 {{email}}",
+        "licenseWarningDescription": "请在到期前续订以继续使用企业版功能。请联系 {{email}}"
+    },
+    "login": {
+        "adminUiDisabled": "管理界面已禁用",
+        "adminUiDisabledDescription": "管理员已禁用管理界面。要重新启用，请更新以下环境变量：",
+        "title": "登录",
+        "subtitle": "访问 LiteLLM 管理界面。",
+        "defaultCredentials": "默认凭据",
+        "defaultCredentialsDescription": "默认用户名为 admin，密码为你的 LiteLLM Proxy MASTER_KEY。",
+        "credentialsHelp": "需要设置 UI 凭据或 SSO？",
+        "checkDocumentation": "查看文档",
+        "worker": "工作节点",
+        "chooseWorker": "选择要连接的工作节点",
+        "username": "用户名",
+        "enterUsername": "输入用户名",
+        "usernameRequired": "请输入用户名",
+        "password": "密码",
+        "enterPassword": "输入密码",
+        "passwordRequired": "请输入密码",
+        "loggingIn": "正在登录...",
+        "login": "登录",
+        "loginWithSso": "使用 SSO 登录",
+        "configureSso": "请先配置 SSO 后再使用 SSO 登录。",
+        "ssoEnabled": "已启用单点登录（SSO）。LiteLLM 不再在加载此页面时自动跳转到 SSO 登录流程。要重新启用自动跳转，请在环境配置中设置 AUTO_REDIRECT_UI_LOGIN_TO_SSO=true。"
+    },
+    "playground": {
+        "accessDeniedDescription": "你的角色没有访问试用场的权限。请联系代理管理员以获取测试模型的权限。",
+        "chat": "对话",
+        "compare": "对比",
+        "compliance": "合规",
+        "agentBuilder": "智能体构建器（实验性）"
+    },
+    "oauth": {
+        "complete": "授权已完成。你可以关闭此窗口并返回 LiteLLM 控制台。",
+        "closeManually": "如果窗口未自动关闭，授权结果仍已保存。你可以手动关闭此窗口。"
+    },
+    "ui": {
+        "Loading…": "正在加载…",
+        "Loading...": "正在加载...",
+        "No data": "暂无数据",
+        "No results": "暂无结果",
+        "Search…": "搜索…",
+        "Select…": "选择…",
+        "Search": "搜索",
+        "Filters": "筛选条件",
+        "Apply Filters": "应用筛选",
+        "Clear all": "清除全部",
+        "Reset": "重置",
+        "Refresh": "刷新",
+        "Columns": "列",
+        "Rows per page": "每页行数",
+        "Showing {{start}}-{{end}} of {{rowCount}}": "显示第 {{start}}-{{end}} 条，共 {{rowCount}} 条",
+        "Page {{page}} of {{pageCount}}": "第 {{page}} 页，共 {{pageCount}} 页",
+        "Go to first page": "转到第一页",
+        "Go to previous page": "转到上一页",
+        "Go to next page": "转到下一页",
+        "Go to last page": "转到最后一页",
+        "Ascending": "升序",
+        "Descending": "降序",
+        "No requests yet": "暂无请求",
+        "No matching requests": "没有匹配的请求",
+        "No requests match your filters for this time range.": "此时间范围内没有符合筛选条件的请求",
+        "Requests proxied through LiteLLM will appear here.": "通过 LiteLLM 代理的请求将显示在这里",
+        "No users found": "未找到用户",
+        "No matching organizations": "没有匹配的组织",
+        "No organizations yet": "暂无组织",
+        "No matching budgets": "没有匹配的预算",
+        "No budgets yet": "暂无预算",
+        "Unlimited": "无限制",
+        "Unlimited only": "仅不限额",
+        "Not set": "未设置",
+        "Edit": "编辑",
+        "Delete": "删除",
+        "Edit user": "编辑用户",
+        "Reset password": "重置密码",
+        "Copy user ID": "复制用户 ID",
+        "Delete user": "删除用户",
+        "Edit budget": "编辑预算",
+        "Delete budget": "删除预算",
+        "Open user actions": "打开用户操作",
+        "Open organization actions": "打开组织操作",
+        "Open budget actions": "打开预算操作",
+        "Organization ID": "组织 ID",
+        "Organization Name": "组织名称",
+        "User ID": "用户 ID",
+        "Email": "邮箱",
+        "Status": "状态",
+        "Role": "角色",
+        "Team": "团队",
+        "Created": "创建时间",
+        "Created At": "创建时间",
+        "Updated At": "更新时间",
+        "Spend (USD)": "花费（美元）",
+        "Budget (USD)": "预算（美元）",
+        "Global Proxy Role": "全局代理角色",
+        "User Alias": "用户别名",
+        "Virtual Keys": "虚拟密钥",
+        "Models": "模型",
+        "Members": "成员",
+        "Max Budget": "最大预算",
+        "TPM": "TPM",
+        "RPM": "RPM",
+        "Key Alias": "密钥别名",
+        "Key Hash": "密钥哈希",
+        "Session ID": "会话 ID",
+        "Request ID": "请求 ID",
+        "Cost": "成本",
+        "Duration (s)": "耗时（秒）",
+        "TTFT (s)": "首字节时间（秒）",
+        "Model": "模型",
+        "Tokens": "Token 数",
+        "Internal User": "内部用户",
+        "End User": "最终用户",
+        "Tags": "标签",
+        "Success": "成功",
+        "Failure": "失败",
+        "Active": "启用",
+        "Inactive": "停用",
+        "Search by email…": "按邮箱搜索…",
+        "Enter user ID…": "输入用户 ID…",
+        "Enter SSO ID…": "输入 SSO ID…",
+        "Select a role…": "选择角色…",
+        "Select a team…": "选择团队…",
+        "No roles found": "未找到角色",
+        "No teams found": "未找到团队",
+        "Narrow down your users": "缩小用户范围",
+        "No matching users": "没有匹配的用户",
+        "Try adjusting your search or filters.": "请调整搜索条件或筛选条件。",
+        "No organizations match your search. Try a different name or ID.": "没有匹配的组织，请尝试其他名称或 ID。",
+        "Create an organization to group teams, models, and budgets.": "创建组织以管理团队、模型和预算。",
+        "Click on an organization ID to view its details.": "点击组织 ID 查看详情。",
+        "Search by Organization Name": "按组织名称搜索",
+        "Search by Organization ID": "按组织 ID 搜索",
+        "Loading organizations…": "正在加载组织…",
+        "Narrow down your budgets": "缩小预算范围",
+        "Search by budget ID…": "按预算 ID 搜索…",
+        "No budget matches your search or filters.": "没有匹配搜索或筛选条件的预算。",
+        "Create a budget to set spend, TPM and RPM limits for customers.": "创建预算以设置客户的消费、TPM 和 RPM 限制。",
+        "You do not have access to budgets": "你没有访问预算的权限",
+        "Ask a proxy admin to grant you the admin viewer role.": "请联系代理管理员授予你管理员查看者角色。",
+        "Could not load budgets": "无法加载预算",
+        "Loading budgets…": "正在加载预算…",
+        "Request Logs": "请求日志",
+        "Search by Request ID": "按请求 ID 搜索",
+        "Narrow down request logs": "缩小请求日志范围",
+        "Loading request logs…": "正在加载请求日志…",
+        "Search or select a team": "搜索或选择团队",
+        "Search a key alias": "搜索密钥别名",
+        "Search a model": "搜索模型",
+        "Search an end user": "搜索最终用户",
+        "No key aliases found": "未找到密钥别名",
+        "No models found": "未找到模型",
+        "No end users in this time range": "此时间范围内没有最终用户",
+        "Select or type an error code": "选择或输入错误代码",
+        "No error codes found": "未找到错误代码",
+        "All Statuses": "全部状态",
+        "Enter error message…": "输入错误消息…",
+        "Enter key hash…": "输入密钥哈希…",
+        "Enter session ID…": "输入会话 ID…",
+        "Enter public model or search tool…": "输入公共模型或搜索工具…",
+        "Enterprise Feature.": "企业版功能。",
+        "Loading teams...": "正在加载团队...",
+        "Search teams by name or ID…": "按名称或 ID 搜索团队…",
+        "Narrow down your teams": "缩小团队范围",
+        "Select an organization…": "选择组织…",
+        "No organizations found": "未找到组织",
+        "Enter team alias…": "输入团队别名…",
+        "Enter team ID…": "输入团队 ID…",
+        "Delete Team?": "删除团队？",
+        "Are you sure you want to delete this team, all its keys, and any models created for it? This action cannot be undone.": "确定要删除此团队吗？团队的所有密钥及其创建的模型也会被删除，且无法撤销。",
+        "Regenerate Virtual Key": "重新生成虚拟密钥",
+        "Expiration is required for expired keys": "已过期密钥必须设置新的过期时间",
+        "Close": "关闭",
+        "Copied": "已复制",
+        "Copy Key": "复制密钥",
+        "Cancel": "取消",
+        "Regenerate": "重新生成",
+        "Save it now, you will not see it again": "请立即保存，之后将无法再次查看",
+        "No alias set": "未设置别名",
+        "Virtual Key": "虚拟密钥",
+        "Max Budget (USD)": "最大预算（美元）",
+        "TPM Limit": "TPM 限制",
+        "RPM Limit": "RPM 限制",
+        "Expire Key": "密钥过期时间",
+        "Grace Period": "宽限期",
+        "Never": "永不过期",
+        "Add Logging Callback": "添加日志回调",
+        "Edit Callback Settings": "编辑回调设置",
+        "Add Callback": "添加回调",
+        "Adding...": "正在添加...",
+        "Saving...": "正在保存...",
+        "Save Changes": "保存更改",
+        "Delete Callback": "删除回调",
+        "Are you sure you want to delete this callback? This action cannot be undone.": "确定要删除此回调吗？此操作无法撤销。",
+        "Health check triggered": "健康检查已触发",
+        "Alerts are only supported for Slack Webhook URLs. Get your webhook urls from": "告警目前仅支持 Slack Webhook URL。你可以从以下位置获取 Webhook URL：",
+        "Slack Webhook URL": "Slack Webhook URL",
+        "Test Alerts": "测试告警",
+        "Create New Key": "创建新密钥",
+        "Key Ownership": "密钥归属",
+        "Owned By": "归属者",
+        "Select who will own this Virtual Key": "选择此虚拟密钥的归属者",
+        "You": "你",
+        "Service Account": "服务账户",
+        "Another User": "其他用户",
+        "Agent": "智能体",
+        "New": "新建",
+        "The user who will own this key and be responsible for its usage": "将拥有此密钥并负责其使用的用户",
+        "Type email to search for users": "输入邮箱搜索用户",
+        "Searching...": "正在搜索...",
+        "Create User": "创建用户",
+        "Search by email to find users": "按邮箱搜索用户",
+        "Select Agent": "选择智能体",
+        "Select an agent": "选择智能体",
+        "This key will be used by the selected agent to make requests to LiteLLM": "此密钥将由所选智能体用于向 LiteLLM 发起请求",
+        "Organization": "组织",
+        "The organization this key belongs to. Selecting an organization filters the available teams.": "此密钥所属的组织。选择组织后会筛选可用团队。",
+        "The team this key belongs to, which determines available models and budget limits": "此密钥所属的团队，并决定可用模型和预算限制",
+        "Project": "项目",
+        "Assign this key to a project. Selecting a project will lock the team to the project's team.": "将此密钥分配给项目。选择项目后，团队将锁定为该项目所属的团队。",
+        "Please select a team to continue configuring your Virtual Key. If you do not see any teams, please contact your Proxy Admin to either provide you with access to models or to add you to a team.": "请选择团队以继续配置虚拟密钥。如果看不到任何团队，请联系代理管理员为你提供模型访问权限或将你加入团队。",
+        "Key Details": "密钥详情",
+        "Key Name": "密钥名称",
+        "Service Account ID": "服务账户 ID",
+        "A descriptive name to identify this key": "用于识别此密钥的描述性名称",
+        "Unique identifier for this service account": "此服务账户的唯一标识符",
+        "Select which models this key can access. Choose 'All Team Models' to grant access to all models available to the team. Leave empty to allow access to all models.": "选择此密钥可以访问的模型。选择“所有团队模型”可访问团队中的全部模型。留空则允许访问所有模型。",
+        "Select models": "选择模型",
+        "All Team Models": "所有团队模型",
+        "All Proxy Models": "所有代理模型",
+        "Key Type": "密钥类型",
+        "Select the type of key to determine what routes and operations this key can access": "选择密钥类型，以确定此密钥可以访问的路由和操作",
+        "Select key type": "选择密钥类型",
+        "Create Key": "创建密钥",
+        "Create New User": "创建新用户",
+        "Save your Key": "保存你的密钥",
+        "Key being created, this might take 30s": "正在创建密钥，可能需要 30 秒",
+        "Type": "类型",
+        "to confirm deletion:": "以确认删除：",
+        "Deleting...": "正在删除...",
+        "Warning": "警告",
+        "Error": "错误",
+        "Authentication Error": "身份验证错误",
+        "Access Denied": "访问被拒绝",
+        "Service Unavailable": "服务不可用",
+        "Budget Exceeded": "预算超限",
+        "Feature Unavailable": "功能不可用",
+        "Routing Error": "路由错误",
+        "Already Exists": "已存在",
+        "Content Blocked": "内容已拦截",
+        "Validation Error": "校验错误",
+        "Integration Error": "集成错误",
+        "Not Found": "未找到",
+        "Rate Limit Exceeded": "超出速率限制",
+        "Server Error": "服务器错误",
+        "Request Error": "请求错误",
+        "Info": "提示",
+        "Feature Notice": "功能提示",
+        "Configuration Warning": "配置警告",
+        "Rate Limit": "速率限制",
+        "Access Groups": "访问组",
+        "Manage resource permissions for your organization": "管理组织的资源权限",
+        "Create Access Group": "创建访问组",
+        "Search groups by name, ID, or description...": "按名称、ID 或描述搜索组...",
+        "Clear search": "清除搜索",
+        "No matching access groups": "没有匹配的访问组",
+        "No access groups yet": "暂无访问组",
+        "Try a different search term.": "请尝试其他搜索词。",
+        "Create an access group to manage resource permissions for your organization.": "创建访问组以管理组织的资源权限。",
+        "Loading access groups…": "正在加载访问组…",
+        "Back": "返回",
+        "Access group not found": "未找到访问组",
+        "Copy access group ID": "复制访问组 ID",
+        "Edit Access Group": "编辑访问组",
+        "Group Details": "组详情",
+        "by": "由",
+        "Last Updated": "最后更新",
+        "Attached Keys": "已关联密钥",
+        "Show Less": "收起",
+        "View All ({{count}})": "查看全部（{{count}}）",
+        "No keys attached": "未关联密钥",
+        "Attached Teams": "已关联团队",
+        "No teams attached": "未关联团队",
+        "MCP Servers": "MCP 服务器",
+        "Agents": "智能体",
+        "No models assigned to this group": "此组未分配模型",
+        "No MCP servers assigned to this group": "此组未分配 MCP 服务器",
+        "No agents assigned to this group": "此组未分配智能体",
+        "No guardrails yet": "暂无防护栏",
+        "Add a guardrail to start filtering requests and responses.": "添加防护栏以开始过滤请求和响应。",
+        "Loading guardrails…": "正在加载防护栏…",
+        "Open guardrail actions": "打开防护栏操作",
+        "Config guardrails are defined in the config file and cannot be deleted from the dashboard.": "配置文件中的防护栏无法在控制台删除。",
+        "Guardrail ID": "防护栏 ID",
+        "Provider": "供应商",
+        "Mode": "模式",
+        "Default On": "默认开启",
+        "Default Off": "默认关闭",
+        "Guardrail Garden": "防护栏中心",
+        "Guardrails": "Guardrail",
+        "Test Playground": "测试试用场",
+        "Submitted Guardrails": "已提交的防护栏",
+        "Add New Guardrail": "添加新防护栏",
+        "Add Provider Guardrail": "添加供应商防护栏",
+        "Create Custom Code Guardrail": "创建自定义代码防护栏",
+        "Delete Guardrail": "删除防护栏",
+        "Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.": "确定要删除防护栏“{{name}}”吗？此操作无法撤销。",
+        "Guardrail Information": "防护栏信息",
+        "Guardrail \"{{name}}\" deleted successfully": "防护栏“{{name}}”删除成功",
+        "Search guardrails": "搜索防护栏",
+        "LiteLLM Content Filter": "LiteLLM 内容过滤器",
+        "Show less": "收起",
+        "Show all ({{count}})": "查看全部（{{count}}）",
+        "Built-in guardrails powered by LiteLLM. Zero latency, no external dependencies, no additional cost.": "由 LiteLLM 提供支持的内置防护栏。零延迟、无外部依赖且无需额外费用。",
+        "Partner Guardrails": "合作伙伴防护栏",
+        "Third-party guardrail integrations from leading AI security providers.": "来自领先 AI 安全供应商的第三方防护栏集成。",
+        "All Available Servers": "所有可用服务器",
+        "All Servers": "所有服务器",
+        "Personal": "个人",
+        "All Access Groups": "所有访问组",
+        "Deleted MCP Server successfully": "MCP 服务器删除成功",
+        "Missing required authentication parameters.": "缺少必要的身份验证参数。",
+        "Delete MCP Server?": "删除 MCP 服务器？",
+        "This action is permanent and cannot be undone. All associated configurations will be removed.": "此操作是永久性的且无法撤销，所有关联配置都将被移除。",
+        "ID": "ID",
+        "URL": "URL",
+        "Configure and manage your MCP servers": "配置和管理你的 MCP 服务器",
+        "Add New MCP Server": "添加 MCP 服务器",
+        "Submit MCP Server": "提交 MCP 服务器",
+        "Toolsets": "工具集",
+        "Connect": "连接",
+        "Semantic Filter": "语义过滤器",
+        "Network Settings": "网络设置",
+        "Submitted MCPs": "已提交的 MCP",
+        "Access Group": "访问组",
+        "About access groups": "关于访问组",
+        "An MCP Access Group is a set of users or teams that have permission to access specific MCP servers. Use access groups to control and organize who can connect to which servers.": "MCP 访问组是一组有权限访问特定 MCP 服务器的用户或团队，可用于控制和管理谁能连接哪些服务器。",
+        "Search by name, alias, URL, or ID": "按名称、别名、URL 或 ID 搜索",
+        "Sort": "排序",
+        "of": "/",
+        "servers": "个服务器",
+        "Loading MCP servers...": "正在加载 MCP 服务器...",
+        "No MCP servers configured. Click '+ Add New MCP Server' to get started.": "尚未配置 MCP 服务器。点击“+ 添加 MCP 服务器”开始。",
+        "No servers match the current filters or search.": "没有服务器符合当前筛选条件或搜索内容。",
+        "Recently created": "最近创建",
+        "Recently updated": "最近更新",
+        "Name (A→Z)": "名称（A→Z）",
+        "Health (unhealthy first)": "健康状态（不健康优先）",
+        "No policies found": "未找到策略",
+        "Create a policy to bundle guardrails and apply them across teams.": "创建策略，将防护栏组合起来并应用于各个团队。",
+        "Loading policies…": "正在加载策略…",
+        "Open policy actions": "打开策略操作",
+        "Edit policy": "编辑策略",
+        "Delete policy": "删除策略",
+        "Config": "配置",
+        "Description": "描述",
+        "Inherits From": "继承自",
+        "Guardrails (Add)": "防护栏（添加）",
+        "Guardrails (Remove)": "防护栏（移除）",
+        "Model Condition": "模型条件",
+        "No models match your search or filters. Try resetting them.": "没有模型符合搜索或筛选条件，请尝试重置筛选。",
+        "Loading models…": "正在加载模型…",
+        "Search model names…": "搜索模型名称…",
+        "Current team": "当前团队",
+        "View": "视图",
+        "Current Team Models": "当前团队模型",
+        "All Available Models": "所有可用模型",
+        "Model Settings": "模型设置",
+        "Narrow down models + endpoints": "缩小模型和端点范围",
+        "Reset Filters": "重置筛选",
+        "Public Model Name": "公开模型名称",
+        "Filter by Public Model Name": "按公开模型名称筛选",
+        "All Model Access Groups": "所有模型访问组",
+        "Filter by Model Access Group": "按模型访问组筛选",
+        "No model access groups found": "未找到模型访问组",
+        "Wildcard Models (*)": "通配模型（*）",
+        "Model ID": "模型 ID",
+        "Model Information": "模型信息",
+        "Credentials": "凭据",
+        "About credential types": "关于凭据类型",
+        "Credential types": "凭据类型",
+        "Reusable": "可复用",
+        "Credentials saved in LiteLLM that can be added to models repeatedly.": "保存在 LiteLLM 中、可重复添加到模型的凭据。",
+        "Manual": "手动",
+        "Credentials added directly during model creation or defined in the config file.": "创建模型时直接添加或在配置文件中定义的凭据。",
+        "Created By": "创建者",
+        "Costs": "成本",
+        "Team ID": "团队 ID",
+        "Model Access Group": "模型访问组",
+        "DB Model": "数据库模型",
+        "Config Model": "配置模型",
+        "Actions": "操作",
+        "LiteLLM Model Name": "LiteLLM 模型名称",
+        "Copy LiteLLM model name": "复制 LiteLLM 模型名称",
+        "Defined in config": "在配置中定义",
+        "Unknown": "未知",
+        "Unknown date": "未知日期",
+        "Cost per 1M tokens": "每百万 Token 成本",
+        "Create guardrail": "创建防护栏",
+        "Guardrail Name": "防护栏名称",
+        "Please enter a guardrail name": "请输入防护栏名称",
+        "Enter a name for this guardrail": "请输入防护栏名称",
+        "Guardrail Provider": "防护栏供应商",
+        "Please select a provider": "请选择供应商",
+        "Select a guardrail provider": "请选择防护栏供应商",
+        "How the guardrail should be applied": "设置防护栏的应用方式",
+        "Please select a mode": "请选择模式",
+        "Recommended": "推荐",
+        "Always On": "始终开启",
+        "If enabled, this guardrail will be applied to all requests by default.": "启用后，此防护栏默认应用于所有请求。",
+        "Yes": "是",
+        "No": "否",
+        "Skip system messages in guardrail": "防护栏中跳过系统消息",
+        "Use global default": "使用全局默认值",
+        "Yes — exclude from guardrail scan": "是，排除在防护栏扫描之外",
+        "No — always include in scan": "否，始终包含在扫描中",
+        "Skip tool messages in guardrail": "防护栏中跳过工具消息",
+        "Call type": "调用类型",
+        "Select a call type": "请选择调用类型",
+        "More call types coming soon.": "更多调用类型即将推出。",
+        "End session after X violations": "违规 X 次后结束会话",
+        "e.g. 3": "例如 3",
+        "On violation": "违规时",
+        "Message the user hears": "用户看到的消息",
+        "e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.": "例如：无法继续此对话，请通过 1-800-774-2678 联系我们。",
+        "optional": "可选",
+        "Previous": "上一步",
+        "Next": "下一步",
+        "Create Guardrail": "创建防护栏",
+        "Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).": "配置此智能体可使用的模型、智能体和 MCP 工具。留空则允许全部使用（仍受密钥和团队权限限制）。",
+        "Allowed Models": "允许的模型",
+        "Restrict which models this agent can call. Leave empty to allow all.": "限制此智能体可调用的模型，留空则允许全部。",
+        "Loading models...": "正在加载模型...",
+        "Select models (leave empty for all)": "选择模型（留空表示全部）",
+        "Allowed Agents (Sub-Agents)": "允许的智能体（子智能体）",
+        "Restrict which other agents this agent can invoke as sub-agents. Leave empty to allow all.": "限制此智能体可调用的子智能体，留空则允许全部。",
+        "Loading agents...": "正在加载智能体...",
+        "Select agents (leave empty for all)": "选择智能体（留空表示全部）",
+        "Allowed MCP Servers": "允许的 MCP 服务器",
+        "Select which MCP servers or access groups this agent can access": "选择此智能体可访问的 MCP 服务器或访问组",
+        "Select MCP servers or access groups (optional)": "选择 MCP 服务器或访问组（可选）",
+        "Tracing": "追踪",
+        "Require x-litellm-trace-id on calls TO this agent": "要求调用此智能体时携带 x-litellm-trace-id",
+        "Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).": "仅接受携带 trace-id 的智能体调用（例如作为子智能体使用时）。",
+        "Require x-litellm-trace-id on calls BY this agent": "要求此智能体发起调用时携带 x-litellm-trace-id",
+        "Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.": "要求此智能体发起的 LLM/MCP 调用携带 x-litellm-trace-id，以便进行会话追踪。",
+        "Budgets & Rate Limits": "预算和速率限制",
+        "Enable \"Require x-litellm-trace-id on calls BY this agent\" in Tracing to configure budgets and rate limits.": "请在追踪中启用“要求此智能体发起调用时携带 x-litellm-trace-id”，以配置预算和速率限制。",
+        "Session Budgets": "会话预算",
+        "Max Iterations": "最大迭代次数",
+        "Hard cap on LLM calls per session": "每个会话的 LLM 调用次数上限",
+        "Max Budget Per Session ($)": "每个会话最大预算（美元）",
+        "Max spend per trace before returning 429": "每次追踪在返回 429 前允许的最大花费",
+        "Agent Rate Limits": "智能体速率限制",
+        "Global rate limits applied across all callers of this agent.": "应用于所有调用此智能体的调用方的全局速率限制。",
+        "Per-Session Rate Limits": "每会话速率限制",
+        "Rate limits per session (x-litellm-trace-id). Each session gets its own counters.": "每个会话的速率限制（x-litellm-trace-id），每个会话使用独立计数器。",
+        "Session TPM Limit": "会话 TPM 限制",
+        "Session RPM Limit": "会话 RPM 限制",
+        "Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.": "为此智能体应用防护栏，所选防护栏将在此智能体发起的所有调用中运行。",
+        "Agent Type": "智能体类型",
+        "Select the type of agent you want to create": "选择要创建的智能体类型",
+        "Not listed?": "未找到所需类型？",
+        "Custom / Other": "自定义 / 其他",
+        "For agents that don't follow a standard protocol — just needs a virtual key": "适用于不遵循标准协议的智能体，只需要虚拟密钥",
+        "Please enter an agent name": "请输入智能体名称",
+        "e.g. my-custom-agent": "例如 my-custom-agent",
+        "Describe what this agent does…": "描述此智能体的功能…",
+        "Assign to Team": "分配给团队",
+        "Optionally assign this agent to a team. The agent and its key will belong to the selected team.": "可选，将此智能体分配给团队，智能体及其密钥将归属于所选团队。",
+        "Create a new key for this agent": "为此智能体创建新密钥",
+        "A dedicated key scoped to this agent.": "专用于此智能体的密钥。",
+        "e.g. my-agent-key": "例如 my-agent-key",
+        "Assign an existing key": "分配现有密钥",
+        "Re-assign a key you already have to this agent.": "将已有密钥重新分配给此智能体。",
+        "Search by key name…": "按密钥名称搜索…",
+        "Skip for now — I'll assign a key later": "暂时跳过，稍后再分配密钥",
+        "Agent Created!": "智能体已创建！",
+        "Key": "密钥",
+        "has been assigned to this agent.": "已分配给此智能体。",
+        "No key assigned. You can create one from the Virtual Keys page.": "未分配密钥，你可以在虚拟密钥页面创建。",
+        "Add New Agent": "添加新智能体",
+        "Entitlements": "授权范围",
+        "Governance": "治理",
+        "Agent Management": "智能体管理",
+        "Ready": "完成",
+        "← Back": "← 返回",
+        "Create Agent →": "创建智能体 →",
+        "Creating...": "正在创建...",
+        "Done": "完成",
+        "Failed to load agent information": "加载智能体信息失败",
+        "Agent updated successfully": "智能体更新成功",
+        "Failed to update agent": "更新智能体失败",
+        "Agent not found": "未找到智能体",
+        "Back to Agents List": "返回智能体列表",
+        "Back to Agent": "返回智能体",
+        "Back to Agents": "返回智能体列表",
+        "Overview": "概览",
+        "Settings": "设置",
+        "Display Name": "显示名称",
+        "Protocol Version": "协议版本",
+        "Streaming": "流式传输",
+        "Push Notifications": "推送通知",
+        "State Transition History": "状态转换历史",
+        "configured": "已配置",
+        "Make Public": "设为公开",
+        "Icon URL": "图标 URL",
+        "Documentation URL": "文档 URL",
+        "MCP Tool Permissions": "MCP 工具权限",
+        "MCP Access Groups": "MCP 访问组",
+        "Tool permissions per server": "每个服务器的工具权限",
+        "Examples": "示例",
+        "Agent Settings": "智能体设置",
+        "Edit Settings": "编辑设置",
+        "Rate Limits": "速率限制",
+        "Click \"Edit Settings\" to modify agent configuration.": "点击“编辑设置”修改智能体配置。",
+        "About Policies": "关于策略",
+        "Use policies to group guardrails and control which ones run for specific teams, keys, or models.": "使用策略组合防护栏，并控制哪些防护栏应用于特定团队、密钥或模型。",
+        "Why use policies?": "为什么使用策略？",
+        "Enable/disable specific guardrails for teams, keys, or models": "为团队、密钥或模型启用/禁用特定防护栏",
+        "Group guardrails into a single policy": "将多个防护栏组合到一个策略中",
+        "Inherit from existing policies and override what you need": "继承现有策略并按需覆盖",
+        "Learn more in the documentation ->": "在文档中了解更多 ->",
+        "Failed to fetch policies": "获取策略失败",
+        "Failed to fetch attachments": "获取附件失败",
+        "Policy \"{{name}}\" deleted successfully": "策略“{{name}}”删除成功",
+        "Failed to delete policy": "删除策略失败",
+        "Authentication required": "需要身份验证",
+        "Failed to load guardrails. Please try again.": "加载防护栏失败，请重试。",
+        "Failed to configure template. Please try again.": "配置模板失败，请重试。",
+        "Created {{count}} guardrails! Complete the policy form to save.": "已创建 {{count}} 个防护栏！请完成策略表单以保存。",
+        "Template ready! Complete the policy form to save.": "模板已准备就绪！请完成策略表单以保存。",
+        "Failed to create {{count}} guardrail(s): {{names}}. You may need to create them manually.": "创建 {{count}} 个防护栏失败：{{names}}。你可能需要手动创建。",
+        "Failed to create guardrails. Please try again.": "创建防护栏失败，请重试。",
+        "Templates": "模板",
+        "Policies": "策略",
+        "Attachments": "附件",
+        "Policy Simulator": "策略模拟器",
+        "Add New Policy": "添加新策略",
+        "Delete Policy": "删除策略",
+        "Are you sure you want to delete policy: {{name}}? This action cannot be undone.": "确定要删除策略“{{name}}”吗？此操作无法撤销。",
+        "Policy Information": "策略信息",
+        "About Policy Attachments": "关于策略附件",
+        "Policy attachments control where your policies apply. Policies don't do anything until you attach them to specific teams, keys, models, tags, or globally.": "策略附件控制策略的应用范围。策略必须关联到特定团队、密钥、模型、标签或全局后才会生效。",
+        "Attachment Scopes:": "附件范围：",
+        "Global (*)": "全局（*）",
+        "Applies to all requests": "应用于所有请求",
+        "Teams": "团队",
+        "Applies only to specific teams": "仅应用于特定团队",
+        "Keys": "密钥",
+        "Applies only to specific API keys (supports wildcards like dev-*)": "仅应用于特定 API 密钥（支持 dev-* 等通配符）",
+        "Applies only when specific models are used": "仅在使用特定模型时应用",
+        "Learn more about attachments ->": "了解更多附件信息 ->",
+        "Enterprise Feature Notice": "企业版功能提示",
+        "Parts of policy attachments will be on LiteLLM Enterprise in subsequent releases.": "策略附件的部分功能将在后续版本中提供给 LiteLLM 企业版。",
+        "Add New Attachment": "添加新附件",
+        "Delete Attachment": "删除附件",
+        "Are you sure you want to delete this attachment? This action cannot be undone.": "确定要删除此附件吗？此操作无法撤销。",
+        "Attachment Information": "附件信息",
+        "Attachment ID": "附件 ID",
+        "Policy": "策略",
+        "Scope": "范围",
+        "Server Configuration": "服务器配置",
+        "Cost Configuration": "成本配置",
+        "MCP Server Name": "MCP 服务器名称",
+        "Alias": "别名",
+        "Transport Type": "传输类型",
+        "Streamable HTTP (Recommended)": "可流式 HTTP（推荐）",
+        "Server-Sent Events (SSE)": "服务器发送事件（SSE）",
+        "Standard Input/Output (stdio)": "标准输入/输出（stdio）",
+        "OpenAPI Spec": "OpenAPI 规范",
+        "MCP Server URL": "MCP 服务器 URL",
+        "https://your-mcp-server.com": "https://your-mcp-server.com",
+        "OpenAPI Spec URL": "OpenAPI 规范 URL",
+        "Max Concurrent Requests (optional)": "最大并发请求数（可选）",
+        "e.g. 10": "例如 10",
+        "Authentication": "身份验证",
+        "None": "无",
+        "API Key": "API 密钥",
+        "Bearer Token": "Bearer Token",
+        "Token": "Token",
+        "Basic Auth": "基本身份验证",
+        "OAuth": "OAuth",
+        "Configure the stdio transport used to launch the MCP server process. You can either fill in the fields below or paste a JSON configuration.": "配置用于启动 MCP 服务器进程的 stdio 传输。你可以填写以下字段，或粘贴 JSON 配置。",
+        "Command": "命令",
+        "e.g., npx": "例如 npx",
+        "Args": "参数",
+        "Add args (press enter or comma)": "添加参数（按 Enter 或逗号）",
+        "Cost Tracking Settings": "成本追踪设置",
+        "Configure cost discounts and margins for different LLM providers. Changes are saved automatically.": "为不同 LLM 供应商配置成本折扣和加价，修改会自动保存。",
+        "Provider Discounts": "供应商折扣",
+        "Apply percentage-based discounts to reduce costs for specific providers": "为特定供应商应用百分比折扣以降低成本",
+        "Discounts": "折扣",
+        "Test It": "测试",
+        "Add Provider Discount": "添加供应商折扣",
+        "Loading configuration...": "正在加载配置...",
+        "No provider discounts configured": "尚未配置供应商折扣",
+        "Click \"Add Provider Discount\" to get started": "点击“添加供应商折扣”开始",
+        "Fee/Price Margin": "费用/价格加价",
+        "Add fees or margins to LLM costs for internal billing and cost recovery": "为 LLM 成本增加费用或加价，用于内部计费和成本回收",
+        "Add Provider Margin": "添加供应商加价",
+        "No provider margins configured": "尚未配置供应商加价",
+        "Click \"Add Provider Margin\" to get started": "点击“添加供应商加价”开始",
+        "Pricing Calculator": "价格计算器",
+        "Estimate LLM costs based on expected token usage and request volume": "根据预计 Token 用量和请求量估算 LLM 成本",
+        "Remove Provider Discount": "移除供应商折扣",
+        "Remove Provider Margin": "移除供应商加价",
+        "Are you sure you want to remove the {{noun}} for {{name}}?": "确定要移除 {{name}} 的{{noun}}吗？",
+        "Remove": "移除",
+        "Select a provider and set its discount percentage. Enter a value between 0% and 100% (e.g., 5 for a 5% discount).": "选择供应商并设置折扣百分比，输入 0% 到 100% 之间的值（例如 5 表示 5% 折扣）。",
+        "Select a provider (or \"Global\" for all providers) and configure the margin. You can use percentage-based or fixed amount.": "选择供应商（或选择“Global”应用于所有供应商）并配置加价，可使用百分比或固定金额。",
+        "Global Usage": "全局用量",
+        "Your Usage": "我的用量",
+        "Organization Usage": "组织用量",
+        "Team Usage": "团队用量",
+        "Customer Usage": "客户用量",
+        "Tag Usage": "标签用量",
+        "Agent Usage (A2A)": "智能体用量（A2A）",
+        "User Usage": "用户用量",
+        "User Agent Activity": "用户智能体活动",
+        "View usage across all resources": "查看所有资源的用量",
+        "View your usage": "查看你的用量",
+        "View your own usage": "查看你自己的用量",
+        "View usage across all organizations": "查看所有组织的用量",
+        "View usage by team": "按团队查看用量",
+        "View usage by customer accounts": "按客户账户查看用量",
+        "View usage grouped by tags": "按标签分组查看用量",
+        "View usage by AI agents": "按 AI 智能体查看用量",
+        "View usage by individual users": "按用户查看用量",
+        "View detailed user agent activity logs": "查看详细的用户智能体活动日志",
+        "Usage View": "用量视图",
+        "Select the usage data you want to view": "选择要查看的用量数据",
+        "Litellm Model Name": "LiteLLM 模型名称",
+        "Successful": "成功",
+        "Failed": "失败",
+        "Spend": "花费",
+        "Gateway Requests by Endpoint": "按端点统计网关请求",
+        "Counted by the gateway middleware as each request is answered. Covers LLM, MCP and A2A endpoints across the whole deployment.": "每次请求由网关中间件响应时计数，覆盖整个部署中的 LLM、MCP 和 A2A 端点。",
+        "Table View": "表格视图",
+        "Chart View": "图表视图",
+        "Spend by Provider": "按供应商统计花费",
+        "Show Zero Spend": "显示零花费",
+        "Show Unknown": "显示未知项",
+        "Requests that failed to route to a provider": "未能路由到供应商的请求",
+        "No provider usage data": "暂无供应商用量数据",
+        "Endpoint": "端点",
+        "Successful / Failed": "成功 / 失败",
+        "Successful requests": "成功请求",
+        "Total Request": "请求总数",
+        "Success Rate": "成功率",
+        "Total Tokens": "Token 总数",
+        "No endpoint usage data": "暂无端点用量数据",
+        "Success vs Failed Requests by Endpoint": "各端点成功与失败请求",
+        "Endpoint Usage Trends": "端点用量趋势",
+        "Filter by user": "按用户筛选",
+        "Select user to filter...": "选择用户进行筛选...",
+        "Model Activity": "模型活动",
+        "Key Activity": "密钥活动",
+        "MCP Server Activity": "MCP 服务器活动",
+        "Endpoint Activity": "端点活动",
+        "Ask AI": "询问 AI",
+        "Export Data": "导出数据",
+        "Project Spend": "项目花费",
+        "Usage Metrics": "用量指标",
+        "Total Requests": "请求总数",
+        "Successful Requests": "成功请求数",
+        "Failed Requests": "失败请求数",
+        "Average Cost per Request": "平均每请求成本",
+        "Input Tokens": "输入 Token",
+        "Output Tokens": "输出 Token",
+        "Cache Read Tokens": "缓存读取 Token",
+        "Cache Write Tokens": "缓存写入 Token",
+        "Daily Spend": "每日花费",
+        "Top Virtual Keys": "花费最高的虚拟密钥",
+        "Top Public Model Names": "花费最高的公开模型",
+        "Top Litellm Models": "花费最高的 LiteLLM 模型",
+        "Reusable credentials are automatically tracked as tags": "可复用凭据会自动作为标签进行追踪",
+        "in this view.": "显示在此视图中。",
+        "Export Usage Data": "导出用量数据",
+        "Stop": "停止",
+        "Currently fetching spend data: fetched": "正在获取花费数据，已获取",
+        "of this page will stop and reset this. To continue using the UI in the meantime,": "离开此页面会停止并重置。你可以同时继续使用界面，",
+        "open a new tab": "打开新标签页",
+        "Showing partial data ({{current}}/{{total}} pages loaded)": "当前显示部分数据（已加载 {{current}}/{{total}} 页）",
+        "Filter by {{entity}}": "按 {{entity}} 筛选",
+        "Select {{entity}} to filter...": "选择 {{entity}} 进行筛选...",
+        "Request cost": "请求成本",
+        "Flat cost": "固定成本",
+        "Total Spend": "总花费",
+        "Requests": "请求数",
+        "Spend by {{entity}}": "按 {{entity}} 统计花费",
+        "Spend Per {{entity}}": "每个 {{entity}} 的花费",
+        "Showing Top 5 by Spend": "显示花费最高的 5 项",
+        "Get Started by Tracking cost per {{entity}}": "开始追踪每个 {{entity}} 的成本",
+        "Top Agents": "花费最高的智能体",
+        "Top Agents Driving Spend": "消耗花费最多的智能体",
+        "Provider Usage": "供应商用量",
+        "{{entity}} Spend Overview": "{{entity}} 花费概览",
+        "Request / Token Consumption": "请求 / Token 消耗",
+        "Agent Activity": "智能体活动",
+        "Filter by team": "按团队筛选",
+        "Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.": "包括未能路由到供应商的请求、工具使用失败以及无法确定供应商的其他请求错误。",
+        "Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.": "由网关在响应请求时统计，与花费日志无关。该数据覆盖整个部署，因此不会与下方按密钥或模型的明细一致。",
+        "Simple Mode": "简单模式",
+        "Pick guardrails from a list. All run in parallel.": "从列表中选择 Guardrail，所有 Guardrail 将并行运行。",
+        "NEW": "新功能",
+        "Flow Builder": "流程构建器",
+        "Define steps, conditions, and error responses.": "定义步骤、条件和错误响应。",
+        "Create New Policy": "创建新策略",
+        "You'll be redirected to the full-screen Flow Builder to design your policy logic visually.": "你将跳转到全屏流程构建器，以可视化方式设计策略逻辑。",
+        "Continue to Builder": "继续使用构建器",
+        "Edit Policy": "编辑策略",
+        "Policy Name": "策略名称",
+        "Please enter a policy name": "请输入策略名称",
+        "Policy name can only contain letters, numbers, hyphens, and underscores": "策略名称只能包含字母、数字、连字符和下划线",
+        "e.g., global-baseline, healthcare-compliance": "例如：global-baseline、healthcare-compliance",
+        "Describe what this policy does...": "描述此策略的作用...",
+        "Inheritance": "继承",
+        "Inherit From": "继承自",
+        "Inherit guardrails from another policy. The child policy will include all guardrails from the parent.": "从其他策略继承 Guardrail，子策略将包含父策略的所有 Guardrail。",
+        "Select a parent policy (optional)": "选择父策略（可选）",
+        "Guardrails to Add": "要添加的 Guardrail",
+        "These guardrails will be added to requests matching this policy": "匹配此策略的请求将添加这些 Guardrail",
+        "Select guardrails to add": "选择要添加的 Guardrail",
+        "Guardrails to Remove": "要移除的 Guardrail",
+        "These guardrails will be removed from inherited guardrails": "这些 Guardrail 将从继承的 Guardrail 中移除",
+        "Select guardrails to remove (from inherited)": "选择要移除的 Guardrail（来自继承项）",
+        "Resolved Guardrails": "解析后的 Guardrail",
+        "These are the final guardrails that will be applied (including inheritance):": "以下是最终应用的 Guardrail（包括继承项）：",
+        "Conditions (Optional)": "条件（可选）",
+        "Model Scope": "模型范围",
+        "By default, this policy will run on all models. You can optionally restrict it to specific models below.": "默认情况下，此策略将在所有模型上运行，你也可以在下方限制为特定模型。",
+        "Model Condition Type": "模型条件类型",
+        "Select Model": "选择模型",
+        "Custom Regex Pattern": "自定义正则表达式",
+        "Model (Optional)": "模型（可选）",
+        "Regex Pattern (Optional)": "正则表达式（可选）",
+        "Select a specific model to apply this policy to. Leave empty to apply to all models.": "选择应用此策略的特定模型，留空则应用于所有模型。",
+        "Enter a regex pattern to match models (e.g., gpt-4.* or bedrock/.*). Leave empty to apply to all models.": "输入用于匹配模型的正则表达式（例如 gpt-4.* 或 bedrock/.*），留空则应用于所有模型。",
+        "Leave empty to apply to all models": "留空则应用于所有模型",
+        "Leave empty to apply to all models (e.g., gpt-4.* or bedrock/claude-.*)": "留空则应用于所有模型（例如 gpt-4.* 或 bedrock/claude-.*）",
+        "Update Policy": "更新策略",
+        "Create Policy Attachment": "创建策略附件",
+        "Please select at least one policy": "请至少选择一个策略",
+        "Select policies to attach": "选择要关联的策略",
+        "Scope Type": "范围类型",
+        "Specific (teams, keys, models, or tags)": "特定范围（团队、密钥、模型或标签）",
+        "Global (applies to all requests)": "全局（应用于所有请求）",
+        "Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)": "选择团队别名或输入自定义模式，支持通配符（例如 healthcare-*）",
+        "Select or enter team aliases": "选择或输入团队别名",
+        "Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)": "选择密钥别名或输入自定义模式，支持通配符（例如 dev-*）",
+        "Loading keys...": "正在加载密钥...",
+        "Select or enter key aliases": "选择或输入密钥别名",
+        "Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.": "此附件适用的模型名称，支持通配符（例如 gpt-4*），留空则应用于所有模型。",
+        "Select or enter model names (e.g., gpt-4, bedrock/*)": "选择或输入模型名称（例如 gpt-4、bedrock/*）",
+        "Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.": "匹配密钥或团队元数据中的标签，可使用精确值（例如 healthcare）或通配符模式（例如 health-*），其中 * 匹配任意后缀。",
+        "Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).": "匹配密钥/团队 metadata.tags 或请求体中动态传入的标签，可使用 * 后缀通配符（例如 prod-* 匹配 prod-us、prod-eu）。",
+        "Type a tag and press Enter (e.g. healthcare, prod-*)": "输入标签并按 Enter（例如 healthcare、prod-*）",
+        "Estimate Impact": "估算影响",
+        "Create Attachment": "创建附件",
+        "Add blocked keyword": "添加屏蔽关键词",
+        "Keyword": "关键词",
+        "Enter sensitive keyword or phrase": "输入敏感关键词或短语",
+        "Action": "操作",
+        "Choose what action the guardrail should take when this keyword is detected": "选择检测到此关键词时 Guardrail 应采取的操作",
+        "Description (optional)": "描述（可选）",
+        "Explain why this keyword is sensitive": "说明此关键词敏感的原因",
+        "Add prebuilt pattern": "添加预置正则",
+        "Pattern type": "正则类型",
+        "Choose pattern type": "选择正则类型",
+        "No matching patterns": "没有匹配的正则",
+        "Choose what action the guardrail should take when this pattern is detected": "选择检测到此正则时 Guardrail 应采取的操作",
+        "Add custom regex pattern": "添加自定义正则",
+        "Pattern name": "正则名称",
+        "e.g., internal_id, employee_code": "例如：internal_id、employee_code",
+        "Regex pattern": "正则表达式",
+        "e.g., ID-[0-9]{6}": "例如：ID-[0-9]{6}",
+        "Enter a valid regular expression to match sensitive data": "输入有效的正则表达式以匹配敏感数据",
+        "No keywords added.": "尚未添加关键词。",
+        "Prebuilt": "预置",
+        "Custom": "自定义",
+        "No patterns added.": "尚未添加正则。",
+        "Category": "分类",
+        "Severity Threshold": "严重程度阈值",
+        "No categories configured.": "尚未配置分类。",
+        "Content Categories": "内容分类",
+        "categories configured": "已配置 {{count}} 个分类",
+        "patterns configured": "已配置 {{count}} 个正则",
+        "keywords configured": "已配置 {{count}} 个关键词",
+        "Pattern Detection": "正则检测",
+        "Detect sensitive information using regex patterns (SSN, credit cards, API keys, etc.)": "使用正则检测敏感信息（社保号、信用卡、API 密钥等）",
+        "Add custom regex": "添加自定义正则",
+        "Blocked Keywords": "屏蔽关键词",
+        "Block or mask specific sensitive terms and phrases": "屏蔽或掩码特定敏感词和短语",
+        "Add keyword": "添加关键词",
+        "Upload YAML file": "上传 YAML 文件",
+        "Content Filter Configuration": "内容过滤配置",
+        "You have unsaved changes to patterns or keywords. Remember to click Save Changes at the bottom.": "正则或关键词有未保存的更改，请记得点击底部的“保存更改”。",
+        "Add Model": "添加模型",
+        "Select Team": "选择团队",
+        "Please select a team to continue": "请选择团队后继续",
+        "Select the team for which you want to add this model": "选择要添加此模型的团队",
+        "Team Selection Required": "需要选择团队",
+        "As a team admin, you need to select your team first before adding models.": "作为团队管理员，添加模型前需要先选择团队。",
+        "Required": "必填",
+        "Provider:": "供应商：",
+        "E.g. OpenAI, Azure OpenAI, Anthropic, Bedrock, etc.": "例如 OpenAI、Azure OpenAI、Anthropic、Bedrock 等。",
+        "Loading providers...": "正在加载供应商...",
+        "Select a provider": "选择供应商",
+        "Optional": "可选",
+        "LiteLLM endpoint to use when health checking this model": "健康检查此模型时使用的 LiteLLM 端点",
+        "Learn more": "了解更多",
+        "Either select existing credentials OR enter new provider credentials below": "选择已有凭据，或在下方输入新的供应商凭据",
+        "Existing Credentials": "已有凭据",
+        "Select or search for existing credentials": "选择或搜索已有凭据",
+        "OR": "或",
+        "Additional Model Info Settings": "其他模型信息设置",
+        "Team-BYOK Model": "团队 BYOK 模型",
+        "Only use this model + credential combination for this team. Useful when teams want to onboard their own OpenAI keys.": "仅允许此团队使用该模型与凭据组合，适用于团队接入自己的 OpenAI 密钥。",
+        "This is an enterprise-only feature. Upgrade to premium to restrict model+credential combinations to a specific team.": "此功能仅限企业版，升级 Premium 后可将模型与凭据组合限制到指定团队。",
+        "Please select a team.": "请选择团队。",
+        "Only keys for this team will be able to call this model.": "只有该团队的密钥可以调用此模型。",
+        "Use model access groups to give users access to select models, and add new ones to the group over time.": "使用模型访问组为用户提供指定模型的访问权限，并可随时向组中添加模型。",
+        "Select existing groups or type to create new ones": "选择已有组或输入以创建新组",
+        "Get help on our github": "在 GitHub 上获取帮助",
+        "Need Help?": "需要帮助？",
+        "Test Connect": "测试连接",
+        "Connection Test Results": "连接测试结果",
+        "Discount Percentage": "折扣百分比",
+        "Save discount for": "保存折扣：",
+        "Cancel editing discount for": "取消编辑折扣：",
+        "Edit discount for": "编辑折扣：",
+        "Remove discount for": "移除折扣：",
+        "Global (All Providers)": "全局（所有供应商）",
+        "Margin": "加价",
+        "Save margin for": "保存加价：",
+        "Cancel editing margin for": "取消编辑加价：",
+        "Edit margin for": "编辑加价：",
+        "Remove margin for": "移除加价：",
+        "Per Day": "每天",
+        "Per Month": "每月",
+        "Day": "天",
+        "Month": "月",
+        "Select a model": "选择模型",
+        "Remove model row": "移除模型行",
+        "Add Another Model": "添加另一个模型",
+        "Filter": "筛选",
+        "Ask about your spend, models, keys, and trends": "询问花费、模型、密钥和趋势",
+        "Select a model (optional, defaults to gpt-4o-mini)": "选择模型（可选，默认为 gpt-4o-mini）",
+        "Ask a question about your usage": "询问有关用量的问题",
+        "Thinking...": "思考中...",
+        "Ask about your usage...": "询问有关用量的问题...",
+        "Send": "发送",
+        "Clear chat": "清空对话",
+        "Enter to send": "按 Enter 发送",
+        "Total cost": "总成本",
+        "Total {{entity}}s": "{{entity}}总数",
+        "...and {{count}} more": "...还有 {{count}} 项",
+        "Blocked topics": "屏蔽主题",
+        "Select a content category": "选择内容分类",
+        "No matching categories": "没有匹配的分类",
+        "Preview": "预览",
+        "Unable to load category content": "无法加载分类内容",
+        "View {{type}} for": "查看以下内容的 {{type}}：",
+        "Content will load when expanded": "展开后加载内容",
+        "No blocked topics selected. Add topics to detect and block harmful content.": "尚未选择屏蔽主题，请添加主题以检测并屏蔽有害内容。",
+        "Competitor Intent Filter": "竞品意图过滤器",
+        "Block or reframe competitor comparison questions. When enabled, airline type auto-loads competitors from IATA; generic type requires manual competitor list.": "拦截或改写竞品比较问题。启用后，航空公司类型会从 IATA 自动加载竞品，通用类型需要手动填写竞品列表。",
+        "Block or reframe competitor comparison questions. Airline type uses major airlines (excluding your brand); generic requires manual competitor list.": "拦截或改写竞品比较问题。航空公司类型使用主要航空公司（排除你的品牌），通用类型需要手动填写竞品列表。",
+        "Airline (auto-load competitors from IATA)": "航空公司（从 IATA 自动加载竞品）",
+        "Generic (specify competitors manually)": "通用（手动指定竞品）",
+        "Your Brand (brand_self)": "你的品牌（brand_self）",
+        "Select your airline from the list (excluded from competitors) or type to add a custom term": "从列表中选择你的航空公司（将从竞品中排除），或输入自定义词条",
+        "Names/codes users use for your brand": "用户用于称呼你品牌的名称或代码",
+        "Loading airlines...": "正在加载航空公司...",
+        "Search or select airline, or type to add custom": "搜索或选择航空公司，或输入自定义词条",
+        "Type and press Enter to add": "输入后按 Enter 添加",
+        "Locations (optional)": "位置（可选）",
+        "Countries, cities, airports for disambiguation (e.g. qatar, doha)": "用于消歧的国家、城市或机场（例如 qatar、doha）",
+        "Competitors": "竞品",
+        "Competitor names to detect (required for generic type)": "要检测的竞品名称（通用类型必填）",
+        "Policy: Competitor comparison": "策略：竞品比较",
+        "Policy: Possible competitor comparison": "策略：可能的竞品比较",
+        "Refuse (block request)": "拒绝（拦截请求）",
+        "Reframe (suggest alternative)": "改写（建议替代方案）",
+        "Reframe (suggest alternative to backend LLM)": "改写（向后端 LLM 建议替代方案）",
+        "Confidence thresholds": "置信度阈值",
+        "Classify competitor intent by confidence (0–1). Higher confidence -> stronger intent.": "按置信度（0–1）分类竞品意图。置信度越高，意图越强。",
+        "High (≥)": "高（≥）",
+        "Medium (≥)": "中（≥）",
+        "Low (≥)": "低（≥）",
+        "Treat as full competitor comparison -> uses \"Competitor comparison\" policy": "视为完整竞品比较，使用“竞品比较”策略",
+        "Treat as possible comparison -> uses \"Possible competitor comparison\" policy": "视为可能的竞品比较，使用“可能的竞品比较”策略",
+        "Log only; allow request. Below Low -> allow with no action": "仅记录并允许请求。低于低阈值时允许请求且不采取操作",
+        "Raise thresholds to be more permissive; lower them to be stricter.": "提高阈值会更宽松，降低阈值会更严格。",
+        "Advanced Settings": "高级设置",
+        "Custom Pricing": "自定义定价",
+        "Attached Knowledge Bases (RAG)": "已关联知识库（RAG）",
+        "Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.": "用于 RAG 的向量存储，每次请求此模型时都会自动从这些知识库检索上下文。",
+        "Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.": "选择要关联的向量存储，此模型的请求将自动使用它们进行 RAG。请在工具 > 向量存储中完成设置。",
+        "Select knowledge bases (optional)": "选择知识库（可选）",
+        "Apply safety guardrails to this key to filter content or enforce policies": "为此密钥应用安全 Guardrail，以过滤内容或执行策略",
+        "Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.": "选择已有 Guardrail，前往“Guardrail”选项卡创建新的 Guardrail。",
+        "Select or enter guardrails": "选择或输入 Guardrail",
+        "Select or enter tags": "选择或输入标签",
+        "PTU Count": "PTU 数量",
+        "Calculated Cost per PTU / Hour (USD)": "每 PTU 每小时计算成本（美元）",
+        "PTU Effective From (UTC)": "PTU 生效时间（UTC）",
+        "PTU Effective To (UTC)": "PTU 失效时间（UTC）",
+        "Pricing Model": "定价模型",
+        "Per Million Tokens": "每百万 Token",
+        "Per Second": "每秒",
+        "Input Cost (per 1M tokens)": "输入成本（每百万 Token）",
+        "Output Cost (per 1M tokens)": "输出成本（每百万 Token）",
+        "Cache Read Cost (per 1M tokens)": "缓存读取成本（每百万 Token）",
+        "Cache Write Cost (per 1M tokens)": "缓存写入成本（每百万 Token）",
+        "Cost Per Second": "每秒成本",
+        "Use in pass through routes": "用于透传路由",
+        "Allow using these credentials in pass through routes.": "允许在透传路由中使用这些凭据。",
+        "LiteLLM Params": "LiteLLM 参数",
+        "Optional litellm params used for making a litellm.completion() call.": "用于调用 litellm.completion() 的可选 LiteLLM 参数。",
+        "Pass JSON of litellm supported params": "传入 LiteLLM 支持的参数 JSON",
+        "Loading provider fields...": "正在加载供应商字段...",
+        "Failed to load provider credential fields": "加载供应商凭据字段失败",
+        "Click to Upload": "点击上传",
+        "Give a gcp service account(.json file)": "提供 GCP 服务账号（.json 文件）",
+        "The actual model your azure deployment uses. Used for accurate cost tracking. Select name from": "Azure 部署实际使用的模型，用于准确的成本追踪，请从此处选择名称",
+        "here": "此处",
+        "General Info": "基本信息",
+        "Group Name": "组名称",
+        "Please enter the access group name": "请输入访问组名称",
+        "e.g. Engineering Team": "例如：工程团队",
+        "Describe the purpose of this access group...": "描述此访问组的用途...",
+        "Select MCP servers": "选择 MCP 服务器",
+        "Allowed Agents": "允许的智能体",
+        "Select agents": "选择智能体",
+        "Access group created successfully": "访问组创建成功",
+        "Create Group": "创建组",
+        "Access group updated successfully": "访问组更新成功",
+        "Open access group actions": "打开访问组操作",
+        "Delete access group": "删除访问组",
+        "SSO Settings": "SSO 设置",
+        "Security Settings": "安全设置",
+        "SSO Configuration Deprecated": "SSO 配置已弃用",
+        "Editing SSO Settings on this page is deprecated and will be removed in a future version. Please use the SSO Settings tab for SSO configuration.": "此页面上的 SSO 设置已弃用，并将在未来版本中移除。请使用 SSO 设置选项卡配置 SSO。",
+        "Edit SSO Settings": "编辑 SSO 设置",
+        "Add SSO": "添加 SSO",
+        "Allowed IPs": "允许的 IP",
+        "UI Access Control": "界面访问控制",
+        "Manage Allowed IP Addresses": "管理允许的 IP 地址",
+        "Add IP Address": "添加 IP 地址",
+        "IP Address": "IP 地址",
+        "Add Allowed IP Address": "添加允许的 IP 地址",
+        "Please enter an IP address": "请输入 IP 地址",
+        "Enter IP address": "输入 IP 地址",
+        "Confirm Delete": "确认删除",
+        "Are you sure you want to delete the IP address: {{ip}}?": "确定要删除 IP 地址 {{ip}} 吗？",
+        "UI Access Control Settings": "界面访问控制设置",
+        "Login without SSO": "不使用 SSO 登录",
+        "If you need to login without sso, you can access": "如果需要不使用 SSO 登录，可以访问",
+        "SCIM": "SCIM",
+        "UI Settings": "界面设置",
+        "Logging Settings": "日志设置",
+        "Hashicorp Vault": "Hashicorp Vault",
+        "Plugins": "插件",
+        "Admin Access": "管理员访问",
+        "Go to 'Internal Users' page to add other admins.": "前往“内部用户”页面添加其他管理员。",
+        "IP address added successfully": "IP 地址添加成功",
+        "IP address deleted successfully": "IP 地址删除成功",
+        "UI Access Control settings updated successfully": "界面访问控制设置更新成功",
+        "less": "收起",
+        "more": "展开",
+        "status": "状态",
+        "created": "创建时间",
+        "pr": "PR",
+        "type": "类型",
+        "step": "步骤",
+        "seq": "序号",
+        "time": "时间",
+        "data": "数据",
+        "No events recorded": "暂无事件记录",
+        "Run": "运行",
+        "Workflow Runs": "工作流运行",
+        "Durable state tracking for agents and automated workflows": "跟踪智能体和自动化工作流的持久状态",
+        "Loading workflow runs…": "正在加载工作流运行…",
+        "No workflow runs yet": "暂无工作流运行",
+        "Search runs…": "搜索运行记录…",
+        "Narrow down workflow runs": "缩小工作流运行范围",
+        "All statuses": "全部状态",
+        "pending": "等待中",
+        "running": "运行中",
+        "paused": "已暂停",
+        "completed": "已完成",
+        "failed": "失败",
+        "Filter by type…": "按类型筛选…",
+        "Workflow run details": "工作流运行详情",
+        "Metadata, timeline and messages for the selected workflow run": "所选工作流运行的元数据、时间线和消息",
+        "close": "关闭",
+        "Timeline": "时间线",
+        "event": "个事件",
+        "events": "个事件",
+        "Messages": "消息",
+        "No messages": "暂无消息",
+        "No agents yet": "暂无智能体",
+        "Add an agent to make it available in your organization.": "添加智能体后即可在组织中使用。",
+        "Loading agents…": "正在加载智能体…",
+        "Health Check": "健康检查",
+        "When enabled, only agents with reachable URLs are shown": "启用后，仅显示 URL 可访问的智能体",
+        "Open agent actions": "打开智能体操作",
+        "Agent Name": "智能体名称",
+        "Agent ID": "智能体 ID",
+        "N/A": "不适用",
+        "Needs Setup": "需要设置",
+        "No virtual key assigned to this agent.": "此智能体未分配虚拟密钥。",
+        "Unnamed key": "未命名密钥",
+        "List of A2A-spec agents that are available to be used in your organization. Go to AI Hub, to make agents public.": "列出组织中可用的 A2A 规范智能体。前往 AI Hub 可将智能体公开。",
+        "Why do agents need keys?": "为什么智能体需要密钥？",
+        "Keys scope access to an agent and allow it to call MCP tools. Assign a key when creating an agent or from the Virtual Keys page.": "密钥用于限定智能体的访问范围，并允许其调用 MCP 工具。创建智能体时或在虚拟密钥页面为其分配密钥。",
+        "Delete Agent": "删除智能体",
+        "Agent \"{{name}}\" deleted successfully": "智能体“{{name}}”删除成功",
+        "Are you sure you want to delete agent: {{name}}? This action cannot be undone.": "确定要删除智能体“{{name}}”吗？此操作无法撤销。",
+        "No Redis configured. Redis is highly recommended": "未配置 Redis。强烈建议使用 Redis",
+        "Updated": "更新于",
+        "Manage Single Sign-On authentication settings": "管理单点登录身份验证设置",
+        "No SSO Configuration Found": "未找到 SSO 配置",
+        "Configure Single Sign-On (SSO) to enable seamless authentication for your team members using your identity provider.": "配置单点登录（SSO），使用您的身份提供商为团队成员启用无缝身份验证。",
+        "Configure SSO": "配置 SSO",
+        "Cache Settings": "缓存设置",
+        "Select Time Range": "选择时间范围",
+        "Select range": "选择范围",
+        "Cached Completion Tokens": "缓存补全 Token",
+        "Cache Hits vs API Requests": "缓存命中与 API 请求对比",
+        "Cached Completion Tokens vs Generated Completion Tokens": "缓存补全 Token 与生成补全 Token 对比",
+        "Total saved": "总节省",
+        "No tool usage in this range.": "此范围内没有工具用量。",
+        "Select models above to see cost estimates": "选择上方模型以查看成本估算",
+        "No guardrails available": "没有可用的护栏",
+        "Select Guardrails to Test": "选择要测试的护栏",
+        "Total Submitted": "提交总数",
+        "All Status": "全部状态",
+        "No guardrails match your filters.": "没有符合筛选条件的护栏。",
+        "Total Evaluations": "评估总数",
+        "Blocked Requests": "被拦截的请求",
+        "Request Outcomes Over Time": "请求结果随时间变化",
+        "No chart data for this period": "此时间段内没有图表数据",
+        "No data for this period": "此时间段内没有数据",
+        "Alerting Settings": "告警设置",
+        "Callback Name": "回调名称",
+        "No callbacks configured": "未配置回调",
+        "Add your first callback to start logging data to external services.": "添加第一个回调，开始将数据记录到外部服务。",
+        "No deleted keys found": "未找到已删除的密钥",
+        "No deleted teams found": "未找到已删除的团队",
+        "Select transport": "选择传输方式",
+        "Add Variable": "添加变量",
+        "Permission Management / Access Control": "权限管理 / 访问控制",
+        "Configure access permissions and security settings (Optional)": "配置访问权限和安全设置（可选）",
+        "Enable if this server should be \"public\" to all keys.": "如果此服务器应对所有密钥「公开」，请启用。",
+        "No memories stored yet": "尚未存储记忆",
+        "Link Management": "链接管理",
+        "Manage the links that are displayed under 'Useful Links' on the public model hub.": "管理公共模型中心「实用链接」下显示的链接。",
+        "Manage Existing Links": "管理现有链接",
+        "No links added yet. Add a new link above.": "尚未添加链接。请在上方添加新链接。",
+        "Select Models to Make Public": "选择要公开的模型",
+        "Team Based Usage": "基于团队的用量",
+        "Tag Based Usage": "基于标签的用量",
+        "No limit": "无限制",
+        "NSFW Content Filter (Australia)": "NSFW 内容过滤（澳大利亚）",
+        "NSFW Content Filter (Basic)": "NSFW 内容过滤（基础）",
+        "NSFW Content Filter (All Regions)": "NSFW 内容过滤（所有区域）",
+        "Singapore PDPA — Personal Data Protection": "新加坡个人数据保护法 — 个人数据保护",
+        "Singapore MAS — AI Risk Management for Financial Institutions": "新加坡金管局 — 金融机构 AI 风险管理",
+        "Manage projects within your teams": "管理团队内的项目",
+        "No projects yet": "暂无项目",
+        "Create a project to organize keys within your teams.": "创建项目以在团队内组织密钥。",
+        "No prompts yet": "暂无提示词",
+        "Add a prompt to start managing reusable templates.": "添加提示词以开始管理可复用的模板。",
+        "Routing Settings": "路由设置",
+        "Configure how requests are routed to deployments": "配置请求如何路由到部署",
+        "Enable Tag Filtering": "启用标签筛选",
+        "Configure retry logic and failure handling": "配置重试逻辑和失败处理",
+        "Search Tools": "搜索工具",
+        "Configure and manage your search providers": "配置并管理您的搜索提供商",
+        "+ Add New Search Tool": "新建搜索工具",
+        "Search Tool ID": "搜索工具 ID",
+        "No search tools configured": "未配置搜索工具",
+        "Add a search tool to enable web search for your models.": "添加搜索工具，为您的模型启用联网搜索。",
+        "+ Add Skill": "新建技能",
+        "Skill Name": "技能名称",
+        "No skills found": "未找到技能",
+        "Add one to get started.": "添加一个以开始使用。",
+        "Tag Management": "标签管理",
+        "+ Create New Tag": "新建标签",
+        "Total Tools Discovered": "发现的工具总数",
+        "No tools discovered": "未发现工具",
+        "Original Request": "原始请求",
+        "The request you would send to LiteLLM /chat/completions endpoint.": "您将发送到 LiteLLM /chat/completions 端点的请求。",
+        "Transformed Request": "转换后的请求",
+        "Overall Usage": "总用量",
+        "Total Successful Requests": "成功请求总数",
+        "Default User Settings": "默认用户设置",
+        "Internal User (View Only)": "内部用户（只读）",
+        "No reset": "无重置",
+        "Vector Store Management": "向量库管理",
+        "Create Vector Store": "创建向量库",
+        "Manage Vector Stores": "管理向量库",
+        "Upload documents and select a provider to create a new vector store with embedded content.": "上传文档并选择提供商，创建包含嵌入内容的向量库。",
+        "Step 1: Upload Documents": "第 1 步：上传文档",
+        "Upload one or more documents (PDF, TXT, DOCX, MD). Maximum file size: 50MB per file.": "上传一个或多个文档（PDF、TXT、DOCX、MD）。单个文件最大 50MB。",
+        "Step 2: Configure Vector Store": "第 2 步：配置向量库",
+        "Health and Endpoint Status": "健康与端点状态",
+        "Search Models:": "搜索模型：",
+        "Model Name": "模型名称",
+        "Health Status": "健康状态",
+        "No models available": "没有可用的模型",
+        "Requests per day": "每日请求数",
+        "Success vs Failed Requests": "成功与失败请求对比",
+        "Total Tokens Over Time": "Token 总数随时间变化",
+        "Total Requests Over Time": "请求总数随时间变化",
+        "Add Static Header": "添加静态请求头",
+        "Add MCP Server": "新建 MCP 服务器",
+        "Web Search": "网络搜索",
+        "Prompt Tokens": "提示词 Token",
+        "Completion Tokens": "补全 Token",
+        "Audit Logs": "审计日志",
+        "Deleted Keys": "已删除的密钥",
+        "Deleted Teams": "已删除的团队",
+        "Api Requests": "API 请求",
+        "Cache Read Input Tokens": "缓存读取输入 Token",
+        "Cache Creation Input Tokens": "缓存创建输入 Token",
+        "Model Usage": "模型用量"
+    },
+    "nav": {
+        "groups": {
+            "aiGateway": "AI 网关",
+            "observability": "可观测性",
+            "accessControl": "访问控制",
+            "developerTools": "开发者工具",
+            "settings": "设置"
+        },
+        "api-keys": "虚拟密钥",
+        "llm-playground": "试用场",
+        "models": "模型和端点",
+        "agentic": "智能体",
+        "agents": "智能体",
+        "workflows": "工作流运行",
+        "memory": "记忆",
+        "mcp-servers": "MCP 服务器",
+        "skills": "技能",
+        "guardrails": "防护栏",
+        "policies": "策略",
+        "tools": "工具",
+        "search-tools": "搜索工具",
+        "vector-stores": "向量存储",
+        "tool-policies": "工具策略",
+        "new_usage": "用量",
+        "cost-optimization": "成本优化",
+        "logs": "日志",
+        "guardrails-monitor": "防护栏监控",
+        "teams": "团队",
+        "projects": "项目",
+        "users": "内部用户",
+        "organizations": "组织",
+        "access-groups": "访问组",
+        "budgets": "预算",
+        "api_ref": "API 参考",
+        "model-hub-table": "AI Hub",
+        "learning-resources": "学习资源",
+        "caching": "响应缓存",
+        "experimental": "实验功能",
+        "prompts": "提示词",
+        "transform-request": "API 试用场",
+        "tag-management": "标签管理",
+        "usage": "旧版用量",
+        "settings": "设置",
+        "router-settings": "路由设置",
+        "logging-and-alerts": "日志和告警",
+        "admin-panel": "管理员设置",
+        "cost-tracking": "成本追踪",
+        "ui-theme": "界面主题"
+    },
+    "models": {
+        "title": "模型管理",
+        "allModels": "全部模型",
+        "yourModels": "你的模型",
+        "addModel": "添加模型",
+        "autoRouters": "自动路由器",
+        "llmCredentials": "LLM 凭据",
+        "passThrough": "透传端点",
+        "health": "健康状态",
+        "retrySettings": "模型重试设置",
+        "modelGroupAlias": "模型组别名",
+        "priceData": "价格数据",
+        "adminDescription": "为代理添加和管理模型",
+        "teamDescription": "为你担任管理员的团队添加模型。",
+        "lastRefreshed": "上次刷新：{{time}}",
+        "refresh": "刷新模型"
+    },
+    "virtualKeys": {
+        "title": "虚拟密钥",
+        "subtitle": "所有用于请求网关身份验证的密钥。",
+        "loading": "正在加载密钥...",
+        "loadingKey": "正在加载密钥...",
+        "noData": "未找到密钥",
+        "search": "按密钥别名搜索…",
+        "filters": "筛选",
+        "filtersDescription": "缩小虚拟密钥范围",
+        "team": "团队",
+        "organization": "组织",
+        "userId": "用户 ID",
+        "keyId": "密钥 ID",
+        "selectTeam": "选择团队…",
+        "noTeams": "未找到团队",
+        "selectOrganization": "选择组织…",
+        "noOrganizations": "未找到组织",
+        "enterUserId": "输入用户 ID…",
+        "enterKeyId": "输入密钥 ID…",
+        "createdAt": "创建时间",
+        "createdBy": "创建者",
+        "expires": "过期时间",
+        "spendBudget": "消费 / 预算",
+        "budgetReset": "预算重置",
+        "budget": "预算"
+    },
+    "teamsPage": {
+        "title": "团队",
+        "subtitle": "管理团队、成员及其模型和预算访问权限",
+        "yourTeams": "你的团队",
+        "availableTeams": "可加入团队",
+        "defaultSettings": "默认团队设置",
+        "createTeam": "创建团队",
+        "teamName": "团队名称"
+    },
+    "usersPage": {
+        "users": "用户",
+        "defaultSettings": "默认用户设置",
+        "selectUsers": "选择用户",
+        "cancelSelection": "取消选择",
+        "bulkEdit": "批量编辑（已选 {{count}} 个）",
+        "search": "按邮箱搜索…"
+    }
 }

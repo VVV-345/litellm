@@ -13,6 +13,7 @@ import { useDebouncedCallback } from "@tanstack/react-pacer/debouncer";
 import { ColumnFiltersState, OnChangeFn, PaginationState, SortingState } from "@tanstack/react-table";
 import { Info } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useModelsInfo } from "../../hooks/models/useModels";
 import { transformModelData } from "../utils/modelDataTransformer";
@@ -50,6 +51,7 @@ const AllModelsTab = ({
   const { accessToken, userId, userRole } = useAuthorized();
   const { data: teams, isLoading: isLoadingTeams } = useTeams();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [modelNameSearch, setModelNameSearch] = useState<string>("");
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
@@ -329,7 +331,7 @@ const AllModelsTab = ({
           modelToDelete
             ? [
                 {
-                  label: "Model Name",
+                  label: t("ui.Model Name"),
                   value: modelToDelete.model_name || "Not Set",
                 },
                 {

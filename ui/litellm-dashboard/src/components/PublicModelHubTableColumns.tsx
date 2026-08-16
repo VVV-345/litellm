@@ -6,6 +6,7 @@ import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { CellTooltip, IdentityCell, StatusBadge, type StatusTone } from "@/components/shared/table_cells";
 import { Badge } from "@/components/ui/badge";
 import { getProviderLogoAndName } from "@/components/provider_info_helpers";
+import { useTranslation } from "react-i18next";
 
 export interface ModelGroupInfo {
   model_group: string;
@@ -163,12 +164,14 @@ interface PublicModelHubColumnsDeps {
   onModelClick: (model: ModelGroupInfo) => void;
 }
 
-export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumnsDeps): ColumnDef<ModelGroupInfo>[] => [
+export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumnsDeps): ColumnDef<ModelGroupInfo>[] => {
+  const { t } = useTranslation();
+  return [
   {
     id: "model_group",
     accessorKey: "model_group",
-    meta: { title: "Model Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Model Name" />,
+    meta: { title: t("ui.Model Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model Name")} />,
     size: 200,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -267,8 +270,8 @@ export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumns
   {
     id: "health_status",
     accessorKey: "health_status",
-    meta: { title: "Health Status", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Health Status" />,
+    meta: { title: t("ui.Health Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Health Status")} />,
     size: 130,
     enableSorting: true,
     cell: ({ row }) => {
@@ -311,12 +314,15 @@ export const getPublicModelHubColumns = ({ onModelClick }: PublicModelHubColumns
     ),
   },
 ];
+};
 
 interface PublicAgentHubColumnsDeps {
   onAgentClick: (agent: AgentCard) => void;
 }
 
-export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumnsDeps): ColumnDef<AgentCard>[] => [
+export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumnsDeps): ColumnDef<AgentCard>[] => {
+  const { t } = useTranslation();
+  return [
   {
     id: "name",
     accessorKey: "name",
@@ -337,8 +343,8 @@ export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumns
   {
     id: "description",
     accessorKey: "description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: t("ui.Description") },
+    header: t("ui.Description"),
     size: 260,
     enableSorting: false,
     cell: ({ row }) => (
@@ -403,12 +409,15 @@ export const getPublicAgentHubColumns = ({ onAgentClick }: PublicAgentHubColumns
     },
   },
 ];
+};
 
 interface PublicMCPHubColumnsDeps {
   onServerClick: (server: MCPServerData) => void;
 }
 
-export const getPublicMCPHubColumns = ({ onServerClick }: PublicMCPHubColumnsDeps): ColumnDef<MCPServerData>[] => [
+export const getPublicMCPHubColumns = ({ onServerClick }: PublicMCPHubColumnsDeps): ColumnDef<MCPServerData>[] => {
+  const { t } = useTranslation();
+  return [
   {
     id: "server_name",
     accessorKey: "server_name",
@@ -428,8 +437,8 @@ export const getPublicMCPHubColumns = ({ onServerClick }: PublicMCPHubColumnsDep
   },
   {
     id: "description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: t("ui.Description") },
+    header: t("ui.Description"),
     size: 260,
     enableSorting: false,
     cell: ({ row }) => {
@@ -468,3 +477,4 @@ export const getPublicMCPHubColumns = ({ onServerClick }: PublicMCPHubColumnsDep
     ),
   },
 ];
+};

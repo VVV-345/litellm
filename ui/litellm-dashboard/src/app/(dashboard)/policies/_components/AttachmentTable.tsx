@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { Inbox } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 import { PolicyAttachment } from "@/components/policies/types";
@@ -40,12 +41,13 @@ const AttachmentTable: React.FC<AttachmentTableProps> = ({
   isAdmin,
   accessToken,
 }) => {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
   const columns = useMemo(() => {
-    const deps = { isAdmin, accessToken, onDeleteClick };
+    const deps = { isAdmin, accessToken, onDeleteClick, t };
     return getAttachmentTableColumns(deps);
-  }, [isAdmin, accessToken, onDeleteClick]);
+  }, [isAdmin, accessToken, onDeleteClick, t]);
 
   return (
     <DataTable

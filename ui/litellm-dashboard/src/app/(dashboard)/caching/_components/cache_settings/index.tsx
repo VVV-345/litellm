@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Button, Accordion, AccordionHeader, AccordionBody } from "@tremor/react";
 import { Form } from "antd";
+import { useTranslation } from "react-i18next";
 import { getCacheSettingsCall, testCacheConnectionCall, updateCacheSettingsCall } from "@/components/networking";
 import { fetchAvailableModels, ModelGroup } from "@/components/llm_calls/fetch_models";
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -20,6 +21,7 @@ const toRedisType = (value: unknown): RedisType =>
   REDIS_TYPES.includes(value as RedisType) ? (value as RedisType) : "node";
 
 const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm<CacheFormValues>();
   const [redisType, setRedisType] = useState<RedisType>("node");
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelOption[]>([]);
@@ -130,7 +132,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
     <div className="w-full space-y-8 py-2">
       <Form form={form} layout="vertical" requiredMark={false} className="space-y-6">
         <div className="max-w-3xl">
-          <h3 className="text-sm font-medium text-gray-900">Cache Settings</h3>
+          <h3 className="text-sm font-medium text-gray-900">{t("ui.Cache Settings")}</h3>
           <p className="text-xs text-gray-500 mt-1">Configure Redis cache for LiteLLM</p>
         </div>
 
@@ -222,7 +224,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
           {isTesting ? "Testing..." : "Test Connection"}
         </Button>
         <Button size="sm" onClick={handleSaveChanges} disabled={isSaving} className="text-sm font-medium">
-          {isSaving ? "Saving..." : "Save Changes"}
+          {isSaving ? "Saving..." : t("ui.Save Changes")}
         </Button>
       </div>
     </div>

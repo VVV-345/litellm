@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
+import { useTranslation } from "react-i18next";
 
 import type { passThroughItem } from "./PassThroughSettings";
 
@@ -114,7 +115,9 @@ interface PassThroughEndpointsTableColumnsDeps {
 export const getPassThroughEndpointsTableColumns = ({
   onEndpointClick,
   onDeleteClick,
-}: PassThroughEndpointsTableColumnsDeps): ColumnDef<passThroughItem>[] => [
+}: PassThroughEndpointsTableColumnsDeps): ColumnDef<passThroughItem>[] => {
+  const { t } = useTranslation();
+  return [
   {
     id: "id",
     accessorKey: "id",
@@ -190,7 +193,7 @@ export const getPassThroughEndpointsTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,
@@ -201,3 +204,4 @@ export const getPassThroughEndpointsTableColumns = ({
     ),
   },
 ];
+};

@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, MoreHorizontal, Trash2 } from "lucide-react";
 
 import { StatusBadge, type StatusTone } from "@/components/shared/table_cells";
@@ -62,9 +63,10 @@ function DocumentRowActions({ document, onRemove }: { document: DocumentUpload; 
 
 interface DocumentsTableColumnsDeps {
   onRemove: (uid: string) => void;
+  t: TFunction;
 }
 
-export const getDocumentsTableColumns = ({ onRemove }: DocumentsTableColumnsDeps): ColumnDef<DocumentUpload>[] => [
+export const getDocumentsTableColumns = ({ onRemove, t }: DocumentsTableColumnsDeps): ColumnDef<DocumentUpload>[] => [
   {
     id: "name",
     accessorKey: "name",
@@ -97,7 +99,7 @@ export const getDocumentsTableColumns = ({ onRemove }: DocumentsTableColumnsDeps
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

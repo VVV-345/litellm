@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { Inbox } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 import { VectorStore } from "@/components/vector_store_management/types";
@@ -34,9 +35,13 @@ function EmptyState() {
 }
 
 const VectorStoreTable: React.FC<VectorStoreTableProps> = ({ data, onView, onEdit, onDelete, isLoading = false }) => {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
-  const columns = useMemo(() => getVectorStoreTableColumns({ onView, onEdit, onDelete }), [onView, onEdit, onDelete]);
+  const columns = useMemo(
+    () => getVectorStoreTableColumns({ onView, onEdit, onDelete, t }),
+    [onView, onEdit, onDelete, t],
+  );
 
   return (
     <DataTable

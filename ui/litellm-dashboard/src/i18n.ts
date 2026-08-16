@@ -17,6 +17,7 @@ void i18next.use(initReactI18next).init({
   fallbackLng: ENGLISH_LANGUAGE,
   interpolation: { escapeValue: false },
   react: { useSuspense: false },
+  nsSeparator: false,
 });
 
 export default i18next;

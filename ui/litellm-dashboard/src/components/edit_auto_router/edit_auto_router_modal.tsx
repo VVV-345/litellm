@@ -25,6 +25,7 @@ import ComplexityRouterConfig, {
   DEFAULT_TIER_DISTANCE_PENALTY,
 } from "../add_model/ComplexityRouterConfig";
 import NotificationsManager from "../molecules/notifications_manager";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -165,6 +166,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
   accessToken,
   userRole,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [modelAccessGroups, setModelAccessGroups] = useState<string[]>([]);
@@ -559,7 +561,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
           <Button onClick={onCancel}>Cancel</Button>
           <Tooltip title={submitBlockedReason}>
             <Button loading={loading} disabled={submitBlockedReason !== null} onClick={handleSubmit}>
-              Save Changes
+              {t("ui.Save Changes")}
             </Button>
           </Tooltip>
         </DialogFooter>

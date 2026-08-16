@@ -218,10 +218,10 @@ const BudgetTable: React.FC<BudgetTableProps> = ({ list, canModify, onEditClick,
   const { t } = useTranslation();
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const columns = useMemo(
-    () => getBudgetTableColumns({ canModify, onEditClick, onDeleteClick }),
-    [canModify, onEditClick, onDeleteClick],
-  );
+  const columns = useMemo(() => {
+    const deps = { canModify, onEditClick, onDeleteClick, t };
+    return getBudgetTableColumns(deps);
+  }, [canModify, onEditClick, onDeleteClick, t]);
 
   const hasQuery = list.searchValue.trim() !== "" || list.columnFilters.length > 0;
   const emptyMessage = list.error === null ? <EmptyState hasQuery={hasQuery} /> : <ErrorState error={list.error} />;

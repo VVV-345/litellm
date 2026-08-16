@@ -416,12 +416,12 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                         </p>
                       </>
                     ) : (
-                      <p className="text-cyan-500">Total Spend: ${formatNumberWithCommas(data.metrics.spend, 2)}</p>
+                      <p className="text-cyan-500">{ui("Total Spend")}: ${formatNumberWithCommas(data.metrics.spend, 2)}</p>
                     )}
-                    <p className="text-gray-600">Total Requests: {data.metrics.api_requests}</p>
+                    <p className="text-gray-600">{ui("Total Requests")}: {data.metrics.api_requests}</p>
                     <p className="text-gray-600">Successful: {data.metrics.successful_requests}</p>
                     <p className="text-gray-600">Failed: {data.metrics.failed_requests}</p>
-                    <p className="text-gray-600">Total Tokens: {data.metrics.total_tokens}</p>
+                    <p className="text-gray-600">{ui("Total Tokens")}: {data.metrics.total_tokens}</p>
                     <p className="text-gray-600">
                       Total {capitalizedEntityLabel}s: {entityCount}
                     </p>

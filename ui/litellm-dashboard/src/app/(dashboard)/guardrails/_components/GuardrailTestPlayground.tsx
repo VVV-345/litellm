@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { FlaskConical, Search } from "lucide-react";
 import GuardrailTestPanel from "./GuardrailTestPanel";
 import { applyGuardrail } from "@/components/networking";
@@ -45,6 +47,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
   accessToken,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [selectedGuardrails, setSelectedGuardrails] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [testResults, setTestResults] = useState<TestResult[]>([]);
@@ -142,7 +145,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
                   </div>
                 ) : filteredGuardrails.length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
-                    {searchQuery ? "No guardrails match your search" : "No guardrails available"}
+                    {searchQuery ? "No guardrails match your search" : translateUiText(t, "No guardrails available")}
                   </div>
                 ) : (
                   <ul className="m-0 list-none p-0">
@@ -197,7 +200,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
                 {selectedGuardrails.size === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
                     <FlaskConical className="mb-4 size-12" />
-                    <p className="mb-2 text-lg font-medium">Select Guardrails to Test</p>
+                    <p className="mb-2 text-lg font-medium">{translateUiText(t, "Select Guardrails to Test")}</p>
                     <p className="max-w-md text-center">
                       Choose one or more guardrails from the left sidebar to start testing and comparing results.
                     </p>

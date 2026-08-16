@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { BarChart } from "@/components/shared/charts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -11,12 +13,13 @@ interface ScoreChartProps {
 }
 
 export function ScoreChart({ data }: ScoreChartProps) {
+  const { t } = useTranslation();
   const chartData = data && data.length > 0 ? data : [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold">Request Outcomes Over Time</CardTitle>
+        <CardTitle className="text-base font-semibold">{translateUiText(t, "Request Outcomes Over Time")}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="h-80 min-h-[280px]">
@@ -34,7 +37,7 @@ export function ScoreChart({ data }: ScoreChartProps) {
             />
           ) : (
             <div className="flex items-center justify-center h-full text-sm text-gray-500">
-              No chart data for this period
+              {translateUiText(t, "No chart data for this period")}
             </div>
           )}
         </div>

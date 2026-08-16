@@ -3,6 +3,7 @@
 import type { ExpandedState, SortingState } from "@tanstack/react-table";
 import { Inbox } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 
@@ -47,6 +48,7 @@ const RoutingGroupsTable: React.FC<RoutingGroupsTableProps> = ({
 }) => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const { t } = useTranslation();
   const baseUrl = resolveBaseUrl(proxyBaseUrl);
 
   const toggleUsage = useCallback((group: RoutingGroup) => {
@@ -57,9 +59,9 @@ const RoutingGroupsTable: React.FC<RoutingGroupsTableProps> = ({
   }, []);
 
   const columns = useMemo(() => {
-    const deps = { onEdit, onDelete, onToggleUsage: toggleUsage };
+    const deps = { onEdit, onDelete, onToggleUsage: toggleUsage, t };
     return getRoutingGroupsTableColumns(deps);
-  }, [onEdit, onDelete, toggleUsage]);
+  }, [onEdit, onDelete, toggleUsage, t]);
 
   return (
     <DataTable

@@ -3,6 +3,7 @@
 import React from "react";
 import { TriangleAlert } from "lucide-react";
 import { useHealthReadinessDetails } from "@/app/(dashboard)/hooks/healthReadiness/useHealthReadinessDetails";
+import { useTranslation } from "react-i18next";
 
 const REDIS_DOCS_URL = "https://docs.litellm.ai/docs/proxy/redis_requirements";
 
@@ -11,6 +12,7 @@ interface NoRedisWarningBannerProps {
 }
 
 export const NoRedisWarningBanner: React.FC<NoRedisWarningBannerProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const { data: healthData } = useHealthReadinessDetails(accessToken);
 
   if (!healthData?.show_no_redis_warning) {
@@ -24,7 +26,7 @@ export const NoRedisWarningBanner: React.FC<NoRedisWarningBannerProps> = ({ acce
     >
       <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
       <div>
-        <p className="font-semibold">No Redis configured. Redis is highly recommended</p>
+        <p className="font-semibold">{t("ui.No Redis configured. Redis is highly recommended")}</p>
         <p>
           Rate limits, budgets, router state, and cache invalidation are per worker without Redis, so limits are
           enforced once per worker and spend can overshoot.{" "}
