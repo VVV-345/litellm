@@ -50,13 +50,6 @@ interface UsersTableProps {
   onResetPassword: (userId: string) => void;
 }
 
-const FILTER_LABELS: Record<string, string> = {
-  user_id: "User ID",
-  sso_user_id: "SSO ID",
-  user_role: "Role",
-  team: "Team",
-};
-
 function EmptyState() {
   const { t } = useTranslation();
   return (
@@ -93,6 +86,16 @@ export function UsersTable({
 }: UsersTableProps) {
   const { t } = useTranslation();
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const filterLabels = useMemo(
+    () => ({
+      user_id: t("ui.User ID"),
+      sso_user_id: t("ui.SSO ID"),
+      user_role: t("ui.Role"),
+      team: t("ui.Team"),
+    }),
+    [t],
+  );
 
   const columns = useMemo(() => {
     const columnDeps = {
@@ -153,7 +156,7 @@ export function UsersTable({
       rowSelection={rowSelection}
       onRowSelectionChange={onRowSelectionChange}
       isLoading={isLoading}
-      loadingMessage={t("ui.Loading…", { defaultValue: "Loading users…" })}
+      loadingMessage={t("ui.Loading users…")}
       noDataMessage={<EmptyState />}
       size="compact"
       toolbar={(table) => (
@@ -164,7 +167,7 @@ export function UsersTable({
             onSearchChange={onSearchChange}
             searchPlaceholder={t("ui.Search by email…")}
             onOpenFilters={() => setFiltersOpen(true)}
-            filterLabels={FILTER_LABELS}
+            filterLabels={filterLabels}
             formatFilterValue={formatFilterValue}
           />
           <DataTableFilterDrawer
@@ -176,7 +179,7 @@ export function UsersTable({
           >
             {({ get, set }) => (
               <>
-                <DataTableFilterField label="User ID">
+                <DataTableFilterField label={t("ui.User ID")}>
                   <Input
                     value={(get("user_id") as string) ?? ""}
                     onChange={(event) => set("user_id", event.target.value)}
@@ -184,7 +187,7 @@ export function UsersTable({
                     data-testid="users-filter-user-id"
                   />
                 </DataTableFilterField>
-                <DataTableFilterField label="SSO ID">
+                <DataTableFilterField label={t("ui.SSO ID")}>
                   <Input
                     value={(get("sso_user_id") as string) ?? ""}
                     onChange={(event) => set("sso_user_id", event.target.value)}
@@ -192,7 +195,7 @@ export function UsersTable({
                     data-testid="users-filter-sso-id"
                   />
                 </DataTableFilterField>
-                <DataTableFilterField label="Role">
+                <DataTableFilterField label={t("ui.Role")}>
                   <SearchSelect
                     options={roleOptions}
                     value={(get("user_role") as string) || undefined}
@@ -201,7 +204,7 @@ export function UsersTable({
                     emptyText={t("ui.No roles found")}
                   />
                 </DataTableFilterField>
-                <DataTableFilterField label="Team">
+                <DataTableFilterField label={t("ui.Team")}>
                   <SearchSelect
                     options={teamOptions}
                     value={(get("team") as string) || undefined}

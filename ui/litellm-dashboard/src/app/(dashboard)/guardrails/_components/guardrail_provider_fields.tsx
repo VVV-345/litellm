@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Form, Select, Spin, Input, Slider } from "antd";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import {
   guardrail_provider_map,
   populateGuardrailProviders,
@@ -41,6 +43,8 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
   providerParams: providerParamsProp = null,
   value = null,
 }) => {
+  const { t } = useTranslation();
+  const ui = (v: string) => translateUiText(t, v);
   const [loading, setLoading] = useState(false);
   const [providerParams, setProviderParams] = useState<ProviderParamsResponse | null>(providerParamsProp);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +72,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
         populateGuardrailProviderMap(data);
       } catch (error) {
         console.error("Error fetching provider params:", error);
-        setError("Failed to load provider parameters");
+        setError(ui("Failed to load provider parameters"));
       } finally {
         setLoading(false);
       }
@@ -87,7 +91,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
 
   // Show loading state
   if (loading) {
-    return <Spin tip="Loading provider parameters..." />;
+    return <Spin tip={ui("Loading provider parameters...")} />;
   }
 
   // Show error state
@@ -102,7 +106,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
   const providerFields = providerParams && providerParams[providerKey];
 
   if (!providerFields || Object.keys(providerFields).length === 0) {
-    return <div>No configuration fields available for this provider.</div>;
+    return <div>{ui("No configuration fields available for this provider.")}</div>;
   }
 
   // Fields to skip for content filter provider (handled in dedicated steps)
@@ -180,8 +184,8 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
             </Select>
           ) : field.type === "bool" || field.type === "boolean" ? (
             <Select placeholder={field.description}>
-              <Select.Option value={true}>True</Select.Option>
-              <Select.Option value={false}>False</Select.Option>
+              <Select.Option value={true}>{ui("True")}</Select.Option>
+              <Select.Option value={false}>{ui("False")}</Select.Option>
             </Select>
           ) : field.type === "percentage" && field.min != null && field.max != null ? (
             <Slider

@@ -8,6 +8,7 @@ import Papa from "papaparse";
 import { CheckCircleIcon, XCircleIcon, ExclamationIcon } from "@heroicons/react/outline";
 import { CopyToClipboard } from "react-copy-to-clipboard";
 import NotificationsManager from "./molecules/notifications_manager";
+import { useTranslation } from "react-i18next";
 
 interface BulkCreateUsersProps {
   accessToken: string;
@@ -48,6 +49,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
   possibleUIRoles,
   onUsersCreated,
 }) => {
+  const { t } = useTranslation();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [parsedData, setParsedData] = useState<UserData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -459,27 +461,30 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
-  const renderStatusCell = (record: UserData) => {
+  const renderStatusCell = (
+    record: UserData,
+    t: (key: string) => string = (key) => key.replace(/^ui\./, ""),
+  ) => {
     if (!record.isValid) {
       return (
         <div>
           <div className="flex items-center">
             <XCircleIcon className="h-5 w-5 text-red-500 mr-2" />
-            <span className="text-red-500">Invalid</span>
+            <span className="text-red-500">{t("ui.Invalid")}</span>
           </div>
           {record.error && <span className="text-sm text-red-500 ml-7">{record.error}</span>}
         </div>
       );
     }
     if (!record.status || record.status === "pending") {
-      return <span className="text-gray-500">Pending</span>;
+      return <span className="text-gray-500">{t("ui.Pending")}</span>;
     }
     if (record.status === "success") {
       return (
         <div>
           <div className="flex items-center">
             <CheckCircleIcon className="h-5 w-5 text-green-500 mr-2" />
-            <span className="text-green-500">Success</span>
+            <span className="text-green-500">{t("ui.Success")}</span>
           </div>
           {record.invitation_link && (
             <div className="mt-1">
@@ -487,9 +492,9 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                 <span className="text-xs text-gray-500 truncate max-w-[150px]">{record.invitation_link}</span>
                 <CopyToClipboard
                   text={record.invitation_link}
-                  onCopy={() => NotificationsManager.success("Invitation link copied!")}
+                  onCopy={() => NotificationsManager.success(t("ui.Invitation link copied!"))}
                 >
-                  <button className="ml-1 text-blue-500 text-xs hover:text-blue-700">Copy</button>
+                  <button className="ml-1 text-blue-500 text-xs hover:text-blue-700">{t("ui.Copy")}</button>
                 </CopyToClipboard>
               </div>
             </div>
@@ -501,7 +506,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
       <div>
         <div className="flex items-center">
           <XCircleIcon className="h-5 w-5 text-red-500 mr-2" />
-          <span className="text-red-500">Failed</span>
+          <span className="text-red-500">{t("ui.Failed")}</span>
         </div>
         {record.error && <span className="text-sm text-red-500 ml-7">{JSON.stringify(record.error)}</span>}
       </div>
@@ -515,13 +520,13 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
   return (
     <>
       <Button className="mb-0" onClick={() => setIsModalVisible(true)}>
-        + Bulk Invite Users
+        {t("ui.+ Bulk Invite Users")}
       </Button>
 
       <Dialog open={isModalVisible} onOpenChange={(open) => !open && setIsModalVisible(false)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>Bulk Invite Users</DialogTitle>
+            <DialogTitle>{t("ui.Bulk Invite Users")}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col">
             {/* Step indicator */}
@@ -531,26 +536,28 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center mr-3">
                     1
                   </div>
-                  <h3 className="text-lg font-medium">Download and fill the template</h3>
+                  <h3 className="text-lg font-medium">{t("ui.Download and fill the template")}</h3>
                 </div>
 
                 <div className="ml-11 mb-6">
-                  <p className="mb-4">Add multiple users at once by following these steps:</p>
+                  <p className="mb-4">{t("ui.Add multiple users at once by following these steps:")}</p>
                   <ol className="list-decimal list-inside space-y-2 ml-2 mb-4">
-                    <li>Download our CSV template</li>
-                    <li>Add your users&apos; information to the spreadsheet</li>
-                    <li>Save the file and upload it here</li>
-                    <li>After creation, download the results file containing the Virtual Keys for each user</li>
+                    <li>{t("ui.Download our CSV template")}</li>
+                    <li>{t("ui.Add your users' information to the spreadsheet")}</li>
+                    <li>{t("ui.Save the file and upload it here")}</li>
+                    <li>
+                      {t("ui.After creation, download the results file containing the Virtual Keys for each user")}
+                    </li>
                   </ol>
 
                   <div className="bg-gray-50 p-4 rounded-md border border-gray-200 mb-4">
-                    <h4 className="font-medium mb-2">Template Column Names</h4>
+                    <h4 className="font-medium mb-2">{t("ui.Template Column Names")}</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="flex items-start">
                         <div className="w-3 h-3 rounded-full bg-red-500 mt-1.5 mr-2 shrink-0"></div>
                         <div>
                           <p className="font-medium">user_email</p>
-                          <p className="text-sm text-gray-600">User&apos;s email address (required)</p>
+                          <p className="text-sm text-gray-600">{t("ui.User's email address (required)")}</p>
                         </div>
                       </div>
                       <div className="flex items-start">
@@ -558,8 +565,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <div>
                           <p className="font-medium">user_role</p>
                           <p className="text-sm text-gray-600">
-                            User&apos;s role (one of: &quot;proxy_admin&quot;, &quot;proxy_admin_viewer&quot;,
-                            &quot;internal_user&quot;, &quot;internal_user_viewer&quot;)
+                            {t("ui.User's role (one of: \"proxy_admin\", \"proxy_admin_viewer\", \"internal_user\", \"internal_user_viewer\")")}
                           </p>
                         </div>
                       </div>
@@ -568,7 +574,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <div>
                           <p className="font-medium">teams</p>
                           <p className="text-sm text-gray-600">
-                            Comma-separated team IDs (e.g., &quot;team-1,team-2&quot;)
+                            {t("ui.Comma-separated team IDs (e.g., \"team-1,team-2\")")}
                           </p>
                         </div>
                       </div>
@@ -576,7 +582,9 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <div className="w-3 h-3 rounded-full bg-gray-300 mt-1.5 mr-2 shrink-0"></div>
                         <div>
                           <p className="font-medium">max_budget</p>
-                          <p className="text-sm text-gray-600">Maximum budget as a number (e.g., &quot;100&quot;)</p>
+                          <p className="text-sm text-gray-600">
+                            {t("ui.Maximum budget as a number (e.g., \"100\")")}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-start">
@@ -584,7 +592,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <div>
                           <p className="font-medium">budget_duration</p>
                           <p className="text-sm text-gray-600">
-                            Budget reset period (e.g., &quot;30d&quot;, &quot;1mo&quot;)
+                            {t("ui.Budget reset period (e.g., \"30d\", \"1mo\")")}
                           </p>
                         </div>
                       </div>
@@ -593,7 +601,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <div>
                           <p className="font-medium">models</p>
                           <p className="text-sm text-gray-600">
-                            Comma-separated allowed models (e.g., &quot;gpt-3.5-turbo,gpt-4&quot;)
+                            {t("ui.Comma-separated allowed models (e.g., \"gpt-3.5-turbo,gpt-4\")")}
                           </p>
                         </div>
                       </div>
@@ -602,7 +610,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
 
                   <Button size="lg" className="w-full md:w-auto">
                     <Download className="size-4" />
-                    Download CSV Template
+                    {t("ui.Download CSV Template")}
                   </Button>
                 </div>
 
@@ -610,7 +618,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center mr-3">
                     2
                   </div>
-                  <h3 className="text-lg font-medium">Upload your completed CSV</h3>
+                  <h3 className="text-lg font-medium">{t("ui.Upload your completed CSV")}</h3>
                 </div>
 
                 <div className="ml-11">
@@ -636,7 +644,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         </div>
                         <Button variant="outline" size="sm" onClick={removeSelectedFile} className="flex items-center">
                           <Trash2 className="size-4" />
-                          Remove
+                          {t("ui.Remove")}
                         </Button>
                       </div>
 
@@ -651,7 +659,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                             <div className="w-full bg-gray-200 rounded-full h-1.5">
                               <div className="bg-blue-500 h-1.5 rounded-full w-full animate-pulse"></div>
                             </div>
-                            <span className="ml-2 text-xs text-blue-600">Processing...</span>
+                            <span className="ml-2 text-xs text-blue-600">{t("ui.Processing...")}</span>
                           </div>
                         )
                       )}
@@ -675,10 +683,10 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                           onChange={handleFileInputChange}
                         />
                         <Upload className="size-[30px] text-gray-400 mb-2" />
-                        <p className="mb-1">Drag and drop your CSV file here</p>
-                        <p className="text-sm text-gray-500 mb-3">or</p>
-                        <span className={buttonVariants({ variant: "outline", size: "sm" })}>Browse files</span>
-                        <p className="text-xs text-gray-500 mt-4">Only CSV files (.csv) are supported</p>
+                        <p className="mb-1">{t("ui.Drag and drop your CSV file here")}</p>
+                        <p className="text-sm text-gray-500 mb-3">{t("ui.or")}</p>
+                        <span className={buttonVariants({ variant: "outline", size: "sm" })}>{t("ui.Browse files")}</span>
+                        <p className="text-xs text-gray-500 mt-4">{t("ui.Only CSV files (.csv) are supported")}</p>
                       </div>
                     </label>
                   )}
@@ -688,10 +696,10 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                       <div className="flex items-start">
                         <ExclamationIcon className="h-5 w-5 shrink-0 text-yellow-500 mr-2 mt-0.5" />
                         <div className="min-w-0">
-                          <strong className="text-yellow-800">CSV Structure Error</strong>
+                          <strong className="text-yellow-800">{t("ui.CSV Structure Error")}</strong>
                           <p className="text-yellow-700 mt-1 mb-0 break-words">{csvStructureError}</p>
                           <p className="text-yellow-700 mt-2 mb-0">
-                            Please download our template and ensure your CSV follows the required format.
+                            {t("ui.Please download our template and ensure your CSV follows the required format.")}
                           </p>
                         </div>
                       </div>
@@ -707,8 +715,8 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   </div>
                   <h3 className="text-lg font-medium">
                     {parsedData.some((user) => user.status === "success" || user.status === "failed")
-                      ? "User Creation Results"
-                      : "Review and create users"}
+                      ? t("ui.User Creation Results")
+                      : t("ui.Review and create users")}
                   </h3>
                 </div>
 
@@ -720,12 +728,11 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         <p className="text-red-600 font-medium break-words">{parseError}</p>
                         {parsedData.some((user) => !user.isValid) && (
                           <ul className="mt-2 list-disc list-inside text-red-600 text-sm">
-                            <li>Check the table below for specific errors in each row</li>
+                            <li>{t("ui.Check the table below for specific errors in each row")}</li>
                             <li>
-                              Common issues include invalid email formats, missing required fields, or incorrect role
-                              values
+                              {t("ui.Common issues include invalid email formats, missing required fields, or incorrect role values")}
                             </li>
-                            <li>Fix these issues in your CSV file and upload again</li>
+                            <li>{t("ui.Fix these issues in your CSV file and upload again")}</li>
                           </ul>
                         )}
                       </div>
@@ -738,21 +745,22 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                     <div className="flex items-center">
                       {parsedData.some((user) => user.status === "success" || user.status === "failed") ? (
                         <div className="flex items-center">
-                          <p className="text-lg font-medium mr-3">Creation Summary</p>
+                          <p className="text-lg font-medium mr-3">{t("ui.Creation Summary")}</p>
                           <p className="text-sm bg-green-100 text-green-800 px-2 py-1 rounded-sm mr-2">
-                            {parsedData.filter((d) => d.status === "success").length} Successful
+                            {parsedData.filter((d) => d.status === "success").length} {t("ui.Successful")}
                           </p>
                           {parsedData.some((d) => d.status === "failed") && (
                             <p className="text-sm bg-red-100 text-red-800 px-2 py-1 rounded-sm">
-                              {parsedData.filter((d) => d.status === "failed").length} Failed
+                              {parsedData.filter((d) => d.status === "failed").length} {t("ui.Failed")}
                             </p>
                           )}
                         </div>
                       ) : (
                         <div className="flex items-center">
-                          <p className="text-lg font-medium mr-3">User Preview</p>
+                          <p className="text-lg font-medium mr-3">{t("ui.User Preview")}</p>
                           <p className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-sm">
-                            {parsedData.filter((d) => d.isValid).length} of {parsedData.length} users valid
+                            {parsedData.filter((d) => d.isValid).length} {t("ui.of")} {parsedData.length}{" "}
+                            {t("ui.users valid")}
                           </p>
                         </div>
                       )}
@@ -761,13 +769,13 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                     {!parsedData.some((user) => user.status === "success" || user.status === "failed") && (
                       <div className="flex space-x-3">
                         <Button variant="outline" onClick={resetParsedData}>
-                          Back
+                          {t("ui.Back")}
                         </Button>
                         <Button
                           onClick={handleBulkCreate}
                           disabled={parsedData.filter((d) => d.isValid).length === 0 || isProcessing}
                         >
-                          {isProcessing ? "Creating..." : `Create ${parsedData.filter((d) => d.isValid).length} Users`}
+                          {isProcessing ? t("ui.Creating...") : `Create ${parsedData.filter((d) => d.isValid).length} Users`}
                         </Button>
                       </div>
                     )}
@@ -780,11 +788,10 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                           <CheckCircleIcon className="h-5 w-5 text-blue-500" />
                         </div>
                         <div>
-                          <p className="font-medium text-blue-800">User creation complete</p>
+                          <p className="font-medium text-blue-800">{t("ui.User creation complete")}</p>
                           <p className="block text-sm text-blue-700 mt-1">
-                            <span className="font-medium">Next step:</span> Download the credentials file containing
-                            Virtual Keys and invitation links. Users will need these Virtual Keys to make LLM requests
-                            through LiteLLM.
+                            <span className="font-medium">{t("ui.Next step:")}</span>{" "}
+                            {t("ui.Download the credentials file containing Virtual Keys and invitation links. Users will need these Virtual Keys to make LLM requests through LiteLLM.")}
                           </p>
                         </div>
                       </div>
@@ -795,12 +802,12 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-20">Row</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead>Role</TableHead>
-                          <TableHead>Teams</TableHead>
-                          <TableHead>Budget</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead className="w-20">{t("ui.Row")}</TableHead>
+                          <TableHead>{t("ui.Email")}</TableHead>
+                          <TableHead>{t("ui.Role")}</TableHead>
+                          <TableHead>{t("ui.Teams")}</TableHead>
+                          <TableHead>{t("ui.Budget")}</TableHead>
+                          <TableHead>{t("ui.Status")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -811,7 +818,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                             <TableCell className="whitespace-normal break-words">{record.user_role}</TableCell>
                             <TableCell className="whitespace-normal break-words">{record.teams}</TableCell>
                             <TableCell>{record.max_budget}</TableCell>
-                            <TableCell className="whitespace-normal break-words">{renderStatusCell(record)}</TableCell>
+                            <TableCell className="whitespace-normal break-words">{renderStatusCell(record, t)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -829,7 +836,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         onClick={() => setPageIndex(currentPage - 1)}
                         disabled={currentPage === 0}
                       >
-                        Previous
+                        {t("ui.Previous")}
                       </Button>
                       <Button
                         variant="outline"
@@ -837,7 +844,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                         onClick={() => setPageIndex(currentPage + 1)}
                         disabled={currentPage >= pageCount - 1}
                       >
-                        Next
+                        {t("ui.Next")}
                       </Button>
                     </div>
                   )}
@@ -845,13 +852,13 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   {!parsedData.some((user) => user.status === "success" || user.status === "failed") && (
                     <div className="flex justify-end mt-4">
                       <Button variant="outline" onClick={resetParsedData} className="mr-3">
-                        Back
+                        {t("ui.Back")}
                       </Button>
                       <Button
                         onClick={handleBulkCreate}
                         disabled={parsedData.filter((d) => d.isValid).length === 0 || isProcessing}
                       >
-                        {isProcessing ? "Creating..." : `Create ${parsedData.filter((d) => d.isValid).length} Users`}
+                        {isProcessing ? t("ui.Creating...") : `Create ${parsedData.filter((d) => d.isValid).length} Users`}
                       </Button>
                     </div>
                   )}
@@ -859,11 +866,11 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   {parsedData.some((user) => user.status === "success" || user.status === "failed") && (
                     <div className="flex justify-end mt-4">
                       <Button variant="outline" onClick={resetParsedData} className="mr-3">
-                        Start New Bulk Import
+                        {t("ui.Start New Bulk Import")}
                       </Button>
                       <Button onClick={downloadResults}>
                         <Download className="size-4" />
-                        Download User Credentials
+                        {t("ui.Download User Credentials")}
                       </Button>
                     </div>
                   )}

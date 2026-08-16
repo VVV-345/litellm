@@ -294,7 +294,7 @@ const CompetitorIntentConfiguration: React.FC<CompetitorIntentConfigurationProps
           }
         >
           <Space wrap>
-            <Form.Item label={ui("High")} style={{ marginBottom: 0 }} help="e.g. 0.7">
+            <Form.Item label={ui("High")} style={{ marginBottom: 0 }} help={ui("e.g. 0.7")}>
               <InputNumber
                 min={0}
                 max={1}
@@ -304,7 +304,7 @@ const CompetitorIntentConfiguration: React.FC<CompetitorIntentConfigurationProps
                 style={{ width: 80 }}
               />
             </Form.Item>
-            <Form.Item label={ui("Medium")} style={{ marginBottom: 0 }} help="e.g. 0.45">
+            <Form.Item label={ui("Medium")} style={{ marginBottom: 0 }} help={ui("e.g. 0.45")}>
               <InputNumber
                 min={0}
                 max={1}
@@ -314,7 +314,7 @@ const CompetitorIntentConfiguration: React.FC<CompetitorIntentConfigurationProps
                 style={{ width: 80 }}
               />
             </Form.Item>
-            <Form.Item label={ui("Low")} style={{ marginBottom: 0 }} help="e.g. 0.3">
+            <Form.Item label={ui("Low")} style={{ marginBottom: 0 }} help={ui("e.g. 0.3")}>
               <InputNumber
                 min={0}
                 max={1}

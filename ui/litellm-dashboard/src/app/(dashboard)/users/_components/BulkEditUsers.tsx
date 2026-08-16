@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal, Typography, Divider, Table, Select, InputNumber, Card, Space, Checkbox } from "antd";
 import { userBulkUpdateUserCall, teamBulkMemberAddCall, Member } from "@/components/networking";
 import { UserEditView } from "./user_edit_view";
@@ -33,6 +34,7 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
   userModels,
   allowAllUsers = false,
 }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [teamBudget, setTeamBudget] = useState<number | null>(null);
@@ -71,7 +73,7 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
 
   const handleSubmit = async (formValues: any) => {
     if (!accessToken) {
-      NotificationsManager.fromBackend("Access token not found");
+      NotificationsManager.fromBackend(t("ui.Access token not found"));
       return;
     }
 
@@ -107,7 +109,7 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
       const hasTeamAdditions = addToTeams && selectedTeams.length > 0;
 
       if (!hasUserUpdates && !hasTeamAdditions) {
-        NotificationsManager.fromBackend("Please modify at least one field or select teams to add users to");
+        NotificationsManager.fromBackend(t("ui.Please modify at least one field or select teams to add users to"));
         return;
       }
 
@@ -194,7 +196,7 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
       onCancel();
     } catch (error) {
       console.error("Bulk operation failed:", error);
-      NotificationsManager.fromBackend("Failed to perform bulk operations");
+      NotificationsManager.fromBackend(t("ui.Failed to perform bulk operations"));
     } finally {
       setLoading(false);
     }
@@ -205,18 +207,18 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
       open={open}
       onCancel={handleCancel}
       footer={null}
-      title={updateAllUsers ? "Bulk Edit All Users" : `Bulk Edit ${selectedUsers.length} User(s)`}
+      title={updateAllUsers ? t("ui.Bulk Edit All Users") : `Bulk Edit ${selectedUsers.length} User(s)`}
       width={800}
     >
       {allowAllUsers && (
         <div className="mb-4">
           <Checkbox checked={updateAllUsers} onChange={(e) => setUpdateAllUsers(e.target.checked)}>
-            <Text strong>Update ALL users in the system</Text>
+            <Text strong>{t("ui.Update ALL users in the system")}</Text>
           </Checkbox>
           {updateAllUsers && (
             <div style={{ marginTop: 8 }}>
               <Text type="warning" style={{ fontSize: "12px" }}>
-                ⚠️ This will apply changes to ALL users in the system, not just the selected ones.
+                {t("ui.⚠️ This will apply changes to ALL users in the system, not just the selected ones.")}
               </Text>
             </div>
           )}
@@ -235,7 +237,7 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
             rowKey="user_id"
             columns={[
               {
-                title: "User ID",
+                title: t("ui.User ID"),
                 dataIndex: "user_id",
                 key: "user_id",
                 width: "30%",
@@ -246,18 +248,18 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
                 ),
               },
               {
-                title: "Email",
+                title: t("ui.Email"),
                 dataIndex: "user_email",
                 key: "user_email",
                 width: "25%",
                 render: (text: string) => (
                   <Text type="secondary" style={{ fontSize: "12px" }}>
-                    {text || "No email"}
+                    {text || t("ui.No email")}
                   </Text>
                 ),
               },
               {
-                title: "Current Role",
+                title: t("ui.Current Role"),
                 dataIndex: "user_role",
                 key: "user_role",
                 width: "25%",
@@ -266,12 +268,12 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
                 ),
               },
               {
-                title: "Budget",
+                title: t("ui.Budget"),
                 dataIndex: "max_budget",
                 key: "max_budget",
                 width: "20%",
                 render: (budget: number | null) => (
-                  <MoneyCell value={budget} decimals={2} emptyText="Unlimited" showZero />
+                  <MoneyCell value={budget} decimals={2} emptyText={t("ui.Unlimited")} showZero />
                 ),
               },
             ]}
@@ -283,25 +285,27 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
 
       <div className="mb-4">
         <Text>
-          <strong>Instructions:</strong> Fill in the fields below with the values you want to apply to all selected
-          users. You can bulk edit: role, budget, models, and metadata. You can also add users to teams.
+          <strong>{t("ui.Instructions:")}</strong>{" "}
+          {t(
+            "ui.Fill in the fields below with the values you want to apply to all selected users. You can bulk edit: role, budget, models, and metadata. You can also add users to teams.",
+          )}
         </Text>
       </div>
 
       {/* Team Management Section */}
-      <Card title="Team Management" size="small" className="mb-4" style={{ backgroundColor: "#fafafa" }}>
+      <Card title={t("ui.Team Management")} size="small" className="mb-4" style={{ backgroundColor: "#fafafa" }}>
         <Space direction="vertical" style={{ width: "100%" }}>
           <Checkbox checked={addToTeams} onChange={(e) => setAddToTeams(e.target.checked)}>
-            Add selected users to teams
+            {t("ui.Add selected users to teams")}
           </Checkbox>
 
           {addToTeams && (
             <>
               <div>
-                <Text strong>Select Teams:</Text>
+                <Text strong>{t("ui.Select Teams:")}</Text>
                 <Select
                   mode="multiple"
-                  placeholder="Select teams to add users to"
+                  placeholder={t("ui.Select teams to add users to")}
                   value={selectedTeams}
                   onChange={setSelectedTeams}
                   style={{ width: "100%", marginTop: 8 }}
@@ -315,9 +319,9 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
               </div>
 
               <div>
-                <Text strong>Team Budget (Optional):</Text>
+                <Text strong>{t("ui.Team Budget (Optional):")}</Text>
                 <InputNumber
-                  placeholder="Max budget per user in team"
+                  placeholder={t("ui.Max budget per user in team")}
                   value={teamBudget}
                   onChange={(value) => setTeamBudget(value)}
                   style={{ width: "100%", marginTop: 8 }}
@@ -326,13 +330,14 @@ const BulkEditUserModal: React.FC<BulkEditUserModalProps> = ({
                   precision={2}
                 />
                 <Text type="secondary" style={{ fontSize: "12px" }}>
-                  Leave empty for unlimited budget within team limits
+                  {t("ui.Leave empty for unlimited budget within team limits")}
                 </Text>
               </div>
 
               <Text type="secondary" style={{ fontSize: "12px" }}>
-                Users will be added with &quot;user&quot; role by default. All users will be added to each selected
-                team.
+                {t(
+                  'ui.Users will be added with "user" role by default. All users will be added to each selected team.',
+                )}
               </Text>
             </>
           )}

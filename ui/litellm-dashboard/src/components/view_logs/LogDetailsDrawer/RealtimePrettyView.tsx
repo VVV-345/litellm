@@ -5,6 +5,7 @@
  */
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, MessageSquare, Mic, Settings, Volume2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -82,6 +83,7 @@ export function isRealtimeResponse(response: any): boolean {
 }
 
 export function RealtimePrettyView({ response, metrics }: RealtimePrettyViewProps) {
+  const { t } = useTranslation();
   const events: RealtimeEvent[] = response?.results || [];
   const usage = response?.usage;
 
@@ -114,7 +116,7 @@ export function RealtimePrettyView({ response, metrics }: RealtimePrettyViewProp
             fontSize: 13,
           }}
         >
-          No recognized realtime events found
+          {t("ui.No recognized realtime events found")}
         </div>
       )}
     </div>
@@ -122,6 +124,7 @@ export function RealtimePrettyView({ response, metrics }: RealtimePrettyViewProp
 }
 
 function SessionCard({ session, turnCount }: { session: RealtimeSession; turnCount: number }) {
+  const { t } = useTranslation();
   const [isCollapsed, setIsCollapsed] = useState(true);
 
   return (
@@ -206,15 +209,15 @@ function SessionCard({ session, turnCount }: { session: RealtimeSession; turnCou
               fontSize: 13,
             }}
           >
-            <ConfigRow label="Model" value={session.model} />
-            <ConfigRow label="Voice" value={session.voice} />
-            <ConfigRow label="Temperature" value={session.temperature} />
-            <ConfigRow label="Max Output Tokens" value={session.max_response_output_tokens} />
-            <ConfigRow label="Input Audio Format" value={session.input_audio_format} />
-            <ConfigRow label="Output Audio Format" value={session.output_audio_format} />
-            {session.turn_detection && <ConfigRow label="Turn Detection" value={session.turn_detection.type} />}
+            <ConfigRow label={t("ui.Model")} value={session.model} />
+            <ConfigRow label={t("ui.Voice")} value={session.voice} />
+            <ConfigRow label={t("ui.Temperature")} value={session.temperature} />
+            <ConfigRow label={t("ui.Max Output Tokens")} value={session.max_response_output_tokens} />
+            <ConfigRow label={t("ui.Input Audio Format")} value={session.input_audio_format} />
+            <ConfigRow label={t("ui.Output Audio Format")} value={session.output_audio_format} />
+            {session.turn_detection && <ConfigRow label={t("ui.Turn Detection")} value={session.turn_detection.type} />}
             {session.tools && session.tools.length > 0 && (
-              <ConfigRow label="Tools" value={`${session.tools.length} tool(s)`} />
+              <ConfigRow label={t("ui.Tools")} value={`${session.tools.length} tool(s)`} />
             )}
           </div>
 
@@ -230,7 +233,7 @@ function SessionCard({ session, turnCount }: { session: RealtimeSession; turnCou
                   marginBottom: 4,
                 }}
               >
-                Instructions
+                {t("ui.Instructions")}
               </span>
               <div
                 style={{
@@ -316,6 +319,7 @@ function ConversationCard({
 }
 
 function ResponseTurn({ response, index }: { response: RealtimeResponse; index: number }) {
+  const { t } = useTranslation();
   const outputs = response.output || [];
   const usage = response.usage;
 
@@ -364,8 +368,8 @@ function ResponseTurn({ response, index }: { response: RealtimeResponse; index: 
       ))}
 
       {/* Token breakdown if available */}
-      {usage?.input_token_details && <TokenBreakdown label="Input" details={usage.input_token_details} />}
-      {usage?.output_token_details && <TokenBreakdown label="Output" details={usage.output_token_details} />}
+      {usage?.input_token_details && <TokenBreakdown label={t("ui.Input")} details={usage.input_token_details} />}
+      {usage?.output_token_details && <TokenBreakdown label={t("ui.Output")} details={usage.output_token_details} />}
     </div>
   );
 }
@@ -440,6 +444,7 @@ function OutputMessage({ output }: { output: RealtimeOutputItem }) {
 }
 
 function TokenBreakdown({ label, details }: { label: string; details: Record<string, any> }) {
+  const { t } = useTranslation();
   const entries = Object.entries(details).filter(
     ([, v]) => typeof v === "number" || (typeof v === "object" && v !== null),
   );
@@ -452,7 +457,7 @@ function TokenBreakdown({ label, details }: { label: string; details: Record<str
         className="text-muted-foreground"
         style={{ fontSize: 10, letterSpacing: "0.5px", textTransform: "uppercase" }}
       >
-        {label} Token Breakdown
+        {label} {t("ui.Token Breakdown")}
       </span>
       <div
         style={{

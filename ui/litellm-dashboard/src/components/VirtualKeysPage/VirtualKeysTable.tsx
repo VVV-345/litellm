@@ -100,8 +100,14 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
   }, []);
 
   const columns = useMemo(
-    () => getKeyTableColumns({ allTeams, organizations, onSelectKey: (key) => void setSelectedKeyId(key.token) }),
-    [allTeams, organizations, setSelectedKeyId],
+    () =>
+      getKeyTableColumns({
+        allTeams,
+        organizations,
+        onSelectKey: (key) => void setSelectedKeyId(key.token),
+        t,
+      }),
+    [allTeams, organizations, setSelectedKeyId, t],
   );
 
   const selectedKeyFromList = useMemo(

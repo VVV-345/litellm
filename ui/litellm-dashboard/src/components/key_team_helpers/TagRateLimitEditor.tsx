@@ -1,5 +1,6 @@
 import { Button, Input, InputNumber } from "antd";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 export interface TagRateLimitEntry {
   // Stable identity for React list keys so deleting a middle row doesn't shift
@@ -55,6 +56,7 @@ interface TagRateLimitEditorProps {
 }
 
 export function TagRateLimitEditor({ value, onChange }: TagRateLimitEditorProps) {
+  const { t } = useTranslation();
   const addRow = () => {
     onChange([...value, { id: newRowId(), tag: "", rpm_limit: null }]);
   };
@@ -74,14 +76,14 @@ export function TagRateLimitEditor({ value, onChange }: TagRateLimitEditorProps)
           <Input
             value={row.tag}
             onChange={(e) => updateRow(idx, "tag", e.target.value)}
-            placeholder="Tag (e.g. cell-1)"
+            placeholder={t("ui.Tag (e.g. cell-1)")}
             style={{ width: 180 }}
           />
           <InputNumber
             min={0}
             value={row.rpm_limit ?? undefined}
             onChange={(v) => updateRow(idx, "rpm_limit", v ?? null)}
-            placeholder="RPM"
+            placeholder={t("ui.RPM")}
             style={{ width: 120 }}
           />
           <Button type="text" danger size="small" onClick={() => removeRow(idx)} style={{ padding: "0 4px" }}>
@@ -96,7 +98,7 @@ export function TagRateLimitEditor({ value, onChange }: TagRateLimitEditorProps)
           addRow();
         }}
       >
-        + Add Tag Limit
+        + {t("ui.Add Tag Limit")}
       </Button>
     </div>
   );

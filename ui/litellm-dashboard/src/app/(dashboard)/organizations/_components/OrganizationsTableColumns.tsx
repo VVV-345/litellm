@@ -25,12 +25,12 @@ interface OrganizationBudget {
 const getOrganizationBudget = (organization: Organization): OrganizationBudget =>
   (organization.litellm_budget_table ?? {}) as OrganizationBudget;
 
-function OrganizationLimitsCell({ organization }: { organization: Organization }) {
+function OrganizationLimitsCell({ organization, t }: { organization: Organization; t: TFunction }) {
   const { tpm_limit, rpm_limit } = getOrganizationBudget(organization);
   return (
     <div className="flex flex-col text-xs text-muted-foreground">
-      <span>TPM: {tpm_limit ? tpm_limit : "Unlimited"}</span>
-      <span>RPM: {rpm_limit ? rpm_limit : "Unlimited"}</span>
+      <span>TPM: {tpm_limit ? tpm_limit : t("ui.Unlimited")}</span>
+      <span>RPM: {rpm_limit ? rpm_limit : t("ui.Unlimited")}</span>
     </div>
   );
 }
@@ -39,13 +39,14 @@ interface OrganizationRowActionsProps {
   organization: Organization;
   onEditClick: (organizationId: string) => void;
   onDeleteClick: (organizationId: string) => void;
+  t: TFunction;
 }
 
-function OrganizationRowActions({ organization, onEditClick, onDeleteClick }: OrganizationRowActionsProps) {
+function OrganizationRowActions({ organization, onEditClick, onDeleteClick, t }: OrganizationRowActionsProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open organization actions"
+        aria-label={t("ui.Open organization actions")}
         data-testid={`organization-actions-${organization.organization_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -57,7 +58,7 @@ function OrganizationRowActions({ organization, onEditClick, onDeleteClick }: Or
           onClick={() => onEditClick(organization.organization_id)}
         >
           <Pencil />
-          Edit
+          {t("ui.Edit")}
         </DropdownMenuItem>
         <DropdownMenuItem
           variant="destructive"
@@ -65,7 +66,7 @@ function OrganizationRowActions({ organization, onEditClick, onDeleteClick }: Or
           onClick={() => onDeleteClick(organization.organization_id)}
         >
           <Trash2 />
-          Delete
+          {t("ui.Delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -145,7 +146,7 @@ export const getOrganizationsTableColumns = ({
     size: 120,
     enableSorting: false,
     cell: ({ row }) => (
-      <MoneyCell value={getOrganizationBudget(row.original).max_budget} decimals={2} emptyText="Unlimited" showZero />
+      <MoneyCell value={getOrganizationBudget(row.original).max_budget} decimals={2} emptyText={t("ui.Unlimited")} showZero />
     ),
   },
   {
@@ -162,7 +163,7 @@ export const getOrganizationsTableColumns = ({
     header: "TPM / RPM Limits",
     size: 150,
     enableSorting: false,
-    cell: ({ row }) => <OrganizationLimitsCell organization={row.original} />,
+    cell: ({ row }) => <OrganizationLimitsCell organization={row.original} t={t} />,
   },
   {
     id: "members",
@@ -170,7 +171,7 @@ export const getOrganizationsTableColumns = ({
     header: "Members",
     size: 100,
     enableSorting: false,
-    cell: ({ row }) => <span className="text-sm">{row.original.members?.length ?? 0} Members</span>,
+    cell: ({ row }) => <span className="text-sm">{row.original.members?.length ?? 0} {t("ui.Members")}</span>,
   },
   {
     id: "actions",
@@ -182,7 +183,7 @@ export const getOrganizationsTableColumns = ({
     cell: ({ row }) =>
       userRole === "Admin" ? (
         <div className="flex justify-end">
-          <OrganizationRowActions organization={row.original} onEditClick={onEditClick} onDeleteClick={onDeleteClick} />
+          <OrganizationRowActions organization={row.original} onEditClick={onEditClick} onDeleteClick={onDeleteClick} t={t} />
         </div>
       ) : null,
   },

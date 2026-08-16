@@ -123,7 +123,7 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
 
   const handleAddPrebuiltPattern = () => {
     if (!selectedPatternName) {
-      NotificationsManager.error("Please select a pattern");
+      NotificationsManager.error(ui("Please select a pattern"));
       return;
     }
 
@@ -144,7 +144,7 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
 
   const handleAddCustomPattern = () => {
     if (!customPatternName || !customPatternRegex) {
-      NotificationsManager.error("Please provide pattern name and regex");
+      NotificationsManager.error(ui("Please provide pattern name and regex"));
       return;
     }
 
@@ -164,7 +164,7 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
 
   const handleAddKeyword = () => {
     if (!newKeyword) {
-      NotificationsManager.error("Please enter a keyword");
+      NotificationsManager.error(ui("Please enter a keyword"));
       return;
     }
 
@@ -192,9 +192,9 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
           if (onFileUpload) {
             onFileUpload(content);
           }
-          NotificationsManager.success(result.message || "File uploaded successfully");
+          NotificationsManager.success(result.message || ui("File uploaded successfully"));
         } else {
-          const errorMessage = result.error || (result.errors && result.errors.join(", ")) || "Invalid file";
+          const errorMessage = result.error || (result.errors && result.errors.join(", ")) || ui("Invalid file");
           NotificationsManager.error(`Validation failed: ${errorMessage}`);
         }
       }
@@ -224,8 +224,9 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
       {!showStep && (
         <div>
           <p className="text-muted-foreground">
-            Configure patterns, keywords, and content categories to detect and filter sensitive information in requests
-            and responses.
+            {ui(
+              "Configure patterns, keywords, and content categories to detect and filter sensitive information in requests and responses.",
+            )}
           </p>
         </div>
       )}

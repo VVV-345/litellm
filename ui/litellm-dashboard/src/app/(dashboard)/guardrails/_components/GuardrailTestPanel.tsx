@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Copy, Info } from "lucide-react";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export function GuardrailTestPanel({
   errors,
   onClose,
 }: GuardrailTestPanelProps) {
+  const { t } = useTranslation();
   const [inputText, setInputText] = useState("");
   const [metadataText, setMetadataText] = useState("");
   const [metadataError, setMetadataError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function GuardrailTestPanel({
 
   const handleSubmit = () => {
     if (!inputText.trim()) {
-      NotificationsManager.fromBackend("Please enter text to test");
+      NotificationsManager.fromBackend(t("ui.Please enter text to test"));
       return;
     }
 
@@ -98,9 +100,9 @@ export function GuardrailTestPanel({
   const handleCopyInput = async () => {
     const success = await copyToClipboard(inputText);
     if (success) {
-      NotificationsManager.success("Input copied to clipboard");
+      NotificationsManager.success(t("ui.Input copied to clipboard"));
     } else {
-      NotificationsManager.fromBackend("Failed to copy input");
+      NotificationsManager.fromBackend(t("ui.Failed to copy input"));
     }
   };
 
@@ -111,7 +113,7 @@ export function GuardrailTestPanel({
         <div className="flex items-center space-x-3">
           <div className="flex-1 min-w-0">
             <div className="mb-1 flex items-center space-x-2">
-              <h2 className="text-lg font-semibold">Test Guardrails:</h2>
+              <h2 className="text-lg font-semibold">{t("ui.Test Guardrails:")}</h2>
               <div className="flex flex-wrap gap-2">
                 {guardrailNames.map((name) => (
                   <div
@@ -136,7 +138,7 @@ export function GuardrailTestPanel({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Input Text</label>
+                <label className="text-sm font-medium">{t("ui.Input Text")}</label>
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -145,13 +147,13 @@ export function GuardrailTestPanel({
                       </span>
                     }
                   />
-                  <TooltipContent>Press Enter to submit. Use Shift+Enter for new line.</TooltipContent>
+                  <TooltipContent>{t("ui.Press Enter to submit. Use Shift+Enter for new line.")}</TooltipContent>
                 </Tooltip>
               </div>
               {inputText && (
                 <Button size="sm" variant="secondary" onClick={handleCopyInput}>
                   <Copy />
-                  Copy Input
+                  {t("ui.Copy Input")}
                 </Button>
               )}
             </div>
@@ -159,7 +161,7 @@ export function GuardrailTestPanel({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter text to test with guardrails..."
+              placeholder={t("ui.Enter text to test with guardrails...")}
               rows={8}
               className="font-mono text-sm field-sizing-fixed"
             />
@@ -175,7 +177,7 @@ export function GuardrailTestPanel({
 
           <div>
             <div className="mb-2 flex items-center gap-2">
-              <label className="text-sm font-medium">Metadata (optional)</label>
+              <label className="text-sm font-medium">{t("ui.Metadata (optional)")}</label>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -185,8 +187,9 @@ export function GuardrailTestPanel({
                   }
                 />
                 <TooltipContent>
-                  JSON object forwarded to the guardrail as request_data[&apos;metadata&apos;]. Custom guardrails can
-                  read per-request configuration from it.
+                  {t(
+                    "ui.JSON object forwarded to the guardrail as request_data['metadata']. Custom guardrails can read per-request configuration from it.",
+                  )}
                 </TooltipContent>
               </Tooltip>
             </div>

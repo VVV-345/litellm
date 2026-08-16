@@ -1,9 +1,11 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { Waypoints } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cva.config";
+import type { TFunction } from "i18next";
 
 export interface RoutingDecisionTierBoundaries {
   simple_medium?: number;
@@ -59,36 +61,36 @@ function describeScoreAgainstBoundaries(
   return named(`at or above ${complexReasoning}`, "REASONING");
 }
 
-function describeCause(decision: RoutingDecision): string {
+function describeCause(decision: RoutingDecision, t: TFunction): string {
   const { cause, classifier_model: classifierModel, matched_keyword: matchedKeyword, tier_label: tierLabel } = decision;
 
   switch (cause) {
     case "heuristic_scorer":
-      return "Heuristic scorer";
+      return t("ui.Heuristic scorer");
     case "reasoning_override":
       return `Heuristic, ${tierLabel ?? "REASONING"} override (2 or more reasoning markers)`;
     case "llm_classifier":
-      return classifierModel ? `LLM classifier (${classifierModel})` : "LLM classifier";
+      return classifierModel ? `LLM classifier (${classifierModel})` : t("ui.LLM classifier");
     case "literal_keyword_match":
-      return matchedKeyword ? `Keyword match: "${matchedKeyword}"` : "Keyword match";
+      return matchedKeyword ? `Keyword match: "${matchedKeyword}"` : t("ui.Keyword match");
     case "semantic_keyword_match":
-      return "Semantic keyword match";
+      return t("ui.Semantic keyword match");
     case "session_affinity_pin":
-      return "Pinned to session";
+      return t("ui.Pinned to session");
     case "session_affinity_escalation":
-      return "Escalated from session pin";
+      return t("ui.Escalated from session pin");
     case "quality_tier":
-      return "Quality tier mapping";
+      return t("ui.Quality tier mapping");
     case "keyword":
-      return matchedKeyword ? `Keyword match: "${matchedKeyword}"` : "Keyword match";
+      return matchedKeyword ? `Keyword match: "${matchedKeyword}"` : t("ui.Keyword match");
     case "bandit":
-      return "Adaptive bandit";
+      return t("ui.Adaptive bandit");
     case "default_fallback":
-      return "Default model, no route matched";
+      return t("ui.Default model, no route matched");
     case "default_model_fallback":
-      return "Default model, LLM classifier failed";
+      return t("ui.Default model, LLM classifier failed");
     default:
-      return cause ?? "Unknown";
+      return cause ?? t("ui.Unknown");
   }
 }
 
@@ -98,9 +100,9 @@ function describeCause(decision: RoutingDecision): string {
  * ordinary route; it just must not claim a bump that did not happen. Only called when
  * the request escalated or asked to, so there is no "did not escalate" case.
  */
-function describeEscalation(escalated: boolean, keyword: string | undefined): string {
-  if (escalated) return keyword ? `Yes, keyword "${keyword}"` : "Yes";
-  return keyword ? `Requested via "${keyword}"; already at the highest tier` : "Requested; already at the highest tier";
+function describeEscalation(escalated: boolean, keyword: string | undefined, t: TFunction): string {
+  if (escalated) return keyword ? `Yes, keyword "${keyword}"` : t("ui.Yes");
+  return keyword ? `Requested via "${keyword}"; already at the highest tier` : t("ui.Requested; already at the highest tier");
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -119,6 +121,7 @@ export function RoutingDecisionCard({
   decision?: RoutingDecision | null;
   className?: string;
 }) {
+  const { t } = useTranslation();
   if (!decision || !decision.cause) return null;
 
   const {
@@ -145,7 +148,7 @@ export function RoutingDecisionCard({
 
   return (
     <div className={cn("mb-6 w-full max-w-full overflow-hidden rounded-lg bg-white shadow-sm", className)}>
-      <div className="border-b px-4 py-2.5 text-sm font-medium">Routing</div>
+      <div className="border-b px-4 py-2.5 text-sm font-medium">{t("ui.Routing")}</div>
       <div className="px-4 py-3">
         {routerModelName && (
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
@@ -153,37 +156,39 @@ export function RoutingDecisionCard({
             <span>{routerModelName}</span>
             {routerType && (
               <span className="font-normal text-muted-foreground">
-                ({ROUTER_TYPE_LABELS[routerType] ?? routerType})
+                ({t(ROUTER_TYPE_LABELS[routerType]) ?? routerType})
               </span>
             )}
           </div>
         )}
 
         {tier && (
-          <Row label="Tier">
+          <Row label={t("ui.Tier")}>
             <Badge variant="secondary" className="font-normal">
               {tierLabel ?? tier}
             </Badge>
           </Row>
         )}
 
-        {requestType && <Row label="Request type">{requestType}</Row>}
+        {requestType && <Row label={t("ui.Request type")}>{requestType}</Row>}
 
-        <Row label="Decided by">{describeCause(decision)}</Row>
+        <Row label={t("ui.Decided by")}>{describeCause(decision, t)}</Row>
 
         {score !== undefined && (
-          <Row label="Score">
+          <Row label={t("ui.Score")}>
             <span className="tabular-nums">{score.toFixed(2)}</span>
             {scoreExplanation && <span className="ml-2 text-muted-foreground">({scoreExplanation})</span>}
           </Row>
         )}
 
-        {routedModel && <Row label="Routed to">{routedModel}</Row>}
+        {routedModel && <Row label={t("ui.Routed to")}>{routedModel}</Row>}
 
-        {escalated !== undefined && <Row label="Escalated">{describeEscalation(escalated, escalationKeyword)}</Row>}
+        {escalated !== undefined && (
+          <Row label={t("ui.Escalated")}>{describeEscalation(escalated, escalationKeyword, t)}</Row>
+        )}
 
         {signals && signals.length > 0 && (
-          <Row label="Signals">
+          <Row label={t("ui.Signals")}>
             <span className="flex flex-wrap gap-1">
               {signals.map((signal) => (
                 <Badge key={signal} variant="outline" className="font-normal">

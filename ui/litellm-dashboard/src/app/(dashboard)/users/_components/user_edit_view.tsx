@@ -100,26 +100,26 @@ export function UserEditView({
   return (
     <Form form={form} onFinish={handleSubmit} layout="vertical">
       {!isBulkEdit && (
-        <Form.Item label="User ID" name="user_id">
+        <Form.Item label={t("ui.User ID")} name="user_id">
           <TextInput disabled />
         </Form.Item>
       )}
 
       {!isBulkEdit && (
-        <Form.Item label="Email" name="user_email">
+        <Form.Item label={t("ui.Email")} name="user_email">
           <TextInput />
         </Form.Item>
       )}
 
-      <Form.Item label="User Alias" name="user_alias">
+      <Form.Item label={t("ui.User Alias")} name="user_alias">
         <TextInput />
       </Form.Item>
 
       <Form.Item
         label={
           <span>
-            Global Proxy Role{" "}
-            <Tooltip title="This is the role that the user will globally on the proxy. This role is independent of any team/org specific roles.">
+            {t("ui.Global Proxy Role")}{" "}
+            <Tooltip title={t("ui.This is the role that the user will globally on the proxy. This role is independent of any team/org specific roles.")}>
               <InfoCircleOutlined />
             </Tooltip>
           </span>
@@ -144,8 +144,8 @@ export function UserEditView({
       <Form.Item
         label={
           <span>
-            Personal Models{" "}
-            <Tooltip title="Select which models this user can access outside of team-scope. Choose 'All Proxy Models' to grant access to all models available on the proxy.">
+            {t("ui.Personal Models")}{" "}
+            <Tooltip title={t("ui.Select which models this user can access outside of team-scope. Choose 'All Proxy Models' to grant access to all models available on the proxy.")}>
               <InfoCircleOutlined style={{ marginLeft: "4px" }} />
             </Tooltip>
           </span>
@@ -154,15 +154,15 @@ export function UserEditView({
       >
         <Select
           mode="multiple"
-          placeholder="Select models"
+          placeholder={t("ui.Select models")}
           style={{ width: "100%" }}
           disabled={!all_admin_roles.includes(userRole || "")}
         >
           <Select.Option key="all-proxy-models" value="all-proxy-models">
-            All Proxy Models
+            {t("ui.All Proxy Models")}
           </Select.Option>
           <Select.Option key="no-default-models" value="no-default-models">
-            No Default Models
+            {t("ui.No Default Models")}
           </Select.Option>
           {userModels.map((model) => (
             <Select.Option key={model} value={model}>
@@ -175,9 +175,9 @@ export function UserEditView({
       <Form.Item
         label={
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <span>Max Budget (USD)</span>
+            <span>{t("ui.Max Budget (USD)")}</span>
             <Checkbox checked={unlimitedBudget} onChange={handleUnlimitedBudgetChange}>
-              Unlimited Budget
+              {t("ui.Unlimited Budget")}
             </Checkbox>
           </div>
         }
@@ -186,7 +186,7 @@ export function UserEditView({
           {
             validator: (_, value) => {
               if (!unlimitedBudget && (value === "" || value === null || value === undefined)) {
-                return Promise.reject(new Error("Please enter a budget or select Unlimited Budget"));
+                return Promise.reject(new Error(t("ui.Please enter a budget or select Unlimited Budget")));
               }
               return Promise.resolve();
             },
@@ -196,12 +196,12 @@ export function UserEditView({
         <NumericalInput step={0.01} precision={2} style={{ width: "100%" }} disabled={unlimitedBudget} />
       </Form.Item>
 
-      <Form.Item label="Reset Budget" name="budget_duration">
+      <Form.Item label={t("ui.Reset Budget")} name="budget_duration">
         <BudgetDurationDropdown />
       </Form.Item>
 
-      <Form.Item label="Metadata" name="metadata">
-        <Textarea rows={4} placeholder="Enter metadata as JSON" />
+      <Form.Item label={t("ui.Metadata")} name="metadata">
+        <Textarea rows={4} placeholder={t("ui.Enter metadata as JSON")} />
       </Form.Item>
 
       {canEditMcpPermissions && (
@@ -209,8 +209,8 @@ export function UserEditView({
           <Form.Item
             label={
               <span>
-                MCP Servers / Access Groups{" "}
-                <Tooltip title="Caps which MCP servers, access groups, and tools this user may reach. Every key the user holds is limited to this set.">
+                {t("ui.MCP Servers / Access Groups")}{" "}
+                <Tooltip title={t("ui.Caps which MCP servers, access groups, and tools this user may reach. Every key the user holds is limited to this set.")}>
                   <InfoCircleOutlined />
                 </Tooltip>
               </span>
@@ -221,7 +221,7 @@ export function UserEditView({
               onChange={(val) => form.setFieldValue("mcp_servers_and_groups", val)}
               value={form.getFieldValue("mcp_servers_and_groups")}
               accessToken={accessToken || ""}
-              placeholder="Select MCP servers or access groups (optional)"
+              placeholder={t("ui.Select MCP servers or access groups (optional)")}
             />
           </Form.Item>
 
@@ -252,7 +252,7 @@ export function UserEditView({
 
       <div className="flex justify-end space-x-2">
         <Button variant="secondary" type="button" onClick={onCancel}>
-          Cancel
+          {t("ui.Cancel")}
         </Button>
         <Button type="submit">{t("ui.Save Changes")}</Button>
       </div>

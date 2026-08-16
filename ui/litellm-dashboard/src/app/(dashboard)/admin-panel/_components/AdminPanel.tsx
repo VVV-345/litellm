@@ -82,7 +82,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ proxySettings }) => {
     try {
       if (premiumUser !== true) {
         NotificationsManager.fromBackend(
-          "This feature is only available for premium users. Please upgrade your account.",
+          t("ui.This feature is only available for premium users. Please upgrade your account."),
         );
         return;
       }
@@ -231,7 +231,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ proxySettings }) => {
                   onClick={() =>
                     premiumUser === true
                       ? setIsUIAccessControlModalVisible(true)
-                      : NotificationsManager.fromBackend("Only premium users can configure UI access control")
+                      : NotificationsManager.fromBackend(t("ui.Only premium users can configure UI access control"))
                   }
                 >
                   {t("ui.UI Access Control")}

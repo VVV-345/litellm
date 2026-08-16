@@ -3,6 +3,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import { Copy, Info, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { ProviderLogo } from "@/components/molecules/models/ProviderLogo";
 import { ModelData } from "@/components/model_dashboard/types";
@@ -44,6 +45,7 @@ const formatShortDate = (value: string | null | undefined): string | null => {
 };
 
 function ModelInformationCell({ model, displayName }: { model: ModelData; displayName: string }) {
+  const { t } = useTranslation();
   const litellmModelName = model.litellm_model_name || "-";
 
   return (
@@ -73,23 +75,23 @@ function ModelInformationCell({ model, displayName }: { model: ModelData; displa
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             {model.provider ? <ProviderLogo provider={model.provider} className="size-4 shrink-0" /> : null}
-            <span className="truncate text-xs text-muted-foreground">{model.provider || "Unknown provider"}</span>
+            <span className="truncate text-xs text-muted-foreground">{model.provider || t("ui.Unknown provider")}</span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">Public Model Name</span>
+            <span className="text-xs text-muted-foreground">{t("ui.Public Model Name")}</span>
             <span className="truncate text-sm font-medium text-foreground" title={displayName}>
               {displayName}
             </span>
           </div>
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs text-muted-foreground">LiteLLM Model Name</span>
+            <span className="text-xs text-muted-foreground">{t("ui.LiteLLM Model Name")}</span>
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate font-mono text-sm text-foreground" title={litellmModelName}>
                 {litellmModelName}
               </span>
               <button
                 type="button"
-                aria-label="Copy LiteLLM model name"
+                aria-label={t("ui.Copy LiteLLM model name")}
                 data-testid={`copy-litellm-model-name-${model.model_info.id}`}
                 className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
                 onClick={() => void copyToClipboard(litellmModelName, "LiteLLM model name copied")}
@@ -105,15 +107,16 @@ function ModelInformationCell({ model, displayName }: { model: ModelData; displa
 }
 
 function CredentialsHeader() {
+  const { t } = useTranslation();
   return (
     <span className="flex items-center gap-1">
-      Credentials
+      {t("ui.Credentials")}
       <HoverCard>
         <HoverCardTrigger
           render={
             <button
               type="button"
-              aria-label="About credential types"
+              aria-label={t("ui.About credential types")}
               data-testid="credentials-header-info"
               className="cursor-pointer text-muted-foreground hover:text-foreground"
             />
@@ -123,23 +126,23 @@ function CredentialsHeader() {
         </HoverCardTrigger>
         <HoverCardContent align="start" className="w-80">
           <div className="flex flex-col gap-3">
-            <span className="text-sm font-medium text-foreground">Credential types</span>
+            <span className="text-sm font-medium text-foreground">{t("ui.Credential types")}</span>
             <div className="flex flex-col gap-1">
               <span className="flex items-center gap-1.5 text-sm font-medium text-blue-600">
                 <RefreshCw className="size-3.5" />
-                Reusable
+                {t("ui.Reusable")}
               </span>
               <span className="text-xs text-muted-foreground">
-                Credentials saved in LiteLLM that can be added to models repeatedly.
+                {t("ui.Credentials saved in LiteLLM that can be added to models repeatedly.")}
               </span>
             </div>
             <div className="flex flex-col gap-1">
               <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                 <Pencil className="size-3.5" />
-                Manual
+                {t("ui.Manual")}
               </span>
               <span className="text-xs text-muted-foreground">
-                Credentials added directly during model creation or defined in the config file.
+                {t("ui.Credentials added directly during model creation or defined in the config file.")}
               </span>
             </div>
           </div>
@@ -150,11 +153,12 @@ function CredentialsHeader() {
 }
 
 function CredentialsCell({ credentialName }: { credentialName: string | undefined }) {
+  const { t } = useTranslation();
   if (!credentialName) {
     return (
       <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
         <Pencil className="size-3" />
-        Manual
+        {t("ui.Manual")}
       </Badge>
     );
   }
@@ -168,10 +172,11 @@ function CredentialsCell({ credentialName }: { credentialName: string | undefine
 }
 
 function CreatedByCell({ model }: { model: ModelData }) {
+  const { t } = useTranslation();
   const isConfigModel = !model.model_info?.db_model;
   const createdAt = formatShortDate(model.model_info.created_at);
-  const primary = isConfigModel ? "Defined in config" : model.model_info.created_by || "Unknown";
-  const secondaryForDbModel = createdAt ?? "Unknown date";
+  const primary = isConfigModel ? t("ui.Defined in config") : model.model_info.created_by || t("ui.Unknown");
+  const secondaryForDbModel = createdAt ?? t("ui.Unknown date");
 
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
@@ -184,6 +189,7 @@ function CreatedByCell({ model }: { model: ModelData }) {
 }
 
 function CostsCell({ model }: { model: ModelData }) {
+  const { t } = useTranslation();
   const { input_cost: inputCost, output_cost: outputCost } = model;
 
   if (inputCost == null && outputCost == null) {
@@ -192,18 +198,18 @@ function CostsCell({ model }: { model: ModelData }) {
 
   return (
     <CellTooltip
-      content="Cost per 1M tokens"
+      content={t("ui.Cost per 1M tokens")}
       trigger={
         <div className="flex flex-col gap-0.5 whitespace-nowrap">
           {inputCost != null && (
             <span className="flex items-baseline gap-1.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">IN</span>
+              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.IN")}</span>
               <span className="text-xs font-medium tabular-nums text-foreground">${inputCost}</span>
             </span>
           )}
           {outputCost != null && (
             <span className="flex items-baseline gap-1.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">OUT</span>
+              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.OUT")}</span>
               <span className="text-xs font-medium tabular-nums text-foreground">${outputCost}</span>
             </span>
           )}
@@ -262,6 +268,7 @@ function ModelRowActions({
   onDeleteClick,
   onTogglePauseClick,
 }: ModelRowActionsProps) {
+  const { t } = useTranslation();
   const modelId = model.model_info?.id;
   const isConfigModel = !model.model_info?.db_model;
   const isAdmin = userRole === "Admin";
@@ -271,17 +278,19 @@ function ModelRowActions({
 
   const resolvePauseTooltip = (): string => {
     if (isConfigModel) {
-      return "Config models cannot be paused from the dashboard. Pause is DB-backed.";
+      return t("ui.Config models cannot be paused from the dashboard. Pause is DB-backed.");
     }
     if (!isAdmin) {
-      return "Only proxy admins can pause or resume a model.";
+      return t("ui.Only proxy admins can pause or resume a model.");
     }
-    return isBlocked ? "Resume model — restore normal routing." : "Pause model — stop routing requests until resumed.";
+    return isBlocked
+      ? t("ui.Resume model — restore normal routing.")
+      : t("ui.Pause model — stop routing requests until resumed.");
   };
 
   const deleteTooltip = isConfigModel
-    ? "Config model cannot be deleted on the dashboard. Please delete it from the config file."
-    : "Delete model";
+    ? t("ui.Config model cannot be deleted on the dashboard. Please delete it from the config file.")
+    : t("ui.Delete model");
 
   return (
     <div className="flex items-center justify-end gap-1.5">
@@ -300,7 +309,7 @@ function ModelRowActions({
                   size="sm"
                   checked={!isBlocked}
                   disabled={!isPauseToggleable}
-                  aria-label={isBlocked ? "Resume model" : "Pause model"}
+                  aria-label={isBlocked ? t("ui.Resume model") : t("ui.Pause model")}
                   data-testid={`model-pause-toggle-${modelId}`}
                   onCheckedChange={(nextChecked) => {
                     if (isPauseToggleable && onTogglePauseClick && modelId) {
@@ -320,7 +329,7 @@ function ModelRowActions({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Delete model"
+              aria-label={t("ui.Delete model")}
               data-testid={`model-delete-${modelId}`}
               disabled={isConfigModel || !canEditModel}
               className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"

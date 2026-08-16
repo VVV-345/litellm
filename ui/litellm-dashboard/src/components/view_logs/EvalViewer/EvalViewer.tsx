@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { CircleCheck, CircleX, FlaskConical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,7 @@ interface EvalViewerProps {
 }
 
 export default function EvalViewer({ data }: EvalViewerProps) {
+  const { t } = useTranslation();
   const entries: EvalInformation[] = Array.isArray(data) ? data : [data];
 
   if (!entries.length) return null;
@@ -39,18 +41,18 @@ export default function EvalViewer({ data }: EvalViewerProps) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <FlaskConical className="size-4" style={{ color: "#6366f1" }} />
         <span className="font-semibold" style={{ fontSize: 15 }}>
-          LLM Judge Results
+          {t("ui.LLM Judge Results")}
         </span>
       </div>
 
       {entries.map((entry, idx) => (
-        <EvalEntryCard key={entry.eval_id || idx} entry={entry} />
+        <EvalEntryCard key={entry.eval_id || idx} entry={entry} t={t} />
       ))}
     </div>
   );
 }
 
-function EvalEntryCard({ entry }: { entry: EvalInformation }) {
+function EvalEntryCard({ entry, t }: { entry: EvalInformation; t: (key: string) => string }) {
   const passed = entry.passed;
   const scoreColor = passed ? "#52c41a" : "#ff4d4f";
 
@@ -71,7 +73,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
               <CircleX className="size-4" style={{ color: "#ff4d4f" }} />
             )}
             <span className="font-semibold">{entry.eval_name}</span>
-            <Badge variant={passed ? "secondary" : "destructive"}>{passed ? "PASSED" : "FAILED"}</Badge>
+            <Badge variant={passed ? "secondary" : "destructive"}>{passed ? t("ui.PASSED") : t("ui.FAILED")}</Badge>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger
@@ -86,8 +88,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
                   {entry.threshold != null && ` (threshold: ${entry.threshold})`}
                 </TooltipTrigger>
                 <TooltipContent>
-                  Weighted average of all criterion scores. Each criterion has a weight (%) set when the eval was
-                  created — higher-weight criteria count more toward the final score.
+                  {t("ui.Weighted average of all criterion scores. Each criterion has a weight (%) set when the eval was created — higher-weight criteria count more toward the final score.")}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -97,12 +98,12 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
           <div className="flex items-center gap-2">
             {entry.judge_model && (
               <span className="text-muted-foreground" style={{ fontSize: 12 }}>
-                Judge: {entry.judge_model}
+                {t("ui.Judge:")} {entry.judge_model}
               </span>
             )}
             {entry.iteration != null && (
               <span className="text-muted-foreground" style={{ fontSize: 12 }}>
-                Iter: {entry.iteration + 1}
+                {t("ui.Iter:")} {entry.iteration + 1}
               </span>
             )}
           </div>
@@ -112,7 +113,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
       <CardContent>
         {entry.eval_error && (
           <span className="text-amber-600" style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
-            Judge error: {entry.eval_error}
+            {t("ui.Judge error:")} {entry.eval_error}
           </span>
         )}
 
@@ -120,22 +121,22 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead style={{ width: 160 }}>Criterion</TableHead>
-                <TableHead style={{ width: 65 }}>Weight</TableHead>
-                <TableHead style={{ width: 65 }}>Score</TableHead>
+                <TableHead style={{ width: 160 }}>{t("ui.Criterion")}</TableHead>
+                <TableHead style={{ width: 65 }}>{t("ui.Weight")}</TableHead>
+                <TableHead style={{ width: 65 }}>{t("ui.Score")}</TableHead>
                 <TableHead style={{ width: 75 }}>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger render={<span style={{ borderBottom: "1px dashed #aaa", cursor: "help" }} />}>
-                        Weighted
+                        {t("ui.Weighted")}
                       </TooltipTrigger>
                       <TooltipContent>
-                        Score × Weight — how much each criterion contributes to the final score
+                        {t("ui.Score × Weight — how much each criterion contributes to the final score")}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 </TableHead>
-                <TableHead>Comment</TableHead>
+                <TableHead>{t("ui.Comment")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -189,7 +190,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
                 <TableRow>
                   <TableCell>
                     <span className="font-semibold" style={{ fontSize: 12 }}>
-                      Total
+                      {t("ui.Total")}
                     </span>
                   </TableCell>
                   <TableCell />
@@ -206,7 +207,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
           </Table>
         ) : (
           <span className="text-muted-foreground" style={{ fontSize: 12 }}>
-            Score: {entry.overall_score?.toFixed(1)} — no per-criterion breakdown available.
+            {t("ui.Score:")} {entry.overall_score?.toFixed(1)} {t("ui.no per-criterion breakdown available.")}
           </span>
         )}
       </CardContent>

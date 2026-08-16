@@ -1,5 +1,7 @@
 import React from "react";
 import { Form, Select, Typography, Input, Button } from "antd";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import NumericalInput from "@/components/shared/numerical_input";
 
 const { Title } = Typography;
@@ -30,6 +32,8 @@ interface DictFieldProps {
 }
 
 const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, value }) => {
+  const { t } = useTranslation();
+  const ui = (v: string) => translateUiText(t, v);
   const [selectedEntries, setSelectedEntries] = React.useState<Array<{ key: string; id: string }>>([]);
   const [availableKeys, setAvailableKeys] = React.useState<string[]>(field.dict_key_options || []);
 
@@ -90,8 +94,8 @@ const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, va
                 <NumericalInput step={1} width={200} placeholder={`Enter ${entry.key} value`} />
               ) : field.dict_value_type === "boolean" ? (
                 <Select placeholder={`Select ${entry.key} value`}>
-                  <Select.Option value={true}>True</Select.Option>
-                  <Select.Option value={false}>False</Select.Option>
+                  <Select.Option value={true}>{ui("True")}</Select.Option>
+                  <Select.Option value={false}>{ui("False")}</Select.Option>
                 </Select>
               ) : (
                 <Input placeholder={`Enter ${entry.key} value`} />
@@ -99,7 +103,7 @@ const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, va
             </Form.Item>
           </div>
           <Button type="text" danger size="small" onClick={() => removeEntry(entry.id, entry.key)}>
-            Remove
+            {ui("Remove")}
           </Button>
         </div>
       ))}
@@ -108,7 +112,7 @@ const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, va
       {availableKeys.length > 0 && (
         <div className="flex items-center space-x-3 mt-2">
           <Select
-            placeholder="Select category to configure"
+            placeholder={ui("Select category to configure")}
             style={{ width: 200 }}
             onSelect={(value: string | undefined) => value && addEntry(value)}
             value={undefined}
@@ -119,7 +123,7 @@ const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, va
               </Select.Option>
             ))}
           </Select>
-          <span className="text-sm text-gray-500">Select a category to add threshold configuration</span>
+          <span className="text-sm text-gray-500">{ui("Select a category to add threshold configuration")}</span>
         </div>
       )}
     </div>
@@ -131,6 +135,8 @@ const GuardrailOptionalParams: React.FC<GuardrailOptionalParamsProps> = ({
   parentFieldKey,
   values,
 }) => {
+  const { t } = useTranslation();
+  const ui = (v: string) => translateUiText(t, v);
   const renderField = (fieldKey: string, field: ProviderParam) => {
     const fullFieldKey = `${parentFieldKey}.${fieldKey}`;
     const value = values?.[fieldKey];
@@ -186,8 +192,8 @@ const GuardrailOptionalParams: React.FC<GuardrailOptionalParamsProps> = ({
             </Select>
           ) : field.type === "bool" || field.type === "boolean" ? (
             <Select placeholder={field.description}>
-              <Select.Option value={true}>True</Select.Option>
-              <Select.Option value={false}>False</Select.Option>
+              <Select.Option value={true}>{ui("True")}</Select.Option>
+              <Select.Option value={false}>{ui("False")}</Select.Option>
             </Select>
           ) : field.type === "number" ? (
             <NumericalInput step={1} width={400} placeholder={field.description} />
@@ -209,10 +215,10 @@ const GuardrailOptionalParams: React.FC<GuardrailOptionalParamsProps> = ({
     <div className="guardrail-optional-params">
       <div className="mb-8 pb-4 border-b border-gray-100">
         <Title level={3} className="mb-2 font-semibold text-gray-900">
-          Optional Parameters
+          {ui("Optional Parameters")}
         </Title>
         <p className="text-gray-600 text-sm">
-          {optionalParams.description || "Configure additional settings for this guardrail provider"}
+          {optionalParams.description || ui("Configure additional settings for this guardrail provider")}
         </p>
       </div>
 

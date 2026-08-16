@@ -1,6 +1,7 @@
 import { Button, Select, Tooltip } from "antd";
 import { ArrowDown, Plus, X } from "lucide-react";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface FallbackEntry {
   id: string;
@@ -34,6 +35,7 @@ const dictToEntries = (dict: Record<string, string[]>): FallbackEntry[] => {
 };
 
 export function BudgetFallbacksEditor({ value, onChange, availableModels }: BudgetFallbacksEditorProps) {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<FallbackEntry[]>(() => dictToEntries(value));
 
   const emitChange = (updated: FallbackEntry[]) => {
@@ -59,10 +61,10 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
     return (
       <div>
         <div className="text-xs text-gray-500 mb-2">
-          When a model exceeds its per-model budget, requests automatically reroute to fallback models
+          {t("ui.When a model exceeds its per-model budget, requests automatically reroute to fallback models")}
         </div>
         <Button size="small" onClick={addEntry} icon={<Plus className="w-3 h-3" />}>
-          Add Budget Fallback
+          {t("ui.Add Budget Fallback")}
         </Button>
       </div>
     );
@@ -71,7 +73,7 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
   return (
     <div className="space-y-4">
       <div className="text-xs text-gray-500">
-        When a model exceeds its per-model budget, requests automatically reroute to fallback models
+        {t("ui.When a model exceeds its per-model budget, requests automatically reroute to fallback models")}
       </div>
       {entries.map((entry) => {
         const availablePrimaryOptions = availableModels.filter(
@@ -90,10 +92,10 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
             </button>
 
             <div className="mb-3">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Primary Model</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t("ui.Primary Model")}</label>
               <Select
                 className="w-full"
-                placeholder="Select model"
+                placeholder={t("ui.Select model")}
                 value={entry.primaryModel}
                 onChange={(v) => {
                   const newFallbacks = entry.fallbackModels.filter((m) => m !== v);
@@ -109,16 +111,16 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
             <div className="flex items-center justify-center -my-1 mb-2">
               <div className="bg-amber-50 text-amber-600 px-3 py-0.5 rounded-full text-[10px] font-bold border border-amber-100 flex items-center gap-1">
                 <ArrowDown className="w-3 h-3" />
-                IF BUDGET EXCEEDED, TRY
+                {t("ui.IF BUDGET EXCEEDED, TRY")}
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Fallback Models</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t("ui.Fallback Models")}</label>
               <Select
                 mode="multiple"
                 className="w-full"
-                placeholder={entry.primaryModel ? "Select fallback models" : "Select a primary model first"}
+                placeholder={entry.primaryModel ? t("ui.Select fallback models") : t("ui.Select a primary model first")}
                 value={entry.fallbackModels}
                 onChange={(values) => updateEntry(entry.id, { fallbackModels: values })}
                 disabled={!entry.primaryModel}
@@ -138,7 +140,7 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
               />
               {entry.fallbackModels.length > 1 && (
                 <div className="text-[10px] text-gray-400 mt-1 ml-1">
-                  Tried in order; first model still within its own budget is used
+                  {t("ui.Tried in order; first model still within its own budget is used")}
                 </div>
               )}
             </div>
@@ -146,7 +148,7 @@ export function BudgetFallbacksEditor({ value, onChange, availableModels }: Budg
         );
       })}
       <Button size="small" onClick={addEntry} icon={<Plus className="w-3 h-3" />}>
-        Add Budget Fallback
+        {t("ui.Add Budget Fallback")}
       </Button>
     </div>
   );

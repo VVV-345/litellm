@@ -163,16 +163,16 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
   const handleResetPassword = useCallback(
     async (userId: string) => {
       if (!accessToken) {
-        NotificationsManager.fromBackend("Access token not found");
+        NotificationsManager.fromBackend(t("ui.Access token not found"));
         return;
       }
       try {
-        NotificationsManager.success("Generating password reset link...");
+        NotificationsManager.success(t("ui.Generating password reset link..."));
         const data = await invitationCreateCall(accessToken, userId);
         setInvitationLinkData(data);
         setIsInvitationLinkModalVisible(true);
       } catch (error) {
-        NotificationsManager.fromBackend("Failed to generate password reset link");
+        NotificationsManager.fromBackend(t("ui.Failed to generate password reset link"));
       }
     },
     [accessToken],
@@ -191,10 +191,10 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
           return { ...previousData, users: updatedUsers };
         });
 
-        NotificationsManager.success("User deleted successfully");
+        NotificationsManager.success(t("ui.User deleted successfully"));
       } catch (error) {
         console.error("Error deleting user:", error);
-        NotificationsManager.fromBackend("Failed to delete user");
+        NotificationsManager.fromBackend(t("ui.Failed to delete user"));
       } finally {
         setIsDeleteModalOpen(false);
         setUserToDelete(null);
@@ -421,7 +421,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
               <div
                 className="flex h-64 items-center justify-center"
                 role="status"
-                aria-label="Loading default user settings"
+                aria-label={t("ui.Loading default user settings")}
               >
                 <div className="w-full max-w-lg space-y-3">
                   <Skeleton className="h-5 w-1/3" />
@@ -450,14 +450,14 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
 
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
-        title="Delete User?"
-        message="Are you sure you want to delete this user? This action cannot be undone."
-        resourceInformationTitle="User Information"
+        title={t("ui.Delete User?")}
+        message={t("ui.Are you sure you want to delete this user? This action cannot be undone.")}
+        resourceInformationTitle={t("ui.User Information")}
         resourceInformation={[
-          { label: "Email", value: userToDelete?.user_email },
-          { label: "User ID", value: userToDelete?.user_id, code: true },
+          { label: t("ui.Email"), value: userToDelete?.user_email },
+          { label: t("ui.User ID"), value: userToDelete?.user_id, code: true },
           {
-            label: "Global Proxy Role",
+            label: t("ui.Global Proxy Role"),
             value:
               (userToDelete && possibleUIRoles?.[userToDelete.user_role]?.ui_label) || userToDelete?.user_role || "-",
           },

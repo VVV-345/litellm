@@ -12,8 +12,10 @@ import { useCredentials } from "@/app/(dashboard)/hooks/credentials/useCredentia
 import { useTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { vertexCredentialsUploadProps } from "@/app/(dashboard)/models-and-endpoints/vertexCredentialsUpload";
+import { useTranslation } from "react-i18next";
 
 export default function AddModelPanel() {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
@@ -33,7 +35,7 @@ export default function AddModelPanel() {
     } catch (error: any) {
       const errorMessages =
         error.errorFields?.map((field: any) => `${field.name.join(".")}: ${field.errors.join(", ")}`).join(" | ") ||
-        "Unknown validation error";
+        t("ui.Unknown validation error");
       NotificationsManager.fromBackend(`Please fill in the following required fields: ${errorMessages}`);
     }
   };

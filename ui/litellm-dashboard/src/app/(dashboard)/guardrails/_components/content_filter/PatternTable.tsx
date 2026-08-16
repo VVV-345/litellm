@@ -65,7 +65,7 @@ const PatternTable: React.FC<PatternTableProps> = ({ patterns, onActionChange, o
           <SelectContent alignItemWithTrigger={false}>
             {ACTION_ITEMS.map((item) => (
               <SelectItem key={item.value} value={item.value}>
-                {item.label}
+                {ui(item.label)}
               </SelectItem>
             ))}
           </SelectContent>

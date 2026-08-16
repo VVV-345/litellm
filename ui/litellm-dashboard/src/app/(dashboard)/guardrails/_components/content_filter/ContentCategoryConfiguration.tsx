@@ -231,7 +231,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
           <SelectContent alignItemWithTrigger={false}>
             {SEVERITY_ITEMS.map((item) => (
               <SelectItem key={item.value} value={item.value}>
-                {item.label}
+                {ui(item.label)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -245,7 +245,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
       cell: ({ row }) => (
         <Button variant="outline" size="sm" onClick={() => onCategoryRemove(row.original.id)}>
           <Trash2 />
-          Remove
+          {ui("Remove")}
         </Button>
       ),
     },
@@ -262,7 +262,7 @@ const ContentCategoryConfiguration: React.FC<ContentCategoryConfigurationProps> 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>{ui("Blocked topics")}</CardTitle>
           <p className="text-xs font-normal text-muted-foreground">
-            Select topics to block using keyword and semantic analysis
+            {ui("Select topics to block using keyword and semantic analysis")}
           </p>
         </div>
       </CardHeader>

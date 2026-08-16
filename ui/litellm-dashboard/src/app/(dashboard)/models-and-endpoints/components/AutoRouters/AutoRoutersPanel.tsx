@@ -2,6 +2,7 @@
 
 import { Plus } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAutoRouters, useInvalidateAutoRouters } from "@/app/(dashboard)/hooks/models/useModels";
 import { useModelDetailRouting } from "@/app/(dashboard)/models-and-endpoints/detailNavigation";
@@ -27,6 +28,7 @@ interface AutoRoutersPanelProps {
 }
 
 export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createScope }: AutoRoutersPanelProps) {
+  const { t } = useTranslation();
   const canCreate = createScope !== "forbidden";
   const { data: deployments, isLoading } = useAutoRouters();
   const invalidateAutoRouters = useInvalidateAutoRouters();
@@ -67,16 +69,15 @@ export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createS
     <div className="w-full space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Auto routers</h2>
+          <h2 className="text-base font-semibold text-foreground">{t("ui.Auto routers")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Auto routers sit above your deployments and pick a model per request. They are called like any other model,
-            so clients keep using a single model name.
+            {t("ui.Auto routers sit above your deployments and pick a model per request. They are called like any other model, so clients keep using a single model name.")}
           </p>
         </div>
         {canCreate && (
           <Button onClick={() => setIsCreating(true)} className="shrink-0">
             <Plus />
-            Add Auto Router
+            {t("ui.Add Auto Router")}
           </Button>
         )}
       </div>
@@ -94,10 +95,9 @@ export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createS
             growing past the viewport. */}
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Add Auto Router</DialogTitle>
+            <DialogTitle>{t("ui.Add Auto Router")}</DialogTitle>
             <DialogDescription>
-              Routes each request to a model by classifying its complexity. Called like any other model, so clients keep
-              using a single model name.
+              {t("ui.Routes each request to a model by classifying its complexity. Called like any other model, so clients keep using a single model name.")}
             </DialogDescription>
           </DialogHeader>
           <AddAutoRouterTab
@@ -113,13 +113,13 @@ export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createS
       {deletingRouter && (
         <DeleteResourceModal
           isOpen
-          title="Delete Auto Router"
+          title={t("ui.Delete Auto Router")}
           message={`Are you sure you want to delete "${deletingRouter.name}"? Any client still calling this model name will start failing.`}
-          resourceInformationTitle="Auto router"
+          resourceInformationTitle={t("ui.Auto router")}
           resourceInformation={[
-            { label: "Name", value: deletingRouter.name },
-            { label: "Type", value: deletingRouter.typeLabel },
-            { label: "ID", value: deletingRouter.id },
+            { label: t("ui.Name"), value: deletingRouter.name },
+            { label: t("ui.Type"), value: deletingRouter.typeLabel },
+            { label: t("ui.ID"), value: deletingRouter.id },
           ]}
           onCancel={() => setDeletingRouter(null)}
           onOk={handleConfirmDelete}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Bot, Check, ChevronLeft, ChevronRight, Copy, Sparkles, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -59,6 +60,7 @@ function TraceEventIcon({ callType, isAutoRouted }: { callType: string; isAutoRo
 }
 
 function TraceEventRow({ row, isSelected, onClick }: TraceEventRowProps) {
+  const { t } = useTranslation();
   const isAutoRouted = useIsAutoRoutedModelGroup(row.model_group);
   const durationValue =
     row.request_duration_ms != null
@@ -121,6 +123,7 @@ export function LogDetailsDrawer({
   onSelectLog,
   startTime,
 }: LogDetailsDrawerProps) {
+  const { t } = useTranslation();
   const isSessionMode = Boolean(sessionId);
   const [selectedSessionRequestId, setSelectedSessionRequestId] = useState<string | null>(null);
   const [sessionSortMode, setSessionSortMode] = useState<SessionLogSortMode>("duration");
@@ -264,7 +267,7 @@ export function LogDetailsDrawer({
   const metadata = currentLog?.metadata || {};
 
   // Status display values
-  const statusLabel = metadata.status === "failure" ? "Failure" : "Success";
+  const statusLabel = metadata.status === "failure" ? t("ui.Failure") : t("ui.Success");
   const statusColor = metadata.status === "failure" ? ("error" as const) : ("success" as const);
   const environment = metadata?.user_api_key_team_alias || "default";
 
@@ -311,7 +314,7 @@ export function LogDetailsDrawer({
         style={{ width: DRAWER_WIDTH }}
       >
         <SheetTitle className="sr-only">
-          {logEntry?.request_id ? `Request ${logEntry.request_id} details` : "Request details"}
+          {logEntry?.request_id ? `${t("ui.Request")} ${logEntry.request_id} ${t("ui.details")}` : t("ui.Request details")}
         </SheetTitle>
         <div style={{ height: "100%" }} className="flex relative">
           {!isSidebarCollapsed ? (
@@ -320,7 +323,7 @@ export function LogDetailsDrawer({
               size="icon-sm"
               onClick={() => setIsSidebarCollapsed(true)}
               className="absolute top-2 left-2 z-20 bg-white! border! border-slate-200! rounded-md!"
-              aria-label="Collapse trace sidebar"
+              aria-label={t("ui.Collapse trace sidebar")}
             >
               <ChevronLeft className="size-4" />
             </Button>
@@ -330,7 +333,7 @@ export function LogDetailsDrawer({
               size="icon-sm"
               onClick={() => setIsSidebarCollapsed(false)}
               className="absolute top-2 left-2 z-20 bg-white! border! border-slate-200! rounded-md!"
-              aria-label="Expand trace sidebar"
+              aria-label={t("ui.Expand trace sidebar")}
             >
               <ChevronRight className="size-4" />
             </Button>
@@ -341,7 +344,7 @@ export function LogDetailsDrawer({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-slate-500">
-                      {isSessionMode ? "Session" : "Trace"}
+                      {isSessionMode ? t("ui.Session") : t("ui.Trace")}
                     </div>
                     <div className="font-mono text-[12px] text-slate-900 leading-tight flex items-center gap-1">
                       <span className="truncate">{leftPanelDisplayId}</span>
@@ -349,7 +352,7 @@ export function LogDetailsDrawer({
                         type="button"
                         onClick={handleCopyLeftPanelId}
                         className="text-slate-400 hover:text-slate-600"
-                        aria-label="Copy trace id"
+                        aria-label={t("ui.Copy trace id")}
                       >
                         {copiedLeftPanelId ? <Check className="size-3" /> : <Copy className="size-3" />}
                       </button>
@@ -371,7 +374,7 @@ export function LogDetailsDrawer({
                       ? mcpCount
                       : logsForList.filter((row) => MCP_CALL_TYPES.includes(row.call_type)).length,
                   ].map((count, i) => {
-                    const label = [" LLM", " Agent", " MCP"][i];
+                    const label = [t("ui. LLM"), t("ui. Agent"), t("ui. MCP")][i];
                     return count > 0 ? (
                       <span key={label}>
                         <span className="mx-1.5">·</span>
@@ -391,7 +394,7 @@ export function LogDetailsDrawer({
                 </div>
                 {isSessionMode && sessionTruncated && (
                   <div className="mt-1 text-[11px] text-amber-600 font-mono">
-                    Showing most recent {logsForList.length} of {sessionTotalCount}
+                    {t("ui.Showing most recent")} {logsForList.length} {t("ui.of")} {sessionTotalCount}
                   </div>
                 )}
                 {isSessionMode && (
@@ -402,10 +405,10 @@ export function LogDetailsDrawer({
                   >
                     <TabsList className="w-full">
                       <TabsTrigger value="duration" className="text-[11px]">
-                        Duration
+                        {t("ui.Duration")}
                       </TabsTrigger>
                       <TabsTrigger value="start_time" className="text-[11px]">
-                        Start time
+                        {t("ui.Start time")}
                       </TabsTrigger>
                     </TabsList>
                   </Tabs>
