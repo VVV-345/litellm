@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal, Form, Select, Radio, Divider, Typography } from "antd";
 import { Button } from "@tremor/react";
 import { Policy } from "@/components/policies/types";
@@ -8,6 +9,7 @@ import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { buildAttachmentData } from "./build_attachment_data";
 import { getInvalidTeamEntries } from "./scope_validation";
 import ImpactPreviewAlert from "./impact_preview_alert";
+import { translateUiText } from "@/utils/i18nText";
 
 const { Text } = Typography;
 
@@ -28,6 +30,8 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
   policies,
   createAttachment,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const [form] = Form.useForm();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scopeType, setScopeType] = useState<"global" | "specific">("global");
@@ -190,7 +194,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
   }));
 
   return (
-    <Modal title="Create Policy Attachment" open={visible} onCancel={handleClose} footer={null} width={600}>
+    <Modal title={ui("Create Policy Attachment")} open={visible} onCancel={handleClose} footer={null} width={600}>
       <Form
         form={form}
         layout="vertical"
@@ -200,12 +204,12 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
       >
         <Form.Item
           name="policy_names"
-          label="Policies"
-          rules={[{ required: true, message: "Please select at least one policy" }]}
+          label={ui("Policies")}
+          rules={[{ required: true, message: ui("Please select at least one policy") }]}
         >
           <Select
             mode="multiple"
-            placeholder="Select policies to attach"
+            placeholder={ui("Select policies to attach")}
             options={policyOptions}
             showSearch
             filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
@@ -214,13 +218,13 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
         </Form.Item>
 
         <Divider orientation="left">
-          <Text strong>Scope</Text>
+          <Text strong>{ui("Scope")}</Text>
         </Divider>
 
-        <Form.Item label="Scope Type">
+        <Form.Item label={ui("Scope Type")}>
           <Radio.Group value={scopeType} onChange={(e) => setScopeType(e.target.value)}>
-            <Radio value="specific">Specific (teams, keys, models, or tags)</Radio>
-            <Radio value="global">Global (applies to all requests)</Radio>
+            <Radio value="specific">{ui("Specific (teams, keys, models, or tags)")}</Radio>
+            <Radio value="global">{ui("Global (applies to all requests)")}</Radio>
           </Radio.Group>
         </Form.Item>
 
@@ -228,8 +232,8 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
           <>
             <Form.Item
               name="teams"
-              label="Teams"
-              tooltip="Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)"
+              label={ui("Teams")}
+              tooltip={ui("Select team aliases or enter custom patterns. Supports wildcards (e.g., healthcare-*)")}
               rules={[
                 {
                   validator: async (_rule, value?: string[]) => {
@@ -247,7 +251,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
             >
               <Select
                 mode="tags"
-                placeholder={isLoadingTeams ? "Loading teams..." : "Select or enter team aliases"}
+                placeholder={ui(isLoadingTeams ? "Loading teams..." : "Select or enter team aliases")}
                 loading={isLoadingTeams}
                 options={availableTeams.map((team) => ({
                   label: team,
@@ -262,12 +266,12 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
             <Form.Item
               name="keys"
-              label="Keys"
-              tooltip="Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)"
+              label={ui("Keys")}
+              tooltip={ui("Select key aliases or enter custom patterns. Supports wildcards (e.g., dev-*)")}
             >
               <Select
                 mode="tags"
-                placeholder={isLoadingKeys ? "Loading keys..." : "Select or enter key aliases"}
+                placeholder={ui(isLoadingKeys ? "Loading keys..." : "Select or enter key aliases")}
                 loading={isLoadingKeys}
                 options={availableKeys.map((key) => ({
                   label: key,
@@ -282,13 +286,13 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
             <Form.Item
               name="models"
-              label="Models"
-              tooltip="Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models."
+              label={ui("Models")}
+              tooltip={ui("Model names this attachment applies to. Supports wildcards (e.g., gpt-4*). Leave empty to apply to all models.")}
             >
               <Select
                 mode="tags"
                 placeholder={
-                  isLoadingModels ? "Loading models..." : "Select or enter model names (e.g., gpt-4, bedrock/*)"
+                  isLoadingModels ? ui("Loading models...") : ui("Select or enter model names (e.g., gpt-4, bedrock/*)")
                 }
                 loading={isLoadingModels}
                 options={availableModels.map((model) => ({
@@ -304,19 +308,17 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
             <Form.Item
               name="tags"
-              label="Tags"
-              tooltip="Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix."
+              label={ui("Tags")}
+              tooltip={ui("Match against tags set in key or team metadata. Use exact values (e.g., healthcare) or wildcard patterns (e.g., health-*) where * matches any suffix.")}
               extra={
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  Matches tags from key/team <code>metadata.tags</code> or tags passed dynamically in the request body.
-                  Use <code>*</code> as a suffix wildcard (e.g., <code>prod-*</code> matches <code>prod-us</code>,{" "}
-                  <code>prod-eu</code>).
+                  {ui("Matches tags from key/team metadata.tags or tags passed dynamically in the request body. Use * as a suffix wildcard (e.g., prod-* matches prod-us, prod-eu).")}
                 </Text>
               }
             >
               <Select
                 mode="tags"
-                placeholder="Type a tag and press Enter (e.g. healthcare, prod-*)"
+                placeholder={ui("Type a tag and press Enter (e.g. healthcare, prod-*)")}
                 tokenSeparators={[",", " "]}
                 notFoundContent={null}
                 suffixIcon={null}
@@ -331,15 +333,15 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
         <div className="flex justify-end space-x-2 mt-4">
           <Button variant="secondary" onClick={handleClose}>
-            Cancel
+            {ui("Cancel")}
           </Button>
           {scopeType === "specific" && (
             <Button variant="secondary" onClick={handlePreviewImpact} loading={isEstimating}>
-              Estimate Impact
+              {ui("Estimate Impact")}
             </Button>
           )}
           <Button onClick={handleSubmit} loading={isSubmitting}>
-            Create Attachment
+            {ui("Create Attachment")}
           </Button>
         </div>
       </Form>
