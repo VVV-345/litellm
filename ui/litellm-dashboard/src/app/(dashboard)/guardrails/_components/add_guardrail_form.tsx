@@ -1,5 +1,6 @@
 import { Form, Input, Modal, Select, Tag, Button } from "antd";
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import {
   createGuardrailCall,
@@ -29,6 +30,7 @@ import GuardrailProviderFields from "./guardrail_provider_fields";
 import LLMJudgeFields from "./llm_judge/LLMJudgeFields";
 import PiiConfiguration from "./pii_configuration";
 import ToolPermissionRulesEditor, { ToolPermissionConfig } from "./tool_permission/ToolPermissionRulesEditor";
+import { translateUiText } from "@/utils/i18nText";
 
 const { Option } = Select;
 
@@ -153,6 +155,8 @@ interface ProviderParamsResponse {
 }
 
 const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, accessToken, onSuccess, preset }) => {
+  const { t } = useTranslation();
+  const ui = (value: string) => translateUiText(t, value);
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -636,19 +640,19 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       <>
         <Form.Item
           name="guardrail_name"
-          label="Guardrail Name"
-          rules={[{ required: true, message: "Please enter a guardrail name" }]}
+          label={ui("Guardrail Name")}
+          rules={[{ required: true, message: ui("Please enter a guardrail name") }]}
         >
-          <Input placeholder="Enter a name for this guardrail" />
+          <Input placeholder={ui("Enter a name for this guardrail")} />
         </Form.Item>
 
         <Form.Item
           name="provider"
-          label="Guardrail Provider"
-          rules={[{ required: true, message: "Please select a provider" }]}
+          label={ui("Guardrail Provider")}
+          rules={[{ required: true, message: ui("Please select a provider") }]}
         >
           <Select
-            placeholder="Select a guardrail provider"
+            placeholder={ui("Select a guardrail provider")}
             onChange={handleProviderChange}
             labelInValue={false}
             optionLabelProp="label"
@@ -673,9 +677,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
 
         <Form.Item
           name="mode"
-          label="Mode"
-          tooltip="How the guardrail should be applied"
-          rules={[{ required: true, message: "Please select a mode" }]}
+          label={ui("Mode")}
+          tooltip={ui("How the guardrail should be applied")}
+          rules={[{ required: true, message: ui("Please select a mode") }]}
         >
           <Select optionLabelProp="label" mode="multiple">
             {getSupportedModesForProvider(guardrailSettings, selectedProvider)?.map((mode) => (
@@ -685,7 +689,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                     <strong>{mode}</strong>
                     {mode === "pre_call" && (
                       <Tag color="green" style={{ marginLeft: "8px" }}>
-                        Recommended
+                        {ui("Recommended")}
                       </Tag>
                     )}
                   </div>
@@ -735,36 +739,36 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
 
         <Form.Item
           name="default_on"
-          label="Always On"
-          tooltip="If enabled, this guardrail will be applied to all requests by default."
+          label={ui("Always On")}
+          tooltip={ui("If enabled, this guardrail will be applied to all requests by default.")}
         >
           <Select>
-            <Select.Option value={true}>Yes</Select.Option>
-            <Select.Option value={false}>No</Select.Option>
+            <Select.Option value={true}>{ui("Yes")}</Select.Option>
+            <Select.Option value={false}>{ui("No")}</Select.Option>
           </Select>
         </Form.Item>
 
         <Form.Item
           name="skip_system_message_choice"
-          label="Skip system messages in guardrail"
+          label={ui("Skip system messages in guardrail")}
           tooltip="Unified guardrails only: omit role: system from guardrail evaluation input (OpenAI chat + Anthropic messages). The model still receives full messages. Use global default follows litellm_settings.skip_system_message_in_guardrail."
         >
           <Select>
-            <Select.Option value="inherit">Use global default</Select.Option>
-            <Select.Option value="yes">Yes — exclude from guardrail scan</Select.Option>
-            <Select.Option value="no">No — always include in scan</Select.Option>
+            <Select.Option value="inherit">{ui("Use global default")}</Select.Option>
+            <Select.Option value="yes">{ui("Yes — exclude from guardrail scan")}</Select.Option>
+            <Select.Option value="no">{ui("No — always include in scan")}</Select.Option>
           </Select>
         </Form.Item>
 
         <Form.Item
           name="skip_tool_message_choice"
-          label="Skip tool messages in guardrail"
+          label={ui("Skip tool messages in guardrail")}
           tooltip="Unified guardrails only: omit role: tool from guardrail evaluation input (OpenAI chat + Anthropic messages). The model still receives full messages. Use global default follows litellm_settings.skip_tool_message_in_guardrail."
         >
           <Select>
-            <Select.Option value="inherit">Use global default</Select.Option>
-            <Select.Option value="yes">Yes — exclude from guardrail scan</Select.Option>
-            <Select.Option value="no">No — always include in scan</Select.Option>
+            <Select.Option value="inherit">{ui("Use global default")}</Select.Option>
+            <Select.Option value="yes">{ui("Yes — exclude from guardrail scan")}</Select.Option>
+            <Select.Option value="no">{ui("No — always include in scan")}</Select.Option>
           </Select>
         </Form.Item>
 
@@ -905,9 +909,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Call type</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{ui("Call type")}</label>
           <Select
-            placeholder="Select a call type"
+            placeholder={ui("Select a call type")}
             value={selectedEndpointType || undefined}
             onChange={(v) => {
               setSelectedEndpointType(v);
@@ -917,7 +921,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
             allowClear
             options={[{ value: "realtime", label: "/v1/realtime" }]}
           />
-          <p className="text-xs text-gray-400 mt-1">More call types coming soon.</p>
+          <p className="text-xs text-gray-400 mt-1">{ui("More call types coming soon.")}</p>
         </div>
 
         {selectedEndpointType === "realtime" && (
@@ -942,7 +946,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
             {endpointSettingsOpen && (
               <div className="space-y-5 px-4 py-4 border-t border-gray-200">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End session after X violations</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{ui("End session after X violations")}</label>
                   <p className="text-xs text-gray-400 mb-2">
                     Automatically close the session after this many guardrail violations. Leave empty to never
                     auto-close.
@@ -950,7 +954,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                   <input
                     type="number"
                     min={1}
-                    placeholder="e.g. 3"
+                    placeholder={ui("e.g. 3")}
                     value={endSessionAfterNFails ?? ""}
                     onChange={(e) =>
                       setEndSessionAfterNFails(e.target.value ? parseInt(e.target.value, 10) : undefined)
@@ -960,7 +964,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">On violation</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{ui("On violation")}</label>
                   <div className="space-y-2">
                     {(["warn", "end_session"] as const).map((opt) => (
                       <label key={opt} className="flex items-start gap-2 cursor-pointer">
@@ -988,14 +992,14 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Message the user hears</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{ui("Message the user hears")}</label>
                   <p className="text-xs text-gray-400 mb-2">
                     What the bot says aloud when this guardrail fires. Falls back to the default violation message if
                     empty.
                   </p>
                   <textarea
                     rows={3}
-                    placeholder="e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678."
+                    placeholder={ui("e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.")}
                     value={realtimeViolationMessage}
                     onChange={(e) => setRealtimeViolationMessage(e.target.value)}
                     className="border border-gray-300 rounded-sm px-3 py-2 text-sm w-full resize-none"
@@ -1050,7 +1054,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       <div className="flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-base font-semibold text-gray-900 m-0">Create guardrail</h3>
+          <h3 className="text-base font-semibold text-gray-900 m-0">{ui("Create guardrail")}</h3>
           <button
             onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer text-base leading-none p-1"
@@ -1116,8 +1120,8 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                       >
                         {step.title}
                       </span>
-                      {step.optional && !isCurrent && <span className="text-[11px] text-slate-400">optional</span>}
-                      {isDone && <span className="text-[11px] text-indigo-500 hover:underline">Edit</span>}
+                      {step.optional && !isCurrent && <span className="text-[11px] text-slate-400">{ui("optional")}</span>}
+                      {isDone && <span className="text-[11px] text-indigo-500 hover:underline">{ui("Edit")}</span>}
                     </div>
 
                     {/* Expanded form content for current step */}
@@ -1131,15 +1135,15 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
 
         {/* Bottom bar */}
         <div className="flex items-center justify-end space-x-3 px-6 py-3 border-t border-gray-200">
-          <Button onClick={handleClose}>Cancel</Button>
-          {currentStep > 0 && <Button onClick={prevStep}>Previous</Button>}
+          <Button onClick={handleClose}>{ui("Cancel")}</Button>
+          {currentStep > 0 && <Button onClick={prevStep}>{ui("Previous")}</Button>}
           {currentStep < stepConfigs.length - 1 ? (
             <Button type="primary" onClick={nextStep}>
-              Next
+              {ui("Next")}
             </Button>
           ) : (
             <Button type="primary" onClick={handleSubmit} loading={loading}>
-              Create Guardrail
+              {ui("Create Guardrail")}
             </Button>
           )}
         </div>
