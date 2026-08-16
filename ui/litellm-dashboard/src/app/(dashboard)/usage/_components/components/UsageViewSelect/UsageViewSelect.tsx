@@ -1,9 +1,11 @@
 import { BarChart3, Bot, Building2, Globe, LineChart, ShoppingCart, Tags, User, Users } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hasCapability, type Capability } from "@/utils/capabilities";
 import { all_admin_roles } from "@/utils/roles";
+import { translateUiText } from "@/utils/i18nText";
 export type UsageOption =
   | "global"
   | "my-usage"
@@ -112,6 +114,8 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
   description = "Select the usage data you want to view",
   "data-id": dataId,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const isAdmin = all_admin_roles.includes(userRole ?? "");
   const getFilteredOptions = () => {
     return OPTIONS.filter((option) => {
@@ -126,13 +130,13 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
       }
       return true;
     }).map((option) => {
-      let label = option.label;
-      let desc = option.description;
+      let label = ui(option.label);
+      let desc = ui(option.description);
       if (option.showForAdmin && option.showForNonAdmin) {
-        label = isAdmin ? option.showForAdmin : option.showForNonAdmin;
+        label = ui(isAdmin ? option.showForAdmin : option.showForNonAdmin);
       }
       if (option.descriptionForAdmin && option.descriptionForNonAdmin) {
-        desc = isAdmin ? option.descriptionForAdmin : option.descriptionForNonAdmin;
+        desc = ui(isAdmin ? option.descriptionForAdmin : option.descriptionForNonAdmin);
       }
       return {
         value: option.value,
@@ -153,8 +157,8 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
             <BarChart3 className="size-8" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 mb-0.5 leading-tight">{title}</h3>
-            <p className="text-xs text-gray-600 leading-tight">{description}</p>
+            <h3 className="text-sm font-semibold text-gray-900 mb-0.5 leading-tight">{ui(title)}</h3>
+            <p className="text-xs text-gray-600 leading-tight">{ui(description)}</p>
           </div>
         </div>
         <div className="shrink-0">

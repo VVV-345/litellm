@@ -9,6 +9,7 @@
 import { ChevronDown, ChevronRight, Download, ExternalLink, Info, Loader2, Sparkles, X } from "lucide-react";
 import type { DateRangePickerValue } from "@tremor/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { BarChart } from "@/components/shared/charts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/shared/Alert";
@@ -62,6 +63,7 @@ import { TOP_MODEL_LIMITS } from "./EntityUsage/TopModelView";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
 import UsageAIChatPanel from "./UsageAIChatPanel";
 import { UsageOption, UsageViewSelect } from "./UsageViewSelect/UsageViewSelect";
+import { translateUiText } from "@/utils/i18nText";
 
 interface UsagePageProps {
   teams: Team[];
@@ -69,6 +71,8 @@ interface UsagePageProps {
 }
 
 const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const { accessToken, userRole, userId: userID, premiumUser } = useAuthorized();
   // Aggregated endpoint: try first, fall back to paginated if unavailable
   const [aggregatedData, setAggregatedData] = useState<FetchedForRange<{
@@ -500,16 +504,16 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
               <AlertDescription className="flex items-center justify-between text-inherit">
                 <span>
                   <Loader2 className="mr-2 inline size-4 animate-spin align-text-bottom" />
-                  Currently fetching spend data: fetched {paginatedResult.progress.currentPage} /{" "}
+                    {ui("Currently fetching spend data: fetched")} {paginatedResult.progress.currentPage} /{" "}
                   {paginatedResult.progress.totalPages} pages. Charts will update periodically as data loads. Moving off
-                  of this page will stop and reset this. To continue using the UI in the meantime,{" "}
+                  {ui("of this page will stop and reset this. To continue using the UI in the meantime,")} {" "}
                   <a href={window.location.href} target="_blank" rel="noopener noreferrer">
-                    open a new tab <ExternalLink className="inline size-3.5 align-text-bottom" />
+                    {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
                   </a>
                   .
                 </span>
                 <Button variant="destructive" onClick={paginatedResult.cancel}>
-                  Stop
+                  {ui("Stop")}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -517,8 +521,9 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
           {paginatedResult.cancelled && (
             <Alert variant="info" className="mb-2">
               <AlertDescription className="text-inherit">
-                Showing partial data ({paginatedResult.progress.currentPage}/{paginatedResult.progress.totalPages} pages
-                loaded)
+                {ui("Showing partial data ({{current}}/{{total}} pages loaded)")
+                  .replace("{{current}}", String(paginatedResult.progress.currentPage))
+                  .replace("{{total}}", String(paginatedResult.progress.totalPages))}
               </AlertDescription>
             </Alert>
           )}
@@ -527,7 +532,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
             <>
               {isAdmin && usageView === "global" && (
                 <div className="mb-4">
-                  <p className="mb-2 text-sm text-foreground">Filter by user</p>
+                  <p className="mb-2 text-sm text-foreground">{ui("Filter by user")}</p>
                   <PaginatedSearchSelect
                     options={userOptions}
                     value={selectedUserId ?? undefined}
@@ -537,8 +542,8 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     hasNextPage={hasNextUsersPage}
                     isLoading={isLoadingUsers}
                     isFetchingNextPage={isFetchingNextUsersPage}
-                    placeholder="Select user to filter..."
-                    emptyText="No users found"
+                    placeholder={ui("Select user to filter...")}
+                    emptyText={ui("No users found")}
                   />
                 </div>
               )}
@@ -546,29 +551,29 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 <div className="flex justify-between items-center">
                   <TabsList className="mt-1">
                     <TabsTrigger value="cost" className="flex-none px-3">
-                      Cost
+                      {ui("Cost")}
                     </TabsTrigger>
                     <TabsTrigger value="models" className="flex-none px-3">
-                      Model Activity
+                      {ui("Model Activity")}
                     </TabsTrigger>
                     <TabsTrigger value="keys" className="flex-none px-3">
-                      Key Activity
+                      {ui("Key Activity")}
                     </TabsTrigger>
                     <TabsTrigger value="mcp" className="flex-none px-3">
-                      MCP Server Activity
+                      {ui("MCP Server Activity")}
                     </TabsTrigger>
                     <TabsTrigger value="endpoints" className="flex-none px-3">
-                      Endpoint Activity
+                      {ui("Endpoint Activity")}
                     </TabsTrigger>
                   </TabsList>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={() => setIsAiChatOpen(true)}>
                       <Sparkles />
-                      Ask AI
+                      {ui("Ask AI")}
                     </Button>
                     <Button variant="outline" onClick={() => setIsGlobalExportModalOpen(true)}>
                       <Download />
-                      Export Data
+                      {ui("Export Data")}
                     </Button>
                   </div>
                 </div>
@@ -579,7 +584,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div className="col-span-2">
                       <div className="flex items-center gap-4 mt-2 mb-2">
                         <p className="text-lg text-muted-foreground">
-                          Project Spend{" "}
+                          {ui("Project Spend")} {" "}
                           {dateValue.from && dateValue.to && (
                             <>
                               {dateValue.from.toLocaleDateString("en-US", {
@@ -609,11 +614,11 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div className="col-span-2">
                       <ShadcnCard>
                         <CardContent>
-                          <h3 className="text-lg font-medium text-foreground">Usage Metrics</h3>
+                          <h3 className="text-lg font-medium text-foreground">{ui("Usage Metrics")}</h3>
                           <div className="grid grid-cols-5 gap-4 mt-4">
                             <ShadcnCard>
                               <CardContent>
-                                <h3 className="text-lg font-medium text-foreground">Total Requests</h3>
+                                <h3 className="text-lg font-medium text-foreground">{ui("Total Requests")}</h3>
                                 <p className="text-2xl font-bold mt-2">
                                   {userSpendData.metadata?.total_api_requests?.toLocaleString() || 0}
                                 </p>
@@ -622,15 +627,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                             <ShadcnCard>
                               <CardContent>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">Successful Requests</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Successful Requests")}</h3>
                                   {gatewayActivity && (
                                     <Tooltip>
                                       <TooltipTrigger
                                         render={<Info className="size-4 text-gray-400 hover:text-gray-600" />}
                                       />
                                       <TooltipContent>
-                                        Counted by the gateway when it answers a request, independent of spend logging.
-                                        Deployment-wide, so it will not match the per-key or per-model breakdowns below.
+                                        {ui("Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.")}
                                       </TooltipContent>
                                     </Tooltip>
                                   )}
@@ -652,15 +656,15 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                             <ShadcnCard>
                               <CardContent>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">Failed Requests</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Failed Requests")}</h3>
                                   <Tooltip>
                                     <TooltipTrigger
                                       render={<Info className="size-4 text-gray-400 hover:text-gray-600" />}
                                     />
                                     <TooltipContent>
                                       {gatewayActivity
-                                        ? "Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below."
-                                        : "Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined."}
+                                        ? ui("Counted by the gateway when it answers a request, independent of spend logging. Deployment-wide, so it will not match the per-key or per-model breakdowns below.")
+                                        : ui("Includes requests that failed to route to a provider, tool usage failures, and other request errors where the provider cannot be determined.")}
                                     </TooltipContent>
                                   </Tooltip>
                                 </div>
@@ -676,7 +680,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                             </ShadcnCard>
                             <ShadcnCard>
                               <CardContent>
-                                <h3 className="text-lg font-medium text-foreground">Average Cost per Request</h3>
+                                <h3 className="text-lg font-medium text-foreground">{ui("Average Cost per Request")}</h3>
                                 <p className="text-2xl font-bold mt-2">
                                   $
                                   {formatNumberWithCommas(
@@ -692,7 +696,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                             >
                               <CardContent>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">Total Tokens</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Total Tokens")}</h3>
                                   {showTokenBreakdown ? (
                                     <ChevronDown className="size-3 text-gray-400" />
                                   ) : (
@@ -709,7 +713,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                             <div className="grid grid-cols-4 gap-4 mt-4">
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">Input Tokens</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Input Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-blue-600">
                                     {(userSpendData.metadata?.total_prompt_tokens || 0).toLocaleString()}
                                   </p>
@@ -717,7 +721,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">Output Tokens</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Output Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-cyan-600">
                                     {userSpendData.metadata?.total_completion_tokens?.toLocaleString() || 0}
                                   </p>
@@ -725,7 +729,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">Cache Read Tokens</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Cache Read Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-green-600">
                                     {userSpendData.metadata?.total_cache_read_input_tokens?.toLocaleString() || 0}
                                   </p>
@@ -733,7 +737,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">Cache Write Tokens</h3>
+                                  <h3 className="text-lg font-medium text-foreground">{ui("Cache Write Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-purple-600">
                                     {userSpendData.metadata?.total_cache_creation_input_tokens?.toLocaleString() || 0}
                                   </p>
@@ -749,7 +753,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div className="col-span-2">
                       <ShadcnCard>
                         <CardHeader>
-                          <CardTitle className="text-base font-semibold">Daily Spend</CardTitle>
+                          <CardTitle className="text-base font-semibold">{ui("Daily Spend")}</CardTitle>
                         </CardHeader>
                         <CardContent>
                           {loading ? (
@@ -820,7 +824,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div>
                       <ShadcnCard className="h-full">
                         <CardContent>
-                          <h3 className="text-lg font-medium text-foreground">Top Virtual Keys</h3>
+                        <h3 className="text-lg font-medium text-foreground">{ui("Top Virtual Keys")}</h3>
                           <TopKeyView
                             topKeys={topKeys}
                             teams={null}
@@ -836,7 +840,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                       <ShadcnCard className="h-full">
                         <CardContent>
                           <h3 className="text-lg font-medium text-foreground">
-                            {modelViewType === "groups" ? "Top Public Model Names" : "Top Litellm Models"}
+                            {ui(modelViewType === "groups" ? "Top Public Model Names" : "Top Litellm Models")}
                           </h3>
                           <div className="flex justify-between items-center mb-4">
                             <Tabs
@@ -993,17 +997,17 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
             <>
               {showCredentialBanner && (
                 <Alert variant="info" className="mb-5">
-                  <AlertTitle>Reusable credentials are automatically tracked as tags</AlertTitle>
+                  <AlertTitle>{ui("Reusable credentials are automatically tracked as tags")}</AlertTitle>
                   <AlertDescription className="text-inherit">
                     When a reusable credential is used, it will appear as a tag prefixed with{" "}
                     <code className="rounded bg-black/5 px-1 py-0.5 font-mono text-xs">Credential: </code>
-                    in this view.
+                    {ui("in this view.")}
                   </AlertDescription>
                   <AlertAction>
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      aria-label="Close"
+                      aria-label={ui("Close")}
                       onClick={() => setShowCredentialBanner(false)}
                     >
                       <X />
@@ -1072,7 +1076,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
         }}
         dateRange={dateValue}
         selectedFilters={[]}
-        customTitle="Export Usage Data"
+        customTitle={ui("Export Usage Data")}
       />
 
       {/* AI Chat Panel */}

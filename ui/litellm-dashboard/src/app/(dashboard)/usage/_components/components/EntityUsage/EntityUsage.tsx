@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { type ReactNode, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import TeamMultiSelect from "@/components/common_components/team_multi_select";
 import { ActivityMetrics, processActivityData } from "@/components/activity_metrics";
 import { UsageExportHeader } from "@/components/EntityUsageExport";
@@ -42,6 +43,7 @@ import EndpointUsage from "../EndpointUsage/EndpointUsage";
 import ModelViewToggle, { ModelViewType } from "../ModelViewToggle";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
 import TopModelView from "./TopModelView";
+import { translateUiText } from "@/utils/i18nText";
 
 interface EntityMetrics {
   metrics: {
@@ -108,6 +110,8 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   userRole,
   dateValue,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const { teams } = useTeams();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [modelViewType, setModelViewType] = useState<ModelViewType>("groups");
@@ -247,11 +251,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   };
 
   const getFilterLabel = (entityType: string) => {
-    return `Filter by ${entityType}`;
+    return ui("Filter by {{entity}}").replace("{{entity}}", entityType);
   };
 
   const getFilterPlaceholder = (entityType: string) => {
-    return `Select ${entityType} to filter...`;
+    return ui("Select {{entity}} to filter...").replace("{{entity}}", entityType);
   };
 
   const capitalizedEntityLabel = entityType.charAt(0).toUpperCase() + entityType.slice(1);
@@ -265,25 +269,25 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         cell: ({ row }) => row.original.metadata.alias,
       },
       {
-        header: "Spend",
+        header: ui("Spend"),
         accessorKey: "metrics.spend",
         meta: { numeric: true },
         cell: ({ row }) => <MoneyCell value={row.original.metrics.spend} decimals={4} />,
       },
       {
-        header: "Successful",
+        header: ui("Successful"),
         accessorKey: "metrics.successful_requests",
         meta: { numeric: true, className: "text-green-600" },
         cell: ({ row }) => row.original.metrics.successful_requests.toLocaleString(),
       },
       {
-        header: "Failed",
+        header: ui("Failed"),
         accessorKey: "metrics.failed_requests",
         meta: { numeric: true, className: "text-red-600" },
         cell: ({ row }) => row.original.metrics.failed_requests.toLocaleString(),
       },
       {
-        header: "Tokens",
+        header: ui("Tokens"),
         accessorKey: "metrics.total_tokens",
         meta: { numeric: true },
         cell: ({ row }) => row.original.metrics.total_tokens.toLocaleString(),
@@ -294,7 +298,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   const providerSpendColumns = useMemo<ColumnDef<ProviderSpendRow>[]>(
     () => [
       {
-        header: "Provider",
+        header: ui("Provider"),
         accessorKey: "provider",
         cell: ({ row }) => (
           <div className="flex items-center space-x-2">
@@ -304,25 +308,25 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         ),
       },
       {
-        header: "Spend",
+        header: ui("Spend"),
         accessorKey: "spend",
         meta: { numeric: true },
         cell: ({ row }) => <MoneyCell value={row.original.spend} decimals={2} />,
       },
       {
-        header: "Successful",
+        header: ui("Successful"),
         accessorKey: "successful_requests",
         meta: { numeric: true, className: "text-green-600" },
         cell: ({ row }) => row.original.successful_requests.toLocaleString(),
       },
       {
-        header: "Failed",
+        header: ui("Failed"),
         accessorKey: "failed_requests",
         meta: { numeric: true, className: "text-red-600" },
         cell: ({ row }) => row.original.failed_requests.toLocaleString(),
       },
       {
-        header: "Tokens",
+        header: ui("Tokens"),
         accessorKey: "tokens",
         meta: { numeric: true },
         cell: ({ row }) => row.original.tokens.toLocaleString(),
@@ -359,7 +363,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   const breakdownTiles = showFlatCost && showCostBreakdown ? buildCostBreakdownTiles(spendData.metadata) : [];
   const summaryTiles = [...buildSummaryTiles(spendData.metadata, showFlatCost), ...breakdownTiles];
 
-  const modelViewTitle = modelViewType === "groups" ? "Top Public Model Names" : "Top Litellm Models";
+  const modelViewTitle = ui(modelViewType === "groups" ? "Top Public Model Names" : "Top Litellm Models");
 
   const costPanel = (
     <div className="grid grid-cols-2 gap-2 w-full">
@@ -376,7 +380,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardHeader>
-            <CardTitle className="text-base font-semibold">Daily Spend</CardTitle>
+            <CardTitle className="text-base font-semibold">{ui("Daily Spend")}</CardTitle>
           </CardHeader>
           <CardContent>
             <BarChart
@@ -515,7 +519,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div>
         <ShadcnCard>
           <CardContent>
-            <h3 className="text-lg font-medium text-foreground">Top Virtual Keys</h3>
+            <h3 className="text-lg font-medium text-foreground">{ui("Top Virtual Keys")}</h3>
             <TopKeyView
               topKeys={getTopAPIKeys(spendData.results, topKeysLimit)}
               teams={null}
@@ -533,7 +537,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <CardContent>
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium text-foreground">
-                {entityType === "agent" ? "Top Agents" : modelViewTitle}
+                {entityType === "agent" ? ui("Top Agents") : modelViewTitle}
               </h3>
               <ModelViewToggle value={modelViewType} onChange={setModelViewType} />
             </div>
@@ -550,7 +554,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         <div className="col-span-2">
           <ShadcnCard>
             <CardContent>
-              <h3 className="text-lg font-medium text-foreground">Top Agents Driving Spend</h3>
+              <h3 className="text-lg font-medium text-foreground">{ui("Top Agents Driving Spend")}</h3>
               <TopModelView
                 topModels={getTopAgents(agentSpendData.results, topAgentsLimit)}
                 topModelsLimit={topAgentsLimit}
@@ -565,7 +569,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardContent className="flex flex-col space-y-4">
-            <h3 className="text-lg font-medium text-foreground">Provider Usage</h3>
+            <h3 className="text-lg font-medium text-foreground">{ui("Provider Usage")}</h3>
             <div className="grid grid-cols-2">
               <div>
                 <DonutChart
@@ -585,7 +589,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                   columns={providerSpendColumns}
                   data={providerSpend}
                   getRowId={(row) => row.provider}
-                  noDataMessage="No provider usage data"
+                  noDataMessage={ui("No provider usage data")}
                   size="compact"
                 />
               </div>
@@ -677,7 +681,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       )}
       {entityType === "team" && (
         <div className="mb-4">
-          <p className="mb-2 text-sm text-foreground">Filter by team</p>
+          <p className="mb-2 text-sm text-foreground">{ui("Filter by team")}</p>
           <TeamMultiSelect value={selectedTags} onChange={setSelectedTags} />
         </div>
       )}

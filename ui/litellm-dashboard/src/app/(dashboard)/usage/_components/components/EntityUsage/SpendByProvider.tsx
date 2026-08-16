@@ -8,8 +8,10 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ProviderLogo } from "@/components/molecules/models/ProviderLogo";
 import { ChartLoader } from "@/components/shared/chart_loader";
+import { translateUiText } from "@/utils/i18nText";
 
 type ProviderSpendData = {
   provider: string;
@@ -26,9 +28,9 @@ interface SpendByProviderProps {
   providerSpend: ProviderSpendData[];
 }
 
-const columns: ColumnDef<ProviderSpendData>[] = [
+const createColumns = (ui: (text: string) => string): ColumnDef<ProviderSpendData>[] => [
   {
-    header: "Provider",
+    header: ui("Provider"),
     accessorKey: "provider",
     cell: ({ row }) => (
       <div className="flex items-center space-x-2">
@@ -38,25 +40,25 @@ const columns: ColumnDef<ProviderSpendData>[] = [
     ),
   },
   {
-    header: "Spend",
+    header: ui("Spend"),
     accessorKey: "spend",
     meta: { numeric: true },
     cell: ({ row }) => <MoneyCell value={row.original.spend} decimals={2} />,
   },
   {
-    header: "Successful",
+    header: ui("Successful"),
     accessorKey: "successful_requests",
     meta: { numeric: true, className: "text-green-600" },
     cell: ({ row }) => row.original.successful_requests.toLocaleString(),
   },
   {
-    header: "Failed",
+    header: ui("Failed"),
     accessorKey: "failed_requests",
     meta: { numeric: true, className: "text-red-600" },
     cell: ({ row }) => row.original.failed_requests.toLocaleString(),
   },
   {
-    header: "Tokens",
+    header: ui("Tokens"),
     accessorKey: "tokens",
     meta: { numeric: true },
     cell: ({ row }) => row.original.tokens.toLocaleString(),
@@ -64,6 +66,8 @@ const columns: ColumnDef<ProviderSpendData>[] = [
 ];
 
 const SpendByProvider: React.FC<SpendByProviderProps> = ({ loading, isDateChanging, providerSpend }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const [includeZeroSpend, setIncludeZeroSpend] = useState(false);
   const [includeUnknown, setIncludeUnknown] = useState(false);
 
@@ -87,18 +91,18 @@ const SpendByProvider: React.FC<SpendByProviderProps> = ({ loading, isDateChangi
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Spend by Provider</CardTitle>
+        <CardTitle>{ui("Spend by Provider")}</CardTitle>
         <CardAction className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-700">Show Zero Spend</label>
+            <label className="text-sm text-gray-700">{ui("Show Zero Spend")}</label>
             <Switch checked={includeZeroSpend} onCheckedChange={setIncludeZeroSpend} />
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
-              <label className="text-sm text-gray-700">Show Unknown</label>
+              <label className="text-sm text-gray-700">{ui("Show Unknown")}</label>
               <Tooltip>
                 <TooltipTrigger render={<Info className="size-4 text-gray-400 hover:text-gray-600" />} />
-                <TooltipContent>Requests that failed to route to a provider</TooltipContent>
+                <TooltipContent>{ui("Requests that failed to route to a provider")}</TooltipContent>
               </Tooltip>
             </div>
             <Switch checked={includeUnknown} onCheckedChange={setIncludeUnknown} />
@@ -122,10 +126,10 @@ const SpendByProvider: React.FC<SpendByProviderProps> = ({ loading, isDateChangi
               endAngle={-270}
             />
             <DataTable
-              columns={columns}
+              columns={createColumns(ui)}
               data={filteredProviderSpend}
               getRowId={(row) => row.provider}
-              noDataMessage="No provider usage data"
+              noDataMessage={ui("No provider usage data")}
               size="compact"
             />
           </div>
