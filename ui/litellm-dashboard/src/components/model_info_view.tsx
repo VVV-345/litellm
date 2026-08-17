@@ -771,8 +771,8 @@ export default function ModelInfoView({
               <Card>
                 <Text>{t("ui.Pricing")}</Text>
                 <div className="mt-2">
-                  <Text>Input: ${modelData.input_cost}/1M tokens</Text>
-                  <Text>Output: ${modelData.output_cost}/1M tokens</Text>
+                  <Text>{t("ui.Input: ${{inputCost}}/1M tokens", { inputCost: modelData.input_cost })}</Text>
+                  <Text>{t("ui.Output: ${{outputCost}}/1M tokens", { outputCost: modelData.output_cost })}</Text>
                 </div>
               </Card>
             </Grid>
@@ -1460,8 +1460,19 @@ export default function ModelInfoView({
                                   {localModelData.litellm_params.cache_control_injection_points.map(
                                     (point: any, i: number) => (
                                       <div key={i} className="text-sm text-gray-600 mb-1">
-                                        Location: {point.location},{point.role && <span> Role: {point.role}</span>}
-                                        {point.index !== undefined && <span> Index: {point.index}</span>}
+                                        {t("ui.Location:")} {point.location},
+                                        {point.role && (
+                                          <span>
+                                            {" "}
+                                            {t("ui.Role:")} {point.role}
+                                          </span>
+                                        )}
+                                        {point.index !== undefined && (
+                                          <span>
+                                            {" "}
+                                            {t("ui.Index:")} {point.index}
+                                          </span>
+                                        )}
                                       </div>
                                     ),
                                   )}
@@ -1554,7 +1565,7 @@ export default function ModelInfoView({
                   </div>
                 </Form>
               ) : (
-                <Text>Loading...</Text>
+                <Text>{t("ui.Loading...")}</Text>
               )}
             </Card>
           </TabPanel>
@@ -1573,7 +1584,9 @@ export default function ModelInfoView({
         isOpen={isDeleteModalOpen}
         title={deleteLabel}
         alertMessage={t("ui.This action cannot be undone.")}
-        message={`Are you sure you want to delete this ${isAnyAutoRouter ? "auto-router" : "model"}?`}
+        message={t(
+          isAnyAutoRouter ? "ui.Are you sure you want to delete this auto-router?" : "ui.Are you sure you want to delete this model?",
+        )}
         resourceInformationTitle={t("ui.Model Information")}
         resourceInformation={[
           {

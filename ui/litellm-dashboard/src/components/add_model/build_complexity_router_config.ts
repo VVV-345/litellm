@@ -104,44 +104,54 @@ export const hydrateTierLabels = (stored: unknown): ComplexityTierLabels | undef
   return Object.fromEntries(entries);
 };
 
-export const getTierLabelsError = (tierLabels: ComplexityTierLabels | undefined): string | null => {
+export const getTierLabelsError = (
+  tierLabels: ComplexityTierLabels | undefined,
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
+): string | null => {
   const shadowing = TIER_KEYS.filter((tier) => {
     const label = tierLabels?.[tier]?.trim().toUpperCase() ?? "";
     return label !== "" && label !== tier && (TIER_KEYS as string[]).includes(label);
   });
   if (shadowing.length > 0) {
-    return `A tier's display name can't be another tier's name: ${shadowing.join(", ")}`;
+    return `${t("ui.A tier's display name can't be another tier's name:")} ${shadowing.join(", ")}`;
   }
   const labels = TIER_KEYS.map((tier) => effectiveTierLabel(tier, tierLabels).toLowerCase());
   const duplicates = Array.from(new Set(labels.filter((label, index) => labels.indexOf(label) !== index)));
   if (duplicates.length > 0) {
-    return `Tier display names must be unique. Repeated: ${duplicates.join(", ")}`;
+    return `${t("ui.Tier display names must be unique. Repeated:")} ${duplicates.join(", ")}`;
   }
   return null;
 };
 
-export const getMissingTiersError = (tiers: ComplexityTiers): string | null => {
+export const getMissingTiersError = (
+  tiers: ComplexityTiers,
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
+): string | null => {
   const missing = TIER_KEYS.filter((tier) => tiers[tier].length === 0);
   if (missing.length === 0) return null;
-  return `Select a model for the following tier(s): ${missing.join(", ")}`;
+  return `${t("ui.Select a model for the following tier(s):")} ${missing.join(", ")}`;
 };
 
-export const getKeywordTierRulesError = (keywordTierRules: KeywordTierRule[]): string | null => {
+export const getKeywordTierRulesError = (
+  keywordTierRules: KeywordTierRule[],
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
+): string | null => {
   const emptyRows = emptyKeywordTierRuleIndexes(keywordTierRules);
   if (emptyRows.length === 0) return null;
-  return `Add at least one keyword to keyword rule(s): ${emptyRows.map((index) => index + 1).join(", ")}`;
+  return `${t("ui.Add at least one keyword to keyword rule(s):")} ${emptyRows.map((index) => index + 1).join(", ")}`;
 };
 
-export const getSemanticConfigError = ({
-  semanticMatchingEnabled,
-  embeddingModel,
-  keywordTierRules,
-}: Pick<BuildComplexityRouterConfigParams, "semanticMatchingEnabled" | "embeddingModel" | "keywordTierRules">):
-  | string
-  | null => {
+export const getSemanticConfigError = (
+  {
+    semanticMatchingEnabled,
+    embeddingModel,
+    keywordTierRules,
+  }: Pick<BuildComplexityRouterConfigParams, "semanticMatchingEnabled" | "embeddingModel" | "keywordTierRules">,
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
+): string | null => {
   if (!semanticMatchingEnabled) return null;
-  if (!embeddingModel) return "Select an embedding model to use semantic keyword matching";
-  if (keywordTierRules.length === 0) return "Add at least one keyword tier rule to use semantic keyword matching";
+  if (!embeddingModel) return t("ui.Select an embedding model to use semantic keyword matching");
+  if (keywordTierRules.length === 0) return t("ui.Add at least one keyword tier rule to use semantic keyword matching");
   return null;
 };
 

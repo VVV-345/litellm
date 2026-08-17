@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Copy, Info } from "lucide-react";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Button } from "@/components/ui/button";
@@ -30,18 +31,18 @@ export function GuardrailTestPanel({
   const [metadataText, setMetadataText] = useState("");
   const [metadataError, setMetadataError] = useState<string | null>(null);
 
-  const parseMetadata = (raw: string): { metadata: Record<string, unknown> | null; error: string | null } => {
+  const parseMetadata = (raw: string, t: TFunction): { metadata: Record<string, unknown> | null; error: string | null } => {
     if (!raw.trim()) {
       return { metadata: null, error: null };
     }
     try {
       const parsed = JSON.parse(raw);
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { metadata: null, error: "Metadata must be a JSON object" };
+        return { metadata: null, error: t("ui.Metadata must be a JSON object") };
       }
       return { metadata: parsed, error: null };
     } catch {
-      return { metadata: null, error: "Invalid JSON" };
+      return { metadata: null, error: t("ui.Invalid JSON") };
     }
   };
 
@@ -51,10 +52,10 @@ export function GuardrailTestPanel({
       return;
     }
 
-    const { metadata, error } = parseMetadata(metadataText);
+    const { metadata, error } = parseMetadata(metadataText, t);
     if (error) {
       setMetadataError(error);
-      NotificationsManager.fromBackend(`Metadata: ${error}`);
+      NotificationsManager.fromBackend(t("ui.Metadata: {{error}}", { error }));
       return;
     }
     setMetadataError(null);
@@ -126,7 +127,7 @@ export function GuardrailTestPanel({
               </div>
             </div>
             <p className="text-sm text-muted-foreground">
-              Test {guardrailNames.length > 1 ? "guardrails" : "guardrail"} and compare results
+              {t(guardrailNames.length > 1 ? "ui.Test guardrails and compare results" : "ui.Test guardrail and compare results")}
             </p>
           </div>
         </div>
@@ -167,11 +168,11 @@ export function GuardrailTestPanel({
             />
             <div className="mt-1 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
-                Press <kbd className="rounded-sm border border-border bg-muted px-1 py-0.5 text-xs">Enter</kbd> to
-                submit • <kbd className="rounded-sm border border-border bg-muted px-1 py-0.5 text-xs">Shift+Enter</kbd>{" "}
-                for new line
+                {t("ui.Press")} <kbd className="rounded-sm border border-border bg-muted px-1 py-0.5 text-xs">Enter</kbd>{" "}
+                {t("ui.to submit")} • <kbd className="rounded-sm border border-border bg-muted px-1 py-0.5 text-xs">Shift+Enter</kbd>{" "}
+                {t("ui.for new line")}
               </span>
-              <span className="text-xs text-muted-foreground">Characters: {inputText.length}</span>
+              <span className="text-xs text-muted-foreground">{t("ui.Characters:")} {inputText.length}</span>
             </div>
           </div>
 
@@ -198,7 +199,7 @@ export function GuardrailTestPanel({
               onChange={(e) => {
                 setMetadataText(e.target.value);
                 if (metadataError) {
-                  setMetadataError(parseMetadata(e.target.value).error);
+                  setMetadataError(parseMetadata(e.target.value, t).error);
                 }
               }}
               placeholder='{"forbidden_topics": ["tax", "finance"]}'
@@ -218,8 +219,8 @@ export function GuardrailTestPanel({
             >
               {isLoading && <UiLoadingSpinner className="size-4" />}
               {isLoading
-                ? `Testing ${guardrailNames.length} guardrail${guardrailNames.length > 1 ? "s" : ""}...`
-                : `Test ${guardrailNames.length} guardrail${guardrailNames.length > 1 ? "s" : ""}`}
+                ? t("ui.Testing {{count}} guardrails...", { count: guardrailNames.length })
+                : t("ui.Test {{count}} guardrails", { count: guardrailNames.length })}
             </Button>
           </div>
         </div>

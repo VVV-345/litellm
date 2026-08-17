@@ -91,14 +91,18 @@ const DictField: React.FC<DictFieldProps> = ({ field, fieldKey, fullFieldKey, va
               }
             >
               {field.dict_value_type === "number" ? (
-                <NumericalInput step={1} width={200} placeholder={`Enter ${entry.key} value`} />
+                <NumericalInput
+                  step={1}
+                  width={200}
+                  placeholder={t("ui.Enter {{field}} value", { field: entry.key })}
+                />
               ) : field.dict_value_type === "boolean" ? (
-                <Select placeholder={`Select ${entry.key} value`}>
+                <Select placeholder={t("ui.Select {{field}} value", { field: entry.key })}>
                   <Select.Option value={true}>{ui("True")}</Select.Option>
                   <Select.Option value={false}>{ui("False")}</Select.Option>
                 </Select>
               ) : (
-                <Input placeholder={`Enter ${entry.key} value`} />
+                <Input placeholder={t("ui.Enter {{field}} value", { field: entry.key })} />
               )}
             </Form.Item>
           </div>
@@ -161,7 +165,7 @@ const GuardrailOptionalParams: React.FC<GuardrailOptionalParamsProps> = ({
               <p className="text-sm text-gray-600 mt-1">{field.description}</p>
             </div>
           }
-          rules={field.required ? [{ required: true, message: `${fieldKey} is required` }] : undefined}
+          rules={field.required ? [{ required: true, message: t("ui.{{field}} is required", { field: fieldKey }) }] : undefined}
           className="mb-0"
           initialValue={value !== undefined ? value : field.default_value}
           normalize={

@@ -225,7 +225,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
         <TremorButton icon={ArrowLeftIcon} variant="light" onClick={onClose} className="mb-4">
           {ui("Back to Agents")}
         </TremorButton>
-        <Title>{agent.agent_name || "Unnamed Agent"}</Title>
+        <Title>{agent.agent_name || ui("Unnamed Agent")}</Title>
         <Text className="text-gray-500 font-mono">{agent.agent_id}</Text>
       </div>
 
@@ -329,7 +329,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                 <Title>{ui("Skills")}</Title>
                 <Descriptions bordered column={1} style={{ marginTop: 16 }}>
                   {agent.agent_card_params.skills.map((skill: any, index: number) => (
-                    <Descriptions.Item label={skill.name || `Skill ${index + 1}`} key={index}>
+                    <Descriptions.Item label={skill.name || ui(`Skill ${index + 1}`)} key={index}>
                       <div>
                         <div>
                           <strong>{ui("ID")}:</strong> {skill.id}

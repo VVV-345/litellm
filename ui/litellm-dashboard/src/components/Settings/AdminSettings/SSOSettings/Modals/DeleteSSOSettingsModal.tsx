@@ -1,6 +1,7 @@
 import { useEditSSOSettings } from "@/app/(dashboard)/hooks/sso/useEditSSOSettings";
 import { useSSOSettings } from "@/app/(dashboard)/hooks/sso/useSSOSettings";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import DeleteResourceModal from "../../../../common_components/DeleteResourceModal";
 import NotificationsManager from "../../../../molecules/notifications_manager";
 import { parseErrorMessage } from "../../../../shared/errorUtils";
@@ -13,6 +14,7 @@ interface DeleteSSOSettingsModalProps {
 }
 
 const DeleteSSOSettingsModal: React.FC<DeleteSSOSettingsModalProps> = ({ isVisible, onCancel, onSuccess }) => {
+  const { t } = useTranslation();
   const { data: ssoSettings } = useSSOSettings();
   const { mutateAsync: editSSOSettings, isPending: isEditingSSOSettings } = useEditSSOSettings();
 
@@ -42,12 +44,14 @@ const DeleteSSOSettingsModal: React.FC<DeleteSSOSettingsModalProps> = ({ isVisib
 
     await editSSOSettings(clearSettings, {
       onSuccess: () => {
-        NotificationsManager.success("SSO settings cleared successfully");
+        NotificationsManager.success(t("ui.SSO settings cleared successfully"));
         onCancel();
         onSuccess();
       },
       onError: (error) => {
-        NotificationsManager.fromBackend("Failed to clear SSO settings: " + parseErrorMessage(error));
+        NotificationsManager.fromBackend(
+          t("ui.Failed to clear SSO settings: {{error}}", { error: parseErrorMessage(error) }),
+        );
       },
     });
   };

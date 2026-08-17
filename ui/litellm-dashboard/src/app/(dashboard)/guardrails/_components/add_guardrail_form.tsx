@@ -233,7 +233,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
     setSelectedProvider(preset.provider);
     const baseValues: Record<string, unknown> = {
       provider: preset.provider,
-      guardrail_name: preset.guardrailNameSuggestion,
+      guardrail_name: t(`ui.${preset.guardrailNameSuggestion}`, {
+        defaultValue: preset.guardrailNameSuggestion,
+      }),
       mode: preset.mode,
       default_on: preset.defaultOn,
       skip_system_message_choice: "inherit",
@@ -524,7 +526,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         }
         const weightTotal = criteria.reduce((sum, c) => sum + (Number(c?.weight) || 0), 0);
         if (weightTotal !== 100) {
-          NotificationsManager.fromBackend(`Criterion weights must sum to 100% (currently ${weightTotal}%)`);
+          NotificationsManager.fromBackend(
+            t("ui.Criterion weights must sum to 100% (currently {{weight}}%)", { weight: weightTotal }),
+          );
           setLoading(false);
           return;
         }
@@ -624,7 +628,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
     } catch (error) {
       console.error("Failed to create guardrail:", error);
       NotificationsManager.fromBackend(
-        "Failed to create guardrail: " + (error instanceof Error ? error.message : String(error)),
+        `${t("ui.Failed to create guardrail")}: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
       setLoading(false);

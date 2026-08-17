@@ -166,7 +166,9 @@ export const getMCPToolsetTableColumns = ({
             </span>
           ))}
           {tools.length > 4 && (
-            <span className="self-center text-xs text-muted-foreground">+{tools.length - 4} more</span>
+            <span className="self-center text-xs text-muted-foreground">
+              +{tools.length - 4} {t ? translateUiText(t, "more") : "more"}
+            </span>
           )}
         </div>
       );

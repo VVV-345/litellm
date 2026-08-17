@@ -101,7 +101,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
   const providerMetadataErrorText = providerMetadataError
     ? providerMetadataError instanceof Error
       ? providerMetadataError.message
-      : "Failed to load providers"
+      : ui("Failed to load providers")
     : null;
 
   const isAdmin = all_admin_roles.includes(userRole);
@@ -217,7 +217,10 @@ const AddModelForm: React.FC<AddModelFormProps> = ({
                     style={{ width: "100%" }}
                     value={testMode}
                     onChange={(value) => setTestMode(value)}
-                    options={TEST_MODES}
+                    options={TEST_MODES.map((mode) => ({
+                      ...mode,
+                      label: t(`ui.${mode.label}`, { defaultValue: mode.label }),
+                    }))}
                   />
                 </Form.Item>
                 <Row>

@@ -9,7 +9,10 @@ interface VertexCredentialsForm {
 
 type UploadProps = ComponentProps<typeof CredentialsPanel>["uploadProps"];
 
-export function vertexCredentialsUploadProps(form: VertexCredentialsForm): UploadProps {
+export function vertexCredentialsUploadProps(
+  form: VertexCredentialsForm,
+  t: (key: string, options?: Record<string, unknown>) => string = (key) => key.replace(/^ui\./, ""),
+): UploadProps {
   return {
     name: "file",
     accept: ".json",
@@ -28,9 +31,11 @@ export function vertexCredentialsUploadProps(form: VertexCredentialsForm): Uploa
     },
     onChange(info) {
       if (info.file.status === "done") {
-        NotificationsManager.success(`${info.file.name} file uploaded successfully`);
+        NotificationsManager.success(t("ui.{{fileName}} file uploaded successfully", { fileName: info.file.name }));
       } else if (info.file.status === "error") {
-        NotificationsManager.fromBackend(`${info.file.name} file upload failed.`);
+        NotificationsManager.fromBackend(
+          t("ui.{{fileName}} file upload failed.", { fileName: info.file.name }),
+        );
       }
     },
   };

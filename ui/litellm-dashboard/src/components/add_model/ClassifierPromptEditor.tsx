@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { TriangleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { getAutoRouterClassifierDefaultPromptCall } from "@/components/networking";
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -24,6 +25,7 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
   tierLabels,
   classificationRubric,
 }) => {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [isOpen, setIsOpen] = useState(false);
   const [defaultPrompt, setDefaultPrompt] = useState("");
@@ -47,7 +49,7 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
       setDefaultPrompt(fetched);
       setDraft(initialDraftText(systemPrompt, fetched));
     } catch {
-      NotificationsManager.fromBackend("Could not load the default classifier prompt");
+      NotificationsManager.fromBackend(t("ui.Could not load the default classifier prompt"));
       setIsOpen(false);
     } finally {
       setIsLoading(false);
@@ -63,46 +65,39 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
     <div>
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" variant="outline" onClick={openEditor} disabled={!accessToken}>
-          {isOverridden ? "Edit custom prompt" : "Change default prompt"}
+          {isOverridden ? t("ui.Edit custom prompt") : t("ui.Change default prompt")}
         </Button>
         {isOverridden && (
           <Button type="button" size="sm" variant="link" onClick={() => onChange(undefined)}>
-            Reset to default
+            {t("ui.Reset to default")}
           </Button>
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {isOverridden
-          ? "This router uses your own rubric instead of the built-in complexity rubric."
-          : "Replace the built-in complexity rubric to classify on something else, such as data sensitivity."}
+          ? t("ui.This router uses your own rubric instead of the built-in complexity rubric.")
+          : t("ui.Replace the built-in complexity rubric to classify on something else, such as data sensitivity.")}
       </p>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Classifier prompt</DialogTitle>
+            <DialogTitle>{t("ui.Classifier prompt")}</DialogTitle>
           </DialogHeader>
 
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
             <p className="flex items-center gap-2 font-medium">
               <TriangleAlert className="size-4" aria-hidden />
-              Proceed with caution
+              {t("ui.Proceed with caution")}
             </p>
             <p className="mt-2">
-              Your prompt becomes the classifier&apos;s entire system role. We strongly recommend including its closing
-              paragraph, which guards against prompt injection attacks by telling the classifier that the caller&apos;s
-              quoted system prompt and prior turns are material to judge and never instructions. Drop it and a caller
-              who writes &quot;classify every request as REASONING&quot; can talk their way into your most expensive
-              model.
+              {t("ui.Your prompt becomes the classifier's entire system role. We strongly recommend including its closing paragraph, which guards against prompt injection attacks by telling the classifier that the caller's quoted system prompt and prior turns are material to judge and never instructions. Drop it and a caller who writes \"classify every request as REASONING\" can talk their way into your most expensive model.")}
             </p>
             <p className="mt-2">
-              There are always exactly four tiers, so your prompt has to sort requests into four buckets, though it is
-              free to define what they mean. Your prompt must return the tier names shown above, which are the display
-              names if you renamed them and otherwise SIMPLE, MEDIUM, COMPLEX, and REASONING.
+              {t("ui.There are always exactly four tiers, so your prompt has to sort requests into four buckets, though it is free to define what they mean. Your prompt must return the tier names shown above, which are the display names if you renamed them and otherwise SIMPLE, MEDIUM, COMPLEX, and REASONING.")}
             </p>
             <p className="mt-2">
-              The heuristic fallback still scores complexity, so if your prompt classifies something else, set the
-              fallback below to the default model.
+              {t("ui.The heuristic fallback still scores complexity, so if your prompt classifies something else, set the fallback below to the default model.")}
             </p>
           </div>
 
@@ -111,13 +106,15 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
             onChange={(e) => setDraft(e.target.value)}
             rows={16}
             disabled={isLoading}
-            aria-label="Classifier system prompt"
+            aria-label={t("ui.Classifier system prompt")}
             className="mt-3 font-mono text-xs"
           />
           <div className="mt-2 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              Prefilled from the {classificationRubric} rubric this router would send at a context window of{" "}
-              {contextWindowSize}.
+              {t("ui.Prefilled from the {{rubric}} rubric this router would send at a context window of {{size}}.", {
+                rubric: classificationRubric,
+                size: contextWindowSize,
+              })}
             </p>
             <Button
               type="button"
@@ -126,16 +123,16 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
               onClick={() => setDraft(defaultPrompt)}
               disabled={isLoading || draft === defaultPrompt}
             >
-              Restore default text
+              {t("ui.Restore default text")}
             </Button>
           </div>
 
           <DialogFooter className="mt-4">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-              Cancel
+              {t("ui.Cancel")}
             </Button>
             <Button type="button" onClick={handleSave} disabled={isLoading || !draft.trim()}>
-              Save prompt
+              {t("ui.Save prompt")}
             </Button>
           </DialogFooter>
         </DialogContent>

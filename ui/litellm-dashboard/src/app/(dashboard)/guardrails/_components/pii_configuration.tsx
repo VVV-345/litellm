@@ -58,7 +58,9 @@ const PiiConfiguration: React.FC<PiiConfigurationProps> = ({
         <div className="flex items-center">
           <h4 className="m-0 text-lg font-semibold text-foreground">{t("ui.Configure PII Protection")}</h4>
         </div>
-        <span className="text-muted-foreground">{selectedEntities.length} items selected</span>
+        <span className="text-muted-foreground">
+          {t("ui.{{count}} items selected", { count: selectedEntities.length })}
+        </span>
       </div>
 
       <div className="mb-6">

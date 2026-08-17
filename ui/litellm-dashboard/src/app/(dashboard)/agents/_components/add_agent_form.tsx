@@ -245,7 +245,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
 
   const handleCreateAgent = async () => {
     if (!accessToken) {
-      MessageManager.error("No access token available");
+      MessageManager.error(ui("No access token available"));
       return;
     }
 
@@ -255,7 +255,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
       const values = { ...form.getFieldsValue(true) };
       const agentData = buildAgentData(values);
       if (!agentData) {
-        MessageManager.error("Failed to build agent data");
+        MessageManager.error(ui("Failed to build agent data"));
         setIsSubmitting(false);
         return;
       }
@@ -331,7 +331,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
         setCreatedKeyValue(keyResponse.key || null);
       } else if (keyAssignOption === "existing_key") {
         if (!selectedExistingKey) {
-          MessageManager.error("Please select an existing key to assign");
+          MessageManager.error(ui("Please select an existing key to assign"));
           setIsSubmitting(false);
           return;
         }
@@ -348,7 +348,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
     } catch (error) {
       console.error("Error creating agent:", error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      MessageManager.error(errorMessage ? `Failed to create agent: ${errorMessage}` : "Failed to create agent");
+      MessageManager.error(errorMessage ? ui(`Failed to create agent: ${errorMessage}`) : ui("Failed to create agent"));
     } finally {
       setIsSubmitting(false);
     }
@@ -747,14 +747,14 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
             {selectedAgentTypeInfo.credential_fields.length > 0 && (
               <div className="mt-4 p-4 border border-gray-200 rounded-lg">
                 <h4 className="text-sm font-medium text-gray-700 mb-3">
-                  {selectedAgentTypeInfo.agent_type_display_name} Settings
+                  {selectedAgentTypeInfo.agent_type_display_name} {ui("Settings")}
                 </h4>
                 {selectedAgentTypeInfo.credential_fields.map((field) => (
                   <Form.Item
                     key={field.key}
                     label={field.label}
                     name={field.key}
-                    rules={field.required ? [{ required: true, message: `Please enter ${field.label}` }] : undefined}
+                    rules={field.required ? [{ required: true, message: ui(`Please enter ${field.label}`) }] : undefined}
                     tooltip={field.tooltip}
                     initialValue={field.default_value}
                   >
@@ -1011,22 +1011,22 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
           <div className="flex gap-3">
             {currentStep < 4 && (
               <Button variant="secondary" onClick={handleClose}>
-                Cancel
+                {ui("Cancel")}
               </Button>
             )}
             {currentStep === 0 && (
               <Button variant="primary" onClick={handleNext}>
-                Next →
+                {ui("Next →")}
               </Button>
             )}
             {currentStep === 1 && (
               <Button variant="primary" onClick={handleNext}>
-                Next →
+                {ui("Next →")}
               </Button>
             )}
             {currentStep === 2 && (
               <Button variant="primary" onClick={handleNext}>
-                Next →
+                {ui("Next →")}
               </Button>
             )}
             {currentStep === 3 && (

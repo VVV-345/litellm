@@ -94,7 +94,7 @@ function ModelInformationCell({ model, displayName }: { model: ModelData; displa
                 aria-label={t("ui.Copy LiteLLM model name")}
                 data-testid={`copy-litellm-model-name-${model.model_info.id}`}
                 className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-                onClick={() => void copyToClipboard(litellmModelName, "LiteLLM model name copied")}
+                onClick={() => void copyToClipboard(litellmModelName, t("ui.LiteLLM model name copied"))}
               >
                 <Copy className="size-3.5" />
               </button>
@@ -220,6 +220,7 @@ function CostsCell({ model }: { model: ModelData }) {
 }
 
 function AccessGroupsCell({ accessGroups }: { accessGroups: string[] | null }) {
+  const { t } = useTranslation();
   if (!accessGroups || accessGroups.length === 0) {
     return <span className="text-sm text-muted-foreground">-</span>;
   }
@@ -242,7 +243,7 @@ function AccessGroupsCell({ accessGroups }: { accessGroups: string[] | null }) {
           }
           trigger={
             <Badge variant="outline" className="shrink-0 cursor-default font-normal">
-              +{overflow.length} more
+              +{overflow.length} {t("ui.more")}
             </Badge>
           }
         />

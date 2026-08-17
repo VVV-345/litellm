@@ -261,7 +261,7 @@ function GuardrailCard({
               className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-              {status.label}
+              {t(`ui.${status.label}`, { defaultValue: status.label })}
             </span>
           </div>
           <h3 className="text-sm font-semibold text-gray-900 mb-1">{g.name}</h3>
@@ -401,12 +401,15 @@ function DetailPanel({
                 className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                {status.label}
+                {t(`ui.${status.label}`, { defaultValue: status.label })}
               </span>
             </div>
             <h2 className="text-base font-semibold text-gray-900">{g.name}</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Submitted by {g.submittedBy} on {g.submittedAt}
+              {t("ui.Submitted by {{submittedBy}} on {{submittedAt}}", {
+                submittedBy: g.submittedBy,
+                submittedAt: g.submittedAt,
+              })}
             </p>
           </div>
           <button
@@ -447,10 +450,9 @@ function DetailPanel({
               <Toggle enabled={g.forwardKey} onToggle={onToggleForwardKey} disabled={!isAdmin} />
             </div>
             <p className="text-xs text-blue-700 leading-relaxed">
-              When enabled, the caller&apos;s LiteLLM API key is forwarded as an{" "}
-              <code className="font-mono bg-blue-100 px-1 rounded-sm">Authorization</code> header to your guardrail
-              endpoint. This allows your guardrail to authenticate model calls using the original caller&apos;s
-              credentials.
+              {t("ui.When enabled, the caller's LiteLLM API key is forwarded as an")}{" "}
+              <code className="font-mono bg-blue-100 px-1 rounded-sm">Authorization</code>{" "}
+              {t("ui.header to your guardrail endpoint. This allows your guardrail to authenticate model calls using the original caller's credentials.")}
             </p>
           </div>
           <div>
@@ -480,7 +482,7 @@ function DetailPanel({
                         type="button"
                         onClick={() => onUpdateCustomHeaders(g.customHeaders.filter((_, idx) => idx !== i))}
                         className="text-gray-400 hover:text-red-600 shrink-0"
-                        aria-label={`Remove ${h.key}`}
+                        aria-label={t("ui.Remove {{name}}", { name: h.key })}
                       >
                         <XIcon className="h-3.5 w-3.5" />
                       </button>
@@ -574,7 +576,7 @@ function DetailPanel({
                         type="button"
                         onClick={() => onUpdateExtraHeaders(g.extraHeaders.filter((_, idx) => idx !== i))}
                         className="text-gray-400 hover:text-red-600 shrink-0"
-                        aria-label={`Remove ${name}`}
+                        aria-label={t("ui.Remove {{name}}", { name })}
                       >
                         <XIcon className="h-3.5 w-3.5" />
                       </button>
@@ -640,8 +642,7 @@ function DetailPanel({
           <div className="flex items-start gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
             <InfoIcon className="h-3.5 w-3.5 text-gray-400 shrink-0 mt-0.5" />
             <p className="text-xs text-gray-500 leading-relaxed">
-              This guardrail runs on a separate instance. It receives the user request and forwards the result to the
-              next step in the pipeline. See{" "}
+              {t("ui.This guardrail runs on a separate instance. It receives the user request and forwards the result to the next step in the pipeline. See")}{" "}
               <a
                 href="https://docs.litellm.ai/docs/adding_provider/generic_guardrail_api"
                 target="_blank"
@@ -650,7 +651,7 @@ function DetailPanel({
               >
                 LiteLLM Generic Guardrail API docs
               </a>{" "}
-              for configuration details.
+              {t("ui.for configuration details.")}
             </p>
           </div>
         </div>
@@ -716,7 +717,7 @@ function ConfirmDialog({ action, guardrailName, onConfirm, onCancel }: ConfirmDi
           {isApprove ? t("ui.Approve Guardrail") : t("ui.Reject Guardrail")}
         </h3>
         <p className="text-sm text-gray-500 mb-5">
-          {t("ui.Are you sure you want to")} {action}{" "}
+          {t("ui.Are you sure you want to")} {isApprove ? t("ui.approve") : t("ui.reject")}{" "}
           <span className="font-medium text-gray-700">&quot;{guardrailName}&quot;</span>?{" "}
           {isApprove
             ? t("ui.This will make it active and available for use.")

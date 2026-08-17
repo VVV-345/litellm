@@ -530,7 +530,7 @@ describe("EditSSOSettingsModal", () => {
 
       fireEvent.click(screen.getByTestId(TEST_IDS.TRIGGER_FORM_SUBMIT));
 
-      expect(NotificationsManager.fromBackend).toHaveBeenCalledWith(`${TEST_DATA.ERROR_MESSAGE_PREFIX} undefined`);
+      expect(NotificationsManager.fromBackend).toHaveBeenCalledWith(`${TEST_DATA.ERROR_MESSAGE_PREFIX} `);
     });
 
     it("handles form submission with malformed data", async () => {

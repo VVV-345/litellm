@@ -30,6 +30,7 @@ export const runSemanticFilterTest = async ({
   setIsTesting,
   setTestResult,
   setTestError,
+  t = (key: string) => key.replace(/^ui\./, ""),
 }: {
   accessToken: string;
   testModel: string;
@@ -37,9 +38,10 @@ export const runSemanticFilterTest = async ({
   setIsTesting: (value: boolean) => void;
   setTestResult: (result: TestResult | null) => void;
   setTestError: (error: string | null) => void;
+  t?: (key: string) => string;
 }) => {
   if (!testQuery || !testModel || !accessToken) {
-    NotificationManager.error("Please enter a query and select a model");
+    NotificationManager.error(t("ui.Please enter a query and select a model"));
     return;
   }
 
@@ -52,17 +54,18 @@ export const runSemanticFilterTest = async ({
     const parsedResult = parseFilterHeaders(headers);
 
     if (!parsedResult) {
-      NotificationManager.warning("Semantic filter is not enabled or no tools were filtered");
+      NotificationManager.warning(t("ui.Semantic filter is not enabled or no tools were filtered"));
       return;
     }
 
     setTestResult(parsedResult);
-    NotificationManager.success("Semantic filter test completed successfully");
+    NotificationManager.success(t("ui.Semantic filter test completed successfully"));
   } catch (error) {
     console.error("Test failed:", error);
-    const message = error instanceof Error && error.message ? error.message : "Failed to test semantic filter";
+    const message =
+      error instanceof Error && error.message ? error.message : t("ui.Failed to test semantic filter");
     setTestError(message);
-    NotificationManager.error("Failed to test semantic filter");
+    NotificationManager.error(t("ui.Failed to test semantic filter"));
   } finally {
     setIsTesting(false);
   }

@@ -111,7 +111,7 @@ const ModelRetrySettingsTab = ({
         </div>
       ) : (
         <div>
-          <h2 className="text-lg font-semibold">Retry Policy for {selectedModelGroup}</h2>
+          <h2 className="text-lg font-semibold">{t("ui.Retry Policy for {{selectedModelGroup}}", { selectedModelGroup })}</h2>
           <p className="text-sm text-muted-foreground">
             {t("ui.Model-specific retry settings. Falls back to global defaults if not set.")}
           </p>
@@ -129,14 +129,16 @@ const ModelRetrySettingsTab = ({
                 <td className="text-sm">
                   <span>{exceptionType}</span>
                   {!isGlobalScope && (
-                    <span className="ml-2 text-xs text-muted-foreground">(Global: {inheritedValue})</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      ({t("ui.Global:")} {inheritedValue})
+                    </span>
                   )}
                 </td>
                 <td className="flex items-center gap-2">
                   <Input
                     className="w-28"
                     type="number"
-                    aria-label={`${exceptionType} retry count`}
+                    aria-label={t("ui.{{exceptionType}} retry count", { exceptionType })}
                     min={0}
                     step={1}
                     value={isGlobalScope ? inheritedValue : hasOverride ? override : ""}

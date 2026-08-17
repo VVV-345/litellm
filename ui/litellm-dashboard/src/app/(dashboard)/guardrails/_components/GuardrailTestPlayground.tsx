@@ -108,10 +108,10 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
     setIsTesting(false);
 
     if (results.length > 0) {
-      NotificationsManager.success(`${results.length} guardrail${results.length > 1 ? "s" : ""} applied successfully`);
+      NotificationsManager.success(t("ui.{{count}} guardrails applied successfully", { count: results.length }));
     }
     if (errors.length > 0) {
-      NotificationsManager.fromBackend(`${errors.length} guardrail${errors.length > 1 ? "s" : ""} failed`);
+      NotificationsManager.fromBackend(t("ui.{{count}} guardrails failed", { count: errors.length }));
     }
   };
 
@@ -187,7 +187,10 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
 
               <div className="border-t border-border bg-muted/40 p-3">
                 <span className="text-xs text-muted-foreground">
-                  {selectedGuardrails.size} of {filteredGuardrails.length} selected
+                  {t("ui.{{selected}} of {{total}} selected", {
+                    selected: selectedGuardrails.size,
+                    total: filteredGuardrails.length,
+                  })}
                 </span>
               </div>
             </div>

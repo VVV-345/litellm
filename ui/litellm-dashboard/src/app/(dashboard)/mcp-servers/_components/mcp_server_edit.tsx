@@ -682,7 +682,9 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
     );
     if (invalidDisplayName) {
       NotificationsManager.fromBackend(
-        `Tool display name "${invalidDisplayName[1]}" is invalid. Only letters, digits, underscores, and hyphens are allowed (no spaces).`,
+        ui(
+          `Tool display name "${invalidDisplayName[1]}" is invalid. Only letters, digits, underscores, and hyphens are allowed (no spaces).`,
+        ),
       );
       return;
     }
@@ -987,7 +989,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : "";
           NotificationsManager.fromBackend(
-            "MCP Server updated, but failed to persist OAuth token" + (message ? `: ${message}` : ""),
+            ui("MCP Server updated, but failed to persist OAuth token") + (message ? `: ${message}` : ""),
           );
           return;
         }
@@ -997,7 +999,7 @@ const MCPServerEdit: React.FC<MCPServerEditProps> = ({
       setAppMayNotMatchUpstream(false);
       onSuccess(updated);
     } catch (error: any) {
-      NotificationsManager.fromBackend("Failed to update MCP Server" + (error?.message ? `: ${error.message}` : ""));
+      NotificationsManager.fromBackend(ui("Failed to update MCP Server") + (error?.message ? `: ${error.message}` : ""));
     }
   };
 

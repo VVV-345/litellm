@@ -1,5 +1,6 @@
 import React from "react";
 import { AlertTriangle, CircleCheck, Copy, ExternalLink, Info, LoaderCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -25,6 +26,7 @@ const ModelConnectionTest: React.FC<ModelConnectionTestProps> = ({
   onClose: _onClose,
   onTestComplete,
 }) => {
+  const { t } = useTranslation();
   const [error, setError] = React.useState<Error | string | null>(null);
   const [rawResponse, setRawResponse] = React.useState<any>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -41,10 +43,10 @@ const ModelConnectionTest: React.FC<ModelConnectionTestProps> = ({
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     try {
-      const result = await prepareModelAddRequest(formValues, accessToken, null);
+      const result = await prepareModelAddRequest(formValues, accessToken, null, t);
 
       if (!result) {
-        setError("Failed to prepare model data. Please check your form inputs.");
+        setError(t("ui.Failed to prepare model data. Please check your form inputs."));
         setIsSuccess(false);
         setIsLoading(false);
         return;
@@ -54,11 +56,11 @@ const ModelConnectionTest: React.FC<ModelConnectionTestProps> = ({
       const response = await testConnectionRequest(accessToken, litellmParamsObj, modelInfoObj, modelInfoObj?.mode);
 
       if (response.status === "success") {
-        NotificationsManager.success("Connection test successful!");
+        NotificationsManager.success(t("ui.Connection test successful!"));
         setError(null);
         setIsSuccess(true);
       } else {
-        const errorMessage = response.result?.error || response.message || "Unknown error";
+        const errorMessage = response.result?.error || response.message || t("ui.Unknown error");
         setError(errorMessage);
         setRawResponse(response.result?.raw_request_typed_dict);
         setIsSuccess(false);
@@ -83,7 +85,7 @@ const ModelConnectionTest: React.FC<ModelConnectionTestProps> = ({
   }, []);
 
   const getCleanErrorMessage = (errorMsg: string) => {
-    if (!errorMsg) return "Unknown error";
+    if (!errorMsg) return t("ui.Unknown error");
     return errorMsg
       .split("stack trace:")[0]
       .trim()
@@ -95,7 +97,7 @@ const ModelConnectionTest: React.FC<ModelConnectionTestProps> = ({
       ? getCleanErrorMessage(error)
       : error?.message
         ? getCleanErrorMessage(error.message)
-        : "Unknown error";
+        : t("ui.Unknown error");
 
   const formatCurlCommand = (
     apiBase: string,
@@ -137,13 +139,13 @@ ${formattedBody}
       {isLoading ? (
         <div aria-busy="true" className="flex flex-col items-center justify-center gap-4 px-5 py-8 text-center">
           <LoaderCircle className="size-8 animate-spin text-primary" />
-          <p className="text-base">Testing connection to {modelName}...</p>
+          <p className="text-base">{t("ui.Testing connection to {{modelName}}...", { modelName })}</p>
         </div>
       ) : isSuccess ? (
         <div className="flex items-center justify-center gap-2.5 px-5 py-8">
           <CircleCheck className="size-6 text-primary" />
           <p data-testid="connection-success-msg" className="text-lg font-medium">
-            Connection to {modelName} successful!
+            {t("ui.Connection to {{modelName}} successful!", { modelName })}
           </p>
         </div>
       ) : (
@@ -151,12 +153,12 @@ ${formattedBody}
           <div className="mb-5 flex items-center gap-3">
             <AlertTriangle className="size-6 text-destructive" />
             <p data-testid="connection-failure-msg" className="text-lg font-medium text-destructive">
-              Connection to {modelName} failed
+              {t("ui.Connection to {{modelName}} failed", { modelName })}
             </p>
           </div>
 
           <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/10 p-4 shadow-xs">
-            <p className="mb-2 font-medium">Error:</p>
+            <p className="mb-2 font-medium">{t("ui.Error:")}</p>
             <p className="text-sm leading-relaxed text-destructive">{errorMessage}</p>
 
             {error && (
@@ -166,14 +168,14 @@ ${formattedBody}
                 className="mt-3 h-auto px-0"
                 onClick={() => setShowDetails((visible) => !visible)}
               >
-                {showDetails ? "Hide Details" : "Show Details"}
+                {showDetails ? t("ui.Hide Details") : t("ui.Show Details")}
               </Button>
             )}
           </div>
 
           {showDetails && (
             <div className="mb-5">
-              <p className="mb-2 text-sm font-medium">Troubleshooting Details</p>
+              <p className="mb-2 text-sm font-medium">{t("ui.Troubleshooting Details")}</p>
               <pre className="max-h-52 overflow-auto rounded-lg border bg-muted/50 p-4 text-xs leading-relaxed">
                 {typeof error === "string" ? error : JSON.stringify(error, null, 2)}
               </pre>
@@ -181,9 +183,9 @@ ${formattedBody}
           )}
 
           <div>
-            <p className="mb-2 text-sm font-medium">API Request</p>
+            <p className="mb-2 text-sm font-medium">{t("ui.API Request")}</p>
             <pre className="max-h-64 overflow-auto rounded-lg border bg-muted/50 p-4 text-xs leading-relaxed">
-              {curlCommand || "No request data available"}
+              {curlCommand || t("ui.No request data available")}
             </pre>
             <Button
               type="button"
@@ -191,11 +193,11 @@ ${formattedBody}
               className="mt-2"
               onClick={() => {
                 navigator.clipboard.writeText(curlCommand || "");
-                NotificationsManager.success("Copied to clipboard");
+                NotificationsManager.success(t("ui.Copied to clipboard"));
               }}
             >
               <Copy data-icon="inline-start" />
-              Copy to Clipboard
+              {t("ui.Copy to Clipboard")}
             </Button>
           </div>
         </div>
@@ -209,7 +211,7 @@ ${formattedBody}
         render={<a href="https://docs.litellm.ai/docs/providers" target="_blank" rel="noopener noreferrer" />}
       >
         <Info data-icon="inline-start" />
-        View Documentation
+        {t("ui.View Documentation")}
         <ExternalLink data-icon="inline-end" />
       </Button>
     </div>

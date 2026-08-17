@@ -126,7 +126,7 @@ const AgentsPanel: React.FC<AgentsPanelProps> = ({ accessToken, userRole, teams 
       await refetchAgents(healthCheckEnabled);
     } catch (error) {
       console.error("Error deleting agent:", error);
-      NotificationsManager.fromBackend("Failed to delete agent");
+      NotificationsManager.fromBackend(t("ui.Failed to delete agent"));
     } finally {
       setIsDeleting(false);
       setAgentToDelete(null);

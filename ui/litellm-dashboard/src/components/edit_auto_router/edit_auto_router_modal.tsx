@@ -191,7 +191,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
   const submitBlockedReason = !isComplexityRouterModel
     ? null
     : (Object.values(complexityRouterConfig.tiers).every((models) => models.length === 0)
-        ? "Please select at least one model for a complexity tier"
+        ? t("ui.Please select at least one model for a complexity tier")
         : null) ??
       getTierLabelsError(complexityRouterConfig.tier_labels) ??
       getKeywordTierRulesError(keywordTierRules);
@@ -325,7 +325,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
       });
     } catch (error) {
       console.error("Error parsing auto router config:", error);
-      NotificationsManager.fromBackend("Error loading auto router configuration");
+      NotificationsManager.fromBackend(t("ui.Error loading auto router configuration"));
     }
   };
 
@@ -338,12 +338,12 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
         const { tiers, classifier_type, classifier_llm_config } = complexityRouterConfig;
         if (Object.values(tiers).every((models) => models.length === 0)) {
           setShowValidationErrors(true);
-          NotificationsManager.fromBackend("Please select at least one model for a complexity tier");
+          NotificationsManager.fromBackend(t("ui.Please select at least one model for a complexity tier"));
           return;
         }
         if (classifier_type === "llm" && !classifier_llm_config?.model) {
           setShowValidationErrors(true);
-          NotificationsManager.fromBackend("Please select a classifier model, or switch back to Heuristic");
+          NotificationsManager.fromBackend(t("ui.Please select a classifier model, or switch back to Heuristic"));
           return;
         }
         // Same guards the create form applies (add_auto_router_tab.tsx). The backend rejects a
@@ -392,7 +392,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
           modelData.model_info.id,
         );
 
-        NotificationsManager.success("Auto router configuration updated successfully");
+        NotificationsManager.success(t("ui.Auto router configuration updated successfully"));
         onSuccess({
           ...modelData,
           model_name: values.auto_router_name,
@@ -437,7 +437,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
       onCancel();
     } catch (error) {
       console.error("Error updating auto router:", error);
-      NotificationsManager.fromBackend("Failed to update auto router configuration");
+      NotificationsManager.fromBackend(t("ui.Failed to update auto router configuration"));
     } finally {
       setLoading(false);
     }
@@ -452,20 +452,20 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
     <Dialog open={isVisible} onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Edit Auto Router Configuration</DialogTitle>
+          <DialogTitle>{t("ui.Edit Auto Router Configuration")}</DialogTitle>
           <DialogDescription>
-            Edit the auto router configuration including routing logic, default models, and access settings.
+            {t("ui.Edit the auto router configuration including routing logic, default models, and access settings.")}
           </DialogDescription>
         </DialogHeader>
 
         <Form form={form} layout="vertical" className="space-y-4">
           {/* Auto Router Name */}
           <Form.Item
-            label="Auto Router Name"
+            label={t("ui.Auto Router Name")}
             name="auto_router_name"
-            rules={[{ required: true, message: "Auto router name is required" }]}
+            rules={[{ required: true, message: t("ui.Auto router name is required") }]}
           >
-            <TextInput placeholder="e.g., auto_router_1, smart_routing" />
+            <TextInput placeholder={t("ui.e.g., auto_router_1, smart_routing")} />
           </Form.Item>
 
           {isComplexityRouterModel ? (
@@ -507,26 +507,26 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
 
               {/* Default Model */}
               <Form.Item
-                label="Default Model"
+                label={t("ui.Default Model")}
                 name="auto_router_default_model"
-                rules={[{ required: true, message: "Default model is required" }]}
+                rules={[{ required: true, message: t("ui.Default model is required") }]}
               >
                 <AntdSelect
-                  placeholder="Select a default model"
-                  options={[...modelOptions, { value: "custom", label: "Enter custom model name" }]}
+                  placeholder={t("ui.Select a default model")}
+                  options={[...modelOptions, { value: "custom", label: t("ui.Enter custom model name") }]}
                   showSearch={true}
                 />
               </Form.Item>
 
               {/* Embedding Model */}
               <Form.Item
-                label="Embedding Model"
+                label={t("ui.Embedding Model")}
                 name="auto_router_embedding_model"
-                rules={[{ required: true, message: "Embedding model is required" }]}
+                rules={[{ required: true, message: t("ui.Embedding model is required") }]}
               >
                 <AntdSelect
-                  placeholder="Select an embedding model"
-                  options={[...modelOptions, { value: "custom", label: "Enter custom model name" }]}
+                  placeholder={t("ui.Select an embedding model")}
+                  options={[...modelOptions, { value: "custom", label: t("ui.Enter custom model name") }]}
                   showSearch={true}
                 />
               </Form.Item>
@@ -536,14 +536,14 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
           {/* Model Access Groups - Admin only */}
           {userRole === "Admin" && (
             <Form.Item
-              label="Model Access Groups"
+              label={t("ui.Model Access Groups")}
               name="model_access_group"
-              tooltip="Control who can access this auto router"
+              tooltip={t("ui.Control who can access this auto router")}
             >
               <AntdSelect
                 mode="tags"
                 showSearch
-                placeholder="Select existing groups or type to create new ones"
+                placeholder={t("ui.Select existing groups or type to create new ones")}
                 optionFilterProp="children"
                 tokenSeparators={[","]}
                 options={modelAccessGroups.map((group) => ({
@@ -558,7 +558,7 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
         </Form>
 
         <DialogFooter>
-          <Button onClick={onCancel}>Cancel</Button>
+          <Button onClick={onCancel}>{t("ui.Cancel")}</Button>
           <Tooltip title={submitBlockedReason}>
             <Button loading={loading} disabled={submitBlockedReason !== null} onClick={handleSubmit}>
               {t("ui.Save Changes")}

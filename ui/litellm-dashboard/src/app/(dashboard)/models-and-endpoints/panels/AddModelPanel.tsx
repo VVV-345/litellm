@@ -36,7 +36,9 @@ export default function AddModelPanel() {
       const errorMessages =
         error.errorFields?.map((field: any) => `${field.name.join(".")}: ${field.errors.join(", ")}`).join(" | ") ||
         t("ui.Unknown validation error");
-      NotificationsManager.fromBackend(`Please fill in the following required fields: ${errorMessages}`);
+      NotificationsManager.fromBackend(
+        t("ui.Please fill in the following required fields: {{errorMessages}}", { errorMessages }),
+      );
     }
   };
 
@@ -49,7 +51,7 @@ export default function AddModelPanel() {
       providerModels={providerModels}
       setProviderModelsFn={(provider) => setProviderModels(getProviderModels(provider, modelCostMapData))}
       getPlaceholder={getPlaceholder}
-      uploadProps={vertexCredentialsUploadProps(form)}
+      uploadProps={vertexCredentialsUploadProps(form, t)}
       showAdvancedSettings={showAdvancedSettings}
       setShowAdvancedSettings={setShowAdvancedSettings}
       teams={teams ?? null}

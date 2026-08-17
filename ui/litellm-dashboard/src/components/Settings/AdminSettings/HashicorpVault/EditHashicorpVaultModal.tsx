@@ -6,6 +6,7 @@ import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import NotificationManager from "@/components/molecules/notifications_manager";
 import { Button, Divider, Form, Input, Modal, Space, Typography } from "antd";
 import React, { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { SENSITIVE_FIELDS, FIELD_LABELS } from "./constants";
 
 interface FieldGroup {
@@ -43,6 +44,7 @@ interface EditHashicorpVaultModalProps {
 }
 
 const EditHashicorpVaultModal: React.FC<EditHashicorpVaultModalProps> = ({ isVisible, onCancel, onSuccess }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const { accessToken } = useAuthorized();
   const { data } = useHashicorpVaultConfig();
@@ -81,7 +83,7 @@ const EditHashicorpVaultModal: React.FC<EditHashicorpVaultModalProps> = ({ isVis
 
     mutate(config, {
       onSuccess: () => {
-        NotificationManager.success("Hashicorp Vault configuration updated successfully");
+        NotificationManager.success(t("ui.Hashicorp Vault configuration updated successfully"));
         onSuccess();
       },
       onError: (err) => {
@@ -101,16 +103,25 @@ const EditHashicorpVaultModal: React.FC<EditHashicorpVaultModalProps> = ({ isVis
 
     const rules =
       fieldName === "vault_addr"
-        ? [{ pattern: /^https?:\/\/.+/, message: "Must start with http:// or https://" }]
+        ? [{ pattern: /^https?:\/\/.+/, message: t("ui.Must start with http:// or https://") }]
         : undefined;
 
     const isSensitive = SENSITIVE_FIELDS.has(fieldName);
     const existingValue = rawValues[fieldName];
     const hasExistingValue = isSensitive && existingValue != null && existingValue !== "";
-    const placeholder = hasExistingValue ? `Leave blank to keep existing (${existingValue})` : fieldSchema?.description;
+    const placeholder = hasExistingValue
+      ? t(`ui.Leave blank to keep existing (${existingValue})`, {
+          defaultValue: `Leave blank to keep existing (${existingValue})`,
+        })
+      : fieldSchema?.description;
 
     return (
-      <Form.Item key={fieldName} name={fieldName} label={FIELD_LABELS[fieldName] ?? fieldName} rules={rules}>
+      <Form.Item
+        key={fieldName}
+        name={fieldName}
+        label={t(`ui.${FIELD_LABELS[fieldName] ?? fieldName}`, { defaultValue: FIELD_LABELS[fieldName] ?? fieldName })}
+        rules={rules}
+      >
         {isSensitive ? <Input.Password placeholder={placeholder} /> : <Input placeholder={fieldSchema?.description} />}
       </Form.Item>
     );
@@ -118,16 +129,16 @@ const EditHashicorpVaultModal: React.FC<EditHashicorpVaultModalProps> = ({ isVis
 
   return (
     <Modal
-      title="Edit Hashicorp Vault Configuration"
+      title={t("ui.Edit Hashicorp Vault Configuration")}
       open={isVisible}
       width={700}
       footer={
         <Space>
           <Button onClick={handleCancel} disabled={isPending}>
-            Cancel
+            {t("ui.Cancel")}
           </Button>
           <Button type="primary" loading={isPending} onClick={() => form.submit()}>
-            {isPending ? "Saving..." : "Save"}
+            {isPending ? t("ui.Saving...") : t("ui.Save")}
           </Button>
         </Space>
       }
@@ -138,11 +149,11 @@ const EditHashicorpVaultModal: React.FC<EditHashicorpVaultModalProps> = ({ isVis
           <div key={group.title}>
             {index > 0 && <Divider />}
             <Typography.Title level={5} style={{ marginBottom: 4 }}>
-              {group.title}
+              {t(`ui.${group.title}`, { defaultValue: group.title })}
             </Typography.Title>
             {group.subtitle && (
               <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-                {group.subtitle}
+                {t(`ui.${group.subtitle}`, { defaultValue: group.subtitle })}
               </Typography.Paragraph>
             )}
             {group.fields.map(renderField)}

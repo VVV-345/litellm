@@ -3,6 +3,7 @@ import MessageManager from "@/components/molecules/message_manager";
 import { useEffect } from "react";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { useCloudZeroCreate } from "@/app/(dashboard)/hooks/cloudzero/useCloudZeroCreate";
+import { useTranslation } from "react-i18next";
 
 interface CloudZeroCreationModalProps {
   open: boolean;
@@ -11,6 +12,7 @@ interface CloudZeroCreationModalProps {
 }
 
 export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZeroCreationModalProps) {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [form] = Form.useForm();
   const createMutation = useCloudZeroCreate(accessToken || "");
@@ -32,7 +34,7 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
         },
         {
           onSuccess: () => {
-            MessageManager.success("CloudZero integration created successfully");
+            MessageManager.success(t("ui.CloudZero integration created successfully"));
             form.resetFields();
             onOk();
           },
@@ -40,7 +42,7 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
             if (error?.errorFields) {
               return;
             }
-            MessageManager.error(error?.message || "Failed to create CloudZero integration");
+            MessageManager.error(error?.message || t("ui.Failed to create CloudZero integration"));
           },
         },
       );
@@ -48,7 +50,7 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
       if (error?.errorFields) {
         return;
       }
-      MessageManager.error(error?.message || "Failed to create CloudZero integration");
+      MessageManager.error(error?.message || t("ui.Failed to create CloudZero integration"));
     }
   };
 
@@ -59,13 +61,13 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
 
   return (
     <Modal
-      title="Create CloudZero Integration"
+      title={t("ui.Create CloudZero Integration")}
       open={open}
       onOk={handleSubmit}
       onCancel={handleCancel}
       confirmLoading={createMutation.isPending}
-      okText={createMutation.isPending ? "Creating..." : "Create"}
-      cancelText="Cancel"
+      okText={createMutation.isPending ? t("ui.Creating...") : t("ui.Create")}
+      cancelText={t("ui.Cancel")}
       okButtonProps={{
         disabled: createMutation.isPending,
       }}
@@ -75,23 +77,23 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit}>
         <Form.Item
-          label="CloudZero API Key"
+          label={t("ui.CloudZero API Key")}
           name="api_key"
-          rules={[{ required: true, message: "Please enter your CloudZero API key" }]}
+          rules={[{ required: true, message: t("ui.Please enter your CloudZero API key") }]}
         >
-          <Input.Password placeholder="Enter your CloudZero API key" />
+          <Input.Password placeholder={t("ui.Enter your CloudZero API key")} />
         </Form.Item>
         <Form.Item
-          label="Connection ID"
+          label={t("ui.Connection ID")}
           name="connection_id"
-          rules={[{ required: true, message: "Please enter your CloudZero connection ID" }]}
+          rules={[{ required: true, message: t("ui.Please enter your CloudZero connection ID") }]}
         >
-          <Input placeholder="Enter your CloudZero connection ID" />
+          <Input placeholder={t("ui.Enter your CloudZero connection ID")} />
         </Form.Item>
         <Form.Item
-          label="Timezone"
+          label={t("ui.Timezone")}
           name="timezone"
-          tooltip="Timezone for date handling (defaults to UTC if not provided)"
+          tooltip={t("ui.Timezone for date handling (defaults to UTC if not provided)")}
         >
           <Input placeholder="UTC" />
         </Form.Item>

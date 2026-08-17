@@ -93,7 +93,7 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
         try {
           headers = typeof values.headers === "string" ? JSON.parse(values.headers) : values.headers;
         } catch (e) {
-          NotificationsManager.fromBackend("Invalid JSON format for headers");
+          NotificationsManager.fromBackend(t("ui.Invalid JSON format for headers"));
           return;
         }
       }
@@ -124,7 +124,7 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
       }
     } catch (error) {
       console.error("Error updating endpoint:", error);
-      NotificationsManager.fromBackend("Failed to update pass through endpoint");
+      NotificationsManager.fromBackend(t("ui.Failed to update pass through endpoint"));
     }
   };
 
@@ -133,23 +133,23 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
       if (!accessToken || !endpointData?.id) return;
 
       await deletePassThroughEndpointsCall(accessToken, endpointData.id);
-      NotificationsManager.success("Pass through endpoint deleted successfully");
+      NotificationsManager.success(t("ui.Pass through endpoint deleted successfully"));
       onClose();
       if (onEndpointUpdated) {
         onEndpointUpdated();
       }
     } catch (error) {
       console.error("Error deleting endpoint:", error);
-      NotificationsManager.fromBackend("Failed to delete pass through endpoint");
+      NotificationsManager.fromBackend(t("ui.Failed to delete pass through endpoint"));
     }
   };
 
   if (loading) {
-    return <div className="p-4">Loading...</div>;
+    return <div className="p-4">{t("ui.Loading...")}</div>;
   }
 
   if (!endpointData) {
-    return <div className="p-4">Pass through endpoint not found</div>;
+    return <div className="p-4">{t("ui.Pass through endpoint not found")}</div>;
   }
 
   return (
@@ -157,17 +157,17 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
       <div className="flex justify-between items-center mb-6">
         <div>
           <Button onClick={onClose} className="mb-4">
-            ← Back
+            ← {t("ui.Back")}
           </Button>
-          <Title>Pass Through Endpoint: {endpointData.path}</Title>
+          <Title>{t("ui.Pass Through Endpoint: {{path}}", { path: endpointData.path })}</Title>
           <Text className="text-gray-500 font-mono">{endpointData.id}</Text>
         </div>
       </div>
 
       <TabGroup>
         <TabList className="mb-4">
-          <Tab key="overview">Overview</Tab>
-          {isAdmin ? <Tab key="settings">Settings</Tab> : <></>}
+          <Tab key="overview">{t("ui.Overview")}</Tab>
+          {isAdmin ? <Tab key="settings">{t("ui.Settings")}</Tab> : <></>}
         </TabList>
 
         <TabPanels>
@@ -175,35 +175,35 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
           <TabPanel>
             <Grid numItems={1} numItemsSm={2} numItemsLg={3} className="gap-6">
               <Card>
-                <Text>Path</Text>
+                <Text>{t("ui.Path")}</Text>
                 <div className="mt-2">
                   <Title className="font-mono">{endpointData.path}</Title>
                 </div>
               </Card>
 
               <Card>
-                <Text>Target</Text>
+                <Text>{t("ui.Target")}</Text>
                 <div className="mt-2">
                   <Title>{endpointData.target}</Title>
                 </div>
               </Card>
 
               <Card>
-                <Text>Configuration</Text>
+                <Text>{t("ui.Configuration")}</Text>
                 <div className="mt-2 space-y-2">
                   <div>
                     <Badge color={endpointData.include_subpath ? "green" : "gray"}>
-                      {endpointData.include_subpath ? "Include Subpath" : "Exact Path"}
+                      {endpointData.include_subpath ? t("ui.Include Subpath") : t("ui.Exact Path")}
                     </Badge>
                   </div>
                   <div>
                     <Badge color={endpointData.auth ? "blue" : "gray"}>
-                      {endpointData.auth ? "Auth Required" : "No Auth"}
+                      {endpointData.auth ? t("ui.Auth Required") : t("ui.No Auth")}
                     </Badge>
                   </div>
                   {endpointData.methods && endpointData.methods.length > 0 && (
                     <div>
-                      <Text className="text-xs text-gray-500">HTTP Methods:</Text>
+                      <Text className="text-xs text-gray-500">{t("ui.HTTP Methods:")}</Text>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {endpointData.methods.map((method) => (
                           <Badge key={method} color="indigo" size="sm">
@@ -215,12 +215,12 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                   )}
                   {(!endpointData.methods || endpointData.methods.length === 0) && (
                     <div>
-                      <Text className="text-xs text-gray-500">All HTTP methods supported</Text>
+                      <Text className="text-xs text-gray-500">{t("ui.All HTTP methods supported")}</Text>
                     </div>
                   )}
                   {endpointData.cost_per_request !== undefined && (
                     <div>
-                      <Text>Cost per request: ${endpointData.cost_per_request}</Text>
+                      <Text>{t("ui.Cost per request: ${{cost}}", { cost: endpointData.cost_per_request })}</Text>
                     </div>
                   )}
                 </div>
@@ -239,8 +239,10 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
             {endpointData.headers && Object.keys(endpointData.headers).length > 0 && (
               <Card className="mt-6">
                 <div className="flex justify-between items-center">
-                  <Text className="font-medium">Headers</Text>
-                  <Badge color="blue">{Object.keys(endpointData.headers).length} headers configured</Badge>
+                  <Text className="font-medium">{t("ui.Headers")}</Text>
+                  <Badge color="blue">
+                    {t("ui.{{count}} headers configured", { count: Object.keys(endpointData.headers).length })}
+                  </Badge>
                 </div>
                 <div className="mt-4">
                   <PasswordField value={endpointData.headers} />
@@ -251,8 +253,10 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
             {endpointData.guardrails && Object.keys(endpointData.guardrails).length > 0 && (
               <Card className="mt-6">
                 <div className="flex justify-between items-center">
-                  <Text className="font-medium">Guardrails</Text>
-                  <Badge color="purple">{Object.keys(endpointData.guardrails).length} guardrails configured</Badge>
+                  <Text className="font-medium">{t("ui.Guardrails")}</Text>
+                  <Badge color="purple">
+                    {t("ui.{{count}} guardrails configured", { count: Object.keys(endpointData.guardrails).length })}
+                  </Badge>
                 </div>
                 <div className="mt-4 space-y-2">
                   {Object.entries(endpointData.guardrails).map(([name, settings]) => (
@@ -260,13 +264,19 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                       <div className="font-medium text-sm">{name}</div>
                       {settings && (settings.request_fields || settings.response_fields) && (
                         <div className="mt-2 text-xs text-gray-600 space-y-1">
-                          {settings.request_fields && <div>Request fields: {settings.request_fields.join(", ")}</div>}
+                          {settings.request_fields && (
+                            <div>
+                              {t("ui.Request fields: {{fields}}", { fields: settings.request_fields.join(", ") })}
+                            </div>
+                          )}
                           {settings.response_fields && (
-                            <div>Response fields: {settings.response_fields.join(", ")}</div>
+                            <div>
+                              {t("ui.Response fields: {{fields}}", { fields: settings.response_fields.join(", ") })}
+                            </div>
                           )}
                         </div>
                       )}
-                      {!settings && <div className="text-xs text-gray-600 mt-1">Uses entire payload</div>}
+                      {!settings && <div className="text-xs text-gray-600 mt-1">{t("ui.Uses entire payload")}</div>}
                     </div>
                   ))}
                 </div>
@@ -279,13 +289,13 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
             <TabPanel>
               <Card>
                 <div className="flex justify-between items-center mb-4">
-                  <Title>Pass Through Endpoint Settings</Title>
+                  <Title>{t("ui.Pass Through Endpoint Settings")}</Title>
                   <div className="space-x-2">
                     {!isEditing && (
                       <>
                         <TremorButton onClick={() => setIsEditing(true)}>{t("ui.Edit Settings")}</TremorButton>
                         <TremorButton onClick={handleDeleteEndpoint} variant="secondary" color="red">
-                          Delete Endpoint
+                          {t("ui.Delete Endpoint")}
                         </TremorButton>
                       </>
                     )}
@@ -308,14 +318,14 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                     layout="vertical"
                   >
                     <Form.Item
-                      label="Target URL"
+                      label={t("ui.Target URL")}
                       name="target"
-                      rules={[{ required: true, message: "Please input a target URL" }]}
+                      rules={[{ required: true, message: t("ui.Please input a target URL") }]}
                     >
-                      <TextInput placeholder="https://api.example.com" />
+                      <TextInput placeholder={t("ui.https://api.example.com")} />
                     </Form.Item>
 
-                    <Form.Item label="Headers (JSON)" name="headers">
+                    <Form.Item label={t("ui.Headers (JSON)")} name="headers">
                       <Input.TextArea
                         rows={5}
                         placeholder='{"Authorization": "Bearer your-token", "Content-Type": "application/json"}'
@@ -323,17 +333,19 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                     </Form.Item>
 
                     <Form.Item
-                      label="HTTP Methods (Optional)"
+                      label={t("ui.HTTP Methods (Optional)")}
                       name="methods"
                       extra={
                         selectedMethods.length === 0
-                          ? "All HTTP methods supported (default)"
-                          : `Only ${selectedMethods.join(", ")} requests will be routed to this endpoint`
+                          ? t("ui.All HTTP methods supported (default)")
+                          : t("ui.Only {{methods}} requests will be routed to this endpoint", {
+                              methods: selectedMethods.join(", "),
+                            })
                       }
                     >
                       <Select
                         mode="multiple"
-                        placeholder="Select methods (leave empty for all)"
+                        placeholder={t("ui.Select methods (leave empty for all)")}
                         value={selectedMethods}
                         onChange={setSelectedMethods}
                         allowClear
@@ -347,18 +359,20 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                       </Select>
                     </Form.Item>
 
-                    <Form.Item label="Include Subpath" name="include_subpath" valuePropName="checked">
+                    <Form.Item label={t("ui.Include Subpath")} name="include_subpath" valuePropName="checked">
                       <Switch />
                     </Form.Item>
 
-                    <Form.Item label="Cost per Request" name="cost_per_request">
+                    <Form.Item label={t("ui.Cost per Request")} name="cost_per_request">
                       <InputNumber min={0} step={0.01} precision={2} placeholder="0.00" addonBefore="$" />
                     </Form.Item>
 
                     <Form.Item
-                      label="Request Timeout (seconds)"
+                      label={t("ui.Request Timeout (seconds)")}
                       name="timeout"
-                      extra="Max time to wait for upstream response. Leave empty to use the global pass_through_request_timeout (default 600s)."
+                      extra={t(
+                        "ui.Max time to wait for upstream response. Leave empty to use the global pass_through_request_timeout (default 600s).",
+                      )}
                     >
                       <InputNumber min={1} step={1} precision={0} placeholder="600" style={{ width: "100%" }} />
                     </Form.Item>
@@ -381,50 +395,52 @@ const PassThroughInfoView: React.FC<PassThroughInfoProps> = ({
                     </div>
 
                     <div className="flex justify-end gap-2 mt-6">
-                      <Button onClick={() => setIsEditing(false)}>Cancel</Button>
+                      <Button onClick={() => setIsEditing(false)}>{t("ui.Cancel")}</Button>
                       <TremorButton>{t("ui.Save Changes")}</TremorButton>
                     </div>
                   </Form>
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <Text className="font-medium">Path</Text>
+                      <Text className="font-medium">{t("ui.Path")}</Text>
                       <div className="font-mono">{endpointData.path}</div>
                     </div>
                     <div>
-                      <Text className="font-medium">Target URL</Text>
+                      <Text className="font-medium">{t("ui.Target URL")}</Text>
                       <div>{endpointData.target}</div>
                     </div>
                     <div>
-                      <Text className="font-medium">Include Subpath</Text>
+                      <Text className="font-medium">{t("ui.Include Subpath")}</Text>
                       <Badge color={endpointData.include_subpath ? "green" : "gray"}>
-                        {endpointData.include_subpath ? "Yes" : "No"}
+                        {endpointData.include_subpath ? t("ui.Yes") : t("ui.No")}
                       </Badge>
                     </div>
                     {endpointData.cost_per_request !== undefined && (
                       <div>
-                        <Text className="font-medium">Cost per Request</Text>
+                        <Text className="font-medium">{t("ui.Cost per Request")}</Text>
                         <div>${endpointData.cost_per_request}</div>
                       </div>
                     )}
                     {endpointData.timeout !== undefined && endpointData.timeout !== null && (
                       <div>
-                        <Text className="font-medium">Request Timeout</Text>
+                        <Text className="font-medium">{t("ui.Request Timeout")}</Text>
                         <div>{endpointData.timeout}s</div>
                       </div>
                     )}
                     <div>
-                      <Text className="font-medium">Authentication Required</Text>
-                      <Badge color={endpointData.auth ? "green" : "gray"}>{endpointData.auth ? "Yes" : "No"}</Badge>
+                      <Text className="font-medium">{t("ui.Authentication Required")}</Text>
+                      <Badge color={endpointData.auth ? "green" : "gray"}>
+                        {endpointData.auth ? t("ui.Yes") : t("ui.No")}
+                      </Badge>
                     </div>
                     <div>
-                      <Text className="font-medium">Headers</Text>
+                      <Text className="font-medium">{t("ui.Headers")}</Text>
                       {endpointData.headers && Object.keys(endpointData.headers).length > 0 ? (
                         <div className="mt-2">
                           <PasswordField value={endpointData.headers} />
                         </div>
                       ) : (
-                        <div className="text-gray-500">No headers configured</div>
+                        <div className="text-gray-500">{t("ui.No headers configured")}</div>
                       )}
                     </div>
                   </div>

@@ -422,8 +422,9 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
     } catch (error) {
       console.error("Failed to save guardrail:", error);
       NotificationsManager.fromBackend(
-        `Failed to ${isEditMode ? "update" : "create"} guardrail: ` +
-          (error instanceof Error ? error.message : String(error)),
+        `${t(`ui.Failed to ${isEditMode ? "update" : "create"} guardrail`, {
+          defaultValue: `Failed to ${isEditMode ? "update" : "create"} guardrail`,
+        })}: ` + (error instanceof Error ? error.message : String(error)),
       );
     } finally {
       setIsSaving(false);
@@ -531,7 +532,7 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
               <ComboboxChips className="w-full">
                 {selectedModeOptions.map((option) => (
                   <ComboboxChip key={option.value} aria-label={option.label}>
-                    {option.label}
+                    {t(`ui.${option.label}`, { defaultValue: option.label })}
                   </ComboboxChip>
                 ))}
                 <ComboboxChipsInput
@@ -544,7 +545,7 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                 <ComboboxList>
                   {(option: ModeOption) => (
                     <ComboboxItem key={option.value} value={option}>
-                      {option.label}
+                      {t(`ui.${option.label}`, { defaultValue: option.label })}
                     </ComboboxItem>
                   )}
                 </ComboboxList>
@@ -566,7 +567,7 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                   <SelectLabel>{t("ui.STANDARD")}</SelectLabel>
                   {TEMPLATE_ITEMS.map((template) => (
                     <SelectItem key={template.value} value={template.value}>
-                      {template.label}
+                      {t(`ui.${template.label}`, { defaultValue: template.label })}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -677,25 +678,26 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                     <div className="mb-2 rounded-sm border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                         <div>
-                          <strong>texts</strong>: Message content (always)
+                          <strong>texts</strong>: {t("ui.Message content (always)")}
                         </div>
                         <div>
-                          <strong>images</strong>: Base64 images (vision)
+                          <strong>images</strong>: {t("ui.Base64 images (vision)")}
                         </div>
                         <div>
-                          <strong>tools</strong>: Tool definitions <span className="text-orange-600">(pre_call)</span>,
-                          MCP as OpenAI tool <span className="text-purple-600">(pre_mcp_call)</span>
+                          <strong>tools</strong>: {t("ui.Tool definitions")}{" "}
+                          <span className="text-orange-600">(pre_call)</span>,{" "}
+                          {t("ui.MCP as OpenAI tool")} <span className="text-purple-600">(pre_mcp_call)</span>
                         </div>
                         <div>
-                          <strong>tool_calls</strong>: LLM tool calls{" "}
+                          <strong>tool_calls</strong>: {t("ui.LLM tool calls")}{" "}
                           <span className="text-green-600">(post_call)</span>
                         </div>
                         <div>
-                          <strong>structured_messages</strong>: Full messages{" "}
+                          <strong>structured_messages</strong>: {t("ui.Full messages")}{" "}
                           <span className="text-orange-600">(pre_call)</span>
                         </div>
                         <div>
-                          <strong>model</strong>: Model name (always)
+                          <strong>model</strong>: {t("ui.Model name (always)")}
                         </div>
                       </div>
                     </div>
@@ -752,7 +754,7 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                           </>
                         ) : (
                           <>
-                            <CheckCircle2 className="size-4" /> {testResult.action || "Unknown"}
+                            <CheckCircle2 className="size-4" /> {testResult.action || t("ui.Unknown")}
                           </>
                         )}
                       </div>
@@ -797,7 +799,7 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                   className="rounded-lg border border-border"
                 >
                   <CollapsibleTrigger className="group flex w-full items-center justify-between px-3 py-2 text-sm font-medium">
-                    {category}
+                    {t(`ui.${category}`, { defaultValue: category })}
                     <ChevronRight className="size-4 transition-transform group-data-panel-open:rotate-90" />
                   </CollapsibleTrigger>
                   <CollapsibleContent className="px-3 pb-3">
@@ -817,7 +819,9 @@ const CustomCodeModal: React.FC<CustomCodeModalProps> = ({ visible, onClose, onS
                           ) : (
                             <>
                               <div className="font-mono text-xs">{p.name}</div>
-                              <div className="mt-0.5 text-[10px] text-muted-foreground">{p.desc}</div>
+                              <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                {t(`ui.${p.desc}`, { defaultValue: p.desc })}
+                              </div>
                             </>
                           )}
                         </button>

@@ -81,7 +81,9 @@ function MCPToolList({ serverId, serverName, accessToken, selectedTools, onToggl
           <span className="inline-block w-2 h-2 rounded-full bg-blue-500 shrink-0" />
           {serverName}
           {selectedSet.size > 0 && (
-            <span className="ml-1 text-xs text-purple-600 font-semibold">{selectedSet.size} selected</span>
+            <span className="ml-1 text-xs text-purple-600 font-semibold">
+              {selectedSet.size} {t("ui.selected")}
+            </span>
           )}
         </span>
         <span className="text-gray-400 text-xs">{expanded ? "▲" : "▼"}</span>
@@ -252,7 +254,9 @@ function CreateToolsetModal({ open, onClose, onSave, accessToken, initialToolset
         <div className="w-72 shrink-0">
           <Text className="text-sm font-semibold text-gray-700 mb-2 block">
             {t("ui.Your Toolset ")}
-            <span className="text-xs font-normal text-gray-400">({selectedTools.length} tools)</span>
+            <span className="text-xs font-normal text-gray-400">
+              ({selectedTools.length} {t("ui.tools")})
+            </span>
           </Text>
           <div className="space-y-1 overflow-y-auto" style={{ maxHeight: 340 }}>
             {selectedTools.length === 0 ? (

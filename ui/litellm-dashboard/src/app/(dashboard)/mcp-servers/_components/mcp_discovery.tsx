@@ -61,7 +61,7 @@ const MCPDiscovery: React.FC<MCPDiscoveryProps> = ({
           setCategories(data.categories || []);
         })
         .catch((err: Error) => {
-          setError(err.message || "Failed to load MCP servers");
+          setError(err.message || t("ui.Failed to load MCP servers"));
         })
         .finally(() => {
           setLoading(false);

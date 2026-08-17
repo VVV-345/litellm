@@ -94,7 +94,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ proxySettings }) => {
       }
     } catch (error) {
       console.error("Error fetching allowed IPs:", error);
-      NotificationsManager.fromBackend(`Failed to fetch allowed IPs ${error}`);
+      NotificationsManager.fromBackend(t("ui.Failed to fetch allowed IPs {{error}}", { error }));
       setAllowedIPs([all_ip_address_allowed]);
     } finally {
       if (premiumUser === true) {
@@ -114,7 +114,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ proxySettings }) => {
       }
     } catch (error) {
       console.error("Error adding IP:", error);
-      NotificationsManager.fromBackend(`Failed to add IP address ${error}`);
+      NotificationsManager.fromBackend(t("ui.Failed to add IP address {{error}}", { error }));
     } finally {
       setIsAddIPModalVisible(false);
     }
@@ -135,7 +135,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ proxySettings }) => {
         NotificationsManager.success(t("ui.IP address deleted successfully"));
       } catch (error) {
         console.error("Error deleting IP:", error);
-        NotificationsManager.fromBackend(`Failed to delete IP address ${error}`);
+        NotificationsManager.fromBackend(t("ui.Failed to delete IP address {{error}}", { error }));
       } finally {
         setIsDeleteIPModalVisible(false);
         setIPToDelete(null);

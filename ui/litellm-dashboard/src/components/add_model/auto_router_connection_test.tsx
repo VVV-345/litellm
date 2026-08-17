@@ -1,5 +1,6 @@
 import React from "react";
 import { CircleCheck, CircleX, LoaderCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { testModelGroupConnection, ModelGroupConnectionResult } from "../networking";
 import { AutoRouterTestTarget } from "./build_auto_router_test_targets";
@@ -22,6 +23,7 @@ const AutoRouterConnectionTest: React.FC<AutoRouterConnectionTestProps> = ({
   targets,
   onTestComplete,
 }) => {
+  const { t } = useTranslation();
   const [results, setResults] = React.useState<TargetResult[]>(() => targets.map(() => ({ status: "pending" })));
 
   React.useEffect(() => {
@@ -48,7 +50,7 @@ const AutoRouterConnectionTest: React.FC<AutoRouterConnectionTestProps> = ({
   if (targets.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No complexity tiers are configured yet, so there is nothing to test.
+        {t("ui.No complexity tiers are configured yet, so there is nothing to test.")}
       </p>
     );
   }
@@ -56,8 +58,7 @@ const AutoRouterConnectionTest: React.FC<AutoRouterConnectionTestProps> = ({
   return (
     <div className="space-y-3">
       <p className="mb-2 text-sm text-muted-foreground">
-        Each configured tier routes to a saved model group. Test Connection sends a minimal request through the proxy to
-        each one, exactly as the auto router would.
+        {t("ui.Each configured tier routes to a saved model group. Test Connection sends a minimal request through the proxy to each one, exactly as the auto router would.")}
       </p>
       {targets.map((target, index) => {
         const result = results[index] ?? { status: "pending" };
@@ -82,7 +83,7 @@ const AutoRouterConnectionTest: React.FC<AutoRouterConnectionTestProps> = ({
               <span className="font-medium">{target.labels.join(", ")}</span>{" "}
               <span className="text-muted-foreground">
                 {"->"} {target.modelGroup}
-                {target.mode === "embedding" ? " (embedding)" : ""}
+                {target.mode === "embedding" ? t("ui. (embedding)") : ""}
               </span>
               {result.status === "error" && (
                 <p className="mt-1 text-xs text-destructive" data-testid="test-error-message">

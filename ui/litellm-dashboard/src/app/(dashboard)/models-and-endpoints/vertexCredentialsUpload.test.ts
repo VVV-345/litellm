@@ -40,7 +40,12 @@ describe("vertexCredentialsUploadProps", () => {
   });
 
   it("reports completed and failed upload states", () => {
-    const props = vertexCredentialsUploadProps(makeForm() as never);
+    const interpolate = (key: string, options?: Record<string, unknown>) => {
+      let s = key.replace(/^ui\./, "");
+      for (const [k, v] of Object.entries(options ?? {})) s = s.replaceAll(`{{${k}}}`, String(v));
+      return s;
+    };
+    const props = vertexCredentialsUploadProps(makeForm() as never, interpolate);
 
     props.onChange?.({ file: { name: "vertex.json", status: "done" } } as never);
     props.onChange?.({ file: { name: "vertex.json", status: "error" } } as never);

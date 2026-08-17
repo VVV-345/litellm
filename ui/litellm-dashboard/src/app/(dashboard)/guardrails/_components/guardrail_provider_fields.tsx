@@ -163,7 +163,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
           name={fullFieldKey}
           label={fieldKey}
           tooltip={field.description}
-          rules={field.required ? [{ required: true, message: `${fieldKey} is required` }] : undefined}
+          rules={field.required ? [{ required: true, message: t("ui.{{field}} is required", { field: fieldKey }) }] : undefined}
           initialValue={resolvedInitialValue}
         >
           {field.type === "select" && field.options ? (

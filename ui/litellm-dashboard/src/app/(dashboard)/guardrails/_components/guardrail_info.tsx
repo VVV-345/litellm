@@ -541,7 +541,9 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                   <div className="flex justify-between items-center">
                     <Text className="font-medium">{translateUiText(t, "PII Protection")}</Text>
                     <Badge color="blue">
-                      {Object.keys(guardrailData.litellm_params.pii_entities_config).length} PII entities configured
+                      {t("ui.{{count}} PII entities configured", {
+                        count: Object.keys(guardrailData.litellm_params.pii_entities_config).length,
+                      })}
                     </Badge>
                   </div>
                 </Card>
@@ -838,8 +840,9 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                           <Text className="font-medium">{translateUiText(t, "PII Protection")}</Text>
                           <div className="mt-2">
                             <Badge color="blue">
-                              {Object.keys(guardrailData.litellm_params.pii_entities_config).length} PII entities
-                              configured
+                              {t("ui.{{count}} PII entities configured", {
+                                count: Object.keys(guardrailData.litellm_params.pii_entities_config).length,
+                              })}
                             </Badge>
                           </div>
                         </div>

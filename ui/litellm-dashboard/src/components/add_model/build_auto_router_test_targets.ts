@@ -23,11 +23,14 @@ const TIER_ORDER = Object.keys({
   REASONING: null,
 } satisfies Record<keyof ComplexityTiers, null>) as (keyof ComplexityTiers)[];
 
-export const buildAutoRouterTestTargets = ({
-  tiers,
-  semanticMatchingEnabled,
-  embeddingModel,
-}: BuildAutoRouterTestTargetsParams): AutoRouterTestTarget[] => {
+export const buildAutoRouterTestTargets = (
+  {
+    tiers,
+    semanticMatchingEnabled,
+    embeddingModel,
+  }: BuildAutoRouterTestTargetsParams,
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
+): AutoRouterTestTarget[] => {
   const groupedByModel = TIER_ORDER.reduce<Record<string, string[]>>((acc, tier) => {
     return (tiers[tier] ?? []).reduce((tierAcc, rawModel) => {
       const modelGroup = rawModel?.trim();
@@ -44,7 +47,7 @@ export const buildAutoRouterTestTargets = ({
 
   const embeddingTarget: AutoRouterTestTarget[] =
     semanticMatchingEnabled && embeddingModel?.trim()
-      ? [{ labels: ["Embedding"], modelGroup: embeddingModel.trim(), mode: "embedding" as const }]
+      ? [{ labels: [t("ui.Embedding")], modelGroup: embeddingModel.trim(), mode: "embedding" as const }]
       : [];
 
   return [...tierTargets, ...embeddingTarget];

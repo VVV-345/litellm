@@ -59,7 +59,7 @@ const SearchToolTable: React.FC<SearchToolTableProps> = ({
       sorting={sorting}
       onSortingChange={setSorting}
       isLoading={isLoading}
-      loadingMessage="Loading search tools…"
+      loadingMessage={t("ui.Loading search tools…")}
       noDataMessage={<EmptyState />}
       size="compact"
     />

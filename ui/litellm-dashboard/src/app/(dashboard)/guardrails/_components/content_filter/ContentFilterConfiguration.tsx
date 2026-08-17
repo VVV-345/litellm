@@ -195,11 +195,11 @@ const ContentFilterConfiguration: React.FC<ContentFilterConfigurationProps> = ({
           NotificationsManager.success(result.message || ui("File uploaded successfully"));
         } else {
           const errorMessage = result.error || (result.errors && result.errors.join(", ")) || ui("Invalid file");
-          NotificationsManager.error(`Validation failed: ${errorMessage}`);
+          NotificationsManager.error(`${t("ui.Validation failed")}: ${errorMessage}`);
         }
       }
     } catch (error) {
-      NotificationsManager.error(`Failed to upload file: ${error}`);
+      NotificationsManager.error(`${t("ui.Failed to upload file")}: ${String(error)}`);
     } finally {
       setUploadValidating(false);
     }

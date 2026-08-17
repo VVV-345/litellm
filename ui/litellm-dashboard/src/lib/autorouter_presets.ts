@@ -190,6 +190,7 @@ export const getReferencedModelsError = (
     embeddingModel: string | undefined;
   },
   availability: ModelAvailability,
+  t: (key: string, opts?: { defaultValue?: string }) => string = (key: string) => key.replace(/^ui\./, ""),
 ): string | null => {
   const missing = getMissingModels(
     {
@@ -199,7 +200,7 @@ export const getReferencedModelsError = (
     },
     availability,
   );
-  return missing.length > 0 ? `Model(s) no longer available: ${missing.join(", ")}` : null;
+  return missing.length > 0 ? `${t("ui.Model(s) no longer available:")} ${missing.join(", ")}` : null;
 };
 
 // Every piece of AddAutoRouterTab's config state that a preset (or a reset to Custom) prefills in

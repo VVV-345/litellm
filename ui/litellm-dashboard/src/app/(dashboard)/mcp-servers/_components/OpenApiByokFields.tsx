@@ -47,8 +47,8 @@ const OpenApiByokFields: React.FC = () => {
               <div className="mb-4 p-3 bg-yellow-50 rounded-lg text-sm text-yellow-700 flex items-start gap-2">
                 <InfoCircleOutlined className="mt-0.5 shrink-0" />
                 <span>
-                  Set the <strong>Authentication Type</strong> below to specify how user keys are sent (e.g., Bearer
-                  Token, API Key header).
+                  {t("ui.Set the")} <strong>{t("ui.Authentication Type")}</strong>{" "}
+                  {t("ui.below to specify how user keys are sent (e.g., Bearer Token, API Key header).")}
                 </span>
               </div>
             )}

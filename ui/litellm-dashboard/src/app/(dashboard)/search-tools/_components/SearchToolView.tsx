@@ -46,14 +46,14 @@ export const SearchToolView: React.FC<SearchToolViewProps> = ({
         <div>
           <Button variant="ghost" size="sm" className="mb-4 -ml-2 text-muted-foreground" onClick={onBack}>
             <ArrowLeft className="mr-2 size-4" />
-            Back to All Search Tools
+            {t("ui.Back to All Search Tools")}
           </Button>
           <div className="flex items-center gap-1">
             <h1 className="text-2xl font-semibold text-foreground">{searchTool.search_tool_name}</h1>
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Copy search tool name"
+              aria-label={t("ui.Copy search tool name")}
               className="text-muted-foreground"
               onClick={() => copyToClipboard(searchTool.search_tool_name, "search-tool-name")}
             >
@@ -65,7 +65,7 @@ export const SearchToolView: React.FC<SearchToolViewProps> = ({
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Copy search tool ID"
+              aria-label={t("ui.Copy search tool ID")}
               className="text-muted-foreground"
               onClick={() => copyToClipboard(searchTool.search_tool_id, "search-tool-id")}
             >
@@ -78,7 +78,7 @@ export const SearchToolView: React.FC<SearchToolViewProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <Card>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Provider</p>
+            <p className="text-sm text-muted-foreground">{t("ui.Provider")}</p>
             <p className="mt-2 text-lg font-semibold text-foreground">
               {getProviderDisplayName(searchTool.litellm_params.search_provider)}
             </p>
@@ -87,16 +87,18 @@ export const SearchToolView: React.FC<SearchToolViewProps> = ({
 
         <Card>
           <CardContent>
-            <p className="text-sm text-muted-foreground">API Key</p>
-            <p className="mt-2 text-foreground">{searchTool.litellm_params.api_key ? "****" : "Not set"}</p>
+            <p className="text-sm text-muted-foreground">{t("ui.API Key")}</p>
+            <p className="mt-2 text-foreground">
+              {searchTool.litellm_params.api_key ? "****" : t("ui.Not set")}
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Created At</p>
+            <p className="text-sm text-muted-foreground">{t("ui.Created At")}</p>
             <p className="mt-2 text-foreground">
-              {searchTool.created_at ? new Date(searchTool.created_at).toLocaleString() : "Unknown"}
+              {searchTool.created_at ? new Date(searchTool.created_at).toLocaleString() : t("ui.Unknown")}
             </p>
           </CardContent>
         </Card>

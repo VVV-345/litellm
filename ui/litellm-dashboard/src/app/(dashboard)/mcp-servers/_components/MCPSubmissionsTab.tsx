@@ -164,7 +164,11 @@ function SubmissionRulesPanel({ requiredFields, onChange, onSave, isSaving }: Su
           <span className="text-sm font-semibold text-gray-800">{t("ui.Submission Rules")}</span>
           {activeLabels.length > 0 ? (
             <span className="text-xs text-gray-500">
-              ({activeLabels.length} required field{activeLabels.length !== 1 ? "s" : ""})
+              ({activeLabels.length}{" "}
+              {t(`ui.required field${activeLabels.length !== 1 ? "s" : ""}`, {
+                defaultValue: `required field${activeLabels.length !== 1 ? "s" : ""}`,
+              })}
+              )
             </span>
           ) : (
             <span className="text-xs text-gray-400 italic">{t("ui.no rules set")}</span>
@@ -370,10 +374,14 @@ function MCPServerCard({ server, onApprove, onReject, requiredFields }: MCPServe
             </div>
             <div className="flex-1 min-w-0">
               <div className={`text-sm font-semibold leading-tight ${allPassed ? "text-green-800" : "text-red-800"}`}>
-                {allPassed ? t("ui.All checks passed") : `${failCount} check${failCount !== 1 ? "s" : ""} failed`}
+                {allPassed
+                  ? t("ui.All checks passed")
+                  : t(`ui.${failCount} check${failCount !== 1 ? "s" : ""} failed`, {
+                      defaultValue: `${failCount} check${failCount !== 1 ? "s" : ""} failed`,
+                    })}
               </div>
               <div className="text-xs text-gray-500 mt-0.5">
-                {passCount} passing, {failCount} failing
+                {passCount} {t("ui.passing")}, {failCount} {t("ui.failing")}
               </div>
             </div>
             {/* Approve / Reject in header */}
@@ -424,7 +432,9 @@ function MCPServerCard({ server, onApprove, onReject, requiredFields }: MCPServe
                     <XIcon className="h-3 w-3 text-red-600" />
                   )}
                 </div>
-                <span className={`text-sm flex-1 ${c.passed ? "text-gray-700" : "text-gray-800"}`}>{c.label}</span>
+                <span className={`text-sm flex-1 ${c.passed ? "text-gray-700" : "text-gray-800"}`}>
+                  {t(`ui.${c.label}`)}
+                </span>
                 <span className={`text-xs ${c.passed ? "text-green-600" : "text-red-500"}`}>
                   {c.passed ? t("ui.Passes") : t("ui.Missing")}
                 </span>
@@ -527,7 +537,9 @@ export function MCPSubmissionsTab({ accessToken }: MCPSubmissionsTabProps) {
     try {
       await approveMCPServer(accessToken, serverId);
       await fetchData();
-      NotificationsManager.success(`MCP server "${serverName}" approved`);
+      NotificationsManager.success(
+        t(`ui.MCP server "${serverName}" approved`, { defaultValue: `MCP server "${serverName}" approved` }),
+      );
     } catch {
       NotificationsManager.fromBackend(translateUiText(t, "Failed to approve MCP server"));
     } finally {
@@ -540,7 +552,9 @@ export function MCPSubmissionsTab({ accessToken }: MCPSubmissionsTabProps) {
     try {
       await rejectMCPServer(accessToken, serverId, reviewNotes);
       await fetchData();
-      NotificationsManager.success(`MCP server "${serverName}" rejected`);
+      NotificationsManager.success(
+        t(`ui.MCP server "${serverName}" rejected`, { defaultValue: `MCP server "${serverName}" rejected` }),
+      );
     } catch {
       NotificationsManager.fromBackend(translateUiText(t, "Failed to reject MCP server"));
     } finally {

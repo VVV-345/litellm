@@ -490,8 +490,10 @@ const MCPToolConfiguration: React.FC<MCPToolConfigurationProps> = ({
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted p-3">
               <CircleCheck className="size-4" />
               <p className="text-sm font-medium">
-                {effectiveAllowedTools.length} of {tools.length} {tools.length === 1 ? "tool" : "tools"} enabled for
-                user access
+                {effectiveAllowedTools.length} of {tools.length}{" "}
+                {t(`ui.${tools.length === 1 ? "tool" : "tools"} enabled for user access`, {
+                  defaultValue: `${tools.length === 1 ? "tool" : "tools"} enabled for user access`,
+                })}
               </p>
             </div>
 
@@ -523,7 +525,11 @@ const MCPToolConfiguration: React.FC<MCPToolConfigurationProps> = ({
                 {filteredTools.length === 0 ? (
                   <div className="rounded-lg border border-dashed py-6 text-center text-muted-foreground">
                     <Search className="mx-auto mb-2 size-6" />
-                    <p className="text-sm">No tools found matching &quot;{toolSearchTerm}&quot;</p>
+                    <p className="text-sm">
+                      {t(`ui.No tools found matching "${toolSearchTerm}"`, {
+                        defaultValue: `No tools found matching "${toolSearchTerm}"`,
+                      })}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">

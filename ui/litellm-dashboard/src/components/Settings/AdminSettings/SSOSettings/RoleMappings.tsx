@@ -1,23 +1,29 @@
 import type { RoleMappings as RoleMappingsType } from "@/app/(dashboard)/hooks/sso/useSSOSettings";
 import { Card, Divider, Table, Tag, Typography } from "antd";
 import { Users } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { defaultRoleDisplayNames } from "./constants";
 const { Title, Text } = Typography;
 
 export default function RoleMappings({ roleMappings }: { roleMappings: RoleMappingsType | undefined }) {
+  const { t } = useTranslation();
   if (!roleMappings) {
     return null;
   }
 
+  const roleDisplayName = (role: string) => defaultRoleDisplayNames[role] || role;
+
   const roleMappingsColumns = [
     {
-      title: "Role",
+      title: t("ui.Role"),
       dataIndex: "role",
       key: "role",
-      render: (text: string) => <Text strong>{defaultRoleDisplayNames[text]}</Text>,
+      render: (text: string) => (
+        <Text strong>{t(`ui.${roleDisplayName(text)}`, { defaultValue: roleDisplayName(text) })}</Text>
+      ),
     },
     {
-      title: "Mapped Groups",
+      title: t("ui.Mapped Groups"),
       dataIndex: "groups",
       key: "groups",
       render: (groups: string[]) => (
@@ -29,7 +35,7 @@ export default function RoleMappings({ roleMappings }: { roleMappings: RoleMappi
               </Tag>
             ))
           ) : (
-            <Text className="text-gray-400 italic">No groups mapped</Text>
+            <Text className="text-gray-400 italic">{t("ui.No groups mapped")}</Text>
           )}
         </>
       ),
@@ -39,20 +45,24 @@ export default function RoleMappings({ roleMappings }: { roleMappings: RoleMappi
     <Card>
       <div className="flex items-center gap-3">
         <Users className="w-6 h-6 text-gray-400 mb-2" />
-        <Title level={3}>Role Mappings</Title>
+        <Title level={3}>{t("ui.Role Mappings")}</Title>
       </div>
       <div className="space-y-8">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Title level={5}>Group Claim</Title>
+            <Title level={5}>{t("ui.Group Claim")}</Title>
             <div>
               <Text code>{roleMappings.group_claim}</Text>
             </div>
           </div>
           <div>
-            <Title level={5}>Default Role</Title>
+            <Title level={5}>{t("ui.Default Role")}</Title>
             <div>
-              <Text strong>{defaultRoleDisplayNames[roleMappings.default_role]}</Text>
+              <Text strong>
+                {t(`ui.${roleDisplayName(roleMappings.default_role)}`, {
+                  defaultValue: roleDisplayName(roleMappings.default_role),
+                })}
+              </Text>
             </div>
           </div>
         </div>

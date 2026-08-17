@@ -2,7 +2,7 @@ import React from "react";
 import { Form, Input, Select, Collapse } from "antd";
 import { useTranslation } from "react-i18next";
 import { AgentCreateInfo, AgentCredentialFieldMetadata } from "@/components/networking";
-import { AGENT_FORM_CONFIG } from "./agent_config";
+import { getAgentFormConfig } from "./agent_config";
 import CostConfigFields from "./cost_config_fields";
 
 const { Panel } = Collapse;
@@ -18,19 +18,24 @@ interface DynamicAgentFormFieldsProps {
  */
 const DynamicAgentFormFields: React.FC<DynamicAgentFormFieldsProps> = ({ agentTypeInfo }) => {
   const { t } = useTranslation();
+  const agentFormConfig = getAgentFormConfig(t);
   return (
     <>
       <Form.Item
-        label="Agent Name"
+        label={t("ui.Agent Name")}
         name="agent_name"
-        rules={[{ required: true, message: "Please enter a unique agent name" }]}
-        tooltip="Unique identifier for the agent"
+        rules={[{ required: true, message: t("ui.Please enter a unique agent name") }]}
+        tooltip={t("ui.Unique identifier for the agent")}
       >
-        <Input placeholder="e.g., my-langgraph-agent" />
+        <Input placeholder={t("ui.e.g., my-langgraph-agent")} />
       </Form.Item>
 
-      <Form.Item label={t("ui.Description")} name="description" tooltip="Brief description of what this agent does">
-        <Input.TextArea rows={2} placeholder="Describe what this agent does..." />
+      <Form.Item
+        label={t("ui.Description")}
+        name="description"
+        tooltip={t("ui.Brief description of what this agent does")}
+      >
+        <Input.TextArea rows={2} placeholder={t("ui.Describe what this agent does...")} />
       </Form.Item>
 
       {agentTypeInfo.credential_fields.map((field: AgentCredentialFieldMetadata) => (
@@ -38,7 +43,16 @@ const DynamicAgentFormFields: React.FC<DynamicAgentFormFieldsProps> = ({ agentTy
           key={field.key}
           label={field.label}
           name={field.key}
-          rules={field.required ? [{ required: true, message: `Please enter ${field.label}` }] : undefined}
+          rules={
+            field.required
+              ? [
+                  {
+                    required: true,
+                    message: t(`ui.Please enter ${field.label}`, { defaultValue: `Please enter ${field.label}` }),
+                  },
+                ]
+              : undefined
+          }
           tooltip={field.tooltip}
           initialValue={field.default_value}
         >
@@ -61,7 +75,7 @@ const DynamicAgentFormFields: React.FC<DynamicAgentFormFieldsProps> = ({ agentTy
       ))}
 
       <Collapse style={{ marginBottom: 16 }}>
-        <Panel header={AGENT_FORM_CONFIG.cost.title} key={AGENT_FORM_CONFIG.cost.key}>
+        <Panel header={agentFormConfig.cost.title} key={agentFormConfig.cost.key}>
           <CostConfigFields />
         </Panel>
       </Collapse>

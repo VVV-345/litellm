@@ -77,14 +77,14 @@ export default function PluginSettings() {
 
   const columns = [
     {
-      title: "Name",
+      title: t("ui.Name"),
       dataIndex: "name",
       key: "name",
       render: (v: string) => <Text code>{v}</Text>,
     },
     { title: t("ui.Display Name"), dataIndex: "display_name", key: "display_name" },
     {
-      title: "URL",
+      title: t("ui.URL"),
       dataIndex: "url",
       key: "url",
       render: (v: string) => (
@@ -94,7 +94,7 @@ export default function PluginSettings() {
       ),
     },
     {
-      title: "Plugin Key",
+      title: t("ui.Plugin Key"),
       dataIndex: "plugin_key",
       key: "plugin_key",
       render: (v?: string) => (v ? <Text code>{"•".repeat(8)}</Text> : <Text type="secondary">—</Text>),
@@ -113,59 +113,67 @@ export default function PluginSettings() {
 
   return (
     <Card>
-      <Title level={4}>Plugins</Title>
+      <Title level={4}>{t("ui.Plugins")}</Title>
       <Paragraph>
-        Register external services as plugins. Once added, users can toggle to the plugin from the mode switcher in the
-        top-left of the sidebar.
+        {t(
+          "ui.Register external services as plugins. Once added, users can toggle to the plugin from the mode switcher in the top-left of the sidebar.",
+        )}
       </Paragraph>
       <Paragraph type="secondary" style={{ fontSize: 12 }}>
-        Each plugin must expose <Text code>GET /api/plugin-manifest</Text> returning nav items and capabilities.
+        {t("ui.Each plugin must expose")} <Text code>GET /api/plugin-manifest</Text>{" "}
+        {t("ui.returning nav items and capabilities.")}
       </Paragraph>
 
       <Button type="primary" icon={<PlusOutlined />} onClick={openAdd} style={{ marginBottom: 16 }}>
-        Add Plugin
+        {t("ui.Add Plugin")}
       </Button>
 
       <Table dataSource={plugins} columns={columns} rowKey="name" loading={loading} pagination={false} size="small" />
 
       <Modal
-        title={editingIndex !== null ? "Edit Plugin" : "Add Plugin"}
+        title={editingIndex !== null ? t("ui.Edit Plugin") : t("ui.Add Plugin")}
         open={modalOpen}
         onOk={handleOk}
         onCancel={() => setModalOpen(false)}
         confirmLoading={saving}
-        okText="Save"
+        okText={t("ui.Save")}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
             name="name"
-            label="Name (identifier)"
-            rules={[{ required: true, message: "Required" }]}
-            extra="Used in URLs and config. No spaces. E.g. litellm-platform-plugin"
+            label={t("ui.Name (identifier)")}
+            rules={[{ required: true, message: t("ui.Required") }]}
+            extra={t("ui.Used in URLs and config. No spaces. E.g. litellm-platform-plugin")}
           >
             <Input placeholder="litellm-platform-plugin" />
           </Form.Item>
-          <Form.Item name="display_name" label={t("ui.Display Name")} rules={[{ required: true, message: "Required" }]}>
+          <Form.Item
+            name="display_name"
+            label={t("ui.Display Name")}
+            rules={[{ required: true, message: t("ui.Required") }]}
+          >
             <Input placeholder="Agent Control Plane" />
           </Form.Item>
           <Form.Item
             name="url"
-            label="URL"
+            label={t("ui.URL")}
             rules={[
-              { required: true, message: "Required" },
-              { type: "url", message: "Must be a valid URL" },
+              { required: true, message: t("ui.Required") },
+              { type: "url", message: t("ui.Must be a valid URL") },
             ]}
-            extra="Base URL of the plugin service"
+            extra={t("ui.Base URL of the plugin service")}
           >
             <Input placeholder="https://your-plugin.example.com" />
           </Form.Item>
           <Form.Item
             name="plugin_key"
-            label="Plugin Key"
-            extra="Optional. The plugin's own credential, injected as Authorization: Bearer <key> only when litellm reverse-proxies API calls to the plugin's backend (/plugin-proxy/<name>/*). Leave blank for plugins that use the forwarded litellm user token (e.g. iframe plugins) — that path uses the user's token, not this key."
+            label={t("ui.Plugin Key")}
+            extra={t(
+              "ui.Optional. The plugin's own credential, injected as Authorization: Bearer <key> only when litellm reverse-proxies API calls to the plugin's backend (/plugin-proxy/<name>/*). Leave blank for plugins that use the forwarded litellm user token (e.g. iframe plugins) — that path uses the user's token, not this key.",
+            )}
           >
             <Input.Password
-              placeholder={editingIndex !== null ? "Leave blank to keep current key" : "sk-... (optional)"}
+              placeholder={editingIndex !== null ? t("ui.Leave blank to keep current key") : t("ui.sk-... (optional)")}
             />
           </Form.Item>
         </Form>

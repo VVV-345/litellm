@@ -15,6 +15,7 @@ import { parseErrorMessage } from "@/components/shared/errorUtils";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { Button, Card, Form, Input, InputNumber, Skeleton, Space, Switch, Typography } from "antd";
 import React, { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 const STORE_PROMPTS_FIELD_NAME = "store_prompts_in_spend_logs";
 
@@ -114,6 +115,7 @@ const omittedFieldNames = (
   OPTIONAL_FIELDS.map((field) => field.name).filter((name) => !(name in updateParams) && isStored(name));
 
 const LoggingSettings: React.FC = () => {
+  const { t } = useTranslation();
   const [form] = Form.useForm<LoggingSettingsFormValues>();
   const { mutate, isPending } = useStoreRequestInSpendLogs();
   const { mutate: deleteField, isPending: isDeletingField } = useDeleteProxyConfigField();
@@ -174,9 +176,11 @@ const LoggingSettings: React.FC = () => {
     const updateParams = buildUpdateParams(formValues);
     const submitUpdate = () =>
       mutate(updateParams, {
-        onSuccess: () => NotificationsManager.success("Spend logs settings updated successfully"),
+        onSuccess: () => NotificationsManager.success(t("ui.Spend logs settings updated successfully")),
         onError: (error) =>
-          NotificationsManager.fromBackend("Failed to save spend logs settings: " + parseErrorMessage(error)),
+          NotificationsManager.fromBackend(
+            t("ui.Failed to save spend logs settings:") + " " + parseErrorMessage(error),
+          ),
       });
 
     const fieldsToClear = omittedFieldNames(updateParams, isStored);
@@ -189,7 +193,7 @@ const LoggingSettings: React.FC = () => {
       if (failed.length > 0) {
         // Reporting an unqualified success here would tell the admin a setting
         // was reset to its default while the old value is still in force.
-        NotificationsManager.fromBackend(`Failed to clear saved value for: ${failed.join(", ")}`);
+        NotificationsManager.fromBackend(t("ui.Failed to clear saved value for:") + " " + failed.join(", "));
         return;
       }
       submitUpdate();
@@ -197,10 +201,10 @@ const LoggingSettings: React.FC = () => {
   };
 
   return (
-    <Card title="Logging Settings">
+    <Card title={t("ui.Logging Settings")}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         <Typography.Paragraph style={{ marginBottom: 0 }} type="secondary">
-          Proxy-wide settings that control how request and response data are written to spend logs.
+          {t("ui.Proxy-wide settings that control how request and response data are written to spend logs.")}
         </Typography.Paragraph>
 
         {isLoadingConfig ? (
@@ -208,11 +212,11 @@ const LoggingSettings: React.FC = () => {
         ) : (
           <Form form={form} layout="vertical" onFinish={handleFormSubmit} initialValues={initialValues}>
             <Form.Item
-              label="Store Prompts in Spend Logs"
+              label={t("ui.Store Prompts in Spend Logs")}
               name={STORE_PROMPTS_FIELD_NAME}
               tooltip={describeField(
                 STORE_PROMPTS_FIELD_NAME,
-                "When enabled, prompts will be stored in spend logs for tracking and analysis purposes.",
+                t("ui.When enabled, prompts will be stored in spend logs for tracking and analysis purposes."),
               )}
               valuePropName="checked"
             >
@@ -222,21 +226,32 @@ const LoggingSettings: React.FC = () => {
             {OPTIONAL_FIELDS.map((field) => (
               <Form.Item
                 key={field.name}
-                label={field.label}
+                label={t(`ui.${field.label}`, { defaultValue: field.label })}
                 name={field.name}
-                tooltip={describeField(field.name, field.fallbackTooltip)}
+                tooltip={describeField(
+                  field.name,
+                  t(`ui.${field.fallbackTooltip}`, { defaultValue: field.fallbackTooltip }),
+                )}
               >
                 {field.kind === "duration" ? (
-                  <Input placeholder={field.placeholder} prefix={<ClockCircleOutlined />} />
+                  <Input
+                    placeholder={t(`ui.${field.placeholder}`, { defaultValue: field.placeholder })}
+                    prefix={<ClockCircleOutlined />}
+                  />
                 ) : (
-                  <InputNumber min={1} precision={0} placeholder={field.placeholder} style={{ width: "100%" }} />
+                  <InputNumber
+                    min={1}
+                    precision={0}
+                    placeholder={t(`ui.${field.placeholder}`, { defaultValue: field.placeholder })}
+                    style={{ width: "100%" }}
+                  />
                 )}
               </Form.Item>
             ))}
 
             <Form.Item>
               <Button type="primary" htmlType="submit" loading={isPending || isDeletingField}>
-                {isPending || isDeletingField ? "Saving..." : "Save Settings"}
+                {isPending || isDeletingField ? t("ui.Saving...") : t("ui.Save Settings")}
               </Button>
             </Form.Item>
           </Form>

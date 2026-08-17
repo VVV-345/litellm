@@ -57,7 +57,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
       return Promise.resolve();
     }
     if (isNaN(Number(value)) || Number(value) < 0) {
-      return Promise.reject("Please enter a valid positive number");
+      return Promise.reject(ui("Please enter a valid positive number"));
     }
     return Promise.resolve();
   };
@@ -207,10 +207,10 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                   name={PTU_COUNT_FIELD}
                   dependencies={[PTU_RATE_FIELD]}
                   rules={[{ validator: validateNumber }, ...ptuCountRules, ptuPairRule(PTU_RATE_FIELD)]}
-                  tooltip="Provisioned throughput units for this deployment. Set together with Cost per PTU / Hour and a Team to attribute a flat daily cost."
+                  tooltip={ui("Provisioned throughput units for this deployment. Set together with Cost per PTU / Hour and a Team to attribute a flat daily cost.")}
                   className="mb-4"
                 >
-                  <TextInput placeholder="e.g. 15" />
+                  <TextInput placeholder={ui("e.g. 15")} />
                 </Form.Item>
 
                 <Form.Item
@@ -218,10 +218,10 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                   name={PTU_RATE_FIELD}
                   dependencies={[PTU_COUNT_FIELD]}
                   rules={[{ validator: validateNumber }, ...ptuRateRules, ptuPairRule(PTU_COUNT_FIELD)]}
-                  tooltip="Flat cost = PTU count * this rate * active hours, attributed to the deployment's team."
+                  tooltip={ui("Flat cost = PTU count * this rate * active hours, attributed to the deployment's team.")}
                   className="mb-4"
                 >
-                  <TextInput placeholder="e.g. 2.00" />
+                  <TextInput placeholder={ui("e.g. 2.00")} />
                 </Form.Item>
 
                 <Form.Item
@@ -229,7 +229,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                   name={PTU_START_FIELD}
                   dependencies={[PTU_COUNT_FIELD, PTU_END_FIELD]}
                   rules={[ptuStartRequiredRule(PTU_COUNT_FIELD), ptuWindowOrderRule(PTU_END_FIELD, "start")]}
-                  tooltip="Start of the PTU window, required when PTU Count is set. Flat cost accrues by the hour within the window; a window opening at 23:00 charges one hour that day."
+                  tooltip={ui("Start of the PTU window, required when PTU Count is set. Flat cost accrues by the hour within the window; a window opening at 23:00 charges one hour that day.")}
                   className="mb-4"
                 >
                   <DatePicker showTime style={{ width: "100%" }} />
@@ -240,7 +240,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                   name={PTU_END_FIELD}
                   dependencies={[PTU_START_FIELD]}
                   rules={[ptuWindowOrderRule(PTU_START_FIELD, "end")]}
-                  tooltip="Optional end of the PTU window (exclusive). Leave blank for open-ended."
+                  tooltip={ui("Optional end of the PTU window (exclusive). Leave blank for open-ended.")}
                   className="mb-4"
                 >
                   <DatePicker showTime style={{ width: "100%" }} />
@@ -289,7 +289,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                       tooltip="If left blank, defaults to Input Cost."
                       className="mb-4"
                     >
-                      <TextInput placeholder="Defaults to Input Cost if blank" />
+                      <TextInput placeholder={ui("Defaults to Input Cost if blank")} />
                     </Form.Item>
                     <Form.Item
                       label={ui("Cache Write Cost (per 1M tokens)")}
@@ -299,7 +299,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                       tooltip="If left blank, defaults to Input Cost (the backend falls back to input_cost_per_token when no cache-write rate is set)."
                       className="mb-4"
                     >
-                      <TextInput placeholder="Defaults to Input Cost if blank" />
+                      <TextInput placeholder={ui("Defaults to Input Cost if blank")} />
                     </Form.Item>
                   </>
                 ) : (
@@ -366,9 +366,9 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               </Col>
             </Row>
             <Form.Item
-              label="Model Info"
+              label={ui("Model Info")}
               name="model_info_params"
-              tooltip="Optional model info params. Returned when calling `/model/info` endpoint."
+              tooltip={ui("Optional model info params. Returned when calling `/model/info` endpoint.")}
               className="mb-0"
               rules={[{ validator: formItemValidateJSON }]}
             >

@@ -107,7 +107,7 @@ const GuardrailsPanel: React.FC<GuardrailsPanelProps> = ({ accessToken, userRole
       await fetchGuardrails();
     } catch (error) {
       console.error("Error deleting guardrail:", error);
-      NotificationsManager.fromBackend("Failed to delete guardrail");
+      NotificationsManager.fromBackend(t("ui.Failed to delete guardrail"));
     } finally {
       setIsDeleting(false);
       setIsDeleteModalOpen(false);
@@ -210,13 +210,13 @@ const GuardrailsPanel: React.FC<GuardrailsPanelProps> = ({ accessToken, userRole
                 message={t("ui.Are you sure you want to delete guardrail: {{name}}? This action cannot be undone.", { name: guardrailToDelete?.guardrail_name })}
                 resourceInformationTitle={t("ui.Guardrail Information")}
                 resourceInformation={[
-                  { label: "Name", value: guardrailToDelete?.guardrail_name },
-                  { label: "ID", value: guardrailToDelete?.guardrail_id, code: true },
-                  { label: "Provider", value: providerDisplayName },
-                  { label: "Mode", value: guardrailToDelete?.litellm_params.mode },
+                  { label: t("ui.Name"), value: guardrailToDelete?.guardrail_name },
+                  { label: t("ui.ID"), value: guardrailToDelete?.guardrail_id, code: true },
+                  { label: t("ui.Provider"), value: providerDisplayName },
+                  { label: t("ui.Mode"), value: guardrailToDelete?.litellm_params.mode },
                   {
-                    label: "Default On",
-                    value: guardrailToDelete?.litellm_params.default_on ? "Yes" : "No",
+                    label: t("ui.Default On"),
+                    value: guardrailToDelete?.litellm_params.default_on ? t("ui.Yes") : t("ui.No"),
                   },
                 ]}
                 onCancel={handleDeleteCancel}

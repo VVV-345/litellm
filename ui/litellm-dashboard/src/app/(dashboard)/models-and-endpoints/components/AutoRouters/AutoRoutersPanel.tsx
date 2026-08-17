@@ -55,11 +55,11 @@ export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createS
     setIsDeleting(true);
     try {
       await modelDeleteCall(accessToken, deletingRouter.id);
-      NotificationsManager.success(`Deleted auto router: ${deletingRouter.name}`);
+      NotificationsManager.success(t("ui.Deleted auto router: {{name}}", { name: deletingRouter.name }));
       setDeletingRouter(null);
       await invalidateAutoRouters();
     } catch (error) {
-      NotificationsManager.fromBackend(`Failed to delete auto router: ${error}`);
+      NotificationsManager.fromBackend(t("ui.Failed to delete auto router: {{error}}", { error: String(error) }));
     } finally {
       setIsDeleting(false);
     }
@@ -114,7 +114,9 @@ export function AutoRoutersPanel({ accessToken, userRole, userID, teams, createS
         <DeleteResourceModal
           isOpen
           title={t("ui.Delete Auto Router")}
-          message={`Are you sure you want to delete "${deletingRouter.name}"? Any client still calling this model name will start failing.`}
+          message={t('ui.Are you sure you want to delete "{{name}}"? Any client still calling this model name will start failing.', {
+            name: deletingRouter.name,
+          })}
           resourceInformationTitle={t("ui.Auto router")}
           resourceInformation={[
             { label: t("ui.Name"), value: deletingRouter.name },
