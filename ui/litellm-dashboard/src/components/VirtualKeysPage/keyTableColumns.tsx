@@ -226,7 +226,10 @@ export const getKeyTableColumns = ({
     accessorKey: "user",
     meta: { title: t("ui.User") },
     header: () => (
-      <InfoHeader label="User" tooltip="Displays the first available value: User Alias, User Email, or User ID." />
+      <InfoHeader
+        label={t("ui.User")}
+        tooltip={t("ui.Displays the first available value: User Alias, User Email, or User ID.")}
+      />
     ),
     size: 160,
     enableSorting: false,
@@ -287,8 +290,8 @@ export const getKeyTableColumns = ({
     meta: { title: t("ui.Last Active") },
     header: () => (
       <InfoHeader
-        label="Last Active"
-        tooltip="This is a new field and is not backfilled. Only new key usage will update this value."
+        label={t("ui.Last Active")}
+        tooltip={t("ui.This is a new field and is not backfilled. Only new key usage will update this value.")}
       />
     ),
     size: 130,

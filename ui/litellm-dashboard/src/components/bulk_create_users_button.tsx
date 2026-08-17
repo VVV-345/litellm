@@ -828,7 +828,7 @@ const BulkCreateUsersButton: React.FC<BulkCreateUsersProps> = ({
                   {pageCount > 1 && (
                     <div className="flex items-center justify-end gap-3 mt-2">
                       <span className="text-sm text-gray-500">
-                        Page {currentPage + 1} of {pageCount}
+                        {t("ui.Page {{page}} of {{pageCount}}", { page: currentPage + 1, pageCount })}
                       </span>
                       <Button
                         variant="outline"

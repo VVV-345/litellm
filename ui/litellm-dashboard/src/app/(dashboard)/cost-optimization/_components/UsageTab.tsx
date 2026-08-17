@@ -144,7 +144,9 @@ const UsageTab: React.FC<UsageTabProps> = ({ accessToken, activity }) => {
   const intervalLabel = t("ui.Per day");
   const rangeLabel = formatRangeLabel(startTime ?? undefined, endTime ?? undefined);
   const savingsSubtitle = [
-    accumulation === "cumulative" ? t("ui.Running total saved") : `Saved ${intervalLabel.toLowerCase()}`,
+    accumulation === "cumulative"
+      ? t("ui.Running total saved")
+      : t("ui.Saved {{interval}}", { interval: intervalLabel.toLowerCase() }),
     rangeLabel && `${rangeLabel} (UTC)`,
   ]
     .filter(Boolean)
@@ -196,7 +198,7 @@ const UsageTab: React.FC<UsageTabProps> = ({ accessToken, activity }) => {
         <SummaryCard
           label={t("ui.Compression savings")}
           value={usd(compressionTotal)}
-          hint={`${formatNumberWithCommas(savedTokensTotal)} tokens compressed`}
+          hint={t("ui.{{n}} tokens compressed", { n: formatNumberWithCommas(savedTokensTotal) })}
           info={t("ui.Tokens Headroom removed before the call, priced at the model's input rate.")}
         />
         <SummaryCard

@@ -64,7 +64,7 @@ export function LogsTableToolbar({
   const displayLabel = isCustomDate
     ? getTimeRangeDisplay(isCustomDate, startTime, endTime, t)
     : selectedOption
-      ? t(selectedOption.label)
+      ? t(`ui.${selectedOption.label}`)
       : "";
 
   return (
@@ -87,7 +87,7 @@ export function LogsTableToolbar({
                 className="w-full justify-start font-normal"
                 onClick={() => applyQuickSelect(option)}
               >
-                {t(option.label)}
+                {t(`ui.${option.label}`)}
               </Button>
             ))}
             <div className="my-2 border-t" />

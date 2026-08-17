@@ -858,7 +858,7 @@ print(response.choices[0].message.content)`}
                         <div className="flex justify-between items-start mb-2">
                           <div>
                             <p className="font-medium text-base">{skill.name}</p>
-                            <p className="text-xs text-gray-500">ID: {skill.id}</p>
+                            <p className="text-xs text-gray-500">{t("ui.ID:")} {skill.id}</p>
                           </div>
                           {skill.tags && skill.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1">

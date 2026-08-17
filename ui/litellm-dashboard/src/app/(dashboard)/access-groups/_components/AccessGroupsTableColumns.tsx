@@ -107,8 +107,8 @@ export const getAccessGroupsTableColumns = ({
     {
       id: "id",
       accessorKey: "id",
-      meta: { title: "ID" },
-      header: "ID",
+      meta: { title: t("ui.ID") },
+      header: t("ui.ID"),
       size: 200,
       enableSorting: false,
       cell: ({ row }) => (
@@ -122,8 +122,8 @@ export const getAccessGroupsTableColumns = ({
     {
       id: "name",
       accessorKey: "name",
-      meta: { title: "Name" },
-      header: ({ column }) => <DataTableSortHeader column={column} title="Name" />,
+      meta: { title: t("ui.Name") },
+      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Name")} />,
       size: 220,
       enableSorting: true,
       cell: ({ row }) => {
@@ -137,8 +137,8 @@ export const getAccessGroupsTableColumns = ({
     },
     {
       id: "resources",
-      meta: { title: "Resources" },
-      header: "Resources",
+      meta: { title: t("ui.Resources") },
+      header: t("ui.Resources"),
       size: 220,
       enableSorting: false,
       cell: ({ row }) => <ResourcesCell group={row.original} t={t} />,
@@ -146,8 +146,8 @@ export const getAccessGroupsTableColumns = ({
     {
       id: "createdAt",
       accessorKey: "createdAt",
-      meta: { title: "Created" },
-      header: ({ column }) => <DataTableSortHeader column={column} title="Created" />,
+      meta: { title: t("ui.Created") },
+      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Created")} />,
       size: 150,
       enableSorting: true,
       sortingFn: "datetime",

@@ -176,7 +176,7 @@ export function AuditLogsTable({
                       <SelectItem value={ALL_VALUE}>{t("ui.All Actions")}</SelectItem>
                       {ACTION_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {t(option.label)}
+                          {t(`ui.${option.label}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -194,7 +194,7 @@ export function AuditLogsTable({
                       <SelectItem value={ALL_VALUE}>{t("ui.All Tables")}</SelectItem>
                       {TABLE_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {t(option.label)}
+                          {t(`ui.${option.label}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>

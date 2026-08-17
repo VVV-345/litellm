@@ -112,6 +112,8 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
 }) => {
   const { t } = useTranslation();
   const ui = (text: string) => translateUiText(t, text);
+  const requestCostKey = ui("Request cost");
+  const flatCostKey = ui("Flat cost");
   const { teams } = useTeams();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [modelViewType, setModelViewType] = useState<ModelViewType>("groups");
@@ -346,11 +348,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
     >
       <CardContent>
         <div className="flex items-center gap-2">
-          <h3 className="text-lg font-medium text-foreground">{title}</h3>
+          <h3 className="text-lg font-medium text-foreground">{ui(title)}</h3>
           {tooltip ? (
             <Tooltip>
               <TooltipTrigger render={<Info className="size-4 text-gray-400 hover:text-gray-600" />} />
-              <TooltipContent>{tooltip}</TooltipContent>
+              <TooltipContent>{ui(tooltip)}</TooltipContent>
             </Tooltip>
           ) : null}
           {expandable ? expandIcon : null}
@@ -370,7 +372,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardContent>
-            <h3 className="text-lg font-medium text-foreground">{capitalizedEntityLabel} Spend Overview</h3>
+            <h3 className="text-lg font-medium text-foreground">
+              {ui("{{entity}} Spend Overview").replace("{{entity}}", capitalizedEntityLabel)}
+            </h3>
             <div className="grid grid-cols-5 gap-4 mt-4">{summaryTiles.map(renderSummaryTile)}</div>
           </CardContent>
         </ShadcnCard>
@@ -388,11 +392,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                 .map((row) => ({
                   ...row,
-                  "Request cost": row.metrics.spend ?? 0,
-                  "Flat cost": row.metrics.flat_cost ?? 0,
+                  [requestCostKey]: row.metrics.spend ?? 0,
+                  [flatCostKey]: row.metrics.flat_cost ?? 0,
                 }))}
               index="date"
-              categories={showFlatCost ? ["Request cost", "Flat cost"] : ["metrics.spend"]}
+              categories={showFlatCost ? [requestCostKey, flatCostKey] : ["metrics.spend"]}
               colors={showFlatCost ? ["cyan", "violet"] : ["cyan"]}
               stack={showFlatCost}
               valueFormatter={valueFormatterSpend}
@@ -423,10 +427,12 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                     <p className="text-gray-600">{ui("Failed")}: {data.metrics.failed_requests}</p>
                     <p className="text-gray-600">{ui("Total Tokens")}: {data.metrics.total_tokens}</p>
                     <p className="text-gray-600">
-                      Total {capitalizedEntityLabel}s: {entityCount}
+                      {ui("Total {{entity}}s").replace("{{entity}}", capitalizedEntityLabel)}: {entityCount}
                     </p>
                     <div className="mt-2 border-t pt-2">
-                      <p className="font-semibold">Spend by {capitalizedEntityLabel}:</p>
+                      <p className="font-semibold">
+                        {ui("Spend by {{entity}}").replace("{{entity}}", capitalizedEntityLabel)}:
+                      </p>
                       {Object.entries(data.breakdown.entities || {})
                         .sort(([, a], [, b]) => {
                           const spendA = (a as EntityMetrics).metrics.spend;
@@ -443,7 +449,11 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                             </p>
                           );
                         })}
-                      {entityCount > 5 && <p className="text-sm text-gray-500 italic">...and {entityCount - 5} more</p>}
+                      {entityCount > 5 && (
+                        <p className="text-sm text-gray-500 italic">
+                          {ui("...and {{count}} more").replace("{{count}}", String(entityCount - 5))}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -458,15 +468,19 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         <ShadcnCard>
           <CardContent className="flex flex-col space-y-4">
             <div className="flex flex-col space-y-2">
-              <h3 className="text-lg font-medium text-foreground">Spend Per {capitalizedEntityLabel}</h3>
+              <h3 className="text-lg font-medium text-foreground">
+                {ui("Spend Per {{entity}}").replace("{{entity}}", capitalizedEntityLabel)}
+              </h3>
               <p className="text-xs text-muted-foreground">{ui("Showing Top 5 by Spend")}</p>
               <div className="flex items-center text-sm text-gray-500">
-                <span>Get Started by Tracking cost per {capitalizedEntityLabel} </span>
+                <span>
+                  {ui("Get Started by Tracking cost per {{entity}}").replace("{{entity}}", capitalizedEntityLabel)}{" "}
+                </span>
                 <a
                   href="https://docs.litellm.ai/docs/proxy/enterprise#spend-tracking"
                   className="text-blue-500 hover:text-blue-700 ml-1"
                 >
-                  here
+                  {ui("here")}
                 </a>
               </div>
             </div>
@@ -506,7 +520,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                   data={getEntityBreakdown().filter((entity) => entity.metrics.spend > 0)}
                   getRowId={(row) => row.metadata.id}
                   maxBodyHeight={208}
-                  noDataMessage={`No ${entityType} spend data`}
+                  noDataMessage={ui("No {{entity}} spend data").replace("{{entity}}", entityType)}
                   size="compact"
                 />
               </div>
@@ -632,9 +646,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <AlertDescription className="flex items-center justify-between text-inherit">
             <span>
               <Loader2 className="mr-2 inline size-4 animate-spin align-text-bottom" />
-              Currently fetching spend data: fetched {progress.currentPage} / {progress.totalPages} pages. Charts will
-              update periodically as data loads. Moving off of this page will stop and reset this. To continue using the
-              UI in the meantime,{" "}
+              {ui("Currently fetching spend data: fetched")} {progress.currentPage} / {progress.totalPages}{" "}
+              {ui("pages. Charts will update periodically as data loads. Moving off")}{" "}
+              {ui("of this page will stop and reset this. To continue using the UI in the meantime,")}{" "}
               <a href={window.location.href} target="_blank" rel="noopener noreferrer">
                 {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
               </a>
@@ -649,7 +663,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       {cancelled && (
         <Alert variant="info" className="mb-2">
           <AlertDescription className="text-inherit">
-            Showing partial data ({progress.currentPage}/{progress.totalPages} pages loaded)
+            {ui("Showing partial data ({{current}}/{{total}} pages loaded)")
+              .replace("{{current}}", String(progress.currentPage))
+              .replace("{{total}}", String(progress.totalPages))}
           </AlertDescription>
         </Alert>
       )}
@@ -658,9 +674,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <AlertDescription className="flex items-center justify-between text-inherit">
             <span>
               <Loader2 className="mr-2 inline size-4 animate-spin align-text-bottom" />
-              Currently fetching agent data: fetched {agentProgress.currentPage} / {agentProgress.totalPages} pages.
-              Charts will update periodically as data loads. Moving off of this page will stop and reset this. To
-              continue using the UI in the meantime,{" "}
+              {ui("Currently fetching agent data: fetched")} {agentProgress.currentPage} / {agentProgress.totalPages}{" "}
+              {ui("pages. Charts will update periodically as data loads. Moving off")}{" "}
+              {ui("of this page will stop and reset this. To continue using the UI in the meantime,")}{" "}
               <a href={window.location.href} target="_blank" rel="noopener noreferrer">
                 {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
               </a>
@@ -675,7 +691,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       {agentCancelled && showAgentBreakdown && (
         <Alert variant="info" className="mb-2">
           <AlertDescription className="text-inherit">
-            Showing partial agent data ({agentProgress.currentPage}/{agentProgress.totalPages} pages loaded)
+            {ui("Showing partial agent data ({{current}}/{{total}} pages loaded)")
+              .replace("{{current}}", String(agentProgress.currentPage))
+              .replace("{{total}}", String(agentProgress.totalPages))}
           </AlertDescription>
         </Alert>
       )}

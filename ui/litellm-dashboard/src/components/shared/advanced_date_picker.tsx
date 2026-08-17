@@ -157,14 +157,14 @@ const AdvancedDatePicker: React.FC<AdvancedDatePickerProps> = ({
   }, [isOpen]);
 
   const formatDisplayRange = useCallback((from: Date | undefined, to: Date | undefined) => {
-    if (!from || !to) return "Select date range";
+    if (!from || !to) return t("ui.Select range");
 
     const formatDateTime = (date: Date) => {
       return moment(date).format("D MMM, HH:mm");
     };
 
     return `${formatDateTime(from)} - ${formatDateTime(to)}`;
-  }, []);
+  }, [t]);
 
   // CRITICAL: Apply the same date adjustment logic as the original component
   const adjustDateRange = useCallback((newValue: DateRangePickerValue): DateRangePickerValue => {

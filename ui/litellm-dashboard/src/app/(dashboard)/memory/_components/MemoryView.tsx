@@ -76,11 +76,11 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ accessToken }) => {
       return createMemory(accessToken, args);
     },
     onSuccess: (row) => {
-      MessageManager.success(`Created ${row.key}`);
+      MessageManager.success(t("ui.Created {{key}}", { key: row.key }));
       invalidateList();
     },
     onError: (err: Error) => {
-      MessageManager.error(`Save failed: ${err.message}`);
+      MessageManager.error(t("ui.Save failed: {{message}}", { message: err.message }));
     },
   });
 
@@ -91,11 +91,11 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ accessToken }) => {
       return updateMemory(accessToken, key, payload);
     },
     onSuccess: (row) => {
-      MessageManager.success(`Updated ${row.key}`);
+      MessageManager.success(t("ui.Updated {{key}}", { key: row.key }));
       invalidateList();
     },
     onError: (err: Error) => {
-      MessageManager.error(`Save failed: ${err.message}`);
+      MessageManager.error(t("ui.Save failed: {{message}}", { message: err.message }));
     },
   });
 
@@ -105,11 +105,11 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ accessToken }) => {
       return deleteMemory(accessToken, key).then(() => key);
     },
     onSuccess: (key) => {
-      MessageManager.success(`Deleted ${key}`);
+      MessageManager.success(t("ui.Deleted {{key}}", { key }));
       invalidateList();
     },
     onError: (err: Error) => {
-      MessageManager.error(`Delete failed: ${err.message}`);
+      MessageManager.error(t("ui.Delete failed: {{message}}", { message: err.message }));
     },
   });
 

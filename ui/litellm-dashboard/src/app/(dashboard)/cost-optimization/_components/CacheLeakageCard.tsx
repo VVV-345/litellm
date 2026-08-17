@@ -130,7 +130,11 @@ const CacheLeakageCard: React.FC<CacheLeakageCardProps> = ({ activity }) => {
         <CardContent>
           {rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              {loading || isFetchingMore ? "Loading..." : `No ${emptyNoun} usage in this range.`}
+              {loading || isFetchingMore
+                ? t("ui.Loading...")
+                : t(`ui.No ${emptyNoun} usage in this range.`, {
+                    defaultValue: `No ${emptyNoun} usage in this range.`,
+                  })}
             </p>
           ) : (
             <Table>

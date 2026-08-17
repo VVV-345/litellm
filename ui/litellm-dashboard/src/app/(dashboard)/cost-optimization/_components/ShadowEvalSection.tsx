@@ -35,13 +35,13 @@ const MIN_TURNS_FOR_CONFIDENCE = 30;
 
 const isActive = (job: ShadowEvalJob): boolean => job.status === "running";
 
-const endsIn = (endsAt: string | null | undefined): string | null => {
+const endsIn = (endsAt: string | null | undefined, t: TFunction): string | null => {
   if (!endsAt) return null;
   const remainingMs = new Date(endsAt).getTime() - Date.now();
   if (!Number.isFinite(remainingMs)) return null;
-  if (remainingMs <= 0) return "ending now";
+  if (remainingMs <= 0) return t("ui.ending now");
   const days = Math.round(remainingMs / 86_400_000);
-  return days >= 2 ? `ends in ${days} days` : "ends within a day";
+  return days >= 2 ? t("ui.ends in {{days}} days", { days }) : t("ui.ends within a day");
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -65,7 +65,7 @@ const SliceTable: React.FC<{ groupHeader: string; slices: readonly ShadowEvalSli
         <TableHead>{groupHeader}</TableHead>
         {["Judged turns", "Router wins", "Current model wins", "Ties", "Judge confidence"].map((label) => (
           <TableHead key={label} className="text-right">
-            {t(`ui.${label}`)}
+            {t(`ui.${label}`, { defaultValue: label })}
           </TableHead>
         ))}
       </TableRow>
@@ -145,7 +145,9 @@ const ResultsBody: React.FC<{ job: ShadowEvalJob; resultsError?: boolean }> = ({
         <p className="text-3xl font-semibold text-foreground">
           {pct(results.overall_shadow_win_rate_pct + results.overall_tie_rate_pct)}
         </p>
-        <p className="text-xs text-muted-foreground">of {(job.judged_count ?? 0).toLocaleString()} judged responses</p>
+        <p className="text-xs text-muted-foreground">
+          {t("ui.of {{n}} judged responses", { n: (job.judged_count ?? 0).toLocaleString() })}
+        </p>
       </div>
       <VerdictBar results={results} />
       {results.by_current_model.length > 0 && (
@@ -169,7 +171,7 @@ const JobResults: React.FC<{
 }> = ({ job, onStop, stopPending, resultsError = false, readOnly = false }) => {
   const { t } = useTranslation();
   const active = isActive(job);
-  const remaining = endsIn(job.ends_at);
+  const remaining = endsIn(job.ends_at, t);
   return (
     <Card className="overflow-hidden py-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
@@ -177,11 +179,16 @@ const JobResults: React.FC<{
           <StatusBadge status={job.status} />
           <div>
             <p className="text-sm font-medium text-foreground">
-              Shadowing {job.shadow_percentage}% via <span className="font-mono text-xs">{job.router_name}</span>
+              {t("ui.Shadowing {{pct}}% via", { pct: job.shadow_percentage })}{" "}
+              <span className="font-mono text-xs">{job.router_name}</span>
             </p>
             <p className="text-xs text-muted-foreground">
-              {(job.judged_count ?? 0).toLocaleString()} of {job.max_turns.toLocaleString()} turns judged ·{" "}
-              {(job.error_count ?? 0).toLocaleString()} errored · {usd(job.judge_spend ?? 0)} judge spend
+              {t("ui.{{judged}} of {{max}} turns judged · {{errored}} errored · {{spend}} judge spend", {
+                judged: (job.judged_count ?? 0).toLocaleString(),
+                max: job.max_turns.toLocaleString(),
+                errored: (job.error_count ?? 0).toLocaleString(),
+                spend: usd(job.judge_spend ?? 0),
+              })}
               {active && remaining ? ` · ${remaining}` : ""}
             </p>
           </div>
@@ -375,13 +382,15 @@ const StartForm: React.FC = () => {
             <Select value={durationDays} onValueChange={(v: string | null) => setDurationDays(v ?? "7")}>
               <SelectTrigger className="w-full">
                 <SelectValue>
-                  {t(`ui.${DURATION_OPTIONS.find((o) => o.value === durationDays)?.label}`)}
+                  {t(`ui.${DURATION_OPTIONS.find((o) => o.value === durationDays)?.label}`, {
+                    defaultValue: DURATION_OPTIONS.find((o) => o.value === durationDays)?.label ?? "",
+                  })}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {DURATION_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {t(`ui.${option.label}`)}
+                    {t(`ui.${option.label}`, { defaultValue: option.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -421,13 +430,14 @@ const StartForm: React.FC = () => {
   );
 };
 
-const previousSummary = (job: ShadowEvalJob): string => {
+const previousSummary = (job: ShadowEvalJob, t: TFunction): string => {
   const results = job.results;
   if (results) return pct(results.overall_shadow_win_rate_pct + results.overall_tie_rate_pct);
-  return job.judged_count === 0 ? "no verdicts" : "view results";
+  return job.judged_count === 0 ? t("ui.no verdicts") : t("ui.view results");
 };
 
 const PreviousJob: React.FC<{ job: ShadowEvalJob }> = ({ job }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const { data: detail, isError } = useShadowEvalJob(expanded ? job.job_id : null);
   const shown = detail ?? job;
@@ -443,16 +453,20 @@ const PreviousJob: React.FC<{ job: ShadowEvalJob }> = ({ job }) => {
           <StatusBadge status={shown.status} />
           <div>
             <p className="text-sm font-medium text-foreground">
-              {shown.shadow_percentage}% via <span className="font-mono text-xs">{shown.router_name}</span>
+              {t("ui.{{pct}}% via {{router}}", { pct: shown.shadow_percentage, router: shown.router_name })}
             </p>
             <p className="text-xs text-muted-foreground">
               {shown.judged_count != null &&
-                `${shown.judged_count.toLocaleString()} judged · ${(shown.error_count ?? 0).toLocaleString()} errored · ${usd(shown.judge_spend ?? 0)} judge spend · `}
+                `${t("ui.{{judged}} judged · {{errored}} errored · {{spend}} judge spend", {
+                  judged: shown.judged_count.toLocaleString(),
+                  errored: (shown.error_count ?? 0).toLocaleString(),
+                  spend: usd(shown.judge_spend ?? 0),
+                })} · `}
               {new Date(shown.created_at).toLocaleDateString()}
             </p>
           </div>
         </div>
-        <span className="text-sm font-medium text-foreground">{previousSummary(shown)}</span>
+        <span className="text-sm font-medium text-foreground">{previousSummary(shown, t)}</span>
       </button>
       {expanded && (
         <div className="border-t">

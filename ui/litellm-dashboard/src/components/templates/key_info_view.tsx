@@ -73,10 +73,11 @@ export default function KeyInfoView({
   teams,
   onKeyDataUpdate,
   onDelete,
-  backButtonText = "Back to Keys",
+  backButtonText,
 }: KeyInfoViewProps) {
   const { accessToken, userId: userID, userRole, premiumUser } = useAuthorized();
   const { t } = useTranslation();
+  const backText = backButtonText ?? t("ui.Back to Keys");
   const queryClient = useQueryClient();
   const canEditGuardrails = premiumUser || (userRole != null && rolesWithWriteAccess.includes(userRole));
   const { teams: teamsData } = useTeams();
@@ -157,9 +158,9 @@ export default function KeyInfoView({
       <div className="p-4">
         <Button variant="ghost" onClick={onClose} className="mb-4">
           <ArrowLeft className="size-4" />
-          {backButtonText}
+          {backText}
         </Button>
-        <p className="text-sm">Key not found</p>
+        <p className="text-sm">{t("ui.Key not found")}</p>
       </div>
     );
   }

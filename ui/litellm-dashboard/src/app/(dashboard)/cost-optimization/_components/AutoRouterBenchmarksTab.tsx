@@ -111,7 +111,7 @@ const StackedTurnBar: React.FC<{ buckets: BucketRow[] }> = ({ buckets }) => {
             key={b.key}
             className={`${b.fill} first:rounded-l-sm last:rounded-r-sm`}
             style={{ width: `${b.sharePct}%` }}
-            title={`${b.label}: ${b.turns.toLocaleString()} turns`}
+            title={t("ui.{{label}}: {{n}} turns", { label: b.label, n: b.turns.toLocaleString() })}
           />
         ))}
       </div>
@@ -145,8 +145,10 @@ const BucketTable: React.FC<{ buckets: BucketRow[] }> = ({ buckets }) => {
             <span className="flex items-center gap-2">
               <span className={`inline-block size-2 shrink-0 rounded-sm ${b.fill}`} aria-hidden />
               <span>
-                {b.label}
-                <span className="block text-xs font-normal text-muted-foreground">{b.sublabel}</span>
+                {t(`ui.${b.label}`, { defaultValue: b.label })}
+                <span className="block text-xs font-normal text-muted-foreground">
+                  {t(`ui.${b.sublabel}`, { defaultValue: b.sublabel })}
+                </span>
               </span>
             </span>
           </TableCell>
@@ -296,7 +298,9 @@ const UsageView: React.FC<AutoRouterBenchmarksTabProps> = ({ accessToken }) => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-foreground">{t("ui.Auto-router usage")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{WINDOW_LABELS[range]}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t(`ui.${WINDOW_LABELS[range]}`, { defaultValue: WINDOW_LABELS[range] })}
+          </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
           <Tabs value={range} onValueChange={(value) => setRange(value === "7d" || value === "24h" ? value : "30d")}>

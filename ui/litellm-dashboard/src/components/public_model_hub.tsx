@@ -85,7 +85,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [selectedAgentSkills, setSelectedAgentSkills] = useState<string[]>([]);
   const [selectedMcpTransports, setSelectedMcpTransports] = useState<string[]>([]);
-  const [serviceStatus, setServiceStatus] = useState<string>("I'm alive! ✓");
+  const [serviceStatus, setServiceStatus] = useState<string>(t("ui.I'm alive! ✓"));
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isAgentModalVisible, setIsAgentModalVisible] = useState(false);
   const [isMcpModalVisible, setIsMcpModalVisible] = useState(false);
@@ -113,7 +113,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
           setModelHubData(Array.isArray(_modelHubData) ? _modelHubData : []);
         } catch (error) {
           console.error("There was an error fetching the public model data", error);
-          setServiceStatus("Service unavailable");
+          setServiceStatus(t("ui.Service unavailable"));
         } finally {
           setLoading(false);
         }
@@ -483,7 +483,10 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
   const featureOptions = useMemo(
     () =>
       Array.isArray(modelHubData)
-        ? getUniqueFeatures(modelHubData).map((feature) => ({ label: feature, value: feature }))
+        ? getUniqueFeatures(modelHubData).map((feature) => ({
+            label: t(`ui.${feature}`, { defaultValue: feature }),
+            value: feature,
+          }))
         : [],
     [modelHubData],
   );
@@ -531,7 +534,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                 <div className="flex items-center space-x-3 text-sm text-gray-600">
                   <span className="flex items-center">
                     <span className="w-4 h-4 mr-2">🔧</span>
-                    Built with litellm: v{litellmVersion}
+                    {t("ui.Built with litellm: v{{version}}", { version: litellmVersion })}
                   </span>
                 </div>
               </Card>
@@ -569,7 +572,7 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
               <Card className="mb-10 p-8 bg-white border border-gray-200 rounded-lg shadow-xs">
                 <h2 className="text-2xl font-semibold mb-6 text-gray-900">{t("ui.Health and Endpoint Status")}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <p className="text-green-600 font-medium text-sm">Service status: {serviceStatus}</p>
+                  <p className="text-green-600 font-medium text-sm">{t("ui.Service status:")} {serviceStatus}</p>
                 </div>
               </Card>
             )}
@@ -710,7 +713,10 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
 
                   <div className="mt-8 text-center">
                     <p className="text-sm text-gray-600">
-                      Showing {filteredData.length} of {modelHubData?.length || 0} models
+                      {t("ui.Showing {{count}} of {{total}} models", {
+                        count: filteredData.length,
+                        total: modelHubData?.length || 0,
+                      })}
                     </p>
                   </div>
                 </TabsContent>
@@ -775,7 +781,10 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
 
                     <div className="mt-8 text-center">
                       <p className="text-sm text-gray-600">
-                        Showing {filteredAgentData.length} of {agentHubData?.length || 0} agents
+                        {t("ui.Showing {{count}} of {{total}} agents", {
+                          count: filteredAgentData.length,
+                          total: agentHubData?.length || 0,
+                        })}
                       </p>
                     </div>
                   </TabsContent>
@@ -841,7 +850,10 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
 
                     <div className="mt-8 text-center">
                       <p className="text-sm text-gray-600">
-                        Showing {filteredMcpData.length} of {mcpHubData?.length || 0} MCP servers
+                        {t("ui.Showing {{count}} of {{total}} MCP servers", {
+                          count: filteredMcpData.length,
+                          total: mcpHubData?.length || 0,
+                        })}
                       </p>
                     </div>
                   </TabsContent>
@@ -925,19 +937,20 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
                           <div>
                             <p className="font-medium text-blue-900 mb-2">{t("ui.Wildcard Routing")}</p>
                             <p className="text-sm text-blue-800 mb-2">
-                              This model uses wildcard routing. You can pass any value where you see the{" "}
-                              <code className="bg-blue-100 px-1 py-0.5 rounded-sm text-xs">*</code> symbol.
+                              {t("ui.This model uses wildcard routing. You can pass any value where you see the")}{" "}
+                              <code className="bg-blue-100 px-1 py-0.5 rounded-sm text-xs">*</code> {t("ui.symbol.")}
                             </p>
                             <p className="text-sm text-blue-800">
-                              For example, with{" "}
+                              {t("ui.For example, with")}{" "}
                               <code className="bg-blue-100 px-1 py-0.5 rounded-sm text-xs">
                                 {selectedModel.model_group}
                               </code>
-                              , you can use any string (
+                              {", "}
+                              {t("ui.you can use any string")} (
                               <code className="bg-blue-100 px-1 py-0.5 rounded-sm text-xs">
                                 {selectedModel.model_group.replaceAll("*", "my-custom-value")}
                               </code>
-                              ) that matches this pattern.
+                              ) {t("ui.that matches this pattern.")}
                             </p>
                           </div>
                         </div>
@@ -989,7 +1002,9 @@ const PublicModelHub: React.FC<PublicModelHubProps> = ({ accessToken, isEmbedded
 
                         return capabilities.map((capability) => (
                           <Badge key={capability} variant="secondary">
-                            {formatCapabilityName(capability)}
+                            {t(`ui.${formatCapabilityName(capability)}`, {
+                              defaultValue: formatCapabilityName(capability),
+                            })}
                           </Badge>
                         ));
                       })()}

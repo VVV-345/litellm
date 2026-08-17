@@ -122,7 +122,7 @@ const TierTurnsChart: React.FC<TierTurnsChartProps> = ({ view, autoRouters }) =>
             colors={colors}
             valueFormatter={(value) => value.toLocaleString()}
             showLabel
-            label={`${total.toLocaleString()} total turns`}
+            label={t("ui.{{n}} total turns", { n: total.toLocaleString() })}
           />
           <ul className="flex flex-col gap-6">
             {slices.map((slice, idx) => (

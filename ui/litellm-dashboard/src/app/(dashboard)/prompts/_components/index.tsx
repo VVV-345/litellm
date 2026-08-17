@@ -123,7 +123,7 @@ const PromptsPanel: React.FC<PromptsProps> = ({ accessToken, userRole }) => {
     setIsDeleting(true);
     try {
       await deletePromptCall(accessToken, promptToDelete.id);
-      NotificationsManager.success(`Prompt "${promptToDelete.name}" deleted successfully`);
+      NotificationsManager.success(t("ui.Prompt \"{{name}}\" deleted successfully", { name: promptToDelete.name }));
       fetchPrompts(); // Refresh the list
     } catch (error) {
       console.error("Error deleting prompt:", error);
@@ -185,7 +185,7 @@ const PromptsPanel: React.FC<PromptsProps> = ({ accessToken, userRole }) => {
                 <SelectItem value={null}>{t("ui.All Environments")}</SelectItem>
                 {ENVIRONMENT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {t(`ui.${option.label}`)}
+                    {t(`ui.${option.label}`, { defaultValue: option.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -221,7 +221,9 @@ const PromptsPanel: React.FC<PromptsProps> = ({ accessToken, userRole }) => {
             <AlertDialogHeader>
               <AlertDialogTitle>{t("ui.Delete Prompt")}</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete prompt: {promptToDelete.name} ? This action cannot be undone.
+                {t("ui.Are you sure you want to delete prompt: {{name}} ? This action cannot be undone.", {
+                  name: promptToDelete.name,
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

@@ -66,10 +66,12 @@ export function DataTablePagination({
 
       <div className="flex items-center gap-4">
         <span data-testid="pagination-range" className="text-sm text-muted-foreground tabular-nums">
-          {rowCount === 0 ? translateUiText(t, "No results") : `Showing ${start}-${end} of ${rowCount}`}
+          {rowCount === 0
+            ? translateUiText(t, "No results")
+            : t("ui.Showing {{start}}-{{end}} of {{rowCount}}", { start, end, rowCount })}
         </span>
         <span data-testid="pagination-page" className="text-sm text-muted-foreground tabular-nums">
-          Page {page + 1} of {Math.max(pageCount, 1)}
+          {t("ui.Page {{page}} of {{pageCount}}", { page: page + 1, pageCount: Math.max(pageCount, 1) })}
         </span>
         <div className="flex items-center gap-1">
           <Button

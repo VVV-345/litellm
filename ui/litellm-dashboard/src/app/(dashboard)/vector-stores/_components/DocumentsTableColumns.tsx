@@ -95,7 +95,7 @@ export const getDocumentsTableColumns = ({ onRemove, t }: DocumentsTableColumnsD
     enableSorting: false,
     cell: ({ row }) => {
       const config = STATUS_CONFIG[row.original.status] ?? { tone: "neutral", label: row.original.status };
-      return <StatusBadge tone={config.tone} label={t(config.label)} />;
+      return <StatusBadge tone={config.tone} label={t(`ui.${config.label}`, { defaultValue: config.label })} />;
     },
   },
   {

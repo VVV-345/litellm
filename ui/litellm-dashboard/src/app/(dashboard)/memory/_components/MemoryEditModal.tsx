@@ -47,7 +47,7 @@ export const MemoryEditModal: React.FC<MemoryEditModalProps> = ({ open, mode, in
   return (
     <Modal
       open={open}
-      title={mode === "create" ? t("ui.Create memory") : `Edit ${initialRow?.key ?? ""}`}
+      title={mode === "create" ? t("ui.Create memory") : t("ui.Edit {{key}}", { key: initialRow?.key ?? "" })}
       onCancel={() => {
         form.resetFields();
         onClose();

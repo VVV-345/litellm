@@ -28,13 +28,15 @@ export const NoRedisWarningBanner: React.FC<NoRedisWarningBannerProps> = ({ acce
       <div>
         <p className="font-semibold">{t("ui.No Redis configured. Redis is highly recommended")}</p>
         <p>
-          Rate limits, budgets, router state, and cache invalidation are per worker without Redis, so limits are
-          enforced once per worker and spend can overshoot.{" "}
+          {t(
+            "ui.Rate limits, budgets, router state, and cache invalidation are per worker without Redis, so limits are enforced once per worker and spend can overshoot.",
+          )}{" "}
           <a className="underline" href={REDIS_DOCS_URL} target="_blank" rel="noreferrer">
-            See everything that does not work without Redis
+            {t("ui.See everything that does not work without Redis")}
           </a>
-          . If you run a single worker and this is intentional, set{" "}
-          <code className="font-mono">LITELLM_DISABLE_NO_REDIS_WARNING=true</code> to hide this banner.
+          {t("ui.. If you run a single worker and this is intentional, set")}{" "}
+          <code className="font-mono">LITELLM_DISABLE_NO_REDIS_WARNING=true</code>{" "}
+          {t("ui.to hide this banner.")}
         </p>
       </div>
     </div>

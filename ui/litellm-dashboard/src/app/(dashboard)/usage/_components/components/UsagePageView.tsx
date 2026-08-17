@@ -505,7 +505,8 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 <span>
                   <Loader2 className="mr-2 inline size-4 animate-spin align-text-bottom" />
                     {ui("Currently fetching spend data: fetched")} {paginatedResult.progress.currentPage} /{" "}
-                  {paginatedResult.progress.totalPages} pages. Charts will update periodically as data loads. Moving off
+                  {paginatedResult.progress.totalPages}{" "}
+                  {ui("pages. Charts will update periodically as data loads. Moving off")}{" "}
                   {ui("of this page will stop and reset this. To continue using the UI in the meantime,")} {" "}
                   <a href={window.location.href} target="_blank" rel="noopener noreferrer">
                     {ui("open a new tab")} <ExternalLink className="inline size-3.5 align-text-bottom" />
