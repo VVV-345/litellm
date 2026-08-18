@@ -24,6 +24,14 @@ def _require_proxy_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
         raise HTTPException(status_code=403, detail="Only proxy admins can manage the account pool")
 
 
+@router.get("/authorize")
+async def authorize_account_pool(
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> dict[str, bool]:
+    _require_proxy_admin(user_api_key_dict)
+    return {"ok": True}
+
+
 async def _forward(request: Request, method: _Method, path: str) -> Response:
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5), follow_redirects=False) as client:
         return await _forward_with_client(request=request, method=method, path=path, client=client)

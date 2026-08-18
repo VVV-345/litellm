@@ -98,6 +98,16 @@ class LiteLLMAdminClient:
             message="LiteLLM 已连接",
         )
 
+    async def authorize(self, access_token: str) -> bool:
+        try:
+            response: Final = await self._client.get(
+                f"{self._base_url}/account_pool/authorize",
+                headers={"authorization": f"Bearer {access_token}"},
+            )
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 400
+
     async def create_deployment(
         self,
         account_id: str,

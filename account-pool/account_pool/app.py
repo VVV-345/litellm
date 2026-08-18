@@ -7,11 +7,13 @@ import secrets
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from account_pool.config import Settings, load_pool_config
 from account_pool.domain.provider_source import (
@@ -124,6 +126,11 @@ def create_app(
             raise HTTPException(status_code=503, detail="Account-pool service token is not configured")
         if x_account_pool_token is None or not secrets.compare_digest(x_account_pool_token, expected):
             raise HTTPException(status_code=401, detail="Invalid account-pool service token")
+
+    async def require_litellm_admin(authorization: str | None = Header(default=None)) -> None:
+        scheme, _, access_token = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not access_token or not await admin.authorize(access_token):
+            raise HTTPException(status_code=401, detail="LiteLLM 管理令牌无效")
 
     async def healthz() -> OperationResult:
         return OperationResult(ok=True)
@@ -238,6 +245,40 @@ def create_app(
     application.add_api_route("/internal/release", release, methods=["POST"], dependencies=internal_dependency)
     application.add_api_route("/internal/heartbeat", heartbeat, methods=["POST"], dependencies=internal_dependency)
     application.add_api_route("/v1/{path:path}", proxy, methods=["POST"])
+
+    ui_dependency: Final = [Depends(require_litellm_admin)]
+    application.add_api_route("/ui-api/accounts", accounts, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route("/ui-api/accounts", create_account, methods=["POST"], dependencies=ui_dependency)
+    application.add_api_route(
+        "/ui-api/accounts/{account_id}", update_account, methods=["PUT"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/accounts/{account_id}", delete_account, methods=["DELETE"], dependencies=ui_dependency
+    )
+    application.add_api_route("/ui-api/models", models, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route(
+        "/ui-api/models/{model}/routing-table", routing_table, methods=["GET"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/models/{model}/policy", update_policy, methods=["PUT"], dependencies=ui_dependency
+    )
+    application.add_api_route("/ui-api/stats", stats, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route(
+        "/ui-api/litellm/status", litellm_status, methods=["GET"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/provider-services", provider_service_manifests, methods=["GET"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
+    )
+
+    async def ui_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/ui/")
+
+    ui_path: Final = Path(__file__).resolve().parent / "ui"
+    application.add_api_route("/", ui_redirect, methods=["GET"], include_in_schema=False)
+    application.mount("/ui", StaticFiles(directory=ui_path, html=True), name="account-pool-ui")
 
     return application
 

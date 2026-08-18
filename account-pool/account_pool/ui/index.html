@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>号池调度器</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <main id="login-view" class="login-shell">
+      <form id="login-form" class="login-panel">
+        <div class="brand-mark">AP</div>
+        <h1>号池调度器</h1>
+        <p>使用 LiteLLM 管理令牌进入控制台</p>
+        <label for="admin-token">管理令牌</label>
+        <input id="admin-token" type="password" autocomplete="current-password" placeholder="sk-..." required />
+        <button class="button primary full" type="submit">登录</button>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+    </main>
+
+    <div id="app-view" class="app-shell" hidden>
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark small">AP</span><strong>号池调度器</strong></div>
+        <nav aria-label="主导航">
+          <button class="nav-item active" data-view="overview">运行概览</button>
+          <button class="nav-item" data-view="channels">渠道管理</button>
+          <button class="nav-item" data-view="routing">模型调度</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span id="service-state" class="status-dot">连接中</span>
+          <button id="logout-button" class="button ghost full" type="button">退出登录</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h1 id="page-title">运行概览</h1>
+            <p id="page-description">查看号池容量、模型和渠道健康状态</p>
+          </div>
+          <div class="toolbar">
+            <span id="last-updated" class="muted"></span>
+            <button id="refresh-button" class="button secondary" type="button">刷新</button>
+            <button id="add-channel-button" class="button primary" type="button">添加渠道</button>
+          </div>
+        </header>
+
+        <div id="notice" class="notice" role="status" hidden></div>
+
+        <section id="overview-view" class="view-stack">
+          <div id="stat-grid" class="stat-grid"></div>
+          <section class="section-block">
+            <div class="section-heading"><div><h2>模型运行状态</h2><p>按对外模型汇总可用渠道和并发占用</p></div></div>
+            <div id="overview-models" class="table-wrap"></div>
+          </section>
+          <section class="section-block">
+            <div class="section-heading"><div><h2>渠道健康状态</h2><p>展示当前并发、额度和健康状态</p></div></div>
+            <div id="overview-channels" class="table-wrap"></div>
+          </section>
+        </section>
+
+        <section id="channels-view" class="view-stack" hidden>
+          <section class="section-block">
+            <div class="section-heading"><div><h2>上游渠道</h2><p>配置优先级、权重、并发和额度限制</p></div></div>
+            <div id="channel-table" class="table-wrap"></div>
+          </section>
+        </section>
+
+        <section id="routing-view" class="routing-layout" hidden>
+          <section class="model-list section-block">
+            <div class="section-heading"><div><h2>对外模型</h2><p>选择模型查看调度顺序</p></div></div>
+            <div id="model-list"></div>
+          </section>
+          <section class="route-panel section-block">
+            <div id="route-header" class="section-heading"></div>
+            <div id="route-table" class="table-wrap"></div>
+          </section>
+        </section>
+      </section>
+    </div>
+
+    <dialog id="channel-dialog" class="modal">
+      <form id="channel-form" method="dialog">
+        <div class="modal-header">
+          <div><h2 id="channel-dialog-title">添加上游渠道</h2><p>校验官方接口后同步为 LiteLLM Deployment</p></div>
+          <button class="icon-button" type="button" data-close-dialog aria-label="关闭">×</button>
+        </div>
+        <div class="modal-body">
+          <input id="form-mode" type="hidden" value="create" />
+          <div class="form-grid">
+            <label>渠道服务<select id="provider-id" required></select></label>
+            <label>分组<input id="group" placeholder="例如：生产、研发或主账号" /></label>
+            <label>渠道 ID<input id="account-id" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" required /></label>
+            <label>显示名称<input id="display-name" required /></label>
+            <label class="span-2">API Base URL<input id="api-base" type="url" required /></label>
+            <label class="span-2">API Key<input id="api-key" type="password" autocomplete="new-password" /></label>
+            <label>优先级
+              <select id="priority">
+                <option value="400">最高</option><option value="300">高</option><option value="200" selected>中</option><option value="100">低</option>
+              </select>
+            </label>
+            <label>调度权重<input id="weight" type="number" min="1" max="100" value="1" required /></label>
+            <label>最大并发<input id="max-concurrency" type="number" min="1" max="10000" value="5" required /></label>
+            <label class="toggle-field"><span>渠道状态</span><span class="toggle-control"><input id="enabled" type="checkbox" checked />启用调度</span></label>
+            <label>总额度<input id="quota-total" type="number" min="0" step="any" placeholder="不限制" /></label>
+            <label>5 小时额度<input id="quota-five-hour" type="number" min="0" step="any" placeholder="不限制" /></label>
+            <label>每周额度<input id="quota-weekly" type="number" min="0" step="any" placeholder="不限制" /></label>
+          </div>
+
+          <div id="validation-actions" class="validation-row">
+            <button id="validate-channel-button" class="button secondary" type="button">校验并获取模型</button>
+            <span id="validation-message" class="muted"></span>
+          </div>
+
+          <section class="model-picker">
+            <div class="field-heading"><label for="model-input">对外模型</label><span>可选择发现结果，也可输入模型名后回车</span></div>
+            <div class="model-input-row">
+              <input id="model-input" list="model-options" placeholder="输入模型名称" />
+              <datalist id="model-options"></datalist>
+              <button id="add-model-button" class="button secondary" type="button">添加</button>
+            </div>
+            <div id="selected-models" class="chip-list"></div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button class="button ghost" type="button" data-close-dialog>取消</button>
+          <button id="save-channel-button" class="button primary" type="submit">保存到号池</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="delete-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <h2>删除渠道？</h2>
+        <p id="delete-message"></p>
+        <div class="modal-footer compact">
+          <button class="button ghost" value="cancel">取消</button>
+          <button id="confirm-delete" class="button danger" value="confirm">删除</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/ui/app.js"></script>
+  </body>
+</html>

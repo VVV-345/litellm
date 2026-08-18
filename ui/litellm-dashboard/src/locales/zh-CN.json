@@ -5534,7 +5534,6 @@
         "allModels": "全部模型",
         "yourModels": "你的模型",
         "addModel": "添加模型",
-        "accountPool": "号池管理",
         "autoRouters": "自动路由器",
         "llmCredentials": "LLM 凭据",
         "passThrough": "透传端点",

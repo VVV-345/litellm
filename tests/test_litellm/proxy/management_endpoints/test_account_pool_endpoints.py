@@ -12,6 +12,7 @@ from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     _forward_with_client,
     _require_proxy_admin,
+    authorize_account_pool,
 )
 
 
@@ -20,6 +21,18 @@ def test_account_pool_management_rejects_non_admin() -> None:
 
     with pytest.raises(HTTPException) as error:
         _require_proxy_admin(auth)
+
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_account_pool_authorize_accepts_proxy_admin_only() -> None:
+    admin: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN)
+    viewer: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY)
+
+    assert await authorize_account_pool(admin) == {"ok": True}
+    with pytest.raises(HTTPException) as error:
+        await authorize_account_pool(viewer)
 
     assert error.value.status_code == 403
 

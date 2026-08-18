@@ -83,6 +83,51 @@ async def test_management_api_fails_closed_without_configured_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
+    def litellm(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/account_pool/authorize":
+            return httpx.Response(status_code=404)
+        token: Final = request.headers.get("authorization")
+        if token == "Bearer admin-secret":
+            return httpx.Response(status_code=200, json={"ok": True})
+        return httpx.Response(status_code=401)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(litellm)) as proxy_client:
+        app: Final = create_app(
+            settings=settings(admin_key="service-admin-key"),
+            store=MemoryStateStore(),
+            proxy_client=proxy_client,
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://account-pool",
+                follow_redirects=False,
+            ) as client:
+                root: Final = await client.get("/")
+                ui: Final = await client.get("/ui/")
+                missing: Final = await client.get("/ui-api/stats")
+                invalid: Final = await client.get(
+                    "/ui-api/stats", headers={"authorization": "Bearer invalid"}
+                )
+                viewer: Final = await client.get(
+                    "/ui-api/stats", headers={"authorization": "Bearer viewer-secret"}
+                )
+                valid: Final = await client.get(
+                    "/ui-api/stats", headers={"authorization": "Bearer admin-secret"}
+                )
+
+    assert root.status_code == 307
+    assert root.headers["location"] == "/ui/"
+    assert ui.status_code == 200
+    assert "号池调度器" in ui.text
+    assert missing.status_code == 401
+    assert invalid.status_code == 401
+    assert viewer.status_code == 401
+    assert valid.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_management_api_renders_pool_state() -> None:
     app: Final = create_app(settings=settings(), store=MemoryStateStore())
 

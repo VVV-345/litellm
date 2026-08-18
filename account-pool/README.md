@@ -15,12 +15,14 @@ docker compose up --build
 
 启动后：
 
+- 号池调度器 UI：`http://127.0.0.1:4100/`
 - LiteLLM Admin UI：`http://127.0.0.1:4000/ui/`
 - 号池健康检查：`http://127.0.0.1:4100/healthz`
 - Redis 仅在 Compose 内网提供服务
 
-进入 Admin UI 的“模型管理 -> 号池管理”即可配置渠道。LiteLLM 与号池必须使用相同的
-`ACCOUNT_POOL_INTERNAL_TOKEN`；Compose 会把 `.env` 中的值同步给两个服务，缺少该值时拒绝启动
+进入 4100 调度器 UI，使用 LiteLLM 管理令牌登录，即可配置渠道、调度策略和实时路由。渠道创建仍复用
+LiteLLM `/model/new` 的 Deployment 管理链路。LiteLLM 与号池必须使用相同的 `ACCOUNT_POOL_INTERNAL_TOKEN`；
+Compose 会把 `.env` 中的值同步给两个服务，缺少该值时拒绝启动
 
 `account-pool/config/accounts.yaml` 是可写的非敏感配置。API Key 通过 LiteLLM `/model/new` 写入其数据库，
 不会进入该 YAML、Redis、日志或管理 API 响应

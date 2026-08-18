@@ -1,4 +1,4 @@
-// 本文件提供模型与端点管理页，并按管理员权限装配模型、路由和号池标签页。
+// 本文件提供模型与端点管理页，并按管理员权限装配模型和路由标签页。
 "use client";
 
 import { useMemo, useState } from "react";
@@ -24,7 +24,6 @@ import HealthStatusPanel from "@/app/(dashboard)/models-and-endpoints/panels/Hea
 import ModelRetrySettingsPanel from "@/app/(dashboard)/models-and-endpoints/panels/ModelRetrySettingsPanel";
 import ModelGroupAliasPanel from "@/app/(dashboard)/models-and-endpoints/panels/ModelGroupAliasPanel";
 import PriceDataPanel from "@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel";
-import AccountPoolPanel from "@/app/(dashboard)/models-and-endpoints/panels/AccountPoolPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTranslation } from "react-i18next";
@@ -37,8 +36,7 @@ type ModelTabSlug =
   | "health"
   | "retry-settings"
   | "model-group-alias"
-  | "price-data"
-  | "account-pool";
+  | "price-data";
 
 const BASE_TAB_KEY = "all-models";
 
@@ -62,8 +60,6 @@ const renderPanel = (key: string) => {
       return <ModelGroupAliasPanel />;
     case "price-data":
       return <PriceDataPanel />;
-    case "account-pool":
-      return <AccountPoolPanel />;
     default:
       return null;
   }
@@ -71,7 +67,7 @@ const renderPanel = (key: string) => {
 
 export default function ModelsAndEndpointsPage() {
   const { t } = useTranslation();
-  const { accessToken, userRole, userId: userID, premiumUser, isViewOnly } = useAuthorized();
+  const { accessToken, userRole, userId: userID, premiumUser } = useAuthorized();
   const { data: teams } = useTeams();
   const { data: uiSettings } = useUISettings();
   const queryClient = useQueryClient();
@@ -97,12 +93,11 @@ export default function ModelsAndEndpointsPage() {
       "",
       ...(canCreate ? (["add"] as const) : []),
       ...(isAdmin || canCreate ? (["auto-routers"] as const) : []),
-      ...(isAdmin && !isViewOnly ? (["account-pool"] as const) : []),
       ...(isAdmin
         ? (["llm-credentials", "pass-through", "health", "retry-settings", "model-group-alias", "price-data"] as const)
         : []),
     ],
-    [canCreate, isAdmin, isViewOnly],
+    [canCreate, isAdmin],
   );
 
   const allModelsLabel = isAdmin ? t("models.allModels") : t("models.yourModels");
@@ -119,7 +114,6 @@ export default function ModelsAndEndpointsPage() {
       `models.${
         {
           add: "addModel",
-          "account-pool": "accountPool",
           "llm-credentials": "llmCredentials",
           "pass-through": "passThrough",
           health: "health",
