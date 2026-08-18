@@ -1564,3 +1564,52 @@ model LiteLLM_WorkflowMessage {
   @@unique([run_id, sequence_number])
   @@index([run_id])
 }
+
+model LiteLLM_AccountPoolChannel {
+  channel_id            String   @id @default(uuid())
+  legacy_account_id     String?  @unique
+  account_order         Int      @unique
+  display_name          String
+  provider              String
+  channel_group         String?
+  base_url_display      String
+  administrative_state String
+  max_concurrency       Int
+  priority              Int
+  weight                Int
+  quota_unit            String
+  quota_total           Float?
+  quota_five_hour       Float?
+  quota_weekly          Float?
+  credential_ref        String?
+  key_mask              String?
+  key_fingerprint       String?
+  created_at            DateTime @default(now()) @client.Timestamptz(6)
+  updated_at            DateTime @updatedAt @client.Timestamptz(6)
+  bindings              LiteLLM_AccountPoolBinding[]
+}
+
+model LiteLLM_AccountPoolBinding {
+  binding_id            String                      @id @default(uuid())
+  channel_id            String
+  deployment_order      Int
+  public_model          String
+  provider_model        String?
+  litellm_deployment_id String                      @unique
+  ownership             String
+  enabled               Boolean                     @default(true)
+  created_at            DateTime                    @default(now()) @client.Timestamptz(6)
+  updated_at            DateTime                    @updatedAt @client.Timestamptz(6)
+  channel               LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+
+  @@index([channel_id])
+  @@unique([channel_id, deployment_order])
+}
+
+model LiteLLM_AccountPoolModelPolicy {
+  model        String   @id
+  policy_order Int      @unique
+  strategy     String
+  created_at   DateTime @default(now()) @client.Timestamptz(6)
+  updated_at   DateTime @updatedAt @client.Timestamptz(6)
+}
