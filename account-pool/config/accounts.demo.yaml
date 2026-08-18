@@ -1,0 +1,73 @@
+accounts:
+  - id: primary-east
+    display_name: Primary East
+    provider: openai
+    base_url_display: https://api.openai.com
+    enabled: true
+    max_concurrency: 6
+    priority: 100
+    weight: 3
+    quotas:
+      unit: tokens
+      total: 2500000.0
+      five_hour: 420000.0
+      weekly: 1800000.0
+    deployments:
+      - public_model: gpt-4o
+        litellm_model_id: pool-gpt4o-primary
+        provider_model: null
+        managed_by_pool: false
+        enabled: true
+      - public_model: gpt-4o-mini
+        litellm_model_id: pool-gpt4o-mini-primary
+        provider_model: null
+        managed_by_pool: false
+        enabled: true
+  - id: backup-west
+    display_name: Backup West
+    provider: openai
+    base_url_display: https://api.openai.com
+    enabled: true
+    max_concurrency: 3
+    priority: 80
+    weight: 1
+    quotas:
+      unit: tokens
+      total: 900000.0
+      five_hour: 150000.0
+      weekly: 620000.0
+    deployments:
+      - public_model: gpt-4o
+        litellm_model_id: pool-gpt4o-backup
+        provider_model: null
+        managed_by_pool: false
+        enabled: true
+      - public_model: gpt-4o-mini
+        litellm_model_id: pool-gpt4o-mini-backup
+        provider_model: null
+        managed_by_pool: false
+        enabled: true
+  - id: economy-central
+    display_name: Economy Central
+    provider: openai
+    base_url_display: https://api.openai.com
+    enabled: true
+    max_concurrency: 10
+    priority: 60
+    weight: 5
+    quotas:
+      unit: tokens
+      total: 7200000.0
+      five_hour: 1200000.0
+      weekly: 5300000.0
+    deployments:
+      - public_model: gpt-4o-mini
+        litellm_model_id: pool-gpt4o-mini-economy
+        provider_model: null
+        managed_by_pool: false
+        enabled: true
+policies:
+  - model: gpt-4o-mini
+    strategy: weighted_round_robin
+  - model: gpt-4o
+    strategy: quota_aware_least_inflight

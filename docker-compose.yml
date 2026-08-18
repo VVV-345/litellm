@@ -1,6 +1,7 @@
 services:
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
+    build: .
+    image: litellm-custom
     #########################################
     ## Uncomment these lines to start proxy with a config.yaml file ##
     # volumes:
@@ -18,6 +19,9 @@ services:
       # is auto-refreshed alongside the writer.
       # DATABASE_URL_READ_REPLICA: "postgresql://llmproxy:dbpassword9090@db-reader:5432/litellm"
       STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
+      # Admin UI 只通过该内网地址访问号池，服务令牌不会发送到浏览器。
+      ACCOUNT_POOL_INTERNAL_URL: "http://account-pool:4100"
+      ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
     env_file:
       - .env # Load local .env file
     depends_on:
@@ -30,6 +34,53 @@ services:
       timeout: 10s   # Health check command times out after 10 seconds
       retries: 3     # Retry up to 3 times if health check fails
       start_period: 40s  # Wait 40 seconds after container start before beginning health checks
+
+  account-pool:
+    build:
+      context: .
+      dockerfile: account-pool/Dockerfile
+      additional_contexts:
+        litellm_image: service:litellm
+    image: litellm-account-pool
+    ports:
+      - "4100:4100"
+    environment:
+      ACCOUNT_POOL_STORE: "redis"
+      ACCOUNT_POOL_REDIS_URL: "redis://redis:6379/0"
+      ACCOUNT_POOL_CONFIG: "/data/accounts.yaml"
+      ACCOUNT_POOL_LITELLM_URL: "http://litellm:4000"
+      ACCOUNT_POOL_LITELLM_ADMIN_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
+      ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
+    volumes:
+      # 渠道增删会原子写回该文件，Key 不会进入此配置。
+      - ./account-pool/config/accounts.yaml:/data/accounts.yaml
+    depends_on:
+      litellm:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:4100/healthz')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - account_pool_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
   db:
     image: postgres:16
@@ -63,6 +114,8 @@ services:
     restart: always
 
 volumes:
+  account_pool_redis_data:
+    name: litellm_account_pool_redis_data
   prometheus_data:
     driver: local
   postgres_data:

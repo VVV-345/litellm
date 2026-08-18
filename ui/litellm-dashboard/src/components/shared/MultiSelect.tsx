@@ -1,6 +1,7 @@
+// 本文件提供通用多选框，并可按需把用户输入创建为新的自定义选项。
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Combobox,
@@ -68,13 +69,22 @@ export function MultiSelect({
         },
     );
   const customOption = query.trim();
-  const customOptionExists = safeOptions.some((option) => option.value.toLowerCase() === customOption.toLowerCase());
+  const customOptionExists = [...safeOptions.map((option) => option.value), ...value].some(
+    (optionValue) => optionValue.toLowerCase() === customOption.toLowerCase(),
+  );
   const items =
     allowCustomValues && customOption && !customOptionExists
       ? [...safeOptions, { label: t("common.createOption", { option: customOption }), value: customOption }]
       : safeOptions;
   const resolvedPlaceholder = placeholder ?? t("common.selectOptions");
   const resolvedEmptyText = emptyText ?? t("common.noOptionsFound");
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    const canCreateCustomOption = allowCustomValues && Boolean(customOption) && !customOptionExists;
+    if (event.key !== "Enter" || !canCreateCustomOption) return;
+    event.preventDefault();
+    onValueChange([...value, customOption]);
+    setQuery("");
+  };
 
   return (
     <Combobox
@@ -106,6 +116,7 @@ export function MultiSelect({
           placeholder={loading ? t("common.loading") : resolvedPlaceholder}
           className="h-5 min-w-24 flex-1 border-0 bg-transparent py-0 text-sm"
           aria-label={resolvedPlaceholder}
+          onKeyDown={handleKeyDown}
         />
       </ComboboxChips>
       <ComboboxContent>

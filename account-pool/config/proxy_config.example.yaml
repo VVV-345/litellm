@@ -1,0 +1,20 @@
+model_list:
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY_PRIMARY
+    model_info:
+      id: pool-gpt4o-primary
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY_BACKUP
+    model_info:
+      id: pool-gpt4o-backup
+
+litellm_settings:
+  callbacks:
+    - account_pool.litellm_plugin.state_tracker.proxy_handler_instance
+
+router_settings:
+  routing_strategy: simple-shuffle

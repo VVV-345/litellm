@@ -1,5 +1,5 @@
+// 本文件装配 Admin UI 的全局上下文，并使用本地系统字体避免构建时访问外部字体服务。
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 
 import { NuqsAdapter } from "nuqs/adapters/next/app";
@@ -8,8 +8,6 @@ import AntdGlobalProvider from "@/contexts/AntdGlobalProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { I18nProvider } from "@/contexts/I18nProvider";
 import ReactQueryProvider from "@/contexts/ReactQueryProvider";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "LiteLLM Dashboard",
@@ -24,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body>
         <NuqsAdapter>
           <ReactQueryProvider>
             <I18nProvider>

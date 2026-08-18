@@ -19,13 +19,13 @@ account-pool 增加以下职责：
 - 原子管理最大并发和租约
 - 统计总额度、5 小时额度和周额度
 - 根据请求结果更新健康状态和冷却状态
-- 提供管理 API，后续提供管理 UI
+- 提供管理 API，并通过 LiteLLM Admin UI 管理
 
 这些能力合在一起就是号池的调度内核，不再额外建设一个独立的“调度器”产品
 
 ## 2. 当前阶段的关键决策
 
-### 2.1 Phase 0 先验证 LiteLLM 策略注入点
+### 2.1 Phase 0 结论：`gateway-required`
 
 LiteLLM 的配置只接受内置 `routing_strategy` 名称，不能配置任意 Python 类路径
 
@@ -40,13 +40,9 @@ router_settings:
 router.set_custom_routing_strategy(AccountPoolRoutingStrategy(...))
 ```
 
-当前最大的不确定性是：LiteLLM Proxy 是否提供一个稳定的启动钩子，允许 account-pool 在 Router 创建完成后、开始接收请求前执行这段注册代码
+代码核查发现 LiteLLM 提供 `LITELLM_WORKER_STARTUP_HOOKS`，但该钩子在 `proxy_startup_event` 创建 `llm_router` 之前执行。此时没有可稳定注册策略的 Router 实例，也没有找到 Router 创建完成后、开始接收请求前的公开钩子
 
-因此 Phase 0 是整个项目的硬门槛：
-
-- 验证成功：继续使用“LiteLLM 自定义策略 + callback”方案
-- 验证失败：停止插件方案，切换到“号池网关”方案
-- Phase 0 未完成前，不开发完整调度器、数据库和 UI
+因此插件策略路线停止，Phase 0 输出为 `gateway-required`。当前实现采用号池网关：客户端先访问 account-pool，由 account-pool 原子选号并把公共模型名改写为 LiteLLM deployment ID，再转发给内网 LiteLLM Proxy
 
 ### 2.2 Phase 1 暂不上 PostgreSQL
 
@@ -78,45 +74,31 @@ Phase 2 如需主动检测，优先通过 LiteLLM 定向调用指定 deployment�
 
 ## 3. 总体架构
 
-### 3.1 首选架构：LiteLLM 自定义策略
+### 3.1 已采用架构：号池网关
 
 ```text
 客户端
   |
   v
-LiteLLM Proxy
-  |- AccountPoolRoutingStrategy
-  |- AccountPoolStateTracker
-  |
-  | POST /internal/acquire
-  | POST /internal/settle
-  | POST /internal/release
-  v
-account-pool service
+account-pool gateway
   |- Redis
   |- accounts.yaml
   |- 调度内核
   |- 被动健康检测
+  |- 管理 API
+  |
+  | 将 model 改写为 LiteLLM deployment ID
   v
-LiteLLM deployment -> 上游供应商
-```
-
-### 3.2 备选架构：号池网关
-
-```text
-客户端
-  v
-LiteLLM Proxy
-  v
-account-pool gateway
-  |- 选择账号
-  |- 并发与额度管理
-  |- 使用 LiteLLM SDK 调用上游
+内网 LiteLLM Proxy
   v
 上游供应商
 ```
 
-网关方案多一次本地 HTTP 跳转，但不依赖 LiteLLM Router 的自定义策略注入点。两种方案共用同一套 Redis 数据结构、调度算法和管理 API
+LiteLLM Proxy 必须只允许 account-pool 和运维网络访问。若客户端能绕过网关直接调用 LiteLLM，号池的并发和额度限制就无法成立
+
+### 3.2 已停止架构：Router 插件注入
+
+callback dotted path 可以正常作为 LiteLLM 扩展加载，但 callback 只能上报请求结果，不能在 Router 创建前完成账号选择。除非 LiteLLM 后续提供稳定的 Router-ready 钩子，否则不恢复此路线
 
 ## 4. 核心资源模型
 
@@ -306,29 +288,15 @@ router_settings:
 
 生产环境推荐构建固定版本镜像，不使用运行时可变的代码挂载
 
-### 9.2 Routing Strategy 加载
+### 9.2 Routing Strategy 加载结论
 
-计划中的 `bootstrap.py` 要在 Router 已初始化后执行：
+`router_settings.routing_strategy` 只能填写内置策略名，不能填写 Python 类路径。`LITELLM_WORKER_STARTUP_HOOKS` 又早于 Router 创建，因此当前版本不加载自定义 Routing Strategy
 
-```python
-llm_router.set_custom_routing_strategy(
-    AccountPoolRoutingStrategy(pool_base_url=...)
-)
-```
+账号选择在 account-pool 网关完成。网关把 `model` 改写为选中的 `litellm_model_id`，LiteLLM 继续负责密钥、协议转换和真实上游调用
 
-这段代码目前不能靠 `router_settings.routing_strategy` 自动导入。Phase 0 必须在真实 Proxy 进程中找到并验证启动钩子，不能只写单元测试模拟 Router
+### 9.3 Callback 的定位
 
-### 9.3 Phase 0 验证清单
-
-1. callback dotted path 能成功加载 `proxy_handler_instance`
-2. bootstrap 在 Router 初始化完成后执行且只执行一次
-3. 多 worker 下每个 Router 都完成注册
-4. 自定义策略能返回真实 `Router.model_list` deployment
-5. lease_id 能从路由决策关联到 success/failure callback
-6. 流式完成、客户端断开和 LiteLLM 内部重试不会泄漏并发
-7. 插件或 account-pool 不可用时请求 fail closed，不绕开号池
-
-只要第 2 至第 4 项无法稳定实现，就终止插件路线并切换号池网关
+`AccountPoolStateTracker` 是可选的被动事件上报组件。网关自身已经在普通响应、失败响应、流式结束和流式中断时执行 `settle/release`；callback 重复上报时，Redis 和内存实现都按 lease 幂等处理
 
 ## 10. Phase 1 API
 
@@ -346,71 +314,63 @@ llm_router.set_custom_routing_strategy(
 | 方法与路径 | 用途 |
 | --- | --- |
 | `GET /api/accounts` | 查看配置和运行状态 |
-| `POST /api/accounts/reload` | 重新加载 accounts.yaml |
+| `POST /api/accounts` | 新建渠道并在 LiteLLM 创建 deployment |
+| `PUT /api/accounts/{id}` | 修改渠道并同步 LiteLLM deployment |
+| `DELETE /api/accounts/{id}` | 删除渠道并清理由号池创建的 deployment |
 | `GET /api/models` | 模型号池概览 |
 | `GET /api/models/{model}/routing-table` | 查看脱敏路由表 |
-| `PUT /api/models/{model}/policy` | 修改 Redis 中的模型策略 |
-| `POST /api/accounts/{id}/restore` | 手工解除禁用或冷却 |
+| `PUT /api/models/{model}/policy` | 修改并持久化模型策略 |
+| `GET /api/litellm/status` | 检查 LiteLLM 连接和管理认证 |
 | `GET /api/stats` | 并发、额度与健康统计 |
 
-Phase 1 不做动态创建 LiteLLM deployment 的 UI。渠道先由 LiteLLM 配置和 `accounts.yaml` 管理，待 Phase 2 持久化与同步机制完成后再开放增删渠道
+渠道管理 API 支持增删改，当前 LiteLLM Admin UI 支持新增、查看和删除。API Key 只发送给 LiteLLM 管理接口，号池 YAML 仅保存 deployment ID 和非敏感调度配置。绑定已有 deployment 时不会取得或回显原 Key
 
 ## 11. 项目目录
 
 ```text
 account-pool/
+├── Dockerfile
 ├── PLAN.md
+├── README.md
 ├── pyproject.toml
 ├── config/
-│   ├── accounts.example.yaml
+│   ├── accounts.demo.yaml
 │   └── proxy_config.example.yaml
 ├── account_pool/
-│   ├── main.py
+│   ├── app.py
 │   ├── config.py
-│   ├── domain/
-│   │   ├── account.py
-│   │   ├── lease.py
-│   │   ├── policy.py
-│   │   └── result.py
-│   ├── api/
-│   │   ├── internal.py
-│   │   ├── accounts.py
-│   │   ├── models.py
-│   │   └── stats.py
-│   ├── services/
-│   │   ├── scheduler.py
-│   │   ├── lease_service.py
-│   │   ├── health_service.py
-│   │   └── quota_service.py
-│   ├── stores/
-│   │   └── redis.py
-│   ├── workers/
-│   │   └── lease_reaper.py
-│   └── litellm_plugin/
-│       ├── bootstrap.py
-│       ├── routing_strategy.py
-│       └── state_tracker.py
+│   ├── gateway.py
+│   ├── models.py
+│   ├── scheduler.py
+│   ├── store.py
+│   ├── domain/provider_source.py
+│   ├── provider_services/
+│   │   ├── contracts.py
+│   │   ├── registry.py
+│   │   └── glm/
+│   │       ├── manifest.py
+│   │       ├── schemas.py
+│   │       ├── client.py
+│   │       └── service.py
+│   └── litellm_plugin/state_tracker.py
 └── tests/
-    ├── test_scheduler.py
-    ├── test_lease_service.py
-    ├── test_health_service.py
-    └── test_proxy_integration.py
+    ├── test_api.py
+    └── test_scheduler.py
 ```
 
-Phase 1 不提前创建 PostgreSQL repository、migration、前端和主动健康 worker
+Phase 1 未创建号池自己的 PostgreSQL repository、migration 和主动健康 worker。LiteLLM 可以继续使用自身 PostgreSQL 加密保存 provider Key；渠道管理统一复用 LiteLLM Admin UI
+
+供应商获取服务按目录解耦。公共层只依赖 `ProviderService` 协议和统一结果，不在管理代码里写 GLM、火山等名称分支。当前 GLM 官方国内模块支持 URL、Key 和模型发现；余额、套餐、周期限额及账户实际价格由于没有稳定公开管理 API，明确返回不支持
 
 ## 12. 实施阶段
 
-### Phase 0：接入 POC
+### Phase 0：接入 POC，已完成
 
 仅实现固定候选的自定义策略、最小 callback 和一个假的 account-pool 接口。验证 LiteLLM 启动注入、请求关联、流式、失败和多 worker
 
-输出必须是明确结论：
+输出结论：`gateway-required`
 
-- `plugin-supported`：记录完整启动命令和加载方式，进入 Phase 1
-- `gateway-required`：记录失败点，将架构切换为号池网关后进入 Phase 1
-
-### Phase 1：Redis MVP
+### Phase 1：Redis MVP，已完成可演示版本
 
 实现：
 
@@ -422,8 +382,14 @@ Phase 1 不提前创建 PostgreSQL repository、migration、前端和主动健�
 - 被动健康、失败冷却
 - 简单额度快照
 - 路由表和统计 API
+- OpenAI 兼容网关与 deployment ID 改写
+- 内存状态存储模式
+- 模型号池概览、路由表和并发模拟 UI
+- LiteLLM 管理接口认证与连接状态
+- 渠道增删改查和 deployment 同步
+- 路由策略 API 与 YAML 持久化
 
-Phase 1 完成标准是调度闭环可运行，不要求管理 UI、PostgreSQL、动态渠道 CRUD 和主动健康检测
+当前调度闭环、渠道 CRUD API 和策略 API 已经可运行。渠道编辑与策略界面、号池自己的 PostgreSQL 额度账本和主动健康检测仍按计划留在后续阶段
 
 ### Phase 2：持久化与完整管理
 
@@ -440,7 +406,7 @@ Phase 2 将 accounts.yaml 迁移到数据库，将 Redis 简单额度升级为�
 
 同时增加：
 
-- 管理渠道增删改查
+- 渠道 desired/applied 状态和后台 reconciler
 - 主动健康检测
 - 供应商额度头解析
 - 固定窗口、滑动窗口和 reset_at
@@ -461,7 +427,7 @@ UI 永远不展示完整 Key，URL 中的敏感路径和查询参数也必须脱
 
 ## 13. Phase 1 验收标准
 
-- 自定义策略注入或网关路线已经明确，不保留未验证的双重实现
+- 网关路线已经明确，不保留未验证的双重实现
 - 相同 request_id 重试不会重复占用并发
 - 多请求竞争时账号并发不会超过 max_concurrency
 - 同一 Account 下的多个模型共享并发和额度
@@ -477,7 +443,7 @@ UI 永远不展示完整 Key，URL 中的敏感路径和查询参数也必须脱
 - Redis 是临时状态来源，重启后简单额度可能不准确
 - 暂无持久化审计和完整额度账本
 - 暂无主动健康探测
-- 暂无动态增删渠道 UI
+- 渠道和策略仍保存于 YAML，尚无号池数据库审计记录
 - 暂无跨供应商统一的精确 5 小时和周额度
 
 这些限制必须在部署说明中明确标记。Phase 1 只用于验证和小规模受控运行，生产化以 Phase 2 完成为准

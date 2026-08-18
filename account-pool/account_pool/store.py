@@ -1,0 +1,567 @@
+"""提供内存和 Redis 状态存储，管理账号并发、租约、额度与健康状态。"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import dataclass
+from typing import Final, Protocol
+from uuid import uuid4
+
+from pydantic import TypeAdapter
+from redis.asyncio import Redis
+
+from account_pool.models import (
+    AccountConfig,
+    AccountSnapshot,
+    Health,
+    Lease,
+    QuotaSnapshot,
+    QuotaUnit,
+    ReserveRejected,
+    ReserveResult,
+    ReserveSuccess,
+    SettleRequest,
+)
+
+
+class StateStore(Protocol):
+    async def configure(self, accounts: tuple[AccountConfig, ...]) -> None: ...
+
+    async def snapshots(self) -> tuple[AccountSnapshot, ...]: ...
+
+    async def reserve(
+        self,
+        account: AccountConfig,
+        deployment_id: str,
+        public_model: str,
+        request_id: str,
+        ttl_seconds: int,
+    ) -> ReserveResult: ...
+
+    async def settle(self, request: SettleRequest) -> bool: ...
+
+    async def release(self, lease_id: str) -> bool: ...
+
+    async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool: ...
+
+    async def next_sequence(self, model: str) -> int: ...
+
+    async def sweep_expired(self) -> int: ...
+
+    async def close(self) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _MemoryLeaseState:
+    lease: Lease
+    usage_applied: bool
+
+
+class MemoryStateStore:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._runtime: dict[str, AccountSnapshot] = {}
+        self._leases: dict[str, _MemoryLeaseState] = {}
+        self._requests: dict[str, str] = {}
+        self._sequences: dict[str, int] = {}
+        self._accounts: dict[str, AccountConfig] = {}
+
+    async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
+        async with self._lock:
+            previous_accounts: Final = self._accounts
+            self._accounts = {account.id: account for account in accounts}
+            self._runtime = {
+                account.id: _configured_snapshot(
+                    account=account,
+                    previous_account=previous_accounts.get(account.id),
+                    existing=self._runtime.get(account.id),
+                )
+                for account in accounts
+            }
+
+    async def snapshots(self) -> tuple[AccountSnapshot, ...]:
+        async with self._lock:
+            return tuple(self._runtime.values())
+
+    async def reserve(
+        self,
+        account: AccountConfig,
+        deployment_id: str,
+        public_model: str,
+        request_id: str,
+        ttl_seconds: int,
+    ) -> ReserveResult:
+        async with self._lock:
+            existing_id: Final = self._requests.get(request_id)
+            existing: Final = self._leases.get(existing_id) if existing_id is not None else None
+            if existing is not None and not existing.lease.released:
+                return ReserveSuccess(lease=existing.lease)
+
+            now: Final = time.time()
+            runtime: Final = self._runtime[account.id]
+            rejection: Final = _availability_rejection(runtime=runtime, now=now)
+            if rejection is not None:
+                return ReserveRejected(reason=rejection)
+
+            lease: Final = Lease(
+                lease_id=uuid4().hex,
+                request_id=request_id,
+                account_id=account.id,
+                deployment_id=deployment_id,
+                public_model=public_model,
+                expires_at=now + ttl_seconds,
+            )
+            self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
+            self._leases[lease.lease_id] = _MemoryLeaseState(lease=lease, usage_applied=False)
+            self._requests[request_id] = lease.lease_id
+            return ReserveSuccess(lease=lease)
+
+    async def settle(self, request: SettleRequest) -> bool:
+        async with self._lock:
+            lease_state: Final = self._leases.get(request.lease_id)
+            if lease_state is None:
+                return False
+            if lease_state.usage_applied:
+                return True
+
+            runtime: Final = self._runtime[lease_state.lease.account_id]
+            account: Final = self._accounts[lease_state.lease.account_id]
+            consumption: Final = _consumption(account=account, request=request)
+            quota: Final = _decrement_quota(runtime.quota, consumption)
+            health_update: Final = _health_after_settlement(runtime=runtime, request=request)
+            updated: Final = runtime.model_copy(update={"quota": quota, **health_update})
+            settled_lease: Final = lease_state.lease.model_copy(update={"settled": True})
+            self._runtime[lease_state.lease.account_id] = updated
+            self._leases[request.lease_id] = _MemoryLeaseState(lease=settled_lease, usage_applied=True)
+            return True
+
+    async def release(self, lease_id: str) -> bool:
+        async with self._lock:
+            lease_state: Final = self._leases.get(lease_id)
+            if lease_state is None:
+                return False
+            if lease_state.lease.released:
+                return True
+
+            runtime: Final = self._runtime[lease_state.lease.account_id]
+            released: Final = lease_state.lease.model_copy(update={"released": True})
+            self._runtime[lease_state.lease.account_id] = runtime.model_copy(
+                update={"inflight": max(0, runtime.inflight - 1)}
+            )
+            self._leases[lease_id] = _MemoryLeaseState(lease=released, usage_applied=lease_state.usage_applied)
+            return True
+
+    async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
+        async with self._lock:
+            lease_state: Final = self._leases.get(lease_id)
+            if lease_state is None or lease_state.lease.released:
+                return False
+            extended: Final = lease_state.lease.model_copy(update={"expires_at": time.time() + ttl_seconds})
+            self._leases[lease_id] = _MemoryLeaseState(lease=extended, usage_applied=lease_state.usage_applied)
+            return True
+
+    async def next_sequence(self, model: str) -> int:
+        async with self._lock:
+            value: Final = self._sequences.get(model, 0) + 1
+            self._sequences[model] = value
+            return value
+
+    async def sweep_expired(self) -> int:
+        now: Final = time.time()
+        async with self._lock:
+            expired: Final = tuple(
+                lease_id
+                for lease_id, state in self._leases.items()
+                if not state.lease.released and state.lease.expires_at <= now
+            )
+        results: Final = await asyncio.gather(*(self.release(lease_id) for lease_id in expired))
+        return sum(1 for released in results if released)
+
+    async def close(self) -> None:
+        return None
+
+
+_RESERVE_SCRIPT = """
+local existing = redis.call('GET', KEYS[4])
+if existing then
+  return {2, existing, 'existing'}
+end
+local enabled = redis.call('HGET', KEYS[1], 'enabled')
+local health = redis.call('HGET', KEYS[1], 'health')
+local cooldown = tonumber(redis.call('HGET', KEYS[1], 'cooldown_until') or '0')
+local inflight = tonumber(redis.call('GET', KEYS[2]) or '0')
+local max_concurrency = tonumber(redis.call('HGET', KEYS[1], 'max_concurrency') or '0')
+local quota_total = redis.call('HGET', KEYS[1], 'quota_total')
+local quota_five = redis.call('HGET', KEYS[1], 'quota_five_hour')
+local quota_weekly = redis.call('HGET', KEYS[1], 'quota_weekly')
+if enabled ~= '1' or health == 'disabled' then return {0, '', 'disabled'} end
+if cooldown > tonumber(ARGV[7]) then return {0, '', 'cooldown'} end
+if inflight >= max_concurrency then return {0, '', 'capacity'} end
+if quota_total and quota_total ~= '' and tonumber(quota_total) <= 0 then return {0, '', 'total_quota'} end
+if quota_five and quota_five ~= '' and tonumber(quota_five) <= 0 then return {0, '', 'five_hour_quota'} end
+if quota_weekly and quota_weekly ~= '' and tonumber(quota_weekly) <= 0 then return {0, '', 'weekly_quota'} end
+redis.call('INCR', KEYS[2])
+redis.call('HSET', KEYS[3],
+  'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
+  'deployment_id', ARGV[4], 'public_model', ARGV[5], 'expires_at', ARGV[6],
+  'settled', '0', 'released', '0')
+redis.call('SET', KEYS[4], ARGV[1], 'EX', ARGV[8])
+redis.call('ZADD', KEYS[5], ARGV[6], ARGV[1])
+return {1, ARGV[1], 'reserved'}
+"""
+
+
+_RELEASE_SCRIPT = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+if redis.call('HGET', KEYS[1], 'released') == '1' then return 1 end
+local account_id = redis.call('HGET', KEYS[1], 'account_id')
+local inflight_key = ARGV[1] .. account_id .. ':inflight'
+local inflight = tonumber(redis.call('GET', inflight_key) or '0')
+if inflight > 0 then redis.call('DECR', inflight_key) end
+redis.call('HSET', KEYS[1], 'released', '1')
+redis.call('ZREM', KEYS[2], ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+return 1
+"""
+
+
+_HEARTBEAT_SCRIPT = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+if redis.call('HGET', KEYS[1], 'released') == '1' then return 0 end
+redis.call('HSET', KEYS[1], 'expires_at', ARGV[1])
+redis.call('ZADD', KEYS[2], ARGV[1], ARGV[2])
+return 1
+"""
+
+
+_SETTLE_SCRIPT = """
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+if redis.call('HGET', KEYS[1], 'settled') == '1' then return 1 end
+local account_id = redis.call('HGET', KEYS[1], 'account_id')
+local state_key = ARGV[1] .. account_id .. ':state'
+local success = ARGV[2] == '1'
+local status = tonumber(ARGV[3] or '0')
+local consumption = tonumber(ARGV[4] or '0')
+local now = tonumber(ARGV[5])
+local error_type = ARGV[6]
+if consumption > 0 then
+  for _, field in ipairs({'quota_total', 'quota_five_hour', 'quota_weekly'}) do
+    local value = redis.call('HGET', state_key, field)
+    if value and value ~= '' then
+      redis.call('HSET', state_key, field, math.max(0, tonumber(value) - consumption))
+    end
+  end
+end
+if success then
+  redis.call('HSET', state_key, 'health', 'healthy', 'consecutive_failures', '0')
+elseif error_type == 'provider_auth' then
+  redis.call('HSET', state_key, 'enabled', '0', 'health', 'disabled')
+elseif status == 429 then
+  redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', now + 60)
+else
+  local failures = redis.call('HINCRBY', state_key, 'consecutive_failures', 1)
+  if failures >= 3 then
+    redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', now + 30)
+  else
+    redis.call('HSET', state_key, 'health', 'degraded')
+  end
+end
+redis.call('HSET', KEYS[1], 'settled', '1')
+return 1
+"""
+
+
+_RESERVE_RESULT_ADAPTER: Final = TypeAdapter(tuple[int, str, str])
+_SCRIPT_STATUS_ADAPTER: Final = TypeAdapter(int)
+
+
+class RedisStateStore:
+    _prefix = "pool:account:"
+    _expiries = "pool:leases:expiries"
+
+    def __init__(self, url: str) -> None:
+        self._redis = Redis.from_url(url, decode_responses=True)
+        self._accounts: dict[str, AccountConfig] = {}
+        self._reserve_script = self._redis.register_script(_RESERVE_SCRIPT)
+        self._release_script = self._redis.register_script(_RELEASE_SCRIPT)
+        self._heartbeat_script = self._redis.register_script(_HEARTBEAT_SCRIPT)
+        self._settle_script = self._redis.register_script(_SETTLE_SCRIPT)
+
+    async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
+        previous_accounts: Final = self._accounts
+        runtime_reconfigure: Final = bool(previous_accounts)
+        self._accounts = {account.id: account for account in accounts}
+        await asyncio.gather(
+            *(
+                self._configure_account(
+                    account,
+                    reset_quotas=runtime_reconfigure
+                    and (
+                        previous_accounts.get(account.id) is None
+                        or previous_accounts[account.id].quotas != account.quotas
+                    ),
+                )
+                for account in accounts
+            )
+        )
+
+    async def snapshots(self) -> tuple[AccountSnapshot, ...]:
+        return tuple([await self._snapshot(account) for account in self._accounts.values()])
+
+    async def reserve(
+        self,
+        account: AccountConfig,
+        deployment_id: str,
+        public_model: str,
+        request_id: str,
+        ttl_seconds: int,
+    ) -> ReserveResult:
+        lease_id: Final = uuid4().hex
+        now: Final = time.time()
+        retention: Final = max(ttl_seconds * 10, 600)
+        result: Final = _RESERVE_RESULT_ADAPTER.validate_python(
+            await self._reserve_script(
+                keys=[
+                    self._state_key(account.id),
+                    self._inflight_key(account.id),
+                    self._lease_key(lease_id),
+                    f"pool:request:{request_id}",
+                    self._expiries,
+                ],
+                args=[
+                    lease_id,
+                    request_id,
+                    account.id,
+                    deployment_id,
+                    public_model,
+                    now + ttl_seconds,
+                    now,
+                    retention,
+                ],
+            )
+        )
+        status: Final = int(result[0])
+        if status == 0:
+            return ReserveRejected(reason=str(result[2]))
+        actual_lease_id: Final = str(result[1])
+        lease: Final = await self._read_lease(actual_lease_id)
+        if lease is None:
+            return ReserveRejected(reason="lease_not_found")
+        return ReserveSuccess(lease=lease)
+
+    async def settle(self, request: SettleRequest) -> bool:
+        lease: Final = await self._read_lease(request.lease_id)
+        if lease is None:
+            return False
+        account: Final = self._accounts[lease.account_id]
+        consumption: Final = _consumption(account=account, request=request)
+        result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
+            await self._settle_script(
+                keys=[self._lease_key(request.lease_id)],
+                args=[
+                    self._prefix,
+                    "1" if request.success else "0",
+                    request.status_code or 0,
+                    consumption,
+                    time.time(),
+                    request.error_type or "",
+                ],
+            )
+        )
+        return bool(result)
+
+    async def release(self, lease_id: str) -> bool:
+        result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
+            await self._release_script(
+                keys=[self._lease_key(lease_id), self._expiries],
+                args=[self._prefix, lease_id, 600],
+            )
+        )
+        return bool(result)
+
+    async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
+        expires_at: Final = time.time() + ttl_seconds
+        result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
+            await self._heartbeat_script(
+                keys=[self._lease_key(lease_id), self._expiries],
+                args=[expires_at, lease_id],
+            )
+        )
+        return bool(result)
+
+    async def next_sequence(self, model: str) -> int:
+        return int(await self._redis.incr(f"pool:model:{model}:sequence"))
+
+    async def sweep_expired(self) -> int:
+        expired: Final = await self._redis.zrangebyscore(self._expiries, min=0, max=time.time())
+        results: Final = await asyncio.gather(*(self.release(str(lease_id)) for lease_id in expired))
+        return sum(1 for released in results if released)
+
+    async def close(self) -> None:
+        await self._redis.close()
+
+    async def _configure_account(self, account: AccountConfig, reset_quotas: bool) -> None:
+        state_key: Final = self._state_key(account.id)
+        values: Final[dict[str, str]] = {
+            "enabled": "1" if account.enabled else "0",
+            "health": Health.UNKNOWN,
+            "max_concurrency": str(account.max_concurrency),
+            "cooldown_until": "0",
+            "consecutive_failures": "0",
+            "quota_unit": account.quotas.unit,
+            "quota_total": _redis_quota(account.quotas.total),
+            "quota_five_hour": _redis_quota(account.quotas.five_hour),
+            "quota_weekly": _redis_quota(account.quotas.weekly),
+        }
+        exists: Final = bool(await self._redis.exists(state_key))
+        runtime_values: Final = {
+            "max_concurrency": str(account.max_concurrency),
+            "enabled": "1" if account.enabled else "0",
+            **(
+                {
+                    "quota_unit": account.quotas.unit,
+                    "quota_total": _redis_quota(account.quotas.total),
+                    "quota_five_hour": _redis_quota(account.quotas.five_hour),
+                    "quota_weekly": _redis_quota(account.quotas.weekly),
+                }
+                if reset_quotas
+                else {}
+            ),
+        }
+        mapping: Final = runtime_values if exists else values
+        await self._redis.hset(
+            state_key,
+            mapping=mapping,  # pyright: ignore[reportArgumentType]  # redis-py leaves hset mapping generics unresolved
+        )
+
+    async def _snapshot(self, account: AccountConfig) -> AccountSnapshot:
+        state: Final = await self._redis.hgetall(self._state_key(account.id))
+        inflight: Final = int(await self._redis.get(self._inflight_key(account.id)) or 0)
+        cooldown_value: Final = float(state.get("cooldown_until", "0"))
+        return AccountSnapshot(
+            account_id=account.id,
+            enabled=state.get("enabled") == "1",
+            health=Health(state.get("health", Health.UNKNOWN)),
+            inflight=inflight,
+            max_concurrency=int(state.get("max_concurrency", account.max_concurrency)),
+            cooldown_until=cooldown_value if cooldown_value > 0 else None,
+            consecutive_failures=int(state.get("consecutive_failures", "0")),
+            quota=QuotaSnapshot(
+                unit=QuotaUnit(state.get("quota_unit", account.quotas.unit)),
+                total=_parse_redis_quota(state.get("quota_total")),
+                five_hour=_parse_redis_quota(state.get("quota_five_hour")),
+                weekly=_parse_redis_quota(state.get("quota_weekly")),
+            ),
+        )
+
+    async def _read_lease(self, lease_id: str) -> Lease | None:
+        data: Final = await self._redis.hgetall(self._lease_key(lease_id))
+        if not data:
+            return None
+        return Lease(
+            lease_id=data["lease_id"],
+            request_id=data["request_id"],
+            account_id=data["account_id"],
+            deployment_id=data["deployment_id"],
+            public_model=data["public_model"],
+            expires_at=float(data["expires_at"]),
+            settled=data.get("settled") == "1",
+            released=data.get("released") == "1",
+        )
+
+    @classmethod
+    def _state_key(cls, account_id: str) -> str:
+        return f"{cls._prefix}{account_id}:state"
+
+    @classmethod
+    def _inflight_key(cls, account_id: str) -> str:
+        return f"{cls._prefix}{account_id}:inflight"
+
+    @staticmethod
+    def _lease_key(lease_id: str) -> str:
+        return f"pool:lease:{lease_id}"
+
+
+def _availability_rejection(runtime: AccountSnapshot, now: float) -> str | None:
+    if not runtime.enabled or runtime.health == Health.DISABLED:
+        return "disabled"
+    if runtime.cooldown_until is not None and runtime.cooldown_until > now:
+        return "cooldown"
+    if runtime.inflight >= runtime.max_concurrency:
+        return "capacity"
+    if runtime.quota.total is not None and runtime.quota.total <= 0:
+        return "total_quota"
+    if runtime.quota.five_hour is not None and runtime.quota.five_hour <= 0:
+        return "five_hour_quota"
+    if runtime.quota.weekly is not None and runtime.quota.weekly <= 0:
+        return "weekly_quota"
+    return None
+
+
+def _configured_snapshot(
+    account: AccountConfig,
+    previous_account: AccountConfig | None,
+    existing: AccountSnapshot | None,
+) -> AccountSnapshot:
+    quota: Final = QuotaSnapshot(
+        unit=account.quotas.unit,
+        total=account.quotas.total,
+        five_hour=account.quotas.five_hour,
+        weekly=account.quotas.weekly,
+    )
+    return AccountSnapshot(
+        account_id=account.id,
+        enabled=account.enabled,
+        health=existing.health if existing is not None else Health.UNKNOWN,
+        inflight=existing.inflight if existing is not None else 0,
+        max_concurrency=account.max_concurrency,
+        cooldown_until=existing.cooldown_until if existing is not None else None,
+        consecutive_failures=existing.consecutive_failures if existing is not None else 0,
+        quota=existing.quota
+        if existing is not None and previous_account is not None and previous_account.quotas == account.quotas
+        else quota,
+    )
+
+
+def _consumption(account: AccountConfig, request: SettleRequest) -> float:
+    if account.quotas.unit == QuotaUnit.USD:
+        return request.cost_usd or 0
+    return float(request.input_tokens + request.output_tokens)
+
+
+def _decrement_quota(quota: QuotaSnapshot, consumption: float) -> QuotaSnapshot:
+    def decrement(value: float | None) -> float | None:
+        return None if value is None else max(0, value - consumption)
+
+    return QuotaSnapshot(
+        unit=quota.unit,
+        total=decrement(quota.total),
+        five_hour=decrement(quota.five_hour),
+        weekly=decrement(quota.weekly),
+    )
+
+
+def _health_after_settlement(runtime: AccountSnapshot, request: SettleRequest) -> dict[str, object]:
+    if request.success:
+        return {"health": Health.HEALTHY, "consecutive_failures": 0, "cooldown_until": None}
+    if request.error_type == "provider_auth":
+        return {"enabled": False, "health": Health.DISABLED}
+    if request.status_code == 429:
+        return {"health": Health.COOLDOWN, "cooldown_until": time.time() + 60}
+    failures: Final = runtime.consecutive_failures + 1
+    if failures >= 3:
+        return {
+            "health": Health.COOLDOWN,
+            "consecutive_failures": failures,
+            "cooldown_until": time.time() + 30,
+        }
+    return {"health": Health.DEGRADED, "consecutive_failures": failures}
+
+
+def _redis_quota(value: float | None) -> str:
+    return "" if value is None else str(value)
+
+
+def _parse_redis_quota(value: str | None) -> float | None:
+    return None if value is None or value == "" else float(value)

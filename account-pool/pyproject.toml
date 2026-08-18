@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "litellm-account-pool"
+version = "0.1.0"
+description = "Quota-aware account pool gateway for LiteLLM"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "pydantic>=2.10",
+  "PyYAML>=6.0",
+  "redis>=5.2",
+  "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["account_pool"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

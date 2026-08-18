@@ -1,3 +1,4 @@
+/* 本文件定义 Admin UI 的全局主题、基础样式和组件兼容层。 */
 @layer theme, base, antd, components, utilities;
 
 @import "tailwindcss";
@@ -224,6 +225,14 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family:
+      Inter,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
   }
 }
 

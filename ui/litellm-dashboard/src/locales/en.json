@@ -5534,6 +5534,7 @@
         "allModels": "All Models",
         "yourModels": "Your Models",
         "addModel": "Add Model",
+        "accountPool": "Account Pool",
         "autoRouters": "Auto-Routers",
         "llmCredentials": "LLM Credentials",
         "passThrough": "Pass-Through Endpoints",
