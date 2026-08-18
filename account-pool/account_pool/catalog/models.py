@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Literal
+from uuid import UUID
+
+from pydantic import AwareDatetime, Field
+
+from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig, Strategy
+
+
+class AdministrativeState(StrEnum):
+    ENABLED = "enabled"
+    PAUSED = "paused"
+    DISABLED = "disabled"
+
+
+class BindingOwnership(StrEnum):
+    POOL_MANAGED = "pool_managed"
+    EXTERNALLY_MANAGED = "externally_managed"
+
+
+class ChannelRecord(FrozenModel):
+    channel_id: UUID
+    legacy_account_id: AccountId | None = None
+    account_order: int = Field(ge=0)
+    display_name: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    group: str | None = None
+    base_url_display: str = Field(min_length=1)
+    administrative_state: AdministrativeState
+    max_concurrency: int = Field(ge=1)
+    priority: int
+    weight: int = Field(ge=1, le=100)
+    quotas: QuotaConfig
+    credential_ref: str | None = None
+    key_mask: str | None = None
+    key_fingerprint: str | None = None
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class DeploymentBindingRecord(FrozenModel):
+    binding_id: UUID
+    channel_id: UUID
+    deployment_order: int = Field(ge=0)
+    public_model: ModelName
+    provider_model: str | None = None
+    litellm_deployment_id: str = Field(min_length=1)
+    ownership: BindingOwnership
+    enabled: bool
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class ModelPolicyRecord(FrozenModel):
+    model: ModelName
+    policy_order: int = Field(ge=0)
+    strategy: Strategy
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class CatalogSnapshot(FrozenModel):
+    channels: tuple[ChannelRecord, ...] = ()
+    bindings: tuple[DeploymentBindingRecord, ...] = ()
+    policies: tuple[ModelPolicyRecord, ...] = ()
+
+
+class CatalogImport(FrozenModel):
+    channels: tuple[ChannelRecord, ...]
+    bindings: tuple[DeploymentBindingRecord, ...]
+    policies: tuple[ModelPolicyRecord, ...]
+
+
+class ImportConflict(FrozenModel):
+    entity: Literal["channel", "binding", "policy"]
+    identity: str
+    reason: str
+
+
+class ImportResult(FrozenModel):
+    status: Literal["created", "unchanged", "conflict"]
+    created_channels: int = Field(default=0, ge=0)
+    created_bindings: int = Field(default=0, ge=0)
+    created_policies: int = Field(default=0, ge=0)
+    conflicts: tuple[ImportConflict, ...] = ()
