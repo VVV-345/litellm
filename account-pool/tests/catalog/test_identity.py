@@ -3,11 +3,10 @@ from typing import Final
 from uuid import UUID
 
 import pytest
-from pydantic import ValidationError
-
 from account_pool.catalog.identity import legacy_binding_id, legacy_channel_id
 from account_pool.catalog.models import AdministrativeState, ChannelRecord
 from account_pool.models import QuotaConfig
+from pydantic import ValidationError
 
 
 def test_legacy_ids_are_stable_and_namespaced() -> None:
