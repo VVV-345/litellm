@@ -12,12 +12,14 @@ from account_pool.catalog.models import (
 )
 from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.catalog.repository import CatalogRepository
+from account_pool.catalog.service import CatalogService
 
 __all__ = [
     "AdministrativeState",
     "BindingOwnership",
     "CatalogImport",
     "CatalogRepository",
+    "CatalogService",
     "CatalogSnapshot",
     "ChannelRecord",
     "DeploymentBindingRecord",
