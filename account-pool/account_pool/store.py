@@ -49,6 +49,16 @@ from account_pool.models import (
     ReserveSuccess,
     SettleRequest,
 )
+from account_pool.quota import (
+    QuotaReservation,
+    QuotaReserveRejected,
+    RuntimeQuotaWindow,
+    apply_quota_usage,
+    reconcile_quota_windows,
+    release_quota_capacity,
+    reserve_quota_capacity,
+    synchronize_quota_exclusions,
+)
 
 
 class StateStore(Protocol):
@@ -65,6 +75,7 @@ class StateStore(Protocol):
         billing_route_id: str | None,
         public_model: str,
         request_id: str,
+        estimated_tokens: int,
         ttl_seconds: int,
     ) -> ReserveResult: ...
 
@@ -86,6 +97,7 @@ class _MemoryLeaseState:
     lease: Lease
     usage_applied: bool
     probe_subject: EligibilitySubject | None
+    quota_reservations: tuple[QuotaReservation, ...]
 
 
 class MemoryStateStore:
@@ -96,6 +108,7 @@ class MemoryStateStore:
         self._requests: dict[str, str] = {}
         self._sequences: dict[str, int] = {}
         self._accounts: dict[str, AccountConfig] = {}
+        self._quota_windows: dict[str, tuple[RuntimeQuotaWindow, ...]] = {}
         self._exclusions: tuple[EligibilityExclusion, ...] = ()
         self._probe_leases: dict[EligibilitySubject, str] = {}
 
@@ -111,7 +124,19 @@ class MemoryStateStore:
                 )
                 for account in accounts
             }
-            self._exclusions = retain_configured_exclusions(self._exclusions, accounts)
+            self._quota_windows = {
+                account.id: reconcile_quota_windows(
+                    previous=self._quota_windows.get(account.id, ()),
+                    configured=account.quota_windows,
+                )
+                for account in accounts
+            }
+            configured_exclusions: Final = retain_configured_exclusions(self._exclusions, accounts)
+            self._exclusions = _synchronize_all_quota_exclusions(
+                exclusions=configured_exclusions,
+                accounts=accounts,
+                quota_windows=self._quota_windows,
+            )
 
     async def snapshots(self) -> tuple[AccountSnapshot, ...]:
         async with self._lock:
@@ -128,6 +153,7 @@ class MemoryStateStore:
         billing_route_id: str | None,
         public_model: str,
         request_id: str,
+        estimated_tokens: int,
         ttl_seconds: int,
     ) -> ReserveResult:
         async with self._lock:
@@ -166,6 +192,15 @@ class MemoryStateStore:
             rejection: Final = _availability_rejection(runtime=runtime, now=now)
             if rejection is not None:
                 return ReserveRejected(reason=rejection)
+            quota_reserve: Final = reserve_quota_capacity(
+                windows=self._quota_windows.get(account.id, ()),
+                public_model=public_model,
+                billing_route_id=billing_route_id,
+                estimated_tokens=estimated_tokens,
+                now=now,
+            )
+            if isinstance(quota_reserve, QuotaReserveRejected):
+                return ReserveRejected(reason=quota_reserve.reason_code)
 
             lease: Final = Lease(
                 lease_id=uuid4().hex,
@@ -177,10 +212,17 @@ class MemoryStateStore:
                 expires_at=now + ttl_seconds,
             )
             self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
+            self._quota_windows[account.id] = quota_reserve.windows
+            self._exclusions = synchronize_quota_exclusions(
+                exclusions=self._exclusions,
+                account=account,
+                windows=quota_reserve.windows,
+            )
             self._leases[lease.lease_id] = _MemoryLeaseState(
                 lease=lease,
                 usage_applied=False,
                 probe_subject=probe_subject,
+                quota_reservations=quota_reserve.reservations,
             )
             if probe_subject is not None:
                 self._probe_leases[probe_subject] = lease.lease_id
@@ -215,6 +257,19 @@ class MemoryStateStore:
                     or runtime.consecutive_failures + 1 >= 3
                 ),
             )
+            quota_windows: Final = apply_quota_usage(
+                windows=self._quota_windows.get(account.id, ()),
+                reservations=lease_state.quota_reservations,
+                lease=lease_state.lease,
+                request=request,
+                now=now,
+            )
+            self._quota_windows[account.id] = quota_windows
+            self._exclusions = synchronize_quota_exclusions(
+                exclusions=self._exclusions,
+                account=account,
+                windows=quota_windows,
+            )
             updated: Final = runtime.model_copy(update={"quota": quota, **health_update})
             settled_lease: Final = lease_state.lease.model_copy(update={"settled": True})
             self._runtime[lease_state.lease.account_id] = updated
@@ -222,6 +277,7 @@ class MemoryStateStore:
                 lease=settled_lease,
                 usage_applied=True,
                 probe_subject=lease_state.probe_subject,
+                quota_reservations=(),
             )
             return True
 
@@ -234,6 +290,17 @@ class MemoryStateStore:
                 return True
 
             runtime: Final = self._runtime[lease_state.lease.account_id]
+            if not lease_state.usage_applied:
+                quota_windows: Final = release_quota_capacity(
+                    windows=self._quota_windows.get(lease_state.lease.account_id, ()),
+                    reservations=lease_state.quota_reservations,
+                )
+                self._quota_windows[lease_state.lease.account_id] = quota_windows
+                self._exclusions = synchronize_quota_exclusions(
+                    exclusions=self._exclusions,
+                    account=self._accounts[lease_state.lease.account_id],
+                    windows=quota_windows,
+                )
             released: Final = lease_state.lease.model_copy(update={"released": True})
             self._runtime[lease_state.lease.account_id] = runtime.model_copy(
                 update={"inflight": max(0, runtime.inflight - 1)}
@@ -242,6 +309,7 @@ class MemoryStateStore:
                 lease=released,
                 usage_applied=lease_state.usage_applied,
                 probe_subject=lease_state.probe_subject,
+                quota_reservations=(),
             )
             if lease_state.probe_subject is not None and self._probe_leases.get(lease_state.probe_subject) == lease_id:
                 del self._probe_leases[lease_state.probe_subject]
@@ -257,6 +325,7 @@ class MemoryStateStore:
                 lease=extended,
                 usage_applied=lease_state.usage_applied,
                 probe_subject=lease_state.probe_subject,
+                quota_reservations=lease_state.quota_reservations,
             )
             return True
 
@@ -482,6 +551,7 @@ class RedisStateStore:
         billing_route_id: str | None,
         public_model: str,
         request_id: str,
+        estimated_tokens: int,
         ttl_seconds: int,
     ) -> ReserveResult:
         lease_id: Final = uuid4().hex
@@ -687,6 +757,21 @@ def _availability_rejection(runtime: AccountSnapshot, now: float) -> str | None:
     if runtime.quota.weekly is not None and runtime.quota.weekly <= 0:
         return "weekly_quota"
     return None
+
+
+def _synchronize_all_quota_exclusions(
+    exclusions: tuple[EligibilityExclusion, ...],
+    accounts: tuple[AccountConfig, ...],
+    quota_windows: dict[str, tuple[RuntimeQuotaWindow, ...]],
+) -> tuple[EligibilityExclusion, ...]:
+    synchronized: Final = exclusions
+    for account in accounts:
+        synchronized = synchronize_quota_exclusions(
+            exclusions=synchronized,
+            account=account,
+            windows=quota_windows.get(account.id, ()),
+        )
+    return synchronized
 
 
 def _configured_snapshot(

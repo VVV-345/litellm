@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from decimal import Decimal
 from typing import Final
 
 import pytest
@@ -15,6 +16,10 @@ from account_pool.models import (
     ModelPolicy,
     PoolConfig,
     QuotaConfig,
+    QuotaWindowConfig,
+    RuntimeQuotaKind,
+    RuntimeQuotaScope,
+    RuntimeQuotaWindowType,
     SettleRequest,
     Strategy,
 )
@@ -39,6 +44,29 @@ def account(
         deployments=tuple(
             DeploymentConfig(public_model=model, litellm_model_id=f"{account_id}-{model}") for model in models
         ),
+    )
+
+
+def quota_window(
+    window_id: str,
+    remaining: str,
+    scope: RuntimeQuotaScope = RuntimeQuotaScope.CHANNEL,
+    subject_id: str | None = None,
+    kind: RuntimeQuotaKind = RuntimeQuotaKind.TOKENS,
+    reason_code: str = "five_hour_exhausted",
+) -> QuotaWindowConfig:
+    return QuotaWindowConfig(
+        window_id=window_id,
+        scope=scope,
+        subject_id=subject_id,
+        kind=kind,
+        window_type=RuntimeQuotaWindowType.ROLLING,
+        duration_seconds=18_000,
+        limit=Decimal("100"),
+        remaining=Decimal(remaining),
+        observed_at=time.time(),
+        source="provider-api",
+        reason_code=reason_code,
     )
 
 
@@ -431,3 +459,123 @@ async def test_reconfigure_preserves_usage_unless_quota_limits_change() -> None:
     assert snapshot.quota.total == 20_000
     assert snapshot.quota.five_hour == 7_000
     assert snapshot.quota.weekly == 15_000
+
+
+@pytest.mark.asyncio
+async def test_exhausted_channel_window_falls_back_to_next_account() -> None:
+    exhausted: Final = account("exhausted", max_concurrency=2).model_copy(
+        update={"priority": 100, "quota_windows": (quota_window("exhausted-window", "0"),)}
+    )
+    fallback: Final = account("fallback", max_concurrency=2).model_copy(update={"priority": 0})
+    scheduler, _ = await initialized_scheduler(
+        PoolConfig(
+            accounts=(exhausted, fallback),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.PRIORITY),),
+        )
+    )
+
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    routes: Final = await scheduler.route_table("model-a")
+
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.account_id == "fallback"
+    assert routes[0].account_id == "fallback"
+    assert routes[1].reason_code == "five_hour_exhausted"
+    assert routes[1].exclusion_scope == "channel"
+
+
+@pytest.mark.asyncio
+async def test_model_window_does_not_block_sibling_model() -> None:
+    configured: Final = account("shared", max_concurrency=2, models=("model-a", "model-b")).model_copy(
+        update={
+            "quota_windows": (
+                quota_window(
+                    "model-window",
+                    "0",
+                    scope=RuntimeQuotaScope.MODEL,
+                    subject_id="model-a",
+                    reason_code="weekly_exhausted",
+                ),
+            )
+        }
+    )
+    scheduler, _ = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    available: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-b"))
+
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("shared:weekly_exhausted",)
+    assert isinstance(available, AcquireSuccess)
+
+
+@pytest.mark.asyncio
+async def test_billing_route_window_falls_back_to_sibling_route() -> None:
+    configured: Final = account("shared", max_concurrency=2).model_copy(
+        update={
+            "quota_windows": (
+                quota_window(
+                    "route-window",
+                    "0",
+                    scope=RuntimeQuotaScope.BILLING_ROUTE,
+                    subject_id="route-a",
+                    reason_code="monthly_exhausted",
+                ),
+            ),
+            "deployments": (
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="deployment-a",
+                    billing_route_id="route-a",
+                ),
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="deployment-b",
+                    billing_route_id="route-b",
+                ),
+            ),
+        }
+    )
+    scheduler, _ = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.billing_route_id == "route-b"
+
+
+@pytest.mark.asyncio
+async def test_token_reservation_is_released_or_replaced_by_actual_usage() -> None:
+    configured: Final = account("shared", max_concurrency=2).model_copy(
+        update={"quota_windows": (quota_window("token-window", "100"),)}
+    )
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+    reserved: Final = await scheduler.acquire(
+        AcquireRequest(request_id="request-a", model="model-a", estimated_tokens=80)
+    )
+    assert isinstance(reserved, AcquireSuccess)
+
+    blocked: Final = await scheduler.acquire(
+        AcquireRequest(request_id="request-b", model="model-a", estimated_tokens=30)
+    )
+    assert isinstance(blocked, AcquireUnavailable)
+    assert await store.release(reserved.lease.lease_id)
+
+    replacement: Final = await scheduler.acquire(
+        AcquireRequest(request_id="request-c", model="model-a", estimated_tokens=30)
+    )
+    assert isinstance(replacement, AcquireSuccess)
+    assert await store.settle(
+        SettleRequest(
+            lease_id=replacement.lease.lease_id,
+            success=True,
+            input_tokens=10,
+            output_tokens=5,
+        )
+    )
+    assert await store.release(replacement.lease.lease_id)
+
+    after_actual_usage: Final = await scheduler.acquire(
+        AcquireRequest(request_id="request-d", model="model-a", estimated_tokens=80)
+    )
+    assert isinstance(after_actual_usage, AcquireSuccess)

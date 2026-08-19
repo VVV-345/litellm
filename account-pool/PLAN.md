@@ -1063,12 +1063,15 @@ Account Pool
 - Account Pool 手写文件中文职责说明及自动化文件头回归检查
 - 解析器最新有效套餐额度向运行配置的渠道、模型和已验证计费路由 scope 投影
 - PostgreSQL channel UUID 与 binding UUID 向运行配置的稳定身份投影
+- 内存运行态额度窗口的厂商快照校准、请求与 token 预占、真实 usage 结算、释放和耗尽资格限制
+- rolling 窗口按 usage 增量逐条过期，以及 fixed/reset_at 窗口成功探测后确认新周期
 
 当前缺失或需要替换：
 
 - parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
 - 新渠道、空闲渠道和手动触发的主动健康探测
-- 将已投影的渠道、模型和计费路由额度窗口接入 Redis/内存运行状态、usage 扣减和 restriction，并继续细分厂商 429 窗口语义
+- 将已投影的渠道、模型和计费路由额度窗口接入 Redis 原子运行状态，并继续细分厂商 429 窗口语义
+- PostgreSQL usage 增量、运行快照与 Redis 丢失后的额度状态重建
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
 - 持久化运行事件查询和日志 UI；Phase 1 已完成渠道管理审计写入
@@ -1166,7 +1169,11 @@ Account Pool
 - 未知 429 不被误判为长期额度耗尽
 - 重启后活动冷却和额度窗口能够重建；Redis 数据集丢失时必须隔离到故障前租约确定过期后再开放 acquire
 
-实施状态（2026-08-19）：Phase 3 已完成被动信号标准化、第一版按 scope 的资格状态机、half-open 单探测令牌，以及最新有效解析额度向运行配置的投影。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后只有一个请求能原子取得对应 scope 的探测令牌，其余请求继续轮询备用候选。探测成功只清除命中候选的证据，探测失败重新激活限制，未结算释放、租约过期和 heartbeat 分别释放或续期令牌。解析器提供的渠道、模型和已验证计费路由额度窗口现在携带稳定 UUID 和 Decimal 数值进入运行配置，但尚未进入 Redis/内存窗口状态、请求 usage 扣减或耗尽 restriction，不能视为额度执行已经完成。当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括额度窗口运行状态、扣减、校准、重建和耗尽限制，主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复；Redis Lua 路径仍需在目标 Redis 环境执行集成验收。当前代码验证为 Account Pool 全量 `390 passed, 33 skipped`、文件头 `149 passed`、Ruff 和本次修改文件格式检查通过；basedpyright 因本机没有安装且离线缓存不存在而未重新执行
+实施状态（2026-08-19）：Phase 3 已完成被动信号标准化、第一版按 scope 的资格状态机、half-open 单探测令牌、最新有效解析额度向运行配置的投影，以及内存 store 的额度执行闭环。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后只有一个请求能原子取得对应 scope 的探测令牌，其余请求继续轮询备用候选。探测成功只清除命中候选的证据，探测失败重新激活限制，未结算释放、租约过期和 heartbeat 分别释放或续期令牌
+
+内存额度运行态现在按渠道、模型和明确的计费路由匹配窗口；request 与 token 在 acquire 时预占，settle 时以可信的真实 usage 替换预占，未结算 release 时归还预占。rolling 窗口按本地 usage 增量逐条过期，fixed/reset_at 窗口到期后保持 half-open，只有成功结算才确认新周期。新的厂商快照作为校准点，清除快照时间以前的本地增量，同时保留快照以后的增量和活动预占；过时快照不会覆盖较新的运行状态。窗口耗尽会生成对应 scope 的资格限制，第一候选额度不足时调度器继续尝试备用渠道或同渠道兄弟计费路由
+
+当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括 Redis 中 Decimal 安全的原子额度预占、结算、释放、滚动过期和快照校准，PostgreSQL usage 增量与运行快照、重启重建、主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复；Redis Lua 路径仍需在目标 Redis 环境执行集成验收。当前代码验证为 Account Pool 全量 `407 passed, 33 skipped`、文件头 `151 passed`、Ruff 和本次修改文件格式检查通过；basedpyright 因本机没有安装且离线缓存不存在而未重新执行
 
 ### Phase 4：正式调度表与策略
 

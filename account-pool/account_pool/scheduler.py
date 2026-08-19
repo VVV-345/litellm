@@ -81,6 +81,7 @@ class Scheduler:
                 billing_route_id=deployment.billing_route_id,
                 public_model=request.model,
                 request_id=request.request_id,
+                estimated_tokens=request.estimated_tokens,
                 ttl_seconds=self._lease_ttl_seconds,
             )
             if isinstance(result, ReserveSuccess):
