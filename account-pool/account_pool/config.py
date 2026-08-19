@@ -28,6 +28,8 @@ class Settings:
     database_schema: str = "public"
     actor_secret: str | None = None
     reconcile_interval_seconds: int = 30
+    parser_export_retry_interval_seconds: int = 30
+    parser_export_retry_batch_size: int = 25
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -47,6 +49,12 @@ class Settings:
             database_schema=os.environ.get("ACCOUNT_POOL_DATABASE_SCHEMA", "public"),
             actor_secret=os.environ.get("ACCOUNT_POOL_ACTOR_SECRET"),
             reconcile_interval_seconds=int(os.environ.get("ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS", "30")),
+            parser_export_retry_interval_seconds=int(
+                os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_INTERVAL_SECONDS", "30")
+            ),
+            parser_export_retry_batch_size=int(
+                os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_BATCH_SIZE", "25")
+            ),
         )
 
 

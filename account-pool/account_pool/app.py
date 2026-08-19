@@ -55,6 +55,7 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.parsing.export_retry import ParserExportRetryLoop, ParserExportRetryManager
 from account_pool.parsing.imports.models import (
     SnapshotImportFailure,
     SnapshotImportFailureCode,
@@ -135,6 +136,7 @@ class Runtime:
     parser_data: ParserDataReader | None
     parser_overrides: ParserOverrideWriter | None
     parser_tasks: ParserTaskManager | None
+    parser_export_retries: ParserExportRetryManager | None
     snapshot_importer: SnapshotImporter | None
 
 
@@ -147,6 +149,7 @@ def create_app(
     parser_data: ParserDataReader | None = None,
     parser_overrides: ParserOverrideWriter | None = None,
     parser_tasks: ParserTaskManager | None = None,
+    parser_export_retries: ParserExportRetryManager | None = None,
     snapshot_importer: SnapshotImporter | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
@@ -198,14 +201,20 @@ def create_app(
     resolved_parser_overrides: Final = (
         parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
     )
-    resolved_parser_tasks: Final = (
-        parser_tasks
+    parser_runtime: Final = (
+        None
         if parser_tasks is not None
-        else _build_parser_tasks(
+        else _build_parser_runtime(
             settings=resolved_settings,
             providers=provider_services,
             registry=parser_registry,
         )
+    )
+    resolved_parser_tasks: Final = parser_tasks if parser_tasks is not None else _runtime_tasks(parser_runtime)
+    resolved_parser_export_retries: Final = (
+        parser_export_retries
+        if parser_export_retries is not None
+        else _runtime_export_retries(parser_runtime)
     )
     resolved_snapshot_importer: Final = (
         snapshot_importer
@@ -226,6 +235,7 @@ def create_app(
         parser_data=resolved_parser_data,
         parser_overrides=resolved_parser_overrides,
         parser_tasks=resolved_parser_tasks,
+        parser_export_retries=resolved_parser_export_retries,
         snapshot_importer=resolved_snapshot_importer,
     )
 
@@ -256,6 +266,11 @@ def create_app(
                 )
             )
         )
+        parser_export_retry_task: Final = (
+            None
+            if resolved_parser_export_retries is None
+            else asyncio.create_task(resolved_parser_export_retries.run())
+        )
         try:
             yield
         finally:
@@ -266,6 +281,10 @@ def create_app(
                 reconciler.cancel()
                 with suppress(asyncio.CancelledError):
                     await reconciler
+            if parser_export_retry_task is not None:
+                parser_export_retry_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await parser_export_retry_task
             if resolved_parser_tasks is not None:
                 await resolved_parser_tasks.close()
             await resolved_store.close()
@@ -1100,11 +1119,17 @@ def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
     )
 
 
-def _build_parser_tasks(
+@dataclass(frozen=True, slots=True)
+class _ParserRuntime:
+    tasks: ParserTaskManager
+    export_retries: ParserExportRetryManager
+
+
+def _build_parser_runtime(
     settings: Settings,
     providers: ProviderServiceRegistry,
     registry: ParserRegistry,
-) -> ParserTaskManager | None:
+) -> _ParserRuntime | None:
     if settings.database_url is None:
         return None
     parser_runs: Final = PostgresParserRunRepository(settings.database_url, schema=settings.database_schema)
@@ -1115,11 +1140,26 @@ def _build_parser_tasks(
         overrides=overrides,
         snapshots=ParserSnapshotStore(),
     )
-    return ParserTaskService(
-        providers=providers,
-        worker=worker,
-        repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
+    return _ParserRuntime(
+        tasks=ParserTaskService(
+            providers=providers,
+            worker=worker,
+            repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
+        ),
+        export_retries=ParserExportRetryLoop(
+            worker,
+            interval_seconds=settings.parser_export_retry_interval_seconds,
+            batch_size=settings.parser_export_retry_batch_size,
+        ),
     )
+
+
+def _runtime_tasks(runtime: _ParserRuntime | None) -> ParserTaskManager | None:
+    return None if runtime is None else runtime.tasks
+
+
+def _runtime_export_retries(runtime: _ParserRuntime | None) -> ParserExportRetryManager | None:
+    return None if runtime is None else runtime.export_retries
 
 
 def _build_snapshot_importer(settings: Settings) -> SnapshotImporter | None:

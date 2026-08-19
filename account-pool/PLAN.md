@@ -1039,6 +1039,7 @@ Account Pool
 - 无凭证解析器 registry 及显式、Provider+origin、OpenAI 兼容、人工兜底选择顺序
 - PostgreSQL parser run、套餐、额度窗口、按量价格和 billing route 规范化仓储
 - 先提交数据库再导出 JSON、记录失败并支持重试的 parser worker 核心
+- 随 4100 服务启停的快照导出后台重试循环、可配置批量边界，以及避免失败任务饿死后续任务的公平队列顺序
 - 追加式人工覆盖事件仓储、稳定字段定位，以及 raw/effective 确定性合成和撤销
 - parser worker 在数据库提交后加载人工覆盖，并将脱敏合成失败随结果返回
 - 按渠道查询 parser run 历史和最新 raw/effective 数据的应用服务、Account Pool API 与 LiteLLM 服务端代理
@@ -1062,7 +1063,7 @@ Account Pool
 
 当前缺失或需要替换：
 
-- OpenAI 官方解析器，以及 parser worker 的公开元数据任务和后台导出重试循环
+- parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类
@@ -1134,6 +1135,8 @@ Account Pool
 - 重新解析不覆盖人工修正
 - JSON 以 channel_id 为键且不含 URL 和 Key
 - 新解析器必须通过统一契约测试才能注册
+
+实施状态（2026-08-19）：Phase 2 已完成解析器契约、GLM 与 OpenAI 兼容解析器、规范化 PostgreSQL 仓储、人工覆盖、一次性 Key 任务、JSON 快照及后台导出重试。当前剩余公开元数据任务的普通 worker 队列，以及目标 PostgreSQL 和登录 Dashboard 环境中的真实链路验收；OpenAI 官方专用解析器按已确认范围暂缓，不阻塞当前 OpenAI 兼容渠道流程
 
 ### Phase 3：健康、额度窗口与冷却
 

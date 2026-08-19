@@ -59,7 +59,7 @@ SELECT_EXPORTABLE: Final = """
 SELECT parser_run_id
 FROM "LiteLLM_AccountPoolParserRun"
 WHERE export_status IN ('pending', 'retryable_failure')
-ORDER BY parsed_at, parser_run_id
+ORDER BY export_last_attempt_at NULLS FIRST, parsed_at, parser_run_id
 LIMIT %s
 """
 SELECT_CHANNEL_RUNS: Final = """

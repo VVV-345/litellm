@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -342,6 +343,20 @@ class FakeParserTaskManager:
         self.closed = True
 
 
+class FakeParserExportRetryManager:
+    def __init__(self) -> None:
+        self.started: Final = asyncio.Event()
+        self.cancelled = False
+
+    async def run(self) -> None:
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
 class FakeSnapshotImporter:
     def __init__(self) -> None:
         self.actors: list[ActorContext] = []
@@ -463,6 +478,25 @@ def _actor_token(action: ActorAction, request_id: str = "request-123") -> str:
 def _encode_actor_segment(value: object) -> str:
     payload: Final = json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("ascii")
     return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_and_stops_parser_export_retries() -> None:
+    tasks: Final = FakeParserTaskManager()
+    retries: Final = FakeParserExportRetryManager()
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        parser_tasks=tasks,
+        parser_export_retries=retries,
+    )
+
+    async with app.router.lifespan_context(app):
+        await retries.started.wait()
+
+    assert tasks.initialized is True
+    assert tasks.closed is True
+    assert retries.cancelled is True
 
 
 @pytest.mark.asyncio
