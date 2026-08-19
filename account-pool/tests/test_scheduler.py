@@ -156,15 +156,86 @@ async def test_expired_retry_enters_half_open_and_success_clears_the_restriction
 
     half_open: Final = (await scheduler.route_table("model-a"))[0]
     second: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
+    concurrent: Final = await scheduler.acquire(AcquireRequest(request_id="request-3", model="model-a"))
 
     assert half_open.exclusion_state == "half_open"
     assert half_open.available is True
     assert isinstance(second, AcquireSuccess)
+    assert isinstance(concurrent, AcquireUnavailable)
+    assert concurrent.reasons == ("one:half_open_probe_inflight",)
     assert await store.settle(SettleRequest(lease_id=second.lease.lease_id, success=True))
     assert await store.release(second.lease.lease_id)
     recovered: Final = (await scheduler.route_table("model-a"))[0]
     assert recovered.exclusion_state is None
     assert recovered.reason_code is None
+
+
+@pytest.mark.asyncio
+async def test_released_half_open_probe_allows_another_probe() -> None:
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert await store.settle(
+        SettleRequest(lease_id=first.lease.lease_id, success=False, status_code=429, retry_after_seconds=0)
+    )
+    assert await store.release(first.lease.lease_id)
+    abandoned: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
+    assert isinstance(abandoned, AcquireSuccess)
+
+    assert await store.release(abandoned.lease.lease_id)
+    replacement: Final = await scheduler.acquire(AcquireRequest(request_id="request-3", model="model-a"))
+    assert isinstance(replacement, AcquireSuccess)
+
+
+@pytest.mark.asyncio
+async def test_failed_half_open_probe_reactivates_the_restriction() -> None:
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert await store.settle(
+        SettleRequest(lease_id=first.lease.lease_id, success=False, status_code=429, retry_after_seconds=0)
+    )
+    assert await store.release(first.lease.lease_id)
+    probe: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
+    assert isinstance(probe, AcquireSuccess)
+    assert await store.settle(
+        SettleRequest(lease_id=probe.lease.lease_id, success=False, status_code=429, retry_after_seconds=120)
+    )
+    assert await store.release(probe.lease.lease_id)
+
+    route: Final = (await scheduler.route_table("model-a"))[0]
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-3", model="model-a"))
+
+    assert route.exclusion_state == "active"
+    assert route.reason_code == "rate_limit_unknown"
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("one:rate_limit_unknown",)
+
+
+@pytest.mark.asyncio
+async def test_half_open_probe_contention_falls_back_to_another_channel() -> None:
+    primary: Final = account("primary", max_concurrency=2).model_copy(update={"priority": 100})
+    fallback: Final = account("fallback", max_concurrency=2).model_copy(update={"priority": 0})
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(
+            accounts=(primary, fallback),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.PRIORITY),),
+        )
+    )
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert first.lease.account_id == "primary"
+    assert await store.settle(
+        SettleRequest(lease_id=first.lease.lease_id, success=False, status_code=429, retry_after_seconds=0)
+    )
+    assert await store.release(first.lease.lease_id)
+    probe: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
+    assert isinstance(probe, AcquireSuccess)
+    assert probe.lease.account_id == "primary"
+
+    concurrent: Final = await scheduler.acquire(AcquireRequest(request_id="request-3", model="model-a"))
+    assert isinstance(concurrent, AcquireSuccess)
+    assert concurrent.lease.account_id == "fallback"
 
 
 @pytest.mark.asyncio

@@ -1102,7 +1102,7 @@ Account Pool
 - 外部导入的 Deployment 默认不会被误删
 - 多实例读取相同渠道权威状态
 
-实施状态（2026-08-19）：Phase 1 代码交付已完成，环境验收尚未完成。当前自动化验证包括 Account Pool 全量 `372 passed, 33 skipped`、LiteLLM 管理代理 `13 passed`、Dashboard `7 passed`，以及 Ruff、basedpyright、Account Pool 路径 TypeScript 和 ESLint 零错误。仍需在目标环境执行并记录以下验收：
+实施状态（2026-08-19）：Phase 1 代码交付已完成，环境验收尚未完成。当前自动化验证包括 Account Pool 全量 `375 passed, 33 skipped`、LiteLLM 管理代理 `13 passed`、Dashboard `7 passed`，以及 Ruff、basedpyright、Account Pool 路径 TypeScript 和 ESLint 零错误。仍需在目标环境执行并记录以下验收：
 
 - 对真实 PostgreSQL 执行迁移、升级和回滚验证；当前 PostgreSQL 集成测试因未配置 `DATABASE_URL` 跳过
 - 使用仓库要求的 Prisma CLI 执行三份 schema 校验；当前环境未安装该 CLI，按约束不额外下载
@@ -1164,7 +1164,7 @@ Account Pool
 - 未知 429 不被误判为长期额度耗尽
 - 重启后活动冷却和额度窗口能够重建；Redis 数据集丢失时必须隔离到故障前租约确定过期后再开放 acquire
 
-实施状态（2026-08-19）：Phase 3 已完成被动信号标准化和第一版按 scope 的资格状态机。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后进入 half-open，成功只清除命中候选的证据。当前 PostgreSQL 目录投影尚未从解析结果中选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通；当前 half-open 也尚未限制为单探测令牌。其余未完成项包括 5 小时、周、月和自定义额度窗口及重建、主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复
+实施状态（2026-08-19）：Phase 3 已完成被动信号标准化、第一版按 scope 的资格状态机和 half-open 单探测令牌。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后只有一个请求能原子取得对应 scope 的探测令牌，其余请求继续轮询备用候选。探测成功只清除命中候选的证据，探测失败重新激活限制，未结算释放、租约过期和 heartbeat 分别释放或续期令牌。当前 PostgreSQL 目录投影尚未从解析结果中选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括 5 小时、周、月和自定义额度窗口及重建、主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复；Redis Lua 路径仍需在目标 Redis 环境执行集成验收
 
 ### Phase 4：正式调度表与策略
 

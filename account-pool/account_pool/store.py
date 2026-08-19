@@ -13,7 +13,12 @@ from redis.asyncio import Redis
 
 from account_pool.eligibility import (
     EligibilityExclusion,
+    EligibilityState,
+    EligibilitySubject,
+    candidate_evidence,
     candidate_exclusion,
+    effective_state,
+    exclusion_subject,
     exclusions_after_settlement,
     retain_configured_exclusions,
     settlement_exclusion,
@@ -80,6 +85,7 @@ class StateStore(Protocol):
 class _MemoryLeaseState:
     lease: Lease
     usage_applied: bool
+    probe_subject: EligibilitySubject | None
 
 
 class MemoryStateStore:
@@ -91,6 +97,7 @@ class MemoryStateStore:
         self._sequences: dict[str, int] = {}
         self._accounts: dict[str, AccountConfig] = {}
         self._exclusions: tuple[EligibilityExclusion, ...] = ()
+        self._probe_leases: dict[EligibilitySubject, str] = {}
 
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         async with self._lock:
@@ -141,6 +148,21 @@ class MemoryStateStore:
             )
             if exclusion is not None:
                 return ReserveRejected(reason=exclusion.reason_code)
+            evidence: Final = candidate_evidence(
+                exclusions=self._exclusions,
+                account_id=account.id,
+                model=public_model,
+                deployment_id=deployment_id,
+                billing_route_id=billing_route_id,
+                now=now,
+            )
+            probe_subject: Final = (
+                exclusion_subject(evidence)
+                if evidence is not None and effective_state(evidence, now) == EligibilityState.HALF_OPEN
+                else None
+            )
+            if probe_subject is not None and probe_subject in self._probe_leases:
+                return ReserveRejected(reason="half_open_probe_inflight")
             rejection: Final = _availability_rejection(runtime=runtime, now=now)
             if rejection is not None:
                 return ReserveRejected(reason=rejection)
@@ -155,7 +177,13 @@ class MemoryStateStore:
                 expires_at=now + ttl_seconds,
             )
             self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
-            self._leases[lease.lease_id] = _MemoryLeaseState(lease=lease, usage_applied=False)
+            self._leases[lease.lease_id] = _MemoryLeaseState(
+                lease=lease,
+                usage_applied=False,
+                probe_subject=probe_subject,
+            )
+            if probe_subject is not None:
+                self._probe_leases[probe_subject] = lease.lease_id
             self._requests[request_id] = lease.lease_id
             return ReserveSuccess(lease=lease)
 
@@ -190,7 +218,11 @@ class MemoryStateStore:
             updated: Final = runtime.model_copy(update={"quota": quota, **health_update})
             settled_lease: Final = lease_state.lease.model_copy(update={"settled": True})
             self._runtime[lease_state.lease.account_id] = updated
-            self._leases[request.lease_id] = _MemoryLeaseState(lease=settled_lease, usage_applied=True)
+            self._leases[request.lease_id] = _MemoryLeaseState(
+                lease=settled_lease,
+                usage_applied=True,
+                probe_subject=lease_state.probe_subject,
+            )
             return True
 
     async def release(self, lease_id: str) -> bool:
@@ -206,7 +238,13 @@ class MemoryStateStore:
             self._runtime[lease_state.lease.account_id] = runtime.model_copy(
                 update={"inflight": max(0, runtime.inflight - 1)}
             )
-            self._leases[lease_id] = _MemoryLeaseState(lease=released, usage_applied=lease_state.usage_applied)
+            self._leases[lease_id] = _MemoryLeaseState(
+                lease=released,
+                usage_applied=lease_state.usage_applied,
+                probe_subject=lease_state.probe_subject,
+            )
+            if lease_state.probe_subject is not None and self._probe_leases.get(lease_state.probe_subject) == lease_id:
+                del self._probe_leases[lease_state.probe_subject]
             return True
 
     async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
@@ -215,7 +253,11 @@ class MemoryStateStore:
             if lease_state is None or lease_state.lease.released:
                 return False
             extended: Final = lease_state.lease.model_copy(update={"expires_at": time.time() + ttl_seconds})
-            self._leases[lease_id] = _MemoryLeaseState(lease=extended, usage_applied=lease_state.usage_applied)
+            self._leases[lease_id] = _MemoryLeaseState(
+                lease=extended,
+                usage_applied=lease_state.usage_applied,
+                probe_subject=lease_state.probe_subject,
+            )
             return True
 
     async def next_sequence(self, model: str) -> int:
@@ -244,8 +286,9 @@ local existing = redis.call('GET', KEYS[4])
 if existing then
   return {2, existing, 'existing'}
 end
-local function active_exclusion(key, now)
+local function exclusion_status(key, now)
   local entries = redis.call('HGETALL', key)
+  local half_open = false
   for index = 1, #entries, 2 do
     local field = entries[index]
     local value = entries[index + 1]
@@ -253,10 +296,11 @@ local function active_exclusion(key, now)
     local retry_at = tonumber(string.sub(value, value_separator + 1)) or 0
     if retry_at == 0 or retry_at > now then
       local field_separator = string.find(field, '|', 1, true)
-      return string.sub(field, field_separator + 1)
+      return string.sub(field, field_separator + 1), false
     end
+    half_open = true
   end
-  return nil
+  return nil, half_open
 end
 local enabled = redis.call('HGET', KEYS[1], 'enabled')
 local health = redis.call('HGET', KEYS[1], 'health')
@@ -268,12 +312,19 @@ local quota_five = redis.call('HGET', KEYS[1], 'quota_five_hour')
 local quota_weekly = redis.call('HGET', KEYS[1], 'quota_weekly')
 local now = tonumber(ARGV[8])
 if enabled ~= '1' or health == 'disabled' then return {0, '', 'disabled'} end
+local probe_source_key = nil
 for key_index = 6, 9 do
-  local reason = active_exclusion(KEYS[key_index], now)
+  local reason, half_open = exclusion_status(KEYS[key_index], now)
   if reason then return {0, '', reason} end
+  if not probe_source_key and half_open then probe_source_key = KEYS[key_index] end
 end
 if health == 'unhealthy' then return {0, '', 'unhealthy'} end
 if cooldown > now then return {0, '', 'cooldown'} end
+local probe_key = ''
+if probe_source_key then
+  probe_key = 'pool:eligibility:probe:' .. probe_source_key
+  if redis.call('EXISTS', probe_key) == 1 then return {0, '', 'half_open_probe_inflight'} end
+end
 if inflight >= max_concurrency then return {0, '', 'capacity'} end
 if quota_total and quota_total ~= '' and tonumber(quota_total) <= 0 then return {0, '', 'total_quota'} end
 if quota_five and quota_five ~= '' and tonumber(quota_five) <= 0 then return {0, '', 'five_hour_quota'} end
@@ -282,7 +333,8 @@ redis.call('INCR', KEYS[2])
 redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
   'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
-  'settled', '0', 'released', '0')
+  'probe_key', probe_key, 'settled', '0', 'released', '0')
+if probe_key ~= '' then redis.call('SET', probe_key, ARGV[1], 'EX', ARGV[10]) end
 redis.call('SET', KEYS[4], ARGV[1], 'EX', ARGV[9])
 redis.call('ZADD', KEYS[5], ARGV[7], ARGV[1])
 return {1, ARGV[1], 'reserved'}
@@ -293,9 +345,12 @@ _RELEASE_SCRIPT = """
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 1 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
+local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
+local probe_key = redis.call('HGET', KEYS[1], 'probe_key')
 local inflight_key = ARGV[1] .. account_id .. ':inflight'
 local inflight = tonumber(redis.call('GET', inflight_key) or '0')
 if inflight > 0 then redis.call('DECR', inflight_key) end
+if probe_key and probe_key ~= '' and redis.call('GET', probe_key) == lease_id then redis.call('DEL', probe_key) end
 redis.call('HSET', KEYS[1], 'released', '1')
 redis.call('ZREM', KEYS[2], ARGV[2])
 redis.call('EXPIRE', KEYS[1], ARGV[3])
@@ -306,6 +361,10 @@ return 1
 _HEARTBEAT_SCRIPT = """
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 0 end
+local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
+local probe_key = redis.call('HGET', KEYS[1], 'probe_key')
+if probe_key and probe_key ~= '' and redis.call('GET', probe_key) ~= lease_id then return 0 end
+if probe_key and probe_key ~= '' then redis.call('EXPIRE', probe_key, ARGV[3]) end
 redis.call('HSET', KEYS[1], 'expires_at', ARGV[1])
 redis.call('ZADD', KEYS[2], ARGV[1], ARGV[2])
 return 1
@@ -451,6 +510,7 @@ class RedisStateStore:
                     now + ttl_seconds,
                     now,
                     retention,
+                    ttl_seconds,
                 ],
             )
         )
@@ -510,7 +570,7 @@ class RedisStateStore:
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._heartbeat_script(
                 keys=[self._lease_key(lease_id), self._expiries],
-                args=[expires_at, lease_id],
+                args=[expires_at, lease_id, ttl_seconds],
             )
         )
         return bool(result)

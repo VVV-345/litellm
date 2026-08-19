@@ -14,6 +14,7 @@ from account_pool.eligibility.state import (
     candidate_exclusion,
     clear_candidate,
     effective_state,
+    exclusion_subject,
     retain_configured_exclusions,
     upsert_exclusion,
 )
@@ -29,6 +30,7 @@ __all__ = (
     "candidate_exclusion",
     "clear_candidate",
     "effective_state",
+    "exclusion_subject",
     "exclusions_after_settlement",
     "retain_configured_exclusions",
     "settlement_exclusion",
