@@ -1,3 +1,5 @@
+<!-- 本文件记录 Account Pool 的总体架构、阶段计划、验收标准和实施进度。 -->
+
 # LiteLLM Account Pool 总体建设计划
 
 ## 1. 文档定位

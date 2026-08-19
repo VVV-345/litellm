@@ -1,3 +1,5 @@
+-- 本迁移创建号池渠道、模型绑定和调度策略的数据底座及约束。
+
 -- CreateTable
 CREATE TABLE "LiteLLM_AccountPoolChannel" (
     "channel_id" TEXT NOT NULL,

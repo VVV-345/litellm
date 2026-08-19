@@ -1,3 +1,5 @@
+<!-- 本文件说明 Account Pool 的定位、配置、启动方式、接口与安全边界。 -->
+
 # LiteLLM Account Pool
 
 Account Pool 是 LiteLLM 旁路运行的账号级调度服务。LiteLLM 继续负责供应商协议、加密保存 Key 和 Deployment；
