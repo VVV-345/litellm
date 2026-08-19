@@ -1861,3 +1861,67 @@ model LiteLLM_AccountPoolAuditEvent {
   @@index([operation_id])
   @@index([actor_envelope_id])
 }
+
+model LiteLLM_AccountPoolQuotaGeneration {
+  generation_id             String                                        @id
+  predecessor_generation_id String?
+  status                    String
+  created_at                DateTime                                      @client.Timestamptz(6)
+  activated_at              DateTime?                                     @client.Timestamptz(6)
+  closed_at                 DateTime?                                     @client.Timestamptz(6)
+  failure_code              String?
+  predecessor               LiteLLM_AccountPoolQuotaGeneration?           @relation("AccountPoolQuotaGenerationLineage", fields: [predecessor_generation_id], references: [generation_id], onDelete: Restrict)
+  successors                LiteLLM_AccountPoolQuotaGeneration[]           @relation("AccountPoolQuotaGenerationLineage")
+  usage_events              LiteLLM_AccountPoolQuotaUsageEvent[]
+  runtime_snapshots         LiteLLM_AccountPoolQuotaRuntimeSnapshot[]
+
+  @@index([created_at(sort: Desc)])
+}
+
+model LiteLLM_AccountPoolQuotaUsageEvent {
+  event_id      String                                 @id
+  generation_id String
+  channel_id    String?
+  account_id    String
+  window_id     String
+  lease_id      String
+  request_id    String
+  kind          String
+  amount        Decimal
+  occurred_at   DateTime                               @client.Timestamptz(6)
+  source        String
+  generation    LiteLLM_AccountPoolQuotaGeneration    @relation(fields: [generation_id], references: [generation_id], onDelete: Restrict)
+
+  @@unique([generation_id, lease_id, window_id])
+  @@index([generation_id, account_id, window_id, occurred_at])
+  @@index([request_id])
+}
+
+model LiteLLM_AccountPoolQuotaRuntimeSnapshot {
+  generation_id         String
+  channel_id            String?
+  account_id            String
+  window_id             String
+  scope                 String
+  subject_id            String?
+  kind                  String
+  window_type           String?
+  duration_seconds      Int?
+  limit_value           Decimal?
+  remaining_value       Decimal?
+  reserved_value        Decimal                                @default(0)
+  safety_reserve_value  Decimal                                @default(0)
+  retry_at              DateTime?                              @client.Timestamptz(6)
+  provider_reset_at     DateTime?                              @client.Timestamptz(6)
+  provider_observed_at  DateTime                               @client.Timestamptz(6)
+  provider_fingerprint  String
+  source                String
+  reason_code           String
+  captured_at           DateTime                               @client.Timestamptz(6)
+  reservation_expires_at DateTime?                             @client.Timestamptz(6)
+  generation            LiteLLM_AccountPoolQuotaGeneration    @relation(fields: [generation_id], references: [generation_id], onDelete: Restrict)
+
+  @@id([generation_id, account_id, window_id])
+  @@index([channel_id])
+  @@index([generation_id, captured_at(sort: Desc)])
+}

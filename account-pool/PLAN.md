@@ -1066,17 +1066,18 @@ Account Pool
 - 内存运行态额度窗口的厂商快照校准、请求与 token 预占、真实 usage 结算、释放和耗尽资格限制
 - rolling 窗口按 usage 增量逐条过期，以及 fixed/reset_at 窗口成功探测后确认新周期
 - Redis 运行态额度窗口的高精度编码、原子预占、结算、释放、探测续期和厂商快照校准代码
+- PostgreSQL 额度运行代次、幂等 usage 增量和窗口快照 schema、强类型仓储与恢复读取基础
 
 当前缺失或需要替换：
 
 - parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
 - 新渠道、空闲渠道和手动触发的主动健康探测
 - 在目标 Redis 环境验证额度 Lua 的真实并发竞争、滚动过期和故障恢复，并继续细分厂商 429 窗口语义
-- PostgreSQL usage 增量、运行快照与 Redis 丢失后的额度状态重建
+- PostgreSQL usage 写前接入、运行快照采集与 Redis 丢失后的额度状态重建
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
 - 持久化运行事件查询和日志 UI；Phase 1 已完成渠道管理审计写入
-- Redis 丢失后的代次切换、最长租约隔离和 fail-closed 恢复；Phase 1 已完成 PostgreSQL 到当前运行态的配置投影
+- Redis 丢失后的 store 代次门禁、最长租约隔离和 fail-closed 恢复；PostgreSQL 代次模型与仓储已完成
 
 现有计划中曾描述“Phase 1 有文件日志”“429 优先使用 Retry-After”“stats 包含完整额度与健康统计”，实际实现尚未满足。这些能力以本文后续阶段和验收标准为准
 
@@ -1176,7 +1177,9 @@ Account Pool
 
 Redis 运行态使用固定 36 位小数和任意长度十进制整数字符串保存额度，Lua 只把单个数字转换为 number，不用浮点数处理完整额度。配置脚本原子校准厂商快照并保留活动预占及快照后的 usage；acquire 在同一脚本中完成资格、并发、额度检查和预占，settle 以真实 request、token 或 currency usage 替换预占，release、租约回收和 heartbeat 分别归还预占或维护 half-open 探测令牌。Redis 状态损坏、scale 不一致或编码失败时生成 `quota_state_invalid` 或禁用账号，不会绕过额度继续调度。内存与 Redis 都把 `safety_reserve` 视为不可调度余额；已知 duration 的 fixed 窗口在成功探测后推进到下一周期边界
 
-当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括 PostgreSQL usage 增量与运行快照、重启重建、主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复。当前机器没有 Redis 服务、Lua 运行时或已安装的 fakeredis，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法和滚动过期仍需在目标 Redis 环境集成验收。当前代码验证为 Account Pool 全量 `426 passed, 33 skipped`、文件头 `154 passed`、Ruff 和本次修改文件格式检查通过；basedpyright 因本机没有安装且离线缓存不存在而未重新执行
+PostgreSQL 恢复基础已增加独立的额度运行代次、幂等 usage 事件和窗口快照模型。usage 事件 ID 由代次、租约和窗口稳定派生，精确数值使用 `NUMERIC(256,36)`；快照保存 remaining、reserved、retry_at、厂商观测时间与指纹，并要求活动预占携带最晚过期边界。仓储支持初始化、原子激活并退役旧代次、失败关闭、usage 内容冲突检测、快照单调更新和活动代次恢复读取，不保存 URL、Key、错误体或用户内容。当前聚焦验证为 `169 passed, 2 skipped`，跳过项需要目标 PostgreSQL；新增 Python 文件的 Ruff 与 basedpyright 均通过，文件头检查累计 `159 passed`。本机没有 Prisma CLI，按约束没有下载，三份 schema 与迁移仍需在目标环境执行 Prisma 校验和真实 PostgreSQL 集成测试
+
+当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。Phase 3 剩余项包括把 usage 写前记录与快照采集接入内存/Redis 结算、启动时重建、Redis 丢失后的代次门禁和最长租约隔离、主动健康检测、PostgreSQL 健康事件及详情 UI。当前机器没有 Redis 服务、Lua 运行时或已安装的 fakeredis，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法和滚动过期仍需在目标 Redis 环境集成验收
 
 ### Phase 4：正式调度表与策略
 
