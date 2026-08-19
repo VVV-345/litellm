@@ -28,7 +28,13 @@ class OverrideWriteSuccess(FrozenModel):
     event: FieldOverrideEvent
 
 
+class OverrideBatchWriteSuccess(FrozenModel):
+    status: Literal["created", "unchanged"]
+    events: tuple[FieldOverrideEvent, ...]
+
+
 OverrideWriteResult = OverrideWriteSuccess | OverridePersistenceFailure
+OverrideBatchWriteResult = OverrideBatchWriteSuccess | OverridePersistenceFailure
 
 
 class OverrideEventsLoadSuccess(FrozenModel):
@@ -43,3 +49,7 @@ class OverrideEventRepository(Protocol):
     async def append(self, event: FieldOverrideEvent) -> OverrideWriteResult: ...
 
     async def load_for_channel(self, channel_id: UUID) -> OverrideEventsLoadResult: ...
+
+
+class OverrideEventBatchRepository(Protocol):
+    async def append_batch(self, events: tuple[FieldOverrideEvent, ...]) -> OverrideBatchWriteResult: ...

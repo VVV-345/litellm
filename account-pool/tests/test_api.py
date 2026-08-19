@@ -18,6 +18,11 @@ from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
+from account_pool.parsing.imports.models import (
+    SnapshotImportRequest,
+    SnapshotImportResult,
+    SnapshotImportSuccess,
+)
 from account_pool.parsing.models import ParsedChannelData, ParserRunStatus
 from account_pool.parsing.overrides.commands import (
     OverrideEventResult,
@@ -178,6 +183,28 @@ class FakeParserTaskManager:
     async def close(self, timeout_seconds: float = 10) -> None:
         assert timeout_seconds == 10
         self.closed = True
+
+
+class FakeSnapshotImporter:
+    def __init__(self) -> None:
+        self.actors: list[ActorContext] = []
+
+    async def import_snapshot(
+        self,
+        channel_id: UUID,
+        request: SnapshotImportRequest,
+        actor: ActorContext,
+    ) -> SnapshotImportResult:
+        assert channel_id == _CHANNEL_ID
+        self.actors.append(actor)
+        snapshot: Final = request.document[channel_id]
+        return SnapshotImportSuccess(
+            status="created",
+            import_id=request.import_id,
+            channel_id=channel_id,
+            source_parser_run_id=_PARSER_RUN_ID,
+            effective_result=snapshot.effective_result,
+        )
 
 
 def settings(
@@ -377,6 +404,53 @@ async def test_snapshot_preview_and_export_return_the_same_redacted_channel_docu
     assert exported.headers["x-content-type-options"] == "nosniff"
     assert "api_key" not in rendered
     assert "credential_ref" not in rendered
+    assert "http://" not in rendered
+    assert "https://" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_snapshot_import_requires_signed_action_and_returns_only_effective_data() -> None:
+    importer: Final = FakeSnapshotImporter()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        snapshot_importer=importer,
+    )
+    snapshot: Final = ParserSnapshot(
+        parser_id="fixture-parser",
+        parser_version="1.0.0",
+        parser_run_id=_PARSER_RUN_ID,
+        parsed_at=_PARSED_AT,
+        status=ParserRunStatus.PARTIAL,
+        raw_result=ParsedChannelData(warnings=("自动解析",)),
+        effective_result=ParsedChannelData(warnings=("管理员导入",)),
+    )
+    body: Final = {
+        "import_id": "30000000-0000-0000-0000-000000000003",
+        "reason": "导入核对后的快照",
+        "document": {str(_CHANNEL_ID): snapshot.model_dump(mode="json")},
+    }
+    path: Final = f"/api/channels/{_CHANNEL_ID}/import"
+    service_headers: Final = {"x-account-pool-token": "test-service-token"}
+    actor_headers: Final = {
+        **service_headers,
+        "x-account-pool-request-id": "request-import",
+        "x-account-pool-actor": _actor_token(ActorAction.SNAPSHOT_IMPORT, request_id="request-import"),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            missing_actor: Final = await client.post(path, headers=service_headers, json=body)
+            imported_response: Final = await client.post(path, headers=actor_headers, json=body)
+
+    imported: Final = SnapshotImportSuccess.model_validate_json(imported_response.content)
+    rendered: Final = imported_response.text.casefold()
+    assert missing_actor.status_code == 401
+    assert imported.status == "created"
+    assert imported.effective_result.warnings == ("管理员导入",)
+    assert importer.actors[0].action == ActorAction.SNAPSHOT_IMPORT
+    assert "api_key" not in rendered
+    assert "api_base" not in rendered
     assert "http://" not in rendered
     assert "https://" not in rendered
 

@@ -48,6 +48,13 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.parsing.imports.models import (
+    SnapshotImportFailure,
+    SnapshotImportFailureCode,
+    SnapshotImportRequest,
+    SnapshotImportSuccess,
+)
+from account_pool.parsing.imports.service import SnapshotImporter, SnapshotImportService
 from account_pool.parsing.overrides.commands import (
     OverrideMutationFailure,
     OverrideMutationFailureCode,
@@ -101,6 +108,7 @@ class Runtime:
     parser_data: ParserDataReader | None
     parser_overrides: ParserOverrideWriter | None
     parser_tasks: ParserTaskManager | None
+    snapshot_importer: SnapshotImporter | None
 
 
 def create_app(
@@ -110,6 +118,7 @@ def create_app(
     parser_data: ParserDataReader | None = None,
     parser_overrides: ParserOverrideWriter | None = None,
     parser_tasks: ParserTaskManager | None = None,
+    snapshot_importer: SnapshotImporter | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -159,6 +168,11 @@ def create_app(
             registry=parser_registry,
         )
     )
+    resolved_snapshot_importer: Final = (
+        snapshot_importer
+        if snapshot_importer is not None
+        else _build_snapshot_importer(resolved_settings)
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -171,6 +185,7 @@ def create_app(
         parser_data=resolved_parser_data,
         parser_overrides=resolved_parser_overrides,
         parser_tasks=resolved_parser_tasks,
+        snapshot_importer=resolved_snapshot_importer,
     )
 
     @asynccontextmanager
@@ -311,6 +326,25 @@ def create_app(
             raise _parser_task_http_error(result)
         return result
 
+    async def import_parser_snapshot(
+        channel_id: UUID,
+        body: SnapshotImportRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> SnapshotImportSuccess:
+        if resolved_snapshot_importer is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.SNAPSHOT_IMPORT,
+            secret=resolved_settings.actor_secret,
+        )
+        result: Final = await resolved_snapshot_importer.import_snapshot(channel_id, body, actor)
+        if isinstance(result, SnapshotImportFailure):
+            raise _snapshot_import_http_error(result)
+        return result
+
     async def set_parser_override(
         channel_id: UUID,
         body: OverrideSetRequest,
@@ -449,6 +483,12 @@ def create_app(
         "/api/channels/{channel_id}/export",
         export_parser_snapshot,
         methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/import",
+        import_parser_snapshot,
+        methods=["POST"],
         dependencies=management_dependency,
     )
     application.add_api_route(
@@ -598,6 +638,18 @@ def _build_parser_tasks(
     )
 
 
+def _build_snapshot_importer(settings: Settings) -> SnapshotImporter | None:
+    if settings.database_url is None:
+        return None
+    parser_runs: Final = PostgresParserRunRepository(settings.database_url, schema=settings.database_schema)
+    overrides: Final = PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema)
+    return SnapshotImportService(
+        parser_runs=parser_runs,
+        overrides=overrides,
+        batch_writer=overrides,
+    )
+
+
 async def _load_parser_snapshot(
     parser_data: ParserDataReader | None,
     channel_id: UUID,
@@ -698,6 +750,28 @@ def _parser_task_http_error(failure: ParserTaskOperationFailure) -> HTTPExceptio
     if failure.code == ParserTaskOperationFailureCode.CONFLICT:
         return HTTPException(status_code=409, detail=detail)
     if failure.code == ParserTaskOperationFailureCode.DATABASE_UNAVAILABLE:
+        return HTTPException(status_code=503, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
+
+
+def _snapshot_import_http_error(failure: SnapshotImportFailure) -> HTTPException:
+    detail: Final = {"code": failure.code, "retryable": failure.retryable}
+    if failure.code in (
+        SnapshotImportFailureCode.CHANNEL_NOT_FOUND,
+        SnapshotImportFailureCode.RUN_NOT_FOUND,
+    ):
+        return HTTPException(status_code=404, detail=detail)
+    if failure.code in (
+        SnapshotImportFailureCode.INVALID_REQUEST,
+        SnapshotImportFailureCode.INVALID_DATA,
+    ):
+        return HTTPException(status_code=422, detail=detail)
+    if failure.code in (
+        SnapshotImportFailureCode.PREDECESSOR_CONFLICT,
+        SnapshotImportFailureCode.CONTENT_CONFLICT,
+    ):
+        return HTTPException(status_code=409, detail=detail)
+    if failure.code == SnapshotImportFailureCode.DATABASE_UNAVAILABLE:
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 

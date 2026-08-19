@@ -21,6 +21,8 @@ from account_pool.parsing.overrides.models import (
     OverrideTarget,
 )
 from account_pool.parsing.overrides.repository import (
+    OverrideBatchWriteResult,
+    OverrideBatchWriteSuccess,
     OverrideEventsLoadResult,
     OverrideEventsLoadSuccess,
     OverridePersistenceFailure,
@@ -143,27 +145,65 @@ class PostgresOverrideEventRepository:
                     return _failure(OverridePersistenceFailureCode.PREDECESSOR_CONFLICT, retryable=False)
                 await connection.execute(
                     _INSERT_EVENT,
-                    (
-                        str(event.override_id),
-                        str(event.channel_id),
-                        str(event.source_parser_run_id),
-                        event.field_path(),
-                        event.target.kind,
-                        _TARGET.dump_json(event.target).decode("utf-8"),
-                        event.action,
-                        _JSON_VALUE.dump_json(event.value).decode("utf-8"),
-                        event.had_previous_override,
-                        _JSON_VALUE.dump_json(event.previous_value).decode("utf-8"),
-                        None if event.supersedes_override_id is None else str(event.supersedes_override_id),
-                        event.actor_id,
-                        event.actor_role,
-                        event.request_id,
-                        event.reason,
-                        event.occurred_at,
-                        content_hash,
-                    ),
+                    _insert_values(event),
                 )
                 return OverrideWriteSuccess(status="created", event=event)
+        except (ValidationError, ValueError):
+            return _failure(OverridePersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
+        except psycopg.IntegrityError:
+            return _failure(OverridePersistenceFailureCode.PREDECESSOR_CONFLICT, retryable=False)
+        except psycopg.Error:
+            return _failure(OverridePersistenceFailureCode.DATABASE_UNAVAILABLE, retryable=True)
+
+    async def append_batch(self, events: tuple[FieldOverrideEvent, ...]) -> OverrideBatchWriteResult:
+        if not events:
+            return OverrideBatchWriteSuccess(status="unchanged", events=())
+        channel_ids: Final = frozenset(event.channel_id for event in events)
+        source_run_ids: Final = frozenset(event.source_parser_run_id for event in events)
+        override_ids: Final = tuple(event.override_id for event in events)
+        field_paths: Final = tuple(event.field_path() for event in events)
+        if (
+            len(channel_ids) != 1
+            or len(source_run_ids) != 1
+            or len(override_ids) != len(frozenset(override_ids))
+            or len(field_paths) != len(frozenset(field_paths))
+        ):
+            return _failure(OverridePersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
+        channel_id: Final = next(iter(channel_ids))
+        source_run_id: Final = next(iter(source_run_ids))
+        ordered: Final = tuple(sorted(events, key=lambda event: event.field_path()))
+        try:
+            async with await self._connect() as connection, connection.transaction():
+                await self._set_search_path(connection)
+                for field_path in sorted(field_paths):
+                    await connection.execute(
+                        "SELECT pg_advisory_xact_lock(%s)",
+                        (_lock_key(channel_id=channel_id, field_path=field_path),),
+                    )
+                channel_cursor: Final = await connection.execute(
+                    'SELECT 1 FROM "LiteLLM_AccountPoolChannel" WHERE channel_id = %s',
+                    (str(channel_id),),
+                )
+                if await channel_cursor.fetchone() is None:
+                    return _failure(OverridePersistenceFailureCode.CHANNEL_NOT_FOUND, retryable=False)
+                source_cursor: Final = await connection.execute(
+                    """
+                    SELECT 1 FROM "LiteLLM_AccountPoolParserRun"
+                    WHERE parser_run_id = %s AND channel_id = %s
+                    """,
+                    (str(source_run_id), str(channel_id)),
+                )
+                if await source_cursor.fetchone() is None:
+                    return _failure(OverridePersistenceFailureCode.SOURCE_RUN_NOT_FOUND, retryable=False)
+                validated: Final = await _validate_batch(connection, ordered)
+                if isinstance(validated, OverridePersistenceFailure):
+                    return validated
+                for event in validated:
+                    await connection.execute(_INSERT_EVENT, _insert_values(event))
+                return OverrideBatchWriteSuccess(
+                    status="created" if validated else "unchanged",
+                    events=ordered,
+                )
         except (ValidationError, ValueError):
             return _failure(OverridePersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
         except psycopg.IntegrityError:
@@ -203,6 +243,57 @@ class PostgresOverrideEventRepository:
 
 def _failure(code: OverridePersistenceFailureCode, retryable: bool) -> OverridePersistenceFailure:
     return OverridePersistenceFailure(code=code, retryable=retryable)
+
+
+async def _validate_batch(
+    connection: AsyncConnection[Mapping[str, object]],
+    events: tuple[FieldOverrideEvent, ...],
+) -> tuple[FieldOverrideEvent, ...] | OverridePersistenceFailure:
+    if not events:
+        return ()
+    event, *remaining_values = events
+    remaining: Final = tuple(remaining_values)
+    existing: Final = await _load_by_id(connection=connection, override_id=event.override_id)
+    if existing is not None:
+        if _content_hash(existing) != _content_hash(event):
+            return _failure(OverridePersistenceFailureCode.CONTENT_CONFLICT, retryable=False)
+        return await _validate_batch(connection, remaining)
+    heads: Final = await _load_heads(
+        connection=connection,
+        channel_id=event.channel_id,
+        field_path=event.field_path(),
+    )
+    if len(heads) > 1:
+        return _failure(OverridePersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
+    current: Final = None if not heads else heads[0]
+    if not _matches_predecessor(event=event, current=current):
+        return _failure(OverridePersistenceFailureCode.PREDECESSOR_CONFLICT, retryable=False)
+    validated_remaining: Final = await _validate_batch(connection, remaining)
+    if isinstance(validated_remaining, OverridePersistenceFailure):
+        return validated_remaining
+    return (event, *validated_remaining)
+
+
+def _insert_values(event: FieldOverrideEvent) -> tuple[object, ...]:
+    return (
+        str(event.override_id),
+        str(event.channel_id),
+        str(event.source_parser_run_id),
+        event.field_path(),
+        event.target.kind,
+        _TARGET.dump_json(event.target).decode("utf-8"),
+        event.action,
+        _JSON_VALUE.dump_json(event.value).decode("utf-8"),
+        event.had_previous_override,
+        _JSON_VALUE.dump_json(event.previous_value).decode("utf-8"),
+        None if event.supersedes_override_id is None else str(event.supersedes_override_id),
+        event.actor_id,
+        event.actor_role,
+        event.request_id,
+        event.reason,
+        event.occurred_at,
+        _content_hash(event),
+    )
 
 
 def _content_hash(event: FieldOverrideEvent) -> str:

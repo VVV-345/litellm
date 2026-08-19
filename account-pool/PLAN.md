@@ -1045,6 +1045,7 @@ Account Pool
 - 绑定管理员、请求 ID 和授权动作的短时 actor 信封，以及人工覆盖设置和撤销 API
 - 从 PostgreSQL 最新有效数据生成以渠道 ID 为键的脱敏快照预览和下载 API
 - 一次性 Key 同实例解析任务、持久任务心跳、超时中断标记，以及启动和状态查询 API
+- schema v1 单渠道快照校验、差异转换和 PostgreSQL 原子覆盖批次的受控导入 API
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
@@ -1052,7 +1053,7 @@ Account Pool
 
 - PostgreSQL 权威数据层
 - OpenAI 官方解析器，以及 parser worker 的公开元数据任务和后台导出重试循环
-- 受控 JSON 导入和字段差异 UI
+- 字段差异 UI
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类

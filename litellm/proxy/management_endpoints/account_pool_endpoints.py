@@ -235,6 +235,26 @@ async def export_channel_parser_snapshot(
     return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/export")
 
 
+@router.post("/channels/{channel_id}/import")
+async def import_channel_parser_snapshot(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    actor: Final = _actor_for_request(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action=AccountPoolActorAction.SNAPSHOT_IMPORT,
+    )
+    return await _forward(
+        request=request,
+        method="POST",
+        path=f"/api/channels/{channel_id}/import",
+        actor=actor,
+    )
+
+
 @router.put("/channels/{channel_id}/overrides")
 async def set_channel_parser_override(
     channel_id: UUID,

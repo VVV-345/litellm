@@ -23,11 +23,14 @@ from account_pool.parsing.overrides.models import (
     MeteredPriceTarget,
     OverrideAction,
     OverrideTarget,
+    RootField,
+    RootFieldTarget,
     SubscriptionField,
     SubscriptionFieldTarget,
 )
 from account_pool.parsing.overrides.postgres import PostgresOverrideEventRepository
 from account_pool.parsing.overrides.repository import (
+    OverrideBatchWriteSuccess,
     OverrideEventsLoadSuccess,
     OverridePersistenceFailure,
     OverridePersistenceFailureCode,
@@ -294,3 +297,52 @@ async def test_concurrent_children_cannot_create_two_chain_heads(
     assert failure.code == OverridePersistenceFailureCode.PREDECESSOR_CONFLICT
     assert isinstance(loaded, OverrideEventsLoadSuccess)
     assert len(active_override_events(loaded.events)) == 1
+
+
+async def test_batch_append_is_atomic_when_a_later_field_has_stale_predecessor(
+    override_repository_fixture: OverrideRepositoryFixture,
+) -> None:
+    fixture: Final = override_repository_fixture
+    existing: Final = _event(fixture, uuid4(), "20")
+    assert isinstance(await fixture.repository.append(existing), OverrideWriteSuccess)
+    valid_first: Final = _event(
+        fixture,
+        uuid4(),
+        [],
+        target=RootFieldTarget(field=RootField.CAPABILITIES),
+    )
+    stale_later: Final = _event(fixture, uuid4(), "30")
+
+    failed: Final = await fixture.repository.append_batch((valid_first, stale_later))
+    loaded: Final = await fixture.repository.load_for_channel(fixture.first_channel_id)
+
+    assert isinstance(failed, OverridePersistenceFailure)
+    assert failed.code == OverridePersistenceFailureCode.PREDECESSOR_CONFLICT
+    assert isinstance(loaded, OverrideEventsLoadSuccess)
+    assert loaded.events == (existing,)
+
+
+async def test_batch_append_round_trips_all_events_in_one_result(
+    override_repository_fixture: OverrideRepositoryFixture,
+) -> None:
+    fixture: Final = override_repository_fixture
+    capabilities: Final = _event(
+        fixture,
+        uuid4(),
+        [],
+        target=RootFieldTarget(field=RootField.CAPABILITIES),
+    )
+    warnings: Final = _event(
+        fixture,
+        uuid4(),
+        ["管理员导入"],
+        target=RootFieldTarget(field=RootField.WARNINGS),
+    )
+
+    written: Final = await fixture.repository.append_batch((warnings, capabilities))
+    loaded: Final = await fixture.repository.load_for_channel(fixture.first_channel_id)
+
+    assert isinstance(written, OverrideBatchWriteSuccess)
+    assert written.status == "created"
+    assert isinstance(loaded, OverrideEventsLoadSuccess)
+    assert frozenset(loaded.events) == frozenset((capabilities, warnings))

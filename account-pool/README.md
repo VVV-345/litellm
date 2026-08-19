@@ -124,8 +124,9 @@ effective result。无效或已不存在的目标会形成脱敏结构化失败�
 `GET /api/channels/{id}/snapshot` 和 `/export` 从 PostgreSQL 最新结果即时生成以渠道 ID 为键的 schema v1 脱敏文档，
 后者附带下载响应头。`POST /api/channels/{id}/parse` 接收一次性 Key，在当前 Account Pool 实例接管后返回任务 ID；
 任务所有权、心跳和结果写入 PostgreSQL，但 URL、Key 和 Key 指纹不会进入任务记录。进程中断后的超时任务会变为
-`interrupted_requires_key`，不会由其他实例接管或自动重试。受控 JSON 导入、后台导出重试循环及字段差异 UI 仍按
-Phase 2 后续步骤接入
+`interrupted_requires_key`，不会由其他实例接管或自动重试。`POST /api/channels/{id}/import` 接受单渠道 schema v1
+脱敏文档，只把 effective result 差异原子转换为可审计人工
+覆盖，不替换 parser run 或快照文件。后台导出重试循环及字段差异 UI 仍按 Phase 2 后续步骤接入
 
 ## 本地开发
 

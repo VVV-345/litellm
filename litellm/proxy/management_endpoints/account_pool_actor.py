@@ -27,6 +27,7 @@ JsonScalar = str | int
 
 class AccountPoolActorAction(StrEnum):
     PARSER_START = "parser_task:start"
+    SNAPSHOT_IMPORT = "parser_snapshot:import"
     OVERRIDE_SET = "parser_override:set"
     OVERRIDE_REVOKE = "parser_override:revoke"
 
