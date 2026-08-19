@@ -363,3 +363,51 @@ async def test_billing_route_must_reference_same_channel_binding(
 
     assert isinstance(result, ParserPersistenceFailure)
     assert result.code == ParserPersistenceFailureCode.INVALID_RESULT
+
+
+async def test_channel_history_returns_newest_runs_and_validates_channel(
+    parser_repository_fixture: ParserRepositoryFixture,
+) -> None:
+    fixture: Final = parser_repository_fixture
+    older: Final = _rich_run(fixture)
+    newer: Final = _rich_run(
+        fixture,
+        parser_run_id=UUID("20000000-0000-0000-0000-000000000009"),
+    ).model_copy(update={"parsed_at": _PARSED_AT + timedelta(minutes=1)})
+    assert isinstance(await fixture.repository.persist(older), ParserRunWriteSuccess)
+    assert isinstance(await fixture.repository.persist(newer), ParserRunWriteSuccess)
+
+    limited: Final = await fixture.repository.load_for_channel(older.channel_id, limit=1)
+    all_runs: Final = await fixture.repository.load_for_channel(older.channel_id, limit=10)
+    missing: Final = await fixture.repository.load_for_channel(uuid4(), limit=10)
+    invalid_limit: Final = await fixture.repository.load_for_channel(older.channel_id, limit=0)
+
+    assert isinstance(limited, ParserRunsLoadSuccess)
+    assert tuple(record.run.parser_run_id for record in limited.records) == (newer.parser_run_id,)
+    assert isinstance(all_runs, ParserRunsLoadSuccess)
+    assert tuple(record.run.parser_run_id for record in all_runs.records) == (
+        newer.parser_run_id,
+        older.parser_run_id,
+    )
+    assert isinstance(missing, ParserPersistenceFailure)
+    assert missing.code == ParserPersistenceFailureCode.CHANNEL_NOT_FOUND
+    assert isinstance(invalid_limit, ParserPersistenceFailure)
+    assert invalid_limit.code == ParserPersistenceFailureCode.INVALID_REQUEST
+
+
+async def test_repository_rejects_parser_content_that_cannot_be_exposed(
+    parser_repository_fixture: ParserRepositoryFixture,
+) -> None:
+    fixture: Final = parser_repository_fixture
+    safe: Final = _rich_run(fixture)
+    unsafe: Final = safe.model_copy(
+        update={"result": safe.result.model_copy(update={"warnings": ("see https://private.example",)})}
+    )
+
+    result: Final = await fixture.repository.persist(unsafe)
+
+    assert isinstance(result, ParserPersistenceFailure)
+    assert result.code == ParserPersistenceFailureCode.INVALID_RESULT
+    loaded: Final = await fixture.repository.load_for_channel(safe.channel_id, limit=10)
+    assert isinstance(loaded, ParserRunsLoadSuccess)
+    assert loaded.records == ()

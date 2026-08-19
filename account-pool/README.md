@@ -116,8 +116,9 @@ PostgreSQL 是权威数据源。parser run、套餐、额度窗口、按量分�
 修改前后值、操作者、原因和时间；重新解析只产生新的 raw result，当前有效覆盖会重新合成到 effective result。无效或
 已不存在的目标会形成脱敏结构化失败，不阻止其他有效覆盖导出
 
-当前 Worker 尚未接入管理 API 和常驻任务循环；人工覆盖管理 API、受控 JSON 导入、预览接口及字段差异 UI 仍按
-Phase 2 后续步骤接入
+解析历史和 raw/effective 有效数据已分别通过 `GET /api/channels/{id}/parser-runs` 与
+`GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。Worker 的解析启动 API 和常驻任务循环、
+人工覆盖写 API、受控 JSON 导入、快照文件预览接口及字段差异 UI 仍按 Phase 2 后续步骤接入
 
 ## 本地开发
 
@@ -130,11 +131,15 @@ $env:ACCOUNT_POOL_CONFIG = "account-pool/config/accounts.yaml"
 $env:ACCOUNT_POOL_LITELLM_URL = "http://127.0.0.1:4000"
 $env:ACCOUNT_POOL_LITELLM_ADMIN_KEY = "your-litellm-master-key"
 $env:ACCOUNT_POOL_INTERNAL_TOKEN = "your-service-token"
+$env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 .\.venv\Scripts\python.exe -m uvicorn account_pool.app:app --host 127.0.0.1 --port 4100
 ```
 
 所有 `/api/*` 和 `/internal/*` 接口都要求 `X-Account-Pool-Token`；未配置服务令牌时接口会拒绝服务，
 不会退化为无认证访问。`/healthz` 保持无认证，供容器健康检查使用
+
+`DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，但解析历史和有效数据接口返回 503；可通过
+`ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema
 
 客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
 生产网络中应限制 LiteLLM Proxy 的直接访问

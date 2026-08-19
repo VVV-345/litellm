@@ -62,6 +62,13 @@ WHERE export_status IN ('pending', 'retryable_failure')
 ORDER BY parsed_at, parser_run_id
 LIMIT %s
 """
+SELECT_CHANNEL_RUNS: Final = """
+SELECT parser_run_id
+FROM "LiteLLM_AccountPoolParserRun"
+WHERE channel_id = %s
+ORDER BY parsed_at DESC, parser_run_id DESC
+LIMIT %s
+"""
 INSERT_RUN: Final = """
 INSERT INTO "LiteLLM_AccountPoolParserRun" (
     parser_run_id, channel_id, parser_id, parser_version, parsed_at, status,

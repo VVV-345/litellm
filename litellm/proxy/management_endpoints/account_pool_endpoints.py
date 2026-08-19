@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, cast
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -53,10 +54,13 @@ async def _forward_with_client(
         "x-account-pool-token": internal_token,
     }
     content: Final = await request.body() if method in {"POST", "PUT"} else None
+    query_bytes: Final = cast(bytes, request.scope.get("query_string", b""))
+    query: Final = query_bytes.decode("ascii")
+    upstream_url: Final = f"{base_url}{path}{f'?{query}' if query else ''}"
     try:
         upstream: Final = await client.request(
             method=method,
-            url=f"{base_url}{path}",
+            url=upstream_url,
             headers=headers,
             content=content,
         )
@@ -124,3 +128,23 @@ async def delete_pool_account(
     _require_proxy_admin(user_api_key_dict)
     encoded_account_id: Final = quote(account_id, safe="")
     return await _forward(request=request, method="DELETE", path=f"/api/accounts/{encoded_account_id}")
+
+
+@router.get("/channels/{channel_id}/parser-runs")
+async def list_channel_parser_runs(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/parser-runs")
+
+
+@router.get("/channels/{channel_id}/effective-data")
+async def get_channel_effective_data(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/effective-data")

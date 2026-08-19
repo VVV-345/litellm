@@ -10,8 +10,8 @@ from fastapi import HTTPException, Request
 
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
-    _forward_with_client,
-    _require_proxy_admin,
+    _forward_with_client,  # pyright: ignore[reportPrivateUsage]  # 测试内部转发安全边界
+    _require_proxy_admin,  # pyright: ignore[reportPrivateUsage]  # 测试管理员权限边界
     authorize_account_pool,
 )
 
@@ -65,6 +65,36 @@ async def test_forward_adds_service_token_and_filters_upstream_headers(monkeypat
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json"
     assert "x-upstream-secret" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_forward_preserves_authenticated_query_parameters(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_INTERNAL_URL", "http://account-pool:4100")
+    monkeypatch.setenv("ACCOUNT_POOL_INTERNAL_TOKEN", "service-secret")
+    captured: list[httpx.Request] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(status_code=200, json={"runs": []})
+
+    request: Final = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/account_pool/channels/channel-id/parser-runs",
+            "query_string": b"limit=5",
+        }
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        response: Final = await _forward_with_client(
+            request=request,
+            method="GET",
+            path="/api/channels/channel-id/parser-runs",
+            client=client,
+        )
+
+    assert response.status_code == 200
+    assert str(captured[0].url) == "http://account-pool:4100/api/channels/channel-id/parser-runs?limit=5"
 
 
 @pytest.mark.asyncio

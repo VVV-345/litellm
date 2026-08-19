@@ -78,6 +78,9 @@ class FakeParserRepository:
         records: Final = () if self.record is None else (self.record,)
         return ParserRunsLoadSuccess(records=records)
 
+    async def load_for_channel(self, channel_id: UUID, limit: int) -> ParserRunsLoadResult:
+        raise AssertionError(f"worker must not query channel history: {channel_id}, {limit}")
+
     async def record_export_attempt(
         self,
         parser_run_id: UUID,

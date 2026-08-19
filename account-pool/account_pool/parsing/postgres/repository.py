@@ -47,6 +47,7 @@ from account_pool.parsing.postgres.statements import (
     INSERT_ROUTE,
     INSERT_RUN,
     INSERT_SUBSCRIPTION,
+    SELECT_CHANNEL_RUNS,
     SELECT_EXPORTABLE,
     SELECT_GROUPS,
     SELECT_LIMITS,
@@ -56,6 +57,7 @@ from account_pool.parsing.postgres.statements import (
     SELECT_SUBSCRIPTION,
     UPDATE_EXPORT,
 )
+from account_pool.parsing.safety import has_safe_parser_content
 
 _SCHEMA_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODEL_IDENTITIES: Final = TypeAdapter(tuple[ModelIdentity, ...])
@@ -84,6 +86,8 @@ class PostgresParserRunRepository:
         self._schema: Final = schema
 
     async def persist(self, run: ParserRun) -> ParserRunWriteResult:
+        if not has_safe_parser_content(run.model_dump_json()):
+            return _failure(ParserPersistenceFailureCode.INVALID_RESULT, retryable=False)
         content_hash: Final = _content_hash(run)
         try:
             async with await self._connect() as connection, connection.transaction():
@@ -127,6 +131,29 @@ class PostgresParserRunRepository:
             async with await self._connect() as connection, connection.transaction():
                 await self._set_search_path(connection)
                 rows: Final = await _fetch_all(connection, SELECT_EXPORTABLE, (limit,))
+                run_ids: Final = tuple(_RunIdRow.model_validate(row).parser_run_id for row in rows)
+                records: Final = await _load_records(connection=connection, parser_run_ids=run_ids)
+                if records is None:
+                    return _failure(ParserPersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
+                return ParserRunsLoadSuccess(records=records)
+        except (ValidationError, ValueError):
+            return _failure(ParserPersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
+        except psycopg.Error:
+            return _failure(ParserPersistenceFailureCode.DATABASE_UNAVAILABLE, retryable=True)
+
+    async def load_for_channel(self, channel_id: UUID, limit: int) -> ParserRunsLoadResult:
+        if limit < 1 or limit > 100:
+            return _failure(ParserPersistenceFailureCode.INVALID_REQUEST, retryable=False)
+        try:
+            async with await self._connect() as connection, connection.transaction():
+                await self._set_search_path(connection)
+                channel_cursor: Final = await connection.execute(
+                    'SELECT 1 FROM "LiteLLM_AccountPoolChannel" WHERE channel_id = %s',
+                    (str(channel_id),),
+                )
+                if await channel_cursor.fetchone() is None:
+                    return _failure(ParserPersistenceFailureCode.CHANNEL_NOT_FOUND, retryable=False)
+                rows: Final = await _fetch_all(connection, SELECT_CHANNEL_RUNS, (str(channel_id), limit))
                 run_ids: Final = tuple(_RunIdRow.model_validate(row).parser_run_id for row in rows)
                 records: Final = await _load_records(connection=connection, parser_run_ids=run_ids)
                 if records is None:
@@ -423,7 +450,7 @@ async def _load_record(
     group_rows: Final = await _fetch_all(connection, SELECT_GROUPS, (run_id_text,))
     price_rows: Final = await _fetch_all(connection, SELECT_PRICES, (run_id_text,))
     route_rows: Final = await _fetch_all(connection, SELECT_ROUTES, (run_id_text,))
-    return decode_record(
+    record: Final = decode_record(
         raw_run=cast(object, raw_run),
         subscription_rows=subscription_rows,
         quota_rows=quota_rows,
@@ -431,6 +458,9 @@ async def _load_record(
         price_rows=price_rows,
         route_rows=route_rows,
     )
+    if not has_safe_parser_content(record.run.model_dump_json()):
+        return None
+    return record
 
 
 async def _load_records(

@@ -17,6 +17,8 @@ class ParserRunRepository(Protocol):
 
     async def load_exportable(self, limit: int) -> ParserRunsLoadResult: ...
 
+    async def load_for_channel(self, channel_id: UUID, limit: int) -> ParserRunsLoadResult: ...
+
     async def record_export_attempt(
         self,
         parser_run_id: UUID,

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+from uuid import UUID
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -39,7 +40,17 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.parsing.overrides.postgres import PostgresOverrideEventRepository
+from account_pool.parsing.postgres import PostgresParserRunRepository
 from account_pool.parsing.registry import ParserRegistry
+from account_pool.parsing.service import (
+    EffectiveParserData,
+    ParserDataFailure,
+    ParserDataFailureCode,
+    ParserDataReader,
+    ParserDataService,
+    ParserRunHistory,
+)
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
@@ -58,12 +69,14 @@ class Runtime:
     admin: LiteLLMAdminClient
     provider_services: ProviderServiceRegistry
     parser_registry: ParserRegistry
+    parser_data: ParserDataReader | None
 
 
 def create_app(
     settings: Settings | None = None,
     store: StateStore | None = None,
     proxy_client: httpx.AsyncClient | None = None,
+    parser_data: ParserDataReader | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -98,6 +111,9 @@ def create_app(
         )
     )
     parser_registry: Final = build_parser_registry()
+    resolved_parser_data: Final = (
+        parser_data if parser_data is not None else _build_parser_data(resolved_settings)
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -107,6 +123,7 @@ def create_app(
         admin=admin,
         provider_services=provider_services,
         parser_registry=parser_registry,
+        parser_data=resolved_parser_data,
     )
 
     @asynccontextmanager
@@ -192,6 +209,22 @@ def create_app(
     async def validate_provider(body: ProviderValidationRequest) -> ProviderValidationResult:
         return await provider_services.validate(body)
 
+    async def parser_runs(channel_id: UUID, limit: int = 25) -> ParserRunHistory:
+        if resolved_parser_data is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_parser_data.history(channel_id=channel_id, limit=limit)
+        if isinstance(result, ParserDataFailure):
+            raise _parser_data_http_error(result)
+        return result
+
+    async def effective_parser_data(channel_id: UUID) -> EffectiveParserData:
+        if resolved_parser_data is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_parser_data.effective_data(channel_id)
+        if isinstance(result, ParserDataFailure):
+            raise _parser_data_http_error(result)
+        return result
+
     async def create_account(body: AccountMutation) -> ManagementResult:
         return await manager.create_account(body)
 
@@ -250,6 +283,18 @@ def create_app(
     application.add_api_route(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
     )
+    application.add_api_route(
+        "/api/channels/{channel_id}/parser-runs",
+        parser_runs,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/effective-data",
+        effective_parser_data,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
     application.add_api_route("/api/stats", stats, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/internal/acquire", acquire, methods=["POST"], dependencies=internal_dependency)
     application.add_api_route("/internal/settle", settle, methods=["POST"], dependencies=internal_dependency)
@@ -282,6 +327,18 @@ def create_app(
     )
     application.add_api_route(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}/parser-runs",
+        parser_runs,
+        methods=["GET"],
+        dependencies=ui_dependency,
+    )
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}/effective-data",
+        effective_parser_data,
+        methods=["GET"],
+        dependencies=ui_dependency,
     )
 
     async def ui_redirect() -> RedirectResponse:
@@ -319,6 +376,26 @@ def _build_store(settings: Settings) -> StateStore:
     if settings.store_mode == "redis":
         return RedisStateStore(settings.redis_url)
     return MemoryStateStore()
+
+
+def _build_parser_data(settings: Settings) -> ParserDataReader | None:
+    if settings.database_url is None:
+        return None
+    return ParserDataService(
+        parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
+        overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
+    )
+
+
+def _parser_data_http_error(failure: ParserDataFailure) -> HTTPException:
+    detail: Final = {"code": failure.code, "retryable": failure.retryable}
+    if failure.code in (ParserDataFailureCode.CHANNEL_NOT_FOUND, ParserDataFailureCode.RUN_NOT_FOUND):
+        return HTTPException(status_code=404, detail=detail)
+    if failure.code == ParserDataFailureCode.INVALID_REQUEST:
+        return HTTPException(status_code=422, detail=detail)
+    if failure.code == ParserDataFailureCode.DATABASE_UNAVAILABLE:
+        return HTTPException(status_code=503, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
 
 
 app = create_app()

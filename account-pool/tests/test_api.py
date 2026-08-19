@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
+from uuid import UUID
 
 import httpx
 import pytest
@@ -12,6 +14,17 @@ from account_pool.app import create_app
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
+from account_pool.parsing.models import ParsedChannelData, ParserRunStatus
+from account_pool.parsing.persistence import ParserExportState
+from account_pool.parsing.service import (
+    EffectiveParserData,
+    EffectiveParserDataResult,
+    ParserDataFailure,
+    ParserDataFailureCode,
+    ParserRunHistory,
+    ParserRunHistoryResult,
+    ParserRunSummary,
+)
 from account_pool.store import MemoryStateStore
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -36,6 +49,28 @@ _ROUTE_ENTRIES_ADAPTER: Final = TypeAdapter(tuple[RouteEntry, ...])
 _ACCOUNT_VIEWS_ADAPTER: Final = TypeAdapter(tuple[AccountView, ...])
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[ProviderServiceManifest, ...])
+_CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
+_PARSER_RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
+_PARSED_AT: Final = datetime(2026, 8, 19, 19, 0, tzinfo=UTC)
+
+
+class FakeParserDataReader:
+    def __init__(
+        self,
+        history_result: ParserRunHistoryResult,
+        effective_result: EffectiveParserDataResult,
+    ) -> None:
+        self._history_result: Final = history_result
+        self._effective_result: Final = effective_result
+
+    async def history(self, channel_id: UUID, limit: int) -> ParserRunHistoryResult:
+        assert channel_id == _CHANNEL_ID
+        assert limit == 5
+        return self._history_result
+
+    async def effective_data(self, channel_id: UUID) -> EffectiveParserDataResult:
+        assert channel_id == _CHANNEL_ID
+        return self._effective_result
 
 
 def settings(
@@ -52,6 +87,32 @@ def settings(
         lease_ttl_seconds=60,
         internal_token=internal_token,
     )
+
+
+def _parser_data_reader() -> FakeParserDataReader:
+    history: Final = ParserRunHistory(
+        channel_id=_CHANNEL_ID,
+        runs=(
+            ParserRunSummary(
+                parser_run_id=_PARSER_RUN_ID,
+                parser_id="fixture-parser",
+                parser_version="1.0.0",
+                parsed_at=_PARSED_AT,
+                status=ParserRunStatus.PARTIAL,
+                discovered_models=("model-a",),
+                export=ParserExportState(),
+            ),
+        ),
+    )
+    effective: Final = EffectiveParserData(
+        channel_id=_CHANNEL_ID,
+        parser_run_id=_PARSER_RUN_ID,
+        parsed_at=_PARSED_AT,
+        parser_status=ParserRunStatus.PARTIAL,
+        raw_result=ParsedChannelData(warnings=("需要人工确认",)),
+        effective_result=ParsedChannelData(warnings=("管理员已确认",)),
+    )
+    return FakeParserDataReader(history, effective)
 
 
 @pytest.mark.asyncio
@@ -86,6 +147,74 @@ async def test_management_api_fails_closed_without_configured_token() -> None:
             response: Final = await client.get("/api/accounts")
 
     assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_parser_history_and_effective_data_require_token_and_return_safe_views() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        parser_data=_parser_data_reader(),
+    )
+    base_path: Final = f"/api/channels/{_CHANNEL_ID}"
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            unauthorized: Final = await client.get(f"{base_path}/parser-runs?limit=5")
+            history_response: Final = await client.get(
+                f"{base_path}/parser-runs?limit=5",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+            effective_response: Final = await client.get(
+                f"{base_path}/effective-data",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    history: Final = ParserRunHistory.model_validate_json(history_response.content)
+    effective: Final = EffectiveParserData.model_validate_json(effective_response.content)
+    rendered: Final = f"{history_response.text}{effective_response.text}".casefold()
+    assert unauthorized.status_code == 401
+    assert history.runs[0].discovered_models == ("model-a",)
+    assert effective.raw_result.warnings == ("需要人工确认",)
+    assert effective.effective_result.warnings == ("管理员已确认",)
+    assert "api_key" not in rendered
+    assert "credential_ref" not in rendered
+    assert "http://" not in rendered
+    assert "https://" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_parser_data_api_reports_configuration_and_domain_failures() -> None:
+    unavailable_app: Final = create_app(settings=settings(), store=MemoryStateStore())
+    missing_reader: Final = FakeParserDataReader(
+        ParserDataFailure(code=ParserDataFailureCode.CHANNEL_NOT_FOUND, retryable=False),
+        ParserDataFailure(code=ParserDataFailureCode.RUN_NOT_FOUND, retryable=False),
+    )
+    missing_app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        parser_data=missing_reader,
+    )
+    headers: Final = {"x-account-pool-token": "test-service-token"}
+    base_path: Final = f"/api/channels/{_CHANNEL_ID}"
+
+    async with unavailable_app.router.lifespan_context(unavailable_app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=unavailable_app),
+            base_url="http://account-pool",
+        ) as client:
+            unavailable: Final = await client.get(f"{base_path}/effective-data", headers=headers)
+    async with missing_app.router.lifespan_context(missing_app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=missing_app),
+            base_url="http://account-pool",
+        ) as client:
+            missing_history: Final = await client.get(f"{base_path}/parser-runs?limit=5", headers=headers)
+            missing_data: Final = await client.get(f"{base_path}/effective-data", headers=headers)
+
+    assert unavailable.status_code == 503
+    assert missing_history.status_code == 404
+    assert missing_data.status_code == 404
 
 
 @pytest.mark.asyncio

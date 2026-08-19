@@ -24,6 +24,8 @@ class Settings:
     litellm_admin_key: str | None
     lease_ttl_seconds: int
     internal_token: str | None
+    database_url: str | None = None
+    database_schema: str = "public"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -39,6 +41,8 @@ class Settings:
             litellm_admin_key=os.environ.get("ACCOUNT_POOL_LITELLM_ADMIN_KEY"),
             lease_ttl_seconds=int(os.environ.get("ACCOUNT_POOL_LEASE_TTL_SECONDS", "120")),
             internal_token=os.environ.get("ACCOUNT_POOL_INTERNAL_TOKEN"),
+            database_url=os.environ.get("DATABASE_URL"),
+            database_schema=os.environ.get("ACCOUNT_POOL_DATABASE_SCHEMA", "public"),
         )
 
 
