@@ -1,3 +1,5 @@
+<!-- 本文件记录 Account Pool Phase 2 解析框架的实施边界、顺序、状态和验证门槛。 -->
+
 # Account Pool Phase 2 Parser Framework Implementation Plan
 
 ## Goal
@@ -65,6 +67,9 @@
 - 重新解析只更新 raw result，不覆盖人工值
 - effective result 由 raw result 与有效覆盖确定性合成
 - 导入 JSON 只能创建受控导入或覆盖记录，不能直接替换权威表
+
+状态：人工覆盖事件模型、PostgreSQL 事件链仓储、稳定目标合成、撤销和 Worker effective result 导出已实现。
+受控 JSON 导入及管理 API 在第 8 步接入
 
 ### 7. Provider-Specific Parsers
 

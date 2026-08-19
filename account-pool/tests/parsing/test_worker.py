@@ -6,6 +6,21 @@ from uuid import UUID
 
 from account_pool.domain.provider_source import ModelOffer, ProviderValidationResult
 from account_pool.parsing.models import ParsedChannelData, ParserRun, ParserRunStatus
+from account_pool.parsing.overrides.models import (
+    FieldOverrideEvent,
+    OverrideAction,
+    RootField,
+    RootFieldTarget,
+    SubscriptionField,
+    SubscriptionFieldTarget,
+)
+from account_pool.parsing.overrides.repository import (
+    OverrideEventsLoadResult,
+    OverrideEventsLoadSuccess,
+    OverridePersistenceFailure,
+    OverridePersistenceFailureCode,
+    OverrideWriteResult,
+)
 from account_pool.parsing.persistence import (
     ParserExportAttempt,
     ParserExportStatus,
@@ -34,6 +49,7 @@ from account_pool.parsing.worker import (
     ParserWorkSuccess,
 )
 from account_pool.provider_services.parser_registry import build_parser_registry
+from pydantic import JsonValue
 
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
@@ -77,10 +93,28 @@ class FakeParserRepository:
         return ParserExportUpdateSuccess(parser_run_id=parser_run_id, export=state)
 
 
+class FakeOverrideRepository:
+    def __init__(self, events: list[str]) -> None:
+        self._events: Final = events
+        self.overrides: tuple[FieldOverrideEvent, ...] = ()
+        self.load_failure: OverridePersistenceFailure | None = None
+
+    async def append(self, event: FieldOverrideEvent) -> OverrideWriteResult:
+        raise AssertionError(f"worker must not append override events: {event.override_id}")
+
+    async def load_for_channel(self, channel_id: UUID) -> OverrideEventsLoadResult:
+        assert channel_id == _CHANNEL_ID
+        self._events.append("load_overrides")
+        if self.load_failure is not None:
+            return self.load_failure
+        return OverrideEventsLoadSuccess(events=self.overrides)
+
+
 class RecordingSnapshotExporter:
     def __init__(self, events: list[str], failure: SnapshotExportFailure | None = None) -> None:
         self.events: Final = events
         self.failure = failure
+        self.effective_results: list[ParsedChannelData | None] = []
 
     def export(
         self,
@@ -88,6 +122,7 @@ class RecordingSnapshotExporter:
         effective_result: ParsedChannelData | None = None,
     ) -> SnapshotExportResult:
         self.events.append("snapshot_export")
+        self.effective_results.append(effective_result)
         if self.failure is not None:
             return self.failure
         return SnapshotExportSuccess(snapshot=project_parser_snapshot(run, effective_result))
@@ -120,11 +155,38 @@ def _clock() -> datetime:
     return _EXPORTED_AT
 
 
+def _override_event(
+    override_id: UUID,
+    target: RootFieldTarget | SubscriptionFieldTarget,
+    value: JsonValue | None,
+    *,
+    action: OverrideAction = OverrideAction.SET,
+    supersedes_override_id: UUID | None = None,
+    previous_value: JsonValue | None = None,
+    reason: str = "人工核对结果",
+) -> FieldOverrideEvent:
+    return FieldOverrideEvent(
+        override_id=override_id,
+        channel_id=_CHANNEL_ID,
+        source_parser_run_id=_RUN_ID,
+        target=target,
+        action=action,
+        value=value,
+        had_previous_override=supersedes_override_id is not None,
+        previous_value=previous_value,
+        supersedes_override_id=supersedes_override_id,
+        actor_id="admin-user",
+        reason=reason,
+        occurred_at=_EXPORTED_AT,
+    )
+
+
 async def test_worker_commits_before_snapshot_and_records_success() -> None:
     events: Final[list[str]] = []
     repository: Final = FakeParserRepository(events)
+    overrides: Final = FakeOverrideRepository(events)
     exporter: Final = RecordingSnapshotExporter(events)
-    worker: Final = ParserWorker(build_parser_registry(), repository, exporter, clock=_clock)
+    worker: Final = ParserWorker(build_parser_registry(), repository, overrides, exporter, clock=_clock)
 
     result: Final = await worker.run(_request())
 
@@ -132,13 +194,14 @@ async def test_worker_commits_before_snapshot_and_records_success() -> None:
     assert result.status == "exported"
     assert result.persistence_status == "created"
     assert result.export.status == ParserExportStatus.SUCCEEDED
-    assert events == ["persist_committed", "snapshot_export", "record_export"]
+    assert events == ["persist_committed", "load_overrides", "snapshot_export", "record_export"]
     assert "fingerprint-must-not-persist" not in result.run.model_dump_json()
 
 
 async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
     events: Final[list[str]] = []
     repository: Final = FakeParserRepository(events)
+    overrides: Final = FakeOverrideRepository(events)
     exporter: Final = RecordingSnapshotExporter(
         events,
         failure=SnapshotExportFailure(
@@ -146,7 +209,7 @@ async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
             retryable=True,
         ),
     )
-    worker: Final = ParserWorker(build_parser_registry(), repository, exporter, clock=_clock)
+    worker: Final = ParserWorker(build_parser_registry(), repository, overrides, exporter, clock=_clock)
 
     first: Final = await worker.run(_request())
     assert isinstance(first, ParserWorkSuccess)
@@ -164,9 +227,11 @@ async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
     assert outcome.export.attempt_count == 2
     assert events == [
         "persist_committed",
+        "load_overrides",
         "snapshot_export",
         "record_export",
         "load:10",
+        "load_overrides",
         "snapshot_export",
         "record_export",
     ]
@@ -182,6 +247,7 @@ async def test_persistence_failure_prevents_snapshot_export() -> None:
     worker: Final = ParserWorker(
         build_parser_registry(),
         repository,
+        FakeOverrideRepository(events),
         RecordingSnapshotExporter(events),
         clock=_clock,
     )
@@ -203,6 +269,7 @@ async def test_export_state_write_failure_leaves_run_retryable() -> None:
     worker: Final = ParserWorker(
         build_parser_registry(),
         repository,
+        FakeOverrideRepository(events),
         RecordingSnapshotExporter(events),
         clock=_clock,
     )
@@ -228,6 +295,7 @@ async def test_unmatched_provider_persists_manual_required_run() -> None:
     worker: Final = ParserWorker(
         build_parser_registry(),
         repository,
+        FakeOverrideRepository(events),
         RecordingSnapshotExporter(events),
         clock=_clock,
     )
@@ -246,6 +314,7 @@ async def test_already_exported_run_skips_snapshot_rewrite() -> None:
     first_worker: Final = ParserWorker(
         build_parser_registry(),
         repository,
+        FakeOverrideRepository(events),
         RecordingSnapshotExporter(events),
         clock=_clock,
     )
@@ -257,3 +326,135 @@ async def test_already_exported_run_skips_snapshot_rewrite() -> None:
     assert isinstance(second, ParserWorkSuccess)
     assert second.status == "already_exported"
     assert events == ["persist_committed"]
+
+
+async def test_reparse_keeps_active_override_in_effective_snapshot() -> None:
+    override_id: Final = UUID("30000000-0000-0000-0000-000000000003")
+    event: Final = _override_event(
+        override_id,
+        RootFieldTarget(field=RootField.WARNINGS),
+        ["管理员已确认"],
+    )
+    first_events: Final[list[str]] = []
+    first_overrides: Final = FakeOverrideRepository(first_events)
+    first_overrides.overrides = (event,)
+    first_exporter: Final = RecordingSnapshotExporter(first_events)
+    first_worker: Final = ParserWorker(
+        build_parser_registry(),
+        FakeParserRepository(first_events),
+        first_overrides,
+        first_exporter,
+        clock=_clock,
+    )
+    second_events: Final[list[str]] = []
+    second_overrides: Final = FakeOverrideRepository(second_events)
+    second_overrides.overrides = (event,)
+    second_exporter: Final = RecordingSnapshotExporter(second_events)
+    second_worker: Final = ParserWorker(
+        build_parser_registry(),
+        FakeParserRepository(second_events),
+        second_overrides,
+        second_exporter,
+        clock=_clock,
+    )
+
+    first: Final = await first_worker.run(_request())
+    reparsed_request: Final = _request().model_copy(
+        update={"parser_run_id": UUID("20000000-0000-0000-0000-000000000004")}
+    )
+    reparsed: Final = await second_worker.run(reparsed_request)
+
+    assert isinstance(first, ParserWorkSuccess)
+    assert isinstance(reparsed, ParserWorkSuccess)
+    assert first.applied_override_ids == (override_id,)
+    assert reparsed.applied_override_ids == (override_id,)
+    assert first_exporter.effective_results[0] is not None
+    assert second_exporter.effective_results[0] is not None
+    assert first_exporter.effective_results[0].warnings == ("管理员已确认",)
+    assert second_exporter.effective_results[0].warnings == ("管理员已确认",)
+    assert reparsed.run.result.warnings != ("管理员已确认",)
+
+
+async def test_revoke_restores_raw_value_in_effective_snapshot() -> None:
+    events: Final[list[str]] = []
+    set_event: Final = _override_event(
+        UUID("30000000-0000-0000-0000-000000000003"),
+        RootFieldTarget(field=RootField.WARNINGS),
+        ["管理员已确认"],
+    )
+    revoke_event: Final = _override_event(
+        UUID("30000000-0000-0000-0000-000000000004"),
+        RootFieldTarget(field=RootField.WARNINGS),
+        None,
+        action=OverrideAction.REVOKE,
+        supersedes_override_id=set_event.override_id,
+        previous_value=["管理员已确认"],
+    )
+    overrides: Final = FakeOverrideRepository(events)
+    overrides.overrides = (set_event, revoke_event)
+    exporter: Final = RecordingSnapshotExporter(events)
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        FakeParserRepository(events),
+        overrides,
+        exporter,
+        clock=_clock,
+    )
+
+    result: Final = await worker.run(_request())
+
+    assert isinstance(result, ParserWorkSuccess)
+    assert result.applied_override_ids == ()
+    assert exporter.effective_results == [result.run.result]
+
+
+async def test_override_load_failure_keeps_committed_run_pending() -> None:
+    events: Final[list[str]] = []
+    repository: Final = FakeParserRepository(events)
+    overrides: Final = FakeOverrideRepository(events)
+    overrides.load_failure = OverridePersistenceFailure(
+        code=OverridePersistenceFailureCode.DATABASE_UNAVAILABLE,
+        retryable=True,
+    )
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        repository,
+        overrides,
+        RecordingSnapshotExporter(events),
+        clock=_clock,
+    )
+
+    result: Final = await worker.run(_request())
+
+    assert isinstance(result, ParserWorkFailure)
+    assert result.stage == "overrides"
+    assert events == ["persist_committed", "load_overrides"]
+    assert repository.record is not None
+    assert repository.record.export.status == ParserExportStatus.PENDING
+
+
+async def test_invalid_override_is_visible_without_exposing_event_content() -> None:
+    events: Final[list[str]] = []
+    marker: Final = "do-not-expose-marker"
+    invalid: Final = _override_event(
+        UUID("30000000-0000-0000-0000-000000000003"),
+        SubscriptionFieldTarget(field=SubscriptionField.BALANCE),
+        "42",
+        reason=marker,
+    )
+    overrides: Final = FakeOverrideRepository(events)
+    overrides.overrides = (invalid,)
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        FakeParserRepository(events),
+        overrides,
+        RecordingSnapshotExporter(events),
+        clock=_clock,
+    )
+
+    result: Final = await worker.run(_request())
+
+    assert isinstance(result, ParserWorkSuccess)
+    assert len(result.override_failures) == 1
+    assert result.override_failures[0].override_id == invalid.override_id
+    assert marker not in result.model_dump_json()

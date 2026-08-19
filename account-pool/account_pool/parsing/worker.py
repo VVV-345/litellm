@@ -18,6 +18,14 @@ from account_pool.parsing.models import (
     ParserRun,
     ParserRunStatus,
 )
+from account_pool.parsing.overrides.composer import (
+    OverrideApplyFailure,
+    compose_effective_result,
+)
+from account_pool.parsing.overrides.repository import (
+    OverrideEventRepository,
+    OverridePersistenceFailure,
+)
 from account_pool.parsing.persistence import (
     ParserExportAttempt,
     ParserExportState,
@@ -62,13 +70,15 @@ class ParserWorkSuccess(FrozenModel):
     run: ParserRun
     persistence_status: Literal["created", "unchanged"]
     export: ParserExportState
+    applied_override_ids: tuple[UUID, ...] = ()
+    override_failures: tuple[OverrideApplyFailure, ...] = ()
 
 
 class ParserWorkFailure(FrozenModel):
     status: Literal["failed"] = "failed"
-    stage: Literal["persistence", "export_state"]
+    stage: Literal["persistence", "overrides", "export_state"]
     run: ParserRun
-    failure: ParserPersistenceFailure
+    failure: ParserPersistenceFailure | OverridePersistenceFailure
 
 
 ParserWorkResult = ParserWorkSuccess | ParserWorkFailure
@@ -96,11 +106,13 @@ class ParserWorker:
         self,
         registry: ParserRegistry,
         repository: ParserRunRepository,
+        overrides: OverrideEventRepository,
         snapshots: ParserSnapshotExporter,
         clock: Clock = utc_now,
     ) -> None:
         self._registry: Final = registry
         self._repository: Final = repository
+        self._overrides: Final = overrides
         self._snapshots: Final = snapshots
         self._clock: Final = clock
 
@@ -152,8 +164,12 @@ class ParserWorker:
                 export=record.export,
             )
 
-        # persist() 返回前事务已经提交，快照失败只会改变导出状态，不会撤销解析结果。
-        snapshot_result: Final = self._snapshots.export(record.run)
+        # persist() 返回前事务已经提交，后续覆盖读取或快照失败不会撤销原始解析结果。
+        loaded_overrides: Final = await self._overrides.load_for_channel(record.run.channel_id)
+        if isinstance(loaded_overrides, OverridePersistenceFailure):
+            return ParserWorkFailure(stage="overrides", run=record.run, failure=loaded_overrides)
+        composition: Final = compose_effective_result(record.run, loaded_overrides.events)
+        snapshot_result: Final = self._snapshots.export(record.run, composition.effective_result)
         attempt: Final = _export_attempt(snapshot_result=snapshot_result, attempted_at=self._clock())
         updated: Final = await self._repository.record_export_attempt(record.run.parser_run_id, attempt)
         if isinstance(updated, ParserPersistenceFailure):
@@ -163,6 +179,8 @@ class ParserWorker:
             run=record.run,
             persistence_status=persistence_status,
             export=updated.export,
+            applied_override_ids=composition.applied_override_ids,
+            override_failures=composition.failures,
         )
 
     async def _export_records(

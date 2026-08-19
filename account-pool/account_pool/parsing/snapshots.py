@@ -13,6 +13,7 @@ from pydantic import AwareDatetime, Field, TypeAdapter, ValidationError
 
 from account_pool.models import FrozenModel
 from account_pool.parsing.models import ParsedChannelData, ParserIssue, ParserRun, ParserRunStatus
+from account_pool.parsing.safety import has_safe_parser_content
 
 
 class ParserSnapshot(FrozenModel):
@@ -53,17 +54,6 @@ SnapshotWriter = Callable[[Path, bytes], bool]
 
 DEFAULT_PARSER_SNAPSHOT_ROOT: Final = Path(__file__).resolve().parents[2] / "data" / "parser-snapshots"
 _LATEST_ADAPTER: Final = TypeAdapter(dict[UUID, ParserSnapshot])
-_FORBIDDEN_CONTENT: Final = (
-    "api_key",
-    "api-key",
-    "authorization",
-    "bearer ",
-    "cookie",
-    "credential_ref",
-    "key_fingerprint",
-    "http://",
-    "https://",
-)
 
 
 def project_parser_snapshot(
@@ -85,8 +75,7 @@ def project_parser_snapshot(
 
 
 def _has_safe_content(snapshot: ParserSnapshot) -> bool:
-    serialized: Final = snapshot.model_dump_json().casefold()
-    return not any(forbidden in serialized for forbidden in _FORBIDDEN_CONTENT)
+    return has_safe_parser_content(snapshot.model_dump_json())
 
 
 def _write_atomic(path: Path, payload: bytes) -> bool:

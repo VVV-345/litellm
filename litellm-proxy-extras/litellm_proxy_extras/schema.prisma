@@ -1588,6 +1588,7 @@ model LiteLLM_AccountPoolChannel {
   updated_at            DateTime @updatedAt @client.Timestamptz(6)
   bindings              LiteLLM_AccountPoolBinding[]
   parser_runs           LiteLLM_AccountPoolParserRun[]
+  field_override_events LiteLLM_AccountPoolFieldOverride[]
 }
 
 model LiteLLM_AccountPoolBinding {
@@ -1643,6 +1644,7 @@ model LiteLLM_AccountPoolParserRun {
   quota_limits            LiteLLM_AccountPoolQuotaLimit[]
   metered_groups          LiteLLM_AccountPoolMeteredGroup[]
   billing_routes          LiteLLM_AccountPoolBillingRoute[]
+  source_override_events  LiteLLM_AccountPoolFieldOverride[]
 
   @@index([channel_id, parsed_at])
   @@index([export_status, parsed_at])
@@ -1745,4 +1747,30 @@ model LiteLLM_AccountPoolBillingRoute {
   @@unique([parser_run_id, route_order])
   @@unique([parser_run_id, route_id])
   @@index([parser_run_id])
+}
+
+model LiteLLM_AccountPoolFieldOverride {
+  override_id             String   @id
+  channel_id              String
+  source_parser_run_id    String
+  field_path              String
+  target_kind             String
+  target                  Json
+  action                  String
+  value                   Json
+  had_previous_override   Boolean  @default(false)
+  previous_value          Json
+  supersedes_override_id  String?  @unique
+  actor_id                String
+  reason                  String
+  occurred_at             DateTime @client.Timestamptz(6)
+  content_hash            String
+  created_at              DateTime @default(now()) @client.Timestamptz(6)
+  channel                 LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+  source_parser_run       LiteLLM_AccountPoolParserRun @relation(fields: [source_parser_run_id], references: [parser_run_id], onDelete: Restrict)
+  supersedes              LiteLLM_AccountPoolFieldOverride? @relation("AccountPoolOverrideChain", fields: [supersedes_override_id], references: [override_id], onDelete: Restrict)
+  superseded_by           LiteLLM_AccountPoolFieldOverride? @relation("AccountPoolOverrideChain")
+
+  @@index([channel_id, field_path, occurred_at])
+  @@index([source_parser_run_id])
 }
