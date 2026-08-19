@@ -1030,17 +1030,18 @@ Account Pool
 - 被动健康和固定冷却基础
 - 渠道 CRUD 与 LiteLLM Deployment 同步
 - GLM URL、Key 校验和模型发现
+- PostgreSQL catalog schema、repository、YAML 导入与只读投影基础
+- OpenAI 兼容 URL、Key 校验、模型发现和统一 partial 解析结果
+- 套餐、按量、额度窗口、价格、问题报告统一模型及脱敏 JSON 快照存储边界
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
 当前缺失或需要替换：
 
 - PostgreSQL 权威数据层
-- 套餐和按量统一解析模型
-- OpenAI 官方与 OpenAI 兼容解析器
-- 解析器模板和契约测试
-- JSON 版本快照、导入和导出
-- 人工覆盖层
+- OpenAI 官方解析器及 OpenAI 兼容解析器的 worker/数据库接入
+- GLM 迁移到统一解析契约及解析器选择 registry
+- parser run、人工覆盖、JSON 导入导出和 UI 预览
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类

@@ -83,6 +83,17 @@ LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
 自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
 生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport
 
+## 解析器 JSON 快照
+
+统一解析结果可通过 `ParserSnapshotStore` 导出到 `account-pool/data/parser-snapshots/`。`latest.json` 以渠道 UUID
+为键，history 按 `{channel_id}/{parser_run_id}.json` 保存；每个文件都包含 schema 版本、原始规范化结果、人工
+覆盖后的有效结果、模型发现和脱敏问题报告。写入采用同目录临时文件原子替换，history 或 latest 失败会返回结构化
+结果供后续 worker 重试，不破坏已有 latest
+
+快照只接受强类型解析结果，写入前拒绝 URL、认证头、Cookie、credential reference 和 Key 指纹等敏感内容。
+`account-pool/data/parser-snapshots/` 已加入 Git 忽略规则。当前仅交付投影和文件存储边界，PostgreSQL parser run、
+后台任务、人工覆盖 API、导入导出和 UI 预览仍按 Phase 2 后续步骤接入
+
 ## 本地开发
 
 不使用 Compose 时，需要单独启动服务：
