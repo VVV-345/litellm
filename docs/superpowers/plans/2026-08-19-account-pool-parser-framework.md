@@ -48,7 +48,7 @@
 - GLM 迁移到统一解析器契约
 - 为 registry、能力声明和 fallback 添加契约测试
 
-状态：本次交付
+状态：已由 `55cb7ff914` 交付
 
 ### 5. PostgreSQL Parser Runs and Worker
 
@@ -56,6 +56,8 @@
 - worker 在事务中保存结果，提交后导出 JSON；导出失败记录事件并重试
 - 通过幂等运行 ID 防止重复任务产生冲突结果
 - 解析失败不得直接改变渠道健康状态
+
+状态：已实现。Worker 核心和仓储已完成，管理 API 与常驻任务入口在第 8 步接入
 
 ### 6. Manual Overrides
 

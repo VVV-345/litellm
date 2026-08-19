@@ -93,6 +93,26 @@ def test_export_preserves_other_channels_in_latest(tmp_path: Path) -> None:
     assert frozenset(latest) == frozenset((first.channel_id, second.channel_id))
 
 
+def test_older_retry_writes_history_without_regressing_latest(tmp_path: Path) -> None:
+    root: Final = tmp_path / "parser-snapshots"
+    older: Final = _run()
+    newer: Final = older.model_copy(
+        update={
+            "parser_run_id": UUID("20000000-0000-0000-0000-000000000005"),
+            "parsed_at": datetime(2026, 8, 19, 9, 0, tzinfo=UTC),
+        }
+    )
+    store: Final = ParserSnapshotStore(root)
+
+    assert isinstance(store.export(newer), SnapshotExportSuccess)
+    assert isinstance(store.export(older), SnapshotExportSuccess)
+
+    latest: Final = _LATEST_ADAPTER.validate_json((root / "latest.json").read_bytes())
+    older_history: Final = root / "history" / str(older.channel_id) / f"{older.parser_run_id}.json"
+    assert latest[older.channel_id].parser_run_id == newer.parser_run_id
+    assert older_history.exists()
+
+
 def test_invalid_latest_is_not_overwritten(tmp_path: Path) -> None:
     root: Final = tmp_path / "parser-snapshots"
     root.mkdir()

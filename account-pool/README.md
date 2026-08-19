@@ -58,6 +58,10 @@ account_pool/provider_services/
 OpenAI 兼容通用 parser、人工模板。选择请求的 schema 不包含 Key，并拒绝额外凭证字段，因此选择过程不会把 Key
 依次发送给多个厂商试探。未知的显式 parser 不会静默降级到其他自动 parser，而是进入人工修正
 
+解析框架按职责拆分：`models.py` 定义统一结果，`registry.py` 只做无凭证选择，`persistence.py` 定义持久化与
+导出状态，`postgres/` 分离 SQL、行编解码和事务编排，`worker.py` 编排解析、提交和快照。新增厂商解析器不需要
+修改 PostgreSQL 仓储或 Worker 中的渠道分支
+
 ## GLM 官方国内平台
 
 首个模块使用智谱官方国内开发平台：`https://open.bigmodel.cn/api/paas/v4`
@@ -91,16 +95,22 @@ LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
 自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
 生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport
 
-## 解析器 JSON 快照
+## 解析运行持久化与 JSON 快照
 
 统一解析结果可通过 `ParserSnapshotStore` 导出到 `account-pool/data/parser-snapshots/`。`latest.json` 以渠道 UUID
 为键，history 按 `{channel_id}/{parser_run_id}.json` 保存；每个文件都包含 schema 版本、原始规范化结果、人工
 覆盖后的有效结果、模型发现和脱敏问题报告。写入采用同目录临时文件原子替换，history 或 latest 失败会返回结构化
-结果供后续 worker 重试，不破坏已有 latest
+结果供后续 worker 重试，不破坏已有 latest；旧运行补写 history 时不会覆盖同渠道更新的 latest
 
 快照只接受强类型解析结果，写入前拒绝 URL、认证头、Cookie、credential reference 和 Key 指纹等敏感内容。
-`account-pool/data/parser-snapshots/` 已加入 Git 忽略规则。当前仅交付投影和文件存储边界，PostgreSQL parser run、
-后台任务、人工覆盖 API、导入导出和 UI 预览仍按 Phase 2 后续步骤接入
+`account-pool/data/parser-snapshots/` 已加入 Git 忽略规则
+
+PostgreSQL 是权威数据源。parser run、套餐、额度窗口、按量分组、模型价格和计费路由分别写入规范化表，问题报告、
+证据和未解析字段只以通过 Pydantic 验证的 JSONB 附属字段保存。`ParserWorker` 的固定顺序是：选择并执行解析器、
+提交完整数据库事务、导出 JSON、记录导出状态。快照失败不会回滚解析数据；可重试失败由 `retry_exports()` 再处理。
+同一 `parser_run_id` 与相同内容幂等，不同内容会返回冲突
+
+当前 Worker 尚未接入管理 API 和常驻任务循环；人工覆盖、JSON 导入/预览接口及字段差异 UI 仍按 Phase 2 后续步骤接入
 
 ## 本地开发
 

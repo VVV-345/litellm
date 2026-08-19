@@ -1034,14 +1034,16 @@ Account Pool
 - OpenAI 兼容 URL、Key 校验、模型发现和统一 partial 解析结果
 - 套餐、按量、额度窗口、价格、问题报告统一模型及脱敏 JSON 快照存储边界
 - 无凭证解析器 registry 及显式、Provider+origin、OpenAI 兼容、人工兜底选择顺序
+- PostgreSQL parser run、套餐、额度窗口、按量价格和 billing route 规范化仓储
+- 先提交数据库再导出 JSON、记录失败并支持重试的 parser worker 核心
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
 当前缺失或需要替换：
 
 - PostgreSQL 权威数据层
-- OpenAI 官方解析器及 OpenAI 兼容解析器的 worker/数据库接入
-- parser run、人工覆盖、JSON 导入导出和 UI 预览
+- OpenAI 官方解析器，以及 parser worker 的管理 API 和常驻任务接入
+- 人工覆盖、JSON 导入导出和 UI 预览
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类

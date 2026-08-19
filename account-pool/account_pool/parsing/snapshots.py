@@ -133,6 +133,12 @@ class ParserSnapshotStore:
                 code=SnapshotExportFailureCode.HISTORY_WRITE_FAILED,
                 retryable=True,
             )
+        current: Final = latest.get(run.channel_id)
+        incoming_order: Final = (snapshot.parsed_at, str(snapshot.parser_run_id))
+        current_order: Final = None if current is None else (current.parsed_at, str(current.parser_run_id))
+        # 旧任务重试仍补写 history，但不得让渠道 latest 回退到更早的解析结果。
+        if current_order is not None and incoming_order < current_order:
+            return SnapshotExportSuccess(snapshot=snapshot)
         updated_latest: Final = {**latest, run.channel_id: snapshot}
         latest_payload: Final = _LATEST_ADAPTER.dump_json(updated_latest, indent=2)
         if not self._write_atomic(self._root / "latest.json", latest_payload):
