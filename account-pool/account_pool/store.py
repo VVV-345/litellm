@@ -11,6 +11,11 @@ from uuid import uuid4
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
 
+from account_pool.health.settlement import (
+    HealthTransitionAction,
+    SettlementHealthTransition,
+    classify_settlement,
+)
 from account_pool.models import (
     AccountConfig,
     AccountSnapshot,
@@ -129,7 +134,10 @@ class MemoryStateStore:
             account: Final = self._accounts[lease_state.lease.account_id]
             consumption: Final = _consumption(account=account, request=request)
             quota: Final = _decrement_quota(runtime.quota, consumption)
-            health_update: Final = _health_after_settlement(runtime=runtime, request=request)
+            health_update: Final = _health_after_settlement(
+                runtime=runtime,
+                transition=classify_settlement(request, time.time()),
+            )
             updated: Final = runtime.model_copy(update={"quota": quota, **health_update})
             settled_lease: Final = lease_state.lease.model_copy(update={"settled": True})
             self._runtime[lease_state.lease.account_id] = updated
@@ -240,11 +248,10 @@ if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'settled') == '1' then return 1 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
 local state_key = ARGV[1] .. account_id .. ':state'
-local success = ARGV[2] == '1'
-local status = tonumber(ARGV[3] or '0')
-local consumption = tonumber(ARGV[4] or '0')
-local now = tonumber(ARGV[5])
-local error_type = ARGV[6]
+local action = ARGV[2]
+local consumption = tonumber(ARGV[3] or '0')
+local cooldown_until = tonumber(ARGV[4] or '0')
+local reason_code = ARGV[5]
 if consumption > 0 then
   for _, field in ipairs({'quota_total', 'quota_five_hour', 'quota_weekly'}) do
     local value = redis.call('HGET', state_key, field)
@@ -253,18 +260,20 @@ if consumption > 0 then
     end
   end
 end
-if success then
-  redis.call('HSET', state_key, 'health', 'healthy', 'consecutive_failures', '0')
-elseif error_type == 'provider_auth' then
-  redis.call('HSET', state_key, 'enabled', '0', 'health', 'disabled')
-elseif status == 429 then
-  redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', now + 60)
+if action == 'success' then
+  redis.call('HSET', state_key, 'health', 'healthy', 'consecutive_failures', '0', 'cooldown_until', '0', 'reason_code', '')
+elseif action == 'disable' then
+  redis.call('HSET', state_key, 'enabled', '0', 'health', 'disabled', 'reason_code', reason_code)
+elseif action == 'observe' then
+  redis.call('HSET', state_key, 'reason_code', reason_code)
+elseif action == 'cooldown' then
+  redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', cooldown_until, 'reason_code', reason_code)
 else
   local failures = redis.call('HINCRBY', state_key, 'consecutive_failures', 1)
   if failures >= 3 then
-    redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', now + 30)
+    redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', cooldown_until, 'reason_code', reason_code)
   else
-    redis.call('HSET', state_key, 'health', 'degraded')
+    redis.call('HSET', state_key, 'health', 'degraded', 'reason_code', reason_code)
   end
 end
 redis.call('HSET', KEYS[1], 'settled', '1')
@@ -356,16 +365,16 @@ class RedisStateStore:
             return False
         account: Final = self._accounts[lease.account_id]
         consumption: Final = _consumption(account=account, request=request)
+        transition: Final = classify_settlement(request, time.time())
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._settle_script(
                 keys=[self._lease_key(request.lease_id)],
                 args=[
                     self._prefix,
-                    "1" if request.success else "0",
-                    request.status_code or 0,
+                    transition.action,
                     consumption,
-                    time.time(),
-                    request.error_type or "",
+                    transition.cooldown_until or 0,
+                    transition.reason_code or "",
                 ],
             )
         )
@@ -409,6 +418,7 @@ class RedisStateStore:
             "max_concurrency": str(account.max_concurrency),
             "cooldown_until": "0",
             "consecutive_failures": "0",
+            "reason_code": "",
             "quota_unit": account.quotas.unit,
             "quota_total": _redis_quota(account.quotas.total),
             "quota_five_hour": _redis_quota(account.quotas.five_hour),
@@ -447,6 +457,7 @@ class RedisStateStore:
             max_concurrency=int(state.get("max_concurrency", account.max_concurrency)),
             cooldown_until=cooldown_value if cooldown_value > 0 else None,
             consecutive_failures=int(state.get("consecutive_failures", "0")),
+            reason_code=state.get("reason_code") or None,
             quota=QuotaSnapshot(
                 unit=QuotaUnit(state.get("quota_unit", account.quotas.unit)),
                 total=_parse_redis_quota(state.get("quota_total")),
@@ -518,6 +529,7 @@ def _configured_snapshot(
         max_concurrency=account.max_concurrency,
         cooldown_until=existing.cooldown_until if existing is not None else None,
         consecutive_failures=existing.consecutive_failures if existing is not None else 0,
+        reason_code=existing.reason_code if existing is not None else None,
         quota=existing.quota
         if existing is not None and previous_account is not None and previous_account.quotas == account.quotas
         else quota,
@@ -542,21 +554,40 @@ def _decrement_quota(quota: QuotaSnapshot, consumption: float) -> QuotaSnapshot:
     )
 
 
-def _health_after_settlement(runtime: AccountSnapshot, request: SettleRequest) -> dict[str, object]:
-    if request.success:
-        return {"health": Health.HEALTHY, "consecutive_failures": 0, "cooldown_until": None}
-    if request.error_type == "provider_auth":
-        return {"enabled": False, "health": Health.DISABLED}
-    if request.status_code == 429:
-        return {"health": Health.COOLDOWN, "cooldown_until": time.time() + 60}
+def _health_after_settlement(
+    runtime: AccountSnapshot,
+    transition: SettlementHealthTransition,
+) -> dict[str, object]:
+    if transition.action == HealthTransitionAction.SUCCESS:
+        return {
+            "health": Health.HEALTHY,
+            "consecutive_failures": 0,
+            "cooldown_until": None,
+            "reason_code": None,
+        }
+    if transition.action == HealthTransitionAction.DISABLE:
+        return {"enabled": False, "health": Health.DISABLED, "reason_code": transition.reason_code}
+    if transition.action == HealthTransitionAction.OBSERVE:
+        return {"reason_code": transition.reason_code}
+    if transition.action == HealthTransitionAction.COOLDOWN:
+        return {
+            "health": Health.COOLDOWN,
+            "cooldown_until": transition.cooldown_until,
+            "reason_code": transition.reason_code,
+        }
     failures: Final = runtime.consecutive_failures + 1
     if failures >= 3:
         return {
             "health": Health.COOLDOWN,
             "consecutive_failures": failures,
-            "cooldown_until": time.time() + 30,
+            "cooldown_until": transition.cooldown_until,
+            "reason_code": transition.reason_code,
         }
-    return {"health": Health.DEGRADED, "consecutive_failures": failures}
+    return {
+        "health": Health.DEGRADED,
+        "consecutive_failures": failures,
+        "reason_code": transition.reason_code,
+    }
 
 
 def _redis_quota(value: float | None) -> str:

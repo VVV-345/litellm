@@ -1030,7 +1030,8 @@ Account Pool
 - 内存与 Redis store
 - acquire、settle、release、heartbeat 和租约回收基础
 - priority、least inflight、weighted round-robin 和 quota-aware 基础策略
-- 被动健康和固定冷却基础
+- 被动健康基础，以及 401、403、404、429、5xx 和传输失败的安全分类
+- `Retry-After` 秒数与 HTTP 日期解析、未知 429 的短期保守冷却，以及内存/Redis 共用的健康转换结果
 - 渠道 CRUD 与 LiteLLM Deployment 同步
 - GLM URL、Key 校验、模型发现和统一 partial 解析结果
 - PostgreSQL catalog schema、repository、YAML 导入与只读投影基础
@@ -1065,8 +1066,7 @@ Account Pool
 
 - parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
 - 混合健康检测和半开恢复
-- 按 scope 的额度窗口与 restriction
-- Retry-After 和结构化 429 分类
+- 按渠道、模型、Deployment 绑定和计费路由 scope 落地额度窗口与 restriction，并继续细分厂商 429 窗口语义
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
 - 持久化运行事件查询和日志 UI；Phase 1 已完成渠道管理审计写入
@@ -1163,6 +1163,8 @@ Account Pool
 - 余额耗尽只排除受影响的 Deployment 绑定或经验证的按量 `billing_route`，不假定无法控制的计费模式可切换
 - 未知 429 不被误判为长期额度耗尽
 - 重启后活动冷却和额度窗口能够重建；Redis 数据集丢失时必须隔离到故障前租约确定过期后再开放 acquire
+
+实施状态（2026-08-20）：Phase 3 已完成第一段被动信号标准化。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 停用渠道，403 与 404 只记录原因而不污染整条渠道健康，未知 429 只进入短期可恢复冷却，5xx 与传输失败按连续失败计数处理。运行快照和路由表已暴露机器原因码，内存与 Redis 使用同一分类结果。当前仍缺按 scope 的 restriction 状态机、额度窗口重建、半开探测、主动健康检测、PostgreSQL 健康事件和详情 UI
 
 ### Phase 4：正式调度表与策略
 

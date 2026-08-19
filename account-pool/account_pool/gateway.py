@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import AsyncIterator, Mapping
+from datetime import UTC, datetime
 from typing import Final, cast
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import TypeAdapter, ValidationError
 
+from account_pool.health.settlement import parse_retry_after_seconds
 from account_pool.models import AcquireRequest, AcquireSuccess, SettleRequest
 from account_pool.scheduler import Scheduler
 from account_pool.store import StateStore
@@ -127,6 +129,8 @@ class Gateway:
                 output_tokens=usage[1],
                 latency_ms=(time.perf_counter() - started) * 1000,
                 error_type=None if upstream.status_code < 400 else "proxy_http_status",
+                provider_error_code=None if upstream.status_code < 400 else _provider_error_code(content),
+                retry_after_seconds=_retry_after_from_response(upstream),
             )
         )
         await self._store.release(lease.lease_id)
@@ -157,6 +161,7 @@ class Gateway:
                     status_code=upstream.status_code,
                     latency_ms=(time.perf_counter() - started) * 1000,
                     error_type=None if completed and upstream.status_code < 400 else "stream_interrupted",
+                    retry_after_seconds=_retry_after_from_response(upstream),
                 )
             )
             await self._store.release(lease_id)
@@ -190,6 +195,31 @@ def _usage_from_content(content: bytes) -> tuple[int, int]:
         input_tokens if isinstance(input_tokens, int) else 0,
         output_tokens if isinstance(output_tokens, int) else 0,
     )
+
+
+def _provider_error_code(content: bytes) -> str | None:
+    try:
+        value: Final = _JSON_OBJECT.validate_python(cast(object, json.loads(content)))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError):
+        return None
+    error: Final = value.get("error")
+    if not isinstance(error, dict):
+        return None
+    typed_error: Final = _JSON_OBJECT.validate_python(error)
+    candidates: Final = (typed_error.get("code"), typed_error.get("type"))
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, str) and candidate and len(candidate) <= 128
+        ),
+        None,
+    )
+
+
+def _retry_after_from_response(response: httpx.Response) -> float | None:
+    value: Final = cast(str | None, response.headers.get("retry-after"))
+    return parse_retry_after_seconds(value, datetime.now(UTC))
 
 
 def _error_response(status_code: int, message: str) -> JSONResponse:

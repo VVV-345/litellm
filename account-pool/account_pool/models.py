@@ -104,6 +104,7 @@ class AccountSnapshot(FrozenModel):
     max_concurrency: int = Field(ge=1)
     cooldown_until: float | None
     consecutive_failures: int = Field(ge=0)
+    reason_code: str | None = None
     quota: QuotaSnapshot
 
 
@@ -160,6 +161,8 @@ class SettleRequest(FrozenModel):
     cost_usd: float | None = Field(default=None, ge=0)
     latency_ms: float | None = Field(default=None, ge=0)
     error_type: str | None = None
+    provider_error_code: str | None = Field(default=None, min_length=1, max_length=128)
+    retry_after_seconds: float | None = Field(default=None, ge=0, le=86_400)
 
 
 class ReleaseRequest(FrozenModel):
@@ -182,6 +185,7 @@ class RouteEntry(FrozenModel):
     inflight: int
     max_concurrency: int
     cooldown_until: float | None
+    reason_code: str | None
     quota: QuotaSnapshot
     priority: int
     weight: int

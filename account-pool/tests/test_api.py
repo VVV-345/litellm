@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
@@ -1046,6 +1047,39 @@ async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_release
     assert captured[0].metadata["account_pool_request_id"] == "request-123"
     assert routes[0].inflight == 0
     assert routes[0].quota.total == 2_499_968
+
+
+@pytest.mark.asyncio
+async def test_gateway_applies_retry_after_and_safe_provider_error_code() -> None:
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=429,
+            headers={"content-type": "application/json", "retry-after": "45"},
+            json={"error": {"type": "concurrency_limit_exceeded", "message": "busy"}},
+        )
+
+    store: Final = MemoryStateStore()
+    before: Final = time.time()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
+        app: Final = create_app(settings=settings(), store=store, proxy_client=proxy_client)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://account-pool",
+                headers={"x-account-pool-token": "test-service-token"},
+            ) as client:
+                response: Final = await client.post(
+                    "/v1/chat/completions",
+                    json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
+                )
+                routes_response: Final = await client.get("/api/models/gpt-4o/routing-table")
+
+    routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
+    cooled: Final = next(route for route in routes if route.reason_code == "concurrency_limited")
+    assert response.status_code == 429
+    assert cooled.health == "cooldown"
+    assert cooled.cooldown_until is not None
+    assert before + 45 <= cooled.cooldown_until <= time.time() + 45
 
 
 @pytest.mark.asyncio

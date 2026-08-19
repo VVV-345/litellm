@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Final
 
 import pytest
@@ -100,10 +101,56 @@ async def test_settlement_updates_quota_and_429_cools_account() -> None:
 
     snapshot: Final = (await store.snapshots())[0]
     assert snapshot.health == "cooldown"
+    assert snapshot.reason_code == "rate_limited"
     assert snapshot.quota.total == 9_850
     blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
     assert isinstance(blocked, AcquireUnavailable)
     assert blocked.reasons == ("one:cooldown",)
+
+
+@pytest.mark.asyncio
+async def test_retry_after_controls_cooldown_without_marking_quota_exhausted() -> None:
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+    before: Final = time.time()
+
+    assert await store.settle(
+        SettleRequest(
+            lease_id=acquired.lease.lease_id,
+            success=False,
+            status_code=429,
+            provider_error_code="concurrency_limit_exceeded",
+            retry_after_seconds=120,
+        )
+    )
+
+    snapshot: Final = (await store.snapshots())[0]
+    assert snapshot.reason_code == "concurrency_limited"
+    assert snapshot.cooldown_until is not None
+    assert before + 120 <= snapshot.cooldown_until <= time.time() + 120
+    assert snapshot.quota.five_hour == 5_000
+    assert snapshot.quota.weekly == 8_000
+
+
+@pytest.mark.asyncio
+async def test_model_not_found_does_not_degrade_entire_account() -> None:
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+
+    assert await store.settle(
+        SettleRequest(
+            lease_id=acquired.lease.lease_id,
+            success=False,
+            status_code=404,
+        )
+    )
+
+    snapshot: Final = (await store.snapshots())[0]
+    assert snapshot.health == "unknown"
+    assert snapshot.reason_code == "model_not_found"
+    assert snapshot.cooldown_until is None
 
 
 @pytest.mark.asyncio

@@ -161,6 +161,7 @@ class Scheduler:
             inflight=snapshot.inflight,
             max_concurrency=snapshot.max_concurrency,
             cooldown_until=snapshot.cooldown_until,
+            reason_code=snapshot.reason_code,
             quota=snapshot.quota,
             priority=account.priority,
             weight=account.weight,
