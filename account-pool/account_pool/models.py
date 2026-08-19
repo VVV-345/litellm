@@ -175,6 +175,7 @@ class Lease(FrozenModel):
     deployment_id: str
     public_model: ModelName
     billing_route_id: str | None = None
+    generation_id: UUID | None = None
     expires_at: float
     settled: bool = False
     released: bool = False

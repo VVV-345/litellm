@@ -1177,9 +1177,11 @@ Account Pool
 
 Redis 运行态使用固定 36 位小数和任意长度十进制整数字符串保存额度，Lua 只把单个数字转换为 number，不用浮点数处理完整额度。配置脚本原子校准厂商快照并保留活动预占及快照后的 usage；acquire 在同一脚本中完成资格、并发、额度检查和预占，settle 以真实 request、token 或 currency usage 替换预占，release、租约回收和 heartbeat 分别归还预占或维护 half-open 探测令牌。Redis 状态损坏、scale 不一致或编码失败时生成 `quota_state_invalid` 或禁用账号，不会绕过额度继续调度。内存与 Redis 都把 `safety_reserve` 视为不可调度余额；已知 duration 的 fixed 窗口在成功探测后推进到下一周期边界
 
-PostgreSQL 恢复基础已增加独立的额度运行代次、幂等 usage 事件和窗口快照模型。usage 事件 ID 由代次、租约和窗口稳定派生，精确数值使用 `NUMERIC(256,36)`；快照保存 remaining、reserved、retry_at、厂商观测时间与指纹，并要求活动预占携带最晚过期边界。仓储支持初始化、原子激活并退役旧代次、失败关闭、usage 内容冲突检测、快照单调更新和活动代次恢复读取，不保存 URL、Key、错误体或用户内容。当前聚焦验证为 `169 passed, 2 skipped`，跳过项需要目标 PostgreSQL；新增 Python 文件的 Ruff 与 basedpyright 均通过，文件头检查累计 `159 passed`。本机没有 Prisma CLI，按约束没有下载，三份 schema 与迁移仍需在目标环境执行 Prisma 校验和真实 PostgreSQL 集成测试
+PostgreSQL 恢复链路已增加独立的额度运行代次、幂等 usage 事件和窗口快照模型。usage 事件 ID 由代次、租约和窗口稳定派生，精确数值使用 `NUMERIC(256,36)`；快照分别保存厂商基线 remaining 与本地运行 remaining，并保存 reserved、retry_at、厂商观测时间、指纹和活动预占的最晚过期边界。仓储支持初始化、原子激活并退役旧代次、失败关闭、usage 内容冲突检测、批次冲突事务回滚、快照单调更新和沿代次继承链读取 usage，不保存 URL、Key、错误体或用户内容
 
-当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。Phase 3 剩余项包括把 usage 写前记录与快照采集接入内存/Redis 结算、启动时重建、Redis 丢失后的代次门禁和最长租约隔离、主动健康检测、PostgreSQL 健康事件及详情 UI。当前机器没有 Redis 服务、Lua 运行时或已安装的 fakeredis，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法和滚动过期仍需在目标 Redis 环境集成验收
+额度持久化装饰层已接入内存与 Redis 后端。结算先写 PostgreSQL usage，再更新运行后端并采集快照；reserve、release、heartbeat 和租约回收后同步快照。启动时以 PostgreSQL 活动代次、窗口快照和继承链 usage 重建运行状态；Redis 代次缺失或不匹配时创建新代次，并在故障前最长租约确定过期前拒绝新 acquire。旧代次回调、持久化失败、恢复不完整或代次错配都会进入 fail-closed，不会绕过额度继续调度。应用配置 `DATABASE_URL` 后自动使用持久化装饰层，未配置时继续使用原有内存或 Redis 后端
+
+实施状态（2026-08-20）：Phase 3 的被动健康、额度窗口、冷却、usage 持久化和重启恢复代码闭环已完成，当前聚焦验证为 `257 passed, 3 skipped`；跳过项均需要目标 PostgreSQL。新增及修改 Python 路径的 Ruff、basedpyright 和文件头检查通过。当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。Phase 3 剩余功能为主动健康检测、PostgreSQL 健康事件和健康/冷却详情 UI。当前机器没有 Redis 服务、Lua 运行时、fakeredis 或 Prisma CLI，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法、滚动过期、三份 Prisma schema 和迁移仍需在目标 Redis/PostgreSQL 环境集成验收
 
 ### Phase 4：正式调度表与策略
 

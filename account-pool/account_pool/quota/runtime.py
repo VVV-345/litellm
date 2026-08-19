@@ -91,6 +91,10 @@ def quota_rejection(
     )
 
 
+def normalize_quota_window(window: RuntimeQuotaWindow, now: float) -> RuntimeQuotaWindow:
+    return _normalize_window(window, now)
+
+
 def reserve_quota_capacity(
     windows: tuple[RuntimeQuotaWindow, ...],
     public_model: str,

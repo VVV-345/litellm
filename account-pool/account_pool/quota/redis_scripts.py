@@ -253,6 +253,7 @@ REDIS_QUOTA_RESERVE_COMMIT_LUA: Final = r"""
 for quota_index, quota_state in ipairs(quota_states) do
   local updated_reserved = quota_add_unsigned(quota_state.reserved, quota_state.amount)
   redis.call('HSET', quota_state.window_key, 'reserved_units', updated_reserved)
+  redis.call('ZADD', quota_state.window_key .. ':reservations', ARGV[7], ARGV[1])
   if quota_state.probe_key ~= '' then redis.call('SET', quota_state.probe_key, ARGV[1], 'EX', ARGV[10]) end
   redis.call('HSET', KEYS[3],
     'quota_window_' .. quota_index, quota_state.window_key,
@@ -273,6 +274,7 @@ for quota_index = 1, quota_count do
   if quota_probe_key and quota_probe_key ~= '' and redis.call('GET', quota_probe_key) == lease_id then
     redis.call('DEL', quota_probe_key)
   end
+  if window_key then redis.call('ZREM', window_key .. ':reservations', lease_id) end
   if settled ~= '1' and window_key and usage_key and redis.call('EXISTS', window_key) == 1 then
     local reserved = redis.call('HGET', window_key, 'reserved_units') or '0'
     local updated_reserved = '0'
@@ -288,11 +290,13 @@ end
 REDIS_QUOTA_HEARTBEAT_LUA: Final = r"""
 local quota_count = tonumber(redis.call('HGET', KEYS[1], 'quota_count') or '0')
 for quota_index = 1, quota_count do
+  local window_key = redis.call('HGET', KEYS[1], 'quota_window_' .. quota_index)
   local quota_probe_key = redis.call('HGET', KEYS[1], 'quota_probe_' .. quota_index)
   if quota_probe_key and quota_probe_key ~= '' then
     if redis.call('GET', quota_probe_key) ~= lease_id then return 0 end
     redis.call('EXPIRE', quota_probe_key, ARGV[3])
   end
+  if window_key then redis.call('ZADD', window_key .. ':reservations', ARGV[1], lease_id) end
 end
 """
 
@@ -331,6 +335,7 @@ end
 for _, quota_state in ipairs(quota_states) do
   local updated_reserved = quota_subtract_unsigned(quota_state.reserved, quota_state.amount)
   redis.call('HSET', quota_state.window_key, 'reserved_units', updated_reserved)
+  redis.call('ZREM', quota_state.window_key .. ':reservations', lease_id)
   local remaining = quota_state.remaining
   if quota_state.confirms_reset == '1' and ARGV[14] == '1' then
     remaining = redis.call('HGET', quota_state.window_key, 'limit_units') or ''

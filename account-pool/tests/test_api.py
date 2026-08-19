@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from account_pool.app import create_app
+from account_pool.app import Runtime, create_app
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
@@ -64,6 +64,7 @@ from account_pool.parsing.tasks.models import (
     ParserTaskView,
     ParserTaskViewResult,
 )
+from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.store import MemoryStateStore
 from account_pool.sync.models import SyncStatus
 from account_pool.sync.service import (
@@ -385,6 +386,7 @@ def settings(
     admin_key: str | None = None,
     internal_token: str | None = "test-service-token",
     actor_secret: str | None = None,
+    database_url: str | None = None,
 ) -> Settings:
     return Settings(
         config_path=config_path or Path(__file__).resolve().parents[1] / "config" / "accounts.demo.yaml",
@@ -394,8 +396,20 @@ def settings(
         litellm_admin_key=admin_key,
         lease_ttl_seconds=60,
         internal_token=internal_token,
+        database_url=database_url,
         actor_secret=actor_secret,
     )
+
+
+def test_build_store_enables_durable_quota_runtime_with_postgres() -> None:
+    memory_runtime: Final = cast(Runtime, create_app(settings=settings()).state.runtime)
+    durable_runtime: Final = cast(
+        Runtime,
+        create_app(settings=settings(database_url="postgresql://account-pool.invalid/test")).state.runtime,
+    )
+
+    assert isinstance(memory_runtime.store, MemoryStateStore)
+    assert isinstance(durable_runtime.store, DurableQuotaStateStore)
 
 
 def _parser_data_reader() -> FakeParserDataReader:

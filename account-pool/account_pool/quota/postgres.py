@@ -42,9 +42,14 @@ _USAGE_COLUMNS: Final = """
 event_id, generation_id, channel_id, account_id, window_id, lease_id, request_id,
 kind, amount, occurred_at, source
 """
+_QUALIFIED_USAGE_COLUMNS: Final = """
+usage.event_id, usage.generation_id, usage.channel_id, usage.account_id, usage.window_id,
+usage.lease_id, usage.request_id, usage.kind, usage.amount, usage.occurred_at, usage.source
+"""
 _SNAPSHOT_COLUMNS: Final = """
 generation_id, channel_id, account_id, window_id, scope, subject_id, kind, window_type,
-duration_seconds, limit_value, remaining_value, reserved_value, safety_reserve_value,
+duration_seconds, limit_value, provider_remaining_value, remaining_value,
+reserved_value, safety_reserve_value,
 retry_at, provider_reset_at, provider_observed_at, provider_fingerprint, source,
 reason_code, captured_at, reservation_expires_at
 """
@@ -85,6 +90,7 @@ class _SnapshotRow(FrozenModel):
     window_type: RuntimeQuotaWindowType | None
     duration_seconds: int | None
     limit_value: Decimal | None
+    provider_remaining_value: Decimal | None
     remaining_value: Decimal | None
     reserved_value: Decimal
     safety_reserve_value: Decimal
@@ -99,6 +105,14 @@ class _SnapshotRow(FrozenModel):
 
 
 DatabaseRow: TypeAlias = Mapping[str, object]
+
+
+class _UsageContentConflict(Exception):
+    pass
+
+
+class _SnapshotStateConflict(Exception):
+    pass
 
 
 class PostgresQuotaRuntimeRepository:
@@ -229,9 +243,10 @@ class PostgresQuotaRuntimeRepository:
                 loaded_by_id: Final = {event.event_id: event for event in loaded}
                 if any(loaded_by_id.get(event.event_id) != event for event in events):
                     # 同批次可能已插入其他事件，冲突时必须回滚，不能留下部分 usage。
-                    await connection.rollback()
-                    return _failure(QuotaPersistenceFailureCode.CONTENT_CONFLICT, retryable=False)
+                    raise _UsageContentConflict
                 return QuotaUsageWriteSuccess(events=events)
+        except _UsageContentConflict:
+            return _failure(QuotaPersistenceFailureCode.CONTENT_CONFLICT, retryable=False)
         except (ValidationError, ValueError, KeyError, TypeError):
             return _failure(QuotaPersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
         except psycopg.IntegrityError:
@@ -257,7 +272,7 @@ class PostgresQuotaRuntimeRepository:
                     INSERT INTO "LiteLLM_AccountPoolQuotaRuntimeSnapshot" ({_SNAPSHOT_COLUMNS})
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (generation_id, account_id, window_id) DO UPDATE SET
                         channel_id = EXCLUDED.channel_id,
@@ -267,6 +282,7 @@ class PostgresQuotaRuntimeRepository:
                         window_type = EXCLUDED.window_type,
                         duration_seconds = EXCLUDED.duration_seconds,
                         limit_value = EXCLUDED.limit_value,
+                        provider_remaining_value = EXCLUDED.provider_remaining_value,
                         remaining_value = EXCLUDED.remaining_value,
                         reserved_value = EXCLUDED.reserved_value,
                         safety_reserve_value = EXCLUDED.safety_reserve_value,
@@ -290,9 +306,10 @@ class PostgresQuotaRuntimeRepository:
                     loaded_by_identity.get(identity) != snapshot for identity, snapshot in zip(identities, snapshots)
                 ):
                     # 快照批次必须原子更新，旧快照或内容冲突不能提交同批次的其他窗口。
-                    await connection.rollback()
-                    return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=False)
+                    raise _SnapshotStateConflict
                 return QuotaSnapshotWriteSuccess(snapshots=snapshots)
+        except _SnapshotStateConflict:
+            return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=False)
         except (ValidationError, ValueError, KeyError, TypeError):
             return _failure(QuotaPersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
         except psycopg.IntegrityError:
@@ -380,6 +397,7 @@ def decode_snapshot_row(value: object) -> QuotaWindowRuntimeSnapshot:
         window_type=row.window_type,
         duration_seconds=row.duration_seconds,
         limit_value=row.limit_value,
+        provider_remaining_value=row.provider_remaining_value,
         remaining_value=row.remaining_value,
         reserved_value=row.reserved_value,
         safety_reserve_value=row.safety_reserve_value,
@@ -434,10 +452,20 @@ async def _load_generation_usage(
 ) -> tuple[QuotaUsageEvent, ...]:
     cursor: Final = await connection.execute(
         f"""
-        SELECT {_USAGE_COLUMNS}
-        FROM "LiteLLM_AccountPoolQuotaUsageEvent"
-        WHERE generation_id = %s
-        ORDER BY occurred_at, event_id
+        WITH RECURSIVE quota_lineage AS (
+            SELECT generation_id, predecessor_generation_id
+            FROM "LiteLLM_AccountPoolQuotaGeneration"
+            WHERE generation_id = %s
+            UNION ALL
+            SELECT predecessor.generation_id, predecessor.predecessor_generation_id
+            FROM "LiteLLM_AccountPoolQuotaGeneration" AS predecessor
+            JOIN quota_lineage AS current
+                ON predecessor.generation_id = current.predecessor_generation_id
+        )
+        SELECT {_QUALIFIED_USAGE_COLUMNS}
+        FROM "LiteLLM_AccountPoolQuotaUsageEvent" AS usage
+        JOIN quota_lineage ON quota_lineage.generation_id = usage.generation_id
+        ORDER BY usage.occurred_at, usage.event_id
         """,
         (str(generation_id),),
     )
@@ -500,6 +528,7 @@ def _snapshot_values(snapshot: QuotaWindowRuntimeSnapshot) -> tuple[object, ...]
         None if snapshot.window_type is None else snapshot.window_type.value,
         snapshot.duration_seconds,
         snapshot.limit_value,
+        snapshot.provider_remaining_value,
         snapshot.remaining_value,
         snapshot.reserved_value,
         snapshot.safety_reserve_value,

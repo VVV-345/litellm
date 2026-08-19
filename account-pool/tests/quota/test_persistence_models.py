@@ -24,6 +24,7 @@ from account_pool.quota.persistence_models import (
     build_quota_window_snapshot,
     quota_provider_fingerprint,
     quota_usage_event_id,
+    restore_quota_window,
 )
 from account_pool.quota.runtime import RuntimeQuotaWindow
 from pydantic import ValidationError
@@ -161,10 +162,14 @@ def test_snapshot_preserves_exact_decimal_state_and_provider_fingerprint() -> No
     )
 
     assert snapshot.remaining_value == Decimal("1000.123456789123456789123456789123456789")
+    assert snapshot.provider_remaining_value == Decimal("1000.123456789123456789123456789123456789")
     assert snapshot.safety_reserve_value == Decimal("0.000000000000000000000000000000000001")
     assert snapshot.provider_fingerprint == quota_provider_fingerprint(window.config)
     assert snapshot.provider_observed_at == _NOW
     assert snapshot.retry_at == _NOW + timedelta(hours=5)
+
+    restored: Final = restore_quota_window(snapshot, (), _NOW)
+    assert restored.config.remaining == snapshot.provider_remaining_value
 
 
 def test_reserved_snapshot_requires_an_expiry_boundary() -> None:

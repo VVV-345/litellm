@@ -23,7 +23,12 @@ from account_pool.models import (
     RuntimeQuotaWindowType,
     SettleRequest,
 )
-from account_pool.quota.runtime import RuntimeQuotaWindow, matching_quota_windows
+from account_pool.quota.runtime import (
+    QuotaUsageDelta,
+    RuntimeQuotaWindow,
+    matching_quota_windows,
+    normalize_quota_window,
+)
 
 _USAGE_EVENT_NAMESPACE: Final = UUID("52d47880-2467-4b18-9cbf-b33271b96390")
 _FINGERPRINT_PATTERN: Final = r"^[0-9a-f]{64}$"
@@ -48,6 +53,8 @@ class QuotaRuntimeGeneration(FrozenModel):
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> Self:
+        if self.predecessor_generation_id == self.generation_id:
+            raise ValueError("quota generation cannot be its own predecessor")
         if (self.status == QuotaGenerationStatus.ACTIVE) != (self.activated_at is not None and self.closed_at is None):
             raise ValueError("only active quota generations require activated_at without closed_at")
         if self.status in (QuotaGenerationStatus.RETIRED, QuotaGenerationStatus.FAILED) and self.closed_at is None:
@@ -82,6 +89,7 @@ class QuotaWindowRuntimeSnapshot(FrozenModel):
     window_type: RuntimeQuotaWindowType | None = None
     duration_seconds: int | None = Field(default=None, ge=1)
     limit_value: Decimal | None = Field(default=None, ge=0)
+    provider_remaining_value: Decimal | None = Field(default=None, ge=0)
     remaining_value: Decimal | None = Field(default=None, ge=0)
     reserved_value: Decimal = Field(default=Decimal("0"), ge=0)
     safety_reserve_value: Decimal = Field(default=Decimal("0"), ge=0)
@@ -115,8 +123,10 @@ class QuotaRecoveryState(FrozenModel):
     @model_validator(mode="after")
     def validate_generation_membership(self) -> Self:
         generation_id: Final = self.generation.generation_id
-        if any(item.generation_id != generation_id for item in (*self.windows, *self.usage_events)):
-            raise ValueError("quota recovery records must belong to one generation")
+        if any(item.generation_id != generation_id for item in self.windows):
+            raise ValueError("quota recovery snapshots must belong to the active generation")
+        if len({event.event_id for event in self.usage_events}) != len(self.usage_events):
+            raise ValueError("quota recovery usage events must be unique")
         return self
 
 
@@ -174,6 +184,7 @@ def build_quota_window_snapshot(
         window_type=config.window_type,
         duration_seconds=config.duration_seconds,
         limit_value=config.limit,
+        provider_remaining_value=config.remaining,
         remaining_value=window.remaining,
         reserved_value=window.reserved,
         safety_reserve_value=config.safety_reserve,
@@ -196,6 +207,71 @@ def quota_provider_fingerprint(config: QuotaWindowConfig) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def restore_quota_window(
+    snapshot: QuotaWindowRuntimeSnapshot,
+    usage_events: tuple[QuotaUsageEvent, ...],
+    now: AwareDatetime,
+) -> RuntimeQuotaWindow:
+    config: Final = QuotaWindowConfig(
+        window_id=snapshot.window_id,
+        scope=snapshot.scope,
+        subject_id=snapshot.subject_id,
+        kind=snapshot.kind,
+        window_type=snapshot.window_type,
+        duration_seconds=snapshot.duration_seconds,
+        limit=snapshot.limit_value,
+        remaining=snapshot.provider_remaining_value,
+        safety_reserve=snapshot.safety_reserve_value,
+        reset_at=None if snapshot.provider_reset_at is None else snapshot.provider_reset_at.timestamp(),
+        observed_at=snapshot.provider_observed_at.timestamp(),
+        source=snapshot.source,
+        reason_code=snapshot.reason_code,
+    )
+    matching_events: Final = tuple(
+        event
+        for event in usage_events
+        if event.account_id == snapshot.account_id
+        and event.window_id == snapshot.window_id
+        and event.occurred_at >= snapshot.provider_observed_at
+    )
+    usage: Final = tuple(
+        QuotaUsageDelta(amount=event.amount, occurred_at=event.occurred_at.timestamp())
+        for event in sorted(matching_events, key=lambda event: (event.occurred_at, str(event.event_id)))
+    )
+    if snapshot.window_type == RuntimeQuotaWindowType.ROLLING:
+        return normalize_quota_window(
+            RuntimeQuotaWindow(
+                config=config,
+                remaining=snapshot.remaining_value,
+                retry_at=None if snapshot.retry_at is None else snapshot.retry_at.timestamp(),
+                usage=usage,
+            ),
+            now.timestamp(),
+        )
+    unapplied: Final = sum(
+        (event.amount for event in matching_events if event.occurred_at > snapshot.captured_at),
+        start=Decimal("0"),
+    )
+    remaining: Final = (
+        None if snapshot.remaining_value is None else max(Decimal("0"), snapshot.remaining_value - unapplied)
+    )
+    return RuntimeQuotaWindow(
+        config=config,
+        remaining=remaining,
+        retry_at=None if snapshot.retry_at is None else snapshot.retry_at.timestamp(),
+        usage=usage,
+    )
+
+
+def quota_recovery_isolation_until(state: QuotaRecoveryState, now: AwareDatetime) -> AwareDatetime | None:
+    expiries: Final = tuple(
+        snapshot.reservation_expires_at
+        for snapshot in state.windows
+        if snapshot.reservation_expires_at is not None and snapshot.reservation_expires_at > now
+    )
+    return max(expiries, default=None)
 
 
 def _settlement_amount(kind: RuntimeQuotaKind, request: SettleRequest) -> Decimal | None:

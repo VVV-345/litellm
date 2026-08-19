@@ -99,6 +99,8 @@ from account_pool.provider_services.openai_compatible import OpenAICompatiblePro
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.quota import ParserQuotaConfigEnricher
+from account_pool.quota.durable import DurableQuotaStateStore
+from account_pool.quota.postgres import PostgresQuotaRuntimeRepository
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -958,9 +960,16 @@ async def _model_summary(
 
 
 def _build_store(settings: Settings) -> StateStore:
-    if settings.store_mode == "redis":
-        return RedisStateStore(settings.redis_url)
-    return MemoryStateStore()
+    backend: Final = RedisStateStore(settings.redis_url) if settings.store_mode == "redis" else MemoryStateStore()
+    if settings.database_url is None:
+        return backend
+    return DurableQuotaStateStore(
+        backend=backend,
+        repository=PostgresQuotaRuntimeRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
+    )
 
 
 def _build_catalog(settings: Settings) -> ChannelCatalogReader | None:

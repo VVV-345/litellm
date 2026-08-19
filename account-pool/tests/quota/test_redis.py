@@ -291,3 +291,8 @@ def test_lifecycle_scripts_preserve_atomic_reservation_contract() -> None:
     assert "tonumber(ARGV[10])" not in REDIS_QUOTA_SETTLE_LUA
     assert "tonumber(ARGV[11])" not in REDIS_QUOTA_SETTLE_LUA
     assert "tonumber(ARGV[12])" not in REDIS_QUOTA_SETTLE_LUA
+    assert "window_key .. ':reservations'" in REDIS_QUOTA_RESERVE_COMMIT_LUA
+    assert "ZREM', window_key .. ':reservations'" in REDIS_QUOTA_RELEASE_LUA
+    assert "ZADD', window_key .. ':reservations'" in REDIS_QUOTA_HEARTBEAT_LUA
+    assert "ZREM', quota_state.window_key .. ':reservations'" in REDIS_QUOTA_SETTLE_LUA
+    assert "'generation_id', ARGV[13 + quota_count]" in store_module._RESERVE_SCRIPT

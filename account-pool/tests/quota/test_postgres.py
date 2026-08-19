@@ -197,6 +197,36 @@ async def test_usage_append_is_idempotent_and_rejects_changed_content(
     assert conflicting.code == QuotaPersistenceFailureCode.CONTENT_CONFLICT
 
 
+async def test_usage_content_conflict_rolls_back_other_events_in_batch(
+    quota_repository_fixture: QuotaRepositoryFixture,
+) -> None:
+    repository: Final = quota_repository_fixture.repository
+    event: Final = _usage_event()
+    second: Final = event.model_copy(
+        update={
+            "event_id": uuid4(),
+            "lease_id": "lease-b",
+            "request_id": "request-b",
+        }
+    )
+    assert isinstance(await repository.begin_generation(_generation()), QuotaGenerationWriteSuccess)
+    assert isinstance(
+        await repository.activate_generation(_GENERATION_ID, _NOW + timedelta(seconds=1)),
+        QuotaGenerationWriteSuccess,
+    )
+    assert isinstance(await repository.append_usage((event,)), QuotaUsageWriteSuccess)
+
+    conflicting: Final = await repository.append_usage(
+        (event.model_copy(update={"amount": Decimal("31")}), second)
+    )
+    loaded: Final = await repository.load_active_recovery_state()
+
+    assert isinstance(conflicting, QuotaPersistenceFailure)
+    assert conflicting.code == QuotaPersistenceFailureCode.CONTENT_CONFLICT
+    assert isinstance(loaded, QuotaRecoveryLoadSuccess)
+    assert loaded.state.usage_events == (event,)
+
+
 def test_usage_decoder_rejects_unregistered_sensitive_columns() -> None:
     event: Final = _usage_event()
     row: Final = {**event.model_dump(), "api_key": "must-not-be-stored"}

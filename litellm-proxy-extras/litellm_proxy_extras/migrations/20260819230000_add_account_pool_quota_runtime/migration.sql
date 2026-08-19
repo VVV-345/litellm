@@ -16,6 +16,8 @@ CREATE TABLE "LiteLLM_AccountPoolQuotaGeneration" (
         ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "LiteLLM_AccountPoolQuotaGeneration_status_check"
         CHECK ("status" IN ('initializing', 'active', 'retired', 'failed')),
+    CONSTRAINT "LiteLLM_AccountPoolQuotaGeneration_predecessor_check"
+        CHECK ("predecessor_generation_id" IS NULL OR "predecessor_generation_id" <> "generation_id"),
     CONSTRAINT "LiteLLM_AccountPoolQuotaGeneration_lifecycle_check"
         CHECK (
             ("status" = 'initializing' AND "activated_at" IS NULL AND "closed_at" IS NULL AND "failure_code" IS NULL)
@@ -75,6 +77,7 @@ CREATE TABLE "LiteLLM_AccountPoolQuotaRuntimeSnapshot" (
     "window_type" TEXT,
     "duration_seconds" INTEGER,
     "limit_value" NUMERIC(256, 36),
+    "provider_remaining_value" NUMERIC(256, 36),
     "remaining_value" NUMERIC(256, 36),
     "reserved_value" NUMERIC(256, 36) NOT NULL DEFAULT 0,
     "safety_reserve_value" NUMERIC(256, 36) NOT NULL DEFAULT 0,
@@ -110,6 +113,7 @@ CREATE TABLE "LiteLLM_AccountPoolQuotaRuntimeSnapshot" (
     CONSTRAINT "LiteLLM_AccountPoolQuotaRuntimeSnapshot_amounts_check"
         CHECK (
             ("limit_value" IS NULL OR "limit_value" >= 0)
+            AND ("provider_remaining_value" IS NULL OR "provider_remaining_value" >= 0)
             AND ("remaining_value" IS NULL OR "remaining_value" >= 0)
             AND "reserved_value" >= 0
             AND "safety_reserve_value" >= 0

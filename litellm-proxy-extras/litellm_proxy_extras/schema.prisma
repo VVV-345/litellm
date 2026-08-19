@@ -1908,6 +1908,7 @@ model LiteLLM_AccountPoolQuotaRuntimeSnapshot {
   window_type           String?
   duration_seconds      Int?
   limit_value           Decimal?
+  provider_remaining_value Decimal?
   remaining_value       Decimal?
   reserved_value        Decimal                                @default(0)
   safety_reserve_value  Decimal                                @default(0)

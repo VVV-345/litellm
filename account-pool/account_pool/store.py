@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Final, Protocol
-from uuid import uuid4
+from functools import reduce
+from typing import Final, Protocol, cast
+from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
@@ -62,16 +63,22 @@ from account_pool.quota import (
     reserve_quota_capacity,
     synchronize_quota_exclusions,
 )
+from account_pool.quota.backend import QuotaBackendState, QuotaBackendWindowState
 from account_pool.quota.redis import (
     REDIS_QUOTA_DECIMAL_SCALE,
+    EncodedQuotaAmount,
     RedisQuotaCodecFailure,
+    RedisQuotaWindowRecord,
     configure_quota_script_args,
     decode_quota_window,
     encode_account_quota_windows,
+    encode_quota_amount,
+    encode_quota_window,
     prepare_quota_reservation_plan,
     prepare_quota_settlement_amounts,
     quota_manifest_key,
     quota_usage_key,
+    quota_window_hash_fields,
     quota_window_key,
 )
 from account_pool.quota.redis_scripts import (
@@ -136,6 +143,7 @@ class MemoryStateStore:
         self._quota_windows: dict[str, tuple[RuntimeQuotaWindow, ...]] = {}
         self._exclusions: tuple[EligibilityExclusion, ...] = ()
         self._probe_leases: dict[EligibilitySubject, str] = {}
+        self._quota_generation: UUID | None = None
 
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         async with self._lock:
@@ -229,6 +237,7 @@ class MemoryStateStore:
 
             lease: Final = Lease(
                 lease_id=uuid4().hex,
+                generation_id=self._quota_generation,
                 request_id=request_id,
                 account_id=account.id,
                 deployment_id=deployment_id,
@@ -374,6 +383,81 @@ class MemoryStateStore:
     async def close(self) -> None:
         return None
 
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState:
+        async with self._lock:
+            account_ids: Final = frozenset(self._accounts) if account_id is None else frozenset((account_id,))
+            windows: Final = tuple(
+                QuotaBackendWindowState(
+                    account_id=current_account_id,
+                    window=window,
+                    reservation_expires_at=self._reservation_expires_at(
+                        account_id=current_account_id,
+                        window_id=window.config.window_id,
+                    ),
+                )
+                for current_account_id in account_ids
+                for window in self._quota_windows.get(current_account_id, ())
+            )
+            return QuotaBackendState(generation_id=self._quota_generation, windows=windows)
+
+    async def read_quota_generation(self) -> UUID | None:
+        async with self._lock:
+            return self._quota_generation
+
+    async def restore_quota_backend(
+        self,
+        generation_id: UUID,
+        windows: tuple[QuotaBackendWindowState, ...],
+    ) -> bool:
+        async with self._lock:
+            expected: Final = frozenset(
+                (account.id, window.window_id)
+                for account in self._accounts.values()
+                for window in account.quota_windows
+            )
+            supplied: Final = frozenset((state.account_id, state.window.config.window_id) for state in windows)
+            if supplied != expected:
+                return False
+            restored: Final = {
+                account.id: tuple(state.window for state in windows if state.account_id == account.id)
+                for account in self._accounts.values()
+            }
+            self._quota_windows = restored
+            self._runtime = {
+                account_id: snapshot.model_copy(update={"inflight": 0})
+                for account_id, snapshot in self._runtime.items()
+            }
+            self._leases = {}
+            self._requests = {}
+            self._probe_leases = {}
+            self._quota_generation = generation_id
+            self._exclusions = _synchronize_all_quota_exclusions(
+                exclusions=self._exclusions,
+                accounts=tuple(self._accounts.values()),
+                quota_windows=restored,
+            )
+            return True
+
+    async def set_quota_generation(self, generation_id: UUID | None) -> None:
+        async with self._lock:
+            self._quota_generation = generation_id
+
+    async def read_lease(self, lease_id: str) -> Lease | None:
+        async with self._lock:
+            state: Final = self._leases.get(lease_id)
+            return None if state is None else state.lease
+
+    def _reservation_expires_at(self, account_id: str, window_id: str) -> float | None:
+        expiries: Final = tuple(
+            state.lease.expires_at
+            for state in self._leases.values()
+            if state.lease.account_id == account_id
+            and not state.lease.released
+            and not state.usage_applied
+            and any(reservation.window_id == window_id for reservation in state.quota_reservations)
+        )
+        return max(expiries, default=None)
+
 
 # Redis 脚本把资格、并发、额度预占和租约写入放在同一个原子操作中。
 _RESERVE_SCRIPT = (
@@ -433,7 +517,8 @@ redis.call('INCR', KEYS[2])
 redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
   'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
-  'probe_key', probe_key, 'quota_count', quota_count, 'settled', '0', 'released', '0')
+  'probe_key', probe_key, 'quota_count', quota_count, 'generation_id', ARGV[13 + quota_count],
+  'settled', '0', 'released', '0')
 """
     + REDIS_QUOTA_RESERVE_COMMIT_LUA
     + r"""
@@ -557,6 +642,7 @@ _SCRIPT_STATUS_ADAPTER: Final = TypeAdapter(int)
 class RedisStateStore:
     _prefix = "pool:account:"
     _expiries = "pool:leases:expiries"
+    _quota_generation_key = "pool:quota:generation"
 
     def __init__(self, url: str) -> None:
         self._redis = Redis.from_url(url, decode_responses=True)
@@ -627,6 +713,7 @@ class RedisStateStore:
         lease_id: Final = uuid4().hex
         now: Final = time.time()
         retention: Final = max(ttl_seconds * 10, 600)
+        generation_id: Final = str(await self._redis.get(self._quota_generation_key) or "")
         result: Final = _RESERVE_RESULT_ADAPTER.validate_python(
             await self._reserve_script(
                 keys=[
@@ -655,6 +742,7 @@ class RedisStateStore:
                     len(quota_plan.reservations),
                     REDIS_QUOTA_DECIMAL_SCALE,
                     *quota_plan.arguments,
+                    generation_id,
                 ],
             )
         )
@@ -740,6 +828,140 @@ class RedisStateStore:
     async def close(self) -> None:
         await self._redis.close()
 
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
+        generation_value: Final = await self._redis.get(self._quota_generation_key)
+        try:
+            generation_id: Final = None if generation_value is None else UUID(str(generation_value))
+        except ValueError:
+            return None
+        accounts: Final = (
+            tuple(self._accounts.values())
+            if account_id is None
+            else tuple(account for account in self._accounts.values() if account.id == account_id)
+        )
+        if account_id is not None and not accounts:
+            return None
+        states: Final = await asyncio.gather(
+            *(
+                self._read_quota_backend_window(account.id, window.window_id)
+                for account in accounts
+                for window in account.quota_windows
+            )
+        )
+        if any(state is None for state in states):
+            return None
+        return QuotaBackendState(
+            generation_id=generation_id,
+            windows=tuple(state for state in states if state is not None),
+        )
+
+    async def read_quota_generation(self) -> UUID | None:
+        value: Final = await self._redis.get(self._quota_generation_key)
+        try:
+            return None if value is None else UUID(str(value))
+        except ValueError:
+            return None
+
+    async def restore_quota_backend(
+        self,
+        generation_id: UUID,
+        windows: tuple[QuotaBackendWindowState, ...],
+    ) -> bool:
+        expected: Final = frozenset(
+            (account.id, window.window_id) for account in self._accounts.values() for window in account.quota_windows
+        )
+        supplied: Final = frozenset((state.account_id, state.window.config.window_id) for state in windows)
+        if supplied != expected or any(state.window.reserved != 0 for state in windows):
+            return False
+        encoded: Final = tuple((state, encode_quota_window(state.account_id, state.window)) for state in windows)
+        if any(isinstance(record, RedisQuotaCodecFailure) for _, record in encoded):
+            return False
+        usage: Final = tuple(
+            (
+                state,
+                tuple(encode_quota_amount(delta.amount, REDIS_QUOTA_DECIMAL_SCALE) for delta in state.window.usage),
+            )
+            for state in windows
+        )
+        if any(isinstance(amount, RedisQuotaCodecFailure) for _, amounts in usage for amount in amounts):
+            return False
+
+        # generation key 最后写入；恢复中途失败时，所有 acquire 都会因代次缺失而关闭。
+        await self._redis.delete(self._quota_generation_key)
+        await asyncio.gather(
+            *(
+                self._restore_quota_window(state, record)
+                for state, record in encoded
+                if isinstance(record, RedisQuotaWindowRecord)
+            )
+        )
+        await asyncio.gather(*(self._restore_quota_usage(state, amounts) for state, amounts in usage))
+        await self._redis.set(self._quota_generation_key, str(generation_id))
+        return True
+
+    async def set_quota_generation(self, generation_id: UUID | None) -> None:
+        if generation_id is None:
+            await self._redis.delete(self._quota_generation_key)
+            return
+        await self._redis.set(self._quota_generation_key, str(generation_id))
+
+    async def read_lease(self, lease_id: str) -> Lease | None:
+        return await self._read_lease(lease_id)
+
+    async def _read_quota_backend_window(
+        self,
+        account_id: str,
+        window_id: str,
+    ) -> QuotaBackendWindowState | None:
+        window_key: Final = quota_window_key(account_id, window_id)
+        fields: Final = await self._redis.hgetall(window_key)
+        decoded: Final = decode_quota_window(fields)
+        if isinstance(decoded, RedisQuotaCodecFailure):
+            return None
+        reservations_key: Final = self._reservation_key(window_key)
+        await self._redis.zremrangebyscore(reservations_key, min=0, max=time.time())
+        latest: Final = await self._redis.zrevrange(reservations_key, 0, 0, withscores=True)
+        expires_at: Final = None if not latest else float(latest[0][1])
+        return QuotaBackendWindowState(
+            account_id=account_id,
+            window=decoded,
+            reservation_expires_at=expires_at,
+        )
+
+    async def _restore_quota_window(
+        self,
+        state: QuotaBackendWindowState,
+        record: RedisQuotaWindowRecord,
+    ) -> None:
+        window_key: Final = quota_window_key(state.account_id, state.window.config.window_id)
+        usage_key: Final = quota_usage_key(state.account_id, state.window.config.window_id)
+        await self._redis.hset(
+            window_key,
+            mapping=quota_window_hash_fields(record),  # pyright: ignore[reportArgumentType]  # redis-py 泛型不完整
+        )
+        await self._redis.delete(usage_key, self._reservation_key(window_key), f"{window_key}:probe")
+
+    async def _restore_quota_usage(
+        self,
+        state: QuotaBackendWindowState,
+        amounts: tuple[EncodedQuotaAmount | RedisQuotaCodecFailure, ...],
+    ) -> None:
+        usage_key: Final = quota_usage_key(state.account_id, state.window.config.window_id)
+        mapping: Final = {
+            f"{amount.units}|recovery-{index}": delta.occurred_at
+            for index, (delta, amount) in enumerate(zip(state.window.usage, amounts, strict=True))
+            if isinstance(amount, EncodedQuotaAmount)
+        }
+        if mapping:
+            await self._redis.zadd(
+                usage_key,
+                mapping,  # pyright: ignore[reportArgumentType]  # redis-py 泛型不完整
+            )
+
+    @staticmethod
+    def _reservation_key(window_key: str) -> str:
+        return f"{window_key}:reservations"
+
     async def _configure_account(
         self,
         account: AccountConfig,
@@ -799,16 +1021,7 @@ class RedisStateStore:
         )
         existing_keys: Final = frozenset(str(key) for key in await self._redis.smembers(manifest_key))
         script_results: Final = await asyncio.gather(
-            *(
-                self._quota_configure_script(
-                    keys=[
-                        quota_window_key(account.id, record.window_id),
-                        quota_usage_key(account.id, record.window_id),
-                    ],
-                    args=configure_quota_script_args(record),
-                )
-                for record in configuration.records
-            )
+            *(self._configure_quota_window(account.id, record) for record in configuration.records)
         )
         invalid_result: Final = next((result for result in script_results if int(result) not in (-1, 0, 1)), None)
         if invalid_result is not None:
@@ -819,11 +1032,30 @@ class RedisStateStore:
         configured_set: Final = frozenset(configured_keys)
         stale_keys: Final = existing_keys - configured_set
         if stale_keys:
-            await self._redis.delete(*(key for stale_key in stale_keys for key in (stale_key, f"{stale_key}:usage")))
+            await self._redis.delete(
+                *(
+                    key
+                    for stale_key in stale_keys
+                    for key in (stale_key, f"{stale_key}:usage", self._reservation_key(stale_key), f"{stale_key}:probe")
+                )
+            )
         await self._redis.delete(manifest_key)
         if configured_keys:
             await self._redis.sadd(manifest_key, *configured_keys)
         return None
+
+    async def _configure_quota_window(self, account_id: str, record: RedisQuotaWindowRecord) -> int:
+        result: Final = cast(
+            object,
+            await self._quota_configure_script(
+                keys=[
+                    quota_window_key(account_id, record.window_id),
+                    quota_usage_key(account_id, record.window_id),
+                ],
+                args=configure_quota_script_args(record),
+            ),
+        )
+        return int(_SCRIPT_STATUS_ADAPTER.validate_python(result))
 
     async def _quota_exclusions(self, account: AccountConfig) -> tuple[EligibilityExclusion, ...]:
         encoded: Final = await asyncio.gather(
@@ -864,6 +1096,7 @@ class RedisStateStore:
             return None
         return Lease(
             lease_id=data["lease_id"],
+            generation_id=UUID(data["generation_id"]) if data.get("generation_id") else None,
             request_id=data["request_id"],
             account_id=data["account_id"],
             deployment_id=data["deployment_id"],
@@ -924,14 +1157,17 @@ def _synchronize_all_quota_exclusions(
     accounts: tuple[AccountConfig, ...],
     quota_windows: dict[str, tuple[RuntimeQuotaWindow, ...]],
 ) -> tuple[EligibilityExclusion, ...]:
-    synchronized: Final = exclusions
-    for account in accounts:
-        synchronized = synchronize_quota_exclusions(
-            exclusions=synchronized,
+    def synchronize(
+        current: tuple[EligibilityExclusion, ...],
+        account: AccountConfig,
+    ) -> tuple[EligibilityExclusion, ...]:
+        return synchronize_quota_exclusions(
+            exclusions=current,
             account=account,
             windows=quota_windows.get(account.id, ()),
         )
-    return synchronized
+
+    return reduce(synchronize, accounts, exclusions)
 
 
 def _configured_snapshot(
