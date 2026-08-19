@@ -146,6 +146,9 @@ class DurableQuotaStateStore:
         await self._fail_closed("quota_snapshot_persistence_failed")
         return False
 
+    async def read_lease(self, lease_id: str) -> Lease | None:
+        return await self._valid_lease(lease_id)
+
     async def release(self, lease_id: str) -> bool:
         lease: Final = await self._valid_lease(lease_id)
         if lease is None:

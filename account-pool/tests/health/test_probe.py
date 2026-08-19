@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Final
 from uuid import UUID
 
 import httpx
+from account_pool.health.models import HealthActivity, HealthEventRecord, HealthRequestActivity
 from account_pool.health.probe import ActiveHealthProbeService, HealthProbeRequest, HealthProbeStatus
+from account_pool.health.repository import (
+    HealthActivityLoadSuccess,
+    HealthActivityWriteSuccess,
+    HealthEventListSuccess,
+    HealthLoadSuccess,
+    HealthPersistenceFailure,
+    HealthPersistenceFailureCode,
+    HealthWriteSuccess,
+)
 from account_pool.models import (
     AccountConfig,
     AcquireRequest,
@@ -25,6 +36,37 @@ from pydantic import TypeAdapter
 
 _CHANNEL_ID: Final = UUID("80000000-0000-0000-0000-000000000001")
 _JSON_OBJECT: Final = TypeAdapter(dict[str, object])
+
+
+class FakeHealthEventRepository:
+    def __init__(self, activities: tuple[HealthActivity, ...] = ()) -> None:
+        self.records: list[HealthEventRecord] = []
+        self.activities = activities
+
+    async def append(self, record: HealthEventRecord) -> HealthWriteSuccess:
+        self.records.append(record)
+        return HealthWriteSuccess(status="created", record=record)
+
+    async def record_request(self, activity: HealthRequestActivity) -> HealthActivityWriteSuccess:
+        return HealthActivityWriteSuccess(activity=activity)
+
+    async def load(self, event_id: UUID) -> HealthLoadSuccess | HealthPersistenceFailure:
+        record: Final = next((candidate for candidate in self.records if candidate.event.event_id == event_id), None)
+        if record is None:
+            return HealthPersistenceFailure(
+                code=HealthPersistenceFailureCode.EVENT_NOT_FOUND,
+                retryable=False,
+            )
+        return HealthLoadSuccess(record=record)
+
+    async def load_activity(self) -> HealthActivityLoadSuccess:
+        return HealthActivityLoadSuccess(activities=self.activities)
+
+    async def list_recent(self, channel_id: UUID, limit: int = 50) -> HealthEventListSuccess:
+        records: Final = tuple(
+            record for record in reversed(self.records) if record.event.channel_id == channel_id
+        )[:limit]
+        return HealthEventListSuccess(records=records)
 
 
 def _account(*, enabled: bool = True, total_quota: float | None = None) -> AccountConfig:
@@ -59,6 +101,8 @@ def _service(
     store: MemoryStateStore,
     client: httpx.AsyncClient,
     admin_key: str | None = "admin-secret",
+    events: FakeHealthEventRepository | None = None,
+    idle_probe_after_seconds: int = 0,
 ) -> ActiveHealthProbeService:
     return ActiveHealthProbeService(
         accounts=scheduler,
@@ -67,6 +111,8 @@ def _service(
         litellm_url="http://litellm.internal",
         admin_key=admin_key,
         lease_ttl_seconds=60,
+        events=events,
+        idle_probe_after_seconds=idle_probe_after_seconds,
     )
 
 
@@ -270,3 +316,95 @@ async def test_due_probe_retries_degraded_initial_verification() -> None:
     assert degraded.health == "degraded"
     assert recovered[0].status == HealthProbeStatus.SUCCEEDED
     assert (await store.snapshots())[0].health == "healthy"
+
+
+async def test_probe_persists_only_normalized_health_event() -> None:
+    scheduler, store = await _runtime(_account())
+    events: Final = FakeHealthEventRepository()
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"status": "success", "result": {"api_key": "provider-secret"}})
+        )
+    ) as client:
+        result: Final = await _service(scheduler, store, client, events=events).probe_channel(
+            _CHANNEL_ID,
+            HealthProbeRequest(),
+        )
+
+    assert result.status == HealthProbeStatus.SUCCEEDED
+    assert len(events.records) == 1
+    assert events.records[0].event.event_id == result.probe_id
+    assert "provider-secret" not in events.records[0].model_dump_json()
+    assert "admin-secret" not in events.records[0].model_dump_json()
+
+
+async def test_due_probe_checks_healthy_deployment_after_long_idle_period() -> None:
+    scheduler, store = await _runtime(_account())
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="healthy", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=acquired.lease.lease_id, success=True))
+    assert await store.release(acquired.lease.lease_id)
+    now: Final = datetime.now(UTC)
+    events: Final = FakeHealthEventRepository(
+        activities=(
+            HealthActivity(
+                channel_id=_CHANNEL_ID,
+                account_id="channel-a",
+                model_id="model-a",
+                deployment_id="deployment-a",
+                last_request_at=now - timedelta(days=2),
+                updated_at=now - timedelta(days=2),
+            ),
+        )
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"status": "success", "result": {}}))
+    ) as client:
+        results: Final = await _service(
+            scheduler,
+            store,
+            client,
+            events=events,
+            idle_probe_after_seconds=86_400,
+        ).probe_due()
+
+    assert len(results) == 1
+    assert results[0].trigger == "idle"
+    assert events.records[0].health.probe_trigger == "idle"
+
+
+async def test_due_probe_does_not_repeat_recent_idle_probe() -> None:
+    scheduler, store = await _runtime(_account())
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="healthy", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=acquired.lease.lease_id, success=True))
+    assert await store.release(acquired.lease.lease_id)
+    now: Final = datetime.now(UTC)
+    events: Final = FakeHealthEventRepository(
+        activities=(
+            HealthActivity(
+                channel_id=_CHANNEL_ID,
+                account_id="channel-a",
+                model_id="model-a",
+                deployment_id="deployment-a",
+                last_request_at=now - timedelta(days=2),
+                last_probe_at=now - timedelta(minutes=5),
+                last_probe_success_at=now - timedelta(minutes=5),
+                updated_at=now - timedelta(minutes=5),
+            ),
+        )
+    )
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"status": "success", "result": {}}))
+    ) as client:
+        results: Final = await _service(
+            scheduler,
+            store,
+            client,
+            events=events,
+            idle_probe_after_seconds=86_400,
+        ).probe_due()
+
+    assert results == ()

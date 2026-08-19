@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getChannels, getEffectiveData, getParserHistory, getProviderServices } from "../api";
@@ -95,6 +96,7 @@ describe("AccountPoolPage", () => {
 
   it("renders the catalog identity and raw/effective parser values", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -103,6 +105,7 @@ describe("AccountPoolPage", () => {
     );
 
     expect(await screen.findAllByText("OpenAI 主渠道")).not.toHaveLength(0);
+    await user.click(screen.getByRole("tab", { name: "解析数据" }));
     expect(await screen.findByText('"Starter"')).toBeInTheDocument();
     expect(screen.getByText('"Pro"')).toBeInTheDocument();
     expect(screen.getByText("人工修正")).toBeInTheDocument();

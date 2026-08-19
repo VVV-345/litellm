@@ -92,6 +92,91 @@ export interface HealthProbeResult {
   latency_ms: number;
 }
 
+export type HealthTransition = "success" | "disable" | "cooldown" | "observe" | "transient_failure";
+
+export interface HealthRuntimeSnapshot {
+  account_id: string;
+  enabled: boolean;
+  health: "unknown" | "healthy" | "degraded" | "unhealthy" | "half_open" | "cooldown" | "disabled";
+  inflight: number;
+  max_concurrency: number;
+  cooldown_until: number | null;
+  consecutive_failures: number;
+  reason_code: string | null;
+  quota: QuotaConfig;
+}
+
+export interface HealthExclusion {
+  scope: "channel" | "model" | "deployment" | "billing_route";
+  source: "health" | "restriction" | "capacity";
+  account_id: string;
+  model: string | null;
+  deployment_id: string | null;
+  billing_route_id: string | null;
+  reason_code: string;
+  starts_at: number;
+  retry_at: number | null;
+  state: "active" | "half_open" | "cleared";
+}
+
+export interface HealthActivity {
+  channel_id: string | null;
+  account_id: string;
+  model_id: string;
+  deployment_id: string;
+  last_request_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_probe_at: string | null;
+  last_probe_success_at: string | null;
+  last_probe_failure_at: string | null;
+  updated_at: string;
+}
+
+export interface HealthEventRecord {
+  event: {
+    event_id: string;
+    event_type: "passive_health_result" | "active_health_probe_result";
+    occurred_at: string;
+    channel_id: string | null;
+    model_id: string;
+    deployment_id: string;
+    request_id: string | null;
+    lease_id: string | null;
+    reason_code: string | null;
+    actor_type: "system";
+    actor_id: string;
+    safe_details: {
+      kind: "passive_health_result" | "active_health_probe_result";
+      outcome: "succeeded" | "failed";
+      transition: HealthTransition;
+      trigger?: "manual" | "initial" | "half_open" | "idle";
+      response_status_code: number | null;
+      latency_ms: number | null;
+    };
+  };
+  health: {
+    event_id: string;
+    account_id: string;
+    source: "passive_request" | "active_probe";
+    outcome: "succeeded" | "failed";
+    transition: HealthTransition;
+    scope: HealthExclusion["scope"];
+    retry_at: string | null;
+    probe_trigger: "manual" | "initial" | "half_open" | "idle" | null;
+  };
+}
+
+export interface ChannelHealthDetail {
+  channel_id: string;
+  account_id: string;
+  runtime: HealthRuntimeSnapshot;
+  exclusions: HealthExclusion[];
+  activities: HealthActivity[];
+  events: HealthEventRecord[];
+  persistence_available: boolean;
+}
+
 export interface ParsedChannelData {
   subscription: JsonValue;
   metered: JsonValue;

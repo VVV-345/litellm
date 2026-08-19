@@ -9,6 +9,7 @@ import {
   deleteChannel,
   deleteExternalDeployment,
   detachChannel,
+  getChannelHealth,
   getOperation,
   importChannel,
   importParserSnapshot,
@@ -136,6 +137,14 @@ describe("channel lifecycle API", () => {
     expect(mockedPost).toHaveBeenCalledWith("/account_pool/channels/channel-1/health-probe", {
       accessToken: "token",
       body: {},
+    });
+  });
+
+  it("loads the redacted channel health detail", async () => {
+    await getChannelHealth("token", "channel-1");
+
+    expect(mockedGet).toHaveBeenCalledWith("/account_pool/channels/channel-1/health", {
+      accessToken: "token",
     });
   });
 });

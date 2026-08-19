@@ -37,7 +37,17 @@ from account_pool.domain.provider_source import (
     ProviderValidationResult,
 )
 from account_pool.gateway import Gateway
-from account_pool.health import ActiveHealthProbeService, HealthProbeManager, HealthProbeRequest, HealthProbeResult
+from account_pool.health.models import HealthProbeRequest, HealthProbeResult
+from account_pool.health.postgres import PostgresHealthEventRepository
+from account_pool.health.probe import ActiveHealthProbeService, HealthProbeManager
+from account_pool.health.repository import HealthEventRepository
+from account_pool.health.service import (
+    ChannelHealthDetail,
+    ChannelHealthDetailFailure,
+    ChannelHealthDetailReader,
+    ChannelHealthQueryService,
+    HealthEventRecorder,
+)
 from account_pool.management import LiteLLMAdminClient, PoolManager
 from account_pool.models import (
     AccountMutation,
@@ -143,6 +153,8 @@ class Runtime:
     parser_tasks: ParserTaskManager | None
     parser_export_retries: ParserExportRetryManager | None
     snapshot_importer: SnapshotImporter | None
+    health_events: HealthEventRepository | None
+    health_details: ChannelHealthDetailReader
     health_probes: HealthProbeManager
 
 
@@ -157,6 +169,8 @@ def create_app(
     parser_tasks: ParserTaskManager | None = None,
     parser_export_retries: ParserExportRetryManager | None = None,
     snapshot_importer: SnapshotImporter | None = None,
+    health_events: HealthEventRepository | None = None,
+    health_details: ChannelHealthDetailReader | None = None,
     health_probes: HealthProbeManager | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
@@ -169,11 +183,27 @@ def create_app(
         store=resolved_store,
         lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
     )
+    resolved_health_events: Final = health_events if health_events is not None else _build_health_events(resolved_settings)
+    resolved_health_recorder: Final = (
+        None
+        if resolved_health_events is None
+        else HealthEventRecorder(accounts=scheduler, events=resolved_health_events)
+    )
+    resolved_health_details: Final = (
+        health_details
+        if health_details is not None
+        else ChannelHealthQueryService(
+            accounts=scheduler,
+            store=resolved_store,
+            events=resolved_health_events,
+        )
+    )
     gateway: Final = Gateway(
         scheduler=scheduler,
         store=resolved_store,
         client=client,
         litellm_url=resolved_settings.litellm_url,
+        health_recorder=resolved_health_recorder,
     )
     admin: Final = LiteLLMAdminClient(
         client=client,
@@ -234,6 +264,9 @@ def create_app(
         litellm_url=resolved_settings.litellm_url,
         admin_key=resolved_settings.litellm_admin_key,
         lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
+        events=resolved_health_events,
+        recorder=resolved_health_recorder,
+        idle_probe_after_seconds=resolved_settings.health_idle_probe_after_seconds,
     )
     runtime: Final = Runtime(
         settings=resolved_settings,
@@ -251,6 +284,8 @@ def create_app(
         parser_tasks=resolved_parser_tasks,
         parser_export_retries=resolved_parser_export_retries,
         snapshot_importer=resolved_snapshot_importer,
+        health_events=resolved_health_events,
+        health_details=resolved_health_details,
         health_probes=resolved_health_probes,
     )
 
@@ -767,6 +802,16 @@ def create_app(
             raise HTTPException(status_code=503, detail={"code": result.reason_code})
         return result
 
+    async def channel_health_detail(channel_id: UUID) -> ChannelHealthDetail:
+        result: Final = await resolved_health_details.read_channel(channel_id)
+        if isinstance(result, ChannelHealthDetailFailure):
+            status_code: Final = 404 if result.code == "channel_not_found" else 503
+            raise HTTPException(
+                status_code=status_code,
+                detail={"code": result.code, "retryable": result.retryable},
+            )
+        return result.detail
+
     async def probe_account_health(account_id: str, body: HealthProbeRequest) -> HealthProbeResult:
         result: Final = await resolved_health_probes.probe_account(account_id, body)
         if result.reason_code in {"channel_not_found", "deployment_not_found"}:
@@ -779,10 +824,16 @@ def create_app(
         result: Final = await scheduler.acquire(body)
         if not isinstance(result, AcquireSuccess):
             raise HTTPException(status_code=503, detail={"model": result.model, "reasons": result.reasons})
+        if resolved_health_recorder is not None:
+            await resolved_health_recorder.record_request(result.lease)
         return result
 
     async def settle(body: SettleRequest) -> OperationResult:
-        return OperationResult(ok=await resolved_store.settle(body))
+        lease: Final = await resolved_store.read_lease(body.lease_id)
+        settled: Final = await resolved_store.settle(body)
+        if lease is not None and resolved_health_recorder is not None:
+            await resolved_health_recorder.record_passive(lease, body)
+        return OperationResult(ok=settled)
 
     async def release(body: ReleaseRequest) -> OperationResult:
         return OperationResult(ok=await resolved_store.release(body.lease_id))
@@ -854,6 +905,12 @@ def create_app(
         "/api/channels/{channel_id}/health-probe",
         probe_channel_health,
         methods=["POST"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/health",
+        channel_health_detail,
+        methods=["GET"],
         dependencies=management_dependency,
     )
     application.add_api_route(
@@ -1060,6 +1117,12 @@ def _build_catalog(settings: Settings) -> ChannelCatalogReader | None:
     return ChannelCatalogQueryService(
         PostgresCatalogRepository(settings.database_url, schema=settings.database_schema)
     )
+
+
+def _build_health_events(settings: Settings) -> HealthEventRepository | None:
+    if settings.database_url is None:
+        return None
+    return PostgresHealthEventRepository(settings.database_url, schema=settings.database_schema)
 
 
 def _build_channel_management(

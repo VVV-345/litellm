@@ -3,15 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
-from enum import StrEnum
-from typing import Final, Literal, Protocol, Self
+from collections.abc import Mapping
+from typing import Final, Literal, Protocol
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict
 
 from account_pool.eligibility import EligibilityExclusion, EligibilityScope, EligibilityState, effective_state
+from account_pool.health.models import (
+    HealthActivity,
+    HealthProbeRequest,
+    HealthProbeResult,
+    HealthProbeStatus,
+    HealthProbeTrigger,
+)
+from account_pool.health.repository import (
+    HealthActivityLoadSuccess,
+    HealthEventRepository,
+)
+from account_pool.health.service import HealthEventRecorder
 from account_pool.models import (
     AccountConfig,
     AccountSnapshot,
@@ -25,44 +38,7 @@ from account_pool.provider_services.http_response import read_limited_response
 from account_pool.store import StateStore
 
 _MAX_RESPONSE_BYTES: Final = 65_536
-
-
-class HealthProbeTrigger(StrEnum):
-    MANUAL = "manual"
-    INITIAL = "initial"
-    HALF_OPEN = "half_open"
-    IDLE = "idle"
-
-
-class HealthProbeStatus(StrEnum):
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-
-
-class HealthProbeRequest(FrozenModel):
-    deployment_id: str | None = Field(default=None, min_length=1)
-
-
-class HealthProbeResult(FrozenModel):
-    probe_id: UUID
-    status: HealthProbeStatus
-    trigger: HealthProbeTrigger
-    channel_id: UUID | None = None
-    account_id: str | None = None
-    deployment_id: str | None = None
-    public_model: str | None = None
-    reason_code: str | None = Field(default=None, min_length=1, max_length=100)
-    response_status_code: int | None = Field(default=None, ge=100, le=599)
-    latency_ms: float = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> Self:
-        if (self.status == HealthProbeStatus.SUCCEEDED) == (self.reason_code is not None):
-            raise ValueError("only unsuccessful health probes require a reason code")
-        if self.status == HealthProbeStatus.SUCCEEDED and self.deployment_id is None:
-            raise ValueError("successful health probes require a deployment")
-        return self
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 class ProbeAccountSource(Protocol):
@@ -119,6 +95,9 @@ class ActiveHealthProbeService:
         admin_key: str | None,
         lease_ttl_seconds: int,
         max_response_bytes: int = _MAX_RESPONSE_BYTES,
+        events: HealthEventRepository | None = None,
+        recorder: HealthEventRecorder | None = None,
+        idle_probe_after_seconds: int = 0,
     ) -> None:
         self._accounts: Final = accounts
         self._store: Final = store
@@ -127,6 +106,15 @@ class ActiveHealthProbeService:
         self._admin_key: Final = admin_key
         self._lease_ttl_seconds: Final = lease_ttl_seconds
         self._max_response_bytes: Final = max_response_bytes
+        self._events: Final = events
+        self._recorder: Final = (
+            recorder
+            if recorder is not None
+            else None
+            if events is None
+            else HealthEventRecorder(accounts=accounts, events=events)
+        )
+        self._idle_probe_after_seconds: Final = idle_probe_after_seconds
 
     async def probe_channel(
         self,
@@ -154,8 +142,10 @@ class ActiveHealthProbeService:
         return await self._probe(account=account, channel_id=channel_id, request=request, trigger=trigger)
 
     async def probe_due(self) -> tuple[HealthProbeResult, ...]:
+        now: Final = time.time()
         snapshots: Final = {snapshot.account_id: snapshot for snapshot in await self._store.snapshots()}
         exclusions: Final = await self._store.eligibility_exclusions()
+        activities: Final = await self._load_activities()
         due: Final = tuple(
             (account, deployment, trigger)
             for account in self._accounts.account_configs()
@@ -163,7 +153,9 @@ class ActiveHealthProbeService:
                 account=account,
                 snapshot=snapshots.get(account.id),
                 exclusions=exclusions,
-                now=time.time(),
+                activities=activities,
+                idle_probe_after_seconds=self._idle_probe_after_seconds,
+                now=now,
             )
         )
         return tuple(
@@ -179,6 +171,16 @@ class ActiveHealthProbeService:
                 )
             )
         )
+
+    async def _load_activities(self) -> Mapping[tuple[str, str], HealthActivity]:
+        repository: Final = self._events
+        if repository is None or self._idle_probe_after_seconds <= 0:
+            return {}
+        result: Final = await repository.load_activity()
+        if isinstance(result, HealthActivityLoadSuccess):
+            return {(item.account_id, item.deployment_id): item for item in result.activities}
+        _LOGGER.error("Failed to load Account Pool health activity: %s", result.code)
+        return {}
 
     async def _probe(
         self,
@@ -257,6 +259,22 @@ class ActiveHealthProbeService:
 
         upstream: Final = await self._request(deployment.litellm_model_id)
         settlement: Final = _settlement(reserved.lease.lease_id, upstream)
+        observed: Final = _result(
+            probe_id=probe_id,
+            status=(
+                HealthProbeStatus.FAILED
+                if isinstance(upstream, _UpstreamProbeFailure)
+                else HealthProbeStatus.SUCCEEDED
+            ),
+            trigger=trigger,
+            channel_id=channel_id,
+            account=account,
+            deployment=deployment,
+            reason_code=upstream.reason_code if isinstance(upstream, _UpstreamProbeFailure) else None,
+            response_status_code=upstream.response_status_code,
+            started=started,
+        )
+        await self._record_observation(observed, settlement)
         settled: Final = await self._store.settle(settlement)
         released: Final = await self._store.release(reserved.lease.lease_id)
         if not settled or not released:
@@ -271,28 +289,11 @@ class ActiveHealthProbeService:
                 response_status_code=upstream.response_status_code,
                 started=started,
             )
-        if isinstance(upstream, _UpstreamProbeFailure):
-            return _result(
-                probe_id=probe_id,
-                status=HealthProbeStatus.FAILED,
-                trigger=trigger,
-                channel_id=channel_id,
-                account=account,
-                deployment=deployment,
-                reason_code=upstream.reason_code,
-                response_status_code=upstream.response_status_code,
-                started=started,
-            )
-        return _result(
-            probe_id=probe_id,
-            status=HealthProbeStatus.SUCCEEDED,
-            trigger=trigger,
-            channel_id=channel_id,
-            account=account,
-            deployment=deployment,
-            response_status_code=upstream.response_status_code,
-            started=started,
-        )
+        return observed
+
+    async def _record_observation(self, result: HealthProbeResult, settlement: SettleRequest) -> None:
+        if self._recorder is not None:
+            await self._recorder.record_probe(result, settlement)
 
     async def _request(self, deployment_id: str) -> UpstreamProbeResult:
         try:
@@ -362,6 +363,8 @@ def _due_deployments(
     account: AccountConfig,
     snapshot: AccountSnapshot | None,
     exclusions: tuple[EligibilityExclusion, ...],
+    activities: Mapping[tuple[str, str], HealthActivity],
+    idle_probe_after_seconds: int,
     now: float,
 ) -> tuple[tuple[DeploymentConfig, HealthProbeTrigger], ...]:
     if not account.enabled:
@@ -380,7 +383,36 @@ def _due_deployments(
     initial: Final = _select_deployment(account, None)
     if snapshot is not None and snapshot.health in (Health.UNKNOWN, Health.DEGRADED) and initial is not None:
         return ((initial, HealthProbeTrigger.INITIAL),)
+    idle: Final = next(
+        (
+            deployment
+            for deployment in account.deployments
+            if deployment.enabled
+            and _idle_probe_due(
+                activities.get((account.id, deployment.litellm_model_id)),
+                idle_probe_after_seconds,
+                now,
+            )
+        ),
+        None,
+    )
+    if idle is not None:
+        return ((idle, HealthProbeTrigger.IDLE),)
     return ()
+
+
+def _idle_probe_due(activity: HealthActivity | None, idle_probe_after_seconds: int, now: float) -> bool:
+    if activity is None or idle_probe_after_seconds <= 0:
+        return False
+    reference: Final = max(
+        (
+            value.timestamp()
+            for value in (activity.last_request_at, activity.last_probe_at)
+            if value is not None
+        ),
+        default=None,
+    )
+    return reference is not None and reference + idle_probe_after_seconds <= now
 
 
 def _deployments_for_exclusion(

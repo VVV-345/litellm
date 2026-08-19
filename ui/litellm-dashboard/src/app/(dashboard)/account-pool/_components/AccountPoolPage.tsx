@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { isProxyAdminRole } from "@/utils/roles";
 import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
@@ -28,6 +29,7 @@ import { accountPoolKeys, getChannels, getProviderServices, probeChannelHealth }
 import ChannelList from "./ChannelList";
 import ChannelFormDialog from "./ChannelFormDialog";
 import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
+import HealthStatusPanel from "./HealthStatusPanel";
 import OperationStatusPanel from "./OperationStatusPanel";
 import ParserDataPanel from "./ParserDataPanel";
 import ParserTaskDialog from "./ParserTaskDialog";
@@ -222,9 +224,20 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                     </Button>
                   </div>
                 </div>
-                <div className="min-w-0 p-4">
-                  <ParserDataPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
-                </div>
+                <Tabs defaultValue="health" className="min-w-0">
+                  <div className="border-b px-4">
+                    <TabsList variant="line">
+                      <TabsTrigger value="health">健康与冷却</TabsTrigger>
+                      <TabsTrigger value="parser">解析数据</TabsTrigger>
+                    </TabsList>
+                  </div>
+                  <TabsContent value="health" className="min-w-0 p-4">
+                    <HealthStatusPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
+                  </TabsContent>
+                  <TabsContent value="parser" className="min-w-0 p-4">
+                    <ParserDataPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
+                  </TabsContent>
+                </Tabs>
               </>
             ) : (
               <div className="flex min-h-96 items-center justify-center text-sm text-muted-foreground">请选择渠道</div>

@@ -20,13 +20,36 @@ from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
-from account_pool.health import HealthProbeRequest, HealthProbeResult, HealthProbeStatus, HealthProbeTrigger
+from account_pool.health.models import (
+    HealthActivity,
+    HealthEventRecord,
+    HealthProbeRequest,
+    HealthProbeResult,
+    HealthProbeStatus,
+    HealthProbeTrigger,
+    HealthRequestActivity,
+)
+from account_pool.health.repository import (
+    HealthActivityLoadSuccess,
+    HealthActivityWriteSuccess,
+    HealthEventListSuccess,
+    HealthLoadSuccess,
+    HealthPersistenceFailure,
+    HealthPersistenceFailureCode,
+    HealthWriteSuccess,
+)
+from account_pool.health.service import ChannelHealthDetail, ChannelHealthDetailSuccess
 from account_pool.models import (
+    AccountSnapshot,
     AccountView,
+    AcquireSuccess,
+    Health,
     LiteLLMStatus,
     ManagementResult,
     ModelSummary,
     QuotaConfig,
+    QuotaSnapshot,
+    QuotaUnit,
     RouteEntry,
     StatsView,
 )
@@ -428,6 +451,73 @@ class FakeHealthProbeManager:
         return ()
 
 
+class FakeHealthEventRepository:
+    def __init__(self) -> None:
+        self.records: list[HealthEventRecord] = []
+        self.request_activities: list[HealthRequestActivity] = []
+
+    async def append(self, record: HealthEventRecord) -> HealthWriteSuccess:
+        self.records.append(record)
+        return HealthWriteSuccess(status="created", record=record)
+
+    async def record_request(self, activity: HealthRequestActivity) -> HealthActivityWriteSuccess:
+        self.request_activities.append(activity)
+        return HealthActivityWriteSuccess(activity=activity)
+
+    async def load(self, event_id: UUID) -> HealthLoadSuccess | HealthPersistenceFailure:
+        record: Final = next((candidate for candidate in self.records if candidate.event.event_id == event_id), None)
+        if record is None:
+            return HealthPersistenceFailure(
+                code=HealthPersistenceFailureCode.EVENT_NOT_FOUND,
+                retryable=False,
+            )
+        return HealthLoadSuccess(record=record)
+
+    async def load_activity(self) -> HealthActivityLoadSuccess:
+        activities: Final = tuple(
+            HealthActivity(
+                channel_id=item.channel_id,
+                account_id=item.account_id,
+                model_id=item.model_id,
+                deployment_id=item.deployment_id,
+                last_request_at=item.observed_at,
+                updated_at=item.observed_at,
+            )
+            for item in self.request_activities
+        )
+        return HealthActivityLoadSuccess(activities=activities)
+
+    async def list_recent(self, channel_id: UUID, limit: int = 50) -> HealthEventListSuccess:
+        records: Final = tuple(
+            record for record in reversed(self.records) if record.event.channel_id == channel_id
+        )[:limit]
+        return HealthEventListSuccess(records=records)
+
+
+class FakeHealthDetailReader:
+    async def read_channel(self, channel_id: UUID) -> ChannelHealthDetailSuccess:
+        return ChannelHealthDetailSuccess(
+            detail=ChannelHealthDetail(
+                channel_id=channel_id,
+                account_id="channel-a",
+                runtime=AccountSnapshot(
+                    account_id="channel-a",
+                    enabled=True,
+                    health=Health.HEALTHY,
+                    inflight=0,
+                    max_concurrency=2,
+                    cooldown_until=None,
+                    consecutive_failures=0,
+                    quota=QuotaSnapshot(unit=QuotaUnit.TOKENS, total=100, five_hour=None, weekly=None),
+                ),
+                exclusions=(),
+                activities=(),
+                events=(),
+                persistence_available=True,
+            )
+        )
+
+
 def settings(
     config_path: Path | None = None,
     admin_key: str | None = None,
@@ -635,6 +725,28 @@ async def test_channel_health_probe_requires_matching_actor_action() -> None:
     assert accepted.status_code == 200
     assert result.status == HealthProbeStatus.SUCCEEDED
     assert probes.calls == [(_CHANNEL_ID, HealthProbeRequest(deployment_id="deployment-a"))]
+
+
+@pytest.mark.asyncio
+async def test_channel_health_detail_returns_typed_runtime_view() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        health_details=FakeHealthDetailReader(),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                f"/api/channels/{_CHANNEL_ID}/health",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    detail: Final = ChannelHealthDetail.model_validate_json(response.content)
+    assert response.status_code == 200
+    assert detail.channel_id == _CHANNEL_ID
+    assert detail.runtime.health == Health.HEALTHY
+    assert detail.persistence_available is True
 
 
 @pytest.mark.asyncio
@@ -1129,8 +1241,14 @@ async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_release
         )
 
     store: Final = MemoryStateStore()
+    health_events: Final = FakeHealthEventRepository()
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(settings=settings(), store=store, proxy_client=proxy_client)
+        app: Final = create_app(
+            settings=settings(),
+            store=store,
+            proxy_client=proxy_client,
+            health_events=health_events,
+        )
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app),
@@ -1150,6 +1268,48 @@ async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_release
     assert captured[0].metadata["account_pool_request_id"] == "request-123"
     assert routes[0].inflight == 0
     assert routes[0].quota.total == 2_499_968
+    assert len(health_events.request_activities) == 1
+    assert health_events.request_activities[0].deployment_id == "pool-gpt4o-primary"
+    assert len(health_events.records) == 1
+    assert health_events.records[0].event.request_id == "request-123"
+    assert health_events.records[0].event.safe_details.outcome == "succeeded"
+    assert "client-key" not in health_events.records[0].model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_internal_acquire_and_settle_share_health_event_recording() -> None:
+    health_events: Final = FakeHealthEventRepository()
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        health_events=health_events,
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://account-pool",
+            headers={"x-account-pool-token": "test-service-token"},
+        ) as client:
+            acquired_response: Final = await client.post(
+                "/internal/acquire",
+                json={"request_id": "internal-request", "model": "gpt-4o", "estimated_tokens": 10},
+            )
+            acquired: Final = AcquireSuccess.model_validate_json(acquired_response.content)
+            settled: Final = await client.post(
+                "/internal/settle",
+                json={"lease_id": acquired.lease.lease_id, "success": True, "status_code": 200},
+            )
+            released: Final = await client.post(
+                "/internal/release",
+                json={"lease_id": acquired.lease.lease_id},
+            )
+
+    assert acquired_response.status_code == 200
+    assert settled.status_code == 200
+    assert released.status_code == 200
+    assert health_events.request_activities[0].deployment_id == acquired.lease.deployment_id
+    assert health_events.records[0].event.request_id == "internal-request"
 
 
 @pytest.mark.asyncio

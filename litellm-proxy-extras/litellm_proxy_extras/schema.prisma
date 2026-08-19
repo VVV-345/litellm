@@ -1839,6 +1839,7 @@ model LiteLLM_AccountPoolEvent {
   safe_details_schema_version Int                            @default(1)
   safe_details                Json
   audit_event                 LiteLLM_AccountPoolAuditEvent?
+  health_event                LiteLLM_AccountPoolHealthEvent?
 
   @@index([occurred_at(sort: Desc), event_id(sort: Desc)])
   @@index([channel_id, occurred_at(sort: Desc)])
@@ -1860,6 +1861,39 @@ model LiteLLM_AccountPoolAuditEvent {
 
   @@index([operation_id])
   @@index([actor_envelope_id])
+}
+
+model LiteLLM_AccountPoolHealthEvent {
+  event_id      String                       @id
+  account_id    String
+  source        String
+  outcome       String
+  transition    String
+  scope         String
+  retry_at      DateTime?                    @client.Timestamptz(6)
+  probe_trigger String?
+  event         LiteLLM_AccountPoolEvent     @relation(fields: [event_id], references: [event_id], onDelete: Restrict)
+
+  @@index([account_id])
+  @@index([source, outcome])
+}
+
+model LiteLLM_AccountPoolHealthActivity {
+  account_id             String
+  deployment_id          String
+  channel_id             String?
+  model_id               String
+  last_request_at        DateTime? @client.Timestamptz(6)
+  last_success_at        DateTime? @client.Timestamptz(6)
+  last_failure_at        DateTime? @client.Timestamptz(6)
+  last_probe_at          DateTime? @client.Timestamptz(6)
+  last_probe_success_at  DateTime? @client.Timestamptz(6)
+  last_probe_failure_at  DateTime? @client.Timestamptz(6)
+  updated_at             DateTime  @client.Timestamptz(6)
+
+  @@id([account_id, deployment_id])
+  @@index([channel_id])
+  @@index([last_request_at, last_probe_at])
 }
 
 model LiteLLM_AccountPoolQuotaGeneration {

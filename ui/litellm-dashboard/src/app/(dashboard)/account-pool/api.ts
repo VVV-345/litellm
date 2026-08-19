@@ -4,6 +4,7 @@ import { apiClient } from "@/components/networking";
 
 import type {
   ChannelDetail,
+  ChannelHealthDetail,
   ChannelListResponse,
   ChannelMutationRequest,
   ChannelOperation,
@@ -25,6 +26,7 @@ export const accountPoolKeys = {
   all: ["account-pool"] as const,
   channels: () => ["account-pool", "channels"] as const,
   channel: (channelId: string) => ["account-pool", "channels", channelId] as const,
+  health: (channelId: string) => ["account-pool", "channels", channelId, "health"] as const,
   operation: (operationId: string) => ["account-pool", "operations", operationId] as const,
   effective: (channelId: string) => ["account-pool", "channels", channelId, "effective"] as const,
   history: (channelId: string) => ["account-pool", "channels", channelId, "history"] as const,
@@ -87,6 +89,9 @@ export const reconcileChannel = (
 
 export const probeChannelHealth = (accessToken: string, channelId: string): Promise<HealthProbeResult> =>
   apiClient.post(`/account_pool/channels/${channelId}/health-probe`, { accessToken, body: {} });
+
+export const getChannelHealth = (accessToken: string, channelId: string): Promise<ChannelHealthDetail> =>
+  apiClient.get(`/account_pool/channels/${channelId}/health`, { accessToken });
 
 export const getOperation = (accessToken: string, operationId: string): Promise<ChannelOperation> =>
   apiClient.get(`/account_pool/operations/${operationId}`, { accessToken });

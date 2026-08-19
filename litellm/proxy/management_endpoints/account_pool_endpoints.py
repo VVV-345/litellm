@@ -277,6 +277,16 @@ async def probe_catalog_channel_health(
     )
 
 
+@router.get("/channels/{channel_id}/health")
+async def get_catalog_channel_health(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/health")
+
+
 @router.get("/operations/{operation_id}")
 async def get_channel_operation(
     operation_id: UUID,

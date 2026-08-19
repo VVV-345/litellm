@@ -14,8 +14,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import TypeAdapter, ValidationError
 
+from account_pool.health.service import HealthEventRecorder
 from account_pool.health.settlement import parse_retry_after_seconds
-from account_pool.models import AcquireRequest, AcquireSuccess, SettleRequest
+from account_pool.models import AcquireRequest, AcquireSuccess, Lease, SettleRequest
 from account_pool.scheduler import Scheduler
 from account_pool.store import StateStore
 
@@ -36,11 +37,19 @@ _JSON_OBJECT: Final = TypeAdapter(dict[str, object])
 
 
 class Gateway:
-    def __init__(self, scheduler: Scheduler, store: StateStore, client: httpx.AsyncClient, litellm_url: str) -> None:
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        store: StateStore,
+        client: httpx.AsyncClient,
+        litellm_url: str,
+        health_recorder: HealthEventRecorder | None = None,
+    ) -> None:
         self._scheduler = scheduler
         self._store = store
         self._client = client
         self._litellm_url = litellm_url
+        self._health_recorder = health_recorder
 
     async def forward(self, path: str, request: Request) -> Response:
         parsed: Final = await _request_json(request)
@@ -68,6 +77,7 @@ class Gateway:
             )
 
         lease: Final = acquired.lease
+        await self._record_request_activity(lease)
         metadata_value: Final = parsed.get("metadata")
         metadata: Final[dict[str, object]] = (
             _JSON_OBJECT.validate_python(metadata_value) if isinstance(metadata_value, dict) else {}
@@ -95,13 +105,14 @@ class Gateway:
         try:
             upstream: Final = await self._client.send(upstream_request, stream=bool(parsed.get("stream")))
         except httpx.HTTPError as exc:
-            await self._store.settle(
+            await self._settle(
+                lease,
                 SettleRequest(
                     lease_id=lease.lease_id,
                     success=False,
                     error_type=type(exc).__name__,
                     latency_ms=(time.perf_counter() - started) * 1000,
-                )
+                ),
             )
             await self._store.release(lease.lease_id)
             return _error_response(status_code=502, message="LiteLLM Proxy is unavailable")
@@ -111,7 +122,7 @@ class Gateway:
         }
         if bool(parsed.get("stream")):
             return StreamingResponse(
-                self._stream_response(upstream=upstream, lease_id=lease.lease_id, started=started),
+                self._stream_response(upstream=upstream, lease=lease, started=started),
                 status_code=upstream.status_code,
                 headers=response_headers,
                 media_type=_content_type(upstream),
@@ -120,7 +131,8 @@ class Gateway:
         content: Final = await upstream.aread()
         usage: Final = _usage_from_content(content)
         await upstream.aclose()
-        await self._store.settle(
+        await self._settle(
+            lease,
             SettleRequest(
                 lease_id=lease.lease_id,
                 success=upstream.status_code < 400,
@@ -131,7 +143,7 @@ class Gateway:
                 error_type=None if upstream.status_code < 400 else "proxy_http_status",
                 provider_error_code=None if upstream.status_code < 400 else _provider_error_code(content),
                 retry_after_seconds=_retry_after_from_response(upstream),
-            )
+            ),
         )
         await self._store.release(lease.lease_id)
         return Response(
@@ -144,7 +156,7 @@ class Gateway:
     async def _stream_response(
         self,
         upstream: httpx.Response,
-        lease_id: str,
+        lease: Lease,
         started: float,
     ) -> AsyncIterator[bytes]:
         completed = False
@@ -154,17 +166,28 @@ class Gateway:
             completed = True
         finally:
             await upstream.aclose()
-            await self._store.settle(
+            await self._settle(
+                lease,
                 SettleRequest(
-                    lease_id=lease_id,
+                    lease_id=lease.lease_id,
                     success=completed and upstream.status_code < 400,
                     status_code=upstream.status_code,
                     latency_ms=(time.perf_counter() - started) * 1000,
                     error_type=None if completed and upstream.status_code < 400 else "stream_interrupted",
                     retry_after_seconds=_retry_after_from_response(upstream),
-                )
+                ),
             )
-            await self._store.release(lease_id)
+            await self._store.release(lease.lease_id)
+
+    async def _record_request_activity(self, lease: Lease) -> None:
+        if self._health_recorder is not None:
+            await self._health_recorder.record_request(lease)
+
+    async def _settle(self, lease: Lease, request: SettleRequest) -> bool:
+        settled: Final = await self._store.settle(request)
+        if self._health_recorder is not None:
+            await self._health_recorder.record_passive(lease, request)
+        return settled
 
 
 async def _request_json(request: Request) -> dict[str, object] | JSONResponse:

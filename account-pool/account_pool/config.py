@@ -31,6 +31,7 @@ class Settings:
     parser_export_retry_interval_seconds: int = 30
     parser_export_retry_batch_size: int = 25
     health_probe_interval_seconds: int = 0
+    health_idle_probe_after_seconds: int = 86_400
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -57,6 +58,9 @@ class Settings:
                 os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_BATCH_SIZE", "25")
             ),
             health_probe_interval_seconds=int(os.environ.get("ACCOUNT_POOL_HEALTH_PROBE_INTERVAL_SECONDS", "0")),
+            health_idle_probe_after_seconds=int(
+                os.environ.get("ACCOUNT_POOL_HEALTH_IDLE_PROBE_AFTER_SECONDS", "86400")
+            ),
         )
 
 
