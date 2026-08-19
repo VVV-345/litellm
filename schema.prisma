@@ -1,3 +1,4 @@
+// 本文件定义 LiteLLM 的主数据库模型，并包含 Account Pool 持久化数据结构。
 datasource client {
   provider = "postgresql"
   url      = env("DATABASE_URL")

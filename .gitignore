@@ -1,3 +1,4 @@
+# 本文件声明 LiteLLM 主仓库及 Account Pool 本地运行产物的忽略规则。
 .python-version
 .venv
 .venv-typecheck

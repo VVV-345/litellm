@@ -1,3 +1,4 @@
+// 本文件定义 Proxy Extras 发布包的数据库模型，并同步 Account Pool 持久化结构。
 datasource client {
   provider = "postgresql"
   url      = env("DATABASE_URL")

@@ -1,3 +1,5 @@
+<!-- 本文件记录 Account Pool 渠道期望状态、LiteLLM 同步和失败恢复的实施计划。 -->
+
 # Account Pool Desired-State Management and LiteLLM Sync Plan
 
 ## Goal

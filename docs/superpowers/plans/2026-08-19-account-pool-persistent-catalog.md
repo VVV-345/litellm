@@ -1,3 +1,5 @@
+<!-- 本文件记录 Account Pool PostgreSQL 渠道目录、旧配置导入和运行投影的实施计划。 -->
+
 # Account Pool Persistent Catalog Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
