@@ -5481,6 +5481,7 @@
         "api-keys": "Virtual Keys",
         "llm-playground": "Playground",
         "models": "Models + Endpoints",
+        "account-pool": "Account Pool",
         "agentic": "Agentic",
         "agents": "Agents",
         "workflows": "Workflow Runs",

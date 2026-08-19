@@ -1,0 +1,157 @@
+// 本文件装配渠道目录、解析任务、字段差异、人工修正和快照管理主界面。
+"use client";
+
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Database, FileJson, Loader2, Play, RefreshCw, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+
+import { PageHeader } from "@/components/shared/PageHeader";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { isProxyAdminRole } from "@/utils/roles";
+
+import { accountPoolKeys, getChannels, getProviderServices } from "../api";
+import ChannelList from "./ChannelList";
+import ParserDataPanel from "./ParserDataPanel";
+import ParserTaskDialog from "./ParserTaskDialog";
+import SnapshotDialog from "./SnapshotDialog";
+
+interface AccountPoolPageProps {
+  accessToken: string | null;
+  userRole: string;
+}
+
+export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPageProps) {
+  const queryClient = useQueryClient();
+  const [chosenChannelId, setChosenChannelId] = useState<string | null>(null);
+  const [parserDialogOpen, setParserDialogOpen] = useState(false);
+  const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
+  const authorized = isProxyAdminRole(userRole);
+  const channelsQuery = useQuery({
+    queryKey: accountPoolKeys.channels(),
+    queryFn: () => getChannels(accessToken!),
+    enabled: Boolean(accessToken && authorized),
+  });
+  const providersQuery = useQuery({
+    queryKey: accountPoolKeys.providers(),
+    queryFn: () => getProviderServices(accessToken!),
+    enabled: Boolean(accessToken && authorized),
+    staleTime: 5 * 60 * 1000,
+  });
+  const channels = channelsQuery.data?.channels ?? [];
+  const selectedChannelId = chosenChannelId ?? channels[0]?.channel_id ?? null;
+  const selectedChannel = channels.find((channel) => channel.channel_id === selectedChannelId) ?? null;
+
+  const refreshSelected = async () => {
+    await queryClient.invalidateQueries({ queryKey: accountPoolKeys.all });
+  };
+
+  if (!authorized) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <ShieldAlert className="size-8 text-muted-foreground" />
+        <h1 className="text-lg font-semibold">仅 Proxy Admin 可以管理 Account Pool</h1>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5 px-4 py-5 sm:px-6">
+      <PageHeader
+        title="Account Pool"
+        subtitle="查看 PostgreSQL 渠道目录，运行解析并维护套餐、按量和价格数据"
+        icon={<Database className="size-5" />}
+        actions={
+          <Button variant="outline" onClick={() => void refreshSelected()} disabled={channelsQuery.isFetching}>
+            <RefreshCw className={channelsQuery.isFetching ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+        }
+      />
+
+      {channelsQuery.isLoading && (
+        <div className="flex min-h-96 items-center justify-center">
+          <Loader2 className="animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {channelsQuery.isError && (
+        <div className="rounded-md border border-destructive/30 px-4 py-10 text-center text-sm text-destructive">
+          无法读取 Account Pool 渠道目录，请检查 PostgreSQL 和 Account Pool 服务配置
+        </div>
+      )}
+      {channelsQuery.data && (
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+          <section className="min-w-0 overflow-hidden rounded-md border bg-background">
+            <div className="border-b px-4 py-3">
+              <h2 className="text-sm font-semibold">渠道目录</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">{channels.length} 个持久化渠道</p>
+            </div>
+            <ChannelList channels={channels} selectedChannelId={selectedChannelId} onSelect={setChosenChannelId} />
+          </section>
+
+          <section className="min-w-0 overflow-hidden rounded-md border bg-background">
+            {selectedChannel ? (
+              <>
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-base font-semibold">{selectedChannel.display_name}</h2>
+                      <Badge variant="outline">{selectedChannel.provider}</Badge>
+                      <Badge variant={selectedChannel.administrative_state === "enabled" ? "secondary" : "outline"}>
+                        {selectedChannel.administrative_state}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">{selectedChannel.base_url_display}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {selectedChannel.models.map((model) => (
+                        <Badge key={model} variant="outline">
+                          {model}
+                        </Badge>
+                      ))}
+                      {selectedChannel.models.length === 0 && (
+                        <span className="text-xs text-muted-foreground">暂无启用模型绑定</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => setSnapshotDialogOpen(true)}>
+                      <FileJson />
+                      快照
+                    </Button>
+                    <Button onClick={() => setParserDialogOpen(true)}>
+                      <Play />
+                      运行解析
+                    </Button>
+                  </div>
+                </div>
+                <div className="min-w-0 p-4">
+                  <ParserDataPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-96 items-center justify-center text-sm text-muted-foreground">请选择渠道</div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {parserDialogOpen && selectedChannel && (
+        <ParserTaskDialog
+          accessToken={accessToken!}
+          channel={selectedChannel}
+          providers={providersQuery.data ?? []}
+          onClose={() => setParserDialogOpen(false)}
+          onCompleted={refreshSelected}
+        />
+      )}
+      {snapshotDialogOpen && selectedChannel && (
+        <SnapshotDialog
+          accessToken={accessToken!}
+          channel={selectedChannel}
+          onClose={() => setSnapshotDialogOpen(false)}
+          onImported={refreshSelected}
+        />
+      )}
+    </div>
+  );
+}

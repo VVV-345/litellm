@@ -6,13 +6,16 @@ from account_pool.catalog.models import (
     BindingOwnership,
     CatalogImport,
     CatalogSnapshot,
+    ChannelList,
     ChannelRecord,
+    ChannelSummary,
     DeploymentBindingRecord,
     ImportConflict,
     ImportResult,
     ModelPolicyRecord,
 )
 from account_pool.catalog.postgres import PostgresCatalogRepository
+from account_pool.catalog.query import ChannelCatalogQueryService, ChannelCatalogReader
 from account_pool.catalog.repository import CatalogRepository
 from account_pool.catalog.service import CatalogService
 
@@ -23,7 +26,11 @@ __all__ = [
     "CatalogRepository",
     "CatalogService",
     "CatalogSnapshot",
+    "ChannelCatalogQueryService",
+    "ChannelCatalogReader",
+    "ChannelList",
     "ChannelRecord",
+    "ChannelSummary",
     "DeploymentBindingRecord",
     "ImportConflict",
     "ImportResult",

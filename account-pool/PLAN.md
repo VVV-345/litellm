@@ -1048,19 +1048,21 @@ Account Pool
 - schema v1 单渠道快照校验、差异转换和 PostgreSQL 原子覆盖批次的受控导入 API
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
+- LiteLLM Dashboard 中的 Account Pool 正式路由、管理员导航和脱敏渠道目录
+- Dashboard 解析任务、任务状态轮询、raw/effective 字段差异、人工覆盖和快照预览、导入、导出基础
+- Account Pool 手写文件中文职责说明及自动化文件头回归检查
 
 当前缺失或需要替换：
 
 - PostgreSQL 权威数据层
 - OpenAI 官方解析器，以及 parser worker 的公开元数据任务和后台导出重试循环
-- 字段差异 UI
+- Dashboard 渠道创建、编辑、导入、解绑和删除的完整生命周期 UI
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
 - 持久化事件、审计和日志 UI
-- LiteLLM Dashboard 内的正式 Account Pool 页面
 - Redis 恢复和 PostgreSQL 同步
 
 现有计划中曾描述“Phase 1 有文件日志”“429 优先使用 Retry-After”“stats 包含完整额度与健康统计”，实际实现尚未满足。这些能力以本文后续阶段和验收标准为准

@@ -24,6 +24,9 @@ from account_pool.auth.actor import (
     ActorVerificationFailureCode,
     verify_actor_envelope,
 )
+from account_pool.catalog.models import ChannelList
+from account_pool.catalog.postgres import PostgresCatalogRepository
+from account_pool.catalog.query import ChannelCatalogQueryService, ChannelCatalogReader
 from account_pool.config import Settings, load_pool_config
 from account_pool.domain.provider_source import (
     ProviderServiceManifest,
@@ -105,6 +108,7 @@ class Runtime:
     admin: LiteLLMAdminClient
     provider_services: ProviderServiceRegistry
     parser_registry: ParserRegistry
+    catalog: ChannelCatalogReader | None
     parser_data: ParserDataReader | None
     parser_overrides: ParserOverrideWriter | None
     parser_tasks: ParserTaskManager | None
@@ -115,6 +119,7 @@ def create_app(
     settings: Settings | None = None,
     store: StateStore | None = None,
     proxy_client: httpx.AsyncClient | None = None,
+    catalog: ChannelCatalogReader | None = None,
     parser_data: ParserDataReader | None = None,
     parser_overrides: ParserOverrideWriter | None = None,
     parser_tasks: ParserTaskManager | None = None,
@@ -153,6 +158,7 @@ def create_app(
         )
     )
     parser_registry: Final = build_parser_registry()
+    resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
     resolved_parser_data: Final = (
         parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     )
@@ -182,6 +188,7 @@ def create_app(
         admin=admin,
         provider_services=provider_services,
         parser_registry=parser_registry,
+        catalog=resolved_catalog,
         parser_data=resolved_parser_data,
         parser_overrides=resolved_parser_overrides,
         parser_tasks=resolved_parser_tasks,
@@ -271,6 +278,11 @@ def create_app(
 
     async def provider_service_manifests() -> tuple[ProviderServiceManifest, ...]:
         return provider_services.manifests()
+
+    async def channels() -> ChannelList:
+        if resolved_catalog is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        return await resolved_catalog.list_channels()
 
     async def validate_provider(body: ProviderValidationRequest) -> ProviderValidationResult:
         return await provider_services.validate(body)
@@ -448,6 +460,7 @@ def create_app(
     application.add_api_route(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
     )
+    application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
     application.add_api_route(
         "/api/channels/{channel_id}/parse",
         start_parser_task,
@@ -536,6 +549,7 @@ def create_app(
     application.add_api_route(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
     )
+    application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
         "/ui-api/channels/{channel_id}/parser-runs",
         parser_runs,
@@ -596,6 +610,14 @@ def _build_store(settings: Settings) -> StateStore:
     if settings.store_mode == "redis":
         return RedisStateStore(settings.redis_url)
     return MemoryStateStore()
+
+
+def _build_catalog(settings: Settings) -> ChannelCatalogReader | None:
+    if settings.database_url is None:
+        return None
+    return ChannelCatalogQueryService(
+        PostgresCatalogRepository(settings.database_url, schema=settings.database_schema)
+    )
 
 
 def _build_parser_data(settings: Settings) -> ParserDataReader | None:

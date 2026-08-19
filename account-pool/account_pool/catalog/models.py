@@ -69,6 +69,28 @@ class CatalogSnapshot(FrozenModel):
     policies: tuple[ModelPolicyRecord, ...] = ()
 
 
+class ChannelSummary(FrozenModel):
+    channel_id: UUID
+    display_name: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    group: str | None = None
+    base_url_display: str = Field(min_length=1)
+    administrative_state: AdministrativeState
+    max_concurrency: int = Field(ge=1)
+    priority: int
+    weight: int = Field(ge=1, le=100)
+    key_mask: str | None = None
+    binding_count: int = Field(ge=0)
+    enabled_binding_count: int = Field(ge=0)
+    models: tuple[ModelName, ...] = ()
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class ChannelList(FrozenModel):
+    channels: tuple[ChannelSummary, ...] = ()
+
+
 class CatalogImport(FrozenModel):
     channels: tuple[ChannelRecord, ...]
     bindings: tuple[DeploymentBindingRecord, ...]

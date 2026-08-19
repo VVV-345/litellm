@@ -120,6 +120,15 @@ async def validate_provider_service(
     return await _forward(request=request, method="POST", path="/api/provider-services/validate")
 
 
+@router.get("/channels")
+async def list_catalog_channels(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path="/api/channels")
+
+
 @router.get("/accounts")
 async def list_pool_accounts(
     request: Request,

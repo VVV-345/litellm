@@ -1,3 +1,4 @@
+// 本文件从 LiteLLM Proxy 的 OpenAPI 定义生成 Dashboard 使用的 TypeScript 类型。
 /**
  * Regenerates src/lib/http/schema.d.ts from the proxy's OpenAPI spec.
  *
@@ -54,7 +55,8 @@ try {
     stdio: "inherit",
   });
 
-  execFileSync(join(dashboardDir, "node_modules", ".bin", "openapi-typescript"), [specPath, "-o", outPath], {
+  const openapiTypescriptCli = join(dashboardDir, "node_modules", "openapi-typescript", "bin", "cli.js");
+  execFileSync(process.execPath, [openapiTypescriptCli, specPath, "-o", outPath], {
     cwd: dashboardDir,
     stdio: "inherit",
   });

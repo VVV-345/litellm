@@ -7,6 +7,7 @@ from typing import Final
 import httpx
 import pytest
 from fastapi import HTTPException, Request
+from fastapi.routing import APIRoute
 
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.management_endpoints.account_pool_actor import ActorEnvelope
@@ -14,6 +15,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     _forward_with_client,  # pyright: ignore[reportPrivateUsage]  # 测试内部转发安全边界
     _require_proxy_admin,  # pyright: ignore[reportPrivateUsage]  # 测试管理员权限边界
     authorize_account_pool,
+    router,
 )
 
 
@@ -36,6 +38,16 @@ async def test_account_pool_authorize_accepts_proxy_admin_only() -> None:
         await authorize_account_pool(viewer)
 
     assert error.value.status_code == 403
+
+
+def test_account_pool_router_exposes_catalog_channel_list() -> None:
+    matching_routes: Final = tuple(
+        route
+        for route in router.routes
+        if isinstance(route, APIRoute) and route.path == "/account_pool/channels" and "GET" in route.methods
+    )
+
+    assert len(matching_routes) == 1
 
 
 @pytest.mark.asyncio

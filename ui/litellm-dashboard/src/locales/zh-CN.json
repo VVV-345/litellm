@@ -5481,6 +5481,7 @@
         "api-keys": "虚拟密钥",
         "llm-playground": "试用场",
         "models": "模型和端点",
+        "account-pool": "号池管理",
         "agentic": "智能体",
         "agents": "智能体",
         "workflows": "工作流运行",

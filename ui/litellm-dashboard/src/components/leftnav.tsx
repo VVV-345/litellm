@@ -1,3 +1,4 @@
+// 本文件定义 LiteLLM Dashboard 的分组导航、角色过滤和页面跳转。
 import { useTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import useIsOrgAdmin from "@/app/(dashboard)/hooks/useIsOrgAdmin";
@@ -132,6 +133,13 @@ const menuGroups: MenuGroup[] = [
         label: "Models + Endpoints",
         icon: <Network {...ICON} />,
         roles: rolesAllowedToViewWriteScopedPages,
+      },
+      {
+        key: "account-pool",
+        page: "account-pool",
+        label: "Account Pool",
+        icon: <Boxes {...ICON} />,
+        roles: ["Admin", "proxy_admin"],
       },
       {
         key: "agentic",

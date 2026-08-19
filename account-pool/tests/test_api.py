@@ -15,6 +15,7 @@ import httpx
 import pytest
 from account_pool.app import create_app
 from account_pool.auth.actor import ActorAction, ActorContext
+from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
@@ -82,6 +83,30 @@ _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _PARSER_RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
 _PARSED_AT: Final = datetime(2026, 8, 19, 19, 0, tzinfo=UTC)
 _ACTOR_SECRET: Final = "actor-signing-secret-with-at-least-32-bytes"
+
+
+class FakeChannelCatalogReader:
+    async def list_channels(self) -> ChannelList:
+        return ChannelList(
+            channels=(
+                ChannelSummary(
+                    channel_id=_CHANNEL_ID,
+                    display_name="OpenAI 主渠道",
+                    provider="openai",
+                    base_url_display="https://api.openai.com/v1",
+                    administrative_state=AdministrativeState.ENABLED,
+                    max_concurrency=8,
+                    priority=10,
+                    weight=20,
+                    key_mask="sk-***main",
+                    binding_count=2,
+                    enabled_binding_count=1,
+                    models=("gpt-5.6",),
+                    created_at=_PARSED_AT,
+                    updated_at=_PARSED_AT,
+                ),
+            )
+        )
 
 
 class FakeParserDataReader:
@@ -340,6 +365,28 @@ async def test_management_api_fails_closed_without_configured_token() -> None:
             response: Final = await client.get("/api/accounts")
 
     assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_channel_catalog_api_returns_only_redacted_postgres_identity_view() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        catalog=FakeChannelCatalogReader(),
+    )
+    headers: Final = {"x-account-pool-token": "test-service-token"}
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get("/api/channels", headers=headers)
+
+    result: Final = ChannelList.model_validate_json(response.content)
+    rendered: Final = response.text.casefold()
+    assert response.status_code == 200
+    assert result.channels[0].channel_id == _CHANNEL_ID
+    assert result.channels[0].models == ("gpt-5.6",)
+    assert "credential_ref" not in rendered
+    assert "key_fingerprint" not in rendered
 
 
 @pytest.mark.asyncio
