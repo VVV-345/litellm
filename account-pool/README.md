@@ -44,7 +44,8 @@ account_pool/provider_services/
     ├── manifest.py       # 通用 OpenAI 兼容能力声明
     ├── schemas.py        # GET /models 响应模型
     ├── client.py         # 自定义 HTTPS URL 与 SSRF 基础防护
-    └── service.py        # 模型发现与统一结果转换
+    ├── service.py        # 模型发现与渠道校验结果转换
+    └── parser.py         # 转换为套餐、按量和问题报告统一结构
 ```
 
 新增渠道时复制同一职责边界，并在 `app.py` 的 `ProviderServiceRegistry` 注册。公共管理层不按渠道名写分支，
@@ -74,6 +75,10 @@ LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
 `openai_compatible` 模块支持自定义 HTTPS API Base，并使用 `GET {api_base}/models` 校验 Key 和发现模型。
 它会拒绝 URL 用户信息、查询参数、片段、重定向、私网解析结果和超过 1 MiB 的响应。当前通用协议不能可靠
 获取余额、套餐、周期额度、分组倍率或账户实际价格，因此这些字段明确保持不支持，不从公开价格或模型名称猜测
+
+模型发现成功后，解析器返回 `partial`：保留排序去重后的模型，套餐、按量和可执行计费路由为空，并生成结构化
+未解析字段与人工补充建议。统一解析模型使用 `Decimal` 保存金额和倍率，支持套餐额度窗口、分组价格、并发限制及
+脱敏问题报告，为后续厂商专用解析器复用；解析结果不包含 API Base、Key、Key 指纹或上游原始响应
 
 自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
 生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport

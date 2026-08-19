@@ -9,6 +9,7 @@ manifest.py  capability declarations and default API base
 schemas.py   typed upstream response models
 client.py    URL validation, authentication, HTTP calls, and safe failures
 service.py   conversion to Account Pool domain results
+parser.py    conversion from validated provider data to the unified parser contract
 fixtures/    sanitized provider responses for contract tests, when needed
 ```
 

@@ -1,3 +1,4 @@
+from account_pool.provider_services.openai_compatible.parser import parse_openai_compatible_result
 from account_pool.provider_services.openai_compatible.service import OpenAICompatibleProviderService
 
-__all__ = ("OpenAICompatibleProviderService",)
+__all__ = ("OpenAICompatibleProviderService", "parse_openai_compatible_result")
