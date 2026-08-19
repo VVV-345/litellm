@@ -82,7 +82,7 @@ async def test_models_on_the_same_account_share_concurrency() -> None:
 
 
 @pytest.mark.asyncio
-async def test_settlement_updates_quota_and_429_cools_account() -> None:
+async def test_settlement_updates_quota_and_429_restricts_only_the_deployment() -> None:
     scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
     acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
     assert isinstance(acquired, AcquireSuccess)
@@ -100,12 +100,16 @@ async def test_settlement_updates_quota_and_429_cools_account() -> None:
     assert await store.release(acquired.lease.lease_id)
 
     snapshot: Final = (await store.snapshots())[0]
-    assert snapshot.health == "cooldown"
-    assert snapshot.reason_code == "rate_limited"
+    assert snapshot.health == "unknown"
+    assert snapshot.reason_code is None
     assert snapshot.quota.total == 9_850
+    route: Final = (await scheduler.route_table("model-a"))[0]
+    assert route.exclusion_scope == "deployment"
+    assert route.reason_code == "rate_limited"
+    assert route.available is False
     blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
     assert isinstance(blocked, AcquireUnavailable)
-    assert blocked.reasons == ("one:cooldown",)
+    assert blocked.reasons == ("one:rate_limited",)
 
 
 @pytest.mark.asyncio
@@ -126,11 +130,41 @@ async def test_retry_after_controls_cooldown_without_marking_quota_exhausted() -
     )
 
     snapshot: Final = (await store.snapshots())[0]
-    assert snapshot.reason_code == "concurrency_limited"
-    assert snapshot.cooldown_until is not None
-    assert before + 120 <= snapshot.cooldown_until <= time.time() + 120
+    route: Final = (await scheduler.route_table("model-a"))[0]
+    assert route.reason_code == "concurrency_limited"
+    assert route.retry_at is not None
+    assert before + 120 <= route.retry_at <= time.time() + 120
+    assert snapshot.cooldown_until is None
     assert snapshot.quota.five_hour == 5_000
     assert snapshot.quota.weekly == 8_000
+
+
+@pytest.mark.asyncio
+async def test_expired_retry_enters_half_open_and_success_clears_the_restriction() -> None:
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(account("one", max_concurrency=2),)))
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-1", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert await store.settle(
+        SettleRequest(
+            lease_id=first.lease.lease_id,
+            success=False,
+            status_code=429,
+            retry_after_seconds=0,
+        )
+    )
+    assert await store.release(first.lease.lease_id)
+
+    half_open: Final = (await scheduler.route_table("model-a"))[0]
+    second: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
+
+    assert half_open.exclusion_state == "half_open"
+    assert half_open.available is True
+    assert isinstance(second, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=second.lease.lease_id, success=True))
+    assert await store.release(second.lease.lease_id)
+    recovered: Final = (await scheduler.route_table("model-a"))[0]
+    assert recovered.exclusion_state is None
+    assert recovered.reason_code is None
 
 
 @pytest.mark.asyncio
@@ -149,8 +183,137 @@ async def test_model_not_found_does_not_degrade_entire_account() -> None:
 
     snapshot: Final = (await store.snapshots())[0]
     assert snapshot.health == "unknown"
-    assert snapshot.reason_code == "model_not_found"
+    assert snapshot.reason_code is None
     assert snapshot.cooldown_until is None
+    route: Final = (await scheduler.route_table("model-a"))[0]
+    assert route.reason_code == "model_not_found"
+    assert route.exclusion_scope == "deployment"
+    assert route.available is False
+
+
+@pytest.mark.asyncio
+async def test_deployment_failure_does_not_block_other_models_on_the_account() -> None:
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(accounts=(account("shared", max_concurrency=2, models=("model-a", "model-b")),))
+    )
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=acquired.lease.lease_id, success=False, status_code=404))
+    assert await store.release(acquired.lease.lease_id)
+
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-a-2", model="model-a"))
+    available: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-b"))
+
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("shared:model_not_found",)
+    assert isinstance(available, AcquireSuccess)
+
+
+@pytest.mark.asyncio
+async def test_invalid_credential_excludes_the_channel_without_changing_admin_state() -> None:
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(accounts=(account("shared", max_concurrency=2, models=("model-a", "model-b")),))
+    )
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    assert isinstance(acquired, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=acquired.lease.lease_id, success=False, status_code=401))
+    assert await store.release(acquired.lease.lease_id)
+
+    snapshot: Final = (await store.snapshots())[0]
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-b"))
+
+    assert snapshot.enabled is True
+    assert snapshot.health == "unhealthy"
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("shared:credential_invalid",)
+
+
+@pytest.mark.asyncio
+async def test_repeated_provider_failures_create_a_channel_scope_exclusion() -> None:
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(accounts=(account("shared", max_concurrency=2, models=("model-a", "model-b")),))
+    )
+    for index in range(3):
+        acquired = await scheduler.acquire(AcquireRequest(request_id=f"request-{index}", model="model-a"))
+        assert isinstance(acquired, AcquireSuccess)
+        assert await store.settle(SettleRequest(lease_id=acquired.lease.lease_id, success=False, status_code=503))
+        assert await store.release(acquired.lease.lease_id)
+
+    route: Final = (await scheduler.route_table("model-b"))[0]
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-b"))
+
+    assert route.exclusion_scope == "channel"
+    assert route.reason_code == "upstream_unavailable"
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("shared:upstream_unavailable",)
+
+
+@pytest.mark.asyncio
+async def test_billing_route_balance_signal_falls_back_to_sibling_route() -> None:
+    configured: Final = account("shared", max_concurrency=2).model_copy(
+        update={
+            "deployments": (
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="deployment-a",
+                    billing_route_id="route-a",
+                ),
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="deployment-b",
+                    billing_route_id="route-b",
+                ),
+            )
+        }
+    )
+    scheduler, store = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert first.lease.billing_route_id == "route-a"
+    assert await store.settle(
+        SettleRequest(
+            lease_id=first.lease.lease_id,
+            success=False,
+            status_code=429,
+            provider_error_code="billing_hard_limit_reached",
+        )
+    )
+    assert await store.release(first.lease.lease_id)
+
+    second: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-a"))
+    exclusions: Final = await store.eligibility_exclusions()
+
+    assert exclusions[0].scope == "billing_route"
+    assert exclusions[0].billing_route_id == "route-a"
+    assert isinstance(second, AcquireSuccess)
+    assert second.lease.billing_route_id == "route-b"
+
+
+@pytest.mark.asyncio
+async def test_priority_strategy_lists_and_selects_available_fallback_first() -> None:
+    primary: Final = account("primary", max_concurrency=1).model_copy(update={"priority": 100})
+    fallback: Final = account("fallback", max_concurrency=1).model_copy(update={"priority": 0})
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(
+            accounts=(primary, fallback),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.PRIORITY),),
+        )
+    )
+    first: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    assert isinstance(first, AcquireSuccess)
+    assert first.lease.account_id == "primary"
+    assert await store.settle(SettleRequest(lease_id=first.lease.lease_id, success=False, status_code=404))
+    assert await store.release(first.lease.lease_id)
+
+    routes: Final = await scheduler.route_table("model-a")
+    second: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-a"))
+
+    assert routes[0].account_id == "fallback"
+    assert routes[0].available is True
+    assert routes[1].account_id == "primary"
+    assert routes[1].reason_code == "model_not_found"
+    assert isinstance(second, AcquireSuccess)
+    assert second.lease.account_id == "fallback"
 
 
 @pytest.mark.asyncio

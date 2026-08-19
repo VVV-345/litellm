@@ -1077,7 +1077,11 @@ async def test_gateway_applies_retry_after_and_safe_provider_error_code() -> Non
     routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
     cooled: Final = next(route for route in routes if route.reason_code == "concurrency_limited")
     assert response.status_code == 429
-    assert cooled.health == "cooldown"
+    assert cooled.health == "unknown"
+    assert cooled.exclusion_scope == "deployment"
+    assert cooled.exclusion_source == "capacity"
+    assert cooled.exclusion_state == "active"
+    assert cooled.available is False
     assert cooled.cooldown_until is not None
     assert before + 45 <= cooled.cooldown_until <= time.time() + 45
 

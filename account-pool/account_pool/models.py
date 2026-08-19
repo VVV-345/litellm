@@ -26,6 +26,8 @@ class Health(StrEnum):
     UNKNOWN = "unknown"
     HEALTHY = "healthy"
     DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    HALF_OPEN = "half_open"
     COOLDOWN = "cooldown"
     DISABLED = "disabled"
 
@@ -39,6 +41,7 @@ class DeploymentConfig(FrozenModel):
     public_model: ModelName
     litellm_model_id: str = Field(min_length=1)
     provider_model: str | None = None
+    billing_route_id: str | None = Field(default=None, min_length=1)
     managed_by_pool: bool = False
     enabled: bool = True
 
@@ -114,6 +117,7 @@ class Lease(FrozenModel):
     account_id: AccountId
     deployment_id: str
     public_model: ModelName
+    billing_route_id: str | None = None
     expires_at: float
     settled: bool = False
     released: bool = False
@@ -186,6 +190,10 @@ class RouteEntry(FrozenModel):
     max_concurrency: int
     cooldown_until: float | None
     reason_code: str | None
+    exclusion_scope: str | None = None
+    exclusion_source: str | None = None
+    exclusion_state: str | None = None
+    retry_at: float | None = None
     quota: QuotaSnapshot
     priority: int
     weight: int

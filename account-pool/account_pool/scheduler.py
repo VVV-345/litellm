@@ -6,6 +6,12 @@ import time
 from collections.abc import Iterable
 from typing import Final
 
+from account_pool.eligibility import (
+    EligibilityExclusion,
+    candidate_evidence,
+    candidate_exclusion,
+    effective_state,
+)
 from account_pool.models import (
     AccountConfig,
     AccountSnapshot,
@@ -56,18 +62,23 @@ class Scheduler:
             return AcquireUnavailable(model=request.model, reasons=("model_not_configured",))
 
         snapshots: Final = await self._snapshot_map()
+        exclusions: Final = await self._store.eligibility_exclusions()
+        now: Final = time.time()
         policy: Final = self._policies.get(request.model, ModelPolicy(model=request.model))
         ordered: Final = await self._ordered_candidates(
             model=request.model,
             strategy=policy.strategy,
             candidates=candidates,
             snapshots=snapshots,
+            exclusions=exclusions,
+            now=now,
         )
         reasons: list[str] = []
         for account, deployment in ordered:
             result = await self._store.reserve(
                 account=account,
                 deployment_id=deployment.litellm_model_id,
+                billing_route_id=deployment.billing_route_id,
                 public_model=request.model,
                 request_id=request.request_id,
                 ttl_seconds=self._lease_ttl_seconds,
@@ -79,11 +90,29 @@ class Scheduler:
 
     async def route_table(self, model: str) -> tuple[RouteEntry, ...]:
         snapshots: Final = await self._snapshot_map()
+        exclusions: Final = await self._store.eligibility_exclusions()
+        now: Final = time.time()
         entries: Final = tuple(
-            self._route_entry(account=account, deployment=deployment, snapshot=snapshots[account.id])
+            self._route_entry(
+                account=account,
+                deployment=deployment,
+                snapshot=snapshots[account.id],
+                exclusions=exclusions,
+                now=now,
+            )
             for account, deployment in self._candidates(model)
         )
-        return tuple(sorted(entries, key=lambda entry: (-entry.priority, entry.account_id)))
+        return tuple(
+            sorted(
+                entries,
+                key=lambda entry: (
+                    not entry.available,
+                    -entry.priority,
+                    entry.account_id,
+                    entry.deployment_id,
+                ),
+            )
+        )
 
     async def account_snapshots(self) -> tuple[AccountSnapshot, ...]:
         return await self._store.snapshots()
@@ -121,17 +150,35 @@ class Scheduler:
         strategy: Strategy,
         candidates: tuple[tuple[AccountConfig, DeploymentConfig], ...],
         snapshots: dict[str, AccountSnapshot],
+        exclusions: tuple[EligibilityExclusion, ...],
+        now: float,
     ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
         if strategy == Strategy.PRIORITY:
-            return tuple(sorted(candidates, key=lambda item: (-item[0].priority, item[0].id)))
+            return tuple(
+                sorted(
+                    candidates,
+                    key=lambda item: (
+                        _candidate_availability_rank(item, model, snapshots, exclusions, now),
+                        -item[0].priority,
+                        item[0].id,
+                        item[1].litellm_model_id,
+                    ),
+                )
+            )
         if strategy == Strategy.WEIGHTED_ROUND_ROBIN:
             sequence: Final = await self._store.next_sequence(model)
-            return _weighted_order(candidates=candidates, sequence=sequence)
+            weighted: Final = _weighted_order(candidates=candidates, sequence=sequence)
+            return tuple(
+                sorted(
+                    weighted,
+                    key=lambda item: _candidate_availability_rank(item, model, snapshots, exclusions, now),
+                )
+            )
         return tuple(
             sorted(
                 candidates,
                 key=lambda item: (
-                    _availability_rank(snapshots[item[0].id]),
+                    _candidate_availability_rank(item, model, snapshots, exclusions, now),
                     _inflight_ratio(snapshots[item[0].id]),
                     -_quota_ratio(account=item[0], snapshot=snapshots[item[0].id])
                     if strategy == Strategy.QUOTA_AWARE_LEAST_INFLIGHT
@@ -147,8 +194,26 @@ class Scheduler:
         account: AccountConfig,
         deployment: DeploymentConfig,
         snapshot: AccountSnapshot,
+        exclusions: tuple[EligibilityExclusion, ...],
+        now: float,
     ) -> RouteEntry:
-        reason: Final = _unavailable_reason(snapshot)
+        evidence: Final = candidate_evidence(
+            exclusions=exclusions,
+            account_id=account.id,
+            model=deployment.public_model,
+            deployment_id=deployment.litellm_model_id,
+            billing_route_id=deployment.billing_route_id,
+            now=now,
+        )
+        active_exclusion: Final = candidate_exclusion(
+            exclusions=exclusions,
+            account_id=account.id,
+            model=deployment.public_model,
+            deployment_id=deployment.litellm_model_id,
+            billing_route_id=deployment.billing_route_id,
+            now=now,
+        )
+        reason: Final = _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
         return RouteEntry(
             account_id=account.id,
             display_name=account.display_name,
@@ -160,8 +225,12 @@ class Scheduler:
             health=snapshot.health,
             inflight=snapshot.inflight,
             max_concurrency=snapshot.max_concurrency,
-            cooldown_until=snapshot.cooldown_until,
-            reason_code=snapshot.reason_code,
+            cooldown_until=evidence.retry_at if evidence is not None else snapshot.cooldown_until,
+            reason_code=evidence.reason_code if evidence is not None else snapshot.reason_code,
+            exclusion_scope=evidence.scope if evidence is not None else None,
+            exclusion_source=evidence.source if evidence is not None else None,
+            exclusion_state=effective_state(evidence, now) if evidence is not None else None,
+            retry_at=evidence.retry_at if evidence is not None else None,
             quota=snapshot.quota,
             priority=account.priority,
             weight=account.weight,
@@ -183,11 +252,11 @@ def _weighted_order(
 def _unique_candidates(
     candidates: Iterable[tuple[AccountConfig, DeploymentConfig]],
 ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     ordered: list[tuple[AccountConfig, DeploymentConfig]] = []
     for item in candidates:
-        if item[0].id not in seen:
-            seen.add(item[0].id)
+        if (item[0].id, item[1].litellm_model_id) not in seen:
+            seen.add((item[0].id, item[1].litellm_model_id))
             ordered.append(item)
     return tuple(ordered)
 
@@ -206,13 +275,39 @@ def _quota_ratio(account: AccountConfig, snapshot: AccountSnapshot) -> float:
     return min(ratios) if ratios else 1.0
 
 
-def _availability_rank(snapshot: AccountSnapshot) -> int:
-    return 0 if _unavailable_reason(snapshot) is None else 1
+def _availability_rank(snapshot: AccountSnapshot, exclusion: EligibilityExclusion | None) -> int:
+    return 0 if _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None else 1
 
 
-def _unavailable_reason(snapshot: AccountSnapshot) -> str | None:
+def _candidate_availability_rank(
+    candidate: tuple[AccountConfig, DeploymentConfig],
+    model: str,
+    snapshots: dict[str, AccountSnapshot],
+    exclusions: tuple[EligibilityExclusion, ...],
+    now: float,
+) -> int:
+    account, deployment = candidate
+    exclusion: Final = candidate_exclusion(
+        exclusions=exclusions,
+        account_id=account.id,
+        model=model,
+        deployment_id=deployment.litellm_model_id,
+        billing_route_id=deployment.billing_route_id,
+        now=now,
+    )
+    return _availability_rank(snapshot=snapshots[account.id], exclusion=exclusion)
+
+
+def _unavailable_reason(
+    snapshot: AccountSnapshot,
+    exclusion: EligibilityExclusion | None = None,
+) -> str | None:
+    if exclusion is not None:
+        return exclusion.reason_code
     if not snapshot.enabled or snapshot.health == Health.DISABLED:
         return "disabled"
+    if snapshot.health == Health.UNHEALTHY:
+        return "unhealthy"
     if snapshot.cooldown_until is not None and snapshot.cooldown_until > time.time():
         return "cooldown"
     if snapshot.inflight >= snapshot.max_concurrency:

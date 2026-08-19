@@ -44,6 +44,7 @@ from account_pool.models import (
     AcquireRequest,
     AcquireSuccess,
     DeploymentInput,
+    Health,
     HeartbeatRequest,
     LiteLLMStatus,
     ManagementResult,
@@ -347,7 +348,11 @@ def create_app(
         return StatsView(
             models=len(scheduler.models()),
             accounts=len(snapshots),
-            available_accounts=sum(1 for item in snapshots if item.enabled and item.health != "disabled"),
+            available_accounts=sum(
+                1
+                for item in snapshots
+                if item.enabled and item.health not in (Health.DISABLED, Health.UNHEALTHY, Health.COOLDOWN)
+            ),
             inflight=sum(item.inflight for item in snapshots),
             max_concurrency=sum(item.max_concurrency for item in snapshots),
         )

@@ -11,6 +11,22 @@ from uuid import uuid4
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
 
+from account_pool.eligibility import (
+    EligibilityExclusion,
+    candidate_exclusion,
+    exclusions_after_settlement,
+    retain_configured_exclusions,
+    settlement_exclusion,
+)
+from account_pool.eligibility.redis import (
+    billing_route_eligibility_key,
+    channel_eligibility_key,
+    decode_exclusions,
+    deployment_eligibility_key,
+    eligibility_key,
+    eligibility_subjects,
+    model_eligibility_key,
+)
 from account_pool.health.settlement import (
     HealthTransitionAction,
     SettlementHealthTransition,
@@ -35,10 +51,13 @@ class StateStore(Protocol):
 
     async def snapshots(self) -> tuple[AccountSnapshot, ...]: ...
 
+    async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]: ...
+
     async def reserve(
         self,
         account: AccountConfig,
         deployment_id: str,
+        billing_route_id: str | None,
         public_model: str,
         request_id: str,
         ttl_seconds: int,
@@ -71,6 +90,7 @@ class MemoryStateStore:
         self._requests: dict[str, str] = {}
         self._sequences: dict[str, int] = {}
         self._accounts: dict[str, AccountConfig] = {}
+        self._exclusions: tuple[EligibilityExclusion, ...] = ()
 
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         async with self._lock:
@@ -84,15 +104,21 @@ class MemoryStateStore:
                 )
                 for account in accounts
             }
+            self._exclusions = retain_configured_exclusions(self._exclusions, accounts)
 
     async def snapshots(self) -> tuple[AccountSnapshot, ...]:
         async with self._lock:
             return tuple(self._runtime.values())
 
+    async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
+        async with self._lock:
+            return self._exclusions
+
     async def reserve(
         self,
         account: AccountConfig,
         deployment_id: str,
+        billing_route_id: str | None,
         public_model: str,
         request_id: str,
         ttl_seconds: int,
@@ -105,6 +131,16 @@ class MemoryStateStore:
 
             now: Final = time.time()
             runtime: Final = self._runtime[account.id]
+            exclusion: Final = candidate_exclusion(
+                exclusions=self._exclusions,
+                account_id=account.id,
+                model=public_model,
+                deployment_id=deployment_id,
+                billing_route_id=billing_route_id,
+                now=now,
+            )
+            if exclusion is not None:
+                return ReserveRejected(reason=exclusion.reason_code)
             rejection: Final = _availability_rejection(runtime=runtime, now=now)
             if rejection is not None:
                 return ReserveRejected(reason=rejection)
@@ -115,6 +151,7 @@ class MemoryStateStore:
                 account_id=account.id,
                 deployment_id=deployment_id,
                 public_model=public_model,
+                billing_route_id=billing_route_id,
                 expires_at=now + ttl_seconds,
             )
             self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
@@ -134,9 +171,21 @@ class MemoryStateStore:
             account: Final = self._accounts[lease_state.lease.account_id]
             consumption: Final = _consumption(account=account, request=request)
             quota: Final = _decrement_quota(runtime.quota, consumption)
+            now: Final = time.time()
+            transition: Final = classify_settlement(request, now)
             health_update: Final = _health_after_settlement(
                 runtime=runtime,
-                transition=classify_settlement(request, time.time()),
+                transition=transition,
+            )
+            self._exclusions = exclusions_after_settlement(
+                exclusions=self._exclusions,
+                lease=lease_state.lease,
+                transition=transition,
+                now=now,
+                transient_threshold_reached=(
+                    transition.action != HealthTransitionAction.TRANSIENT_FAILURE
+                    or runtime.consecutive_failures + 1 >= 3
+                ),
             )
             updated: Final = runtime.model_copy(update={"quota": quota, **health_update})
             settled_lease: Final = lease_state.lease.model_copy(update={"settled": True})
@@ -195,6 +244,20 @@ local existing = redis.call('GET', KEYS[4])
 if existing then
   return {2, existing, 'existing'}
 end
+local function active_exclusion(key, now)
+  local entries = redis.call('HGETALL', key)
+  for index = 1, #entries, 2 do
+    local field = entries[index]
+    local value = entries[index + 1]
+    local value_separator = string.find(value, '|', 1, true)
+    local retry_at = tonumber(string.sub(value, value_separator + 1)) or 0
+    if retry_at == 0 or retry_at > now then
+      local field_separator = string.find(field, '|', 1, true)
+      return string.sub(field, field_separator + 1)
+    end
+  end
+  return nil
+end
 local enabled = redis.call('HGET', KEYS[1], 'enabled')
 local health = redis.call('HGET', KEYS[1], 'health')
 local cooldown = tonumber(redis.call('HGET', KEYS[1], 'cooldown_until') or '0')
@@ -203,8 +266,14 @@ local max_concurrency = tonumber(redis.call('HGET', KEYS[1], 'max_concurrency') 
 local quota_total = redis.call('HGET', KEYS[1], 'quota_total')
 local quota_five = redis.call('HGET', KEYS[1], 'quota_five_hour')
 local quota_weekly = redis.call('HGET', KEYS[1], 'quota_weekly')
+local now = tonumber(ARGV[8])
 if enabled ~= '1' or health == 'disabled' then return {0, '', 'disabled'} end
-if cooldown > tonumber(ARGV[7]) then return {0, '', 'cooldown'} end
+for key_index = 6, 9 do
+  local reason = active_exclusion(KEYS[key_index], now)
+  if reason then return {0, '', reason} end
+end
+if health == 'unhealthy' then return {0, '', 'unhealthy'} end
+if cooldown > now then return {0, '', 'cooldown'} end
 if inflight >= max_concurrency then return {0, '', 'capacity'} end
 if quota_total and quota_total ~= '' and tonumber(quota_total) <= 0 then return {0, '', 'total_quota'} end
 if quota_five and quota_five ~= '' and tonumber(quota_five) <= 0 then return {0, '', 'five_hour_quota'} end
@@ -212,10 +281,10 @@ if quota_weekly and quota_weekly ~= '' and tonumber(quota_weekly) <= 0 then retu
 redis.call('INCR', KEYS[2])
 redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
-  'deployment_id', ARGV[4], 'public_model', ARGV[5], 'expires_at', ARGV[6],
+  'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
   'settled', '0', 'released', '0')
-redis.call('SET', KEYS[4], ARGV[1], 'EX', ARGV[8])
-redis.call('ZADD', KEYS[5], ARGV[6], ARGV[1])
+redis.call('SET', KEYS[4], ARGV[1], 'EX', ARGV[9])
+redis.call('ZADD', KEYS[5], ARGV[7], ARGV[1])
 return {1, ARGV[1], 'reserved'}
 """
 
@@ -252,6 +321,10 @@ local action = ARGV[2]
 local consumption = tonumber(ARGV[3] or '0')
 local cooldown_until = tonumber(ARGV[4] or '0')
 local reason_code = ARGV[5]
+local exclusion_scope = ARGV[6]
+local exclusion_source = ARGV[7]
+local starts_at = ARGV[8]
+local retry_at = ARGV[9]
 if consumption > 0 then
   for _, field in ipairs({'quota_total', 'quota_five_hour', 'quota_weekly'}) do
     local value = redis.call('HGET', state_key, field)
@@ -260,21 +333,32 @@ if consumption > 0 then
     end
   end
 end
+local write_exclusion = false
 if action == 'success' then
   redis.call('HSET', state_key, 'health', 'healthy', 'consecutive_failures', '0', 'cooldown_until', '0', 'reason_code', '')
+  for key_index = 2, 5 do redis.call('DEL', KEYS[key_index]) end
 elseif action == 'disable' then
-  redis.call('HSET', state_key, 'enabled', '0', 'health', 'disabled', 'reason_code', reason_code)
+  redis.call('HSET', state_key, 'health', 'unhealthy', 'reason_code', reason_code)
+  write_exclusion = true
 elseif action == 'observe' then
-  redis.call('HSET', state_key, 'reason_code', reason_code)
+  write_exclusion = exclusion_scope ~= ''
 elseif action == 'cooldown' then
-  redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', cooldown_until, 'reason_code', reason_code)
+  write_exclusion = true
 else
   local failures = redis.call('HINCRBY', state_key, 'consecutive_failures', 1)
   if failures >= 3 then
     redis.call('HSET', state_key, 'health', 'cooldown', 'cooldown_until', cooldown_until, 'reason_code', reason_code)
+    write_exclusion = true
   else
     redis.call('HSET', state_key, 'health', 'degraded', 'reason_code', reason_code)
   end
+end
+if write_exclusion and exclusion_scope ~= '' then
+  local target_key = KEYS[4]
+  if exclusion_scope == 'channel' then target_key = KEYS[2] end
+  if exclusion_scope == 'model' then target_key = KEYS[3] end
+  if exclusion_scope == 'billing_route' then target_key = KEYS[5] end
+  redis.call('HSET', target_key, exclusion_source .. '|' .. reason_code, starts_at .. '|' .. retry_at)
 end
 redis.call('HSET', KEYS[1], 'settled', '1')
 return 1
@@ -300,6 +384,9 @@ class RedisStateStore:
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         previous_accounts: Final = self._accounts
         runtime_reconfigure: Final = bool(previous_accounts)
+        stale_eligibility: Final = frozenset(eligibility_subjects(tuple(previous_accounts.values()))) - frozenset(
+            eligibility_subjects(accounts)
+        )
         self._accounts = {account.id: account for account in accounts}
         await asyncio.gather(
             *(
@@ -314,14 +401,26 @@ class RedisStateStore:
                 for account in accounts
             )
         )
+        if stale_eligibility:
+            await self._redis.delete(*(eligibility_key(subject) for subject in stale_eligibility))
 
     async def snapshots(self) -> tuple[AccountSnapshot, ...]:
         return tuple([await self._snapshot(account) for account in self._accounts.values()])
+
+    async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
+        subjects: Final = eligibility_subjects(tuple(self._accounts.values()))
+        encoded: Final = await asyncio.gather(*(self._redis.hgetall(eligibility_key(subject)) for subject in subjects))
+        return tuple(
+            exclusion
+            for subject, entries in zip(subjects, encoded, strict=True)
+            for exclusion in decode_exclusions(subject, entries)
+        )
 
     async def reserve(
         self,
         account: AccountConfig,
         deployment_id: str,
+        billing_route_id: str | None,
         public_model: str,
         request_id: str,
         ttl_seconds: int,
@@ -337,6 +436,10 @@ class RedisStateStore:
                     self._lease_key(lease_id),
                     f"pool:request:{request_id}",
                     self._expiries,
+                    channel_eligibility_key(account.id),
+                    model_eligibility_key(account.id, public_model),
+                    deployment_eligibility_key(account.id, deployment_id),
+                    billing_route_eligibility_key(account.id, billing_route_id),
                 ],
                 args=[
                     lease_id,
@@ -344,6 +447,7 @@ class RedisStateStore:
                     account.id,
                     deployment_id,
                     public_model,
+                    billing_route_id or "",
                     now + ttl_seconds,
                     now,
                     retention,
@@ -365,16 +469,28 @@ class RedisStateStore:
             return False
         account: Final = self._accounts[lease.account_id]
         consumption: Final = _consumption(account=account, request=request)
-        transition: Final = classify_settlement(request, time.time())
+        now: Final = time.time()
+        transition: Final = classify_settlement(request, now)
+        exclusion: Final = settlement_exclusion(lease=lease, transition=transition, now=now)
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._settle_script(
-                keys=[self._lease_key(request.lease_id)],
+                keys=[
+                    self._lease_key(request.lease_id),
+                    channel_eligibility_key(lease.account_id),
+                    model_eligibility_key(lease.account_id, lease.public_model),
+                    deployment_eligibility_key(lease.account_id, lease.deployment_id),
+                    billing_route_eligibility_key(lease.account_id, lease.billing_route_id),
+                ],
                 args=[
                     self._prefix,
                     transition.action,
                     consumption,
                     transition.cooldown_until or 0,
                     transition.reason_code or "",
+                    exclusion.scope if exclusion is not None else "",
+                    exclusion.source if exclusion is not None else "",
+                    exclusion.starts_at if exclusion is not None else 0,
+                    exclusion.retry_at if exclusion is not None and exclusion.retry_at is not None else 0,
                 ],
             )
         )
@@ -476,6 +592,7 @@ class RedisStateStore:
             account_id=data["account_id"],
             deployment_id=data["deployment_id"],
             public_model=data["public_model"],
+            billing_route_id=data.get("billing_route_id") or None,
             expires_at=float(data["expires_at"]),
             settled=data.get("settled") == "1",
             released=data.get("released") == "1",
@@ -497,6 +614,8 @@ class RedisStateStore:
 def _availability_rejection(runtime: AccountSnapshot, now: float) -> str | None:
     if not runtime.enabled or runtime.health == Health.DISABLED:
         return "disabled"
+    if runtime.health == Health.UNHEALTHY:
+        return "unhealthy"
     if runtime.cooldown_until is not None and runtime.cooldown_until > now:
         return "cooldown"
     if runtime.inflight >= runtime.max_concurrency:
@@ -566,15 +685,11 @@ def _health_after_settlement(
             "reason_code": None,
         }
     if transition.action == HealthTransitionAction.DISABLE:
-        return {"enabled": False, "health": Health.DISABLED, "reason_code": transition.reason_code}
+        return {"health": Health.UNHEALTHY, "reason_code": transition.reason_code}
     if transition.action == HealthTransitionAction.OBSERVE:
-        return {"reason_code": transition.reason_code}
+        return {}
     if transition.action == HealthTransitionAction.COOLDOWN:
-        return {
-            "health": Health.COOLDOWN,
-            "cooldown_until": transition.cooldown_until,
-            "reason_code": transition.reason_code,
-        }
+        return {}
     failures: Final = runtime.consecutive_failures + 1
     if failures >= 3:
         return {
