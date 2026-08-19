@@ -1,3 +1,5 @@
+"""验证渠道同步操作的数据约束和序列化安全性。"""
+
 from datetime import UTC, datetime
 from typing import Final
 from uuid import uuid4

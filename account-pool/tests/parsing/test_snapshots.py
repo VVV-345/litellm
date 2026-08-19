@@ -1,3 +1,5 @@
+"""验证解析器快照的脱敏、版本化、原子写入和失败报告。"""
+
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final

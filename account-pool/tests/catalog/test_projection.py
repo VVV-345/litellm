@@ -1,3 +1,5 @@
+"""验证渠道目录快照向旧版调度配置投影时的排序和完整性检查。"""
+
 from datetime import UTC, datetime
 from typing import Final
 from uuid import uuid4

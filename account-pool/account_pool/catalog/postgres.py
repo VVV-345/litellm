@@ -1,3 +1,5 @@
+"""使用 PostgreSQL 持久化渠道目录，并保证旧配置只导入一次。"""
+
 from __future__ import annotations
 
 import re
@@ -124,6 +126,7 @@ class PostgresCatalogRepository:
     async def import_once(self, command: CatalogImport) -> ImportResult:
         async with await self._connect() as connection, connection.transaction():
             await self._set_search_path(connection)
+            # 事务级咨询锁确保多个服务实例并发启动时，旧配置也只会创建一份目录数据。
             await connection.execute("SELECT pg_advisory_xact_lock(%s)", (_CATALOG_LOCK_KEY,))
             snapshot: Final = await self._load_snapshot(connection)
             conflicts: Final = _collect_conflicts(command=command, snapshot=snapshot)

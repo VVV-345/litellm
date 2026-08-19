@@ -1,3 +1,5 @@
+"""验证 OpenAI 兼容渠道的模型发现、能力声明和密钥安全边界。"""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable

@@ -1,3 +1,5 @@
+"""将旧版号池 YAML 配置转换为可持久化的渠道目录导入命令。"""
+
 from typing import Final
 
 from pydantic import AwareDatetime

@@ -1,3 +1,5 @@
+"""为旧版 YAML 渠道和 Deployment 生成可重复的目录 UUID。"""
+
 from typing import Final
 from uuid import UUID, uuid5
 

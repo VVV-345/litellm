@@ -1,5 +1,7 @@
 # Provider Parser Template
 
+本文说明新增渠道解析器时必须实现的目录结构、数据字段、安全边界和测试契约
+
 ## Directory Contract
 
 Each provider implementation lives in `provider_services/{provider_id}/`:

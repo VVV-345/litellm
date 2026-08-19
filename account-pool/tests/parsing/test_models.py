@@ -1,3 +1,5 @@
+"""验证统一解析器模型的字段约束、计费关系和脱敏要求。"""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Final

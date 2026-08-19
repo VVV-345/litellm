@@ -1,3 +1,5 @@
+"""验证旧版渠道和 Deployment 的确定性 UUID 生成规则。"""
+
 from datetime import datetime
 from typing import Final
 from uuid import UUID

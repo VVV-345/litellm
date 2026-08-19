@@ -1,3 +1,5 @@
+"""验证解析器注册表的匹配优先级和无凭证选择过程。"""
+
 from typing import Final
 
 import pytest

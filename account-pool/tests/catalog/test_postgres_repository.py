@@ -1,3 +1,5 @@
+"""验证 PostgreSQL 渠道目录仓储的导入幂等性、冲突和并发行为。"""
+
 from __future__ import annotations
 
 import asyncio

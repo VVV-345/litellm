@@ -1,3 +1,5 @@
+"""将 OpenAI 兼容模型发现结果转换为统一渠道校验结果。"""
+
 from __future__ import annotations
 
 from hashlib import sha256

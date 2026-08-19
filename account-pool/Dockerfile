@@ -1,3 +1,4 @@
+# 本文件构建与 LiteLLM 一同运行的独立号池服务镜像。
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a
 
 FROM $UV_IMAGE AS uvbin

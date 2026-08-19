@@ -1,3 +1,5 @@
+"""验证旧版 YAML 号池配置到渠道目录记录的转换。"""
+
 from datetime import UTC, datetime
 from typing import Final
 

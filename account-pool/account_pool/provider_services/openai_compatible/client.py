@@ -1,3 +1,5 @@
+"""安全请求 OpenAI 兼容模型列表，并返回类型化成功或失败结果。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -80,6 +82,7 @@ async def fetch_openai_compatible_models(
             message="OpenAI 兼容 URL 缺少主机名",
             code=ProviderValidationFailureCode.INVALID_CONFIGURATION,
         )
+    # 在携带渠道密钥前拒绝内网解析结果，避免用户配置把校验请求引向内部服务。
     addresses: Final = await _safe_resolve(resolve_host=resolve_host, host=host)
     if addresses is None or not addresses or any(not _is_public_address(address) for address in addresses):
         return OpenAICompatibleModelsFailure(

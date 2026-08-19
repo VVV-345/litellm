@@ -1,3 +1,5 @@
+"""验证 OpenAI 兼容发现结果到统一解析运行的转换。"""
+
 from datetime import UTC, datetime
 from typing import Final
 from uuid import uuid4

@@ -1,3 +1,5 @@
+"""声明 OpenAI 兼容协议可统一支持和无法统一保证的渠道能力。"""
+
 from typing import Final
 
 from account_pool.domain.provider_source import (

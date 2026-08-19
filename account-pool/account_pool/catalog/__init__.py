@@ -1,3 +1,5 @@
+"""汇总导出渠道目录的数据模型、仓储实现和应用服务。"""
+
 from account_pool.catalog.identity import legacy_binding_id, legacy_channel_id
 from account_pool.catalog.models import (
     AdministrativeState,

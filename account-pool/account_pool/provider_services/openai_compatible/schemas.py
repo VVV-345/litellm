@@ -1,3 +1,5 @@
+"""校验 OpenAI 兼容 GET /models 接口的最小响应结构。"""
+
 from pydantic import BaseModel, ConfigDict, Field
 
 

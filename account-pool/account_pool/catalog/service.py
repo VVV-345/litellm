@@ -1,3 +1,5 @@
+"""编排旧配置导入和渠道目录到运行配置的投影。"""
+
 from typing import Final
 
 from pydantic import AwareDatetime

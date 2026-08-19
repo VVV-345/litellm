@@ -1,3 +1,4 @@
+# 本文件演示 LiteLLM Deployment 与号池渠道标识的配套配置。
 model_list:
   - model_name: gpt-4o
     litellm_params:

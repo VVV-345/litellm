@@ -1,3 +1,5 @@
+"""定义渠道目录记录、快照和一次性导入结果的数据契约。"""
+
 from __future__ import annotations
 
 from enum import StrEnum

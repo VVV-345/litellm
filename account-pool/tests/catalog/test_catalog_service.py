@@ -1,3 +1,5 @@
+"""验证渠道目录服务对导入仓储和运行配置投影的编排。"""
+
 from datetime import UTC, datetime
 from typing import Final
 

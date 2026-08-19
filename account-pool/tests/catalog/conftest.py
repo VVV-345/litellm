@@ -1,3 +1,5 @@
+"""提供跨平台异步事件循环测试配置。"""
+
 import asyncio
 import os
 import selectors

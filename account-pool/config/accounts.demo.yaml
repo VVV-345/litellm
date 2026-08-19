@@ -1,3 +1,4 @@
+# 本文件提供可复制修改的号池渠道、额度和模型策略演示配置。
 accounts:
   - id: primary-east
     display_name: Primary East

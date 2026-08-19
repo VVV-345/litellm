@@ -1,3 +1,5 @@
+"""定义渠道期望状态、同步操作和安全失败信息。"""
+
 from __future__ import annotations
 
 from enum import StrEnum

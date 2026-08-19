@@ -1,3 +1,5 @@
+"""把持久化渠道目录投影为现有调度器可直接消费的号池配置。"""
+
 from typing import Final
 
 from account_pool.catalog.models import (
