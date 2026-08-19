@@ -122,7 +122,10 @@ effective result。无效或已不存在的目标会形成脱敏结构化失败�
 `GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。人工覆盖的设置和撤销也已通过 LiteLLM
 管理员代理接入；代理在服务端签发短时 actor 信封，4100 独立 UI 不签发该信封，当前只读预览覆盖数据。
 `GET /api/channels/{id}/snapshot` 和 `/export` 从 PostgreSQL 最新结果即时生成以渠道 ID 为键的 schema v1 脱敏文档，
-后者附带下载响应头。Worker 的解析启动 API 和常驻任务循环、受控 JSON 导入及字段差异 UI 仍按 Phase 2 后续步骤接入
+后者附带下载响应头。`POST /api/channels/{id}/parse` 接收一次性 Key，在当前 Account Pool 实例接管后返回任务 ID；
+任务所有权、心跳和结果写入 PostgreSQL，但 URL、Key 和 Key 指纹不会进入任务记录。进程中断后的超时任务会变为
+`interrupted_requires_key`，不会由其他实例接管或自动重试。受控 JSON 导入、后台导出重试循环及字段差异 UI 仍按
+Phase 2 后续步骤接入
 
 ## 本地开发
 

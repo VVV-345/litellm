@@ -107,3 +107,22 @@ def test_signer_requires_secret_identity_admin_role_and_valid_request_id() -> No
     assert wrong_role.code == ActorSigningFailureCode.IDENTITY_REQUIRED
     assert isinstance(invalid_request, ActorSigningFailure)
     assert invalid_request.code == ActorSigningFailureCode.INVALID_REQUEST_ID
+
+
+def test_parser_task_action_is_signed_without_exposing_provider_credentials() -> None:
+    result: Final = sign_actor_envelope(
+        user_id="admin-user",
+        role="proxy_admin",
+        request_id="request-parse",
+        action=AccountPoolActorAction.PARSER_START,
+        secret=_SECRET,
+        clock=_clock,
+        envelope_id_factory=_envelope_id,
+    )
+
+    assert isinstance(result, ActorEnvelope)
+    _, encoded_claims, _ = result.token.split(".")
+    claims: Final = _JSON_OBJECT.validate_json(_decode_segment(encoded_claims))
+    assert claims["action"] == "parser_task:start"
+    assert "api_key" not in claims
+    assert "api_base" not in claims

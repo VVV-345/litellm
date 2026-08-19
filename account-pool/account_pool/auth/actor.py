@@ -27,6 +27,7 @@ Clock = Callable[[], datetime]
 
 
 class ActorAction(StrEnum):
+    PARSER_START = "parser_task:start"
     OVERRIDE_SET = "parser_override:set"
     OVERRIDE_REVOKE = "parser_override:revoke"
 

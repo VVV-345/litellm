@@ -39,6 +39,15 @@ from account_pool.parsing.service import (
     ParserSnapshotResult,
 )
 from account_pool.parsing.snapshots import ParserSnapshot
+from account_pool.parsing.tasks.models import (
+    ParserTaskAccepted,
+    ParserTaskRecord,
+    ParserTaskStartRequest,
+    ParserTaskStartResult,
+    ParserTaskStatus,
+    ParserTaskView,
+    ParserTaskViewResult,
+)
 from account_pool.store import MemoryStateStore
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -121,6 +130,54 @@ class FakeParserOverrideWriter:
         self.actors.append(actor)
         self.field_paths.append(field_path)
         return _override_success(request.override_id, OverrideAction.REVOKE, actor)
+
+
+class FakeParserTaskManager:
+    def __init__(self) -> None:
+        self.actors: list[ActorContext] = []
+        self.initialized = False
+        self.closed = False
+
+    async def initialize(self) -> None:
+        self.initialized = True
+
+    async def start(
+        self,
+        channel_id: UUID,
+        request: ParserTaskStartRequest,
+        actor: ActorContext,
+    ) -> ParserTaskStartResult:
+        assert channel_id == _CHANNEL_ID
+        assert request.api_key.get_secret_value() == "one-time-secret"
+        self.actors.append(actor)
+        return ParserTaskAccepted(
+            task_id=UUID("30000000-0000-0000-0000-000000000003"),
+            channel_id=channel_id,
+            parser_run_id=_PARSER_RUN_ID,
+        )
+
+    async def view(self, channel_id: UUID, task_id: UUID) -> ParserTaskViewResult:
+        assert channel_id == _CHANNEL_ID
+        return ParserTaskView(
+            task=ParserTaskRecord(
+                task_id=task_id,
+                channel_id=channel_id,
+                parser_run_id=_PARSER_RUN_ID,
+                provider_id="openai_compatible",
+                openai_compatible=True,
+                status=ParserTaskStatus.RUNNING,
+                owner_instance_id=UUID("40000000-0000-0000-0000-000000000004"),
+                actor_id="admin-user",
+                actor_role="proxy_admin",
+                request_id="request-parse",
+                created_at=_PARSED_AT,
+                heartbeat_at=_PARSED_AT,
+            )
+        )
+
+    async def close(self, timeout_seconds: float = 10) -> None:
+        assert timeout_seconds == 10
+        self.closed = True
 
 
 def settings(
@@ -357,6 +414,54 @@ async def test_parser_data_api_reports_configuration_and_domain_failures() -> No
     assert unavailable.status_code == 503
     assert missing_history.status_code == 404
     assert missing_data.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_parser_task_api_requires_actor_and_never_returns_one_time_credentials() -> None:
+    manager: Final = FakeParserTaskManager()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        parser_tasks=manager,
+    )
+    task_id: Final = UUID("30000000-0000-0000-0000-000000000003")
+    base_path: Final = f"/api/channels/{_CHANNEL_ID}"
+    body: Final = {
+        "provider_id": "openai_compatible",
+        "api_base": "https://gateway.example.com/v1",
+        "api_key": "one-time-secret",
+        "openai_compatible": True,
+    }
+    service_headers: Final = {"x-account-pool-token": "test-service-token"}
+    actor_headers: Final = {
+        **service_headers,
+        "x-account-pool-request-id": "request-parse",
+        "x-account-pool-actor": _actor_token(ActorAction.PARSER_START, request_id="request-parse"),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            missing_actor: Final = await client.post(f"{base_path}/parse", headers=service_headers, json=body)
+            accepted_response: Final = await client.post(f"{base_path}/parse", headers=actor_headers, json=body)
+            task_response: Final = await client.get(
+                f"{base_path}/parser-tasks/{task_id}",
+                headers=service_headers,
+            )
+
+        assert manager.initialized
+
+    accepted: Final = ParserTaskAccepted.model_validate_json(accepted_response.content)
+    task: Final = ParserTaskView.model_validate_json(task_response.content)
+    rendered: Final = f"{accepted_response.text}{task_response.text}".casefold()
+    assert missing_actor.status_code == 401
+    assert accepted_response.status_code == 202
+    assert accepted.task_id == task_id
+    assert task.task.status == ParserTaskStatus.RUNNING
+    assert manager.actors[0].action == ActorAction.PARSER_START
+    assert manager.closed
+    assert "one-time-secret" not in rendered
+    assert "gateway.example.com" not in rendered
+    assert "api_key" not in rendered
 
 
 @pytest.mark.asyncio

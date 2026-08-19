@@ -67,7 +67,17 @@ from account_pool.parsing.service import (
     ParserDataService,
     ParserRunHistory,
 )
-from account_pool.parsing.snapshots import ParserSnapshot
+from account_pool.parsing.snapshots import ParserSnapshot, ParserSnapshotStore
+from account_pool.parsing.tasks.models import (
+    ParserTaskAccepted,
+    ParserTaskOperationFailure,
+    ParserTaskOperationFailureCode,
+    ParserTaskStartRequest,
+    ParserTaskView,
+)
+from account_pool.parsing.tasks.postgres import PostgresParserTaskRepository
+from account_pool.parsing.tasks.service import ParserTaskManager, ParserTaskService
+from account_pool.parsing.worker import ParserWorker
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
@@ -90,6 +100,7 @@ class Runtime:
     parser_registry: ParserRegistry
     parser_data: ParserDataReader | None
     parser_overrides: ParserOverrideWriter | None
+    parser_tasks: ParserTaskManager | None
 
 
 def create_app(
@@ -98,6 +109,7 @@ def create_app(
     proxy_client: httpx.AsyncClient | None = None,
     parser_data: ParserDataReader | None = None,
     parser_overrides: ParserOverrideWriter | None = None,
+    parser_tasks: ParserTaskManager | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -138,6 +150,15 @@ def create_app(
     resolved_parser_overrides: Final = (
         parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
     )
+    resolved_parser_tasks: Final = (
+        parser_tasks
+        if parser_tasks is not None
+        else _build_parser_tasks(
+            settings=resolved_settings,
+            providers=provider_services,
+            registry=parser_registry,
+        )
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -149,11 +170,14 @@ def create_app(
         parser_registry=parser_registry,
         parser_data=resolved_parser_data,
         parser_overrides=resolved_parser_overrides,
+        parser_tasks=resolved_parser_tasks,
     )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         await scheduler.initialize()
+        if resolved_parser_tasks is not None:
+            await resolved_parser_tasks.initialize()
         reaper: Final = asyncio.create_task(_run_reaper(resolved_store))
         try:
             yield
@@ -161,6 +185,8 @@ def create_app(
             reaper.cancel()
             with suppress(asyncio.CancelledError):
                 await reaper
+            if resolved_parser_tasks is not None:
+                await resolved_parser_tasks.close()
             await resolved_store.close()
             if owns_client:
                 await client.aclose()
@@ -257,6 +283,33 @@ def create_app(
     async def export_parser_snapshot(channel_id: UUID) -> Response:
         snapshot: Final = await _load_parser_snapshot(resolved_parser_data, channel_id)
         return _snapshot_response(channel_id=channel_id, snapshot=snapshot, download=True)
+
+    async def start_parser_task(
+        channel_id: UUID,
+        body: ParserTaskStartRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ParserTaskAccepted:
+        if resolved_parser_tasks is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.PARSER_START,
+            secret=resolved_settings.actor_secret,
+        )
+        result: Final = await resolved_parser_tasks.start(channel_id=channel_id, request=body, actor=actor)
+        if isinstance(result, ParserTaskOperationFailure):
+            raise _parser_task_http_error(result)
+        return result
+
+    async def parser_task(channel_id: UUID, task_id: UUID) -> ParserTaskView:
+        if resolved_parser_tasks is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_parser_tasks.view(channel_id=channel_id, task_id=task_id)
+        if isinstance(result, ParserTaskOperationFailure):
+            raise _parser_task_http_error(result)
+        return result
 
     async def set_parser_override(
         channel_id: UUID,
@@ -360,6 +413,19 @@ def create_app(
     )
     application.add_api_route(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/parse",
+        start_parser_task,
+        methods=["POST"],
+        status_code=202,
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/parser-tasks/{task_id}",
+        parser_task,
+        methods=["GET"],
+        dependencies=management_dependency,
     )
     application.add_api_route(
         "/api/channels/{channel_id}/parser-runs",
@@ -510,6 +576,28 @@ def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
     )
 
 
+def _build_parser_tasks(
+    settings: Settings,
+    providers: ProviderServiceRegistry,
+    registry: ParserRegistry,
+) -> ParserTaskManager | None:
+    if settings.database_url is None:
+        return None
+    parser_runs: Final = PostgresParserRunRepository(settings.database_url, schema=settings.database_schema)
+    overrides: Final = PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema)
+    worker: Final = ParserWorker(
+        registry=registry,
+        repository=parser_runs,
+        overrides=overrides,
+        snapshots=ParserSnapshotStore(),
+    )
+    return ParserTaskService(
+        providers=providers,
+        worker=worker,
+        repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
+    )
+
+
 async def _load_parser_snapshot(
     parser_data: ParserDataReader | None,
     channel_id: UUID,
@@ -594,6 +682,22 @@ def _override_mutation_http_error(failure: OverrideMutationFailure) -> HTTPExcep
     ):
         return HTTPException(status_code=422, detail=detail)
     if failure.code == OverrideMutationFailureCode.DATABASE_UNAVAILABLE:
+        return HTTPException(status_code=503, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
+
+
+def _parser_task_http_error(failure: ParserTaskOperationFailure) -> HTTPException:
+    detail: Final = {"code": failure.code, "retryable": failure.retryable}
+    if failure.code in (
+        ParserTaskOperationFailureCode.CHANNEL_NOT_FOUND,
+        ParserTaskOperationFailureCode.TASK_NOT_FOUND,
+    ):
+        return HTTPException(status_code=404, detail=detail)
+    if failure.code == ParserTaskOperationFailureCode.INVALID_REQUEST:
+        return HTTPException(status_code=422, detail=detail)
+    if failure.code == ParserTaskOperationFailureCode.CONFLICT:
+        return HTTPException(status_code=409, detail=detail)
+    if failure.code == ParserTaskOperationFailureCode.DATABASE_UNAVAILABLE:
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 

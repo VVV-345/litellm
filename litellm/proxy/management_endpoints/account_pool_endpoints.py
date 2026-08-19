@@ -170,6 +170,41 @@ async def list_channel_parser_runs(
     return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/parser-runs")
 
 
+@router.post("/channels/{channel_id}/parse")
+async def start_channel_parser_task(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    actor: Final = _actor_for_request(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action=AccountPoolActorAction.PARSER_START,
+    )
+    return await _forward(
+        request=request,
+        method="POST",
+        path=f"/api/channels/{channel_id}/parse",
+        actor=actor,
+    )
+
+
+@router.get("/channels/{channel_id}/parser-tasks/{task_id}")
+async def get_channel_parser_task(
+    channel_id: UUID,
+    task_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(
+        request=request,
+        method="GET",
+        path=f"/api/channels/{channel_id}/parser-tasks/{task_id}",
+    )
+
+
 @router.get("/channels/{channel_id}/effective-data")
 async def get_channel_effective_data(
     channel_id: UUID,

@@ -1588,6 +1588,7 @@ model LiteLLM_AccountPoolChannel {
   updated_at            DateTime @updatedAt @client.Timestamptz(6)
   bindings              LiteLLM_AccountPoolBinding[]
   parser_runs           LiteLLM_AccountPoolParserRun[]
+  parser_tasks          LiteLLM_AccountPoolParserTask[]
   field_override_events LiteLLM_AccountPoolFieldOverride[]
 }
 
@@ -1776,4 +1777,26 @@ model LiteLLM_AccountPoolFieldOverride {
   @@index([channel_id, field_path, occurred_at])
   @@index([source_parser_run_id])
   @@index([request_id, occurred_at])
+}
+
+model LiteLLM_AccountPoolParserTask {
+  task_id             String   @id
+  channel_id          String
+  parser_run_id       String   @unique
+  provider_id         String
+  explicit_parser_id  String?
+  openai_compatible   Boolean  @default(false)
+  status              String
+  owner_instance_id   String
+  actor_id             String
+  actor_role           String
+  request_id           String
+  created_at           DateTime @client.Timestamptz(6)
+  heartbeat_at         DateTime @client.Timestamptz(6)
+  completed_at         DateTime? @client.Timestamptz(6)
+  failure_code         String?
+  channel              LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Restrict)
+
+  @@index([channel_id, created_at])
+  @@index([status, heartbeat_at])
 }

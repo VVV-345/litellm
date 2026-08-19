@@ -963,6 +963,7 @@ Lua 或等价原子事务负责：
 | --- | --- |
 | `GET /api/parser-services` | 查询解析器 manifest 和能力 |
 | `POST /api/channels/{id}/parse` | 启动解析；需要凭证接口时请求体必须提供一次性 Key |
+| `GET /api/channels/{id}/parser-tasks/{task_id}` | 查询不含凭证的解析任务状态 |
 | `GET /api/channels/{id}/parser-runs` | 查询解析历史 |
 | `GET /api/channels/{id}/effective-data` | 查询合并后的有效数据 |
 | `PUT /api/channels/{id}/overrides` | 创建或修改字段覆盖 |
@@ -1043,13 +1044,14 @@ Account Pool
 - 按渠道查询 parser run 历史和最新 raw/effective 数据的应用服务、Account Pool API 与 LiteLLM 服务端代理
 - 绑定管理员、请求 ID 和授权动作的短时 actor 信封，以及人工覆盖设置和撤销 API
 - 从 PostgreSQL 最新有效数据生成以渠道 ID 为键的脱敏快照预览和下载 API
+- 一次性 Key 同实例解析任务、持久任务心跳、超时中断标记，以及启动和状态查询 API
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
 当前缺失或需要替换：
 
 - PostgreSQL 权威数据层
-- OpenAI 官方解析器，以及 parser worker 的管理 API 和常驻任务接入
+- OpenAI 官方解析器，以及 parser worker 的公开元数据任务和后台导出重试循环
 - 受控 JSON 导入和字段差异 UI
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
