@@ -15,13 +15,24 @@ class RuntimeScheduler(Protocol):
     async def account_snapshots(self) -> tuple[AccountSnapshot, ...]: ...
 
 
+class RuntimeConfigEnricher(Protocol):
+    async def enrich(self, config: PoolConfig) -> PoolConfig: ...
+
+
 class RuntimeProjector:
-    def __init__(self, catalog: AppliedCatalogConfig, scheduler: RuntimeScheduler) -> None:
+    def __init__(
+        self,
+        catalog: AppliedCatalogConfig,
+        scheduler: RuntimeScheduler,
+        enricher: RuntimeConfigEnricher | None = None,
+    ) -> None:
         self._catalog: Final = catalog
         self._scheduler: Final = scheduler
+        self._enricher: Final = enricher
 
     async def project(self) -> PoolConfig:
-        config: Final = await self._catalog.projected_config()
+        catalog_config: Final = await self._catalog.projected_config()
+        config: Final = catalog_config if self._enricher is None else await self._enricher.enrich(catalog_config)
         await self._scheduler.reconfigure(config)
         return config
 

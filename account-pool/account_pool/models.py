@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
@@ -37,9 +39,59 @@ class QuotaUnit(StrEnum):
     USD = "usd"
 
 
+class RuntimeQuotaScope(StrEnum):
+    CHANNEL = "channel"
+    MODEL = "model"
+    BILLING_ROUTE = "billing_route"
+
+
+class RuntimeQuotaKind(StrEnum):
+    REQUESTS = "requests"
+    TOKENS = "tokens"
+    CREDITS = "credits"
+    CURRENCY = "currency"
+    PROVIDER_UNITS = "provider_units"
+
+
+class RuntimeQuotaWindowType(StrEnum):
+    ROLLING = "rolling"
+    FIXED = "fixed"
+    RESET_AT = "reset_at"
+    LIFETIME = "lifetime"
+
+
+class QuotaWindowConfig(FrozenModel):
+    window_id: str = Field(min_length=1, max_length=200)
+    scope: RuntimeQuotaScope
+    subject_id: str | None = Field(default=None, min_length=1)
+    kind: RuntimeQuotaKind
+    window_type: RuntimeQuotaWindowType | None = None
+    duration_seconds: int | None = Field(default=None, ge=1)
+    limit: Decimal | None = Field(default=None, ge=0)
+    remaining: Decimal | None = Field(default=None, ge=0)
+    safety_reserve: Decimal = Field(default=Decimal("0"), ge=0)
+    reset_at: float | None = Field(default=None, ge=0)
+    observed_at: float = Field(ge=0)
+    source: str = Field(min_length=1)
+    reason_code: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> QuotaWindowConfig:
+        if (self.scope == RuntimeQuotaScope.CHANNEL) != (self.subject_id is None):
+            raise ValueError("only channel quota windows omit subject_id")
+        if self.window_type == RuntimeQuotaWindowType.ROLLING and self.duration_seconds is None:
+            raise ValueError("rolling quota windows require duration_seconds")
+        if self.window_type == RuntimeQuotaWindowType.RESET_AT and self.reset_at is None:
+            raise ValueError("reset_at quota windows require reset_at")
+        if self.limit is not None and self.safety_reserve > self.limit:
+            raise ValueError("quota safety_reserve cannot exceed limit")
+        return self
+
+
 class DeploymentConfig(FrozenModel):
     public_model: ModelName
     litellm_model_id: str = Field(min_length=1)
+    binding_id: UUID | None = None
     provider_model: str | None = None
     billing_route_id: str | None = Field(default=None, min_length=1)
     managed_by_pool: bool = False
@@ -55,6 +107,7 @@ class QuotaConfig(FrozenModel):
 
 class AccountConfig(FrozenModel):
     id: AccountId
+    channel_id: UUID | None = None
     display_name: str = Field(min_length=1)
     provider: str = Field(min_length=1)
     group: str | None = None
@@ -64,6 +117,7 @@ class AccountConfig(FrozenModel):
     priority: int = 0
     weight: int = Field(default=1, ge=1, le=100)
     quotas: QuotaConfig = QuotaConfig()
+    quota_windows: tuple[QuotaWindowConfig, ...] = ()
     deployments: tuple[DeploymentConfig, ...] = Field(min_length=1)
 
 
@@ -83,12 +137,15 @@ class PoolConfig(FrozenModel):
             deployment.litellm_model_id for account in self.accounts for deployment in account.deployments
         )
         policy_models = tuple(policy.model for policy in self.policies)
+        quota_window_ids = tuple(window.window_id for account in self.accounts for window in account.quota_windows)
         if len(account_ids) != len(set(account_ids)):
             raise ValueError("account ids must be unique")
         if len(deployment_ids) != len(set(deployment_ids)):
             raise ValueError("LiteLLM deployment ids must be unique")
         if len(policy_models) != len(set(policy_models)):
             raise ValueError("model policies must be unique")
+        if len(quota_window_ids) != len(set(quota_window_ids)):
+            raise ValueError("quota window ids must be unique")
         return self
 
 

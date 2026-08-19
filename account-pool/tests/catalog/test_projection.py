@@ -31,7 +31,30 @@ def test_projection_round_trips_legacy_config_using_persisted_order() -> None:
         policies=tuple(reversed(snapshot.policies)),
     )
 
-    assert project_pool_config(shuffled) == source
+    projected: Final = project_pool_config(shuffled)
+    without_catalog_ids: Final = projected.model_copy(
+        update={
+            "accounts": tuple(
+                account.model_copy(
+                    update={
+                        "channel_id": None,
+                        "deployments": tuple(
+                            deployment.model_copy(update={"binding_id": None}) for deployment in account.deployments
+                        ),
+                    }
+                )
+                for account in projected.accounts
+            )
+        }
+    )
+
+    assert without_catalog_ids == source
+    assert tuple(account.channel_id for account in projected.accounts) == tuple(
+        channel.channel_id for channel in sorted(snapshot.channels, key=lambda channel: channel.account_order)
+    )
+    assert all(
+        deployment.binding_id is not None for account in projected.accounts for deployment in account.deployments
+    )
 
 
 def test_projection_rejects_orphan_binding() -> None:
@@ -62,7 +85,9 @@ def test_projection_maps_paused_channel_to_disabled_legacy_account() -> None:
     _, snapshot = imported_snapshot()
     paused: Final = CatalogSnapshot(
         channels=(snapshot.channels[0].model_copy(update={"administrative_state": AdministrativeState.PAUSED}),),
-        bindings=tuple(binding for binding in snapshot.bindings if binding.channel_id == snapshot.channels[0].channel_id),
+        bindings=tuple(
+            binding for binding in snapshot.bindings if binding.channel_id == snapshot.channels[0].channel_id
+        ),
         policies=(),
     )
 
@@ -73,9 +98,7 @@ def test_projection_maps_pending_delete_channel_to_disabled_legacy_account() -> 
     _, snapshot = imported_snapshot()
     pending: Final = CatalogSnapshot(
         channels=(
-            snapshot.channels[0].model_copy(
-                update={"administrative_state": AdministrativeState.PENDING_DELETE}
-            ),
+            snapshot.channels[0].model_copy(update={"administrative_state": AdministrativeState.PENDING_DELETE}),
         ),
         bindings=tuple(
             binding for binding in snapshot.bindings if binding.channel_id == snapshot.channels[0].channel_id

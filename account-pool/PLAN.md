@@ -138,7 +138,7 @@ PostgreSQL 是 Account Pool 的持久化权威数据源。JSON 是可预览和�
 
 ### 3.5 UI 方向
 
-后端继续保持独立的 Account Pool 服务，但正式管理界面直接集成到 LiteLLM Admin UI，不采用 iframe，也不把独立 4100 页面作为最终产品入口
+后端继续保持独立的 Account Pool 服务。渠道创建、编辑、导入和删除等生命周期管理直接集成到 LiteLLM Admin UI，不采用 iframe；独立 4100 页面长期保留为调度器、路由表、运行状态和故障排查入口
 
 优先复用 LiteLLM Dashboard 已有的：
 
@@ -159,7 +159,7 @@ Account Pool 页面通过 LiteLLM 的服务端反向代理访问 Account Pool AP
 - 仅 OpenAI 兼容：显示“通用解析”
 - 无解析器：显示“需人工补充”
 
-现有 Account Pool 原生 HTML/JS 页面在 LiteLLM Dashboard 新页面功能完整前保留为开发和故障入口。新页面完成验收并稳定运行一个发布周期后，删除旧页面及 `/api/accounts` 兼容端点，避免长期维护两套管理入口
+现有 Account Pool 原生 HTML/JS 页面继续作为 4100 独立调度器 UI，并与 LiteLLM Dashboard 调用同一套后端应用服务，不复制渠道生命周期业务逻辑。LiteLLM Dashboard 新页面稳定运行一个发布周期后，可以删除已弃用的 `/api/accounts` 兼容端点，但不得删除 4100 调度器 UI；4100 UI 必须在兼容端点删除前切换到正式 API
 
 ## 4. 总体架构
 
@@ -1061,12 +1061,14 @@ Account Pool
 - Dashboard 复用 LiteLLM Provider 数据、Creatable Model Select 与标准表单组件，支持模型选择和手动输入
 - Dashboard 解析任务、任务状态轮询、raw/effective 字段差异、人工覆盖和快照预览、导入、导出基础
 - Account Pool 手写文件中文职责说明及自动化文件头回归检查
+- 解析器最新有效套餐额度向运行配置的渠道、模型和已验证计费路由 scope 投影
+- PostgreSQL channel UUID 与 binding UUID 向运行配置的稳定身份投影
 
 当前缺失或需要替换：
 
 - parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
-- 混合健康检测和半开恢复
-- 按渠道、模型、Deployment 绑定和计费路由 scope 落地额度窗口与 restriction，并继续细分厂商 429 窗口语义
+- 新渠道、空闲渠道和手动触发的主动健康探测
+- 将已投影的渠道、模型和计费路由额度窗口接入 Redis/内存运行状态、usage 扣减和 restriction，并继续细分厂商 429 窗口语义
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
 - 持久化运行事件查询和日志 UI；Phase 1 已完成渠道管理审计写入
@@ -1102,7 +1104,7 @@ Account Pool
 - 外部导入的 Deployment 默认不会被误删
 - 多实例读取相同渠道权威状态
 
-实施状态（2026-08-19）：Phase 1 代码交付已完成，环境验收尚未完成。当前自动化验证包括 Account Pool 全量 `375 passed, 33 skipped`、LiteLLM 管理代理 `13 passed`、Dashboard `7 passed`，以及 Ruff、basedpyright、Account Pool 路径 TypeScript 和 ESLint 零错误。仍需在目标环境执行并记录以下验收：
+实施状态（2026-08-19）：Phase 1 代码交付已完成，环境验收尚未完成。当前自动化验证包括 Account Pool 全量 `390 passed, 33 skipped`、LiteLLM 管理代理 `13 passed`、Dashboard `7 passed`，以及 Ruff、Account Pool 路径 TypeScript 和 ESLint 零错误。此前 basedpyright 验证通过；本次额度投影变更因当前环境未安装且离线缓存不存在而未重新执行，按约束没有下载工具。仍需在目标环境执行并记录以下验收：
 
 - 对真实 PostgreSQL 执行迁移、升级和回滚验证；当前 PostgreSQL 集成测试因未配置 `DATABASE_URL` 跳过
 - 使用仓库要求的 Prisma CLI 执行三份 schema 校验；当前环境未安装该 CLI，按约束不额外下载
@@ -1164,7 +1166,7 @@ Account Pool
 - 未知 429 不被误判为长期额度耗尽
 - 重启后活动冷却和额度窗口能够重建；Redis 数据集丢失时必须隔离到故障前租约确定过期后再开放 acquire
 
-实施状态（2026-08-19）：Phase 3 已完成被动信号标准化、第一版按 scope 的资格状态机和 half-open 单探测令牌。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后只有一个请求能原子取得对应 scope 的探测令牌，其余请求继续轮询备用候选。探测成功只清除命中候选的证据，探测失败重新激活限制，未结算释放、租约过期和 heartbeat 分别释放或续期令牌。当前 PostgreSQL 目录投影尚未从解析结果中选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括 5 小时、周、月和自定义额度窗口及重建、主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复；Redis Lua 路径仍需在目标 Redis 环境执行集成验收
+实施状态（2026-08-19）：Phase 3 已完成被动信号标准化、第一版按 scope 的资格状态机、half-open 单探测令牌，以及最新有效解析额度向运行配置的投影。网关只提取安全错误码和 `Retry-After`，不保存原始错误体；401 形成渠道级健康排除但不改写管理员启用状态，403 与 404 形成 Deployment 级健康排除，429 形成 Deployment 级限制，在候选明确绑定独立计费路由时余额或额度信号可缩小到 `billing_route`。5xx 与传输失败达到阈值后形成渠道级排除。内存与 Redis 都保存同一结构的 scope、来源、原因、开始时间和重试时间，路由表预览与原子 acquire 使用同一资格判断；到达 `retry_at` 后只有一个请求能原子取得对应 scope 的探测令牌，其余请求继续轮询备用候选。探测成功只清除命中候选的证据，探测失败重新激活限制，未结算释放、租约过期和 heartbeat 分别释放或续期令牌。解析器提供的渠道、模型和已验证计费路由额度窗口现在携带稳定 UUID 和 Decimal 数值进入运行配置，但尚未进入 Redis/内存窗口状态、请求 usage 扣减或耗尽 restriction，不能视为额度执行已经完成。当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。其余未完成项包括额度窗口运行状态、扣减、校准、重建和耗尽限制，主动健康检测、PostgreSQL 健康事件、详情 UI，以及 Redis 丢失后的 fail-closed 恢复；Redis Lua 路径仍需在目标 Redis 环境执行集成验收。当前代码验证为 Account Pool 全量 `390 passed, 33 skipped`、文件头 `149 passed`、Ruff 和本次修改文件格式检查通过；basedpyright 因本机没有安装且离线缓存不存在而未重新执行
 
 ### Phase 4：正式调度表与策略
 
@@ -1207,7 +1209,7 @@ Account Pool
 - PostgreSQL 备份恢复演练
 - Redis 丢失后的代次切换、最长租约隔离和 fail-closed 恢复演练
 - 多 worker、流式中断和故障注入验证
-- 新页面稳定运行一个发布周期后删除旧独立 UI 和 `/api/accounts` 兼容端点
+- 新页面稳定运行一个发布周期后删除 `/api/accounts` 兼容端点，并让长期保留的 4100 调度器 UI 只调用正式 API
 
 验收：
 

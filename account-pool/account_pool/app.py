@@ -98,6 +98,7 @@ from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
+from account_pool.quota import ParserQuotaConfigEnricher
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -187,6 +188,7 @@ def create_app(
     )
     parser_registry: Final = build_parser_registry()
     resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
+    resolved_parser_data: Final = parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     resolved_channel_management: Final = (
         channel_management
         if channel_management is not None
@@ -194,10 +196,8 @@ def create_app(
             settings=resolved_settings,
             scheduler=scheduler,
             client=client,
+            parser_data=resolved_parser_data,
         )
-    )
-    resolved_parser_data: Final = (
-        parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     )
     resolved_parser_overrides: Final = (
         parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
@@ -251,6 +251,7 @@ def create_app(
                     )
                 ),
                 scheduler,
+                enricher=_quota_enricher(resolved_parser_data),
             ).project()
         else:
             await scheduler.initialize()
@@ -974,6 +975,7 @@ def _build_channel_management(
     settings: Settings,
     scheduler: Scheduler,
     client: httpx.AsyncClient,
+    parser_data: ParserDataReader | None,
 ) -> ChannelManagementService | None:
     if settings.database_url is None or settings.litellm_admin_key is None:
         return None
@@ -992,7 +994,11 @@ def _build_channel_management(
             admin_endpoint=settings.litellm_url,
             admin_key=SecretStr(settings.litellm_admin_key),
         ),
-        runtime_projector=RuntimeProjector(CatalogService(catalog_repository), scheduler),
+        runtime_projector=RuntimeProjector(
+            CatalogService(catalog_repository),
+            scheduler,
+            enricher=_quota_enricher(parser_data),
+        ),
         audit=PostgresManagementAuditRepository(
             settings.database_url,
             schema=settings.database_schema,
@@ -1113,6 +1119,10 @@ def _build_parser_data(settings: Settings) -> ParserDataReader | None:
         parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
         overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
     )
+
+
+def _quota_enricher(parser_data: ParserDataReader | None) -> ParserQuotaConfigEnricher | None:
+    return None if parser_data is None else ParserQuotaConfigEnricher(parser_data)
 
 
 def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:

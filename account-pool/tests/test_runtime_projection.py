@@ -39,6 +39,21 @@ class FakeScheduler:
         return ()
 
 
+class FakeEnricher:
+    def __init__(self, config: PoolConfig) -> None:
+        self._config: Final = config
+        self.calls: tuple[PoolConfig, ...] = ()
+
+    async def enrich(self, config: PoolConfig) -> PoolConfig:
+        self.calls = (*self.calls, config)
+        return self._config
+
+
+class FailingEnricher:
+    async def enrich(self, config: PoolConfig) -> PoolConfig:
+        raise RuntimeError(config.accounts[0].id)
+
+
 def _account(account_id: str, deployment_id: str) -> AccountConfig:
     return AccountConfig(
         id=account_id,
@@ -84,6 +99,32 @@ async def test_project_leaves_runtime_untouched_when_catalog_projection_is_inval
     )
 
     with pytest.raises(ValidationError, match="LiteLLM deployment ids must be unique"):
+        await projector.project()
+
+    assert scheduler.current_config == current
+    assert scheduler.reconfigure_calls == ()
+
+
+async def test_project_enriches_catalog_config_before_runtime_reconfigure() -> None:
+    current: Final = _config(account_id="current", deployment_id="current-deployment")
+    catalog: Final = _config(account_id="catalog", deployment_id="catalog-deployment")
+    enriched: Final = _config(account_id="enriched", deployment_id="enriched-deployment")
+    scheduler: Final = FakeScheduler(current)
+    enricher: Final = FakeEnricher(enriched)
+    projector: Final = RuntimeProjector(FakeAppliedCatalog(catalog), scheduler, enricher=enricher)
+
+    assert await projector.project() == enriched
+    assert enricher.calls == (catalog,)
+    assert scheduler.reconfigure_calls == (enriched,)
+
+
+async def test_enrichment_failure_leaves_runtime_untouched() -> None:
+    current: Final = _config(account_id="current", deployment_id="current-deployment")
+    catalog: Final = _config(account_id="catalog", deployment_id="catalog-deployment")
+    scheduler: Final = FakeScheduler(current)
+    projector: Final = RuntimeProjector(FakeAppliedCatalog(catalog), scheduler, enricher=FailingEnricher())
+
+    with pytest.raises(RuntimeError, match="catalog"):
         await projector.project()
 
     assert scheduler.current_config == current

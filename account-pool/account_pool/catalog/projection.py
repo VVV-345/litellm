@@ -40,6 +40,7 @@ def _account_config(
     )
     return AccountConfig(
         id=account_id,
+        channel_id=channel.channel_id,
         display_name=channel.display_name,
         provider=channel.provider,
         group=channel.group,
@@ -57,6 +58,7 @@ def _deployment_config(binding: DeploymentBindingRecord) -> DeploymentConfig:
     return DeploymentConfig(
         public_model=binding.public_model,
         litellm_model_id=binding.litellm_deployment_id,
+        binding_id=binding.binding_id,
         provider_model=binding.provider_model,
         managed_by_pool=binding.ownership == BindingOwnership.POOL_MANAGED,
         enabled=binding.enabled,

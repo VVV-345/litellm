@@ -8,6 +8,7 @@ from account_pool.catalog.importer import catalog_import_from_pool_config
 from account_pool.catalog.lifecycle import CatalogApplyResult, CatalogLifecycleCommand, CatalogPendingDeleteResult
 from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportConflict, ImportResult
 from account_pool.catalog.service import CatalogService
+from account_pool.models import PoolConfig
 from tests.catalog.test_importer import legacy_config
 
 
@@ -40,6 +41,30 @@ def _snapshot(imported_at: datetime) -> CatalogSnapshot:
     return CatalogSnapshot(channels=command.channels, bindings=command.bindings, policies=command.policies)
 
 
+def _assert_projected_legacy_config(projected: PoolConfig) -> None:
+    expected: Final = legacy_config()
+    without_catalog_ids: Final = projected.model_copy(
+        update={
+            "accounts": tuple(
+                account.model_copy(
+                    update={
+                        "channel_id": None,
+                        "deployments": tuple(
+                            deployment.model_copy(update={"binding_id": None}) for deployment in account.deployments
+                        ),
+                    }
+                )
+                for account in projected.accounts
+            )
+        }
+    )
+    assert without_catalog_ids == expected
+    assert all(account.channel_id is not None for account in projected.accounts)
+    assert all(
+        deployment.binding_id is not None for account in projected.accounts for deployment in account.deployments
+    )
+
+
 async def test_service_imports_and_projects_through_injected_repository() -> None:
     imported_at: Final = datetime(2026, 8, 19, 5, 0, tzinfo=UTC)
     repository: Final = FakeCatalogRepository(
@@ -52,7 +77,7 @@ async def test_service_imports_and_projects_through_injected_repository() -> Non
     projected: Final = await service.projected_config()
 
     assert result.status == "created"
-    assert projected == legacy_config()
+    _assert_projected_legacy_config(projected)
     assert repository.last_import is not None
     assert "provider-secret" not in repository.last_import.model_dump_json()
     assert (repository.import_calls, repository.load_calls) == (1, 1)
@@ -83,5 +108,5 @@ async def test_projection_does_not_import() -> None:
     )
     service: Final = CatalogService(repository)
 
-    assert await service.projected_config() == legacy_config()
+    _assert_projected_legacy_config(await service.projected_config())
     assert (repository.import_calls, repository.load_calls) == (0, 1)
