@@ -117,6 +117,13 @@ class FieldOverrideEvent(FrozenModel):
     previous_value: JsonValue | None = None
     supersedes_override_id: UUID | None = None
     actor_id: str = Field(min_length=1)
+    actor_role: str | None = Field(default=None, min_length=1)
+    request_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
     reason: str = Field(min_length=1)
     occurred_at: AwareDatetime
 
@@ -128,6 +135,8 @@ class FieldOverrideEvent(FrozenModel):
             raise ValueError("a previous override requires a superseded event ID")
         if self.action == OverrideAction.REVOKE and not self.had_previous_override:
             raise ValueError("a revoke event requires an active previous override")
+        if (self.actor_role is None) != (self.request_id is None):
+            raise ValueError("actor role and request ID must be stored together")
         serialized_values = (
             _JSON_VALUE.dump_json(self.value).decode("utf-8"),
             _JSON_VALUE.dump_json(self.previous_value).decode("utf-8"),

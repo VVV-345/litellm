@@ -16,6 +16,13 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from account_pool.auth.actor import (
+    ActorAction,
+    ActorContext,
+    ActorVerificationFailure,
+    ActorVerificationFailureCode,
+    verify_actor_envelope,
+)
 from account_pool.config import Settings, load_pool_config
 from account_pool.domain.provider_source import (
     ProviderServiceManifest,
@@ -40,7 +47,15 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.parsing.overrides.commands import (
+    OverrideMutationFailure,
+    OverrideMutationFailureCode,
+    OverrideMutationSuccess,
+    OverrideRevokeRequest,
+    OverrideSetRequest,
+)
 from account_pool.parsing.overrides.postgres import PostgresOverrideEventRepository
+from account_pool.parsing.overrides.service import ParserOverrideService, ParserOverrideWriter
 from account_pool.parsing.postgres import PostgresParserRunRepository
 from account_pool.parsing.registry import ParserRegistry
 from account_pool.parsing.service import (
@@ -70,6 +85,7 @@ class Runtime:
     provider_services: ProviderServiceRegistry
     parser_registry: ParserRegistry
     parser_data: ParserDataReader | None
+    parser_overrides: ParserOverrideWriter | None
 
 
 def create_app(
@@ -77,6 +93,7 @@ def create_app(
     store: StateStore | None = None,
     proxy_client: httpx.AsyncClient | None = None,
     parser_data: ParserDataReader | None = None,
+    parser_overrides: ParserOverrideWriter | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -114,6 +131,9 @@ def create_app(
     resolved_parser_data: Final = (
         parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     )
+    resolved_parser_overrides: Final = (
+        parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -124,6 +144,7 @@ def create_app(
         provider_services=provider_services,
         parser_registry=parser_registry,
         parser_data=resolved_parser_data,
+        parser_overrides=resolved_parser_overrides,
     )
 
     @asynccontextmanager
@@ -225,6 +246,51 @@ def create_app(
             raise _parser_data_http_error(result)
         return result
 
+    async def set_parser_override(
+        channel_id: UUID,
+        body: OverrideSetRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> OverrideMutationSuccess:
+        if resolved_parser_overrides is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.OVERRIDE_SET,
+            secret=resolved_settings.actor_secret,
+        )
+        result: Final = await resolved_parser_overrides.set_override(channel_id, body, actor)
+        if isinstance(result, OverrideMutationFailure):
+            raise _override_mutation_http_error(result)
+        return result
+
+    async def revoke_parser_override(
+        channel_id: UUID,
+        field_path: str,
+        body: OverrideRevokeRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> OverrideMutationSuccess:
+        if resolved_parser_overrides is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.OVERRIDE_REVOKE,
+            secret=resolved_settings.actor_secret,
+        )
+        normalized_path: Final = f"/{field_path.lstrip('/')}"
+        result: Final = await resolved_parser_overrides.revoke_override(
+            channel_id,
+            normalized_path,
+            body,
+            actor,
+        )
+        if isinstance(result, OverrideMutationFailure):
+            raise _override_mutation_http_error(result)
+        return result
+
     async def create_account(body: AccountMutation) -> ManagementResult:
         return await manager.create_account(body)
 
@@ -293,6 +359,18 @@ def create_app(
         "/api/channels/{channel_id}/effective-data",
         effective_parser_data,
         methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/overrides",
+        set_parser_override,
+        methods=["PUT"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/overrides/{field_path:path}",
+        revoke_parser_override,
+        methods=["DELETE"],
         dependencies=management_dependency,
     )
     application.add_api_route("/api/stats", stats, methods=["GET"], dependencies=management_dependency)
@@ -387,6 +465,15 @@ def _build_parser_data(settings: Settings) -> ParserDataReader | None:
     )
 
 
+def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
+    if settings.database_url is None:
+        return None
+    return ParserOverrideService(
+        parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
+        overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
+    )
+
+
 def _parser_data_http_error(failure: ParserDataFailure) -> HTTPException:
     detail: Final = {"code": failure.code, "retryable": failure.retryable}
     if failure.code in (ParserDataFailureCode.CHANNEL_NOT_FOUND, ParserDataFailureCode.RUN_NOT_FOUND):
@@ -394,6 +481,57 @@ def _parser_data_http_error(failure: ParserDataFailure) -> HTTPException:
     if failure.code == ParserDataFailureCode.INVALID_REQUEST:
         return HTTPException(status_code=422, detail=detail)
     if failure.code == ParserDataFailureCode.DATABASE_UNAVAILABLE:
+        return HTTPException(status_code=503, detail=detail)
+    return HTTPException(status_code=500, detail=detail)
+
+
+def _verified_actor(
+    token: str | None,
+    request_id: str | None,
+    expected_action: ActorAction,
+    secret: str | None,
+) -> ActorContext:
+    result: Final = verify_actor_envelope(
+        token=token,
+        request_id=request_id,
+        expected_action=expected_action,
+        secret=secret,
+    )
+    if not isinstance(result, ActorVerificationFailure):
+        return result.actor
+    if result.code == ActorVerificationFailureCode.CONFIGURATION:
+        raise HTTPException(status_code=503, detail={"code": result.code})
+    if result.code in (
+        ActorVerificationFailureCode.REQUEST_MISMATCH,
+        ActorVerificationFailureCode.ACTION_MISMATCH,
+    ):
+        raise HTTPException(status_code=403, detail={"code": result.code})
+    raise HTTPException(status_code=401, detail={"code": result.code})
+
+
+def _override_mutation_http_error(failure: OverrideMutationFailure) -> HTTPException:
+    detail: Final = {
+        "code": failure.code,
+        "retryable": failure.retryable,
+        **({"apply_failure_code": failure.apply_failure_code} if failure.apply_failure_code else {}),
+    }
+    if failure.code in (
+        OverrideMutationFailureCode.CHANNEL_NOT_FOUND,
+        OverrideMutationFailureCode.RUN_NOT_FOUND,
+        OverrideMutationFailureCode.OVERRIDE_NOT_FOUND,
+    ):
+        return HTTPException(status_code=404, detail=detail)
+    if failure.code in (
+        OverrideMutationFailureCode.PREDECESSOR_CONFLICT,
+        OverrideMutationFailureCode.CONTENT_CONFLICT,
+    ):
+        return HTTPException(status_code=409, detail=detail)
+    if failure.code in (
+        OverrideMutationFailureCode.INVALID_REQUEST,
+        OverrideMutationFailureCode.INVALID_VALUE,
+    ):
+        return HTTPException(status_code=422, detail=detail)
+    if failure.code == OverrideMutationFailureCode.DATABASE_UNAVAILABLE:
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 

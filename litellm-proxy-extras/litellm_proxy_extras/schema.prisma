@@ -1762,6 +1762,8 @@ model LiteLLM_AccountPoolFieldOverride {
   previous_value          Json
   supersedes_override_id  String?  @unique
   actor_id                String
+  actor_role              String?
+  request_id              String?
   reason                  String
   occurred_at             DateTime @client.Timestamptz(6)
   content_hash            String
@@ -1773,4 +1775,5 @@ model LiteLLM_AccountPoolFieldOverride {
 
   @@index([channel_id, field_path, occurred_at])
   @@index([source_parser_run_id])
+  @@index([request_id, occurred_at])
 }

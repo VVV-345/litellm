@@ -12,6 +12,7 @@ Account Pool 负责渠道配置、共享并发、租约、额度快照、健康�
 ```powershell
 # 首次启动前在 .env 中设置随机强令牌，两个服务会读取同一个值。
 $env:ACCOUNT_POOL_INTERNAL_TOKEN = "replace-with-a-random-service-token"
+$env:ACCOUNT_POOL_ACTOR_SECRET = "replace-with-another-random-secret-at-least-32-bytes"
 docker compose up --build
 ```
 
@@ -23,8 +24,9 @@ docker compose up --build
 - Redis 仅在 Compose 内网提供服务
 
 进入 4100 调度器 UI，使用 LiteLLM 管理令牌登录，即可配置渠道、调度策略和实时路由。渠道创建仍复用
-LiteLLM `/model/new` 的 Deployment 管理链路。LiteLLM 与号池必须使用相同的 `ACCOUNT_POOL_INTERNAL_TOKEN`；
-Compose 会把 `.env` 中的值同步给两个服务，缺少该值时拒绝启动
+LiteLLM `/model/new` 的 Deployment 管理链路。LiteLLM 与号池必须使用相同的 `ACCOUNT_POOL_INTERNAL_TOKEN` 和
+`ACCOUNT_POOL_ACTOR_SECRET`；Compose 会把 `.env` 中的值同步给两个服务。前者证明内部服务身份，后者用于签发
+绑定管理员、请求 ID 和授权动作的短时 actor 信封
 
 `account-pool/config/accounts.yaml` 是可写的非敏感配置。API Key 通过 LiteLLM `/model/new` 写入其数据库，
 不会进入该 YAML、Redis、日志或管理 API 响应
@@ -113,12 +115,13 @@ PostgreSQL 是权威数据源。parser run、套餐、额度窗口、按量分�
 数据；待导出的运行由 `retry_exports()` 再处理。同一 `parser_run_id` 与相同内容幂等，不同内容会返回冲突
 
 人工覆盖以不可变事件链保存设置、修改和撤销，使用字段语义 ID 定位，不依赖数组下标。事件记录来源 parser run、
-修改前后值、操作者、原因和时间；重新解析只产生新的 raw result，当前有效覆盖会重新合成到 effective result。无效或
-已不存在的目标会形成脱敏结构化失败，不阻止其他有效覆盖导出
+修改前后值、操作者、角色、请求 ID、原因和时间；重新解析只产生新的 raw result，当前有效覆盖会重新合成到
+effective result。无效或已不存在的目标会形成脱敏结构化失败，不阻止其他有效覆盖导出
 
 解析历史和 raw/effective 有效数据已分别通过 `GET /api/channels/{id}/parser-runs` 与
-`GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。Worker 的解析启动 API 和常驻任务循环、
-人工覆盖写 API、受控 JSON 导入、快照文件预览接口及字段差异 UI 仍按 Phase 2 后续步骤接入
+`GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。人工覆盖的设置和撤销也已通过 LiteLLM
+管理员代理接入；代理在服务端签发短时 actor 信封，4100 独立 UI 不签发该信封，当前只读预览覆盖数据。Worker 的
+解析启动 API 和常驻任务循环、受控 JSON 导入、快照文件预览接口及字段差异 UI 仍按 Phase 2 后续步骤接入
 
 ## 本地开发
 
@@ -131,12 +134,14 @@ $env:ACCOUNT_POOL_CONFIG = "account-pool/config/accounts.yaml"
 $env:ACCOUNT_POOL_LITELLM_URL = "http://127.0.0.1:4000"
 $env:ACCOUNT_POOL_LITELLM_ADMIN_KEY = "your-litellm-master-key"
 $env:ACCOUNT_POOL_INTERNAL_TOKEN = "your-service-token"
+$env:ACCOUNT_POOL_ACTOR_SECRET = "your-separate-random-secret-at-least-32-bytes"
 $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 .\.venv\Scripts\python.exe -m uvicorn account_pool.app:app --host 127.0.0.1 --port 4100
 ```
 
 所有 `/api/*` 和 `/internal/*` 接口都要求 `X-Account-Pool-Token`；未配置服务令牌时接口会拒绝服务，
-不会退化为无认证访问。`/healthz` 保持无认证，供容器健康检查使用
+不会退化为无认证访问。人工覆盖写接口还要求 LiteLLM 使用 `ACCOUNT_POOL_ACTOR_SECRET` 签发 actor 信封，不能由
+浏览器或 4100 独立 UI 直接调用。`/healthz` 保持无认证，供容器健康检查使用
 
 `DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，但解析历史和有效数据接口返回 503；可通过
 `ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema

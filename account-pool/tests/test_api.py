@@ -2,19 +2,31 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from account_pool.app import create_app
+from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
 from account_pool.parsing.models import ParsedChannelData, ParserRunStatus
+from account_pool.parsing.overrides.commands import (
+    OverrideEventResult,
+    OverrideMutationResult,
+    OverrideMutationSuccess,
+    OverrideRevokeRequest,
+    OverrideSetRequest,
+)
+from account_pool.parsing.overrides.models import OverrideAction
 from account_pool.parsing.persistence import ParserExportState
 from account_pool.parsing.service import (
     EffectiveParserData,
@@ -52,6 +64,7 @@ _PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[ProviderServiceManifest, 
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _PARSER_RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
 _PARSED_AT: Final = datetime(2026, 8, 19, 19, 0, tzinfo=UTC)
+_ACTOR_SECRET: Final = "actor-signing-secret-with-at-least-32-bytes"
 
 
 class FakeParserDataReader:
@@ -73,10 +86,39 @@ class FakeParserDataReader:
         return self._effective_result
 
 
+class FakeParserOverrideWriter:
+    def __init__(self) -> None:
+        self.actors: list[ActorContext] = []
+        self.field_paths: list[str] = []
+
+    async def set_override(
+        self,
+        channel_id: UUID,
+        request: OverrideSetRequest,
+        actor: ActorContext,
+    ) -> OverrideMutationResult:
+        assert channel_id == _CHANNEL_ID
+        self.actors.append(actor)
+        return _override_success(request.override_id, OverrideAction.SET, actor)
+
+    async def revoke_override(
+        self,
+        channel_id: UUID,
+        field_path: str,
+        request: OverrideRevokeRequest,
+        actor: ActorContext,
+    ) -> OverrideMutationResult:
+        assert channel_id == _CHANNEL_ID
+        self.actors.append(actor)
+        self.field_paths.append(field_path)
+        return _override_success(request.override_id, OverrideAction.REVOKE, actor)
+
+
 def settings(
     config_path: Path | None = None,
     admin_key: str | None = None,
     internal_token: str | None = "test-service-token",
+    actor_secret: str | None = None,
 ) -> Settings:
     return Settings(
         config_path=config_path or Path(__file__).resolve().parents[1] / "config" / "accounts.demo.yaml",
@@ -86,6 +128,7 @@ def settings(
         litellm_admin_key=admin_key,
         lease_ttl_seconds=60,
         internal_token=internal_token,
+        actor_secret=actor_secret,
     )
 
 
@@ -113,6 +156,53 @@ def _parser_data_reader() -> FakeParserDataReader:
         effective_result=ParsedChannelData(warnings=("管理员已确认",)),
     )
     return FakeParserDataReader(history, effective)
+
+
+def _override_success(
+    override_id: UUID,
+    action: OverrideAction,
+    actor: ActorContext,
+) -> OverrideMutationSuccess:
+    return OverrideMutationSuccess(
+        status="created",
+        event=OverrideEventResult(
+            override_id=override_id,
+            field_path="/subscription/balance",
+            action=action,
+            source_parser_run_id=_PARSER_RUN_ID,
+            actor_id=actor.user_id,
+            occurred_at=_PARSED_AT,
+        ),
+        effective_result=ParsedChannelData(warnings=("管理员已确认",)),
+    )
+
+
+def _actor_token(action: ActorAction, request_id: str = "request-123") -> str:
+    issued_at: Final = int(datetime.now(UTC).timestamp())
+    header: Final = {"alg": "HS256", "typ": "JWT"}
+    claims: Final = {
+        "iss": "litellm-proxy",
+        "aud": "account-pool",
+        "sub": "admin-user",
+        "role": "proxy_admin",
+        "request_id": request_id,
+        "action": action,
+        "iat": issued_at,
+        "nbf": issued_at,
+        "exp": issued_at + 30,
+        "jti": str(uuid4()),
+    }
+    encoded_header: Final = _encode_actor_segment(header)
+    encoded_claims: Final = _encode_actor_segment(claims)
+    signed: Final = f"{encoded_header}.{encoded_claims}"
+    signature: Final = hmac.new(_ACTOR_SECRET.encode(), signed.encode("ascii"), hashlib.sha256).digest()
+    encoded_signature: Final = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    return f"{signed}.{encoded_signature}"
+
+
+def _encode_actor_segment(value: object) -> str:
+    payload: Final = json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("ascii")
+    return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
 
 
 @pytest.mark.asyncio
@@ -215,6 +305,91 @@ async def test_parser_data_api_reports_configuration_and_domain_failures() -> No
     assert unavailable.status_code == 503
     assert missing_history.status_code == 404
     assert missing_data.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_override_write_api_requires_request_bound_actor_envelope() -> None:
+    writer: Final = FakeParserOverrideWriter()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        parser_overrides=writer,
+    )
+    path: Final = f"/api/channels/{_CHANNEL_ID}/overrides"
+    body: Final = {
+        "override_id": "30000000-0000-0000-0000-000000000003",
+        "target": {"kind": "subscription_field", "field": "balance"},
+        "value": "20",
+        "reason": "人工核对余额",
+    }
+    service_headers: Final = {"x-account-pool-token": "test-service-token"}
+    valid_headers: Final = {
+        **service_headers,
+        "x-account-pool-request-id": "request-123",
+        "x-account-pool-actor": _actor_token(ActorAction.OVERRIDE_SET),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            missing_service: Final = await client.put(path, json=body)
+            missing_actor: Final = await client.put(path, headers=service_headers, json=body)
+            wrong_action: Final = await client.put(
+                path,
+                headers={
+                    **service_headers,
+                    "x-account-pool-request-id": "request-123",
+                    "x-account-pool-actor": _actor_token(ActorAction.OVERRIDE_REVOKE),
+                },
+                json=body,
+            )
+            forged_actor_body: Final = await client.put(
+                path,
+                headers=valid_headers,
+                json={**body, "actor_id": "forged-user"},
+            )
+            written: Final = await client.put(path, headers=valid_headers, json=body)
+
+    result: Final = OverrideMutationSuccess.model_validate_json(written.content)
+    assert missing_service.status_code == 401
+    assert missing_actor.status_code == 401
+    assert wrong_action.status_code == 403
+    assert forged_actor_body.status_code == 422
+    assert result.event.actor_id == "admin-user"
+    assert writer.actors[0].request_id == "request-123"
+
+
+@pytest.mark.asyncio
+async def test_override_revoke_api_normalizes_field_path_and_requires_revoke_action() -> None:
+    writer: Final = FakeParserOverrideWriter()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        parser_overrides=writer,
+    )
+    path: Final = f"/api/channels/{_CHANNEL_ID}/overrides/subscription/balance"
+    headers: Final = {
+        "x-account-pool-token": "test-service-token",
+        "x-account-pool-request-id": "request-456",
+        "x-account-pool-actor": _actor_token(ActorAction.OVERRIDE_REVOKE, request_id="request-456"),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.request(
+                "DELETE",
+                path,
+                headers=headers,
+                json={
+                    "override_id": "30000000-0000-0000-0000-000000000004",
+                    "expected_override_id": "30000000-0000-0000-0000-000000000003",
+                    "reason": "恢复自动解析",
+                },
+            )
+
+    result: Final = OverrideMutationSuccess.model_validate_json(response.content)
+    assert response.status_code == 200
+    assert result.event.action == OverrideAction.REVOKE
+    assert writer.field_paths == ["/subscription/balance"]
 
 
 @pytest.mark.asyncio

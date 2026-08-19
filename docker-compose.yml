@@ -1,3 +1,4 @@
+# 本文件编排 LiteLLM、Account Pool、PostgreSQL 和 Redis 的本地一体化运行环境。
 services:
   litellm:
     build: .
@@ -22,6 +23,7 @@ services:
       # Admin UI 只通过该内网地址访问号池，服务令牌不会发送到浏览器。
       ACCOUNT_POOL_INTERNAL_URL: "http://account-pool:4100"
       ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
+      ACCOUNT_POOL_ACTOR_SECRET: "${ACCOUNT_POOL_ACTOR_SECRET:?Set ACCOUNT_POOL_ACTOR_SECRET in .env}"
     env_file:
       - .env # Load local .env file
     depends_on:
@@ -51,6 +53,8 @@ services:
       ACCOUNT_POOL_LITELLM_URL: "http://litellm:4000"
       ACCOUNT_POOL_LITELLM_ADMIN_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
       ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
+      ACCOUNT_POOL_ACTOR_SECRET: "${ACCOUNT_POOL_ACTOR_SECRET:?Set ACCOUNT_POOL_ACTOR_SECRET in .env}"
+      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
     volumes:
       # 渠道增删会原子写回该文件，Key 不会进入此配置。
       - ./account-pool/config/accounts.yaml:/data/accounts.yaml

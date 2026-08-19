@@ -68,8 +68,8 @@
 - effective result 由 raw result 与有效覆盖确定性合成
 - 导入 JSON 只能创建受控导入或覆盖记录，不能直接替换权威表
 
-状态：人工覆盖事件模型、PostgreSQL 事件链仓储、稳定目标合成、撤销和 Worker effective result 导出已实现。
-受控 JSON 导入及管理 API 在第 8 步接入
+状态：人工覆盖事件模型、PostgreSQL 事件链仓储、稳定目标合成、撤销、Worker effective result 导出及签名 actor
+保护的管理写 API 已实现。受控 JSON 导入仍在第 8 步接入
 
 ### 7. Provider-Specific Parsers
 
@@ -85,8 +85,8 @@
 - 支持逐字段人工修正、撤销和审计
 - 渠道页展示模型发现、套餐、按量和 billing route 是否可控
 
-状态：parser run 历史和最新 raw/effective 数据只读 API，以及 LiteLLM 服务端代理已实现。解析启动、签名 actor
-信封、覆盖写入/撤销、受控导入、快照文件预览/导出和 UI 尚未实现
+状态：parser run 历史和最新 raw/effective 数据只读 API、签名 actor 信封、覆盖写入/撤销，以及 LiteLLM 服务端
+代理已实现。解析启动、受控导入、快照文件预览/导出和 UI 尚未实现
 
 ## Verification Gates
 

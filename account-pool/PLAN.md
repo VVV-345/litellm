@@ -1041,6 +1041,7 @@ Account Pool
 - 追加式人工覆盖事件仓储、稳定字段定位，以及 raw/effective 确定性合成和撤销
 - parser worker 在数据库提交后加载人工覆盖，并将脱敏合成失败随结果返回
 - 按渠道查询 parser run 历史和最新 raw/effective 数据的应用服务、Account Pool API 与 LiteLLM 服务端代理
+- 绑定管理员、请求 ID 和授权动作的短时 actor 信封，以及人工覆盖设置和撤销 API
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
@@ -1048,7 +1049,7 @@ Account Pool
 
 - PostgreSQL 权威数据层
 - OpenAI 官方解析器，以及 parser worker 的管理 API 和常驻任务接入
-- 签名 actor 信封、人工覆盖写 API、受控 JSON 导入、快照文件预览/导出接口和字段差异 UI
+- 受控 JSON 导入、快照文件预览/导出接口和字段差异 UI
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类

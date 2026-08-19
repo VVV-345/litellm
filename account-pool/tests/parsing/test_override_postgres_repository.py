@@ -88,6 +88,7 @@ async def override_repository_fixture() -> AsyncIterator[OverrideRepositoryFixtu
             await connection.execute(_migration_sql("add_account_pool_catalog"))
             await connection.execute(_migration_sql("add_account_pool_parser_runs"))
             await connection.execute(_migration_sql("add_account_pool_field_overrides"))
+            await connection.execute(_migration_sql("add_account_pool_override_actor_context"))
             catalog: Final = catalog_import_from_pool_config(legacy_config(), _NOW)
             imported: Final = await PostgresCatalogRepository(database_url, schema=schema).import_once(catalog)
             assert imported.status == "created"
@@ -123,6 +124,8 @@ def _event(
     previous_value: JsonValue | None = None,
     supersedes_override_id: UUID | None = None,
     occurred_at: datetime = _NOW,
+    actor_role: str | None = None,
+    request_id: str | None = None,
 ) -> FieldOverrideEvent:
     resolved_target: Final = target or SubscriptionFieldTarget(field=SubscriptionField.BALANCE)
     return FieldOverrideEvent(
@@ -136,6 +139,8 @@ def _event(
         previous_value=previous_value,
         supersedes_override_id=supersedes_override_id,
         actor_id="admin-user",
+        actor_role=actor_role,
+        request_id=request_id,
         reason="人工核对上游账户数据",
         occurred_at=occurred_at,
     )
@@ -156,7 +161,14 @@ async def test_repository_applies_migration_round_trips_and_is_idempotent(
             "effective_prices": {"input_price": "1"},
         }
     )
-    event: Final = _event(fixture, uuid4(), price_value, target=target)
+    event: Final = _event(
+        fixture,
+        uuid4(),
+        price_value,
+        target=target,
+        actor_role="proxy_admin",
+        request_id="request-123",
+    )
 
     created: Final = await fixture.repository.append(event)
     unchanged: Final = await fixture.repository.append(event)

@@ -36,7 +36,7 @@ _EVENT_JSON: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 _SELECT_COLUMNS: Final = """
 override_id, channel_id, source_parser_run_id, field_path, target_kind, target, action, value,
 had_previous_override, previous_value, supersedes_override_id, actor_id,
-reason, occurred_at, content_hash
+actor_role, request_id, reason, occurred_at, content_hash
 """
 _SELECT_BY_ID: Final = f"""
 SELECT {_SELECT_COLUMNS}
@@ -65,10 +65,10 @@ _INSERT_EVENT: Final = """
 INSERT INTO "LiteLLM_AccountPoolFieldOverride" (
     override_id, channel_id, source_parser_run_id, field_path, target_kind,
     target, action, value, had_previous_override, previous_value,
-    supersedes_override_id, actor_id, reason, occurred_at, content_hash
+    supersedes_override_id, actor_id, actor_role, request_id, reason, occurred_at, content_hash
 ) VALUES (
     %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s, %s::jsonb,
-    %s, %s, %s, %s, %s
+    %s, %s, %s, %s, %s, %s, %s
 )
 """
 
@@ -86,6 +86,8 @@ class _OverrideRow(FrozenModel):
     previous_value: object
     supersedes_override_id: UUID | None
     actor_id: str
+    actor_role: str | None
+    request_id: str | None
     reason: str
     occurred_at: AwareDatetime
     content_hash: str
@@ -154,6 +156,8 @@ class PostgresOverrideEventRepository:
                         _JSON_VALUE.dump_json(event.previous_value).decode("utf-8"),
                         None if event.supersedes_override_id is None else str(event.supersedes_override_id),
                         event.actor_id,
+                        event.actor_role,
+                        event.request_id,
                         event.reason,
                         event.occurred_at,
                         content_hash,
@@ -203,7 +207,14 @@ def _failure(code: OverridePersistenceFailureCode, retryable: bool) -> OverrideP
 
 def _content_hash(event: FieldOverrideEvent) -> str:
     payload: Final = _EVENT_JSON.validate_json(event.model_dump_json())
-    return sha256(_canonical_json(payload).encode()).hexdigest()
+    if not isinstance(payload, dict):
+        raise ValueError("override event must serialize to a JSON object")
+    compatible_payload: Final = {
+        key: value
+        for key, value in payload.items()
+        if not (key in {"actor_role", "request_id"} and value is None)
+    }
+    return sha256(_canonical_json(compatible_payload).encode()).hexdigest()
 
 
 def _lock_key(channel_id: UUID, field_path: str) -> int:
@@ -275,6 +286,8 @@ def _decode_event(value: object) -> FieldOverrideEvent:
         previous_value=_JSON_VALUE.validate_python(row.previous_value),
         supersedes_override_id=row.supersedes_override_id,
         actor_id=row.actor_id,
+        actor_role=row.actor_role,
+        request_id=row.request_id,
         reason=row.reason,
         occurred_at=row.occurred_at,
     )

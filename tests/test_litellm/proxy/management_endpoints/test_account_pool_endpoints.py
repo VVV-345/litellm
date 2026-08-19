@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+from litellm.proxy.management_endpoints.account_pool_actor import ActorEnvelope
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     _forward_with_client,  # pyright: ignore[reportPrivateUsage]  # 测试内部转发安全边界
     _require_proxy_admin,  # pyright: ignore[reportPrivateUsage]  # 测试管理员权限边界
@@ -95,6 +96,46 @@ async def test_forward_preserves_authenticated_query_parameters(monkeypatch: pyt
 
     assert response.status_code == 200
     assert str(captured[0].url) == "http://account-pool:4100/api/channels/channel-id/parser-runs?limit=5"
+
+
+@pytest.mark.asyncio
+async def test_forward_injects_actor_and_preserves_delete_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_INTERNAL_URL", "http://account-pool:4100")
+    monkeypatch.setenv("ACCOUNT_POOL_INTERNAL_TOKEN", "service-secret")
+    captured: list[httpx.Request] = []
+    body: Final = b'{"override_id":"override-1","reason":"restore"}'
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(status_code=200, json={"status": "created"})
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request: Final = Request(
+        {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/account_pool/channels/channel-id/overrides/subscription/balance",
+            "headers": (),
+        },
+        receive=receive,
+    )
+    actor: Final = ActorEnvelope(token="signed-actor-token", request_id="request-123")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        response: Final = await _forward_with_client(
+            request=request,
+            method="DELETE",
+            path="/api/channels/channel-id/overrides/subscription/balance",
+            client=client,
+            actor=actor,
+        )
+
+    assert response.status_code == 200
+    assert captured[0].content == body
+    assert captured[0].headers["content-type"] == "application/json"
+    assert captured[0].headers["x-account-pool-actor"] == "signed-actor-token"
+    assert captured[0].headers["x-account-pool-request-id"] == "request-123"
 
 
 @pytest.mark.asyncio

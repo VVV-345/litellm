@@ -26,6 +26,7 @@ class Settings:
     internal_token: str | None
     database_url: str | None = None
     database_schema: str = "public"
+    actor_secret: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -43,6 +44,7 @@ class Settings:
             internal_token=os.environ.get("ACCOUNT_POOL_INTERNAL_TOKEN"),
             database_url=os.environ.get("DATABASE_URL"),
             database_schema=os.environ.get("ACCOUNT_POOL_DATABASE_SCHEMA", "public"),
+            actor_secret=os.environ.get("ACCOUNT_POOL_ACTOR_SECRET"),
         )
 
 
