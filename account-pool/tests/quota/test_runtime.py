@@ -354,3 +354,54 @@ def test_settlement_replaces_reservation_with_actual_usage() -> None:
 
     assert settled.reserved == 0
     assert settled.remaining == Decimal("70")
+
+
+def test_safety_reserve_is_never_available_for_new_requests() -> None:
+    config: Final = _config("tokens", remaining="100").model_copy(update={"safety_reserve": Decimal("25")})
+    windows: Final = reconcile_quota_windows((), (config,))
+
+    accepted: Final = reserve_quota_capacity(
+        windows=windows,
+        public_model="model-a",
+        billing_route_id=None,
+        estimated_tokens=75,
+        now=1_100,
+    )
+    assert isinstance(accepted, QuotaReserveSuccess)
+    rejected: Final = reserve_quota_capacity(
+        windows=release_quota_capacity(accepted.windows, accepted.reservations),
+        public_model="model-a",
+        billing_route_id=None,
+        estimated_tokens=76,
+        now=1_100,
+    )
+
+    assert isinstance(rejected, QuotaReserveRejected)
+    assert rejected.reason_code == "five_hour_exhausted"
+
+
+def test_successful_fixed_probe_advances_to_next_known_period() -> None:
+    config: Final = _config("fixed", remaining="0", reset_at=1_200).model_copy(
+        update={"window_type": RuntimeQuotaWindowType.FIXED, "duration_seconds": 100}
+    )
+    windows: Final = reconcile_quota_windows((), (config,))
+
+    first_period: Final = apply_quota_usage(
+        windows=windows,
+        reservations=(),
+        lease=_lease(billing_route_id=None),
+        request=SettleRequest(lease_id="lease-a", success=True, input_tokens=10),
+        now=1_200,
+    )[0]
+    second_period: Final = apply_quota_usage(
+        windows=(first_period,),
+        reservations=(),
+        lease=_lease(billing_route_id=None),
+        request=SettleRequest(lease_id="lease-a", success=True, input_tokens=10),
+        now=1_300,
+    )[0]
+
+    assert first_period.remaining == Decimal("90")
+    assert first_period.retry_at == 1_300
+    assert second_period.remaining == Decimal("90")
+    assert second_period.retry_at == 1_400

@@ -248,6 +248,8 @@ def _same_provider_snapshot(previous: QuotaWindowConfig, configured: QuotaWindow
 def _initial_retry_at(config: QuotaWindowConfig) -> float | None:
     if config.reset_at is not None:
         return config.reset_at
+    if config.window_type == RuntimeQuotaWindowType.FIXED and config.duration_seconds is not None:
+        return config.observed_at + config.duration_seconds
     if config.window_type == RuntimeQuotaWindowType.ROLLING and config.duration_seconds is not None:
         return config.observed_at + config.duration_seconds
     return None
@@ -297,7 +299,20 @@ def _normalize_window(
         return _normalize_rolling_window(window, now)
     if not confirm_reset or window.retry_at is None or window.retry_at > now or window.config.limit is None:
         return window
-    return RuntimeQuotaWindow(config=window.config, remaining=window.config.limit, retry_at=None)
+    return RuntimeQuotaWindow(
+        config=window.config,
+        remaining=window.config.limit,
+        retry_at=_next_fixed_retry_at(window, now),
+    )
+
+
+def _next_fixed_retry_at(window: RuntimeQuotaWindow, now: float) -> float | None:
+    duration: Final = window.config.duration_seconds
+    retry_at: Final = window.retry_at
+    if duration is None or retry_at is None:
+        return None
+    elapsed_periods: Final = int((now - retry_at) // duration) + 1
+    return retry_at + elapsed_periods * duration
 
 
 def _normalize_rolling_window(window: RuntimeQuotaWindow, now: float) -> RuntimeQuotaWindow:
@@ -382,12 +397,16 @@ def _reservation_amount(kind: RuntimeQuotaKind, estimated_tokens: int) -> Decima
 
 
 def _available(window: RuntimeQuotaWindow) -> Decimal:
-    return Decimal("Infinity") if window.remaining is None else max(Decimal("0"), window.remaining - window.reserved)
+    return (
+        Decimal("Infinity")
+        if window.remaining is None
+        else max(Decimal("0"), window.remaining - window.config.safety_reserve - window.reserved)
+    )
 
 
 def _reservable(window: RuntimeQuotaWindow, now: float) -> Decimal:
     if _reset_confirmation_required(window, now) and window.config.limit is not None:
-        return max(Decimal("0"), window.config.limit - window.reserved)
+        return max(Decimal("0"), window.config.limit - window.config.safety_reserve - window.reserved)
     return _available(window)
 
 
@@ -448,7 +467,7 @@ def _consumption(kind: RuntimeQuotaKind, request: SettleRequest) -> Decimal | No
 
 
 def _is_exhausted(window: RuntimeQuotaWindow) -> bool:
-    return window.remaining is not None and window.remaining - window.reserved <= 0
+    return window.remaining is not None and window.remaining - window.config.safety_reserve - window.reserved <= 0
 
 
 def _window_exclusions(

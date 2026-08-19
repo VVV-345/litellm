@@ -13,8 +13,11 @@ from redis.asyncio import Redis
 
 from account_pool.eligibility import (
     EligibilityExclusion,
+    EligibilityScope,
+    EligibilitySource,
     EligibilityState,
     EligibilitySubject,
+    activate_exclusion,
     candidate_evidence,
     candidate_exclusion,
     effective_state,
@@ -59,6 +62,28 @@ from account_pool.quota import (
     reserve_quota_capacity,
     synchronize_quota_exclusions,
 )
+from account_pool.quota.redis import (
+    REDIS_QUOTA_DECIMAL_SCALE,
+    RedisQuotaCodecFailure,
+    configure_quota_script_args,
+    decode_quota_window,
+    encode_account_quota_windows,
+    prepare_quota_reservation_plan,
+    prepare_quota_settlement_amounts,
+    quota_manifest_key,
+    quota_usage_key,
+    quota_window_key,
+)
+from account_pool.quota.redis_scripts import (
+    REDIS_CONFIGURE_QUOTA_WINDOW_SCRIPT,
+    REDIS_QUOTA_HEARTBEAT_LUA,
+    REDIS_QUOTA_RELEASE_LUA,
+    REDIS_QUOTA_RESERVE_CHECK_LUA,
+    REDIS_QUOTA_RESERVE_COMMIT_LUA,
+    REDIS_QUOTA_RUNTIME_LUA,
+    REDIS_QUOTA_SETTLE_LUA,
+)
+from account_pool.quota.runtime import quota_window_exclusions
 
 
 class StateStore(Protocol):
@@ -350,7 +375,10 @@ class MemoryStateStore:
         return None
 
 
-_RESERVE_SCRIPT = """
+# Redis 脚本把资格、并发、额度预占和租约写入放在同一个原子操作中。
+_RESERVE_SCRIPT = (
+    REDIS_QUOTA_RUNTIME_LUA
+    + r"""
 local existing = redis.call('GET', KEYS[4])
 if existing then
   return {2, existing, 'existing'}
@@ -398,24 +426,38 @@ if inflight >= max_concurrency then return {0, '', 'capacity'} end
 if quota_total and quota_total ~= '' and tonumber(quota_total) <= 0 then return {0, '', 'total_quota'} end
 if quota_five and quota_five ~= '' and tonumber(quota_five) <= 0 then return {0, '', 'five_hour_quota'} end
 if quota_weekly and quota_weekly ~= '' and tonumber(quota_weekly) <= 0 then return {0, '', 'weekly_quota'} end
+"""
+    + REDIS_QUOTA_RESERVE_CHECK_LUA
+    + r"""
 redis.call('INCR', KEYS[2])
 redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
   'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
-  'probe_key', probe_key, 'settled', '0', 'released', '0')
+  'probe_key', probe_key, 'quota_count', quota_count, 'settled', '0', 'released', '0')
+"""
+    + REDIS_QUOTA_RESERVE_COMMIT_LUA
+    + r"""
 if probe_key ~= '' then redis.call('SET', probe_key, ARGV[1], 'EX', ARGV[10]) end
 redis.call('SET', KEYS[4], ARGV[1], 'EX', ARGV[9])
 redis.call('ZADD', KEYS[5], ARGV[7], ARGV[1])
 return {1, ARGV[1], 'reserved'}
 """
+)
 
 
-_RELEASE_SCRIPT = """
+# release 和租约回收必须归还预占，并释放额度 half-open 探测令牌。
+_RELEASE_SCRIPT = (
+    REDIS_QUOTA_RUNTIME_LUA
+    + r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 1 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
 local probe_key = redis.call('HGET', KEYS[1], 'probe_key')
+local settled = redis.call('HGET', KEYS[1], 'settled')
+"""
+    + REDIS_QUOTA_RELEASE_LUA
+    + r"""
 local inflight_key = ARGV[1] .. account_id .. ':inflight'
 local inflight = tonumber(redis.call('GET', inflight_key) or '0')
 if inflight > 0 then redis.call('DECR', inflight_key) end
@@ -425,25 +467,36 @@ redis.call('ZREM', KEYS[2], ARGV[2])
 redis.call('EXPIRE', KEYS[1], ARGV[3])
 return 1
 """
+)
 
 
-_HEARTBEAT_SCRIPT = """
+# heartbeat 同时延长普通资格探测和额度窗口探测的有效期。
+_HEARTBEAT_SCRIPT = (
+    r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 0 end
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
 local probe_key = redis.call('HGET', KEYS[1], 'probe_key')
 if probe_key and probe_key ~= '' and redis.call('GET', probe_key) ~= lease_id then return 0 end
 if probe_key and probe_key ~= '' then redis.call('EXPIRE', probe_key, ARGV[3]) end
+"""
+    + REDIS_QUOTA_HEARTBEAT_LUA
+    + r"""
 redis.call('HSET', KEYS[1], 'expires_at', ARGV[1])
 redis.call('ZADD', KEYS[2], ARGV[1], ARGV[2])
 return 1
 """
+)
 
 
-_SETTLE_SCRIPT = """
+# settle 先校验所有窗口，再用可信 usage 替换 acquire 阶段的预占。
+_SETTLE_SCRIPT = (
+    REDIS_QUOTA_RUNTIME_LUA
+    + r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 if redis.call('HGET', KEYS[1], 'settled') == '1' then return 1 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
+local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
 local state_key = ARGV[1] .. account_id .. ':state'
 local action = ARGV[2]
 local consumption = tonumber(ARGV[3] or '0')
@@ -453,6 +506,9 @@ local exclusion_scope = ARGV[6]
 local exclusion_source = ARGV[7]
 local starts_at = ARGV[8]
 local retry_at = ARGV[9]
+"""
+    + REDIS_QUOTA_SETTLE_LUA
+    + r"""
 if consumption > 0 then
   for _, field in ipairs({'quota_total', 'quota_five_hour', 'quota_weekly'}) do
     local value = redis.call('HGET', state_key, field)
@@ -491,6 +547,7 @@ end
 redis.call('HSET', KEYS[1], 'settled', '1')
 return 1
 """
+)
 
 
 _RESERVE_RESULT_ADAPTER: Final = TypeAdapter(tuple[int, str, str])
@@ -508,6 +565,7 @@ class RedisStateStore:
         self._release_script = self._redis.register_script(_RELEASE_SCRIPT)
         self._heartbeat_script = self._redis.register_script(_HEARTBEAT_SCRIPT)
         self._settle_script = self._redis.register_script(_SETTLE_SCRIPT)
+        self._quota_configure_script = self._redis.register_script(REDIS_CONFIGURE_QUOTA_WINDOW_SCRIPT)
 
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         previous_accounts: Final = self._accounts
@@ -516,6 +574,7 @@ class RedisStateStore:
             eligibility_subjects(accounts)
         )
         self._accounts = {account.id: account for account in accounts}
+        quota_failures: Final = await asyncio.gather(*(self._configure_quota_account(account) for account in accounts))
         await asyncio.gather(
             *(
                 self._configure_account(
@@ -525,8 +584,9 @@ class RedisStateStore:
                         previous_accounts.get(account.id) is None
                         or previous_accounts[account.id].quotas != account.quotas
                     ),
+                    quota_failure=quota_failure,
                 )
-                for account in accounts
+                for account, quota_failure in zip(accounts, quota_failures, strict=True)
             )
         )
         if stale_eligibility:
@@ -538,11 +598,13 @@ class RedisStateStore:
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         subjects: Final = eligibility_subjects(tuple(self._accounts.values()))
         encoded: Final = await asyncio.gather(*(self._redis.hgetall(eligibility_key(subject)) for subject in subjects))
-        return tuple(
+        standard: Final = tuple(
             exclusion
             for subject, entries in zip(subjects, encoded, strict=True)
             for exclusion in decode_exclusions(subject, entries)
         )
+        quota: Final = await asyncio.gather(*(self._quota_exclusions(account) for account in self._accounts.values()))
+        return (*standard, *(exclusion for exclusions in quota for exclusion in exclusions))
 
     async def reserve(
         self,
@@ -554,6 +616,14 @@ class RedisStateStore:
         estimated_tokens: int,
         ttl_seconds: int,
     ) -> ReserveResult:
+        quota_plan: Final = prepare_quota_reservation_plan(
+            account=account,
+            public_model=public_model,
+            billing_route_id=billing_route_id,
+            estimated_tokens=estimated_tokens,
+        )
+        if isinstance(quota_plan, RedisQuotaCodecFailure):
+            return ReserveRejected(reason=f"quota_configuration_{quota_plan.code}")
         lease_id: Final = uuid4().hex
         now: Final = time.time()
         retention: Final = max(ttl_seconds * 10, 600)
@@ -569,6 +639,7 @@ class RedisStateStore:
                     model_eligibility_key(account.id, public_model),
                     deployment_eligibility_key(account.id, deployment_id),
                     billing_route_eligibility_key(account.id, billing_route_id),
+                    *quota_plan.keys,
                 ],
                 args=[
                     lease_id,
@@ -581,6 +652,9 @@ class RedisStateStore:
                     now,
                     retention,
                     ttl_seconds,
+                    len(quota_plan.reservations),
+                    REDIS_QUOTA_DECIMAL_SCALE,
+                    *quota_plan.arguments,
                 ],
             )
         )
@@ -596,6 +670,9 @@ class RedisStateStore:
     async def settle(self, request: SettleRequest) -> bool:
         lease: Final = await self._read_lease(request.lease_id)
         if lease is None:
+            return False
+        quota_amounts: Final = prepare_quota_settlement_amounts(request)
+        if isinstance(quota_amounts, RedisQuotaCodecFailure):
             return False
         account: Final = self._accounts[lease.account_id]
         consumption: Final = _consumption(account=account, request=request)
@@ -621,16 +698,23 @@ class RedisStateStore:
                     exclusion.source if exclusion is not None else "",
                     exclusion.starts_at if exclusion is not None else 0,
                     exclusion.retry_at if exclusion is not None and exclusion.retry_at is not None else 0,
+                    quota_amounts.request_units,
+                    quota_amounts.token_units,
+                    quota_amounts.currency_units,
+                    now,
+                    1 if request.success else 0,
+                    REDIS_QUOTA_DECIMAL_SCALE,
                 ],
             )
         )
         return bool(result)
 
     async def release(self, lease_id: str) -> bool:
+        now: Final = time.time()
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._release_script(
                 keys=[self._lease_key(lease_id), self._expiries],
-                args=[self._prefix, lease_id, 600],
+                args=[self._prefix, lease_id, 600, now, REDIS_QUOTA_DECIMAL_SCALE],
             )
         )
         return bool(result)
@@ -656,24 +740,38 @@ class RedisStateStore:
     async def close(self) -> None:
         await self._redis.close()
 
-    async def _configure_account(self, account: AccountConfig, reset_quotas: bool) -> None:
+    async def _configure_account(
+        self,
+        account: AccountConfig,
+        reset_quotas: bool,
+        quota_failure: RedisQuotaCodecFailure | None,
+    ) -> None:
         state_key: Final = self._state_key(account.id)
+        existing_state: Final = await self._redis.hgetall(state_key)
+        quota_reason: Final = None if quota_failure is None else f"quota_configuration_{quota_failure.code}"
+        recovering_quota_failure: Final = quota_failure is None and existing_state.get("reason_code", "").startswith(
+            "quota_configuration_"
+        )
         values: Final[dict[str, str]] = {
-            "enabled": "1" if account.enabled else "0",
-            "health": Health.UNKNOWN,
+            "enabled": "1" if account.enabled and quota_failure is None else "0",
+            "health": Health.UNHEALTHY if quota_failure is not None else Health.UNKNOWN,
             "max_concurrency": str(account.max_concurrency),
             "cooldown_until": "0",
             "consecutive_failures": "0",
-            "reason_code": "",
+            "reason_code": quota_reason or "",
             "quota_unit": account.quotas.unit,
             "quota_total": _redis_quota(account.quotas.total),
             "quota_five_hour": _redis_quota(account.quotas.five_hour),
             "quota_weekly": _redis_quota(account.quotas.weekly),
         }
-        exists: Final = bool(await self._redis.exists(state_key))
         runtime_values: Final = {
             "max_concurrency": str(account.max_concurrency),
-            "enabled": "1" if account.enabled else "0",
+            "enabled": "1" if account.enabled and quota_failure is None else "0",
+            **(
+                {"health": Health.UNHEALTHY, "reason_code": quota_reason or ""}
+                if quota_failure is not None
+                else ({"health": Health.UNKNOWN, "reason_code": ""} if recovering_quota_failure else {})
+            ),
             **(
                 {
                     "quota_unit": account.quotas.unit,
@@ -685,11 +783,59 @@ class RedisStateStore:
                 else {}
             ),
         }
-        mapping: Final = runtime_values if exists else values
+        mapping: Final = runtime_values if existing_state else values
         await self._redis.hset(
             state_key,
             mapping=mapping,  # pyright: ignore[reportArgumentType]  # redis-py leaves hset mapping generics unresolved
         )
+
+    async def _configure_quota_account(self, account: AccountConfig) -> RedisQuotaCodecFailure | None:
+        configuration: Final = encode_account_quota_windows(account)
+        if isinstance(configuration, RedisQuotaCodecFailure):
+            return configuration
+        manifest_key: Final = quota_manifest_key(account.id)
+        configured_keys: Final = tuple(
+            quota_window_key(account.id, record.window_id) for record in configuration.records
+        )
+        existing_keys: Final = frozenset(str(key) for key in await self._redis.smembers(manifest_key))
+        script_results: Final = await asyncio.gather(
+            *(
+                self._quota_configure_script(
+                    keys=[
+                        quota_window_key(account.id, record.window_id),
+                        quota_usage_key(account.id, record.window_id),
+                    ],
+                    args=configure_quota_script_args(record),
+                )
+                for record in configuration.records
+            )
+        )
+        invalid_result: Final = next((result for result in script_results if int(result) not in (-1, 0, 1)), None)
+        if invalid_result is not None:
+            return RedisQuotaCodecFailure(
+                code="invalid_units",
+                detail=f"Redis quota calibration returned {invalid_result}",
+            )
+        configured_set: Final = frozenset(configured_keys)
+        stale_keys: Final = existing_keys - configured_set
+        if stale_keys:
+            await self._redis.delete(*(key for stale_key in stale_keys for key in (stale_key, f"{stale_key}:usage")))
+        await self._redis.delete(manifest_key)
+        if configured_keys:
+            await self._redis.sadd(manifest_key, *configured_keys)
+        return None
+
+    async def _quota_exclusions(self, account: AccountConfig) -> tuple[EligibilityExclusion, ...]:
+        encoded: Final = await asyncio.gather(
+            *(self._redis.hgetall(quota_window_key(account.id, window.window_id)) for window in account.quota_windows)
+        )
+        if any(not fields for fields in encoded):
+            return (_invalid_quota_state_exclusion(account.id),)
+        decoded: Final = tuple(decode_quota_window(fields) for fields in encoded)
+        if any(isinstance(window, RedisQuotaCodecFailure) for window in decoded):
+            return (_invalid_quota_state_exclusion(account.id),)
+        runtime_windows: Final = tuple(window for window in decoded if isinstance(window, RuntimeQuotaWindow))
+        return quota_window_exclusions(account=account, windows=runtime_windows)
 
     async def _snapshot(self, account: AccountConfig) -> AccountSnapshot:
         state: Final = await self._redis.hgetall(self._state_key(account.id))
@@ -757,6 +903,20 @@ def _availability_rejection(runtime: AccountSnapshot, now: float) -> str | None:
     if runtime.quota.weekly is not None and runtime.quota.weekly <= 0:
         return "weekly_quota"
     return None
+
+
+def _invalid_quota_state_exclusion(account_id: str) -> EligibilityExclusion:
+    return activate_exclusion(
+        scope=EligibilityScope.CHANNEL,
+        source=EligibilitySource.RESTRICTION,
+        account_id=account_id,
+        model=None,
+        deployment_id=None,
+        billing_route_id=None,
+        reason_code="quota_state_invalid",
+        starts_at=time.time(),
+        retry_at=None,
+    )
 
 
 def _synchronize_all_quota_exclusions(
