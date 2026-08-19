@@ -19,6 +19,10 @@ class FrozenModel(BaseModel):
 
 class Strategy(StrEnum):
     PRIORITY = "priority"
+    RANDOM = "random"
+    LOWEST_LATENCY = "lowest_latency"
+    HIGHEST_REMAINING_QUOTA = "highest_remaining_quota"
+    LOWEST_EFFECTIVE_COST = "lowest_effective_cost"
     LEAST_INFLIGHT = "least_inflight"
     WEIGHTED_ROUND_ROBIN = "weighted_round_robin"
     QUOTA_AWARE_LEAST_INFLIGHT = "quota_aware_least_inflight"
@@ -257,6 +261,13 @@ class RouteEntry(FrozenModel):
     weight: int
     available: bool
     unavailable_reason: str | None
+    position: int | None = Field(default=None, ge=1)
+    strategy: Strategy | None = None
+    dynamic_order: bool = False
+    sort_reason_codes: tuple[str, ...] = ()
+    remaining_quota_ratio: float | None = Field(default=None, ge=0)
+    latency_ewma_ms: float | None = Field(default=None, ge=0)
+    effective_cost: Decimal | None = Field(default=None, ge=0)
 
 
 class AccountView(FrozenModel):

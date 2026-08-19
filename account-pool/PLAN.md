@@ -1192,11 +1192,14 @@ PostgreSQL 恢复链路已增加独立的额度运行代次、幂等 usage 事�
 交付：
 
 - 统一资格投影
-- `manual_priority`
+- `priority` 人工优先级
+- `random` 请求级随机
+- `lowest_latency` 延迟优先
+- `highest_remaining_quota` 余额或额度剩余比例优先
 - `lowest_effective_cost`
 - `least_inflight`
 - `weighted_round_robin`
-- `quota_balanced`
+- `quota_aware_least_inflight`
 - 人工顺序、权重和模型绑定暂停
 - 模型调度表与排序原因
 - 原子候选竞争和下一渠道回退
@@ -1211,6 +1214,8 @@ PostgreSQL 恢复链路已增加独立的额度运行代次、幂等 usage 事�
 - 第一候选并发满时原子尝试下一候选
 - 最低成本策略使用倍率修正后的价格，并区分可执行计费路由与估算证据
 - 流式已开始后不会进行可能重复计费的自动重放
+
+实施状态（2026-08-20）：Phase 4 按 [PHASE4_PLAN.md](PHASE4_PLAN.md) 实施。第一步排序内核已完成：正式策略枚举覆盖人工优先级、请求级随机、延迟优先、剩余额度优先、最低有效成本、最少并发、权重轮询和额度感知最少并发；独立 `routing` 模块生成稳定候选顺序、动态策略标记和排序原因，路由表与真实 acquire 已共用同一静态策略排序。请求级随机按 request_id 可重放，路由表预览不会推进随机或轮询序列；硬排除候选始终排在合格候选之后，最终仍由原子 reserve 重新确认资格并自动尝试下一候选。当前自动化验证为 Account Pool 全量 `495 passed, 39 skipped`，39 个跳过项均需要目标 PostgreSQL，新增路径的 Ruff、basedpyright 和文件头检查通过。当前仍需完成 PostgreSQL 模型策略与候选覆盖、人工顺序/权重/暂停、解析价格与 billing route 投影、延迟 EWMA 持久化、正式管理 API 和两套 UI
 
 ### Phase 5：总览、日志与生产化
 

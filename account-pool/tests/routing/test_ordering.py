@@ -1,0 +1,117 @@
+"""验证正式调度策略的稳定排序、缺失证据和硬排除优先级。"""
+
+from decimal import Decimal
+from typing import Final
+
+from account_pool.models import Strategy
+from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
+
+
+def candidate(
+    account_id: str,
+    *,
+    available: bool = True,
+    priority: int = 0,
+    weight: int = 1,
+    manual_order: int | None = None,
+    inflight: int = 0,
+    quota: float | None = None,
+    latency: float | None = None,
+    cost: str | None = None,
+) -> RoutingCandidate:
+    return RoutingCandidate(
+        account_id=account_id,
+        deployment_id=f"deployment-{account_id}",
+        available=available,
+        priority=priority,
+        weight=weight,
+        manual_order=manual_order,
+        inflight=inflight,
+        max_concurrency=10,
+        remaining_quota_ratio=quota,
+        latency_ewma_ms=latency,
+        effective_cost=None if cost is None else Decimal(cost),
+    )
+
+
+def ids(ordered: tuple[RoutingOrder, ...]) -> tuple[str, ...]:
+    return tuple(item.candidate.account_id for item in ordered)
+
+
+def test_priority_prefers_explicit_manual_order_then_channel_priority() -> None:
+    ordered: Final = order_candidates(
+        candidates=(
+            candidate("high", priority=400),
+            candidate("manual-second", priority=100, manual_order=1),
+            candidate("manual-first", priority=100, manual_order=0),
+        ),
+        strategy=Strategy.PRIORITY,
+        model="model-a",
+    )
+
+    assert ids(ordered) == ("manual-first", "manual-second", "high")
+    assert ordered[0].reason_codes == ("manual_order",)
+
+
+def test_random_is_stable_for_request_and_changes_between_requests() -> None:
+    candidates: Final = tuple(candidate(f"account-{index}") for index in range(6))
+
+    first: Final = order_candidates(candidates, Strategy.RANDOM, "model-a", request_id="request-a")
+    duplicate: Final = order_candidates(candidates, Strategy.RANDOM, "model-a", request_id="request-a")
+    second: Final = order_candidates(candidates, Strategy.RANDOM, "model-a", request_id="request-b")
+
+    assert ids(first) == ids(duplicate)
+    assert ids(first) != ids(second)
+    assert all(item.dynamic for item in first)
+
+
+def test_latency_and_cost_put_unknown_evidence_after_known_values() -> None:
+    candidates: Final = (
+        candidate("unknown"),
+        candidate("slow-expensive", latency=300, cost="4"),
+        candidate("fast-cheap", latency=50, cost="1"),
+    )
+
+    by_latency: Final = order_candidates(candidates, Strategy.LOWEST_LATENCY, "model-a")
+    by_cost: Final = order_candidates(candidates, Strategy.LOWEST_EFFECTIVE_COST, "model-a")
+
+    assert ids(by_latency) == ("fast-cheap", "slow-expensive", "unknown")
+    assert ids(by_cost) == ("fast-cheap", "slow-expensive", "unknown")
+    assert by_latency[-1].reason_codes == ("latency_unknown",)
+    assert by_cost[-1].reason_codes == ("cost_unknown",)
+
+
+def test_remaining_quota_prefers_largest_tightest_window_ratio() -> None:
+    ordered: Final = order_candidates(
+        candidates=(
+            candidate("unknown"),
+            candidate("low", quota=0.1),
+            candidate("high", quota=0.8),
+        ),
+        strategy=Strategy.HIGHEST_REMAINING_QUOTA,
+        model="model-a",
+    )
+
+    assert ids(ordered) == ("high", "low", "unknown")
+
+
+def test_unavailable_candidate_stays_last_for_every_strategy() -> None:
+    strategies: Final = tuple(Strategy)
+    candidates: Final = (
+        candidate("unavailable", available=False, priority=400, latency=1, cost="0", quota=1),
+        candidate("available", priority=100, latency=100, cost="10", quota=0.1),
+    )
+
+    results: Final = tuple(order_candidates(candidates, strategy, "model-a", request_id="request") for strategy in strategies)
+
+    assert all(ids(result)[-1] == "unavailable" for result in results)
+
+
+def test_weighted_round_robin_preview_uses_sequence_without_dropping_fallbacks() -> None:
+    candidates: Final = (candidate("heavy", weight=3), candidate("light", weight=1))
+
+    first: Final = order_candidates(candidates, Strategy.WEIGHTED_ROUND_ROBIN, "model-a", sequence=1)
+    fourth: Final = order_candidates(candidates, Strategy.WEIGHTED_ROUND_ROBIN, "model-a", sequence=4)
+
+    assert ids(first) == ("heavy", "light")
+    assert ids(fourth) == ("light", "heavy")

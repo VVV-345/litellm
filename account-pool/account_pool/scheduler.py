@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
 from typing import Final
 
 from account_pool.eligibility import (
@@ -27,6 +26,7 @@ from account_pool.models import (
     RouteEntry,
     Strategy,
 )
+from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
 from account_pool.store import StateStore
 
 
@@ -72,6 +72,7 @@ class Scheduler:
             snapshots=snapshots,
             exclusions=exclusions,
             now=now,
+            request_id=request.request_id,
         )
         reasons: list[str] = []
         for account, deployment in ordered:
@@ -93,26 +94,38 @@ class Scheduler:
         snapshots: Final = await self._snapshot_map()
         exclusions: Final = await self._store.eligibility_exclusions()
         now: Final = time.time()
-        entries: Final = tuple(
-            self._route_entry(
+        policy: Final = self.policy(model)
+        candidates: Final = self._candidates(model)
+        routing_candidates: Final = tuple(
+            _routing_candidate(
                 account=account,
                 deployment=deployment,
                 snapshot=snapshots[account.id],
                 exclusions=exclusions,
                 now=now,
             )
-            for account, deployment in self._candidates(model)
+            for account, deployment in candidates
         )
+        ordered: Final = order_candidates(
+            candidates=routing_candidates,
+            strategy=policy.strategy,
+            model=model,
+        )
+        candidate_by_id: Final = {
+            _candidate_id(account, deployment): (account, deployment) for account, deployment in candidates
+        }
         return tuple(
-            sorted(
-                entries,
-                key=lambda entry: (
-                    not entry.available,
-                    -entry.priority,
-                    entry.account_id,
-                    entry.deployment_id,
-                ),
+            self._route_entry(
+                account=candidate_by_id[item.candidate.stable_id()][0],
+                deployment=candidate_by_id[item.candidate.stable_id()][1],
+                snapshot=snapshots[item.candidate.account_id],
+                exclusions=exclusions,
+                now=now,
+                order=item,
+                position=position,
+                strategy=policy.strategy,
             )
+            for position, item in enumerate(ordered, start=1)
         )
 
     async def account_snapshots(self) -> tuple[AccountSnapshot, ...]:
@@ -153,42 +166,30 @@ class Scheduler:
         snapshots: dict[str, AccountSnapshot],
         exclusions: tuple[EligibilityExclusion, ...],
         now: float,
+        request_id: str,
     ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
-        if strategy == Strategy.PRIORITY:
-            return tuple(
-                sorted(
-                    candidates,
-                    key=lambda item: (
-                        _candidate_availability_rank(item, model, snapshots, exclusions, now),
-                        -item[0].priority,
-                        item[0].id,
-                        item[1].litellm_model_id,
-                    ),
-                )
+        routing_candidates: Final = tuple(
+            _routing_candidate(
+                account=account,
+                deployment=deployment,
+                snapshot=snapshots[account.id],
+                exclusions=exclusions,
+                now=now,
             )
-        if strategy == Strategy.WEIGHTED_ROUND_ROBIN:
-            sequence: Final = await self._store.next_sequence(model)
-            weighted: Final = _weighted_order(candidates=candidates, sequence=sequence)
-            return tuple(
-                sorted(
-                    weighted,
-                    key=lambda item: _candidate_availability_rank(item, model, snapshots, exclusions, now),
-                )
-            )
-        return tuple(
-            sorted(
-                candidates,
-                key=lambda item: (
-                    _candidate_availability_rank(item, model, snapshots, exclusions, now),
-                    _inflight_ratio(snapshots[item[0].id]),
-                    -_quota_ratio(account=item[0], snapshot=snapshots[item[0].id])
-                    if strategy == Strategy.QUOTA_AWARE_LEAST_INFLIGHT
-                    else 0,
-                    -item[0].priority,
-                    item[0].id,
-                ),
-            )
+            for account, deployment in candidates
         )
+        sequence: Final = await self._store.next_sequence(model) if strategy == Strategy.WEIGHTED_ROUND_ROBIN else None
+        ordered: Final = order_candidates(
+            candidates=routing_candidates,
+            strategy=strategy,
+            model=model,
+            request_id=request_id,
+            sequence=sequence,
+        )
+        candidate_by_id: Final = {
+            _candidate_id(account, deployment): (account, deployment) for account, deployment in candidates
+        }
+        return tuple(candidate_by_id[item.candidate.stable_id()] for item in ordered)
 
     @staticmethod
     def _route_entry(
@@ -197,6 +198,9 @@ class Scheduler:
         snapshot: AccountSnapshot,
         exclusions: tuple[EligibilityExclusion, ...],
         now: float,
+        order: RoutingOrder,
+        position: int,
+        strategy: Strategy,
     ) -> RouteEntry:
         evidence: Final = candidate_evidence(
             exclusions=exclusions,
@@ -237,66 +241,56 @@ class Scheduler:
             weight=account.weight,
             available=reason is None,
             unavailable_reason=reason,
+            position=position,
+            strategy=strategy,
+            dynamic_order=order.dynamic,
+            sort_reason_codes=order.reason_codes,
+            remaining_quota_ratio=order.candidate.remaining_quota_ratio,
+            latency_ewma_ms=order.candidate.latency_ewma_ms,
+            effective_cost=order.candidate.effective_cost,
         )
 
 
-def _weighted_order(
-    candidates: tuple[tuple[AccountConfig, DeploymentConfig], ...],
-    sequence: int,
-) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
-    wheel: Final = tuple(item for item in candidates for _ in range(item[0].weight))
-    pivot: Final = (sequence - 1) % len(wheel)
-    rotated: Final = wheel[pivot:] + wheel[:pivot]
-    return _unique_candidates(rotated)
-
-
-def _unique_candidates(
-    candidates: Iterable[tuple[AccountConfig, DeploymentConfig]],
-) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
-    seen: set[tuple[str, str]] = set()
-    ordered: list[tuple[AccountConfig, DeploymentConfig]] = []
-    for item in candidates:
-        if (item[0].id, item[1].litellm_model_id) not in seen:
-            seen.add((item[0].id, item[1].litellm_model_id))
-            ordered.append(item)
-    return tuple(ordered)
-
-
-def _inflight_ratio(snapshot: AccountSnapshot) -> float:
-    return snapshot.inflight / snapshot.max_concurrency
-
-
-def _quota_ratio(account: AccountConfig, snapshot: AccountSnapshot) -> float:
+def _quota_ratio(account: AccountConfig, snapshot: AccountSnapshot) -> float | None:
     pairs: Final = (
         (snapshot.quota.total, account.quotas.total),
         (snapshot.quota.five_hour, account.quotas.five_hour),
         (snapshot.quota.weekly, account.quotas.weekly),
     )
     ratios: Final = tuple(remaining / limit for remaining, limit in pairs if remaining is not None and limit)
-    return min(ratios) if ratios else 1.0
+    return min(ratios) if ratios else None
 
 
-def _availability_rank(snapshot: AccountSnapshot, exclusion: EligibilityExclusion | None) -> int:
-    return 0 if _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None else 1
-
-
-def _candidate_availability_rank(
-    candidate: tuple[AccountConfig, DeploymentConfig],
-    model: str,
-    snapshots: dict[str, AccountSnapshot],
+def _routing_candidate(
+    account: AccountConfig,
+    deployment: DeploymentConfig,
+    snapshot: AccountSnapshot,
     exclusions: tuple[EligibilityExclusion, ...],
     now: float,
-) -> int:
-    account, deployment = candidate
+) -> RoutingCandidate:
     exclusion: Final = candidate_exclusion(
         exclusions=exclusions,
         account_id=account.id,
-        model=model,
+        model=deployment.public_model,
         deployment_id=deployment.litellm_model_id,
         billing_route_id=deployment.billing_route_id,
         now=now,
     )
-    return _availability_rank(snapshot=snapshots[account.id], exclusion=exclusion)
+    return RoutingCandidate(
+        account_id=account.id,
+        deployment_id=deployment.litellm_model_id,
+        billing_route_id=deployment.billing_route_id,
+        available=_unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None,
+        priority=account.priority,
+        weight=account.weight,
+        inflight=snapshot.inflight,
+        max_concurrency=snapshot.max_concurrency,
+        remaining_quota_ratio=_quota_ratio(account=account, snapshot=snapshot),
+    )
+
+
+def _candidate_id(account: AccountConfig, deployment: DeploymentConfig) -> str:
+    return f"{account.id}\x00{deployment.litellm_model_id}\x00{deployment.billing_route_id or ''}"
 
 
 def _unavailable_reason(

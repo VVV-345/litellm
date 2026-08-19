@@ -435,6 +435,37 @@ async def test_weighted_round_robin_honors_configured_weight() -> None:
 
 
 @pytest.mark.asyncio
+async def test_route_table_and_acquire_share_the_static_strategy_order() -> None:
+    busy: Final = account("busy", 10).model_copy(update={"priority": 100})
+    idle: Final = account("idle", 10).model_copy(update={"priority": 0})
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(
+            accounts=(busy, idle),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.PRIORITY),),
+        )
+    )
+    occupied: Final = await scheduler.acquire(AcquireRequest(request_id="occupied", model="model-a"))
+    assert isinstance(occupied, AcquireSuccess)
+    await scheduler.reconfigure(
+        PoolConfig(
+            accounts=(busy, idle),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.LEAST_INFLIGHT),),
+        )
+    )
+
+    routes: Final = await scheduler.route_table("model-a")
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="next", model="model-a"))
+
+    assert tuple(route.account_id for route in routes) == ("idle", "busy")
+    assert routes[0].position == 1
+    assert routes[0].strategy == Strategy.LEAST_INFLIGHT
+    assert routes[0].sort_reason_codes == ("inflight_ratio",)
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.account_id == routes[0].account_id
+    assert await store.release(occupied.lease.lease_id)
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_preserves_usage_unless_quota_limits_change() -> None:
     original: Final = account("one", max_concurrency=2)
     scheduler, store = await initialized_scheduler(PoolConfig(accounts=(original,)))

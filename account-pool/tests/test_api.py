@@ -1263,11 +1263,12 @@ async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_release
                 routes_response: Final = await client.get("/api/models/gpt-4o/routing-table")
 
     routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
+    primary_route: Final = next(route for route in routes if route.account_id == "primary-east")
     assert response.status_code == 200
     assert captured[0].model == "pool-gpt4o-primary"
     assert captured[0].metadata["account_pool_request_id"] == "request-123"
-    assert routes[0].inflight == 0
-    assert routes[0].quota.total == 2_499_968
+    assert primary_route.inflight == 0
+    assert primary_route.quota.total == 2_499_968
     assert len(health_events.request_activities) == 1
     assert health_events.request_activities[0].deployment_id == "pool-gpt4o-primary"
     assert len(health_events.records) == 1
