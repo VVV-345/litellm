@@ -39,7 +39,7 @@
 - 原子替换目标文件，失败作为值返回，供 worker 记录和重试
 - 拒绝 URL、认证头、Cookie、credential reference、Key 指纹和原始响应
 
-状态：当前交付
+状态：已由 `7f7d69fc34` 交付
 
 ### 4. Parser Registry and Selection
 
@@ -47,6 +47,8 @@
 - 不允许携带凭证遍历探测所有厂商
 - GLM 迁移到统一解析器契约
 - 为 registry、能力声明和 fallback 添加契约测试
+
+状态：本次交付
 
 ### 5. PostgreSQL Parser Runs and Worker
 

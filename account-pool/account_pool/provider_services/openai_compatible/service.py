@@ -49,6 +49,7 @@ class OpenAICompatibleProviderService:
                 group=request.group,
                 key_fingerprint=_key_fingerprint(api_key),
                 message=fetched.message,
+                failure_code=fetched.code,
                 capabilities=self.manifest.capabilities,
             )
         return ProviderValidationResult(

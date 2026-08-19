@@ -8,6 +8,7 @@ from typing import Final
 
 from account_pool.domain.provider_source import (
     ProviderServiceManifest,
+    ProviderValidationFailureCode,
     ProviderValidationRequest,
     ProviderValidationResult,
 )
@@ -35,6 +36,7 @@ class ProviderServiceRegistry:
                 group=request.group,
                 key_fingerprint=None,
                 message="未注册该渠道服务",
+                failure_code=ProviderValidationFailureCode.UNSUPPORTED_PROVIDER,
                 capabilities=(),
             )
         return await service.validate(request)

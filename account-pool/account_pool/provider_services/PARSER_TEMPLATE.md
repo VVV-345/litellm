@@ -13,7 +13,14 @@ parser.py    conversion from validated provider data to the unified parser contr
 fixtures/    sanitized provider responses for contract tests, when needed
 ```
 
-The public registry depends only on `ProviderService`. Provider-specific branching must remain inside the provider directory.
+The validation registry depends only on `ProviderService`. The credential-free parser registry depends on immutable parser
+registrations. Provider-specific branching must remain inside the provider directory.
+
+## Selection
+
+Selection order is explicit parser, exact Provider plus normalized HTTPS origin, declared OpenAI-compatible fallback, then manual
+input. Selection request models must not accept keys or credentials. An unknown explicit parser goes to manual correction instead of
+silently selecting another automatic parser.
 
 ## Manifest
 
@@ -24,6 +31,9 @@ Declare a stable `provider_id`, display name, default API base, LiteLLM provider
 Provider validation receives `api_base`, an in-memory `SecretStr`, and an optional group. The key may be sent only to the validated provider origin. It must not enter domain snapshots, database rows, JSON exports, exceptions, logs, API responses, fixtures, or task payloads.
 
 Clients must use HTTPS by default, reject URL user information, query parameters, fragments, cross-origin redirects, non-public targets, and oversized responses. A production-grade arbitrary-host implementation also needs a transport that pins the validated IP through connection establishment to close DNS rebinding between validation and connect.
+
+Validation failures use stable typed codes for configuration, authentication, transport, upstream response, empty model visibility,
+and unsupported providers. Parser status must be derived from those codes, never from localized display messages.
 
 ## Subscription Output
 

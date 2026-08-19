@@ -35,11 +35,14 @@ Compose 会把 `.env` 中的值同步给两个服务，缺少该值时拒绝启�
 account_pool/provider_services/
 ├── contracts.py          # 所有渠道实现的统一协议
 ├── registry.py           # 模块注册和按 provider_id 分发
+├── parser_registry.py    # 组装无凭证解析器选择注册表
+├── http_response.py      # 共用响应体大小限制
 ├── glm/
     ├── manifest.py       # 渠道标识、默认 URL 和能力声明
     ├── schemas.py        # 上游响应模型
     ├── client.py         # 官方 HTTP 请求和 URL 安全限制
-    └── service.py        # 转换为号池统一结果
+    ├── service.py        # 转换为渠道校验结果
+    └── parser.py         # 转换为统一 ParserRun
 └── openai_compatible/
     ├── manifest.py       # 通用 OpenAI 兼容能力声明
     ├── schemas.py        # GET /models 响应模型
@@ -50,6 +53,10 @@ account_pool/provider_services/
 
 新增渠道时复制同一职责边界，并在 `app.py` 的 `ProviderServiceRegistry` 注册。公共管理层不按渠道名写分支，
 各模块可以并行开发，也不会把某个供应商的余额、套餐或价格规则带到其他供应商
+
+解析器选择使用独立 `ParserRegistry`，固定顺序为显式 parser、Provider 与标准化 origin 精确匹配、已声明的
+OpenAI 兼容通用 parser、人工模板。选择请求的 schema 不包含 Key，并拒绝额外凭证字段，因此选择过程不会把 Key
+依次发送给多个厂商试探。未知的显式 parser 不会静默降级到其他自动 parser，而是进入人工修正
 
 ## GLM 官方国内平台
 
@@ -65,7 +72,8 @@ account_pool/provider_services/
 | 账户实际价格 | 不支持 | 模型接口不返回分组折扣、资源包或成交价 |
 
 GLM 模块只允许 HTTPS、`open.bigmodel.cn` 和固定 `/api/paas/v4` 路径，且禁止重定向，避免把 Key
-发送到用户输入的任意地址。校验结果只返回 Key 的 SHA-256 指纹前缀
+发送到用户输入的任意地址；模型列表响应限制为 1 MiB。校验结果只返回 Key 的 SHA-256 指纹前缀。统一解析结果
+保留可见模型并返回 `partial`，套餐、按量和计费路由保持为空，等待人工补充可验证的账户数据
 
 LiteLLM 的 provider 名称仍为 `zai`，但创建 Deployment 时会显式保存国内 API Base，因此不会使用
 LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`

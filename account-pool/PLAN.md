@@ -1029,10 +1029,11 @@ Account Pool
 - priority、least inflight、weighted round-robin 和 quota-aware 基础策略
 - 被动健康和固定冷却基础
 - 渠道 CRUD 与 LiteLLM Deployment 同步
-- GLM URL、Key 校验和模型发现
+- GLM URL、Key 校验、模型发现和统一 partial 解析结果
 - PostgreSQL catalog schema、repository、YAML 导入与只读投影基础
 - OpenAI 兼容 URL、Key 校验、模型发现和统一 partial 解析结果
 - 套餐、按量、额度窗口、价格、问题报告统一模型及脱敏 JSON 快照存储边界
+- 无凭证解析器 registry 及显式、Provider+origin、OpenAI 兼容、人工兜底选择顺序
 - 原生 HTML/JS 调度控制台
 - LiteLLM 到 Account Pool 的服务端管理代理基础
 
@@ -1040,7 +1041,6 @@ Account Pool
 
 - PostgreSQL 权威数据层
 - OpenAI 官方解析器及 OpenAI 兼容解析器的 worker/数据库接入
-- GLM 迁移到统一解析契约及解析器选择 registry
 - parser run、人工覆盖、JSON 导入导出和 UI 预览
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction

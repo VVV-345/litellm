@@ -5,7 +5,12 @@ from typing import Final
 
 import httpx
 import pytest
-from account_pool.domain.provider_source import CapabilityState, ProviderCapability, ProviderValidationRequest
+from account_pool.domain.provider_source import (
+    CapabilityState,
+    ProviderCapability,
+    ProviderValidationFailureCode,
+    ProviderValidationRequest,
+)
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from pydantic import SecretStr
 
@@ -193,9 +198,11 @@ async def test_openai_compatible_reports_auth_and_invalid_payload() -> None:
 
     assert not unauthorized.ok
     assert "API Key" in unauthorized.message
+    assert unauthorized.failure_code == ProviderValidationFailureCode.AUTHENTICATION
     assert "includes upstream secret" not in unauthorized.message
     assert not invalid_payload.ok
     assert "响应格式" in invalid_payload.message
+    assert invalid_payload.failure_code == ProviderValidationFailureCode.UPSTREAM_RESPONSE
 
 
 async def test_openai_compatible_rejects_oversized_model_response() -> None:

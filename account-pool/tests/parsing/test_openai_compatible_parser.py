@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from account_pool.domain.provider_source import (
     ModelOffer,
+    ProviderValidationFailureCode,
     ProviderValidationResult,
 )
 from account_pool.parsing.models import ParserFailureCategory, ParserRunStatus
@@ -11,7 +12,12 @@ from account_pool.provider_services.openai_compatible.manifest import OPENAI_COM
 from account_pool.provider_services.openai_compatible.parser import parse_openai_compatible_result
 
 
-def _validation_result(ok: bool, message: str, models: tuple[ModelOffer, ...] = ()) -> ProviderValidationResult:
+def _validation_result(
+    ok: bool,
+    message: str,
+    models: tuple[ModelOffer, ...] = (),
+    failure_code: ProviderValidationFailureCode | None = None,
+) -> ProviderValidationResult:
     return ProviderValidationResult(
         ok=ok,
         provider_id="openai_compatible",
@@ -19,6 +25,7 @@ def _validation_result(ok: bool, message: str, models: tuple[ModelOffer, ...] = 
         group="premium",
         key_fingerprint="fingerprint",
         message=message,
+        failure_code=failure_code,
         capabilities=OPENAI_COMPATIBLE_MANIFEST.capabilities,
         models=models,
     )
@@ -54,7 +61,11 @@ def test_authentication_failure_is_structured_and_secret_free() -> None:
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 19, 8, 0, tzinfo=UTC),
-        validation=_validation_result(ok=False, message="API Key 无效或没有模型列表权限"),
+        validation=_validation_result(
+            ok=False,
+            message="文案不会参与分类",
+            failure_code=ProviderValidationFailureCode.AUTHENTICATION,
+        ),
     )
 
     assert run.status == ParserRunStatus.AUTHENTICATION_FAILED
@@ -70,13 +81,21 @@ def test_transport_and_invalid_response_failures_are_classified() -> None:
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=timestamp,
-        validation=_validation_result(ok=False, message="无法连接 OpenAI 兼容模型列表接口"),
+        validation=_validation_result(
+            ok=False,
+            message="相同文案",
+            failure_code=ProviderValidationFailureCode.TRANSPORT,
+        ),
     )
     invalid: Final = parse_openai_compatible_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=timestamp,
-        validation=_validation_result(ok=False, message="模型列表响应格式无法识别"),
+        validation=_validation_result(
+            ok=False,
+            message="相同文案",
+            failure_code=ProviderValidationFailureCode.UPSTREAM_RESPONSE,
+        ),
     )
 
     assert transport.status == ParserRunStatus.TRANSPORT_FAILED

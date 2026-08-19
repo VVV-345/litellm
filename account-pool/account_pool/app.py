@@ -39,8 +39,10 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.parsing.registry import ParserRegistry
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
+from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -55,6 +57,7 @@ class Runtime:
     manager: PoolManager
     admin: LiteLLMAdminClient
     provider_services: ProviderServiceRegistry
+    parser_registry: ParserRegistry
 
 
 def create_app(
@@ -94,6 +97,7 @@ def create_app(
             OpenAICompatibleProviderService(client),
         )
     )
+    parser_registry: Final = build_parser_registry()
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -102,6 +106,7 @@ def create_app(
         manager=manager,
         admin=admin,
         provider_services=provider_services,
+        parser_registry=parser_registry,
     )
 
     @asynccontextmanager

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
 class FrozenModel(BaseModel):
@@ -27,6 +28,15 @@ class CapabilityState(StrEnum):
     SUPPORTED = "supported"
     UNSUPPORTED = "unsupported"
     UNAVAILABLE = "unavailable"
+
+
+class ProviderValidationFailureCode(StrEnum):
+    INVALID_CONFIGURATION = "invalid_configuration"
+    AUTHENTICATION = "authentication"
+    TRANSPORT = "transport"
+    UPSTREAM_RESPONSE = "upstream_response"
+    NO_MODELS = "no_models"
+    UNSUPPORTED_PROVIDER = "unsupported_provider"
 
 
 class ProviderCapabilityView(FrozenModel):
@@ -84,8 +94,17 @@ class ProviderValidationResult(FrozenModel):
     group: str | None
     key_fingerprint: str | None
     message: str
+    failure_code: ProviderValidationFailureCode | None = None
     capabilities: tuple[ProviderCapabilityView, ...]
     models: tuple[ModelOffer, ...] = ()
     balance: AccountBalance | None = None
     subscriptions: tuple[SubscriptionSnapshot, ...] = ()
     limits: tuple[PeriodicLimitSnapshot, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_failure_code(self) -> Self:
+        if self.ok and self.failure_code is not None:
+            raise ValueError("successful provider validation cannot have a failure code")
+        if not self.ok and self.failure_code is None:
+            raise ValueError("failed provider validation requires a failure code")
+        return self

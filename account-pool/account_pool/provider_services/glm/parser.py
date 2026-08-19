@@ -1,4 +1,4 @@
-"""将 OpenAI 兼容模型发现结果转换为统一解析器输出。"""
+"""将 GLM 官方模型发现结果转换为统一解析器输出。"""
 
 from typing import Final
 from uuid import UUID
@@ -10,24 +10,24 @@ from account_pool.parsing.model_discovery import ModelDiscoveryParserSpec, parse
 from account_pool.parsing.models import ParserRun
 from account_pool.parsing.registry import ParserRegistration
 
-PARSER_ID: Final = "openai-compatible"
+PARSER_ID: Final = "glm-official"
 PARSER_VERSION: Final = "1.0.0"
-OPENAI_COMPATIBLE_PARSER_SPEC: Final = ModelDiscoveryParserSpec(
+GLM_OFFICIAL_PARSER_SPEC: Final = ModelDiscoveryParserSpec(
     parser_id=PARSER_ID,
     parser_version=PARSER_VERSION,
-    unresolved_reason="OpenAI 兼容协议未定义统一的账户计费接口",
-    warning="模型发现已完成，套餐与按量数据需要专用解析器或人工补充",
-    next_action="选择厂商专用解析器，或在管理界面补充套餐与价格数据",
-    evidence_summary="上游仅提供标准模型列表，未提供可验证的统一计费信息",
+    unresolved_reason="GLM 官方推理 API 未提供稳定的账户套餐与实际价格查询接口",
+    warning="模型发现已完成，套餐与按量数据需要人工补充",
+    next_action="在管理界面补充当前账户的套餐、额度与实际价格",
+    evidence_summary="官方模型列表接口只证明模型可见性，不能证明账户权益或成交价格",
 )
-OPENAI_COMPATIBLE_PARSER_REGISTRATION: Final = ParserRegistration(
+GLM_OFFICIAL_PARSER_REGISTRATION: Final = ParserRegistration(
     parser_id=PARSER_ID,
-    provider_ids=("openai_compatible", "openai"),
-    openai_compatible_fallback=True,
+    provider_ids=("glm_official", "zai"),
+    exact_origins=("https://open.bigmodel.cn",),
 )
 
 
-def parse_openai_compatible_result(
+def parse_glm_official_result(
     channel_id: UUID,
     parser_run_id: UUID,
     parsed_at: AwareDatetime,
@@ -38,5 +38,5 @@ def parse_openai_compatible_result(
         parser_run_id=parser_run_id,
         parsed_at=parsed_at,
         validation=validation,
-        spec=OPENAI_COMPATIBLE_PARSER_SPEC,
+        spec=GLM_OFFICIAL_PARSER_SPEC,
     )

@@ -6,7 +6,7 @@ from typing import Final
 
 import httpx
 import pytest
-from account_pool.domain.provider_source import ProviderValidationRequest
+from account_pool.domain.provider_source import ProviderValidationFailureCode, ProviderValidationRequest
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from pydantic import SecretStr
@@ -64,6 +64,7 @@ async def test_glm_validation_rejects_non_official_url_without_sending_key() -> 
 
     assert not result.ok
     assert "仅允许" in result.message
+    assert result.failure_code == ProviderValidationFailureCode.INVALID_CONFIGURATION
     assert requests == []
 
 
@@ -112,6 +113,37 @@ async def test_glm_validation_reports_invalid_key() -> None:
 
     assert not result.ok
     assert "API Key 无效" in result.message
+    assert result.failure_code == ProviderValidationFailureCode.AUTHENTICATION
+
+
+@pytest.mark.asyncio
+async def test_glm_validation_rejects_redirect_oversized_and_server_failure() -> None:
+    oversized: Final = b'{"data":[]}' + (b" " * 1_048_576)
+    responses: Final = iter(
+        (
+            httpx.Response(status_code=307, headers={"location": "https://example.invalid/models"}),
+            httpx.Response(status_code=200, content=oversized),
+            httpx.Response(status_code=503),
+        )
+    )
+
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return next(responses)
+
+    request: Final = ProviderValidationRequest(
+        provider_id="glm_official",
+        api_base="https://open.bigmodel.cn/api/paas/v4",
+        api_key=SecretStr("test-placeholder"),
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        service: Final = GlmOfficialProviderService(client)
+        redirect: Final = await service.validate(request)
+        too_large: Final = await service.validate(request)
+        unavailable: Final = await service.validate(request)
+
+    assert redirect.failure_code == ProviderValidationFailureCode.UPSTREAM_RESPONSE
+    assert too_large.failure_code == ProviderValidationFailureCode.UPSTREAM_RESPONSE
+    assert unavailable.failure_code == ProviderValidationFailureCode.TRANSPORT
 
 
 @pytest.mark.asyncio
@@ -127,3 +159,4 @@ async def test_registry_returns_typed_failure_for_unknown_provider() -> None:
 
     assert not result.ok
     assert result.capabilities == ()
+    assert result.failure_code == ProviderValidationFailureCode.UNSUPPORTED_PROVIDER
