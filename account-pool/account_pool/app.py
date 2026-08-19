@@ -40,6 +40,7 @@ from account_pool.models import (
     StatsView,
 )
 from account_pool.provider_services.glm import GlmOfficialProviderService
+from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -87,7 +88,12 @@ def create_app(
         admin=admin,
         config_path=resolved_settings.config_path,
     )
-    provider_services: Final = ProviderServiceRegistry((GlmOfficialProviderService(client),))
+    provider_services: Final = ProviderServiceRegistry(
+        (
+            GlmOfficialProviderService(client),
+            OpenAICompatibleProviderService(client),
+        )
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,

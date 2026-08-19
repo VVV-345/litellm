@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 import httpx
 import pytest
 from account_pool.app import create_app
 from account_pool.config import Settings
+from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
 from account_pool.store import MemoryStateStore
 from pydantic import BaseModel, ConfigDict, TypeAdapter
@@ -34,6 +35,7 @@ _MODEL_SUMMARIES_ADAPTER: Final = TypeAdapter(tuple[ModelSummary, ...])
 _ROUTE_ENTRIES_ADAPTER: Final = TypeAdapter(tuple[RouteEntry, ...])
 _ACCOUNT_VIEWS_ADAPTER: Final = TypeAdapter(tuple[AccountView, ...])
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
+_PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[ProviderServiceManifest, ...])
 
 
 def settings(
@@ -68,6 +70,10 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert missing.status_code == 401
     assert invalid.status_code == 401
     assert valid.status_code == 200
+    manifests: Final = _PROVIDER_MANIFESTS_ADAPTER.validate_json(valid.content)
+    manifest_ids: Final = tuple(manifest.provider_id for manifest in manifests)
+    assert manifest_ids == ("glm_official", "openai_compatible")
+    assert manifests[1].default_api_base == "https://api.openai.com/v1"
     assert health.status_code == 200
 
 
@@ -87,7 +93,7 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
     def litellm(request: httpx.Request) -> httpx.Response:
         if request.url.path != "/account_pool/authorize":
             return httpx.Response(status_code=404)
-        token: Final = request.headers.get("authorization")
+        token: Final = cast(str | None, request.headers.get("authorization"))
         if token == "Bearer admin-secret":
             return httpx.Response(status_code=200, json={"ok": True})
         return httpx.Response(status_code=401)

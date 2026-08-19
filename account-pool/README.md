@@ -35,11 +35,16 @@ Compose 会把 `.env` 中的值同步给两个服务，缺少该值时拒绝启�
 account_pool/provider_services/
 ├── contracts.py          # 所有渠道实现的统一协议
 ├── registry.py           # 模块注册和按 provider_id 分发
-└── glm/
+├── glm/
     ├── manifest.py       # 渠道标识、默认 URL 和能力声明
     ├── schemas.py        # 上游响应模型
     ├── client.py         # 官方 HTTP 请求和 URL 安全限制
     └── service.py        # 转换为号池统一结果
+└── openai_compatible/
+    ├── manifest.py       # 通用 OpenAI 兼容能力声明
+    ├── schemas.py        # GET /models 响应模型
+    ├── client.py         # 自定义 HTTPS URL 与 SSRF 基础防护
+    └── service.py        # 模型发现与统一结果转换
 ```
 
 新增渠道时复制同一职责边界，并在 `app.py` 的 `ProviderServiceRegistry` 注册。公共管理层不按渠道名写分支，
@@ -63,6 +68,15 @@ GLM 模块只允许 HTTPS、`open.bigmodel.cn` 和固定 `/api/paas/v4` 路径�
 
 LiteLLM 的 provider 名称仍为 `zai`，但创建 Deployment 时会显式保存国内 API Base，因此不会使用
 LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
+
+## OpenAI 兼容接口
+
+`openai_compatible` 模块支持自定义 HTTPS API Base，并使用 `GET {api_base}/models` 校验 Key 和发现模型。
+它会拒绝 URL 用户信息、查询参数、片段、重定向、私网解析结果和超过 1 MiB 的响应。当前通用协议不能可靠
+获取余额、套餐、周期额度、分组倍率或账户实际价格，因此这些字段明确保持不支持，不从公开价格或模型名称猜测
+
+自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
+生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport
 
 ## 本地开发
 

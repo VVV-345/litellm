@@ -9,6 +9,7 @@ import pytest
 from account_pool.domain.provider_source import ProviderValidationRequest
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.registry import ProviderServiceRegistry
+from pydantic import SecretStr
 
 
 @pytest.mark.asyncio
@@ -28,7 +29,7 @@ async def test_glm_validation_discovers_models_without_returning_api_key() -> No
             ProviderValidationRequest(
                 provider_id="glm_official",
                 api_base="https://open.bigmodel.cn/api/paas/v4/",
-                api_key="glm-secret-key",
+                api_key=SecretStr("glm-secret-key"),
                 group="生产",
             )
         )
@@ -57,7 +58,7 @@ async def test_glm_validation_rejects_non_official_url_without_sending_key() -> 
             ProviderValidationRequest(
                 provider_id="glm_official",
                 api_base="https://example.invalid/api/paas/v4",
-                api_key="must-not-leak",
+                api_key=SecretStr("must-not-leak"),
             )
         )
 
@@ -83,7 +84,11 @@ async def test_glm_validation_rejects_modified_official_authority(api_base: str)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
         result: Final = await GlmOfficialProviderService(client).validate(
-            ProviderValidationRequest(provider_id="glm_official", api_base=api_base, api_key="must-not-leak")
+            ProviderValidationRequest(
+                provider_id="glm_official",
+                api_base=api_base,
+                api_key=SecretStr("must-not-leak"),
+            )
         )
 
     assert not result.ok
@@ -101,7 +106,7 @@ async def test_glm_validation_reports_invalid_key() -> None:
             ProviderValidationRequest(
                 provider_id="glm_official",
                 api_base="https://open.bigmodel.cn/api/paas/v4",
-                api_key="invalid",
+                api_key=SecretStr("invalid"),
             )
         )
 
@@ -116,7 +121,7 @@ async def test_registry_returns_typed_failure_for_unknown_provider() -> None:
         ProviderValidationRequest(
             provider_id="missing",
             api_base="https://provider.example/v1",
-            api_key="secret",
+            api_key=SecretStr("secret"),
         )
     )
 
