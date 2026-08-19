@@ -120,8 +120,9 @@ effective result。无效或已不存在的目标会形成脱敏结构化失败�
 
 解析历史和 raw/effective 有效数据已分别通过 `GET /api/channels/{id}/parser-runs` 与
 `GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。人工覆盖的设置和撤销也已通过 LiteLLM
-管理员代理接入；代理在服务端签发短时 actor 信封，4100 独立 UI 不签发该信封，当前只读预览覆盖数据。Worker 的
-解析启动 API 和常驻任务循环、受控 JSON 导入、快照文件预览接口及字段差异 UI 仍按 Phase 2 后续步骤接入
+管理员代理接入；代理在服务端签发短时 actor 信封，4100 独立 UI 不签发该信封，当前只读预览覆盖数据。
+`GET /api/channels/{id}/snapshot` 和 `/export` 从 PostgreSQL 最新结果即时生成以渠道 ID 为键的 schema v1 脱敏文档，
+后者附带下载响应头。Worker 的解析启动 API 和常驻任务循环、受控 JSON 导入及字段差异 UI 仍按 Phase 2 后续步骤接入
 
 ## 本地开发
 

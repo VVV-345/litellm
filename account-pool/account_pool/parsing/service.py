@@ -10,9 +10,11 @@ from account_pool.models import FrozenModel
 from account_pool.parsing.models import ParsedChannelData, ParserIssue, ParserRunStatus
 from account_pool.parsing.overrides.composer import (
     OverrideApplyFailure,
+    OverrideComposition,
     active_override_events,
     compose_effective_result,
 )
+from account_pool.parsing.overrides.models import FieldOverrideEvent
 from account_pool.parsing.overrides.repository import (
     OverrideEventRepository,
     OverridePersistenceFailure,
@@ -26,6 +28,7 @@ from account_pool.parsing.persistence import (
 )
 from account_pool.parsing.repository import ParserRunRepository
 from account_pool.parsing.safety import has_safe_parser_content
+from account_pool.parsing.snapshots import ParserSnapshot, project_parser_snapshot
 
 
 class ParserDataFailureCode(StrEnum):
@@ -81,12 +84,21 @@ class EffectiveParserData(FrozenModel):
 
 ParserRunHistoryResult = ParserRunHistory | ParserDataFailure
 EffectiveParserDataResult = EffectiveParserData | ParserDataFailure
+ParserSnapshotResult = ParserSnapshot | ParserDataFailure
+
+
+class _LatestProjection(FrozenModel):
+    record: PersistedParserRun
+    active_overrides: tuple[FieldOverrideEvent, ...]
+    composition: OverrideComposition
 
 
 class ParserDataReader(Protocol):
     async def history(self, channel_id: UUID, limit: int) -> ParserRunHistoryResult: ...
 
     async def effective_data(self, channel_id: UUID) -> EffectiveParserDataResult: ...
+
+    async def snapshot(self, channel_id: UUID) -> ParserSnapshotResult: ...
 
 
 class ParserDataService:
@@ -110,19 +122,11 @@ class ParserDataService:
         )
 
     async def effective_data(self, channel_id: UUID) -> EffectiveParserDataResult:
-        loaded: Final = await self._parser_runs.load_for_channel(channel_id=channel_id, limit=1)
-        if isinstance(loaded, ParserPersistenceFailure):
-            return _from_parser_failure(loaded)
-        if not loaded.records:
-            return ParserDataFailure(code=ParserDataFailureCode.RUN_NOT_FOUND, retryable=False)
-        record: Final = loaded.records[0]
-        if not _is_safe_record(record):
-            return ParserDataFailure(code=ParserDataFailureCode.INVALID_DATA, retryable=False)
-        loaded_overrides: Final = await self._overrides.load_for_channel(channel_id)
-        if isinstance(loaded_overrides, OverridePersistenceFailure):
-            return _from_override_failure(loaded_overrides)
-        composition: Final = compose_effective_result(record.run, loaded_overrides.events)
-        active: Final = active_override_events(loaded_overrides.events)
+        projection: Final = await self._latest_projection(channel_id)
+        if isinstance(projection, ParserDataFailure):
+            return projection
+        record: Final = projection.record
+        composition: Final = projection.composition
         return EffectiveParserData(
             channel_id=channel_id,
             parser_run_id=record.run.parser_run_id,
@@ -137,11 +141,41 @@ class ParserDataService:
                     source_parser_run_id=event.source_parser_run_id,
                     occurred_at=event.occurred_at,
                 )
-                for event in active
+                for event in projection.active_overrides
             ),
             applied_override_ids=composition.applied_override_ids,
             override_failures=composition.failures,
         )
+
+    async def snapshot(self, channel_id: UUID) -> ParserSnapshotResult:
+        projection: Final = await self._latest_projection(channel_id)
+        if isinstance(projection, ParserDataFailure):
+            return projection
+        snapshot: Final = project_parser_snapshot(
+            run=projection.record.run,
+            effective_result=projection.composition.effective_result,
+        )
+        if not has_safe_parser_content(snapshot.model_dump_json()):
+            return ParserDataFailure(code=ParserDataFailureCode.INVALID_DATA, retryable=False)
+        return snapshot
+
+    async def _latest_projection(self, channel_id: UUID) -> _LatestProjection | ParserDataFailure:
+        loaded: Final = await self._parser_runs.load_for_channel(channel_id=channel_id, limit=1)
+        if isinstance(loaded, ParserPersistenceFailure):
+            return _from_parser_failure(loaded)
+        if not loaded.records:
+            return ParserDataFailure(code=ParserDataFailureCode.RUN_NOT_FOUND, retryable=False)
+        record: Final = loaded.records[0]
+        if not _is_safe_record(record):
+            return ParserDataFailure(code=ParserDataFailureCode.INVALID_DATA, retryable=False)
+        loaded_overrides: Final = await self._overrides.load_for_channel(channel_id)
+        if isinstance(loaded_overrides, OverridePersistenceFailure):
+            return _from_override_failure(loaded_overrides)
+        composition: Final = compose_effective_result(record.run, loaded_overrides.events)
+        active: Final = active_override_events(loaded_overrides.events)
+        if not has_safe_parser_content(composition.model_dump_json()):
+            return ParserDataFailure(code=ParserDataFailureCode.INVALID_DATA, retryable=False)
+        return _LatestProjection(record=record, active_overrides=active, composition=composition)
 
 
 def _summary(record: PersistedParserRun) -> ParserRunSummary:

@@ -23,7 +23,9 @@ from litellm.proxy.management_endpoints.account_pool_actor import (
 router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
 _Method = Literal["GET", "POST", "PUT", "DELETE"]
-_RESPONSE_HEADER_ALLOWLIST: Final = frozenset({"content-type", "cache-control"})
+_RESPONSE_HEADER_ALLOWLIST: Final = frozenset(
+    {"content-type", "cache-control", "content-disposition", "x-content-type-options"}
+)
 _BODY_METHODS: Final = frozenset({"POST", "PUT", "DELETE"})
 
 
@@ -176,6 +178,26 @@ async def get_channel_effective_data(
 ) -> Response:
     _require_proxy_admin(user_api_key_dict)
     return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/effective-data")
+
+
+@router.get("/channels/{channel_id}/snapshot")
+async def get_channel_parser_snapshot(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/snapshot")
+
+
+@router.get("/channels/{channel_id}/export")
+async def export_channel_parser_snapshot(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/export")
 
 
 @router.put("/channels/{channel_id}/overrides")

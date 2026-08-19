@@ -48,7 +48,12 @@ async def test_forward_adds_service_token_and_filters_upstream_headers(monkeypat
         captured.append(request)
         return httpx.Response(
             status_code=200,
-            headers={"content-type": "application/json", "x-upstream-secret": "hidden"},
+            headers={
+                "content-type": "application/json",
+                "content-disposition": 'attachment; filename="snapshot.json"',
+                "x-content-type-options": "nosniff",
+                "x-upstream-secret": "hidden",
+            },
             json=[{"provider_id": "glm_official"}],
         )
 
@@ -65,6 +70,8 @@ async def test_forward_adds_service_token_and_filters_upstream_headers(monkeypat
     assert str(captured[0].url) == "http://account-pool:4100/api/provider-services"
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json"
+    assert response.headers["content-disposition"] == 'attachment; filename="snapshot.json"'
+    assert response.headers["x-content-type-options"] == "nosniff"
     assert "x-upstream-secret" not in response.headers
 
 

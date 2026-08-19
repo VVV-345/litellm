@@ -85,8 +85,8 @@
 - 支持逐字段人工修正、撤销和审计
 - 渠道页展示模型发现、套餐、按量和 billing route 是否可控
 
-状态：parser run 历史和最新 raw/effective 数据只读 API、签名 actor 信封、覆盖写入/撤销，以及 LiteLLM 服务端
-代理已实现。解析启动、受控导入、快照文件预览/导出和 UI 尚未实现
+状态：parser run 历史、最新 raw/effective 数据、以渠道 ID 为键的脱敏快照预览/导出 API、签名 actor 信封、覆盖
+写入/撤销，以及 LiteLLM 服务端代理已实现。解析启动、受控导入和 UI 尚未实现
 
 ## Verification Gates
 

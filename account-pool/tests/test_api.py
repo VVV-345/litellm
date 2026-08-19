@@ -36,7 +36,9 @@ from account_pool.parsing.service import (
     ParserRunHistory,
     ParserRunHistoryResult,
     ParserRunSummary,
+    ParserSnapshotResult,
 )
+from account_pool.parsing.snapshots import ParserSnapshot
 from account_pool.store import MemoryStateStore
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -61,6 +63,7 @@ _ROUTE_ENTRIES_ADAPTER: Final = TypeAdapter(tuple[RouteEntry, ...])
 _ACCOUNT_VIEWS_ADAPTER: Final = TypeAdapter(tuple[AccountView, ...])
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[ProviderServiceManifest, ...])
+_SNAPSHOT_DOCUMENT_ADAPTER: Final = TypeAdapter(dict[UUID, ParserSnapshot])
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _PARSER_RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
 _PARSED_AT: Final = datetime(2026, 8, 19, 19, 0, tzinfo=UTC)
@@ -72,9 +75,11 @@ class FakeParserDataReader:
         self,
         history_result: ParserRunHistoryResult,
         effective_result: EffectiveParserDataResult,
+        snapshot_result: ParserSnapshotResult,
     ) -> None:
         self._history_result: Final = history_result
         self._effective_result: Final = effective_result
+        self._snapshot_result: Final = snapshot_result
 
     async def history(self, channel_id: UUID, limit: int) -> ParserRunHistoryResult:
         assert channel_id == _CHANNEL_ID
@@ -84,6 +89,10 @@ class FakeParserDataReader:
     async def effective_data(self, channel_id: UUID) -> EffectiveParserDataResult:
         assert channel_id == _CHANNEL_ID
         return self._effective_result
+
+    async def snapshot(self, channel_id: UUID) -> ParserSnapshotResult:
+        assert channel_id == _CHANNEL_ID
+        return self._snapshot_result
 
 
 class FakeParserOverrideWriter:
@@ -155,7 +164,17 @@ def _parser_data_reader() -> FakeParserDataReader:
         raw_result=ParsedChannelData(warnings=("需要人工确认",)),
         effective_result=ParsedChannelData(warnings=("管理员已确认",)),
     )
-    return FakeParserDataReader(history, effective)
+    snapshot: Final = ParserSnapshot(
+        parser_id="fixture-parser",
+        parser_version="1.0.0",
+        parser_run_id=_PARSER_RUN_ID,
+        parsed_at=_PARSED_AT,
+        status=ParserRunStatus.PARTIAL,
+        raw_result=effective.raw_result,
+        effective_result=effective.effective_result,
+        discovered_models=("model-a",),
+    )
+    return FakeParserDataReader(history, effective, snapshot)
 
 
 def _override_success(
@@ -274,10 +293,43 @@ async def test_parser_history_and_effective_data_require_token_and_return_safe_v
 
 
 @pytest.mark.asyncio
+async def test_snapshot_preview_and_export_return_the_same_redacted_channel_document() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        parser_data=_parser_data_reader(),
+    )
+    headers: Final = {"x-account-pool-token": "test-service-token"}
+    base_path: Final = f"/api/channels/{_CHANNEL_ID}"
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            preview: Final = await client.get(f"{base_path}/snapshot", headers=headers)
+            exported: Final = await client.get(f"{base_path}/export", headers=headers)
+
+    preview_document: Final = _SNAPSHOT_DOCUMENT_ADAPTER.validate_json(preview.content)
+    exported_document: Final = _SNAPSHOT_DOCUMENT_ADAPTER.validate_json(exported.content)
+    rendered: Final = exported.text.casefold()
+    assert preview_document == exported_document
+    assert tuple(exported_document) == (_CHANNEL_ID,)
+    assert exported_document[_CHANNEL_ID].raw_result.warnings == ("需要人工确认",)
+    assert exported_document[_CHANNEL_ID].effective_result.warnings == ("管理员已确认",)
+    assert preview.headers["cache-control"] == "no-store"
+    assert "content-disposition" not in preview.headers
+    assert exported.headers["content-disposition"].endswith(f'{_CHANNEL_ID}-snapshot.json"')
+    assert exported.headers["x-content-type-options"] == "nosniff"
+    assert "api_key" not in rendered
+    assert "credential_ref" not in rendered
+    assert "http://" not in rendered
+    assert "https://" not in rendered
+
+
+@pytest.mark.asyncio
 async def test_parser_data_api_reports_configuration_and_domain_failures() -> None:
     unavailable_app: Final = create_app(settings=settings(), store=MemoryStateStore())
     missing_reader: Final = FakeParserDataReader(
         ParserDataFailure(code=ParserDataFailureCode.CHANNEL_NOT_FOUND, retryable=False),
+        ParserDataFailure(code=ParserDataFailureCode.RUN_NOT_FOUND, retryable=False),
         ParserDataFailure(code=ParserDataFailureCode.RUN_NOT_FOUND, retryable=False),
     )
     missing_app: Final = create_app(

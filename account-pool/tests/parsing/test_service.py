@@ -34,6 +34,7 @@ from account_pool.parsing.service import (
     ParserDataService,
     ParserRunHistory,
 )
+from account_pool.parsing.snapshots import ParserSnapshot
 
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
@@ -144,6 +145,26 @@ async def test_effective_data_applies_active_override_without_changing_raw() -> 
     assert "人工核对余额" not in result.model_dump_json()
 
 
+async def test_snapshot_projects_latest_raw_and_effective_data_without_override_audit_details() -> None:
+    service: Final = ParserDataService(
+        FakeParserRunRepository((_record(),)),
+        FakeOverrideRepository((_override(),)),
+    )
+
+    result: Final = await service.snapshot(_CHANNEL_ID)
+
+    assert isinstance(result, ParserSnapshot)
+    assert result.schema_version == 1
+    assert result.parser_id == "fixture-parser"
+    assert result.discovered_models == ("model-a",)
+    assert result.raw_result.subscription is not None
+    assert result.raw_result.subscription.balance == Decimal("10")
+    assert result.effective_result.subscription is not None
+    assert result.effective_result.subscription.balance == Decimal("20")
+    assert "admin-user" not in result.model_dump_json()
+    assert "人工核对余额" not in result.model_dump_json()
+
+
 async def test_query_failures_and_missing_run_are_explicit() -> None:
     unavailable: Final = ParserDataService(
         FakeParserRunRepository(
@@ -179,9 +200,12 @@ async def test_query_service_refuses_unsafe_repository_data() -> None:
 
     history: Final = await service.history(_CHANNEL_ID, limit=25)
     effective: Final = await service.effective_data(_CHANNEL_ID)
+    snapshot: Final = await service.snapshot(_CHANNEL_ID)
 
     assert isinstance(history, ParserDataFailure)
     assert history.code == ParserDataFailureCode.INVALID_DATA
     assert isinstance(effective, ParserDataFailure)
     assert effective.code == ParserDataFailureCode.INVALID_DATA
+    assert isinstance(snapshot, ParserDataFailure)
+    assert snapshot.code == ParserDataFailureCode.INVALID_DATA
     assert "hidden" not in history.model_dump_json()

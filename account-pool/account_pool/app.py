@@ -15,6 +15,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import TypeAdapter
 
 from account_pool.auth.actor import (
     ActorAction,
@@ -66,12 +67,15 @@ from account_pool.parsing.service import (
     ParserDataService,
     ParserRunHistory,
 )
+from account_pool.parsing.snapshots import ParserSnapshot
 from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
+
+_SNAPSHOT_DOCUMENT: Final[TypeAdapter[dict[UUID, ParserSnapshot]]] = TypeAdapter(dict[UUID, ParserSnapshot])
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +250,14 @@ def create_app(
             raise _parser_data_http_error(result)
         return result
 
+    async def parser_snapshot(channel_id: UUID) -> Response:
+        snapshot: Final = await _load_parser_snapshot(resolved_parser_data, channel_id)
+        return _snapshot_response(channel_id=channel_id, snapshot=snapshot, download=False)
+
+    async def export_parser_snapshot(channel_id: UUID) -> Response:
+        snapshot: Final = await _load_parser_snapshot(resolved_parser_data, channel_id)
+        return _snapshot_response(channel_id=channel_id, snapshot=snapshot, download=True)
+
     async def set_parser_override(
         channel_id: UUID,
         body: OverrideSetRequest,
@@ -362,6 +374,18 @@ def create_app(
         dependencies=management_dependency,
     )
     application.add_api_route(
+        "/api/channels/{channel_id}/snapshot",
+        parser_snapshot,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/export",
+        export_parser_snapshot,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
         "/api/channels/{channel_id}/overrides",
         set_parser_override,
         methods=["PUT"],
@@ -415,6 +439,18 @@ def create_app(
     application.add_api_route(
         "/ui-api/channels/{channel_id}/effective-data",
         effective_parser_data,
+        methods=["GET"],
+        dependencies=ui_dependency,
+    )
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}/snapshot",
+        parser_snapshot,
+        methods=["GET"],
+        dependencies=ui_dependency,
+    )
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}/export",
+        export_parser_snapshot,
         methods=["GET"],
         dependencies=ui_dependency,
     )
@@ -472,6 +508,32 @@ def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
         parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
         overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
     )
+
+
+async def _load_parser_snapshot(
+    parser_data: ParserDataReader | None,
+    channel_id: UUID,
+) -> ParserSnapshot:
+    if parser_data is None:
+        raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+    result: Final = await parser_data.snapshot(channel_id)
+    if isinstance(result, ParserDataFailure):
+        raise _parser_data_http_error(result)
+    return result
+
+
+def _snapshot_response(channel_id: UUID, snapshot: ParserSnapshot, download: bool) -> Response:
+    payload: Final = _SNAPSHOT_DOCUMENT.dump_json({channel_id: snapshot}, indent=2)
+    headers: Final = {
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        **(
+            {"content-disposition": f'attachment; filename="account-pool-{channel_id}-snapshot.json"'}
+            if download
+            else {}
+        ),
+    }
+    return Response(content=payload, media_type="application/json", headers=headers)
 
 
 def _parser_data_http_error(failure: ParserDataFailure) -> HTTPException:
