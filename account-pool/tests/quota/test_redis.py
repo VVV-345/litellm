@@ -296,3 +296,6 @@ def test_lifecycle_scripts_preserve_atomic_reservation_contract() -> None:
     assert "ZADD', window_key .. ':reservations'" in REDIS_QUOTA_HEARTBEAT_LUA
     assert "ZREM', quota_state.window_key .. ':reservations'" in REDIS_QUOTA_SETTLE_LUA
     assert "'generation_id', ARGV[13 + quota_count]" in store_module._RESERVE_SCRIPT
+    assert "probe_mode = ARGV[14 + requested_quota_count] == '1'" in store_module._RESERVE_SCRIPT
+    assert "source ~= 'health'" in store_module._RESERVE_SCRIPT
+    assert "probe_source_key = health_source_key or KEYS[8]" in store_module._RESERVE_SCRIPT

@@ -1,17 +1,30 @@
 // 本文件装配渠道目录、解析任务、字段差异、人工修正和快照管理主界面。
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, FileJson, Import, Loader2, Pencil, Play, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Database,
+  FileJson,
+  HeartPulse,
+  Import,
+  Loader2,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
+import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isProxyAdminRole } from "@/utils/roles";
 import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
-import { accountPoolKeys, getChannels, getProviderServices } from "../api";
+import { accountPoolKeys, getChannels, getProviderServices, probeChannelHealth } from "../api";
 import ChannelList from "./ChannelList";
 import ChannelFormDialog from "./ChannelFormDialog";
 import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
@@ -52,9 +65,22 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const channels = channelsQuery.data?.channels ?? [];
   const selectedChannelId = chosenChannelId ?? channels[0]?.channel_id ?? null;
   const selectedChannel = channels.find((channel) => channel.channel_id === selectedChannelId) ?? null;
-  const knownModels = modelCostMapQuery.data && typeof modelCostMapQuery.data === "object"
-    ? Object.keys(modelCostMapQuery.data).sort()
-    : [];
+  const knownModels =
+    modelCostMapQuery.data && typeof modelCostMapQuery.data === "object"
+      ? Object.keys(modelCostMapQuery.data).sort()
+      : [];
+  const healthProbeMutation = useMutation({
+    mutationFn: () => probeChannelHealth(accessToken!, selectedChannel!.channel_id),
+    onSuccess: async (result) => {
+      if (result.status === "succeeded") NotificationsManager.success("渠道检测通过");
+      else
+        NotificationsManager.warning(
+          `渠道检测${result.status === "skipped" ? "未执行" : "失败"}：${result.reason_code}`,
+        );
+      await queryClient.invalidateQueries({ queryKey: accountPoolKeys.all });
+    },
+    onError: (error) => NotificationsManager.fromBackend(error),
+  });
 
   const refreshSelected = async () => {
     await queryClient.invalidateQueries({ queryKey: accountPoolKeys.all });
@@ -79,13 +105,28 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         title="Account Pool"
         subtitle="查看 PostgreSQL 渠道目录，运行解析并维护套餐、按量和价格数据"
         icon={<Database className="size-5" />}
-        actions={<div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setFormMode("import")}><Import />导入</Button>
-          <Button onClick={() => setFormMode("create")}><Plus />创建渠道</Button>
-          <Button variant="outline" size="icon" title="刷新" onClick={() => void refreshSelected()} disabled={channelsQuery.isFetching}>
-            <RefreshCw className={channelsQuery.isFetching ? "animate-spin" : undefined} /><span className="sr-only">刷新</span>
-          </Button>
-        </div>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setFormMode("import")}>
+              <Import />
+              导入
+            </Button>
+            <Button onClick={() => setFormMode("create")}>
+              <Plus />
+              创建渠道
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              title="刷新"
+              onClick={() => void refreshSelected()}
+              disabled={channelsQuery.isFetching}
+            >
+              <RefreshCw className={channelsQuery.isFetching ? "animate-spin" : undefined} />
+              <span className="sr-only">刷新</span>
+            </Button>
+          </div>
+        }
       />
 
       {operation && (
@@ -141,8 +182,36 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="icon" title="编辑渠道" onClick={() => setFormMode("edit")} disabled={selectedChannel.administrative_state === "pending_delete"}><Pencil /><span className="sr-only">编辑渠道</span></Button>
-                    <Button variant="outline" size="icon" title="解绑或删除" onClick={() => setLifecycleDialogOpen(true)} disabled={selectedChannel.administrative_state === "pending_delete"}><Trash2 /><span className="sr-only">解绑或删除</span></Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title="检测渠道"
+                      onClick={() => healthProbeMutation.mutate()}
+                      disabled={healthProbeMutation.isPending || selectedChannel.administrative_state !== "enabled"}
+                    >
+                      {healthProbeMutation.isPending ? <Loader2 className="animate-spin" /> : <HeartPulse />}
+                      <span className="sr-only">检测渠道</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title="编辑渠道"
+                      onClick={() => setFormMode("edit")}
+                      disabled={selectedChannel.administrative_state === "pending_delete"}
+                    >
+                      <Pencil />
+                      <span className="sr-only">编辑渠道</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title="解绑或删除"
+                      onClick={() => setLifecycleDialogOpen(true)}
+                      disabled={selectedChannel.administrative_state === "pending_delete"}
+                    >
+                      <Trash2 />
+                      <span className="sr-only">解绑或删除</span>
+                    </Button>
                     <Button variant="outline" onClick={() => setSnapshotDialogOpen(true)}>
                       <FileJson />
                       快照

@@ -56,6 +56,7 @@ def candidate_exclusion(
     deployment_id: str,
     billing_route_id: str | None,
     now: float,
+    ignored_sources: frozenset[EligibilitySource] = frozenset(),
 ) -> EligibilityExclusion | None:
     matching: Final = _candidate_evidence(
         exclusions=exclusions,
@@ -64,6 +65,7 @@ def candidate_exclusion(
         deployment_id=deployment_id,
         billing_route_id=billing_route_id,
         now=now,
+        ignored_sources=ignored_sources,
     )
     return next(
         (exclusion for exclusion in matching if effective_state(exclusion, now) == EligibilityState.ACTIVE), None
@@ -87,6 +89,32 @@ def candidate_evidence(
         now=now,
     )
     return next(iter(matching), None)
+
+
+def candidate_probe_evidence(
+    exclusions: tuple[EligibilityExclusion, ...],
+    account_id: str,
+    model: str,
+    deployment_id: str,
+    billing_route_id: str | None,
+    now: float,
+) -> EligibilityExclusion | None:
+    matching: Final = _candidate_evidence(
+        exclusions=exclusions,
+        account_id=account_id,
+        model=model,
+        deployment_id=deployment_id,
+        billing_route_id=billing_route_id,
+        now=now,
+    )
+    half_open: Final = next(
+        (exclusion for exclusion in matching if effective_state(exclusion, now) == EligibilityState.HALF_OPEN),
+        None,
+    )
+    return half_open or next(
+        (exclusion for exclusion in matching if exclusion.source == EligibilitySource.HEALTH),
+        None,
+    )
 
 
 def clear_candidate(
@@ -193,6 +221,7 @@ def _candidate_evidence(
     deployment_id: str,
     billing_route_id: str | None,
     now: float,
+    ignored_sources: frozenset[EligibilitySource] = frozenset(),
 ) -> tuple[EligibilityExclusion, ...]:
     state_rank: Final = {EligibilityState.ACTIVE: 0, EligibilityState.HALF_OPEN: 1, EligibilityState.CLEARED: 2}
     scope_rank: Final = {
@@ -207,6 +236,7 @@ def _candidate_evidence(
                 exclusion
                 for exclusion in exclusions
                 if _matches_candidate(exclusion, account_id, model, deployment_id, billing_route_id)
+                and exclusion.source not in ignored_sources
                 and effective_state(exclusion, now) != EligibilityState.CLEARED
             ),
             key=lambda exclusion: (

@@ -21,6 +21,7 @@ from account_pool.eligibility import (
     activate_exclusion,
     candidate_evidence,
     candidate_exclusion,
+    candidate_probe_evidence,
     effective_state,
     exclusion_subject,
     exclusions_after_settlement,
@@ -109,6 +110,7 @@ class StateStore(Protocol):
         request_id: str,
         estimated_tokens: int,
         ttl_seconds: int,
+        probe: bool = False,
     ) -> ReserveResult: ...
 
     async def settle(self, request: SettleRequest) -> bool: ...
@@ -188,6 +190,7 @@ class MemoryStateStore:
         request_id: str,
         estimated_tokens: int,
         ttl_seconds: int,
+        probe: bool = False,
     ) -> ReserveResult:
         async with self._lock:
             existing_id: Final = self._requests.get(request_id)
@@ -204,25 +207,45 @@ class MemoryStateStore:
                 deployment_id=deployment_id,
                 billing_route_id=billing_route_id,
                 now=now,
+                ignored_sources=frozenset((EligibilitySource.HEALTH,)) if probe else frozenset(),
             )
             if exclusion is not None:
                 return ReserveRejected(reason=exclusion.reason_code)
-            evidence: Final = candidate_evidence(
-                exclusions=self._exclusions,
-                account_id=account.id,
-                model=public_model,
-                deployment_id=deployment_id,
-                billing_route_id=billing_route_id,
-                now=now,
+            evidence: Final = (
+                candidate_probe_evidence(
+                    exclusions=self._exclusions,
+                    account_id=account.id,
+                    model=public_model,
+                    deployment_id=deployment_id,
+                    billing_route_id=billing_route_id,
+                    now=now,
+                )
+                if probe
+                else candidate_evidence(
+                    exclusions=self._exclusions,
+                    account_id=account.id,
+                    model=public_model,
+                    deployment_id=deployment_id,
+                    billing_route_id=billing_route_id,
+                    now=now,
+                )
             )
             probe_subject: Final = (
                 exclusion_subject(evidence)
-                if evidence is not None and effective_state(evidence, now) == EligibilityState.HALF_OPEN
+                if evidence is not None
+                and (probe or effective_state(evidence, now) == EligibilityState.HALF_OPEN)
+                else EligibilitySubject(
+                    scope=EligibilityScope.DEPLOYMENT,
+                    account_id=account.id,
+                    model=public_model,
+                    deployment_id=deployment_id,
+                )
+                if probe
                 else None
             )
             if probe_subject is not None and probe_subject in self._probe_leases:
                 return ReserveRejected(reason="half_open_probe_inflight")
-            rejection: Final = _availability_rejection(runtime=runtime, now=now)
+            rejection: Final = _availability_rejection(runtime=runtime, now=now, probe=probe)
             if rejection is not None:
                 return ReserveRejected(reason=rejection)
             quota_reserve: Final = reserve_quota_capacity(
@@ -467,21 +490,30 @@ local existing = redis.call('GET', KEYS[4])
 if existing then
   return {2, existing, 'existing'}
 end
-local function exclusion_status(key, now)
+local requested_quota_count = tonumber(ARGV[11])
+local probe_mode = ARGV[14 + requested_quota_count] == '1'
+local function exclusion_status(key, now, ignore_health)
   local entries = redis.call('HGETALL', key)
   local half_open = false
+  local health_evidence = false
   for index = 1, #entries, 2 do
     local field = entries[index]
     local value = entries[index + 1]
+    local field_separator = string.find(field, '|', 1, true)
+    if not field_separator then return 'eligibility_state_invalid', false, false end
+    local source = string.sub(field, 1, field_separator - 1)
+    local reason = string.sub(field, field_separator + 1)
     local value_separator = string.find(value, '|', 1, true)
+    if not value_separator then return 'eligibility_state_invalid', false, false end
     local retry_at = tonumber(string.sub(value, value_separator + 1)) or 0
     if retry_at == 0 or retry_at > now then
-      local field_separator = string.find(field, '|', 1, true)
-      return string.sub(field, field_separator + 1), false
+      if not ignore_health or source ~= 'health' then return reason, false, false end
+      health_evidence = true
+    else
+      half_open = true
     end
-    half_open = true
   end
-  return nil, half_open
+  return nil, half_open, health_evidence
 end
 local enabled = redis.call('HGET', KEYS[1], 'enabled')
 local health = redis.call('HGET', KEYS[1], 'health')
@@ -494,13 +526,16 @@ local quota_weekly = redis.call('HGET', KEYS[1], 'quota_weekly')
 local now = tonumber(ARGV[8])
 if enabled ~= '1' or health == 'disabled' then return {0, '', 'disabled'} end
 local probe_source_key = nil
+local health_source_key = nil
 for key_index = 6, 9 do
-  local reason, half_open = exclusion_status(KEYS[key_index], now)
+  local reason, half_open, health_evidence = exclusion_status(KEYS[key_index], now, probe_mode)
   if reason then return {0, '', reason} end
   if not probe_source_key and half_open then probe_source_key = KEYS[key_index] end
+  if not health_source_key and health_evidence then health_source_key = KEYS[key_index] end
 end
-if health == 'unhealthy' then return {0, '', 'unhealthy'} end
-if cooldown > now then return {0, '', 'cooldown'} end
+if not probe_mode and health == 'unhealthy' then return {0, '', 'unhealthy'} end
+if not probe_mode and cooldown > now then return {0, '', 'cooldown'} end
+if probe_mode and not probe_source_key then probe_source_key = health_source_key or KEYS[8] end
 local probe_key = ''
 if probe_source_key then
   probe_key = 'pool:eligibility:probe:' .. probe_source_key
@@ -701,6 +736,7 @@ class RedisStateStore:
         request_id: str,
         estimated_tokens: int,
         ttl_seconds: int,
+        probe: bool = False,
     ) -> ReserveResult:
         quota_plan: Final = prepare_quota_reservation_plan(
             account=account,
@@ -743,6 +779,7 @@ class RedisStateStore:
                     REDIS_QUOTA_DECIMAL_SCALE,
                     *quota_plan.arguments,
                     generation_id,
+                    1 if probe else 0,
                 ],
             )
         )
@@ -1120,12 +1157,12 @@ class RedisStateStore:
         return f"pool:lease:{lease_id}"
 
 
-def _availability_rejection(runtime: AccountSnapshot, now: float) -> str | None:
+def _availability_rejection(runtime: AccountSnapshot, now: float, probe: bool = False) -> str | None:
     if not runtime.enabled or runtime.health == Health.DISABLED:
         return "disabled"
-    if runtime.health == Health.UNHEALTHY:
+    if not probe and runtime.health == Health.UNHEALTHY:
         return "unhealthy"
-    if runtime.cooldown_until is not None and runtime.cooldown_until > now:
+    if not probe and runtime.cooldown_until is not None and runtime.cooldown_until > now:
         return "cooldown"
     if runtime.inflight >= runtime.max_concurrency:
         return "capacity"

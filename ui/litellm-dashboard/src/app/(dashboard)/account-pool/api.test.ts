@@ -12,6 +12,7 @@ import {
   getOperation,
   importChannel,
   importParserSnapshot,
+  probeChannelHealth,
   reconcileChannel,
   updateChannel,
 } from "./api";
@@ -127,5 +128,14 @@ describe("channel lifecycle API", () => {
       headers: { "Idempotency-Key": "request-id" },
     });
     expect(apiClient.get).toHaveBeenCalledWith("/account_pool/operations/operation-1", { accessToken: "token" });
+  });
+
+  it("runs a directed health probe without sending provider credentials", async () => {
+    await probeChannelHealth("token", "channel-1");
+
+    expect(mockedPost).toHaveBeenCalledWith("/account_pool/channels/channel-1/health-probe", {
+      accessToken: "token",
+      body: {},
+    });
   });
 });

@@ -20,6 +20,7 @@ from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
+from account_pool.health import HealthProbeRequest, HealthProbeResult, HealthProbeStatus, HealthProbeTrigger
 from account_pool.models import (
     AccountView,
     LiteLLMStatus,
@@ -381,6 +382,52 @@ class FakeSnapshotImporter:
         )
 
 
+class FakeHealthProbeManager:
+    def __init__(self) -> None:
+        self.calls: list[tuple[UUID, HealthProbeRequest]] = []
+        self.due_calls = 0
+
+    async def probe_channel(
+        self,
+        channel_id: UUID,
+        request: HealthProbeRequest,
+        trigger: HealthProbeTrigger = HealthProbeTrigger.MANUAL,
+    ) -> HealthProbeResult:
+        self.calls.append((channel_id, request))
+        return HealthProbeResult(
+            probe_id=UUID("90000000-0000-0000-0000-000000000001"),
+            status=HealthProbeStatus.SUCCEEDED,
+            trigger=trigger,
+            channel_id=channel_id,
+            account_id="channel-a",
+            deployment_id=request.deployment_id or "deployment-a",
+            public_model="model-a",
+            response_status_code=200,
+            latency_ms=12.5,
+        )
+
+    async def probe_account(
+        self,
+        account_id: str,
+        request: HealthProbeRequest,
+        trigger: HealthProbeTrigger = HealthProbeTrigger.MANUAL,
+    ) -> HealthProbeResult:
+        return HealthProbeResult(
+            probe_id=UUID("90000000-0000-0000-0000-000000000002"),
+            status=HealthProbeStatus.SUCCEEDED,
+            trigger=trigger,
+            account_id=account_id,
+            deployment_id=request.deployment_id or "deployment-a",
+            public_model="model-a",
+            response_status_code=200,
+            latency_ms=12.5,
+        )
+
+    async def probe_due(self) -> tuple[HealthProbeResult, ...]:
+        self.due_calls += 1
+        return ()
+
+
 def settings(
     config_path: Path | None = None,
     admin_key: str | None = None,
@@ -546,6 +593,48 @@ async def test_management_api_fails_closed_without_configured_token() -> None:
             response: Final = await client.get("/api/accounts")
 
     assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_channel_health_probe_requires_matching_actor_action() -> None:
+    probes: Final = FakeHealthProbeManager()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        health_probes=probes,
+    )
+    request_id: Final = "request-health-probe"
+    base_headers: Final = {
+        "x-account-pool-token": "test-service-token",
+        "x-account-pool-request-id": request_id,
+    }
+    valid_headers: Final = {
+        **base_headers,
+        "x-account-pool-actor": _actor_token(ActorAction.HEALTH_PROBE, request_id),
+    }
+    wrong_headers: Final = {
+        **base_headers,
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_UPDATE, request_id),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            rejected: Final = await client.post(
+                f"/api/channels/{_CHANNEL_ID}/health-probe",
+                headers=wrong_headers,
+                json={"deployment_id": "deployment-a"},
+            )
+            accepted: Final = await client.post(
+                f"/api/channels/{_CHANNEL_ID}/health-probe",
+                headers=valid_headers,
+                json={"deployment_id": "deployment-a"},
+            )
+
+    result: Final = HealthProbeResult.model_validate_json(accepted.content)
+    assert rejected.status_code == 403
+    assert accepted.status_code == 200
+    assert result.status == HealthProbeStatus.SUCCEEDED
+    assert probes.calls == [(_CHANNEL_ID, HealthProbeRequest(deployment_id="deployment-a"))]
 
 
 @pytest.mark.asyncio

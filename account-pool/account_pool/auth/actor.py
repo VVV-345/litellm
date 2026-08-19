@@ -34,6 +34,7 @@ class ActorAction(StrEnum):
     CHANNEL_DELETE = "channel:delete"
     CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel:delete_external_deployment"
     CHANNEL_RECONCILE = "channel:reconcile"
+    HEALTH_PROBE = "health:probe"
     PARSER_START = "parser_task:start"
     SNAPSHOT_IMPORT = "parser_snapshot:import"
     OVERRIDE_SET = "parser_override:set"

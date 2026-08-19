@@ -79,6 +79,19 @@ export interface ChannelOperation {
   failure: SafeOperationFailure | null;
 }
 
+export interface HealthProbeResult {
+  probe_id: string;
+  status: "succeeded" | "failed" | "skipped";
+  trigger: "manual" | "initial" | "half_open" | "idle";
+  channel_id: string | null;
+  account_id: string | null;
+  deployment_id: string | null;
+  public_model: string | null;
+  reason_code: string | null;
+  response_status_code: number | null;
+  latency_ms: number;
+}
+
 export interface ParsedChannelData {
   subscription: JsonValue;
   metered: JsonValue;

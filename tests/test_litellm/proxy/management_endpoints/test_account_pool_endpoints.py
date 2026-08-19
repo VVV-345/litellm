@@ -27,6 +27,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     get_catalog_channel,
     get_channel_operation,
     import_catalog_channel,
+    probe_catalog_channel_health,
     reconcile_catalog_channel,
     router,
     update_catalog_channel,
@@ -89,6 +90,7 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
             "/account_pool/channels/{channel_id}/bindings/{binding_id}/delete-external-deployment",
         ),
         ("POST", "/account_pool/channels/{channel_id}/reconcile"),
+        ("POST", "/account_pool/channels/{channel_id}/health-probe"),
         ("GET", "/account_pool/operations/{operation_id}"),
     }.issubset(routes)
 
@@ -133,6 +135,7 @@ async def test_channel_lifecycle_writes_use_request_bound_actions(monkeypatch: p
     await delete_catalog_channel(_CHANNEL_ID, request, admin)
     await delete_external_channel_deployment(_CHANNEL_ID, _BINDING_ID, request, admin)
     await reconcile_catalog_channel(_CHANNEL_ID, request, admin)
+    await probe_catalog_channel_health(_CHANNEL_ID, request, admin)
 
     assert tuple((method, path, _actor_action(actor)) for method, path, actor in forwarded if actor is not None) == (
         ("POST", "/api/channels", "channel:create"),
@@ -146,6 +149,7 @@ async def test_channel_lifecycle_writes_use_request_bound_actions(monkeypatch: p
             "channel:delete_external_deployment",
         ),
         ("POST", f"/api/channels/{_CHANNEL_ID}/reconcile", "channel:reconcile"),
+        ("POST", f"/api/channels/{_CHANNEL_ID}/health-probe", "health:probe"),
     )
     assert all(actor is not None and actor.request_id == "lifecycle-request" for _, _, actor in forwarded)
     assert all(actor is not None and actor.token != "browser-forged-actor" for _, _, actor in forwarded)

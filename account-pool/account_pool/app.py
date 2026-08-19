@@ -37,6 +37,7 @@ from account_pool.domain.provider_source import (
     ProviderValidationResult,
 )
 from account_pool.gateway import Gateway
+from account_pool.health import ActiveHealthProbeService, HealthProbeManager, HealthProbeRequest, HealthProbeResult
 from account_pool.management import LiteLLMAdminClient, PoolManager
 from account_pool.models import (
     AccountMutation,
@@ -142,6 +143,7 @@ class Runtime:
     parser_tasks: ParserTaskManager | None
     parser_export_retries: ParserExportRetryManager | None
     snapshot_importer: SnapshotImporter | None
+    health_probes: HealthProbeManager
 
 
 def create_app(
@@ -155,6 +157,7 @@ def create_app(
     parser_tasks: ParserTaskManager | None = None,
     parser_export_retries: ParserExportRetryManager | None = None,
     snapshot_importer: SnapshotImporter | None = None,
+    health_probes: HealthProbeManager | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -224,6 +227,14 @@ def create_app(
         if snapshot_importer is not None
         else _build_snapshot_importer(resolved_settings)
     )
+    resolved_health_probes: Final = health_probes or ActiveHealthProbeService(
+        accounts=scheduler,
+        store=resolved_store,
+        client=client,
+        litellm_url=resolved_settings.litellm_url,
+        admin_key=resolved_settings.litellm_admin_key,
+        lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -240,6 +251,7 @@ def create_app(
         parser_tasks=resolved_parser_tasks,
         parser_export_retries=resolved_parser_export_retries,
         snapshot_importer=resolved_snapshot_importer,
+        health_probes=resolved_health_probes,
     )
 
     @asynccontextmanager
@@ -275,6 +287,16 @@ def create_app(
             if resolved_parser_export_retries is None
             else asyncio.create_task(resolved_parser_export_retries.run())
         )
+        health_probe_task: Final = (
+            None
+            if resolved_settings.health_probe_interval_seconds <= 0
+            else asyncio.create_task(
+                _run_health_probes(
+                    resolved_health_probes,
+                    resolved_settings.health_probe_interval_seconds,
+                )
+            )
+        )
         try:
             yield
         finally:
@@ -289,6 +311,10 @@ def create_app(
                 parser_export_retry_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await parser_export_retry_task
+            if health_probe_task is not None:
+                health_probe_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await health_probe_task
             if resolved_parser_tasks is not None:
                 await resolved_parser_tasks.close()
             await resolved_store.close()
@@ -722,6 +748,33 @@ def create_app(
     async def update_policy(model: str, body: PolicyUpdate) -> ManagementResult:
         return await manager.update_policy(model=model, request=body)
 
+    async def probe_channel_health(
+        channel_id: UUID,
+        body: HealthProbeRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> HealthProbeResult:
+        _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.HEALTH_PROBE,
+            secret=resolved_settings.actor_secret,
+        )
+        result: Final = await resolved_health_probes.probe_channel(channel_id, body)
+        if result.reason_code in {"channel_not_found", "deployment_not_found"}:
+            raise HTTPException(status_code=404, detail={"code": result.reason_code})
+        if result.reason_code == "litellm_admin_key_missing":
+            raise HTTPException(status_code=503, detail={"code": result.reason_code})
+        return result
+
+    async def probe_account_health(account_id: str, body: HealthProbeRequest) -> HealthProbeResult:
+        result: Final = await resolved_health_probes.probe_account(account_id, body)
+        if result.reason_code in {"channel_not_found", "deployment_not_found"}:
+            raise HTTPException(status_code=404, detail={"code": result.reason_code})
+        if result.reason_code == "litellm_admin_key_missing":
+            raise HTTPException(status_code=503, detail={"code": result.reason_code})
+        return result
+
     async def acquire(body: AcquireRequest) -> AcquireSuccess:
         result: Final = await scheduler.acquire(body)
         if not isinstance(result, AcquireSuccess):
@@ -794,6 +847,18 @@ def create_app(
     application.add_api_route(
         "/api/channels/{channel_id}/reconcile",
         reconcile_channel,
+        methods=["POST"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/health-probe",
+        probe_channel_health,
+        methods=["POST"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/accounts/{account_id}/health-probe",
+        probe_account_health,
         methods=["POST"],
         dependencies=management_dependency,
     )
@@ -889,6 +954,12 @@ def create_app(
         "/ui-api/provider-services", provider_service_manifests, methods=["GET"], dependencies=ui_dependency
     )
     application.add_api_route(
+        "/ui-api/accounts/{account_id}/health-probe",
+        probe_account_health,
+        methods=["POST"],
+        dependencies=ui_dependency,
+    )
+    application.add_api_route(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
     )
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
@@ -931,6 +1002,17 @@ async def _run_reaper(store: StateStore) -> None:
     while True:
         await asyncio.sleep(1)
         await store.sweep_expired()
+
+
+async def _run_health_probes(service: HealthProbeManager, interval_seconds: int) -> None:
+    if interval_seconds < 1:
+        raise ValueError("health probe interval must be positive")
+    while True:
+        try:
+            await service.probe_due()
+        except Exception:
+            _LOGGER.exception("Account Pool active health probe pass failed")
+        await asyncio.sleep(interval_seconds)
 
 
 async def _run_reconciler(service: ChannelManager, interval_seconds: int) -> None:

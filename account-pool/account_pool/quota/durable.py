@@ -90,6 +90,7 @@ class DurableQuotaStateStore:
         request_id: str,
         estimated_tokens: int,
         ttl_seconds: int,
+        probe: bool = False,
     ) -> ReserveResult:
         rejection: Final = await self._generation_rejection()
         if rejection is not None:
@@ -102,6 +103,7 @@ class DurableQuotaStateStore:
             request_id=request_id,
             estimated_tokens=estimated_tokens,
             ttl_seconds=ttl_seconds,
+            probe=probe,
         )
         if not isinstance(result, ReserveSuccess):
             return result

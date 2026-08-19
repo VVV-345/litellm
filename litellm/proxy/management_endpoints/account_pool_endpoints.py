@@ -262,6 +262,21 @@ async def reconcile_catalog_channel(
     )
 
 
+@router.post("/channels/{channel_id}/health-probe")
+async def probe_catalog_channel_health(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path=f"/api/channels/{channel_id}/health-probe",
+        action=AccountPoolActorAction.HEALTH_PROBE,
+    )
+
+
 @router.get("/operations/{operation_id}")
 async def get_channel_operation(
     operation_id: UUID,

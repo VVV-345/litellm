@@ -1181,7 +1181,9 @@ PostgreSQL 恢复链路已增加独立的额度运行代次、幂等 usage 事�
 
 额度持久化装饰层已接入内存与 Redis 后端。结算先写 PostgreSQL usage，再更新运行后端并采集快照；reserve、release、heartbeat 和租约回收后同步快照。启动时以 PostgreSQL 活动代次、窗口快照和继承链 usage 重建运行状态；Redis 代次缺失或不匹配时创建新代次，并在故障前最长租约确定过期前拒绝新 acquire。旧代次回调、持久化失败、恢复不完整或代次错配都会进入 fail-closed，不会绕过额度继续调度。应用配置 `DATABASE_URL` 后自动使用持久化装饰层，未配置时继续使用原有内存或 Redis 后端
 
-实施状态（2026-08-20）：Phase 3 的被动健康、额度窗口、冷却、usage 持久化和重启恢复代码闭环已完成，当前聚焦验证为 `257 passed, 3 skipped`；跳过项均需要目标 PostgreSQL。新增及修改 Python 路径的 Ruff、basedpyright 和文件头检查通过。当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。Phase 3 剩余功能为主动健康检测、PostgreSQL 健康事件和健康/冷却详情 UI。当前机器没有 Redis 服务、Lua 运行时、fakeredis 或 Prisma CLI，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法、滚动过期、三份 Prisma schema 和迁移仍需在目标 Redis/PostgreSQL 环境集成验收
+主动健康检测已复用 LiteLLM `/health/test_connection`，通过 `model_info.id` 定向检查指定 Deployment，不在 Account Pool 读取或保存真实 Key。手动探测可以绕过健康来源的 active/cooldown 排除以验证修复结果，但仍受管理员禁用、并发、余额、429 和额度窗口约束；内存与 Redis 使用同一探测租约和单探测者语义。成功结果进入现有结算状态机并清除命中范围的健康证据，LiteLLM 管理认证、重定向或无效响应不会被误判为上游凭证故障。可选后台 worker 扫描 `unknown` 新渠道和已到恢复时间的 `half_open` 范围；自动探测默认关闭，只有显式设置 `ACCOUNT_POOL_HEALTH_PROBE_INTERVAL_SECONDS` 才会产生上游请求
+
+实施状态（2026-08-20）：Phase 3 的被动健康、手动/初始/half-open 主动探测、额度窗口、冷却、usage 持久化和重启恢复代码闭环已完成，当前聚焦验证为 `289 passed, 3 skipped`，LiteLLM 管理代理为 `14 passed`；跳过项均需要目标 PostgreSQL。新增及修改 Python 路径的 Ruff、basedpyright 和文件头检查通过。当前 PostgreSQL 目录投影尚未从解析结果中为 Deployment 选择具体 `billing_route`，该选择与最低成本策略一起在 Phase 4 接通。Phase 3 剩余功能为基于最后真实流量时间的长期空闲渠道探测、PostgreSQL 健康事件和健康/冷却详情 UI。当前机器没有 Redis 服务、Lua 运行时、fakeredis 或 Prisma CLI，按约束没有下载依赖；Redis Lua 已完成 Python 编解码、键、参数、精度、脚本拼装和生命周期契约测试，但真实并发执行、脚本语法、滚动过期、三份 Prisma schema 和迁移仍需在目标 Redis/PostgreSQL 环境集成验收
 
 ### Phase 4：正式调度表与策略
 

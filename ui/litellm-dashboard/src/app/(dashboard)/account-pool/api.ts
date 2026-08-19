@@ -9,6 +9,7 @@ import type {
   ChannelOperation,
   DeleteMode,
   EffectiveParserData,
+  HealthProbeResult,
   JsonValue,
   OverrideRevokeRequest,
   OverrideSetRequest,
@@ -51,7 +52,8 @@ export const updateChannel = (
   accessToken: string,
   channelId: string,
   request: ChannelMutationRequest,
-): Promise<ChannelOperation> => apiClient.put(`/account_pool/channels/${channelId}`, mutationOptions(accessToken, request));
+): Promise<ChannelOperation> =>
+  apiClient.put(`/account_pool/channels/${channelId}`, mutationOptions(accessToken, request));
 
 export const importChannel = (accessToken: string, request: ChannelMutationRequest): Promise<ChannelOperation> =>
   apiClient.post("/account_pool/channels/import", mutationOptions(accessToken, request));
@@ -64,10 +66,7 @@ export const deleteChannel = (
   channelId: string,
   deleteMode: DeleteMode,
 ): Promise<ChannelOperation> =>
-  apiClient.delete(
-    `/account_pool/channels/${channelId}`,
-    mutationOptions(accessToken, { delete_mode: deleteMode }),
-  );
+  apiClient.delete(`/account_pool/channels/${channelId}`, mutationOptions(accessToken, { delete_mode: deleteMode }));
 
 export const deleteExternalDeployment = (
   accessToken: string,
@@ -85,6 +84,9 @@ export const reconcileChannel = (
   apiKey: string | null,
 ): Promise<ChannelOperation> =>
   apiClient.post(`/account_pool/channels/${channelId}/reconcile`, mutationOptions(accessToken, { api_key: apiKey }));
+
+export const probeChannelHealth = (accessToken: string, channelId: string): Promise<HealthProbeResult> =>
+  apiClient.post(`/account_pool/channels/${channelId}/health-probe`, { accessToken, body: {} });
 
 export const getOperation = (accessToken: string, operationId: string): Promise<ChannelOperation> =>
   apiClient.get(`/account_pool/operations/${operationId}`, { accessToken });
