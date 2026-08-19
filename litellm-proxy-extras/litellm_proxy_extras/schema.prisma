@@ -1801,3 +1801,63 @@ model LiteLLM_AccountPoolParserTask {
   @@index([channel_id, created_at])
   @@index([status, heartbeat_at])
 }
+
+model LiteLLM_AccountPoolSyncOperation {
+  operation_id           String                          @id
+  idempotency_key        String                          @unique
+  channel_id             String
+  action                 String
+  status                 String
+  delete_mode            String?
+  desired_schema_version Int                             @default(1)
+  desired_payload        Json
+  attempt_count          Int                             @default(0)
+  requires_key           Boolean                         @default(false)
+  failure_code           String?
+  failure_message        String?
+  created_at             DateTime                        @default(now()) @client.Timestamptz(6)
+  updated_at             DateTime                        @updatedAt @client.Timestamptz(6)
+  applied_at             DateTime?                       @client.Timestamptz(6)
+  audit_events           LiteLLM_AccountPoolAuditEvent[]
+
+  @@index([channel_id, created_at])
+  @@index([status, created_at])
+}
+
+model LiteLLM_AccountPoolEvent {
+  event_id                    String                         @id
+  event_type                  String
+  occurred_at                 DateTime                       @default(now()) @client.Timestamptz(6)
+  channel_id                  String?
+  model_id                    String?
+  deployment_id               String?
+  request_id                  String?
+  lease_id                    String?
+  reason_code                 String?
+  actor_type                  String?
+  actor_id                    String?
+  safe_details_schema_version Int                            @default(1)
+  safe_details                Json
+  audit_event                 LiteLLM_AccountPoolAuditEvent?
+
+  @@index([occurred_at(sort: Desc), event_id(sort: Desc)])
+  @@index([channel_id, occurred_at(sort: Desc)])
+  @@index([model_id, occurred_at(sort: Desc)])
+  @@index([request_id, occurred_at(sort: Desc)])
+  @@index([event_type, occurred_at(sort: Desc)])
+  @@index([reason_code, occurred_at(sort: Desc)])
+}
+
+model LiteLLM_AccountPoolAuditEvent {
+  event_id          String                            @id
+  operation_id      String?
+  actor_role        String
+  actor_action      String
+  actor_envelope_id String
+  outcome           String
+  event             LiteLLM_AccountPoolEvent          @relation(fields: [event_id], references: [event_id], onDelete: Restrict)
+  operation         LiteLLM_AccountPoolSyncOperation? @relation(fields: [operation_id], references: [operation_id], onDelete: SetNull)
+
+  @@index([operation_id])
+  @@index([actor_envelope_id])
+}

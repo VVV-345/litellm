@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getChannels, getEffectiveData, getParserHistory, getProviderServices } from "../api";
 import AccountPoolPage from "./AccountPoolPage";
 
+vi.mock("@/app/(dashboard)/hooks/models/useModelCostMap", () => ({
+  useModelCostMap: vi.fn(() => ({ data: {}, isLoading: false })),
+}));
+
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
   return {

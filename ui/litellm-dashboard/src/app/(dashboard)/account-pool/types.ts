@@ -9,7 +9,7 @@ export interface ChannelSummary {
   provider: string;
   group: string | null;
   base_url_display: string;
-  administrative_state: "enabled" | "paused" | "disabled";
+  administrative_state: "enabled" | "paused" | "disabled" | "pending_delete";
   max_concurrency: number;
   priority: number;
   weight: number;
@@ -23,6 +23,60 @@ export interface ChannelSummary {
 
 export interface ChannelListResponse {
   channels: ChannelSummary[];
+}
+
+export type AdministrativeState = ChannelSummary["administrative_state"];
+export type BindingOwnership = "pool_managed" | "externally_managed";
+export type DeleteMode = "detach_only" | "delete_managed_deployment";
+export type OperationStatus = "pending_create" | "pending_update" | "pending_delete" | "applied" | "failed";
+
+export interface QuotaConfig {
+  unit: "tokens" | "usd";
+  total: number | null;
+  five_hour: number | null;
+  weekly: number | null;
+}
+
+export interface ChannelBindingInput {
+  binding_id: string | null;
+  public_model: string;
+  provider_model: string | null;
+  litellm_deployment_id: string | null;
+  ownership: BindingOwnership;
+  enabled: boolean;
+}
+
+export interface ChannelMutationRequest {
+  display_name: string;
+  provider: string;
+  group: string | null;
+  base_url_display: string;
+  administrative_state: AdministrativeState;
+  max_concurrency: number;
+  priority: number;
+  weight: number;
+  quotas: QuotaConfig;
+  api_key: string | null;
+  bindings: ChannelBindingInput[];
+}
+
+export interface ChannelDetail extends Omit<ChannelMutationRequest, "api_key"> {
+  channel_id: string;
+  key_mask: string | null;
+}
+
+export interface SafeOperationFailure {
+  code: string;
+  message: string;
+}
+
+export interface ChannelOperation {
+  status: "accepted" | "existing";
+  operation_id: string;
+  channel_id: string;
+  operation_status: OperationStatus;
+  requires_key: boolean;
+  failure: SafeOperationFailure | null;
 }
 
 export interface ParsedChannelData {

@@ -1047,23 +1047,29 @@ Account Pool
 - 一次性 Key 同实例解析任务、持久任务心跳、超时中断标记，以及启动和状态查询 API
 - schema v1 单渠道快照校验、差异转换和 PostgreSQL 原子覆盖批次的受控导入 API
 - 原生 HTML/JS 调度控制台
-- LiteLLM 到 Account Pool 的服务端管理代理基础
+- PostgreSQL 权威渠道目录、同步操作、统一事件和管理审计 schema、repository 与迁移
+- desired-first 渠道生命周期服务，以及 operation_id、幂等键、desired/applied 和失败重试闭环
+- pool_managed 与 externally_managed 绑定所有权、独立外部 Deployment 删除和 pending_delete 排空语义
+- 有界后台 reconciler、无需 Key 的失败重试，以及号池标记孤立 Deployment 扫描与报告
+- 从 PostgreSQL 已应用目录构建调度配置并刷新 Redis 运行态的投影器
+- `/api/accounts` 兼容端点到统一生命周期服务的转换与弃用响应头
+- LiteLLM 到 Account Pool 的完整渠道生命周期服务端管理代理
 - LiteLLM Dashboard 中的 Account Pool 正式路由、管理员导航和脱敏渠道目录
+- Dashboard 渠道创建、编辑、导入、解绑、删除、外部 Deployment 独立删除和同步状态展示
+- Dashboard 复用 LiteLLM Provider 数据、Creatable Model Select 与标准表单组件，支持模型选择和手动输入
 - Dashboard 解析任务、任务状态轮询、raw/effective 字段差异、人工覆盖和快照预览、导入、导出基础
 - Account Pool 手写文件中文职责说明及自动化文件头回归检查
 
 当前缺失或需要替换：
 
-- PostgreSQL 权威数据层
 - OpenAI 官方解析器，以及 parser worker 的公开元数据任务和后台导出重试循环
-- Dashboard 渠道创建、编辑、导入、解绑和删除的完整生命周期 UI
 - 混合健康检测和半开恢复
 - 按 scope 的额度窗口与 restriction
 - Retry-After 和结构化 429 分类
 - 余额耗尽策略
 - 完整调度解释和最低有效成本策略
-- 持久化事件、审计和日志 UI
-- Redis 恢复和 PostgreSQL 同步
+- 持久化运行事件查询和日志 UI；Phase 1 已完成渠道管理审计写入
+- Redis 丢失后的代次切换、最长租约隔离和 fail-closed 恢复；Phase 1 已完成 PostgreSQL 到当前运行态的配置投影
 
 现有计划中曾描述“Phase 1 有文件日志”“429 优先使用 Retry-After”“stats 包含完整额度与健康统计”，实际实现尚未满足。这些能力以本文后续阶段和验收标准为准
 
@@ -1094,6 +1100,12 @@ Account Pool
 - 跨服务失败保留可重试状态；reconciler 能识别并修复或报告未绑定的号池标记 Deployment
 - 外部导入的 Deployment 默认不会被误删
 - 多实例读取相同渠道权威状态
+
+实施状态（2026-08-19）：Phase 1 代码交付已完成，环境验收尚未完成。当前自动化验证包括 Account Pool 全量 `322 passed, 33 skipped`、LiteLLM 管理代理 `13 passed`、Dashboard `7 passed`，以及 Ruff、basedpyright、Account Pool 路径 TypeScript 和 ESLint 零错误。仍需在目标环境执行并记录以下验收：
+
+- 对真实 PostgreSQL 执行迁移、升级和回滚验证；当前 PostgreSQL 集成测试因未配置 `DATABASE_URL` 跳过
+- 使用仓库要求的 Prisma CLI 执行三份 schema 校验；当前环境未安装该 CLI，按约束不额外下载
+- 使用真实管理员登录 LiteLLM Dashboard，完成创建、编辑、导入、解绑、两种删除语义、失败重试和页面刷新后的端到端浏览器验收
 
 ### Phase 2：解析器框架、套餐、按量与 JSON 快照
 

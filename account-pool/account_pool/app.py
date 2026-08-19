@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +16,9 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import TypeAdapter
+from pydantic import SecretStr, TypeAdapter
 
+from account_pool.audit.postgres import PostgresManagementAuditRepository
 from account_pool.auth.actor import (
     ActorAction,
     ActorContext,
@@ -24,9 +26,10 @@ from account_pool.auth.actor import (
     ActorVerificationFailureCode,
     verify_actor_envelope,
 )
-from account_pool.catalog.models import ChannelList
+from account_pool.catalog.models import AdministrativeState, BindingOwnership, ChannelList
 from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.catalog.query import ChannelCatalogQueryService, ChannelCatalogReader
+from account_pool.catalog.service import CatalogService
 from account_pool.config import Settings, load_pool_config
 from account_pool.domain.provider_source import (
     ProviderServiceManifest,
@@ -40,6 +43,7 @@ from account_pool.models import (
     AccountView,
     AcquireRequest,
     AcquireSuccess,
+    DeploymentInput,
     HeartbeatRequest,
     LiteLLMStatus,
     ManagementResult,
@@ -92,10 +96,28 @@ from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
+from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
+from account_pool.sync.litellm import LiteLLMDeploymentSyncAdapter
+from account_pool.sync.models import DeleteMode
+from account_pool.sync.postgres import PostgresSyncOperationRepository
+from account_pool.sync.service import (
+    ChannelBindingMutation,
+    ChannelDeleteRequest,
+    ChannelDetail,
+    ChannelManagementFailure,
+    ChannelManagementResult,
+    ChannelManagementService,
+    ChannelManager,
+    ChannelMutation,
+    ChannelOperationView,
+    ChannelReconcileRequest,
+    ExternalDeploymentDeleteRequest,
+)
 
 _SNAPSHOT_DOCUMENT: Final[TypeAdapter[dict[UUID, ParserSnapshot]]] = TypeAdapter(dict[UUID, ParserSnapshot])
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +131,7 @@ class Runtime:
     provider_services: ProviderServiceRegistry
     parser_registry: ParserRegistry
     catalog: ChannelCatalogReader | None
+    channel_management: ChannelManager | None
     parser_data: ParserDataReader | None
     parser_overrides: ParserOverrideWriter | None
     parser_tasks: ParserTaskManager | None
@@ -120,6 +143,7 @@ def create_app(
     store: StateStore | None = None,
     proxy_client: httpx.AsyncClient | None = None,
     catalog: ChannelCatalogReader | None = None,
+    channel_management: ChannelManager | None = None,
     parser_data: ParserDataReader | None = None,
     parser_overrides: ParserOverrideWriter | None = None,
     parser_tasks: ParserTaskManager | None = None,
@@ -159,6 +183,15 @@ def create_app(
     )
     parser_registry: Final = build_parser_registry()
     resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
+    resolved_channel_management: Final = (
+        channel_management
+        if channel_management is not None
+        else _build_channel_management(
+            settings=resolved_settings,
+            scheduler=scheduler,
+            client=client,
+        )
+    )
     resolved_parser_data: Final = (
         parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     )
@@ -189,6 +222,7 @@ def create_app(
         provider_services=provider_services,
         parser_registry=parser_registry,
         catalog=resolved_catalog,
+        channel_management=resolved_channel_management,
         parser_data=resolved_parser_data,
         parser_overrides=resolved_parser_overrides,
         parser_tasks=resolved_parser_tasks,
@@ -197,16 +231,41 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-        await scheduler.initialize()
+        if resolved_settings.database_url is not None:
+            await RuntimeProjector(
+                CatalogService(
+                    PostgresCatalogRepository(
+                        resolved_settings.database_url,
+                        schema=resolved_settings.database_schema,
+                    )
+                ),
+                scheduler,
+            ).project()
+        else:
+            await scheduler.initialize()
         if resolved_parser_tasks is not None:
             await resolved_parser_tasks.initialize()
         reaper: Final = asyncio.create_task(_run_reaper(resolved_store))
+        reconciler: Final = (
+            None
+            if resolved_channel_management is None
+            else asyncio.create_task(
+                _run_reconciler(
+                    resolved_channel_management,
+                    resolved_settings.reconcile_interval_seconds,
+                )
+            )
+        )
         try:
             yield
         finally:
             reaper.cancel()
             with suppress(asyncio.CancelledError):
                 await reaper
+            if reconciler is not None:
+                reconciler.cancel()
+                with suppress(asyncio.CancelledError):
+                    await reconciler
             if resolved_parser_tasks is not None:
                 await resolved_parser_tasks.close()
             await resolved_store.close()
@@ -236,7 +295,8 @@ def create_app(
     async def healthz() -> OperationResult:
         return OperationResult(ok=True)
 
-    async def accounts() -> tuple[AccountView, ...]:
+    async def accounts(response: Response) -> tuple[AccountView, ...]:
+        _mark_accounts_compatibility_deprecated(response)
         snapshots: Final = {item.account_id: item for item in await scheduler.account_snapshots()}
         return tuple(
             AccountView(
@@ -283,6 +343,161 @@ def create_app(
         if resolved_catalog is None:
             raise HTTPException(status_code=503, detail="Account-pool database is not configured")
         return await resolved_catalog.list_channels()
+
+    async def channel_detail(channel_id: UUID) -> ChannelDetail:
+        service: Final = _require_channel_management(resolved_channel_management)
+        result: Final = await service.detail(channel_id)
+        if isinstance(result, ChannelManagementFailure):
+            raise _channel_management_http_error(result)
+        return result
+
+    async def channel_operation(operation_id: UUID) -> ChannelOperationView:
+        service: Final = _require_channel_management(resolved_channel_management)
+        result: Final = await service.operation(operation_id)
+        if isinstance(result, ChannelManagementFailure):
+            raise _channel_management_http_error(result)
+        return result
+
+    async def create_channel(
+        body: ChannelMutation,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).create(
+                body,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_CREATE,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def import_channel(
+        body: ChannelMutation,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).import_channel(
+                body,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_IMPORT,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def update_channel(
+        channel_id: UUID,
+        body: ChannelMutation,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).update(
+                channel_id,
+                body,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_UPDATE,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def detach_channel(
+        channel_id: UUID,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).detach(
+                channel_id,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_DETACH,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def delete_channel(
+        channel_id: UUID,
+        body: ChannelDeleteRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).delete(
+                channel_id,
+                body,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_DELETE,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def delete_external_deployment(
+        channel_id: UUID,
+        binding_id: UUID,
+        body: ExternalDeploymentDeleteRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).delete_external(
+                channel_id,
+                binding_id,
+                body,
+                _required_idempotency_key(idempotency_key),
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
+
+    async def reconcile_channel(
+        channel_id: UUID,
+        body: ChannelReconcileRequest,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ChannelOperationView:
+        return await _channel_mutation_result(
+            _require_channel_management(resolved_channel_management).reconcile(
+                channel_id,
+                body,
+                _verified_actor(
+                    token=x_account_pool_actor,
+                    request_id=x_account_pool_request_id,
+                    expected_action=ActorAction.CHANNEL_RECONCILE,
+                    secret=resolved_settings.actor_secret,
+                ),
+            )
+        )
 
     async def validate_provider(body: ProviderValidationRequest) -> ProviderValidationResult:
         return await provider_services.validate(body)
@@ -402,14 +617,80 @@ def create_app(
             raise _override_mutation_http_error(result)
         return result
 
-    async def create_account(body: AccountMutation) -> ManagementResult:
-        return await manager.create_account(body)
+    async def create_account(
+        body: AccountMutation,
+        response: Response,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ManagementResult:
+        _mark_accounts_compatibility_deprecated(response)
+        if resolved_channel_management is None:
+            return await manager.create_account(body)
+        result: Final = await resolved_channel_management.create(
+            _legacy_channel_mutation(body),
+            _required_idempotency_key(idempotency_key),
+            _verified_actor(
+                token=x_account_pool_actor,
+                request_id=x_account_pool_request_id,
+                expected_action=ActorAction.CHANNEL_CREATE,
+                secret=resolved_settings.actor_secret,
+            ),
+        )
+        return _legacy_management_result(result, "渠道创建已提交")
 
-    async def update_account(account_id: str, body: AccountMutation) -> ManagementResult:
-        return await manager.update_account(account_id=account_id, request=body)
+    async def update_account(
+        account_id: str,
+        body: AccountMutation,
+        response: Response,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ManagementResult:
+        _mark_accounts_compatibility_deprecated(response)
+        if resolved_channel_management is None:
+            return await manager.update_account(account_id=account_id, request=body)
+        detail: Final = await resolved_channel_management.detail_by_legacy_account(account_id)
+        if isinstance(detail, ChannelManagementFailure):
+            raise _channel_management_http_error(detail)
+        result: Final = await resolved_channel_management.update(
+            detail.channel_id,
+            _legacy_channel_mutation(body, detail),
+            _required_idempotency_key(idempotency_key),
+            _verified_actor(
+                token=x_account_pool_actor,
+                request_id=x_account_pool_request_id,
+                expected_action=ActorAction.CHANNEL_UPDATE,
+                secret=resolved_settings.actor_secret,
+            ),
+        )
+        return _legacy_management_result(result, "渠道更新已提交")
 
-    async def delete_account(account_id: str) -> ManagementResult:
-        return await manager.delete_account(account_id)
+    async def delete_account(
+        account_id: str,
+        response: Response,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> ManagementResult:
+        _mark_accounts_compatibility_deprecated(response)
+        if resolved_channel_management is None:
+            return await manager.delete_account(account_id)
+        detail: Final = await resolved_channel_management.detail_by_legacy_account(account_id)
+        if isinstance(detail, ChannelManagementFailure):
+            raise _channel_management_http_error(detail)
+        result: Final = await resolved_channel_management.delete(
+            detail.channel_id,
+            ChannelDeleteRequest(delete_mode=DeleteMode.DELETE_MANAGED_DEPLOYMENT),
+            _required_idempotency_key(idempotency_key),
+            _verified_actor(
+                token=x_account_pool_actor,
+                request_id=x_account_pool_request_id,
+                expected_action=ActorAction.CHANNEL_DELETE,
+                secret=resolved_settings.actor_secret,
+            ),
+        )
+        return _legacy_management_result(result, "渠道删除已提交")
 
     async def update_policy(model: str, body: PolicyUpdate) -> ManagementResult:
         return await manager.update_policy(model=model, request=body)
@@ -461,6 +742,40 @@ def create_app(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
     )
     application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
+    application.add_api_route("/api/channels", create_channel, methods=["POST"], dependencies=management_dependency)
+    application.add_api_route(
+        "/api/channels/import", import_channel, methods=["POST"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}", channel_detail, methods=["GET"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}", update_channel, methods=["PUT"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/detach", detach_channel, methods=["POST"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}", delete_channel, methods=["DELETE"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/bindings/{binding_id}/delete-external-deployment",
+        delete_external_deployment,
+        methods=["POST"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/channels/{channel_id}/reconcile",
+        reconcile_channel,
+        methods=["POST"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/operations/{operation_id}",
+        channel_operation,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
     application.add_api_route(
         "/api/channels/{channel_id}/parse",
         start_parser_task,
@@ -591,6 +906,17 @@ async def _run_reaper(store: StateStore) -> None:
         await store.sweep_expired()
 
 
+async def _run_reconciler(service: ChannelManager, interval_seconds: int) -> None:
+    if interval_seconds < 1:
+        raise ValueError("reconcile interval must be positive")
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await service.reconcile_pending()
+        except Exception:
+            _LOGGER.exception("Account Pool reconcile pass failed")
+
+
 async def _model_summary(
     scheduler: Scheduler,
     model: str,
@@ -618,6 +944,142 @@ def _build_catalog(settings: Settings) -> ChannelCatalogReader | None:
     return ChannelCatalogQueryService(
         PostgresCatalogRepository(settings.database_url, schema=settings.database_schema)
     )
+
+
+def _build_channel_management(
+    settings: Settings,
+    scheduler: Scheduler,
+    client: httpx.AsyncClient,
+) -> ChannelManagementService | None:
+    if settings.database_url is None or settings.litellm_admin_key is None:
+        return None
+    catalog_repository: Final = PostgresCatalogRepository(
+        settings.database_url,
+        schema=settings.database_schema,
+    )
+    return ChannelManagementService(
+        catalog_repository=catalog_repository,
+        operations=PostgresSyncOperationRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
+        synchronizer=LiteLLMDeploymentSyncAdapter(
+            client=client,
+            admin_endpoint=settings.litellm_url,
+            admin_key=SecretStr(settings.litellm_admin_key),
+        ),
+        runtime_projector=RuntimeProjector(CatalogService(catalog_repository), scheduler),
+        audit=PostgresManagementAuditRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
+    )
+
+
+def _require_channel_management(service: ChannelManager | None) -> ChannelManager:
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="PostgreSQL and LiteLLM management credentials are required for channel mutations",
+        )
+    return service
+
+
+def _required_idempotency_key(value: str | None) -> str:
+    normalized: Final = (value or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+    if len(normalized) > 255:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is too long")
+    return normalized
+
+
+async def _channel_mutation_result(
+    pending: Awaitable[ChannelManagementResult],
+) -> ChannelOperationView:
+    result: Final = await pending
+    if isinstance(result, ChannelManagementFailure):
+        raise _channel_management_http_error(result)
+    return result
+
+
+def _channel_management_http_error(failure: ChannelManagementFailure) -> HTTPException:
+    status_code: Final = {
+        "channel_not_found": 404,
+        "external_binding_not_found": 404,
+        "operation_not_found": 404,
+        "idempotency_conflict": 409,
+        "state_conflict": 409,
+        "database_unavailable": 503,
+    }.get(failure.code, 502 if failure.retryable else 400)
+    return HTTPException(status_code=status_code, detail={"code": failure.code, "retryable": failure.retryable})
+
+
+def _legacy_channel_mutation(
+    request: AccountMutation,
+    current: ChannelDetail | None = None,
+) -> ChannelMutation:
+    return ChannelMutation(
+        legacy_account_id=request.id,
+        display_name=request.display_name,
+        provider=request.provider,
+        group=request.group,
+        base_url_display=request.base_url_display,
+        administrative_state=(AdministrativeState.ENABLED if request.enabled else AdministrativeState.DISABLED),
+        max_concurrency=request.max_concurrency,
+        priority=request.priority,
+        weight=request.weight,
+        quotas=request.quotas,
+        api_key=request.api_key,
+        bindings=tuple(_legacy_binding(deployment, current) for deployment in request.deployments),
+    )
+
+
+def _legacy_binding(
+    deployment: DeploymentInput,
+    current: ChannelDetail | None,
+) -> ChannelBindingMutation:
+    matched: Final = next(
+        (
+            binding
+            for binding in (() if current is None else current.bindings)
+            if binding.litellm_deployment_id == deployment.litellm_model_id
+        ),
+        None,
+    )
+    ownership: Final = (
+        matched.ownership
+        if matched is not None
+        else (
+            BindingOwnership.EXTERNALLY_MANAGED
+            if deployment.litellm_model_id is not None
+            else BindingOwnership.POOL_MANAGED
+        )
+    )
+    return ChannelBindingMutation(
+        binding_id=None if matched is None else matched.binding_id,
+        public_model=deployment.public_model,
+        provider_model=(
+            deployment.provider_model
+            if deployment.provider_model is not None
+            else (None if matched is None else matched.provider_model)
+        ),
+        litellm_deployment_id=deployment.litellm_model_id,
+        ownership=ownership,
+        enabled=deployment.enabled,
+    )
+
+
+def _legacy_management_result(result: ChannelManagementResult, message: str) -> ManagementResult:
+    if isinstance(result, ChannelManagementFailure):
+        raise _channel_management_http_error(result)
+    return ManagementResult(ok=True, message=f"{message}，operation_id={result.operation_id}")
+
+
+def _mark_accounts_compatibility_deprecated(response: Response) -> None:
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = '</api/channels>; rel="successor-version"'
+    response.headers["Warning"] = '299 account-pool "Deprecated endpoint; use /api/channels"'
 
 
 def _build_parser_data(settings: Settings) -> ParserDataReader | None:

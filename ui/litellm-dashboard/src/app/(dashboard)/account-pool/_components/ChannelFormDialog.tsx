@@ -1,0 +1,306 @@
+// 本文件提供渠道创建、编辑和 LiteLLM Deployment 导入表单，并限制一次性凭证只存在组件状态中。
+"use client";
+
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import CreatableModelSelect from "@/components/add_model/CreatableModelSelect";
+import NotificationsManager from "@/components/molecules/notifications_manager";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+import { accountPoolKeys, createChannel, getChannel, importChannel, updateChannel } from "../api";
+import type {
+  AdministrativeState,
+  ChannelBindingInput,
+  ChannelDetail,
+  ChannelMutationRequest,
+  ChannelOperation,
+  ChannelSummary,
+  ProviderServiceManifest,
+  QuotaConfig,
+} from "../types";
+
+type ChannelFormMode = "create" | "edit" | "import";
+
+interface ChannelFormDialogProps {
+  accessToken: string;
+  mode: ChannelFormMode;
+  channel: ChannelSummary | null;
+  providers: ProviderServiceManifest[];
+  knownModels: string[];
+  onClose: () => void;
+  onAccepted: (operation: ChannelOperation) => Promise<void>;
+}
+
+const emptyQuotas: QuotaConfig = { unit: "tokens", total: null, five_hour: null, weekly: null };
+const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindingInput => ({
+  binding_id: null,
+  public_model: "",
+  provider_model: null,
+  litellm_deployment_id: null,
+  ownership,
+  enabled: true,
+});
+const optionalNumber = (value: string): number | null => (value.trim() ? Number(value) : null);
+const defaultOwnership = (mode: ChannelFormMode): ChannelBindingInput["ownership"] =>
+  mode === "import" ? "externally_managed" : "pool_managed";
+const dialogTitle = (mode: ChannelFormMode): string => {
+  if (mode === "import") return "导入已有 Deployment";
+  if (mode === "edit") return "编辑渠道";
+  return "创建渠道";
+};
+const successMessage = (mode: ChannelFormMode): string => {
+  if (mode === "import") return "渠道导入已提交";
+  if (mode === "edit") return "渠道更新已提交";
+  return "渠道创建已提交";
+};
+const submitLabel = (mode: ChannelFormMode): string => {
+  if (mode === "import") return "导入";
+  if (mode === "edit") return "保存";
+  return "创建";
+};
+
+export default function ChannelFormDialog({
+  accessToken,
+  mode,
+  channel,
+  providers,
+  knownModels,
+  onClose,
+  onAccepted,
+}: ChannelFormDialogProps) {
+  const editing = mode === "edit";
+  const detailQuery = useQuery({
+    queryKey: accountPoolKeys.channel(channel?.channel_id ?? "new"),
+    queryFn: () => getChannel(accessToken, channel!.channel_id),
+    enabled: editing && channel !== null,
+  });
+
+  if (editing && !detailQuery.data) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>编辑渠道</DialogTitle>
+            <DialogDescription>正在读取 PostgreSQL 中的完整渠道配置</DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
+            {detailQuery.isError ? "读取渠道详情失败，请关闭后重试" : <Loader2 className="animate-spin" />}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <ChannelFormContent
+      accessToken={accessToken}
+      mode={mode}
+      channel={channel}
+      providers={providers}
+      knownModels={knownModels}
+      onClose={onClose}
+      onAccepted={onAccepted}
+      initial={detailQuery.data ?? null}
+    />
+  );
+}
+
+function ChannelFormContent({
+  accessToken,
+  mode,
+  channel,
+  providers,
+  knownModels,
+  onClose,
+  onAccepted,
+  initial,
+}: ChannelFormDialogProps & { initial: ChannelDetail | null }) {
+  const editing = mode === "edit";
+  const importing = mode === "import";
+  const initialProvider = initial?.provider ?? channel?.provider ?? providers[0]?.provider_id ?? "openai_compatible";
+  const [displayName, setDisplayName] = useState(initial?.display_name ?? channel?.display_name ?? "");
+  const [provider, setProvider] = useState(initialProvider);
+  const [group, setGroup] = useState(initial?.group ?? channel?.group ?? "");
+  const [baseUrl, setBaseUrl] = useState(initial?.base_url_display ?? channel?.base_url_display ?? "");
+  const [administrativeState, setAdministrativeState] = useState<AdministrativeState>(
+    initial?.administrative_state ?? channel?.administrative_state ?? "enabled",
+  );
+  const [maxConcurrency, setMaxConcurrency] = useState(String(initial?.max_concurrency ?? channel?.max_concurrency ?? 1));
+  const [priority, setPriority] = useState(String(initial?.priority ?? channel?.priority ?? 0));
+  const [weight, setWeight] = useState(String(initial?.weight ?? channel?.weight ?? 1));
+  const [quotas, setQuotas] = useState<QuotaConfig>(initial?.quotas ?? emptyQuotas);
+  const [apiKey, setApiKey] = useState("");
+  const [bindings, setBindings] = useState<ChannelBindingInput[]>(
+    initial?.bindings ?? [emptyBinding(defaultOwnership(mode))],
+  );
+  const selectedProvider = providers.find((item) => item.provider_id === provider);
+
+  const close = () => {
+    setApiKey("");
+    onClose();
+  };
+
+  const request = (): ChannelMutationRequest => ({
+    display_name: displayName.trim(),
+    provider,
+    group: group.trim() || null,
+    base_url_display: baseUrl.trim(),
+    administrative_state: administrativeState,
+    max_concurrency: Number(maxConcurrency),
+    priority: Number(priority),
+    weight: Number(weight),
+    quotas,
+    api_key: apiKey || null,
+    bindings,
+  });
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const payload = request();
+      if (mode === "create") return createChannel(accessToken, payload);
+      if (mode === "import") return importChannel(accessToken, payload);
+      return updateChannel(accessToken, channel!.channel_id, payload);
+    },
+    onSuccess: async (operation) => {
+      NotificationsManager.success(successMessage(mode));
+      await onAccepted(operation);
+      close();
+    },
+    onError: (error) => NotificationsManager.fromBackend(error),
+    onSettled: () => setApiKey(""),
+  });
+
+  const bindingsValid = bindings.length > 0 && bindings.every((binding) => {
+    const baseValid = Boolean(binding.public_model.trim() && (binding.provider_model?.trim() || binding.litellm_deployment_id));
+    return importing ? baseValid && Boolean(binding.litellm_deployment_id) : baseValid;
+  });
+  const canSubmit =
+    !mutation.isPending &&
+    Boolean(displayName.trim() && provider && baseUrl.trim()) &&
+    Number(maxConcurrency) >= 1 &&
+    Number(weight) >= 1 &&
+    Number(weight) <= 100 &&
+    bindingsValid;
+
+  const selectedModels = useMemo(() => bindings.map((binding) => binding.public_model).filter(Boolean), [bindings]);
+  const setModels = (models: string[]) => {
+    setBindings(
+      models.map((model) => {
+        const existing = bindings.find((binding) => binding.public_model === model);
+        if (existing) return existing;
+        const prefix = selectedProvider?.litellm_provider_prefix ?? "";
+        return { ...emptyBinding(defaultOwnership(mode)), public_model: model, provider_model: `${prefix}${model}` };
+      }),
+    );
+  };
+  const updateBinding = (index: number, patch: Partial<ChannelBindingInput>) =>
+    setBindings(bindings.map((binding, bindingIndex) => (bindingIndex === index ? { ...binding, ...patch } : binding)));
+  const chooseProvider = (value: string | null) => {
+    if (!value) return;
+    setProvider(value);
+    const manifest = providers.find((item) => item.provider_id === value);
+    if (manifest?.default_api_base) setBaseUrl(manifest.default_api_base);
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{dialogTitle(mode)}</DialogTitle>
+          <DialogDescription>
+            {editing ? "Key 留空表示不轮换；提交结束后输入值会立即从组件状态清除" : "Key 只随本次请求提交，结束后立即从组件状态清除"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="channel-name">显示名称</Label>
+                <Input id="channel-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Provider</Label>
+                <Select value={provider} onValueChange={chooseProvider}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {providers.map((item) => (
+                      <SelectItem key={item.provider_id} value={item.provider_id}>
+                        {item.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {selectedProvider && (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedProvider.capabilities.map((capability) => (
+                  <Badge key={capability.capability} variant="outline">{capability.capability}: {capability.state}</Badge>
+                ))}
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="channel-url">上游 URL</Label>
+                <Input id="channel-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="channel-group">分组（可选）</Label>
+                <Input id="channel-group" value={group} onChange={(event) => setGroup(event.target.value)} />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="channel-key">{editing ? "新 Key（可选）" : "API Key（可选）"}</Label>
+              <div className="relative">
+                <KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+                <Input id="channel-key" type="password" className="pl-9" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid gap-2"><Label>状态</Label><Select value={administrativeState} onValueChange={(value) => value && setAdministrativeState(value as AdministrativeState)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="enabled">启用</SelectItem><SelectItem value="paused">暂停</SelectItem><SelectItem value="disabled">停用</SelectItem></SelectContent></Select></div>
+              <div className="grid gap-2"><Label htmlFor="channel-concurrency">最大并发</Label><Input id="channel-concurrency" type="number" min={1} value={maxConcurrency} onChange={(event) => setMaxConcurrency(event.target.value)} /></div>
+              <div className="grid gap-2"><Label htmlFor="channel-priority">优先级</Label><Input id="channel-priority" type="number" value={priority} onChange={(event) => setPriority(event.target.value)} /></div>
+              <div className="grid gap-2"><Label htmlFor="channel-weight">权重</Label><Input id="channel-weight" type="number" min={1} max={100} value={weight} onChange={(event) => setWeight(event.target.value)} /></div>
+            </div>
+            <div className="grid gap-3 rounded-md border p-3">
+              <div className="flex items-center justify-between"><div><p className="text-sm font-medium">模型绑定</p><p className="text-xs text-muted-foreground">可选择或输入公共模型名</p></div><Button type="button" variant="outline" size="sm" onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}><Plus />添加</Button></div>
+              <CreatableModelSelect value={selectedModels} models={knownModels} placeholder="选择或输入模型" onChange={setModels} testId="channel-model-select" />
+              {bindings.map((binding, index) => (
+                <div key={binding.binding_id ?? `${binding.public_model}-${index}`} className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <div className="grid gap-1"><Label>公共模型</Label><Input value={binding.public_model} onChange={(event) => updateBinding(index, { public_model: event.target.value })} /></div>
+                  <div className="grid gap-1"><Label>Provider 模型</Label><Input value={binding.provider_model ?? ""} onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })} /></div>
+                  <Button type="button" variant="ghost" size="icon" className="self-end" onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}><Trash2 /><span className="sr-only">删除绑定</span></Button>
+                  {(importing || binding.ownership === "externally_managed") && <div className="grid gap-1 sm:col-span-2"><Label>LiteLLM Deployment ID</Label><Input value={binding.litellm_deployment_id ?? ""} onChange={(event) => updateBinding(index, { litellm_deployment_id: event.target.value || null, ownership: "externally_managed" })} /></div>}
+                  <label className="flex items-center gap-2 self-end text-sm"><Checkbox checked={binding.enabled} onCheckedChange={(checked) => updateBinding(index, { enabled: checked })} />启用</label>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-3 rounded-md border p-3">
+              <div className="flex items-center justify-between"><p className="text-sm font-medium">额度（可选）</p><Select value={quotas.unit} onValueChange={(value) => value && setQuotas({ ...quotas, unit: value as QuotaConfig["unit"] })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tokens">tokens</SelectItem><SelectItem value="usd">USD</SelectItem></SelectContent></Select></div>
+              <div className="grid grid-cols-3 gap-3"><div className="grid gap-1"><Label>总额</Label><Input type="number" min={0} value={quotas.total ?? ""} onChange={(event) => setQuotas({ ...quotas, total: optionalNumber(event.target.value) })} /></div><div className="grid gap-1"><Label>5 小时</Label><Input type="number" min={0} value={quotas.five_hour ?? ""} onChange={(event) => setQuotas({ ...quotas, five_hour: optionalNumber(event.target.value) })} /></div><div className="grid gap-1"><Label>每周</Label><Input type="number" min={0} value={quotas.weekly ?? ""} onChange={(event) => setQuotas({ ...quotas, weekly: optionalNumber(event.target.value) })} /></div></div>
+            </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={close} disabled={mutation.isPending}>取消</Button>
+          <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>{mutation.isPending && <Loader2 className="animate-spin" />}{submitLabel(mode)}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

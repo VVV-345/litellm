@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Final, Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from account_pool.catalog.models import AdministrativeState, BindingOwnership
 from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig
@@ -37,10 +37,12 @@ class DeleteMode(StrEnum):
 class DesiredBinding(FrozenModel):
     binding_id: UUID
     channel_id: UUID
+    deployment_order: int = Field(default=0, ge=0)
     public_model: ModelName
     provider_model: str | None = None
     litellm_deployment_id: str = Field(min_length=1)
     ownership: BindingOwnership
+    sync_mode: Literal["create", "update", "none"] = "none"
     enabled: bool = True
 
 
@@ -48,6 +50,7 @@ class ChannelDesiredState(FrozenModel):
     schema_version: Literal[1] = 1
     channel_id: UUID
     legacy_account_id: AccountId | None = None
+    account_order: int = Field(default=0, ge=0)
     display_name: str = Field(min_length=1)
     provider: str = Field(min_length=1)
     group: str | None = None
@@ -61,23 +64,39 @@ class ChannelDesiredState(FrozenModel):
     key_mask: str | None = None
     key_fingerprint: str | None = None
     bindings: tuple[DesiredBinding, ...]
+    retired_bindings: tuple[DesiredBinding, ...] = ()
+    target_binding_id: UUID | None = None
 
     @model_validator(mode="after")
     def validate_binding_channels_and_ids(self) -> Self:
         if any(binding.channel_id != self.channel_id for binding in self.bindings):
             raise ValueError("desired binding references a different channel")
-        binding_ids = tuple(binding.binding_id for binding in self.bindings)
-        deployment_ids = tuple(binding.litellm_deployment_id for binding in self.bindings)
+        if any(binding.channel_id != self.channel_id for binding in self.retired_bindings):
+            raise ValueError("retired binding references a different channel")
+        all_bindings: Final = (*self.bindings, *self.retired_bindings)
+        binding_ids = tuple(binding.binding_id for binding in all_bindings)
+        deployment_ids = tuple(binding.litellm_deployment_id for binding in all_bindings)
         if len(binding_ids) != len(set(binding_ids)):
             raise ValueError("desired binding IDs must be unique")
         if len(deployment_ids) != len(set(deployment_ids)):
             raise ValueError("desired LiteLLM deployment IDs must be unique")
+        if self.target_binding_id is not None and self.target_binding_id not in frozenset(binding_ids):
+            raise ValueError("target binding must exist in desired bindings")
         return self
 
 
 class SafeSyncFailure(FrozenModel):
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
+
+    @field_validator("code", "message")
+    @classmethod
+    def reject_authorization_material(cls, value: str) -> str:
+        normalized: Final = value.casefold().replace("-", "_")
+        forbidden: Final = ("api_key", "authorization", "bearer ", "x_api_key")
+        if any(secret_marker in normalized for secret_marker in forbidden):
+            raise ValueError("safe failures cannot contain authorization material")
+        return value
 
 
 class SyncOperation(FrozenModel):
@@ -97,6 +116,8 @@ class SyncOperation(FrozenModel):
 
     @model_validator(mode="after")
     def validate_operation_state(self) -> Self:
+        if self.channel_id != self.desired.channel_id:
+            raise ValueError("operation channel must match desired channel")
         expected_pending = {
             SyncAction.CREATE_CHANNEL: SyncStatus.PENDING_CREATE,
             SyncAction.IMPORT_CHANNEL: SyncStatus.PENDING_CREATE,

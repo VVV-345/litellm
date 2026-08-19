@@ -2,19 +2,26 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, FileJson, Loader2, Play, RefreshCw, ShieldAlert } from "lucide-react";
+import { Database, FileJson, Import, Loader2, Pencil, Play, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isProxyAdminRole } from "@/utils/roles";
+import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
 import { accountPoolKeys, getChannels, getProviderServices } from "../api";
 import ChannelList from "./ChannelList";
+import ChannelFormDialog from "./ChannelFormDialog";
+import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
+import OperationStatusPanel from "./OperationStatusPanel";
 import ParserDataPanel from "./ParserDataPanel";
 import ParserTaskDialog from "./ParserTaskDialog";
 import SnapshotDialog from "./SnapshotDialog";
+import type { ChannelOperation } from "../types";
+
+type ChannelFormMode = "create" | "edit" | "import";
 
 interface AccountPoolPageProps {
   accessToken: string | null;
@@ -26,6 +33,9 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const [chosenChannelId, setChosenChannelId] = useState<string | null>(null);
   const [parserDialogOpen, setParserDialogOpen] = useState(false);
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
+  const [formMode, setFormMode] = useState<ChannelFormMode | null>(null);
+  const [lifecycleDialogOpen, setLifecycleDialogOpen] = useState(false);
+  const [operation, setOperation] = useState<ChannelOperation | null>(null);
   const authorized = isProxyAdminRole(userRole);
   const channelsQuery = useQuery({
     queryKey: accountPoolKeys.channels(),
@@ -38,12 +48,20 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
     enabled: Boolean(accessToken && authorized),
     staleTime: 5 * 60 * 1000,
   });
+  const modelCostMapQuery = useModelCostMap();
   const channels = channelsQuery.data?.channels ?? [];
   const selectedChannelId = chosenChannelId ?? channels[0]?.channel_id ?? null;
   const selectedChannel = channels.find((channel) => channel.channel_id === selectedChannelId) ?? null;
+  const knownModels = modelCostMapQuery.data && typeof modelCostMapQuery.data === "object"
+    ? Object.keys(modelCostMapQuery.data).sort()
+    : [];
 
   const refreshSelected = async () => {
     await queryClient.invalidateQueries({ queryKey: accountPoolKeys.all });
+  };
+  const acceptOperation = async (accepted: ChannelOperation) => {
+    setOperation(accepted);
+    await refreshSelected();
   };
 
   if (!authorized) {
@@ -61,13 +79,22 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         title="Account Pool"
         subtitle="查看 PostgreSQL 渠道目录，运行解析并维护套餐、按量和价格数据"
         icon={<Database className="size-5" />}
-        actions={
-          <Button variant="outline" onClick={() => void refreshSelected()} disabled={channelsQuery.isFetching}>
-            <RefreshCw className={channelsQuery.isFetching ? "animate-spin" : undefined} />
-            刷新
+        actions={<div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setFormMode("import")}><Import />导入</Button>
+          <Button onClick={() => setFormMode("create")}><Plus />创建渠道</Button>
+          <Button variant="outline" size="icon" title="刷新" onClick={() => void refreshSelected()} disabled={channelsQuery.isFetching}>
+            <RefreshCw className={channelsQuery.isFetching ? "animate-spin" : undefined} /><span className="sr-only">刷新</span>
           </Button>
-        }
+        </div>}
       />
+
+      {operation && (
+        <OperationStatusPanel
+          accessToken={accessToken!}
+          initialOperation={operation}
+          onClose={() => setOperation(null)}
+        />
+      )}
 
       {channelsQuery.isLoading && (
         <div className="flex min-h-96 items-center justify-center">
@@ -114,6 +141,8 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="icon" title="编辑渠道" onClick={() => setFormMode("edit")} disabled={selectedChannel.administrative_state === "pending_delete"}><Pencil /><span className="sr-only">编辑渠道</span></Button>
+                    <Button variant="outline" size="icon" title="解绑或删除" onClick={() => setLifecycleDialogOpen(true)} disabled={selectedChannel.administrative_state === "pending_delete"}><Trash2 /><span className="sr-only">解绑或删除</span></Button>
                     <Button variant="outline" onClick={() => setSnapshotDialogOpen(true)}>
                       <FileJson />
                       快照
@@ -142,6 +171,25 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
           providers={providersQuery.data ?? []}
           onClose={() => setParserDialogOpen(false)}
           onCompleted={refreshSelected}
+        />
+      )}
+      {formMode && (
+        <ChannelFormDialog
+          accessToken={accessToken!}
+          mode={formMode}
+          channel={formMode === "edit" ? selectedChannel : null}
+          providers={providersQuery.data ?? []}
+          knownModels={knownModels}
+          onClose={() => setFormMode(null)}
+          onAccepted={acceptOperation}
+        />
+      )}
+      {lifecycleDialogOpen && selectedChannel && (
+        <ChannelLifecycleDialog
+          accessToken={accessToken!}
+          channel={selectedChannel}
+          onClose={() => setLifecycleDialogOpen(false)}
+          onAccepted={acceptOperation}
         />
       )}
       {snapshotDialogOpen && selectedChannel && (

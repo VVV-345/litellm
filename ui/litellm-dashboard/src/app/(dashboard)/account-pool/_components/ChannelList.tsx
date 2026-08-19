@@ -16,6 +16,7 @@ const stateLabel: Record<ChannelSummary["administrative_state"], string> = {
   enabled: "启用",
   paused: "暂停",
   disabled: "停用",
+  pending_delete: "待删除",
 };
 
 export default function ChannelList({ channels, selectedChannelId, onSelect }: ChannelListProps) {

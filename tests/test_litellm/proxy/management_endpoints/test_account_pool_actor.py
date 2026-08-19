@@ -109,6 +109,29 @@ def test_signer_requires_secret_identity_admin_role_and_valid_request_id() -> No
     assert invalid_request.code == ActorSigningFailureCode.INVALID_REQUEST_ID
 
 
+def test_channel_lifecycle_actions_match_account_pool_contract() -> None:
+    assert tuple(
+        action.value
+        for action in (
+            AccountPoolActorAction.CHANNEL_CREATE,
+            AccountPoolActorAction.CHANNEL_UPDATE,
+            AccountPoolActorAction.CHANNEL_IMPORT,
+            AccountPoolActorAction.CHANNEL_DETACH,
+            AccountPoolActorAction.CHANNEL_DELETE,
+            AccountPoolActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
+            AccountPoolActorAction.CHANNEL_RECONCILE,
+        )
+    ) == (
+        "channel:create",
+        "channel:update",
+        "channel:import",
+        "channel:detach",
+        "channel:delete",
+        "channel:delete_external_deployment",
+        "channel:reconcile",
+    )
+
+
 def test_parser_task_action_is_signed_without_exposing_provider_credentials() -> None:
     result: Final = sign_actor_envelope(
         user_id="admin-user",

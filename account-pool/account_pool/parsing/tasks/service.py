@@ -100,7 +100,7 @@ class ParserTaskService:
         request: ParserTaskStartRequest,
         actor: ActorContext,
     ) -> ParserTaskStartResult:
-        if actor.action != ActorAction.PARSER_START:
+        if actor.action != ActorAction.PARSER_START or actor.role != "proxy_admin":
             return _failure(ParserTaskOperationFailureCode.INVALID_REQUEST, retryable=False)
         task_id: Final = self._id_factory()
         parser_run_id: Final = self._id_factory()

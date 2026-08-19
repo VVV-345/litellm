@@ -2,8 +2,10 @@
 
 from datetime import UTC, datetime
 from typing import Final
+from uuid import UUID
 
 from account_pool.catalog.importer import catalog_import_from_pool_config
+from account_pool.catalog.lifecycle import CatalogApplyResult, CatalogLifecycleCommand, CatalogPendingDeleteResult
 from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportResult
 from account_pool.catalog.query import ChannelCatalogQueryService
 from tests.catalog.test_importer import legacy_config
@@ -18,6 +20,12 @@ class FakeCatalogRepository:
 
     async def import_once(self, command: CatalogImport) -> ImportResult:
         raise AssertionError(f"query service must not import {len(command.channels)} channels")
+
+    async def apply_lifecycle(self, command: CatalogLifecycleCommand) -> CatalogApplyResult:
+        raise AssertionError(f"query service must not apply lifecycle action {command.action}")
+
+    async def mark_pending_delete(self, operation_id: UUID, channel_id: UUID) -> CatalogPendingDeleteResult:
+        raise AssertionError(f"query service must not mark {channel_id} pending for {operation_id}")
 
 
 async def test_channel_list_aggregates_enabled_models_without_internal_credentials() -> None:

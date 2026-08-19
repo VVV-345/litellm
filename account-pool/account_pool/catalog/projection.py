@@ -18,13 +18,6 @@ def project_pool_config(snapshot: CatalogSnapshot) -> PoolConfig:
     if orphan is not None:
         raise ValueError(f"orphan binding {orphan.binding_id} references channel {orphan.channel_id}")
 
-    missing_legacy_id: Final = next(
-        (channel for channel in snapshot.channels if channel.legacy_account_id is None),
-        None,
-    )
-    if missing_legacy_id is not None:
-        raise ValueError(f"channel {missing_legacy_id.channel_id} has no legacy_account_id")
-
     channels: Final = tuple(sorted(snapshot.channels, key=lambda channel: channel.account_order))
     accounts: Final = tuple(_account_config(channel=channel, bindings=snapshot.bindings) for channel in channels)
     policies: Final = tuple(
@@ -38,9 +31,7 @@ def _account_config(
     channel: ChannelRecord,
     bindings: tuple[DeploymentBindingRecord, ...],
 ) -> AccountConfig:
-    legacy_account_id: Final = channel.legacy_account_id
-    if legacy_account_id is None:
-        raise ValueError(f"channel {channel.channel_id} has no legacy_account_id")
+    account_id: Final = channel.legacy_account_id or str(channel.channel_id)
     ordered_bindings: Final = tuple(
         sorted(
             (binding for binding in bindings if binding.channel_id == channel.channel_id),
@@ -48,7 +39,7 @@ def _account_config(
         )
     )
     return AccountConfig(
-        id=legacy_account_id,
+        id=account_id,
         display_name=channel.display_name,
         provider=channel.provider,
         group=channel.group,

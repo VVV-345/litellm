@@ -112,6 +112,23 @@ def test_operation_rejects_naive_timestamps_and_secret_fields() -> None:
         SyncOperation.model_validate(payload)
 
 
+def test_operation_requires_matching_desired_channel() -> None:
+    desired: Final = _desired_channel()
+    timestamp: Final = datetime(2026, 8, 19, 6, 0, tzinfo=UTC)
+
+    with pytest.raises(ValidationError, match="channel"):
+        SyncOperation(
+            operation_id=uuid4(),
+            idempotency_key="mismatched-channel",
+            channel_id=uuid4(),
+            action=SyncAction.CREATE_CHANNEL,
+            status=SyncStatus.PENDING_CREATE,
+            desired=desired,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+
+
 def test_channel_delete_requires_explicit_mode() -> None:
     desired: Final = _desired_channel()
     timestamp: Final = datetime(2026, 8, 19, 6, 0, tzinfo=UTC)

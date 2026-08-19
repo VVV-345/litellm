@@ -146,6 +146,29 @@ def test_expired_wrong_audience_and_future_tokens_are_rejected() -> None:
     assert future.code == ActorVerificationFailureCode.INVALID_CLAIMS
 
 
+def test_channel_lifecycle_actions_match_proxy_contract() -> None:
+    assert tuple(
+        action.value
+        for action in (
+            ActorAction.CHANNEL_CREATE,
+            ActorAction.CHANNEL_UPDATE,
+            ActorAction.CHANNEL_IMPORT,
+            ActorAction.CHANNEL_DETACH,
+            ActorAction.CHANNEL_DELETE,
+            ActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
+            ActorAction.CHANNEL_RECONCILE,
+        )
+    ) == (
+        "channel:create",
+        "channel:update",
+        "channel:import",
+        "channel:detach",
+        "channel:delete",
+        "channel:delete_external_deployment",
+        "channel:reconcile",
+    )
+
+
 def test_request_action_and_configuration_are_bound() -> None:
     request_mismatch: Final = verify_actor_envelope(
         token=_token(_claims()),

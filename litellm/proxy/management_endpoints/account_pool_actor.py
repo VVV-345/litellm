@@ -26,6 +26,13 @@ JsonScalar = str | int
 
 
 class AccountPoolActorAction(StrEnum):
+    CHANNEL_CREATE = "channel:create"
+    CHANNEL_UPDATE = "channel:update"
+    CHANNEL_IMPORT = "channel:import"
+    CHANNEL_DETACH = "channel:detach"
+    CHANNEL_DELETE = "channel:delete"
+    CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel:delete_external_deployment"
+    CHANNEL_RECONCILE = "channel:reconcile"
     PARSER_START = "parser_task:start"
     SNAPSHOT_IMPORT = "parser_snapshot:import"
     OVERRIDE_SET = "parser_override:set"

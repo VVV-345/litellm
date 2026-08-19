@@ -2,8 +2,10 @@
 
 from datetime import UTC, datetime
 from typing import Final
+from uuid import UUID
 
 from account_pool.catalog.importer import catalog_import_from_pool_config
+from account_pool.catalog.lifecycle import CatalogApplyResult, CatalogLifecycleCommand, CatalogPendingDeleteResult
 from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportConflict, ImportResult
 from account_pool.catalog.service import CatalogService
 from tests.catalog.test_importer import legacy_config
@@ -25,6 +27,12 @@ class FakeCatalogRepository:
         self.import_calls += 1
         self.last_import = command
         return self._import_result
+
+    async def apply_lifecycle(self, command: CatalogLifecycleCommand) -> CatalogApplyResult:
+        raise AssertionError(f"catalog service must not apply lifecycle action {command.action}")
+
+    async def mark_pending_delete(self, operation_id: UUID, channel_id: UUID) -> CatalogPendingDeleteResult:
+        raise AssertionError(f"catalog service must not mark {channel_id} pending for {operation_id}")
 
 
 def _snapshot(imported_at: datetime) -> CatalogSnapshot:

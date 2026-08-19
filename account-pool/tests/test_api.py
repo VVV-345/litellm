@@ -18,7 +18,15 @@ from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
-from account_pool.models import AccountView, LiteLLMStatus, ManagementResult, ModelSummary, RouteEntry, StatsView
+from account_pool.models import (
+    AccountView,
+    LiteLLMStatus,
+    ManagementResult,
+    ModelSummary,
+    QuotaConfig,
+    RouteEntry,
+    StatsView,
+)
 from account_pool.parsing.imports.models import (
     SnapshotImportRequest,
     SnapshotImportResult,
@@ -55,6 +63,17 @@ from account_pool.parsing.tasks.models import (
     ParserTaskViewResult,
 )
 from account_pool.store import MemoryStateStore
+from account_pool.sync.models import SyncStatus
+from account_pool.sync.service import (
+    ChannelDeleteRequest,
+    ChannelDetail,
+    ChannelManagementFailure,
+    ChannelMutation,
+    ChannelOperationView,
+    ChannelReconcileRequest,
+    ExternalDeploymentDeleteRequest,
+    ReconcilePassResult,
+)
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 
@@ -107,6 +126,119 @@ class FakeChannelCatalogReader:
                 ),
             )
         )
+
+
+class FakeChannelManagementService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, ActorContext]] = []
+        self.requests: list[ChannelMutation] = []
+
+    async def detail(self, channel_id: UUID) -> ChannelDetail | ChannelManagementFailure:
+        assert channel_id == _CHANNEL_ID
+        return ChannelDetail(
+            channel_id=channel_id,
+            display_name="OpenAI 主渠道",
+            provider="openai_compatible",
+            group=None,
+            base_url_display="https://api.openai.com/v1",
+            administrative_state=AdministrativeState.ENABLED,
+            max_concurrency=8,
+            priority=10,
+            weight=20,
+            quotas=QuotaConfig(),
+            key_mask="sk-***main",
+            bindings=(),
+        )
+
+    async def operation(self, operation_id: UUID) -> ChannelOperationView | ChannelManagementFailure:
+        return _channel_operation(operation_id)
+
+    async def detail_by_legacy_account(self, account_id: str) -> ChannelDetail | ChannelManagementFailure:
+        assert account_id == "legacy-channel"
+        return await self.detail(_CHANNEL_ID)
+
+    async def create(
+        self,
+        request: ChannelMutation,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        assert request.api_key is not None and request.api_key.get_secret_value() == "one-time-secret"
+        self.requests.append(request)
+        self.calls.append(("create", idempotency_key, actor))
+        return _channel_operation(UUID("60000000-0000-0000-0000-000000000001"))
+
+    async def import_channel(
+        self,
+        request: ChannelMutation,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        raise AssertionError("not used")
+
+    async def update(
+        self,
+        channel_id: UUID,
+        request: ChannelMutation,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        assert channel_id == _CHANNEL_ID
+        self.requests.append(request)
+        self.calls.append(("update", idempotency_key, actor))
+        return _channel_operation(UUID("60000000-0000-0000-0000-000000000002"))
+
+    async def detach(
+        self,
+        channel_id: UUID,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        raise AssertionError("not used")
+
+    async def delete(
+        self,
+        channel_id: UUID,
+        request: ChannelDeleteRequest,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        assert channel_id == _CHANNEL_ID
+        self.calls.append(("delete", idempotency_key, actor))
+        return _channel_operation(UUID("60000000-0000-0000-0000-000000000003"))
+
+    async def delete_external(
+        self,
+        channel_id: UUID,
+        binding_id: UUID,
+        request: ExternalDeploymentDeleteRequest,
+        idempotency_key: str,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        raise AssertionError("not used")
+
+    async def reconcile(
+        self,
+        channel_id: UUID,
+        request: ChannelReconcileRequest,
+        actor: ActorContext,
+    ) -> ChannelOperationView:
+        raise AssertionError("not used")
+
+    async def reconcile_pending(self, limit: int = 100) -> ReconcilePassResult:
+        assert limit == 100
+        return ReconcilePassResult(inspected=0, items=())
+
+
+def _channel_operation(operation_id: UUID) -> ChannelOperationView:
+    return ChannelOperationView(
+        status="accepted",
+        operation_id=operation_id,
+        channel_id=_CHANNEL_ID,
+        operation_status=SyncStatus.APPLIED,
+        requires_key=False,
+        failure=None,
+    )
 
 
 class FakeParserDataReader:
@@ -387,6 +519,109 @@ async def test_channel_catalog_api_returns_only_redacted_postgres_identity_view(
     assert result.channels[0].models == ("gpt-5.6",)
     assert "credential_ref" not in rendered
     assert "key_fingerprint" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_channel_create_requires_idempotency_and_verified_actor() -> None:
+    lifecycle: Final = FakeChannelManagementService()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        channel_management=lifecycle,
+    )
+    base_headers: Final = {"x-account-pool-token": "test-service-token"}
+    body: Final = {
+        "display_name": "Primary",
+        "provider": "openai_compatible",
+        "base_url_display": "https://api.openai.com/v1",
+        "api_key": "one-time-secret",
+        "bindings": [
+            {
+                "public_model": "gpt-5.6",
+                "provider_model": "openai/gpt-5.6",
+                "ownership": "pool_managed",
+                "enabled": True,
+            }
+        ],
+    }
+    request_id: Final = "request-channel-create"
+    headers: Final = {
+        **base_headers,
+        "idempotency-key": "channel-create-1",
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_CREATE, request_id),
+        "x-account-pool-request-id": request_id,
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            missing_key: Final = await client.post("/api/channels", headers=base_headers, json=body)
+            created: Final = await client.post("/api/channels", headers=headers, json=body)
+
+    assert missing_key.status_code == 400
+    result: Final = ChannelOperationView.model_validate_json(created.content)
+    assert result.operation_status == SyncStatus.APPLIED
+    assert lifecycle.calls[0][0:2] == ("create", "channel-create-1")
+    assert lifecycle.calls[0][2].request_id == request_id
+    assert lifecycle.calls[0][2].action == ActorAction.CHANNEL_CREATE
+    assert "one-time-secret" not in created.text
+
+
+@pytest.mark.asyncio
+async def test_legacy_account_crud_aliases_use_channel_lifecycle_and_send_deprecation_headers() -> None:
+    lifecycle: Final = FakeChannelManagementService()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        channel_management=lifecycle,
+    )
+    body: Final = {
+        "id": "legacy-channel",
+        "display_name": "Legacy Channel",
+        "provider": "openai_compatible",
+        "base_url_display": "https://api.openai.com/v1",
+        "max_concurrency": 4,
+        "api_key": "one-time-secret",
+        "deployments": [{"public_model": "gpt-5.6", "provider_model": "openai/gpt-5.6"}],
+    }
+    service_headers: Final = {"x-account-pool-token": "test-service-token"}
+    create_headers: Final = {
+        **service_headers,
+        "idempotency-key": "legacy-create",
+        "x-account-pool-request-id": "legacy-create-request",
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_CREATE, "legacy-create-request"),
+    }
+    update_headers: Final = {
+        **service_headers,
+        "idempotency-key": "legacy-update",
+        "x-account-pool-request-id": "legacy-update-request",
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_UPDATE, "legacy-update-request"),
+    }
+    delete_headers: Final = {
+        **service_headers,
+        "idempotency-key": "legacy-delete",
+        "x-account-pool-request-id": "legacy-delete-request",
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_DELETE, "legacy-delete-request"),
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            created: Final = await client.post("/api/accounts", headers=create_headers, json=body)
+            updated: Final = await client.put(
+                "/api/accounts/legacy-channel",
+                headers=update_headers,
+                json={**body, "api_key": None, "display_name": "Legacy Updated"},
+            )
+            deleted: Final = await client.delete("/api/accounts/legacy-channel", headers=delete_headers)
+
+    assert ManagementResult.model_validate_json(created.content).ok
+    assert ManagementResult.model_validate_json(updated.content).ok
+    assert ManagementResult.model_validate_json(deleted.content).ok
+    assert created.headers["deprecation"] == "true"
+    assert created.headers["link"] == '</api/channels>; rel="successor-version"'
+    assert tuple(call[0] for call in lifecycle.calls) == ("create", "update", "delete")
+    assert lifecycle.requests[0].legacy_account_id == "legacy-channel"
+    assert lifecycle.requests[0].bindings[0].ownership.value == "pool_managed"
+    assert lifecycle.requests[1].display_name == "Legacy Updated"
 
 
 @pytest.mark.asyncio

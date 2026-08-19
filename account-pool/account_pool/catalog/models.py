@@ -15,6 +15,7 @@ class AdministrativeState(StrEnum):
     ENABLED = "enabled"
     PAUSED = "paused"
     DISABLED = "disabled"
+    PENDING_DELETE = "pending_delete"
 
 
 class BindingOwnership(StrEnum):

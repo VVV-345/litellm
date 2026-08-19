@@ -46,16 +46,16 @@ def test_projection_rejects_orphan_binding() -> None:
         project_pool_config(orphaned)
 
 
-def test_projection_rejects_channel_without_legacy_account_id() -> None:
+def test_projection_uses_channel_uuid_when_legacy_account_id_is_missing() -> None:
     _, snapshot = imported_snapshot()
-    missing_legacy_id: Final = CatalogSnapshot(
-        channels=(snapshot.channels[0].model_copy(update={"legacy_account_id": None}),),
-        bindings=tuple(binding for binding in snapshot.bindings if binding.channel_id == snapshot.channels[0].channel_id),
+    new_channel: Final = snapshot.channels[0].model_copy(update={"legacy_account_id": None})
+    without_legacy_id: Final = CatalogSnapshot(
+        channels=(new_channel,),
+        bindings=tuple(binding for binding in snapshot.bindings if binding.channel_id == new_channel.channel_id),
         policies=(),
     )
 
-    with pytest.raises(ValueError, match="legacy_account_id"):
-        project_pool_config(missing_legacy_id)
+    assert project_pool_config(without_legacy_id).accounts[0].id == str(new_channel.channel_id)
 
 
 def test_projection_maps_paused_channel_to_disabled_legacy_account() -> None:
@@ -67,6 +67,23 @@ def test_projection_maps_paused_channel_to_disabled_legacy_account() -> None:
     )
 
     assert project_pool_config(paused).accounts[0].enabled is False
+
+
+def test_projection_maps_pending_delete_channel_to_disabled_legacy_account() -> None:
+    _, snapshot = imported_snapshot()
+    pending: Final = CatalogSnapshot(
+        channels=(
+            snapshot.channels[0].model_copy(
+                update={"administrative_state": AdministrativeState.PENDING_DELETE}
+            ),
+        ),
+        bindings=tuple(
+            binding for binding in snapshot.bindings if binding.channel_id == snapshot.channels[0].channel_id
+        ),
+        policies=(),
+    )
+
+    assert project_pool_config(pending).accounts[0].enabled is False
 
 
 def test_projection_leaves_duplicate_deployment_rejection_to_pool_config() -> None:

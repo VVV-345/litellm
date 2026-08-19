@@ -3,7 +3,11 @@
 import { apiClient } from "@/components/networking";
 
 import type {
+  ChannelDetail,
   ChannelListResponse,
+  ChannelMutationRequest,
+  ChannelOperation,
+  DeleteMode,
   EffectiveParserData,
   JsonValue,
   OverrideRevokeRequest,
@@ -19,6 +23,8 @@ import type {
 export const accountPoolKeys = {
   all: ["account-pool"] as const,
   channels: () => ["account-pool", "channels"] as const,
+  channel: (channelId: string) => ["account-pool", "channels", channelId] as const,
+  operation: (operationId: string) => ["account-pool", "operations", operationId] as const,
   effective: (channelId: string) => ["account-pool", "channels", channelId, "effective"] as const,
   history: (channelId: string) => ["account-pool", "channels", channelId, "history"] as const,
   providers: () => ["account-pool", "providers"] as const,
@@ -28,6 +34,60 @@ export const accountPoolKeys = {
 
 export const getChannels = (accessToken: string): Promise<ChannelListResponse> =>
   apiClient.get("/account_pool/channels", { accessToken });
+
+const mutationOptions = (accessToken: string, body: unknown) => ({
+  accessToken,
+  body,
+  headers: { "Idempotency-Key": crypto.randomUUID() },
+});
+
+export const getChannel = (accessToken: string, channelId: string): Promise<ChannelDetail> =>
+  apiClient.get(`/account_pool/channels/${channelId}`, { accessToken });
+
+export const createChannel = (accessToken: string, request: ChannelMutationRequest): Promise<ChannelOperation> =>
+  apiClient.post("/account_pool/channels", mutationOptions(accessToken, request));
+
+export const updateChannel = (
+  accessToken: string,
+  channelId: string,
+  request: ChannelMutationRequest,
+): Promise<ChannelOperation> => apiClient.put(`/account_pool/channels/${channelId}`, mutationOptions(accessToken, request));
+
+export const importChannel = (accessToken: string, request: ChannelMutationRequest): Promise<ChannelOperation> =>
+  apiClient.post("/account_pool/channels/import", mutationOptions(accessToken, request));
+
+export const detachChannel = (accessToken: string, channelId: string): Promise<ChannelOperation> =>
+  apiClient.post(`/account_pool/channels/${channelId}/detach`, mutationOptions(accessToken, {}));
+
+export const deleteChannel = (
+  accessToken: string,
+  channelId: string,
+  deleteMode: DeleteMode,
+): Promise<ChannelOperation> =>
+  apiClient.delete(
+    `/account_pool/channels/${channelId}`,
+    mutationOptions(accessToken, { delete_mode: deleteMode }),
+  );
+
+export const deleteExternalDeployment = (
+  accessToken: string,
+  channelId: string,
+  bindingId: string,
+): Promise<ChannelOperation> =>
+  apiClient.post(
+    `/account_pool/channels/${channelId}/bindings/${bindingId}/delete-external-deployment`,
+    mutationOptions(accessToken, { confirmed: true }),
+  );
+
+export const reconcileChannel = (
+  accessToken: string,
+  channelId: string,
+  apiKey: string | null,
+): Promise<ChannelOperation> =>
+  apiClient.post(`/account_pool/channels/${channelId}/reconcile`, mutationOptions(accessToken, { api_key: apiKey }));
+
+export const getOperation = (accessToken: string, operationId: string): Promise<ChannelOperation> =>
+  apiClient.get(`/account_pool/operations/${operationId}`, { accessToken });
 
 export const getEffectiveData = (accessToken: string, channelId: string): Promise<EffectiveParserData> =>
   apiClient.get(`/account_pool/channels/${channelId}/effective-data`, { accessToken });

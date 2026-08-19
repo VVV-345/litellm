@@ -7,10 +7,26 @@ from collections.abc import Mapping
 from typing import Final, cast
 from uuid import UUID
 
+import psycopg
 from psycopg import AsyncConnection
 from psycopg.rows import AsyncRowFactory, dict_row
 from pydantic import AwareDatetime
 
+from account_pool.catalog.lifecycle import (
+    ApplyChannelCreate,
+    ApplyChannelDelete,
+    ApplyChannelDetach,
+    ApplyChannelImport,
+    ApplyChannelUpdate,
+    ApplyExternalBindingDelete,
+    CatalogApplyFailure,
+    CatalogApplyFailureCode,
+    CatalogApplyResult,
+    CatalogApplySuccess,
+    CatalogLifecycleCommand,
+    CatalogPendingDeleteResult,
+    CatalogPendingDeleteSuccess,
+)
 from account_pool.catalog.models import (
     AdministrativeState,
     BindingOwnership,
@@ -65,6 +81,24 @@ INSERT INTO "LiteLLM_AccountPoolModelPolicy" (
     model, policy_order, strategy, created_at, updated_at
 ) VALUES (%s, %s, %s, %s, %s)
 """
+_UPDATE_CHANNEL: Final = """
+UPDATE "LiteLLM_AccountPoolChannel"
+SET legacy_account_id = %s, account_order = %s, display_name = %s, provider = %s,
+    channel_group = %s, base_url_display = %s, administrative_state = %s,
+    max_concurrency = %s, priority = %s, weight = %s, quota_unit = %s,
+    quota_total = %s, quota_five_hour = %s, quota_weekly = %s,
+    credential_ref = %s, key_mask = %s, key_fingerprint = %s, updated_at = %s
+WHERE channel_id = %s
+"""
+
+_SYNC_ACTION_BY_COMMAND: Final = {
+    ApplyChannelCreate: "create_channel",
+    ApplyChannelUpdate: "update_channel",
+    ApplyChannelImport: "import_channel",
+    ApplyChannelDetach: "detach_channel",
+    ApplyChannelDelete: "delete_channel",
+    ApplyExternalBindingDelete: "delete_external_deployment",
+}
 
 
 class _ChannelRow(FrozenModel):
@@ -150,6 +184,92 @@ class PostgresCatalogRepository:
                 created_channels=len(channels),
                 created_bindings=len(bindings),
                 created_policies=len(policies),
+            )
+
+    async def apply_lifecycle(self, command: CatalogLifecycleCommand) -> CatalogApplyResult:
+        try:
+            async with await self._connect() as connection, connection.transaction():
+                await self._set_search_path(connection)
+                operation_state: Final = await _lock_operation(connection, command)
+                if operation_state == "applied":
+                    return CatalogApplySuccess(operation_id=command.operation_id)
+                if operation_state != "ready":
+                    return CatalogApplyFailure(
+                        operation_id=command.operation_id,
+                        code=CatalogApplyFailureCode.OPERATION_MISMATCH,
+                        retryable=False,
+                    )
+                result: Final = await _apply_lifecycle_command(connection, command)
+                if isinstance(result, CatalogApplyFailure):
+                    return result
+                await connection.execute(
+                    """
+                    UPDATE "LiteLLM_AccountPoolSyncOperation"
+                    SET status = 'applied', requires_key = FALSE, failure_code = NULL,
+                        failure_message = NULL, applied_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE operation_id = %s
+                    """,
+                    (str(command.operation_id),),
+                )
+                return CatalogApplySuccess(operation_id=command.operation_id)
+        except psycopg.Error:
+            return CatalogApplyFailure(
+                operation_id=command.operation_id,
+                code=CatalogApplyFailureCode.DATABASE_UNAVAILABLE,
+                retryable=True,
+            )
+
+    async def mark_pending_delete(
+        self,
+        operation_id: UUID,
+        channel_id: UUID,
+    ) -> CatalogPendingDeleteResult:
+        try:
+            async with await self._connect() as connection, connection.transaction():
+                await self._set_search_path(connection)
+                operation_cursor: Final = await connection.execute(
+                    """
+                    SELECT action, status, channel_id
+                    FROM "LiteLLM_AccountPoolSyncOperation"
+                    WHERE operation_id = %s
+                    FOR UPDATE
+                    """,
+                    (str(operation_id),),
+                )
+                operation: Final = await operation_cursor.fetchone()
+                if (
+                    operation is None
+                    or operation.get("action") not in {"detach_channel", "delete_channel"}
+                    or operation.get("status") not in {"pending_delete", "failed"}
+                    or operation.get("channel_id") != str(channel_id)
+                ):
+                    return CatalogApplyFailure(
+                        operation_id=operation_id,
+                        code=CatalogApplyFailureCode.OPERATION_MISMATCH,
+                        retryable=False,
+                    )
+                channel_cursor: Final = await connection.execute(
+                    """
+                    UPDATE "LiteLLM_AccountPoolChannel"
+                    SET administrative_state = 'pending_delete', updated_at = CURRENT_TIMESTAMP
+                    WHERE channel_id = %s
+                    RETURNING channel_id
+                    """,
+                    (str(channel_id),),
+                )
+                if await channel_cursor.fetchone() is None:
+                    return CatalogApplyFailure(
+                        operation_id=operation_id,
+                        code=CatalogApplyFailureCode.CHANNEL_NOT_FOUND,
+                        retryable=False,
+                    )
+                return CatalogPendingDeleteSuccess(operation_id=operation_id)
+        except psycopg.Error:
+            return CatalogApplyFailure(
+                operation_id=operation_id,
+                code=CatalogApplyFailureCode.DATABASE_UNAVAILABLE,
+                retryable=True,
             )
 
     async def _connect(self) -> AsyncConnection[Mapping[str, object]]:
@@ -400,3 +520,126 @@ def _binding_parameters(record: DeploymentBindingRecord) -> tuple[object, ...]:
 
 def _policy_parameters(record: ModelPolicyRecord) -> tuple[object, ...]:
     return (record.model, record.policy_order, record.strategy.value, record.created_at, record.updated_at)
+
+
+async def _lock_operation(
+    connection: AsyncConnection[Mapping[str, object]],
+    command: CatalogLifecycleCommand,
+) -> str:
+    cursor: Final = await connection.execute(
+        """
+        SELECT action, status, channel_id
+        FROM "LiteLLM_AccountPoolSyncOperation"
+        WHERE operation_id = %s
+        FOR UPDATE
+        """,
+        (str(command.operation_id),),
+    )
+    row: Final = await cursor.fetchone()
+    if row is None:
+        return "missing"
+    expected_action: Final = _SYNC_ACTION_BY_COMMAND[type(command)]
+    if row.get("action") != expected_action or row.get("channel_id") != str(_command_channel_id(command)):
+        return "mismatch"
+    status: Final = row.get("status")
+    if status == "applied":
+        return "applied"
+    return "ready" if status in _allowed_operation_statuses(expected_action) else "mismatch"
+
+
+async def _apply_lifecycle_command(
+    connection: AsyncConnection[Mapping[str, object]],
+    command: CatalogLifecycleCommand,
+) -> CatalogApplyResult:
+    if isinstance(command, (ApplyChannelCreate, ApplyChannelImport)):
+        return await _create_channel(connection, command)
+    if isinstance(command, ApplyChannelUpdate):
+        return await _update_channel(connection, command)
+    if isinstance(command, ApplyExternalBindingDelete):
+        cursor: Final = await connection.execute(
+            """
+            DELETE FROM "LiteLLM_AccountPoolBinding"
+            WHERE binding_id = %s AND channel_id = %s AND ownership = 'externally_managed'
+            RETURNING binding_id
+            """,
+            (str(command.binding.binding_id), str(command.channel_id)),
+        )
+        if await cursor.fetchone() is None:
+            return CatalogApplyFailure(
+                operation_id=command.operation_id,
+                code=CatalogApplyFailureCode.BINDING_NOT_FOUND,
+                retryable=False,
+            )
+        return CatalogApplySuccess(operation_id=command.operation_id)
+    delete_cursor: Final = await connection.execute(
+        'DELETE FROM "LiteLLM_AccountPoolChannel" WHERE channel_id = %s RETURNING channel_id',
+        (str(command.channel_id),),
+    )
+    if await delete_cursor.fetchone() is None:
+        return CatalogApplyFailure(
+            operation_id=command.operation_id,
+            code=CatalogApplyFailureCode.CHANNEL_NOT_FOUND,
+            retryable=False,
+        )
+    return CatalogApplySuccess(operation_id=command.operation_id)
+
+
+async def _create_channel(
+    connection: AsyncConnection[Mapping[str, object]],
+    command: ApplyChannelCreate | ApplyChannelImport,
+) -> CatalogApplyResult:
+    existing: Final = await connection.execute(
+        'SELECT 1 FROM "LiteLLM_AccountPoolChannel" WHERE channel_id = %s',
+        (str(command.channel.channel_id),),
+    )
+    if await existing.fetchone() is not None:
+        return CatalogApplyFailure(
+            operation_id=command.operation_id,
+            code=CatalogApplyFailureCode.STATE_CONFLICT,
+            retryable=False,
+        )
+    await connection.execute(_INSERT_CHANNEL, _channel_parameters(command.channel))
+    await _insert_bindings(connection, command.bindings)
+    return CatalogApplySuccess(operation_id=command.operation_id)
+
+
+async def _update_channel(
+    connection: AsyncConnection[Mapping[str, object]],
+    command: ApplyChannelUpdate,
+) -> CatalogApplyResult:
+    cursor: Final = await connection.execute(_UPDATE_CHANNEL, _channel_update_parameters(command.channel))
+    if cursor.rowcount != 1:
+        return CatalogApplyFailure(
+            operation_id=command.operation_id,
+            code=CatalogApplyFailureCode.CHANNEL_NOT_FOUND,
+            retryable=False,
+        )
+    await connection.execute(
+        'DELETE FROM "LiteLLM_AccountPoolBinding" WHERE channel_id = %s',
+        (str(command.channel.channel_id),),
+    )
+    await _insert_bindings(connection, command.bindings)
+    return CatalogApplySuccess(operation_id=command.operation_id)
+
+
+def _channel_update_parameters(record: ChannelRecord) -> tuple[object, ...]:
+    values: Final = _channel_parameters(record)
+    return (*values[1:18], record.updated_at, str(record.channel_id))
+
+
+def _command_channel_id(command: CatalogLifecycleCommand) -> UUID:
+    if isinstance(command, (ApplyChannelCreate, ApplyChannelUpdate, ApplyChannelImport)):
+        return command.channel.channel_id
+    return command.channel_id
+
+
+def _allowed_operation_statuses(action: str) -> frozenset[str]:
+    pending: Final = {
+        "create_channel": "pending_create",
+        "import_channel": "pending_create",
+        "update_channel": "pending_update",
+        "detach_channel": "pending_delete",
+        "delete_channel": "pending_delete",
+        "delete_external_deployment": "pending_delete",
+    }[action]
+    return frozenset((pending, "failed"))

@@ -39,7 +39,11 @@ def _source_files() -> tuple[Path, ...]:
     return tuple(sorted(candidates))
 
 
-@pytest.mark.parametrize("path", _source_files(), ids=lambda path: str(path.relative_to(PROJECT_ROOT)))
+def _relative_path(path: Path) -> str:
+    return str(path.relative_to(PROJECT_ROOT))
+
+
+@pytest.mark.parametrize("path", _source_files(), ids=_relative_path)
 def test_handwritten_file_starts_with_chinese_purpose(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     first_line = next((line.strip() for line in content.splitlines() if line.strip()), "")

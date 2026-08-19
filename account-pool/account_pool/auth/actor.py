@@ -27,6 +27,13 @@ Clock = Callable[[], datetime]
 
 
 class ActorAction(StrEnum):
+    CHANNEL_CREATE = "channel:create"
+    CHANNEL_UPDATE = "channel:update"
+    CHANNEL_IMPORT = "channel:import"
+    CHANNEL_DETACH = "channel:detach"
+    CHANNEL_DELETE = "channel:delete"
+    CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel:delete_external_deployment"
+    CHANNEL_RECONCILE = "channel:reconcile"
     PARSER_START = "parser_task:start"
     SNAPSHOT_IMPORT = "parser_snapshot:import"
     OVERRIDE_SET = "parser_override:set"
@@ -74,10 +81,17 @@ class _ActorClaims(FrozenModel):
 
 class ActorContext(FrozenModel):
     user_id: str
-    role: Literal["proxy_admin"]
+    role: Literal["proxy_admin", "system"]
+    actor_type: Literal["user", "system"] = "user"
     request_id: str
     action: ActorAction
     envelope_id: UUID
+
+    @model_validator(mode="after")
+    def validate_actor_type_and_role(self) -> ActorContext:
+        if (self.actor_type == "user") != (self.role == "proxy_admin"):
+            raise ValueError("actor type and role do not match")
+        return self
 
 
 class ActorVerificationSuccess(FrozenModel):

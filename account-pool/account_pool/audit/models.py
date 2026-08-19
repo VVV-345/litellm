@@ -1,0 +1,188 @@
+"""定义渠道管理审计事件、安全明细和关联事实。"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Annotated, Final, Literal, Self
+from uuid import UUID
+
+from pydantic import AwareDatetime, Field, model_validator
+
+from account_pool.auth.actor import ActorAction, ActorContext
+from account_pool.models import FrozenModel, ModelName
+from account_pool.sync.models import DeleteMode
+
+_SAFE_CODE_PATTERN: Final = r"^[a-z][a-z0-9_]{0,63}$"
+_REQUEST_ID_PATTERN: Final = r"^[A-Za-z0-9._:-]+$"
+
+
+class AuditOutcome(StrEnum):
+    ACCEPTED = "accepted"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class SafeAuditOutcome(FrozenModel):
+    status: AuditOutcome
+    failure_code: str | None = Field(default=None, pattern=_SAFE_CODE_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_failure_code(self) -> Self:
+        if self.status == AuditOutcome.FAILED and self.failure_code is None:
+            raise ValueError("failed audit outcomes require a failure code")
+        if self.status != AuditOutcome.FAILED and self.failure_code is not None:
+            raise ValueError("only failed audit outcomes may carry a failure code")
+        return self
+
+
+class ChannelCreateDetails(FrozenModel):
+    kind: Literal["channel_create"] = "channel_create"
+    outcome: SafeAuditOutcome
+
+
+class ChannelUpdateDetails(FrozenModel):
+    kind: Literal["channel_update"] = "channel_update"
+    outcome: SafeAuditOutcome
+
+
+class ChannelImportDetails(FrozenModel):
+    kind: Literal["channel_import"] = "channel_import"
+    outcome: SafeAuditOutcome
+
+
+class ChannelDetachDetails(FrozenModel):
+    kind: Literal["channel_detach"] = "channel_detach"
+    outcome: SafeAuditOutcome
+
+
+class ChannelDeleteDetails(FrozenModel):
+    kind: Literal["channel_delete"] = "channel_delete"
+    outcome: SafeAuditOutcome
+    delete_mode: DeleteMode
+
+
+class ChannelDeleteExternalDeploymentDetails(FrozenModel):
+    kind: Literal["channel_delete_external_deployment"] = "channel_delete_external_deployment"
+    outcome: SafeAuditOutcome
+    binding_id: UUID
+
+
+class ChannelReconcileDetails(FrozenModel):
+    kind: Literal["channel_reconcile"] = "channel_reconcile"
+    outcome: SafeAuditOutcome
+
+
+ManagementAuditDetails = Annotated[
+    ChannelCreateDetails
+    | ChannelUpdateDetails
+    | ChannelImportDetails
+    | ChannelDetachDetails
+    | ChannelDeleteDetails
+    | ChannelDeleteExternalDeploymentDetails
+    | ChannelReconcileDetails,
+    Field(discriminator="kind"),
+]
+
+
+class ManagementEventType(StrEnum):
+    CHANNEL_CREATE = "channel_create"
+    CHANNEL_UPDATE = "channel_update"
+    CHANNEL_IMPORT = "channel_import"
+    CHANNEL_DETACH = "channel_detach"
+    CHANNEL_DELETE = "channel_delete"
+    CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel_delete_external_deployment"
+    CHANNEL_RECONCILE = "channel_reconcile"
+
+
+class PoolEvent(FrozenModel):
+    event_id: UUID
+    event_type: ManagementEventType
+    occurred_at: AwareDatetime
+    channel_id: UUID | None = None
+    model_id: ModelName | None = None
+    deployment_id: str | None = Field(default=None, min_length=1, max_length=255)
+    request_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=_REQUEST_ID_PATTERN)
+    lease_id: str | None = Field(default=None, min_length=1, max_length=255)
+    reason_code: str | None = Field(default=None, pattern=_SAFE_CODE_PATTERN)
+    actor_type: Literal["user", "system"]
+    actor_id: str = Field(min_length=1, max_length=255)
+    safe_details: ManagementAuditDetails
+
+    @model_validator(mode="after")
+    def validate_management_event(self) -> Self:
+        if self.event_type.value != self.safe_details.kind:
+            raise ValueError("event type must match safe details")
+        if self.channel_id is None:
+            raise ValueError("channel management events require a channel ID")
+        if self.request_id is None:
+            raise ValueError("channel management events require a request ID")
+        return self
+
+
+class ManagementAuditFact(FrozenModel):
+    event_id: UUID
+    operation_id: UUID | None = None
+    actor_role: Literal["proxy_admin", "system"]
+    actor_action: ActorAction
+    actor_envelope_id: UUID
+    outcome: AuditOutcome
+
+
+class ManagementAuditRecord(FrozenModel):
+    event: PoolEvent
+    audit: ManagementAuditFact
+
+    @model_validator(mode="after")
+    def validate_linked_facts(self) -> Self:
+        if self.event.event_id != self.audit.event_id:
+            raise ValueError("common event and audit fact must share an event ID")
+        if _EVENT_TYPE_BY_ACTION[self.audit.actor_action] != self.event.event_type:
+            raise ValueError("audit action must match the common event type")
+        if self.event.safe_details.outcome.status != self.audit.outcome:
+            raise ValueError("audit outcome must match safe details")
+        return self
+
+
+_EVENT_TYPE_BY_ACTION: Final = {
+    ActorAction.CHANNEL_CREATE: ManagementEventType.CHANNEL_CREATE,
+    ActorAction.CHANNEL_UPDATE: ManagementEventType.CHANNEL_UPDATE,
+    ActorAction.CHANNEL_IMPORT: ManagementEventType.CHANNEL_IMPORT,
+    ActorAction.CHANNEL_DETACH: ManagementEventType.CHANNEL_DETACH,
+    ActorAction.CHANNEL_DELETE: ManagementEventType.CHANNEL_DELETE,
+    ActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT: ManagementEventType.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
+    ActorAction.CHANNEL_RECONCILE: ManagementEventType.CHANNEL_RECONCILE,
+}
+
+
+def build_management_audit_record(
+    *,
+    event_id: UUID,
+    occurred_at: AwareDatetime,
+    actor: ActorContext,
+    operation_id: UUID,
+    channel_id: UUID,
+    details: ManagementAuditDetails,
+) -> ManagementAuditRecord:
+    event_type: Final = _EVENT_TYPE_BY_ACTION.get(actor.action)
+    if event_type is None or event_type.value != details.kind:
+        raise ValueError("actor action must match audit details")
+    return ManagementAuditRecord(
+        event=PoolEvent(
+            event_id=event_id,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            channel_id=channel_id,
+            request_id=actor.request_id,
+            actor_type=actor.actor_type,
+            actor_id=actor.user_id,
+            safe_details=details,
+        ),
+        audit=ManagementAuditFact(
+            event_id=event_id,
+            operation_id=operation_id,
+            actor_role=actor.role,
+            actor_action=actor.action,
+            actor_envelope_id=actor.envelope_id,
+            outcome=details.outcome.status,
+        ),
+    )

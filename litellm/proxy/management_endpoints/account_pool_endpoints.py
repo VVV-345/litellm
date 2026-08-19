@@ -70,9 +70,11 @@ async def _forward_with_client(
     if not internal_token:
         raise HTTPException(status_code=503, detail="ACCOUNT_POOL_INTERNAL_TOKEN is not configured")
     # 内部身份头只在服务端生成，浏览器提交的同名头不会被透传到 Account Pool。
+    idempotency_key: Final = request.headers.get("idempotency-key")
     headers: Final = {
         "accept": "application/json",
         **({"content-type": "application/json"} if method in _BODY_METHODS else {}),
+        **({"idempotency-key": idempotency_key} if idempotency_key is not None else {}),
         "x-account-pool-token": internal_token,
         **(
             {
@@ -102,6 +104,23 @@ async def _forward_with_client(
     return Response(content=upstream.content, status_code=upstream.status_code, headers=response_headers)
 
 
+async def _forward_channel_mutation(
+    *,
+    request: Request,
+    user_api_key_dict: UserAPIKeyAuth,
+    method: Literal["POST", "PUT", "DELETE"],
+    path: str,
+    action: AccountPoolActorAction,
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    actor: Final = _actor_for_request(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        action=action,
+    )
+    return await _forward(request=request, method=method, path=path, actor=actor)
+
+
 @router.get("/provider-services")
 async def list_provider_services(
     request: Request,
@@ -127,6 +146,130 @@ async def list_catalog_channels(
 ) -> Response:
     _require_proxy_admin(user_api_key_dict)
     return await _forward(request=request, method="GET", path="/api/channels")
+
+
+@router.post("/channels")
+async def create_catalog_channel(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path="/api/channels",
+        action=AccountPoolActorAction.CHANNEL_CREATE,
+    )
+
+
+@router.post("/channels/import")
+async def import_catalog_channel(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path="/api/channels/import",
+        action=AccountPoolActorAction.CHANNEL_IMPORT,
+    )
+
+
+@router.get("/channels/{channel_id}")
+async def get_catalog_channel(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}")
+
+
+@router.put("/channels/{channel_id}")
+async def update_catalog_channel(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="PUT",
+        path=f"/api/channels/{channel_id}",
+        action=AccountPoolActorAction.CHANNEL_UPDATE,
+    )
+
+
+@router.post("/channels/{channel_id}/detach")
+async def detach_catalog_channel(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path=f"/api/channels/{channel_id}/detach",
+        action=AccountPoolActorAction.CHANNEL_DETACH,
+    )
+
+
+@router.delete("/channels/{channel_id}")
+async def delete_catalog_channel(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="DELETE",
+        path=f"/api/channels/{channel_id}",
+        action=AccountPoolActorAction.CHANNEL_DELETE,
+    )
+
+
+@router.post("/channels/{channel_id}/bindings/{binding_id}/delete-external-deployment")
+async def delete_external_channel_deployment(
+    channel_id: UUID,
+    binding_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path=f"/api/channels/{channel_id}/bindings/{binding_id}/delete-external-deployment",
+        action=AccountPoolActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
+    )
+
+
+@router.post("/channels/{channel_id}/reconcile")
+async def reconcile_catalog_channel(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="POST",
+        path=f"/api/channels/{channel_id}/reconcile",
+        action=AccountPoolActorAction.CHANNEL_RECONCILE,
+    )
+
+
+@router.get("/operations/{operation_id}")
+async def get_channel_operation(
+    operation_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/operations/{operation_id}")
 
 
 @router.get("/accounts")
