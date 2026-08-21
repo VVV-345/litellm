@@ -71,7 +71,7 @@ class Gateway:
                     "error": {
                         "message": "No account capacity is available for this model",
                         "type": "account_pool_unavailable",
-                        "details": acquired.reasons,
+                        "details": {**acquired.model_dump(mode="json"), "reasons": acquired.reasons},
                     }
                 },
             )

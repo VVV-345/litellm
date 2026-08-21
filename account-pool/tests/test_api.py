@@ -1354,6 +1354,35 @@ async def test_internal_acquire_and_settle_share_health_event_recording() -> Non
 
 
 @pytest.mark.asyncio
+async def test_internal_acquire_returns_structured_no_route_detail() -> None:
+    app: Final = create_app(settings=settings(), store=MemoryStateStore())
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://account-pool",
+            headers={"x-account-pool-token": "test-service-token"},
+        ) as client:
+            response: Final = await client.post(
+                "/internal/acquire",
+                json={"request_id": "missing-route", "model": "missing-model"},
+            )
+
+    payload: Final = _JSON_OBJECT_ADAPTER.validate_json(response.content)
+    detail: Final = _JSON_OBJECT_ADAPTER.validate_python(payload["detail"])
+    assert response.status_code == 503
+    assert detail == {
+        "status": "unavailable",
+        "code": "no_available_route",
+        "model": "missing-model",
+        "reason_codes": ["model_not_configured"],
+        "candidates": [],
+        "retry_at": None,
+        "reasons": ["model_not_configured"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_gateway_applies_retry_after_and_safe_provider_error_code() -> None:
     def upstream(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1409,8 +1438,20 @@ async def test_gateway_returns_capacity_error_without_calling_litellm() -> None:
                 response: Final = await client.post("/v1/chat/completions", json={"model": "missing-model"})
 
     error: Final = _GatewayErrorResponse.model_validate_json(response.content)
+    payload: Final = _JSON_OBJECT_ADAPTER.validate_json(response.content)
+    error_payload: Final = _JSON_OBJECT_ADAPTER.validate_python(payload["error"])
+    details: Final = _JSON_OBJECT_ADAPTER.validate_python(error_payload["details"])
     assert response.status_code == 503
     assert error.error.type == "account_pool_unavailable"
+    assert details == {
+        "status": "unavailable",
+        "code": "no_available_route",
+        "model": "missing-model",
+        "reason_codes": ["model_not_configured"],
+        "candidates": [],
+        "retry_at": None,
+        "reasons": ["model_not_configured"],
+    }
     assert calls == []
 
 

@@ -261,10 +261,59 @@ class AcquireSuccess(FrozenModel):
     lease: Lease
 
 
+class AcquireRejectionStage(StrEnum):
+    CONFIGURATION = "configuration"
+    ELIGIBILITY = "eligibility"
+    RESERVATION = "reservation"
+
+
+class AcquireRejectionScope(StrEnum):
+    CHANNEL = "channel"
+    MODEL = "model"
+    DEPLOYMENT = "deployment"
+    BILLING_ROUTE = "billing_route"
+
+
+class AcquireRejectionSource(StrEnum):
+    ADMINISTRATIVE = "administrative"
+    HEALTH = "health"
+    RESTRICTION = "restriction"
+    CAPACITY = "capacity"
+    QUOTA = "quota"
+    RUNTIME = "runtime"
+
+
+class AcquireRejectionState(StrEnum):
+    ACTIVE = "active"
+    HALF_OPEN = "half_open"
+
+
+class AcquireCandidateRejection(FrozenModel):
+    account_id: AccountId
+    deployment_id: str = Field(min_length=1)
+    binding_id: UUID | None = None
+    billing_route_id: str | None = Field(default=None, min_length=1)
+    stage: AcquireRejectionStage
+    reason_code: str = Field(min_length=1, max_length=100)
+    scope: AcquireRejectionScope
+    source: AcquireRejectionSource
+    state: AcquireRejectionState = AcquireRejectionState.ACTIVE
+    retry_at: float | None = Field(default=None, ge=0)
+
+
 class AcquireUnavailable(FrozenModel):
     status: Literal["unavailable"] = "unavailable"
+    code: Literal["no_available_route"] = "no_available_route"
     model: ModelName
-    reasons: tuple[str, ...]
+    reason_codes: tuple[str, ...] = Field(min_length=1)
+    candidates: tuple[AcquireCandidateRejection, ...] = ()
+    retry_at: float | None = Field(default=None, ge=0)
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        if not self.candidates:
+            return self.reason_codes
+        return tuple(f"{candidate.account_id}:{candidate.reason_code}" for candidate in self.candidates)
 
 
 AcquireResult = AcquireSuccess | AcquireUnavailable

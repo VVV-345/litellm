@@ -139,4 +139,6 @@ API 提供：
 
 渠道优先级已经收敛为最高 `400`、高 `300`、中 `200`、低 `100` 四档。正式管理 API、同步期望状态、PostgreSQL 目录和 Dashboard 只接受固定档位，默认使用中档；旧 YAML 在加载和首次目录导入时按历史阈值归一。迁移会同时归一渠道目录与同步操作中的历史期望状态，并用数据库约束拒绝后续任意整数。Dashboard 创建、编辑和渠道列表均使用中文档位，不再暴露数字输入框
 
-当前自动化验证为 Account Pool 全量 `559 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`。本批新增及修改路径的 Ruff、basedpyright、Prettier、ESLint、文件头检查和 `git diff --check` 通过，ESLint 只有既有复杂度警告。当前仍需执行步骤 5、步骤 6的剩余范围：结构化无路由解释、4100 调度工作台、LiteLLM Dashboard 调度管理界面和最终集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成静态契约测试，四档迁移也已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移与 Prisma schema 校验仍待目标环境。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`
+无可用路由响应已经改为结构化契约。顶层提供稳定错误码、公共模型、去重原因码和最早恢复时间；每个候选提供渠道 ID、Deployment ID、可选绑定与计费路由 ID、拒绝阶段、原因码、作用域、来源、状态和恢复时间。模型未配置、人工暂停、绑定禁用、健康或限制排除、并发竞争及额度预占失败均有明确分类；内部 acquire API 与 OpenAI 兼容网关返回同一份脱敏结构。旧 `reasons` 字段继续从结构化候选派生用于兼容，但核心逻辑不再拼接或解析字符串。响应不包含 URL、Key、内部 Authorization、Redis Key 或上游正文
+
+当前自动化验证为 Account Pool 全量 `561 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`。本批新增及修改路径的 Ruff、basedpyright、Prettier、ESLint、文件头检查和 `git diff --check` 通过，ESLint 只有既有复杂度警告。当前仍需执行步骤 5、步骤 6的剩余范围：4100 调度工作台、LiteLLM Dashboard 调度管理界面和最终集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成静态契约测试，四档迁移也已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移与 Prisma schema 校验仍待目标环境。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`

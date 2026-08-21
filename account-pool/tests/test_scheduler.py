@@ -94,6 +94,20 @@ async def test_acquire_is_idempotent_and_capacity_is_never_exceeded() -> None:
     assert duplicate.lease.lease_id == first.lease.lease_id
     assert isinstance(blocked, AcquireUnavailable)
     assert blocked.reasons == ("one:capacity",)
+    assert blocked.code == "no_available_route"
+    assert blocked.reason_codes == ("capacity",)
+    assert blocked.candidates[0].model_dump(mode="json") == {
+        "account_id": "one",
+        "deployment_id": "one-model-a",
+        "binding_id": None,
+        "billing_route_id": None,
+        "stage": "eligibility",
+        "reason_code": "capacity",
+        "scope": "channel",
+        "source": "capacity",
+        "state": "active",
+        "retry_at": None,
+    }
     assert (await store.snapshots())[0].inflight == 1
 
 
@@ -142,6 +156,12 @@ async def test_settlement_updates_quota_and_429_restricts_only_the_deployment() 
     blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-2", model="model-a"))
     assert isinstance(blocked, AcquireUnavailable)
     assert blocked.reasons == ("one:rate_limited",)
+    assert blocked.reason_codes == ("rate_limited",)
+    assert blocked.candidates[0].scope == "deployment"
+    assert blocked.candidates[0].source == "restriction"
+    assert blocked.candidates[0].stage == "eligibility"
+    assert blocked.candidates[0].retry_at is not None
+    assert blocked.retry_at == blocked.candidates[0].retry_at
 
 
 @pytest.mark.asyncio
@@ -195,6 +215,9 @@ async def test_expired_retry_enters_half_open_and_success_clears_the_restriction
     assert isinstance(second, AcquireSuccess)
     assert isinstance(concurrent, AcquireUnavailable)
     assert concurrent.reasons == ("one:half_open_probe_inflight",)
+    assert concurrent.candidates[0].source == "capacity"
+    assert concurrent.candidates[0].state == "half_open"
+    assert concurrent.candidates[0].stage == "reservation"
     assert await store.settle(SettleRequest(lease_id=second.lease.lease_id, success=True))
     assert await store.release(second.lease.lease_id)
     recovered: Final = (await scheduler.route_table("model-a"))[0]
@@ -628,6 +651,39 @@ async def test_model_candidate_pause_remains_visible_but_is_not_acquired() -> No
 
 
 @pytest.mark.asyncio
+async def test_acquire_explains_paused_and_disabled_bindings() -> None:
+    configured: Final = account("configured", 10).model_copy(
+        update={
+            "deployments": (
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="paused-deployment",
+                    routing_paused=True,
+                ),
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="disabled-deployment",
+                    enabled=False,
+                ),
+            )
+        }
+    )
+    scheduler, _ = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request", model="model-a"))
+
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reason_codes == ("deployment_disabled", "manual_pause")
+    assert tuple(rejection.stage for rejection in blocked.candidates) == ("configuration", "configuration")
+    assert tuple(rejection.source for rejection in blocked.candidates) == ("administrative", "administrative")
+    assert tuple(rejection.scope for rejection in blocked.candidates) == ("deployment", "deployment")
+    assert blocked.reasons == (
+        "configured:deployment_disabled",
+        "configured:manual_pause",
+    )
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_preserves_usage_unless_quota_limits_change() -> None:
     original: Final = account("one", max_concurrency=2)
     scheduler, store = await initialized_scheduler(PoolConfig(accounts=(original,)))
@@ -752,6 +808,9 @@ async def test_token_reservation_is_released_or_replaced_by_actual_usage() -> No
         AcquireRequest(request_id="request-b", model="model-a", estimated_tokens=30)
     )
     assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.candidates[0].stage == "reservation"
+    assert blocked.candidates[0].scope == "channel"
+    assert blocked.candidates[0].source == "quota"
     assert await store.release(reserved.lease.lease_id)
 
     replacement: Final = await scheduler.acquire(

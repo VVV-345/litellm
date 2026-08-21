@@ -898,7 +898,10 @@ def create_app(
     async def acquire(body: AcquireRequest) -> AcquireSuccess:
         result: Final = await scheduler.acquire(body)
         if not isinstance(result, AcquireSuccess):
-            raise HTTPException(status_code=503, detail={"model": result.model, "reasons": result.reasons})
+            raise HTTPException(
+                status_code=503,
+                detail={**result.model_dump(mode="json"), "reasons": result.reasons},
+            )
         if resolved_health_recorder is not None:
             await resolved_health_recorder.record_request(result.lease)
         return result

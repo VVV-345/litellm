@@ -1225,7 +1225,9 @@ PostgreSQL 模型策略与候选覆盖已经接通。模型策略使用版本号
 
 渠道优先级已经固定为最高 `400`、高 `300`、中 `200`、低 `100` 四档。正式管理 API、同步状态、PostgreSQL 目录和 Dashboard 只接受固定档位，默认使用中档；旧 YAML 在加载及首次目录导入时归一。数据库迁移同时修正渠道目录和历史同步期望状态，并添加四档约束。Dashboard 创建、编辑和列表均显示中文档位，不再允许输入任意数字
 
-当前自动化验证为 Account Pool 全量 `559 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`，LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过，Dashboard Prettier 通过、ESLint 无错误。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，四档迁移已有目标 PostgreSQL 执行测试，但真实脚本执行、PostgreSQL 迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。Phase 4 仍需完成结构化无路由解释、4100 调度工作台和 LiteLLM Dashboard 调度管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
+所有候选失败时已经返回结构化无可用路由错误。顶层包含稳定错误码、公共模型、去重原因码和最早恢复时间；候选明细包含渠道、Deployment、可选绑定与计费路由、拒绝阶段、原因码、作用域、来源、状态和恢复时间。人工暂停、绑定禁用、资格排除、并发竞争和额度预占失败均可独立解释。内部 acquire API 与 OpenAI 兼容网关共用同一脱敏结构，兼容 `reasons` 由结构化候选派生，不再依赖字符串作为权威数据
+
+当前自动化验证为 Account Pool 全量 `561 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`，LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过，Dashboard Prettier 通过、ESLint 无错误。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，四档迁移已有目标 PostgreSQL 执行测试，但真实脚本执行、PostgreSQL 迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。Phase 4 仍需完成 4100 调度工作台和 LiteLLM Dashboard 调度管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
 
 ### Phase 5：总览、日志与生产化
 

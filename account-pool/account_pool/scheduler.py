@@ -14,6 +14,11 @@ from account_pool.eligibility import (
 from account_pool.models import (
     AccountConfig,
     AccountSnapshot,
+    AcquireCandidateRejection,
+    AcquireRejectionScope,
+    AcquireRejectionSource,
+    AcquireRejectionStage,
+    AcquireRejectionState,
     AcquireRequest,
     AcquireResult,
     AcquireSuccess,
@@ -25,6 +30,7 @@ from account_pool.models import (
     PoolConfig,
     ReserveSuccess,
     RouteEntry,
+    RuntimeQuotaScope,
     Strategy,
 )
 from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
@@ -58,9 +64,9 @@ class Scheduler:
         return self._config.accounts
 
     async def acquire(self, request: AcquireRequest) -> AcquireResult:
-        candidates: Final = self._candidates(request.model, include_paused=False)
+        candidates: Final = self._candidates(request.model)
         if not candidates:
-            return AcquireUnavailable(model=request.model, reasons=("model_not_configured",))
+            return AcquireUnavailable(model=request.model, reason_codes=("model_not_configured",))
 
         snapshots: Final = await self._snapshot_map()
         latency: Final = await self._latency_map()
@@ -77,8 +83,12 @@ class Scheduler:
             now=now,
             request_id=request.request_id,
         )
-        reasons: list[str] = []
+        rejections: list[AcquireCandidateRejection] = []
         for account, deployment in ordered:
+            configuration_rejection = _configuration_rejection(account, deployment)
+            if configuration_rejection is not None:
+                rejections.append(configuration_rejection)
+                continue
             result = await self._store.reserve(
                 account=account,
                 deployment_id=deployment.litellm_model_id,
@@ -90,8 +100,25 @@ class Scheduler:
             )
             if isinstance(result, ReserveSuccess):
                 return AcquireSuccess(lease=result.lease)
-            reasons.append(f"{account.id}:{result.reason}")
-        return AcquireUnavailable(model=request.model, reasons=tuple(reasons))
+            rejections.append(
+                _reserve_rejection(
+                    account=account,
+                    deployment=deployment,
+                    snapshot=snapshots[account.id],
+                    exclusions=exclusions,
+                    reason_code=result.reason,
+                    now=now,
+                )
+            )
+        return AcquireUnavailable(
+            model=request.model,
+            reason_codes=tuple(dict.fromkeys(rejection.reason_code for rejection in rejections)),
+            candidates=tuple(rejections),
+            retry_at=min(
+                (rejection.retry_at for rejection in rejections if rejection.retry_at is not None),
+                default=None,
+            ),
+        )
 
     async def route_table(self, model: str) -> tuple[RouteEntry, ...]:
         snapshots: Final = await self._snapshot_map()
@@ -99,7 +126,7 @@ class Scheduler:
         exclusions: Final = await self._store.eligibility_exclusions()
         now: Final = time.time()
         policy: Final = self.policy(model)
-        candidates: Final = self._candidates(model, include_paused=True)
+        candidates: Final = self._candidates(model)
         routing_candidates: Final = tuple(
             _routing_candidate(
                 account=account,
@@ -159,18 +186,12 @@ class Scheduler:
         metrics: Final = await self._store.latency_metrics()
         return {metric.deployment_id: metric.ewma_ms for metric in metrics}
 
-    def _candidates(
-        self,
-        model: str,
-        include_paused: bool,
-    ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
+    def _candidates(self, model: str) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
         return tuple(
             (account, deployment)
             for account in self._config.accounts
             for deployment in account.deployments
-            if deployment.enabled
-            and deployment.public_model == model
-            and (include_paused or not deployment.routing_paused)
+            if deployment.public_model == model
         )
 
     async def _ordered_candidates(
@@ -236,7 +257,9 @@ class Scheduler:
             now=now,
         )
         reason: Final = (
-            "manual_pause"
+            "deployment_disabled"
+            if not deployment.enabled
+            else "manual_pause"
             if deployment.routing_paused
             else _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
         )
@@ -310,7 +333,9 @@ def _routing_candidate(
         deployment_id=deployment.litellm_model_id,
         billing_route_id=deployment.billing_route_id,
         available=(
-            not deployment.routing_paused and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
+            deployment.enabled
+            and not deployment.routing_paused
+            and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
         ),
         priority=account.priority,
         weight=deployment.routing_weight or account.weight,
@@ -333,6 +358,133 @@ def _routing_candidate(
 
 def _candidate_id(account: AccountConfig, deployment: DeploymentConfig) -> str:
     return f"{account.id}\x00{deployment.litellm_model_id}\x00{deployment.billing_route_id or ''}"
+
+
+def _configuration_rejection(
+    account: AccountConfig,
+    deployment: DeploymentConfig,
+) -> AcquireCandidateRejection | None:
+    reason_code: Final = (
+        "deployment_disabled" if not deployment.enabled else "manual_pause" if deployment.routing_paused else None
+    )
+    if reason_code is None:
+        return None
+    return AcquireCandidateRejection(
+        account_id=account.id,
+        deployment_id=deployment.litellm_model_id,
+        binding_id=deployment.binding_id,
+        billing_route_id=deployment.billing_route_id,
+        stage=AcquireRejectionStage.CONFIGURATION,
+        reason_code=reason_code,
+        scope=AcquireRejectionScope.DEPLOYMENT,
+        source=AcquireRejectionSource.ADMINISTRATIVE,
+    )
+
+
+def _reserve_rejection(
+    account: AccountConfig,
+    deployment: DeploymentConfig,
+    snapshot: AccountSnapshot,
+    exclusions: tuple[EligibilityExclusion, ...],
+    reason_code: str,
+    now: float,
+) -> AcquireCandidateRejection:
+    candidate_evidence_value: Final = candidate_evidence(
+        exclusions=exclusions,
+        account_id=account.id,
+        model=deployment.public_model,
+        deployment_id=deployment.litellm_model_id,
+        billing_route_id=deployment.billing_route_id,
+        now=now,
+    )
+    active_exclusion: Final = candidate_exclusion(
+        exclusions=exclusions,
+        account_id=account.id,
+        model=deployment.public_model,
+        deployment_id=deployment.litellm_model_id,
+        billing_route_id=deployment.billing_route_id,
+        now=now,
+    )
+    matching_evidence: Final = (
+        candidate_evidence_value
+        if candidate_evidence_value is not None and candidate_evidence_value.reason_code == reason_code
+        else None
+    )
+    quota_scope: Final = _quota_rejection_scope(account, deployment, reason_code)
+    prechecked_reason: Final = _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
+    return AcquireCandidateRejection(
+        account_id=account.id,
+        deployment_id=deployment.litellm_model_id,
+        binding_id=deployment.binding_id,
+        billing_route_id=deployment.billing_route_id,
+        stage=(
+            AcquireRejectionStage.ELIGIBILITY
+            if prechecked_reason == reason_code
+            else AcquireRejectionStage.RESERVATION
+        ),
+        reason_code=reason_code,
+        scope=(
+            AcquireRejectionScope(matching_evidence.scope.value)
+            if matching_evidence is not None
+            else quota_scope
+            if quota_scope is not None
+            else AcquireRejectionScope.CHANNEL
+        ),
+        source=(
+            AcquireRejectionSource(matching_evidence.source.value)
+            if matching_evidence is not None
+            else _fallback_rejection_source(reason_code)
+        ),
+        state=(
+            AcquireRejectionState.HALF_OPEN
+            if candidate_evidence_value is not None
+            and effective_state(candidate_evidence_value, now).value == AcquireRejectionState.HALF_OPEN
+            else AcquireRejectionState.ACTIVE
+        ),
+        retry_at=(
+            matching_evidence.retry_at
+            if matching_evidence is not None
+            else snapshot.cooldown_until
+            if reason_code == "cooldown"
+            else None
+        ),
+    )
+
+
+def _quota_rejection_scope(
+    account: AccountConfig,
+    deployment: DeploymentConfig,
+    reason_code: str,
+) -> AcquireRejectionScope | None:
+    matching: Final = tuple(
+        window
+        for window in account.quota_windows
+        if window.reason_code == reason_code
+        and (
+            window.scope == RuntimeQuotaScope.CHANNEL
+            or (window.scope == RuntimeQuotaScope.MODEL and window.subject_id == deployment.public_model)
+            or (
+                window.scope == RuntimeQuotaScope.BILLING_ROUTE
+                and window.subject_id == deployment.billing_route_id
+            )
+        )
+    )
+    if not matching:
+        return None
+    scope: Final = matching[0].scope
+    return AcquireRejectionScope.BILLING_ROUTE if scope == RuntimeQuotaScope.BILLING_ROUTE else AcquireRejectionScope(scope.value)
+
+
+def _fallback_rejection_source(reason_code: str) -> AcquireRejectionSource:
+    if reason_code in {"disabled", "deployment_disabled", "manual_pause"}:
+        return AcquireRejectionSource.ADMINISTRATIVE
+    if reason_code == "unhealthy":
+        return AcquireRejectionSource.HEALTH
+    if reason_code in {"capacity", "cooldown", "half_open_probe_inflight"}:
+        return AcquireRejectionSource.CAPACITY
+    if "quota" in reason_code or reason_code.endswith("_exhausted"):
+        return AcquireRejectionSource.QUOTA
+    return AcquireRejectionSource.RUNTIME
 
 
 def _unavailable_reason(
