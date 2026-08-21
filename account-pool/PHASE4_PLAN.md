@@ -131,8 +131,10 @@ API 提供：
 
 ## 12. 当前进度
 
-截至 2026-08-21，步骤 1、步骤 2 和步骤 3 的安全执行范围已完成。排序内核、PostgreSQL 策略版本、模型候选人工顺序/权重/暂停、目录运行投影、正式管理 API、LiteLLM 管理代理、管理员 actor 签名及模型级脱敏审计已经接通；正式路由支持包含 `/` 的模型名
+截至 2026-08-21，步骤 1 至步骤 4 的安全执行范围已完成。排序内核、PostgreSQL 策略版本、模型候选人工顺序/权重/暂停、目录运行投影、正式管理 API、LiteLLM 管理代理、管理员 actor 签名及模型级脱敏审计已经接通；正式路由支持包含 `/` 的模型名
 
 最新有效解析结果现在一次读取并同时投影额度与成本。Deployment 按公共模型、LiteLLM 模型或 Provider 模型的明确身份匹配价格，优先采用每百万 token 标准化价格，否则采用解析器已经计算的有效价格；输入与输出价格之和作为无请求比例时的排序分数，单边价格保留 `partial` 证据。币种或单位不一致时不直接比较，多分组价格不一致且厂商自行决定扣费时不猜测分组。已独立绑定到 Deployment 的套餐或按量路由会投影 `billing_route_id`；需要请求参数切换但尚无已实现白名单选择器的路由不会被声称为可执行。有效套餐明确包含模型时边际成本为 0，过期或未映射套餐不按 0 排序
 
-当前自动化验证为 Account Pool 全量 `532 passed, 42 skipped`，42 个跳过项需要目标 PostgreSQL；本批新增及修改路径的 Ruff、basedpyright 和 `git diff --check` 通过。当前仍需执行步骤 4 至步骤 6：延迟 EWMA 持久化、四档渠道优先级、结构化无路由解释、4100 调度工作台、LiteLLM Dashboard 管理界面和最终集成验收。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`。目标 PostgreSQL 迁移与 Prisma schema 校验尚待具备相应环境后执行
+成功业务请求的 Deployment 延迟 EWMA 已接通，固定使用 `alpha=0.2`；失败请求、主动探测和零延迟占位不更新样本，重复结算由运行后端原子去重。内存与 Redis 保存实时指标，PostgreSQL 按稳定 `binding_id` 保存恢复快照；运行时 Deployment ID 变化后仍可恢复，重配置会合并较新的指标。`lowest_latency` 的路由表与实际 acquire 都动态读取同一组 EWMA，延迟快照持久化失败只记录错误，不让已经完成的请求结算失败
+
+当前自动化验证为 Account Pool 全量 `554 passed, 45 skipped`，45 个跳过项需要目标 PostgreSQL；本批新增及修改路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过。当前仍需执行步骤 5、步骤 6及补充范围：四档渠道优先级、结构化无路由解释、4100 调度工作台、LiteLLM Dashboard 管理界面和最终集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成静态契约测试，但真实脚本执行、PostgreSQL 延迟迁移与 Prisma schema 校验尚待目标环境。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`

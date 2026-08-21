@@ -89,6 +89,7 @@ from account_pool.parsing.tasks.models import (
     ParserTaskViewResult,
 )
 from account_pool.quota.durable import DurableQuotaStateStore
+from account_pool.routing.latency_store import DurableLatencyStateStore
 from account_pool.store import MemoryStateStore
 from account_pool.sync.models import SyncStatus
 from account_pool.sync.service import (
@@ -546,7 +547,8 @@ def test_build_store_enables_durable_quota_runtime_with_postgres() -> None:
     )
 
     assert isinstance(memory_runtime.store, MemoryStateStore)
-    assert isinstance(durable_runtime.store, DurableQuotaStateStore)
+    assert isinstance(durable_runtime.store, DurableLatencyStateStore)
+    assert isinstance(durable_runtime.store._backend, DurableQuotaStateStore)
 
 
 def _parser_data_reader() -> FakeParserDataReader:

@@ -92,6 +92,7 @@ from account_pool.quota.redis_scripts import (
     REDIS_QUOTA_SETTLE_LUA,
 )
 from account_pool.quota.runtime import quota_window_exclusions
+from account_pool.routing.latency import LATENCY_EWMA_ALPHA, DeploymentLatencyMetric, update_latency_ewma
 
 
 class StateStore(Protocol):
@@ -123,6 +124,12 @@ class StateStore(Protocol):
 
     async def next_sequence(self, model: str) -> int: ...
 
+    async def latency_metrics(self) -> tuple[DeploymentLatencyMetric, ...]: ...
+
+    async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None: ...
+
+    async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None: ...
+
     async def sweep_expired(self) -> int: ...
 
     async def close(self) -> None: ...
@@ -143,6 +150,7 @@ class MemoryStateStore:
         self._leases: dict[str, _MemoryLeaseState] = {}
         self._requests: dict[str, str] = {}
         self._sequences: dict[str, int] = {}
+        self._latency_metrics: dict[str, DeploymentLatencyMetric] = {}
         self._accounts: dict[str, AccountConfig] = {}
         self._quota_windows: dict[str, tuple[RuntimeQuotaWindow, ...]] = {}
         self._exclusions: tuple[EligibilityExclusion, ...] = ()
@@ -153,6 +161,14 @@ class MemoryStateStore:
         async with self._lock:
             previous_accounts: Final = self._accounts
             self._accounts = {account.id: account for account in accounts}
+            configured_deployments: Final = frozenset(
+                deployment.litellm_model_id for account in accounts for deployment in account.deployments
+            )
+            self._latency_metrics = {
+                deployment_id: metric
+                for deployment_id, metric in self._latency_metrics.items()
+                if deployment_id in configured_deployments
+            }
             self._runtime = {
                 account.id: _configured_snapshot(
                     account=account,
@@ -268,6 +284,7 @@ class MemoryStateStore:
                 deployment_id=deployment_id,
                 public_model=public_model,
                 billing_route_id=billing_route_id,
+                probe=probe,
                 expires_at=now + ttl_seconds,
             )
             self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
@@ -338,6 +355,14 @@ class MemoryStateStore:
                 probe_subject=lease_state.probe_subject,
                 quota_reservations=(),
             )
+            if request.success and request.latency_ms is not None and request.latency_ms > 0 and not lease_state.lease.probe:
+                deployment_id: Final = lease_state.lease.deployment_id
+                self._latency_metrics[deployment_id] = update_latency_ewma(
+                    current=self._latency_metrics.get(deployment_id),
+                    deployment_id=deployment_id,
+                    latency_ms=request.latency_ms,
+                    observed_at=now,
+                )
             return True
 
     async def release(self, lease_id: str) -> bool:
@@ -393,6 +418,29 @@ class MemoryStateStore:
             value: Final = self._sequences.get(model, 0) + 1
             self._sequences[model] = value
             return value
+
+    async def latency_metrics(self) -> tuple[DeploymentLatencyMetric, ...]:
+        async with self._lock:
+            return tuple(self._latency_metrics.values())
+
+    async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None:
+        async with self._lock:
+            configured: Final = frozenset(
+                deployment.litellm_model_id
+                for account in self._accounts.values()
+                for deployment in account.deployments
+            )
+            supplied: Final = {metric.deployment_id: metric for metric in metrics}
+            self._latency_metrics = {
+                deployment_id: newest
+                for deployment_id in configured
+                for newest in (_newest_metric(self._latency_metrics.get(deployment_id), supplied.get(deployment_id)),)
+                if newest is not None
+            }
+
+    async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None:
+        async with self._lock:
+            self._latency_metrics[metric.deployment_id] = metric
 
     async def sweep_expired(self) -> int:
         now: Final = time.time()
@@ -555,7 +603,7 @@ redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
   'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
   'probe_key', probe_key, 'quota_count', quota_count, 'generation_id', ARGV[13 + quota_count],
-  'settled', '0', 'released', '0')
+  'probe', ARGV[14 + quota_count], 'settled', '0', 'released', '0')
 """
     + REDIS_QUOTA_RESERVE_COMMIT_LUA
     + r"""
@@ -616,7 +664,7 @@ _SETTLE_SCRIPT = (
     REDIS_QUOTA_RUNTIME_LUA
     + r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
-if redis.call('HGET', KEYS[1], 'settled') == '1' then return 1 end
+if redis.call('HGET', KEYS[1], 'settled') == '1' then return 2 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
 local state_key = ARGV[1] .. account_id .. ':state'
@@ -666,6 +714,16 @@ if write_exclusion and exclusion_scope ~= '' then
   if exclusion_scope == 'billing_route' then target_key = KEYS[5] end
   redis.call('HSET', target_key, exclusion_source .. '|' .. reason_code, starts_at .. '|' .. retry_at)
 end
+local latency = tonumber(ARGV[16] or '0')
+local probe = redis.call('HGET', KEYS[1], 'probe') == '1'
+if action == 'success' and latency > 0 and not probe then
+  local current = tonumber(redis.call('HGET', KEYS[6], 'ewma_ms') or '')
+  local count = tonumber(redis.call('HGET', KEYS[6], 'sample_count') or '0')
+  local alpha = tonumber(ARGV[17])
+  local ewma = current and (alpha * latency + (1 - alpha) * current) or latency
+  redis.call('HSET', KEYS[6], 'deployment_id', redis.call('HGET', KEYS[1], 'deployment_id'),
+    'ewma_ms', ewma, 'sample_count', count + 1, 'observed_at', ARGV[13])
+end
 redis.call('HSET', KEYS[1], 'settled', '1')
 return 1
 """
@@ -693,9 +751,18 @@ class RedisStateStore:
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         previous_accounts: Final = self._accounts
         runtime_reconfigure: Final = bool(previous_accounts)
+        previous_deployments: Final = frozenset(
+            deployment.litellm_model_id
+            for account in previous_accounts.values()
+            for deployment in account.deployments
+        )
+        configured_deployments: Final = frozenset(
+            deployment.litellm_model_id for account in accounts for deployment in account.deployments
+        )
         stale_eligibility: Final = frozenset(eligibility_subjects(tuple(previous_accounts.values()))) - frozenset(
             eligibility_subjects(accounts)
         )
+        stale_latency: Final = previous_deployments - configured_deployments
         self._accounts = {account.id: account for account in accounts}
         quota_failures: Final = await asyncio.gather(*(self._configure_quota_account(account) for account in accounts))
         await asyncio.gather(
@@ -714,6 +781,8 @@ class RedisStateStore:
         )
         if stale_eligibility:
             await self._redis.delete(*(eligibility_key(subject) for subject in stale_eligibility))
+        if stale_latency:
+            await self._redis.delete(*(self._latency_key(deployment_id) for deployment_id in stale_latency))
 
     async def snapshots(self) -> tuple[AccountSnapshot, ...]:
         return tuple([await self._snapshot(account) for account in self._accounts.values()])
@@ -814,6 +883,7 @@ class RedisStateStore:
                     model_eligibility_key(lease.account_id, lease.public_model),
                     deployment_eligibility_key(lease.account_id, lease.deployment_id),
                     billing_route_eligibility_key(lease.account_id, lease.billing_route_id),
+                    self._latency_key(lease.deployment_id),
                 ],
                 args=[
                     self._prefix,
@@ -831,10 +901,12 @@ class RedisStateStore:
                     now,
                     1 if request.success else 0,
                     REDIS_QUOTA_DECIMAL_SCALE,
+                    request.latency_ms or 0,
+                    LATENCY_EWMA_ALPHA,
                 ],
             )
         )
-        return bool(result)
+        return result > 0
 
     async def release(self, lease_id: str) -> bool:
         now: Final = time.time()
@@ -858,6 +930,48 @@ class RedisStateStore:
 
     async def next_sequence(self, model: str) -> int:
         return int(await self._redis.incr(f"pool:model:{model}:sequence"))
+
+    async def latency_metrics(self) -> tuple[DeploymentLatencyMetric, ...]:
+        deployment_ids: Final = tuple(
+            deployment.litellm_model_id
+            for account in self._accounts.values()
+            for deployment in account.deployments
+        )
+        encoded: Final = await asyncio.gather(*(self._redis.hgetall(self._latency_key(item)) for item in deployment_ids))
+        return tuple(
+            DeploymentLatencyMetric.model_validate(fields)
+            for fields in encoded
+            if fields
+        )
+
+    async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None:
+        existing: Final = {metric.deployment_id: metric for metric in await self.latency_metrics()}
+        supplied: Final = {metric.deployment_id: metric for metric in metrics}
+        configured: Final = tuple(
+            deployment.litellm_model_id
+            for account in self._accounts.values()
+            for deployment in account.deployments
+        )
+        await asyncio.gather(
+            *(
+                self._restore_latency_metric(
+                    deployment_id,
+                    _newest_metric(existing.get(deployment_id), supplied.get(deployment_id)),
+                )
+                for deployment_id in configured
+            )
+        )
+
+    async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None:
+        await self._redis.hset(
+            self._latency_key(metric.deployment_id),
+            mapping={
+                "deployment_id": metric.deployment_id,
+                "ewma_ms": str(metric.ewma_ms),
+                "sample_count": str(metric.sample_count),
+                "observed_at": str(metric.observed_at),
+            },
+        )
 
     async def sweep_expired(self) -> int:
         expired: Final = await self._redis.zrangebyscore(self._expiries, min=0, max=time.time())
@@ -1141,6 +1255,7 @@ class RedisStateStore:
             deployment_id=data["deployment_id"],
             public_model=data["public_model"],
             billing_route_id=data.get("billing_route_id") or None,
+            probe=data.get("probe") == "1",
             expires_at=float(data["expires_at"]),
             settled=data.get("settled") == "1",
             released=data.get("released") == "1",
@@ -1157,6 +1272,21 @@ class RedisStateStore:
     @staticmethod
     def _lease_key(lease_id: str) -> str:
         return f"pool:lease:{lease_id}"
+
+    @staticmethod
+    def _latency_key(deployment_id: str) -> str:
+        return f"pool:latency:{deployment_id}"
+
+    async def _restore_latency_metric(
+        self,
+        deployment_id: str,
+        metric: DeploymentLatencyMetric | None,
+    ) -> None:
+        key: Final = self._latency_key(deployment_id)
+        if metric is None:
+            await self._redis.delete(key)
+            return
+        await self.set_latency_metric(metric)
 
 
 def _availability_rejection(runtime: AccountSnapshot, now: float, probe: bool = False) -> str | None:
@@ -1175,6 +1305,19 @@ def _availability_rejection(runtime: AccountSnapshot, now: float, probe: bool = 
     if runtime.quota.weekly is not None and runtime.quota.weekly <= 0:
         return "weekly_quota"
     return None
+
+
+def _newest_metric(
+    current: DeploymentLatencyMetric | None,
+    restored: DeploymentLatencyMetric | None,
+) -> DeploymentLatencyMetric | None:
+    if current is None:
+        return restored
+    if restored is None:
+        return current
+    if current.observed_at != restored.observed_at:
+        return current if current.observed_at > restored.observed_at else restored
+    return current if current.sample_count >= restored.sample_count else restored
 
 
 def _invalid_quota_state_exclusion(account_id: str) -> EligibilityExclusion:

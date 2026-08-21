@@ -41,6 +41,7 @@ from account_pool.quota.repository import (
     QuotaUsageWriteSuccess,
 )
 from account_pool.quota.runtime import RuntimeQuotaWindow, reconcile_quota_windows
+from account_pool.routing.latency import DeploymentLatencyMetric
 from account_pool.store import StateStore
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -175,6 +176,15 @@ class DurableQuotaStateStore:
 
     async def next_sequence(self, model: str) -> int:
         return await self._backend.next_sequence(model)
+
+    async def latency_metrics(self) -> tuple[DeploymentLatencyMetric, ...]:
+        return await self._backend.latency_metrics()
+
+    async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None:
+        await self._backend.restore_latency_metrics(metrics)
+
+    async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None:
+        await self._backend.set_latency_metric(metric)
 
     async def sweep_expired(self) -> int:
         released: Final = await self._backend.sweep_expired()

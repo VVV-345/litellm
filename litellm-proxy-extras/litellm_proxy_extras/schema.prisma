@@ -1606,6 +1606,7 @@ model LiteLLM_AccountPoolBinding {
   updated_at            DateTime                    @updatedAt @client.Timestamptz(6)
   channel               LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
   routing_overrides     LiteLLM_AccountPoolModelCandidateOverride[]
+  latency_metric        LiteLLM_AccountPoolLatencyMetric?
 
   @@index([channel_id])
   @@unique([channel_id, deployment_order])
@@ -1635,6 +1636,18 @@ model LiteLLM_AccountPoolModelCandidateOverride {
   @@id([model, binding_id])
   @@index([binding_id])
   @@unique([model, manual_order])
+}
+
+model LiteLLM_AccountPoolLatencyMetric {
+  binding_id   String   @id
+  ewma_ms      Float
+  sample_count BigInt
+  observed_at  DateTime @client.Timestamptz(6)
+  created_at   DateTime @default(now()) @client.Timestamptz(6)
+  updated_at   DateTime @updatedAt @client.Timestamptz(6)
+  binding      LiteLLM_AccountPoolBinding @relation(fields: [binding_id], references: [binding_id], onDelete: Cascade)
+
+  @@index([observed_at])
 }
 
 model LiteLLM_AccountPoolParserRun {

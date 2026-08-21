@@ -1221,7 +1221,9 @@ PostgreSQL 模型策略与候选覆盖已经接通。模型策略使用版本号
 
 解析价格到运行时成本的链路已经接通。最新有效解析结果只读取一次并同时投影额度和价格；模型身份按明确的公共模型、LiteLLM 模型或 Provider 模型字段匹配，优先采用每百万 token 标准化价格，否则采用解析器已计算的有效价格。输入与输出价格之和作为无请求比例时的排序分数，部分价格保留为可见证据；币种、单位或分组存在歧义时不强行比较。独立 Deployment 绑定的套餐或按量路由会投影为真实 `billing_route_id`，有效且明确覆盖该模型的套餐按 0 边际成本参与排序；依赖尚未实现的请求参数选择器时保持厂商决定扣费，不伪装为可执行路由。路由表和真实 acquire 已验证共同选择最低成本候选
 
-当前自动化验证为 Account Pool 全量 `532 passed, 42 skipped`，42 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过。当前环境没有 Prisma CLI，按约束未下载，迁移仍需在目标 PostgreSQL 执行验证。Phase 4 仍需完成延迟 EWMA 实时记录与恢复、四档渠道优先级、结构化无路由解释、4100 调度工作台和 LiteLLM Dashboard 管理界面，以及登录环境中的浏览器验收；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
+成功业务请求的 Deployment 延迟 EWMA 已接通，固定使用 `alpha=0.2`；失败请求、主动探测和零延迟占位不会污染样本，重复结算不会重复累计。内存与 Redis 保存实时指标，PostgreSQL 按稳定 `binding_id` 保存可恢复快照；Deployment ID 变化后仍可通过绑定恢复，重配置会保留较新的实时样本并移除已删除 Deployment 的指标。路由表与实际 acquire 动态读取同一延迟指标，`lowest_latency` 会把无样本候选排在有样本候选之后。延迟快照写入失败只记录错误并保留实时结算结果，不采用额度状态的失败关闭语义
+
+当前自动化验证为 Account Pool 全量 `554 passed, 45 skipped`，45 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，但真实脚本执行、PostgreSQL 延迟迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Phase 4 仍需完成四档渠道优先级、结构化无路由解释、4100 调度工作台和 LiteLLM Dashboard 管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
 
 ### Phase 5：总览、日志与生产化
 

@@ -315,27 +315,32 @@ def decode_quota_window(fields: Mapping[str, str]) -> RedisQuotaRuntimeResult:
         remaining: Final = _decode_optional(fields["remaining_units"], scale)
         safety_reserve: Final = decode_quota_amount(fields["safety_reserve_units"], scale)
         reserved: Final = decode_quota_amount(fields["reserved_units"], scale)
-        decoded_values: Final = (limit, snapshot_remaining, remaining, safety_reserve, reserved)
-        failure: Final = next(
-            (value for value in decoded_values if isinstance(value, RedisQuotaCodecFailure)),
-            None,
-        )
-        if failure is not None:
-            return failure
-        config: Final = QuotaWindowConfig(
-            window_id=fields["window_id"],
-            scope=fields["scope"],
-            subject_id=fields["subject_id"] or None,
-            kind=fields["kind"],
-            window_type=fields["window_type"] or None,
-            duration_seconds=None if not fields["duration_seconds"] else int(fields["duration_seconds"]),
-            limit=limit,
-            remaining=snapshot_remaining,
-            safety_reserve=safety_reserve,
-            reset_at=None if not fields["reset_at"] else float(fields["reset_at"]),
-            observed_at=float(fields["observed_at"]),
-            source=fields["source"],
-            reason_code=fields["reason_code"],
+        if isinstance(limit, RedisQuotaCodecFailure):
+            return limit
+        if isinstance(snapshot_remaining, RedisQuotaCodecFailure):
+            return snapshot_remaining
+        if isinstance(remaining, RedisQuotaCodecFailure):
+            return remaining
+        if isinstance(safety_reserve, RedisQuotaCodecFailure):
+            return safety_reserve
+        if isinstance(reserved, RedisQuotaCodecFailure):
+            return reserved
+        config: Final = QuotaWindowConfig.model_validate(
+            {
+                "window_id": fields["window_id"],
+                "scope": fields["scope"],
+                "subject_id": fields["subject_id"] or None,
+                "kind": fields["kind"],
+                "window_type": fields["window_type"] or None,
+                "duration_seconds": None if not fields["duration_seconds"] else int(fields["duration_seconds"]),
+                "limit": limit,
+                "remaining": snapshot_remaining,
+                "safety_reserve": safety_reserve,
+                "reset_at": None if not fields["reset_at"] else float(fields["reset_at"]),
+                "observed_at": float(fields["observed_at"]),
+                "source": fields["source"],
+                "reason_code": fields["reason_code"],
+            }
         )
         return RuntimeQuotaWindow(
             config=config,

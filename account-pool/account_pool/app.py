@@ -112,6 +112,8 @@ from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.quota.postgres import PostgresQuotaRuntimeRepository
+from account_pool.routing.latency_postgres import PostgresLatencyMetricRepository
+from account_pool.routing.latency_store import DurableLatencyStateStore
 from account_pool.routing.models import (
     RoutingCandidateMutation,
     RoutingFailure,
@@ -1206,9 +1208,15 @@ def _build_store(settings: Settings) -> StateStore:
     backend: Final = RedisStateStore(settings.redis_url) if settings.store_mode == "redis" else MemoryStateStore()
     if settings.database_url is None:
         return backend
-    return DurableQuotaStateStore(
-        backend=backend,
-        repository=PostgresQuotaRuntimeRepository(
+    return DurableLatencyStateStore(
+        backend=DurableQuotaStateStore(
+            backend=backend,
+            repository=PostgresQuotaRuntimeRepository(
+                settings.database_url,
+                schema=settings.database_schema,
+            ),
+        ),
+        repository=PostgresLatencyMetricRepository(
             settings.database_url,
             schema=settings.database_schema,
         ),

@@ -210,6 +210,17 @@ def test_hash_decoder_rejects_missing_or_wrong_scale_state() -> None:
     assert wrong_scale.code == "invalid_state"
 
 
+def test_hash_decoder_rejects_unknown_enum_values() -> None:
+    encoded: Final = encode_quota_window("channel-a", _window())
+    assert not isinstance(encoded, RedisQuotaCodecFailure)
+    invalid_fields: Final = {**quota_window_hash_fields(encoded), "scope": "unknown-scope"}
+
+    decoded: Final = decode_quota_window(invalid_fields)
+
+    assert isinstance(decoded, RedisQuotaCodecFailure)
+    assert decoded.code == "invalid_state"
+
+
 def test_reservation_plan_matches_scope_and_encodes_request_units() -> None:
     channel: Final = _window().config.model_copy(update={"kind": RuntimeQuotaKind.REQUESTS})
     model: Final = channel.model_copy(
@@ -299,3 +310,9 @@ def test_lifecycle_scripts_preserve_atomic_reservation_contract() -> None:
     assert "probe_mode = ARGV[14 + requested_quota_count] == '1'" in store_module._RESERVE_SCRIPT
     assert "source ~= 'health'" in store_module._RESERVE_SCRIPT
     assert "probe_source_key = health_source_key or KEYS[8]" in store_module._RESERVE_SCRIPT
+    assert "'probe', ARGV[14 + quota_count]" in store_module._RESERVE_SCRIPT
+    assert "return 2" in store_module._SETTLE_SCRIPT
+    assert "local latency = tonumber(ARGV[16] or '0')" in store_module._SETTLE_SCRIPT
+    assert "local alpha = tonumber(ARGV[17])" in store_module._SETTLE_SCRIPT
+    assert "action == 'success' and latency > 0 and not probe" in store_module._SETTLE_SCRIPT
+    assert "'sample_count', count + 1" in store_module._SETTLE_SCRIPT

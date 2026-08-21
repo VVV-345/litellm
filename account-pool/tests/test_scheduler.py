@@ -19,6 +19,7 @@ from account_pool.models import (
     PoolConfig,
     QuotaConfig,
     QuotaWindowConfig,
+    ReserveSuccess,
     RuntimeBillingMode,
     RuntimeQuotaKind,
     RuntimeQuotaScope,
@@ -493,6 +494,79 @@ async def test_lowest_effective_cost_selects_the_cheapest_projected_candidate() 
     assert routes[0].cost_evidence.billing_mode == "provider_decided"
     assert isinstance(acquired, AcquireSuccess)
     assert acquired.lease.account_id == "cheap"
+
+
+@pytest.mark.asyncio
+async def test_lowest_latency_uses_successful_ewma_for_route_table_and_acquire() -> None:
+    slow: Final = account("slow", max_concurrency=2)
+    fast: Final = account("fast", max_concurrency=2)
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(
+            accounts=(slow, fast),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.LOWEST_LATENCY),),
+        )
+    )
+    slow_sample: Final = await store.reserve(
+        account=slow,
+        deployment_id="slow-model-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="slow-sample",
+        estimated_tokens=0,
+        ttl_seconds=60,
+    )
+    fast_sample: Final = await store.reserve(
+        account=fast,
+        deployment_id="fast-model-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="fast-sample",
+        estimated_tokens=0,
+        ttl_seconds=60,
+    )
+    assert isinstance(slow_sample, ReserveSuccess)
+    assert isinstance(fast_sample, ReserveSuccess)
+    assert await store.settle(
+        SettleRequest(lease_id=slow_sample.lease.lease_id, success=True, latency_ms=300)
+    )
+    assert await store.settle(
+        SettleRequest(lease_id=fast_sample.lease.lease_id, success=True, latency_ms=50)
+    )
+    assert await store.release(slow_sample.lease.lease_id)
+    assert await store.release(fast_sample.lease.lease_id)
+
+    routes: Final = await scheduler.route_table("model-a")
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-latency", model="model-a"))
+
+    assert tuple(route.account_id for route in routes) == ("fast", "slow")
+    assert tuple(route.latency_ewma_ms for route in routes) == (50, 300)
+    assert routes[0].sort_reason_codes == ("latency_ewma",)
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.account_id == "fast"
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_preserves_latency_metrics_for_configured_deployments() -> None:
+    configured: Final = account("one", max_concurrency=2)
+    scheduler, store = await initialized_scheduler(
+        PoolConfig(
+            accounts=(configured,),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.LOWEST_LATENCY),),
+        )
+    )
+    sample: Final = await scheduler.acquire(AcquireRequest(request_id="sample", model="model-a"))
+    assert isinstance(sample, AcquireSuccess)
+    assert await store.settle(SettleRequest(lease_id=sample.lease.lease_id, success=True, latency_ms=125))
+
+    await scheduler.reconfigure(
+        PoolConfig(
+            accounts=(configured,),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.LOWEST_LATENCY),),
+        )
+    )
+
+    routes: Final = await scheduler.route_table("model-a")
+    assert routes[0].latency_ewma_ms == 125
 
 
 @pytest.mark.asyncio

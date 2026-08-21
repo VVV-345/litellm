@@ -63,6 +63,7 @@ class Scheduler:
             return AcquireUnavailable(model=request.model, reasons=("model_not_configured",))
 
         snapshots: Final = await self._snapshot_map()
+        latency: Final = await self._latency_map()
         exclusions: Final = await self._store.eligibility_exclusions()
         now: Final = time.time()
         policy: Final = self._policies.get(request.model, ModelPolicy(model=request.model))
@@ -72,6 +73,7 @@ class Scheduler:
             candidates=candidates,
             snapshots=snapshots,
             exclusions=exclusions,
+            latency=latency,
             now=now,
             request_id=request.request_id,
         )
@@ -93,6 +95,7 @@ class Scheduler:
 
     async def route_table(self, model: str) -> tuple[RouteEntry, ...]:
         snapshots: Final = await self._snapshot_map()
+        latency: Final = await self._latency_map()
         exclusions: Final = await self._store.eligibility_exclusions()
         now: Final = time.time()
         policy: Final = self.policy(model)
@@ -104,6 +107,7 @@ class Scheduler:
                 snapshot=snapshots[account.id],
                 exclusions=exclusions,
                 now=now,
+                latency_ewma_ms=latency.get(deployment.litellm_model_id),
             )
             for account, deployment in candidates
         )
@@ -151,6 +155,10 @@ class Scheduler:
         snapshots: Final = await self._store.snapshots()
         return {snapshot.account_id: snapshot for snapshot in snapshots}
 
+    async def _latency_map(self) -> dict[str, float]:
+        metrics: Final = await self._store.latency_metrics()
+        return {metric.deployment_id: metric.ewma_ms for metric in metrics}
+
     def _candidates(
         self,
         model: str,
@@ -172,6 +180,7 @@ class Scheduler:
         candidates: tuple[tuple[AccountConfig, DeploymentConfig], ...],
         snapshots: dict[str, AccountSnapshot],
         exclusions: tuple[EligibilityExclusion, ...],
+        latency: dict[str, float],
         now: float,
         request_id: str,
     ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
@@ -182,6 +191,7 @@ class Scheduler:
                 snapshot=snapshots[account.id],
                 exclusions=exclusions,
                 now=now,
+                latency_ewma_ms=latency.get(deployment.litellm_model_id),
             )
             for account, deployment in candidates
         )
@@ -285,6 +295,7 @@ def _routing_candidate(
     snapshot: AccountSnapshot,
     exclusions: tuple[EligibilityExclusion, ...],
     now: float,
+    latency_ewma_ms: float | None,
 ) -> RoutingCandidate:
     exclusion: Final = candidate_exclusion(
         exclusions=exclusions,
@@ -307,6 +318,7 @@ def _routing_candidate(
         inflight=snapshot.inflight,
         max_concurrency=snapshot.max_concurrency,
         remaining_quota_ratio=_quota_ratio(account=account, snapshot=snapshot),
+        latency_ewma_ms=latency_ewma_ms,
         effective_cost=None if deployment.cost_evidence is None else deployment.cost_evidence.effective_cost,
         cost_currency=None if deployment.cost_evidence is None else deployment.cost_evidence.currency,
         cost_unit=None if deployment.cost_evidence is None else deployment.cost_evidence.unit,
