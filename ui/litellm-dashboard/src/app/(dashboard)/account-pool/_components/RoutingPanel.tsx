@@ -31,6 +31,7 @@ import {
   updateRoutingCandidate,
   updateRoutingPolicy,
 } from "../api";
+import { reasonLabel } from "../reasonLabels";
 import type {
   JsonDecimal,
   RoutingCandidateMutation,
@@ -65,19 +66,6 @@ const billingLabels: Record<RoutingTableEntry["billing_mode"], string> = {
   subscription: "套餐",
   metered: "按量",
   provider_decided: "厂商决定",
-};
-
-const reasonLabels: Record<string, string> = {
-  capacity: "并发已满",
-  cooldown: "冷却中",
-  credential_invalid: "凭证无效",
-  deployment_disabled: "绑定已停用",
-  manual_pause: "模型绑定已暂停",
-  model_not_found: "上游模型不存在",
-  rate_limited: "上游限流",
-  rate_limit_unknown: "恢复时间未知",
-  unhealthy: "健康检查未通过",
-  upstream_unavailable: "上游暂不可用",
 };
 
 const sortReasonLabels: Record<string, string> = {
@@ -307,9 +295,7 @@ function RoutingTableContent({
             </TableCell>
             <TableCell className="align-top">
               <Badge variant={route.available ? "secondary" : "destructive"}>
-                {route.available
-                  ? "可调度"
-                  : reasonLabels[route.reason_code ?? ""] ?? route.unavailable_reason ?? "不可用"}
+                {route.available ? "可调度" : reasonLabel(route.reason_code ?? route.unavailable_reason ?? "不可用")}
               </Badge>
               {route.retry_at && (
                 <span className="mt-1 block text-xs text-muted-foreground">恢复 {formatRecovery(route.retry_at)}</span>

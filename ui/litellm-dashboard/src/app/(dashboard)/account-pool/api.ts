@@ -3,6 +3,7 @@
 import { apiClient } from "@/components/networking";
 
 import type {
+  AccountPoolOverview,
   ChannelDetail,
   ChannelHealthDetail,
   ChannelListResponse,
@@ -29,6 +30,7 @@ import type {
 
 export const accountPoolKeys = {
   all: ["account-pool"] as const,
+  overview: () => ["account-pool", "overview"] as const,
   channels: () => ["account-pool", "channels"] as const,
   channel: (channelId: string) => ["account-pool", "channels", channelId] as const,
   health: (channelId: string) => ["account-pool", "channels", channelId, "health"] as const,
@@ -45,6 +47,9 @@ export const accountPoolKeys = {
 
 export const getChannels = (accessToken: string): Promise<ChannelListResponse> =>
   apiClient.get("/account_pool/channels", { accessToken });
+
+export const getOverview = (accessToken: string): Promise<AccountPoolOverview> =>
+  apiClient.get("/account_pool/overview", { accessToken });
 
 const mutationOptions = (accessToken: string, body: unknown) => ({
   accessToken,

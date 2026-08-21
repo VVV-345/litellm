@@ -73,6 +73,8 @@ class EffectiveParserData(FrozenModel):
     status: Literal["loaded"] = "loaded"
     channel_id: UUID
     parser_run_id: UUID
+    parser_id: str = Field(min_length=1)
+    parser_version: str = Field(min_length=1)
     parsed_at: AwareDatetime
     parser_status: ParserRunStatus
     raw_result: ParsedChannelData
@@ -130,6 +132,8 @@ class ParserDataService:
         return EffectiveParserData(
             channel_id=channel_id,
             parser_run_id=record.run.parser_run_id,
+            parser_id=record.run.parser_id,
+            parser_version=record.run.parser_version,
             parsed_at=record.run.parsed_at,
             parser_status=record.run.status,
             raw_result=composition.raw_result,

@@ -54,6 +54,15 @@ from account_pool.models import (
     RouteEntry,
     StatsView,
 )
+from account_pool.overview import (
+    AccountPoolOverview,
+    AccountPoolOverviewFailure,
+    ChannelActivityOverview,
+    ChannelOverview,
+    OverviewFailureCode,
+    ParserOverview,
+    ParserOverviewState,
+)
 from account_pool.parsing.imports.models import (
     SnapshotImportRequest,
     SnapshotImportResult,
@@ -155,6 +164,43 @@ class FakeChannelCatalogReader:
                 ),
             )
         )
+
+
+class FakeOverviewReader:
+    async def read(self) -> AccountPoolOverview:
+        return AccountPoolOverview(
+            channels=(
+                ChannelOverview(
+                    channel_id=_CHANNEL_ID,
+                    display_name="OpenAI 主渠道",
+                    provider="openai",
+                    base_url_display="https://api.openai.com/v1",
+                    key_mask="sk-***main",
+                    administrative_state=AdministrativeState.ENABLED,
+                    priority=ChannelPriority.HIGH,
+                    configured_models=("gpt-5.6",),
+                    schedulable_models=("gpt-5.6",),
+                    unavailable_reason_codes=(),
+                    binding_count=1,
+                    enabled_binding_count=1,
+                    parser=ParserOverview(state=ParserOverviewState.NOT_RUN, failure_code="run_not_found"),
+                    activity=ChannelActivityOverview(persistence_available=False),
+                ),
+            ),
+            channel_count=1,
+            administratively_enabled_count=1,
+            healthy_count=0,
+            schedulable_count=1,
+            configured_model_count=1,
+            schedulable_model_count=1,
+            inflight=0,
+            max_concurrency=0,
+        )
+
+
+class UnavailableOverviewReader:
+    async def read(self) -> AccountPoolOverviewFailure:
+        return AccountPoolOverviewFailure(code=OverviewFailureCode.DEPENDENCY_UNAVAILABLE, retryable=True)
 
 
 class FakeChannelManagementService:
@@ -570,6 +616,8 @@ def _parser_data_reader() -> FakeParserDataReader:
     effective: Final = EffectiveParserData(
         channel_id=_CHANNEL_ID,
         parser_run_id=_PARSER_RUN_ID,
+        parser_id="fixture-parser",
+        parser_version="1.0.0",
         parsed_at=_PARSED_AT,
         parser_status=ParserRunStatus.PARTIAL,
         raw_result=ParsedChannelData(warnings=("需要人工确认",)),
@@ -772,6 +820,38 @@ async def test_channel_catalog_api_returns_only_redacted_postgres_identity_view(
     assert result.channels[0].models == ("gpt-5.6",)
     assert "credential_ref" not in rendered
     assert "key_fingerprint" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_overview_api_returns_redacted_aggregate_state() -> None:
+    app: Final = create_app(settings=settings(), store=MemoryStateStore(), overview=FakeOverviewReader())
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                "/api/overview",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    result: Final = AccountPoolOverview.model_validate_json(response.content)
+    assert response.status_code == 200
+    assert result.channels[0].schedulable_models == ("gpt-5.6",)
+    assert "credential_ref" not in response.text.casefold()
+
+
+@pytest.mark.asyncio
+async def test_overview_api_maps_dependency_failure_to_service_unavailable() -> None:
+    app: Final = create_app(settings=settings(), store=MemoryStateStore(), overview=UnavailableOverviewReader())
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                "/api/overview",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": {"code": "dependency_unavailable", "retryable": True}}
 
 
 @pytest.mark.asyncio

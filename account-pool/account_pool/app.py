@@ -68,6 +68,12 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.overview import (
+    AccountPoolOverview,
+    AccountPoolOverviewFailure,
+    AccountPoolOverviewReader,
+    AccountPoolOverviewService,
+)
 from account_pool.parsing.export_retry import ParserExportRetryLoop, ParserExportRetryManager
 from account_pool.parsing.imports.models import (
     SnapshotImportFailure,
@@ -171,6 +177,7 @@ class Runtime:
     health_details: ChannelHealthDetailReader
     health_probes: HealthProbeManager
     routing_policies: RoutingPolicyService | None
+    overview: AccountPoolOverviewReader | None
 
 
 def create_app(
@@ -188,6 +195,7 @@ def create_app(
     health_details: ChannelHealthDetailReader | None = None,
     health_probes: HealthProbeManager | None = None,
     routing_policies: RoutingPolicyService | None = None,
+    overview: AccountPoolOverviewReader | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -293,6 +301,20 @@ def create_app(
         recorder=resolved_health_recorder,
         idle_probe_after_seconds=resolved_settings.health_idle_probe_after_seconds,
     )
+    resolved_overview: Final = (
+        overview
+        if overview is not None
+        else (
+            None
+            if resolved_catalog is None
+            else AccountPoolOverviewService(
+                catalog=resolved_catalog,
+                runtime=scheduler,
+                parser_data=resolved_parser_data,
+                health_events=resolved_health_events,
+            )
+        )
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -313,6 +335,7 @@ def create_app(
         health_details=resolved_health_details,
         health_probes=resolved_health_probes,
         routing_policies=resolved_routing_policies,
+        overview=resolved_overview,
     )
 
     @asynccontextmanager
@@ -485,6 +508,16 @@ def create_app(
         if resolved_catalog is None:
             raise HTTPException(status_code=503, detail="Account-pool database is not configured")
         return await resolved_catalog.list_channels()
+
+    async def overview_data() -> AccountPoolOverview:
+        if resolved_overview is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_overview.read()
+        match result:
+            case AccountPoolOverview():
+                return result
+            case AccountPoolOverviewFailure():
+                raise HTTPException(status_code=503, detail={"code": result.code, "retryable": result.retryable})
 
     async def channel_detail(channel_id: UUID) -> ChannelDetail:
         service: Final = _require_channel_management(resolved_channel_management)
@@ -1045,6 +1078,7 @@ def create_app(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
     )
     application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
+    application.add_api_route("/api/overview", overview_data, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/channels", create_channel, methods=["POST"], dependencies=management_dependency)
     application.add_api_route(
         "/api/channels/import", import_channel, methods=["POST"], dependencies=management_dependency
@@ -1213,6 +1247,7 @@ def create_app(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
     )
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route("/ui-api/overview", overview_data, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
         "/ui-api/channels/{channel_id}/parser-runs",
         parser_runs,

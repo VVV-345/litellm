@@ -10,6 +10,7 @@ import {
   deleteExternalDeployment,
   detachChannel,
   getChannelHealth,
+  getOverview,
   getOperation,
   importChannel,
   importParserSnapshot,
@@ -147,6 +148,14 @@ describe("channel lifecycle API", () => {
     await getChannelHealth("token", "channel-1");
 
     expect(mockedGet).toHaveBeenCalledWith("/account_pool/channels/channel-1/health", {
+      accessToken: "token",
+    });
+  });
+
+  it("loads the aggregate overview through the LiteLLM management proxy", async () => {
+    await getOverview("token");
+
+    expect(mockedGet).toHaveBeenCalledWith("/account_pool/overview", {
       accessToken: "token",
     });
   });

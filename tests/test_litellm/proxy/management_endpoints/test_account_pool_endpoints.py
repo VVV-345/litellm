@@ -25,6 +25,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     delete_external_channel_deployment,
     delete_model_routing_candidate,
     detach_catalog_channel,
+    get_account_pool_overview,
     get_catalog_channel,
     get_catalog_channel_health,
     get_channel_operation,
@@ -86,6 +87,7 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
 
     assert {
         ("GET", "/account_pool/channels"),
+        ("GET", "/account_pool/overview"),
         ("POST", "/account_pool/channels"),
         ("GET", "/account_pool/channels/{channel_id}"),
         ("PUT", "/account_pool/channels/{channel_id}"),
@@ -188,11 +190,13 @@ async def test_channel_detail_and_operation_lookup_are_unsigned_reads(monkeypatc
 
     await get_catalog_channel(_CHANNEL_ID, request, admin)
     await get_catalog_channel_health(_CHANNEL_ID, request, admin)
+    await get_account_pool_overview(request, admin)
     await get_channel_operation(_OPERATION_ID, request, admin)
 
     assert forwarded == [
         ("GET", f"/api/channels/{_CHANNEL_ID}", None),
         ("GET", f"/api/channels/{_CHANNEL_ID}/health", None),
+        ("GET", "/api/overview", None),
         ("GET", f"/api/operations/{_OPERATION_ID}", None),
     ]
 

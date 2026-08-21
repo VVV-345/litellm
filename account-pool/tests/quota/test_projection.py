@@ -117,6 +117,8 @@ def _effective(parsed: ParsedChannelData) -> EffectiveParserData:
     return EffectiveParserData(
         channel_id=_CHANNEL_ID,
         parser_run_id=_RUN_ID,
+        parser_id="fixture-parser",
+        parser_version="1.0.0",
         parsed_at=_OBSERVED_AT,
         parser_status=ParserRunStatus.SUCCESS,
         raw_result=parsed,

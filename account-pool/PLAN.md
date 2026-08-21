@@ -1259,6 +1259,12 @@ Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务�
 - 日志、指标、导出和错误响应均不泄露 Key
 - PostgreSQL 或 Redis 短暂故障不会静默绕过限制
 
+实施状态（2026-08-21）：Phase 5 已完成第一版聚合总览纵向链路。新增独立 `overview` 模块，在查询时按 `channel_id` 合并 PostgreSQL 渠道目录、最新有效解析数据、调度运行快照、模型路由资格和健康活动，不新增重复存储的大表。总览明确区分管理员启用、运行健康和模型可调度状态，并提供渠道 ID、脱敏 URL 与 Key 摘要、配置和可调度模型、解析器身份及状态、套餐与按量摘要、并发、余额或额度、不可调度原因码和最近请求时间。解析未运行、解析数据异常、辅助活动仓储不可用及运行态尚未投影均以独立状态展示，不伪装成空值或正常状态
+
+聚合总览已经接入 Account Pool `/api/overview`、4100 的 `/ui-api/overview`、LiteLLM 管理代理 `/account_pool/overview` 和 Dashboard 默认“总览”工作区。真实凭证引用不会进入总览响应，Dashboard 只展示 Key 掩码。核心目录或 Redis 运行态不可用时接口返回可重试的结构化 `503`，不会把依赖故障伪装为空总览；不可调度渠道始终提供机器原因码，Dashboard 同时展示中文说明。当前 Account Pool 全量验证为 `573 passed, 46 skipped`；本轮聚焦后端测试 `31 passed`、LiteLLM 管理代理测试 `11 passed`、Dashboard Account Pool 测试 `18 passed`，Ruff 和 basedpyright 通过，Dashboard Prettier 通过且 ESLint 无错误
+
+Phase 5 仍需完成渠道详情聚合、统一事件与审计日志查询和 UI、Prometheus 指标与告警、后台 worker 运行监控、数据保留与归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。聚合总览仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+
 ## 18. 测试策略
 
 ### 18.1 单元与契约测试

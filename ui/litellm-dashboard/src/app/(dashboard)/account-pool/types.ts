@@ -208,6 +208,8 @@ export interface EffectiveParserData {
   status: "loaded";
   channel_id: string;
   parser_run_id: string;
+  parser_id: string;
+  parser_version: string;
   parsed_at: string;
   parser_status: string;
   raw_result: ParsedChannelData;
@@ -404,4 +406,85 @@ export interface RoutingCandidateMutation {
   manual_order: number | null;
   weight: number | null;
   paused: boolean;
+}
+
+export type ParserOverviewState = "loaded" | "not_run" | "unavailable" | "invalid";
+
+export interface SubscriptionOverview {
+  plan_name: string | null;
+  status: "active" | "trial" | "expired" | "suspended" | "unknown";
+  expires_at: string | null;
+  balance: JsonDecimal | null;
+  currency: string | null;
+  model_count: number;
+  limit_count: number;
+}
+
+export interface MeteredOverview {
+  group_count: number;
+  model_count: number;
+}
+
+export interface ParserOverview {
+  state: ParserOverviewState;
+  parser_id: string | null;
+  parser_version: string | null;
+  status: string | null;
+  parsed_at: string | null;
+  subscription: SubscriptionOverview | null;
+  metered: MeteredOverview | null;
+  unresolved_count: number;
+  warning_count: number;
+  active_override_count: number;
+  failure_code: string | null;
+}
+
+export interface RuntimeOverview {
+  health: HealthRuntimeSnapshot["health"];
+  reason_code: string | null;
+  inflight: number;
+  max_concurrency: number;
+  cooldown_until: number | null;
+  quota: QuotaConfig;
+}
+
+export interface ChannelActivityOverview {
+  persistence_available: boolean;
+  last_request_at: string | null;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  last_probe_at: string | null;
+}
+
+export interface ChannelOverview {
+  channel_id: string;
+  account_id: string | null;
+  display_name: string;
+  provider: string;
+  group: string | null;
+  base_url_display: string;
+  key_mask: string | null;
+  administrative_state: AdministrativeState;
+  priority: ChannelPriority;
+  configured_models: string[];
+  schedulable_models: string[];
+  unavailable_reason_codes: string[];
+  binding_count: number;
+  enabled_binding_count: number;
+  runtime: RuntimeOverview | null;
+  parser: ParserOverview;
+  activity: ChannelActivityOverview;
+}
+
+export interface AccountPoolOverview {
+  status: "loaded";
+  channels: ChannelOverview[];
+  channel_count: number;
+  administratively_enabled_count: number;
+  healthy_count: number;
+  schedulable_count: number;
+  configured_model_count: number;
+  schedulable_model_count: number;
+  inflight: number;
+  max_concurrency: number;
 }

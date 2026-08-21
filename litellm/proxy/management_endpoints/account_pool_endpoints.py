@@ -148,6 +148,15 @@ async def list_catalog_channels(
     return await _forward(request=request, method="GET", path="/api/channels")
 
 
+@router.get("/overview")
+async def get_account_pool_overview(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path="/api/overview")
+
+
 @router.post("/channels")
 async def create_catalog_channel(
     request: Request,

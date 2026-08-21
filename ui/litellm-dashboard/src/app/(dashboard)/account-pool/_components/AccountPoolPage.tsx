@@ -31,6 +31,7 @@ import ChannelFormDialog from "./ChannelFormDialog";
 import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
 import HealthStatusPanel from "./HealthStatusPanel";
 import OperationStatusPanel from "./OperationStatusPanel";
+import OverviewPanel from "./OverviewPanel";
 import ParserDataPanel from "./ParserDataPanel";
 import ParserTaskDialog from "./ParserTaskDialog";
 import RoutingPanel from "./RoutingPanel";
@@ -52,7 +53,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const [formMode, setFormMode] = useState<ChannelFormMode | null>(null);
   const [lifecycleDialogOpen, setLifecycleDialogOpen] = useState(false);
   const [operation, setOperation] = useState<ChannelOperation | null>(null);
-  const [workspace, setWorkspace] = useState("channels");
+  const [workspace, setWorkspace] = useState("overview");
   const authorized = isProxyAdminRole(userRole);
   const channelsQuery = useQuery({
     queryKey: accountPoolKeys.channels(),
@@ -139,9 +140,13 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
 
       <Tabs value={workspace} onValueChange={setWorkspace} className="min-w-0">
         <TabsList variant="line">
+          <TabsTrigger value="overview">总览</TabsTrigger>
           <TabsTrigger value="channels">渠道管理</TabsTrigger>
           <TabsTrigger value="routing">模型调度</TabsTrigger>
         </TabsList>
+        <TabsContent value="overview" className="mt-4 min-w-0">
+          <OverviewPanel accessToken={accessToken!} />
+        </TabsContent>
         <TabsContent value="channels" className="mt-4 min-w-0 space-y-4">
           {operation && (
             <OperationStatusPanel
