@@ -1,4 +1,4 @@
-"""定义渠道管理审计事件、安全明细和关联事实。"""
+"""定义渠道与模型路由管理审计事件、安全明细和关联事实。"""
 
 from __future__ import annotations
 
@@ -72,6 +72,29 @@ class ChannelReconcileDetails(FrozenModel):
     outcome: SafeAuditOutcome
 
 
+class RoutingPolicyUpdateDetails(FrozenModel):
+    kind: Literal["routing_policy_update"] = "routing_policy_update"
+    outcome: SafeAuditOutcome
+    expected_version: int = Field(ge=0)
+    resulting_version: int | None = Field(default=None, ge=0)
+
+
+class RoutingCandidateUpdateDetails(FrozenModel):
+    kind: Literal["routing_candidate_update"] = "routing_candidate_update"
+    outcome: SafeAuditOutcome
+    binding_id: UUID
+    expected_version: int = Field(ge=0)
+    resulting_version: int | None = Field(default=None, ge=0)
+
+
+class RoutingCandidateDeleteDetails(FrozenModel):
+    kind: Literal["routing_candidate_delete"] = "routing_candidate_delete"
+    outcome: SafeAuditOutcome
+    binding_id: UUID
+    expected_version: int = Field(ge=0)
+    resulting_version: int | None = Field(default=None, ge=0)
+
+
 ManagementAuditDetails = Annotated[
     ChannelCreateDetails
     | ChannelUpdateDetails
@@ -79,7 +102,10 @@ ManagementAuditDetails = Annotated[
     | ChannelDetachDetails
     | ChannelDeleteDetails
     | ChannelDeleteExternalDeploymentDetails
-    | ChannelReconcileDetails,
+    | ChannelReconcileDetails
+    | RoutingPolicyUpdateDetails
+    | RoutingCandidateUpdateDetails
+    | RoutingCandidateDeleteDetails,
     Field(discriminator="kind"),
 ]
 
@@ -92,6 +118,9 @@ class ManagementEventType(StrEnum):
     CHANNEL_DELETE = "channel_delete"
     CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel_delete_external_deployment"
     CHANNEL_RECONCILE = "channel_reconcile"
+    ROUTING_POLICY_UPDATE = "routing_policy_update"
+    ROUTING_CANDIDATE_UPDATE = "routing_candidate_update"
+    ROUTING_CANDIDATE_DELETE = "routing_candidate_delete"
 
 
 class PoolEvent(FrozenModel):
@@ -112,10 +141,17 @@ class PoolEvent(FrozenModel):
     def validate_management_event(self) -> Self:
         if self.event_type.value != self.safe_details.kind:
             raise ValueError("event type must match safe details")
-        if self.channel_id is None:
-            raise ValueError("channel management events require a channel ID")
+        is_routing_event: Final = self.event_type in {
+            ManagementEventType.ROUTING_POLICY_UPDATE,
+            ManagementEventType.ROUTING_CANDIDATE_UPDATE,
+            ManagementEventType.ROUTING_CANDIDATE_DELETE,
+        }
+        if is_routing_event and (self.model_id is None or self.channel_id is not None):
+            raise ValueError("routing management events require only a model ID")
+        if not is_routing_event and (self.channel_id is None or self.model_id is not None):
+            raise ValueError("channel management events require only a channel ID")
         if self.request_id is None:
-            raise ValueError("channel management events require a request ID")
+            raise ValueError("management events require a request ID")
         return self
 
 
@@ -151,6 +187,9 @@ _EVENT_TYPE_BY_ACTION: Final = {
     ActorAction.CHANNEL_DELETE: ManagementEventType.CHANNEL_DELETE,
     ActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT: ManagementEventType.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
     ActorAction.CHANNEL_RECONCILE: ManagementEventType.CHANNEL_RECONCILE,
+    ActorAction.ROUTING_POLICY_UPDATE: ManagementEventType.ROUTING_POLICY_UPDATE,
+    ActorAction.ROUTING_CANDIDATE_UPDATE: ManagementEventType.ROUTING_CANDIDATE_UPDATE,
+    ActorAction.ROUTING_CANDIDATE_DELETE: ManagementEventType.ROUTING_CANDIDATE_DELETE,
 }
 
 
@@ -159,8 +198,9 @@ def build_management_audit_record(
     event_id: UUID,
     occurred_at: AwareDatetime,
     actor: ActorContext,
-    operation_id: UUID,
-    channel_id: UUID,
+    operation_id: UUID | None = None,
+    channel_id: UUID | None = None,
+    model_id: ModelName | None = None,
     details: ManagementAuditDetails,
 ) -> ManagementAuditRecord:
     event_type: Final = _EVENT_TYPE_BY_ACTION.get(actor.action)
@@ -172,6 +212,7 @@ def build_management_audit_record(
             event_type=event_type,
             occurred_at=occurred_at,
             channel_id=channel_id,
+            model_id=model_id,
             request_id=actor.request_id,
             actor_type=actor.actor_type,
             actor_id=actor.user_id,

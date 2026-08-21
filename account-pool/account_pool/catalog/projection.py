@@ -8,6 +8,7 @@ from account_pool.catalog.models import (
     CatalogSnapshot,
     ChannelRecord,
     DeploymentBindingRecord,
+    ModelCandidateOverrideRecord,
 )
 from account_pool.models import AccountConfig, DeploymentConfig, ModelPolicy, PoolConfig
 
@@ -19,9 +20,12 @@ def project_pool_config(snapshot: CatalogSnapshot) -> PoolConfig:
         raise ValueError(f"orphan binding {orphan.binding_id} references channel {orphan.channel_id}")
 
     channels: Final = tuple(sorted(snapshot.channels, key=lambda channel: channel.account_order))
-    accounts: Final = tuple(_account_config(channel=channel, bindings=snapshot.bindings) for channel in channels)
+    accounts: Final = tuple(
+        _account_config(channel=channel, bindings=snapshot.bindings, overrides=snapshot.candidate_overrides)
+        for channel in channels
+    )
     policies: Final = tuple(
-        ModelPolicy(model=policy.model, strategy=policy.strategy)
+        ModelPolicy(model=policy.model, strategy=policy.strategy, version=policy.version)
         for policy in sorted(snapshot.policies, key=lambda policy: policy.policy_order)
     )
     return PoolConfig(accounts=accounts, policies=policies)
@@ -30,6 +34,7 @@ def project_pool_config(snapshot: CatalogSnapshot) -> PoolConfig:
 def _account_config(
     channel: ChannelRecord,
     bindings: tuple[DeploymentBindingRecord, ...],
+    overrides: tuple[ModelCandidateOverrideRecord, ...],
 ) -> AccountConfig:
     account_id: Final = channel.legacy_account_id or str(channel.channel_id)
     ordered_bindings: Final = tuple(
@@ -50,16 +55,39 @@ def _account_config(
         priority=channel.priority,
         weight=channel.weight,
         quotas=channel.quotas,
-        deployments=tuple(_deployment_config(binding) for binding in ordered_bindings),
+        deployments=tuple(
+            _deployment_config(binding, _override_for(binding=binding, overrides=overrides))
+            for binding in ordered_bindings
+        ),
     )
 
 
-def _deployment_config(binding: DeploymentBindingRecord) -> DeploymentConfig:
+def _override_for(
+    binding: DeploymentBindingRecord,
+    overrides: tuple[ModelCandidateOverrideRecord, ...],
+) -> ModelCandidateOverrideRecord | None:
+    return next(
+        (
+            override
+            for override in overrides
+            if override.model == binding.public_model and override.binding_id == binding.binding_id
+        ),
+        None,
+    )
+
+
+def _deployment_config(
+    binding: DeploymentBindingRecord,
+    override: ModelCandidateOverrideRecord | None,
+) -> DeploymentConfig:
     return DeploymentConfig(
         public_model=binding.public_model,
         litellm_model_id=binding.litellm_deployment_id,
         binding_id=binding.binding_id,
         provider_model=binding.provider_model,
+        manual_order=None if override is None else override.manual_order,
+        routing_weight=None if override is None else override.weight,
+        routing_paused=False if override is None else override.paused,
         managed_by_pool=binding.ownership == BindingOwnership.POOL_MANAGED,
         enabled=binding.enabled,
     )

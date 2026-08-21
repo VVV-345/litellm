@@ -36,6 +36,7 @@ from account_pool.catalog.models import (
     DeploymentBindingRecord,
     ImportConflict,
     ImportResult,
+    ModelCandidateOverrideRecord,
     ModelPolicyRecord,
 )
 from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig, QuotaUnit, Strategy
@@ -58,9 +59,14 @@ FROM "LiteLLM_AccountPoolBinding"
 ORDER BY channel_id, deployment_order
 """
 _SELECT_POLICIES: Final = """
-SELECT model, policy_order, strategy, created_at, updated_at
+SELECT model, policy_order, strategy, version, created_at, updated_at
 FROM "LiteLLM_AccountPoolModelPolicy"
 ORDER BY policy_order
+"""
+_SELECT_CANDIDATE_OVERRIDES: Final = """
+SELECT model, binding_id, manual_order, weight, paused, created_at, updated_at
+FROM "LiteLLM_AccountPoolModelCandidateOverride"
+ORDER BY model, manual_order NULLS LAST, binding_id
 """
 _INSERT_CHANNEL: Final = """
 INSERT INTO "LiteLLM_AccountPoolChannel" (
@@ -78,8 +84,8 @@ INSERT INTO "LiteLLM_AccountPoolBinding" (
 """
 _INSERT_POLICY: Final = """
 INSERT INTO "LiteLLM_AccountPoolModelPolicy" (
-    model, policy_order, strategy, created_at, updated_at
-) VALUES (%s, %s, %s, %s, %s)
+    model, policy_order, strategy, version, created_at, updated_at
+) VALUES (%s, %s, %s, %s, %s, %s)
 """
 _UPDATE_CHANNEL: Final = """
 UPDATE "LiteLLM_AccountPoolChannel"
@@ -141,6 +147,17 @@ class _PolicyRow(FrozenModel):
     model: ModelName
     policy_order: int
     strategy: Strategy
+    version: int
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+
+class _CandidateOverrideRow(FrozenModel):
+    model: ModelName
+    binding_id: UUID
+    manual_order: int | None
+    weight: int | None
+    paused: bool
     created_at: AwareDatetime
     updated_at: AwareDatetime
 
@@ -287,13 +304,16 @@ class PostgresCatalogRepository:
         channel_cursor: Final = await connection.execute(_SELECT_CHANNELS)
         binding_cursor: Final = await connection.execute(_SELECT_BINDINGS)
         policy_cursor: Final = await connection.execute(_SELECT_POLICIES)
+        override_cursor: Final = await connection.execute(_SELECT_CANDIDATE_OVERRIDES)
         channel_rows: Final = tuple(cast(object, row) for row in await channel_cursor.fetchall())
         binding_rows: Final = tuple(cast(object, row) for row in await binding_cursor.fetchall())
         policy_rows: Final = tuple(cast(object, row) for row in await policy_cursor.fetchall())
+        override_rows: Final = tuple(cast(object, row) for row in await override_cursor.fetchall())
         return CatalogSnapshot(
             channels=tuple(_decode_channel(row) for row in channel_rows),
             bindings=tuple(_decode_binding(row) for row in binding_rows),
             policies=tuple(_decode_policy(row) for row in policy_rows),
+            candidate_overrides=tuple(_decode_candidate_override(row) for row in override_rows),
         )
 
 
@@ -347,6 +367,20 @@ def _decode_policy(value: object) -> ModelPolicyRecord:
         model=row.model,
         policy_order=row.policy_order,
         strategy=row.strategy,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        version=row.version,
+    )
+
+
+def _decode_candidate_override(value: object) -> ModelCandidateOverrideRecord:
+    row: Final = _CandidateOverrideRow.model_validate(value)
+    return ModelCandidateOverrideRecord(
+        model=row.model,
+        binding_id=row.binding_id,
+        manual_order=row.manual_order,
+        weight=row.weight,
+        paused=row.paused,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -519,7 +553,14 @@ def _binding_parameters(record: DeploymentBindingRecord) -> tuple[object, ...]:
 
 
 def _policy_parameters(record: ModelPolicyRecord) -> tuple[object, ...]:
-    return (record.model, record.policy_order, record.strategy.value, record.created_at, record.updated_at)
+    return (
+        record.model,
+        record.policy_order,
+        record.strategy.value,
+        record.version,
+        record.created_at,
+        record.updated_at,
+    )
 
 
 async def _lock_operation(

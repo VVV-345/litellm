@@ -62,12 +62,24 @@ class ModelPolicyRecord(FrozenModel):
     strategy: Strategy
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    version: int = Field(default=1, ge=1)
+
+
+class ModelCandidateOverrideRecord(FrozenModel):
+    model: ModelName
+    binding_id: UUID
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    manual_order: int | None = Field(default=None, ge=0)
+    weight: int | None = Field(default=None, ge=1, le=100)
+    paused: bool = False
 
 
 class CatalogSnapshot(FrozenModel):
     channels: tuple[ChannelRecord, ...] = ()
     bindings: tuple[DeploymentBindingRecord, ...] = ()
     policies: tuple[ModelPolicyRecord, ...] = ()
+    candidate_overrides: tuple[ModelCandidateOverrideRecord, ...] = ()
 
 
 class ChannelSummary(FrozenModel):
@@ -96,6 +108,7 @@ class CatalogImport(FrozenModel):
     channels: tuple[ChannelRecord, ...]
     bindings: tuple[DeploymentBindingRecord, ...]
     policies: tuple[ModelPolicyRecord, ...]
+    candidate_overrides: tuple[ModelCandidateOverrideRecord, ...] = ()
 
 
 class ImportConflict(FrozenModel):

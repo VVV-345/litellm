@@ -55,7 +55,8 @@ def _assert_projected_legacy_config(projected: PoolConfig) -> None:
                     }
                 )
                 for account in projected.accounts
-            )
+            ),
+            "policies": tuple(policy.model_copy(update={"version": 0}) for policy in projected.policies),
         }
     )
     assert without_catalog_ids == expected

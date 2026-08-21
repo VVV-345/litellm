@@ -1,4 +1,4 @@
-"""使用 PostgreSQL 原子追加公共事件信封及其渠道管理审计事实。"""
+"""使用 PostgreSQL 原子追加公共事件信封及其管理审计事实。"""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ class _EventRow(FrozenModel):
     request_id: str | None
     lease_id: str | None
     reason_code: str | None
-    actor_type: Literal["user"]
+    actor_type: Literal["user", "system"]
     actor_id: str
     safe_details_schema_version: Literal[1]
     safe_details: object
@@ -88,7 +88,7 @@ class _EventRow(FrozenModel):
 class _AuditRow(FrozenModel):
     event_id: UUID
     operation_id: UUID | None
-    actor_role: Literal["proxy_admin"]
+    actor_role: Literal["proxy_admin", "system"]
     actor_action: ActorAction
     actor_envelope_id: UUID
     outcome: AuditOutcome
@@ -104,12 +104,12 @@ class _LinkedRow(FrozenModel):
     request_id: str | None
     lease_id: str | None
     reason_code: str | None
-    actor_type: Literal["user"]
+    actor_type: Literal["user", "system"]
     actor_id: str
     safe_details: object
     audit_event_id: UUID
     operation_id: UUID | None
-    actor_role: Literal["proxy_admin"]
+    actor_role: Literal["proxy_admin", "system"]
     actor_action: ActorAction
     actor_envelope_id: UUID
     outcome: AuditOutcome

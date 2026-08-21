@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from account_pool.catalog.importer import catalog_import_from_pool_config
-from account_pool.catalog.models import AdministrativeState, CatalogSnapshot
+from account_pool.catalog.models import AdministrativeState, CatalogSnapshot, ModelCandidateOverrideRecord
 from account_pool.catalog.projection import project_pool_config
 from account_pool.models import PoolConfig
 from pydantic import ValidationError
@@ -44,7 +44,8 @@ def test_projection_round_trips_legacy_config_using_persisted_order() -> None:
                     }
                 )
                 for account in projected.accounts
-            )
+            ),
+            "policies": tuple(policy.model_copy(update={"version": 0}) for policy in projected.policies),
         }
     )
 
@@ -107,6 +108,39 @@ def test_projection_maps_pending_delete_channel_to_disabled_legacy_account() -> 
     )
 
     assert project_pool_config(pending).accounts[0].enabled is False
+
+
+def test_projection_applies_model_candidate_override_and_policy_version() -> None:
+    _, snapshot = imported_snapshot()
+    binding: Final = snapshot.bindings[0]
+    timestamp: Final = datetime(2026, 8, 20, 3, 0, tzinfo=UTC)
+    configured: Final = snapshot.model_copy(
+        update={
+            "policies": (snapshot.policies[0].model_copy(update={"version": 7}),),
+            "candidate_overrides": (
+                ModelCandidateOverrideRecord(
+                    model=binding.public_model,
+                    binding_id=binding.binding_id,
+                    manual_order=0,
+                    weight=9,
+                    paused=True,
+                    created_at=timestamp,
+                    updated_at=timestamp,
+                ),
+            ),
+        }
+    )
+
+    projected: Final = project_pool_config(configured)
+    deployment: Final = next(
+        deployment
+        for account in projected.accounts
+        for deployment in account.deployments
+        if deployment.binding_id == binding.binding_id
+    )
+
+    assert projected.policies[0].version == 7
+    assert (deployment.manual_order, deployment.routing_weight, deployment.routing_paused) == (0, 9, True)
 
 
 def test_projection_leaves_duplicate_deployment_rejection_to_pool_config() -> None:

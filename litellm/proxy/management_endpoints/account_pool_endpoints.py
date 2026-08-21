@@ -337,6 +337,87 @@ async def delete_pool_account(
     return await _forward(request=request, method="DELETE", path=f"/api/accounts/{encoded_account_id}")
 
 
+@router.get("/models")
+async def list_pool_models(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path="/api/models")
+
+
+@router.get("/models/{model:path}/routing-table")
+async def get_model_routing_table(
+    model: str,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    encoded_model: Final = quote(model, safe="")
+    return await _forward(request=request, method="GET", path=f"/api/models/{encoded_model}/routing-table")
+
+
+@router.get("/models/{model:path}/routing-policy")
+async def get_model_routing_policy(
+    model: str,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    encoded_model: Final = quote(model, safe="")
+    return await _forward(request=request, method="GET", path=f"/api/models/{encoded_model}/routing-policy")
+
+
+@router.put("/models/{model:path}/routing-policy")
+async def update_model_routing_policy(
+    model: str,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    encoded_model: Final = quote(model, safe="")
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="PUT",
+        path=f"/api/models/{encoded_model}/routing-policy",
+        action=AccountPoolActorAction.ROUTING_POLICY_UPDATE,
+    )
+
+
+@router.put("/models/{model:path}/routing-candidates/{binding_id}")
+async def update_model_routing_candidate(
+    model: str,
+    binding_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    encoded_model: Final = quote(model, safe="")
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="PUT",
+        path=f"/api/models/{encoded_model}/routing-candidates/{binding_id}",
+        action=AccountPoolActorAction.ROUTING_CANDIDATE_UPDATE,
+    )
+
+
+@router.delete("/models/{model:path}/routing-candidates/{binding_id}")
+async def delete_model_routing_candidate(
+    model: str,
+    binding_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    encoded_model: Final = quote(model, safe="")
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="DELETE",
+        path=f"/api/models/{encoded_model}/routing-candidates/{binding_id}",
+        action=AccountPoolActorAction.ROUTING_CANDIDATE_DELETE,
+    )
+
+
 @router.get("/channels/{channel_id}/parser-runs")
 async def list_channel_parser_runs(
     channel_id: UUID,

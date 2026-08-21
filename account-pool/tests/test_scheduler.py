@@ -466,6 +466,35 @@ async def test_route_table_and_acquire_share_the_static_strategy_order() -> None
 
 
 @pytest.mark.asyncio
+async def test_model_candidate_pause_remains_visible_but_is_not_acquired() -> None:
+    paused_deployment: Final = DeploymentConfig(
+        public_model="model-a",
+        litellm_model_id="paused-deployment",
+        manual_order=0,
+        routing_paused=True,
+    )
+    paused: Final = account("paused", 10).model_copy(
+        update={"priority": 400, "deployments": (paused_deployment,)}
+    )
+    fallback: Final = account("fallback", 10)
+    scheduler, _ = await initialized_scheduler(
+        PoolConfig(
+            accounts=(paused, fallback),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.PRIORITY),),
+        )
+    )
+
+    routes: Final = await scheduler.route_table("model-a")
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request", model="model-a"))
+
+    assert tuple(route.account_id for route in routes) == ("fallback", "paused")
+    assert routes[1].unavailable_reason == "manual_pause"
+    assert routes[1].routing_paused is True
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.account_id == "fallback"
+
+
+@pytest.mark.asyncio
 async def test_reconfigure_preserves_usage_unless_quota_limits_change() -> None:
     original: Final = account("one", max_concurrency=2)
     scheduler, store = await initialized_scheduler(PoolConfig(accounts=(original,)))

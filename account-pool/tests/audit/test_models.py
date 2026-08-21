@@ -17,6 +17,7 @@ from account_pool.audit.models import (
     ManagementAuditDetails,
     ManagementAuditRecord,
     PoolEvent,
+    RoutingPolicyUpdateDetails,
     SafeAuditOutcome,
     build_management_audit_record,
 )
@@ -87,6 +88,39 @@ def test_builder_records_verified_actor_and_operation_correlation(
     assert record.audit.operation_id == _OPERATION_ID
     assert record.audit.outcome == AuditOutcome.ACCEPTED
     assert record.event.safe_details == details
+
+
+def test_builder_records_model_level_routing_audit_without_channel_id() -> None:
+    record: Final = build_management_audit_record(
+        event_id=_EVENT_ID,
+        occurred_at=_NOW,
+        actor=_actor(ActorAction.ROUTING_POLICY_UPDATE),
+        model_id="openai/gpt-4o",
+        details=RoutingPolicyUpdateDetails(
+            outcome=SafeAuditOutcome(status=AuditOutcome.SUCCEEDED),
+            expected_version=2,
+            resulting_version=3,
+        ),
+    )
+
+    assert record.event.model_id == "openai/gpt-4o"
+    assert record.event.channel_id is None
+    assert record.audit.operation_id is None
+
+
+def test_routing_audit_rejects_channel_target() -> None:
+    with pytest.raises(ValidationError, match="model ID"):
+        build_management_audit_record(
+            event_id=_EVENT_ID,
+            occurred_at=_NOW,
+            actor=_actor(ActorAction.ROUTING_POLICY_UPDATE),
+            channel_id=_CHANNEL_ID,
+            details=RoutingPolicyUpdateDetails(
+                outcome=SafeAuditOutcome(status=AuditOutcome.SUCCEEDED),
+                expected_version=2,
+                resulting_version=3,
+            ),
+        )
 
 
 def test_models_are_immutable_and_forbid_unvalidated_fields() -> None:

@@ -1605,17 +1605,36 @@ model LiteLLM_AccountPoolBinding {
   created_at            DateTime                    @default(now()) @client.Timestamptz(6)
   updated_at            DateTime                    @updatedAt @client.Timestamptz(6)
   channel               LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+  routing_overrides     LiteLLM_AccountPoolModelCandidateOverride[]
 
   @@index([channel_id])
   @@unique([channel_id, deployment_order])
 }
 
 model LiteLLM_AccountPoolModelPolicy {
-  model        String   @id
-  policy_order Int      @unique
-  strategy     String
-  created_at   DateTime @default(now()) @client.Timestamptz(6)
-  updated_at   DateTime @updatedAt @client.Timestamptz(6)
+  model             String                                          @id
+  policy_order      Int                                             @unique
+  strategy          String
+  version           Int                                             @default(1)
+  created_at        DateTime                                        @default(now()) @client.Timestamptz(6)
+  updated_at        DateTime                                        @updatedAt @client.Timestamptz(6)
+  candidate_overrides LiteLLM_AccountPoolModelCandidateOverride[]
+}
+
+model LiteLLM_AccountPoolModelCandidateOverride {
+  model        String
+  binding_id   String
+  manual_order Int?
+  weight       Int?
+  paused       Boolean                         @default(false)
+  created_at   DateTime                        @default(now()) @client.Timestamptz(6)
+  updated_at   DateTime                        @updatedAt @client.Timestamptz(6)
+  policy       LiteLLM_AccountPoolModelPolicy @relation(fields: [model], references: [model], onDelete: Cascade)
+  binding      LiteLLM_AccountPoolBinding     @relation(fields: [binding_id], references: [binding_id], onDelete: Cascade)
+
+  @@id([model, binding_id])
+  @@index([binding_id])
+  @@unique([model, manual_order])
 }
 
 model LiteLLM_AccountPoolParserRun {

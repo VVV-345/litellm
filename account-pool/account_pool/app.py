@@ -112,6 +112,17 @@ from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.quota import ParserQuotaConfigEnricher
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.quota.postgres import PostgresQuotaRuntimeRepository
+from account_pool.routing.models import (
+    RoutingCandidateMutation,
+    RoutingFailure,
+    RoutingFailureCode,
+    RoutingPolicyMutation,
+    RoutingPolicyResult,
+    RoutingPolicyState,
+    RoutingVersionMutation,
+)
+from account_pool.routing.postgres import PostgresRoutingPolicyRepository
+from account_pool.routing.service import RoutingPolicyService
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -156,6 +167,7 @@ class Runtime:
     health_events: HealthEventRepository | None
     health_details: ChannelHealthDetailReader
     health_probes: HealthProbeManager
+    routing_policies: RoutingPolicyService | None
 
 
 def create_app(
@@ -172,6 +184,7 @@ def create_app(
     health_events: HealthEventRepository | None = None,
     health_details: ChannelHealthDetailReader | None = None,
     health_probes: HealthProbeManager | None = None,
+    routing_policies: RoutingPolicyService | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -224,6 +237,15 @@ def create_app(
     parser_registry: Final = build_parser_registry()
     resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
     resolved_parser_data: Final = parser_data if parser_data is not None else _build_parser_data(resolved_settings)
+    resolved_routing_policies: Final = (
+        routing_policies
+        if routing_policies is not None
+        else _build_routing_policies(
+            settings=resolved_settings,
+            scheduler=scheduler,
+            parser_data=resolved_parser_data,
+        )
+    )
     resolved_channel_management: Final = (
         channel_management
         if channel_management is not None
@@ -287,6 +309,7 @@ def create_app(
         health_events=resolved_health_events,
         health_details=resolved_health_details,
         health_probes=resolved_health_probes,
+        routing_policies=resolved_routing_policies,
     )
 
     @asynccontextmanager
@@ -783,6 +806,56 @@ def create_app(
     async def update_policy(model: str, body: PolicyUpdate) -> ManagementResult:
         return await manager.update_policy(model=model, request=body)
 
+    async def routing_policy(model: str) -> RoutingPolicyState:
+        return _routing_result(await _require_routing_policies(resolved_routing_policies).read(model))
+
+    async def update_routing_policy(
+        model: str,
+        body: RoutingPolicyMutation,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> RoutingPolicyState:
+        service: Final = _require_routing_policies(resolved_routing_policies)
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.ROUTING_POLICY_UPDATE,
+            secret=resolved_settings.actor_secret,
+        )
+        return _routing_result(await service.update_policy(model, body, actor))
+
+    async def update_routing_candidate(
+        model: str,
+        binding_id: UUID,
+        body: RoutingCandidateMutation,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> RoutingPolicyState:
+        service: Final = _require_routing_policies(resolved_routing_policies)
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.ROUTING_CANDIDATE_UPDATE,
+            secret=resolved_settings.actor_secret,
+        )
+        return _routing_result(await service.update_candidate(model, binding_id, body, actor))
+
+    async def delete_routing_candidate(
+        model: str,
+        binding_id: UUID,
+        body: RoutingVersionMutation,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> RoutingPolicyState:
+        service: Final = _require_routing_policies(resolved_routing_policies)
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.ROUTING_CANDIDATE_DELETE,
+            secret=resolved_settings.actor_secret,
+        )
+        return _routing_result(await service.delete_candidate(model, binding_id, body, actor))
+
     async def probe_channel_health(
         channel_id: UUID,
         body: HealthProbeRequest,
@@ -858,10 +931,34 @@ def create_app(
     )
     application.add_api_route("/api/models", models, methods=["GET"], dependencies=management_dependency)
     application.add_api_route(
-        "/api/models/{model}/routing-table", routing_table, methods=["GET"], dependencies=management_dependency
+        "/api/models/{model:path}/routing-table", routing_table, methods=["GET"], dependencies=management_dependency
     )
     application.add_api_route(
-        "/api/models/{model}/policy", update_policy, methods=["PUT"], dependencies=management_dependency
+        "/api/models/{model:path}/policy", update_policy, methods=["PUT"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/models/{model:path}/routing-policy",
+        routing_policy,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/models/{model:path}/routing-policy",
+        update_routing_policy,
+        methods=["PUT"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/models/{model:path}/routing-candidates/{binding_id}",
+        update_routing_candidate,
+        methods=["PUT"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/models/{model:path}/routing-candidates/{binding_id}",
+        delete_routing_candidate,
+        methods=["DELETE"],
+        dependencies=management_dependency,
     )
     application.add_api_route(
         "/api/litellm/status", litellm_status, methods=["GET"], dependencies=management_dependency
@@ -998,10 +1095,16 @@ def create_app(
     )
     application.add_api_route("/ui-api/models", models, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
-        "/ui-api/models/{model}/routing-table", routing_table, methods=["GET"], dependencies=ui_dependency
+        "/ui-api/models/{model:path}/routing-table", routing_table, methods=["GET"], dependencies=ui_dependency
     )
     application.add_api_route(
-        "/ui-api/models/{model}/policy", update_policy, methods=["PUT"], dependencies=ui_dependency
+        "/ui-api/models/{model:path}/policy", update_policy, methods=["PUT"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/models/{model:path}/routing-policy",
+        routing_policy,
+        methods=["GET"],
+        dependencies=ui_dependency,
     )
     application.add_api_route("/ui-api/stats", stats, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
@@ -1091,6 +1194,7 @@ async def _model_summary(
     return ModelSummary(
         model=model,
         strategy=scheduler.policy(model).strategy,
+        version=scheduler.policy(model).version,
         accounts=len(routes),
         available_accounts=sum(1 for route in routes if route.available),
         inflight=sum(route.inflight for route in routes),
@@ -1123,6 +1227,34 @@ def _build_health_events(settings: Settings) -> HealthEventRepository | None:
     if settings.database_url is None:
         return None
     return PostgresHealthEventRepository(settings.database_url, schema=settings.database_schema)
+
+
+def _build_routing_policies(
+    settings: Settings,
+    scheduler: Scheduler,
+    parser_data: ParserDataReader | None,
+) -> RoutingPolicyService | None:
+    if settings.database_url is None:
+        return None
+    catalog_repository: Final = PostgresCatalogRepository(
+        settings.database_url,
+        schema=settings.database_schema,
+    )
+    return RoutingPolicyService(
+        repository=PostgresRoutingPolicyRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
+        projector=RuntimeProjector(
+            CatalogService(catalog_repository),
+            scheduler,
+            enricher=_quota_enricher(parser_data),
+        ),
+        audit=PostgresManagementAuditRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
+    )
 
 
 def _build_channel_management(
@@ -1167,6 +1299,39 @@ def _require_channel_management(service: ChannelManager | None) -> ChannelManage
             detail="PostgreSQL and LiteLLM management credentials are required for channel mutations",
         )
     return service
+
+
+def _require_routing_policies(service: RoutingPolicyService | None) -> RoutingPolicyService:
+    if service is None:
+        raise HTTPException(status_code=503, detail="PostgreSQL is required for routing policy management")
+    return service
+
+
+def _routing_result(result: RoutingPolicyResult) -> RoutingPolicyState:
+    if isinstance(result, RoutingFailure):
+        raise _routing_http_error(result)
+    return result
+
+
+def _routing_http_error(failure: RoutingFailure) -> HTTPException:
+    status_code: Final = {
+        RoutingFailureCode.INVALID_ACTOR: 403,
+        RoutingFailureCode.MODEL_NOT_FOUND: 404,
+        RoutingFailureCode.BINDING_NOT_FOUND: 404,
+        RoutingFailureCode.VERSION_CONFLICT: 409,
+        RoutingFailureCode.CANDIDATE_CONFLICT: 409,
+        RoutingFailureCode.DATABASE_UNAVAILABLE: 503,
+        RoutingFailureCode.RUNTIME_PROJECTION_FAILED: 503,
+        RoutingFailureCode.AUDIT_UNAVAILABLE: 503,
+    }[failure.code]
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "code": failure.code,
+            "retryable": failure.retryable,
+            "current_version": failure.current_version,
+        },
+    )
 
 
 def _required_idempotency_key(value: str | None) -> str:

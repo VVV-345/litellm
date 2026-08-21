@@ -23,15 +23,21 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     create_catalog_channel,
     delete_catalog_channel,
     delete_external_channel_deployment,
+    delete_model_routing_candidate,
     detach_catalog_channel,
     get_catalog_channel,
     get_catalog_channel_health,
     get_channel_operation,
+    get_model_routing_policy,
+    get_model_routing_table,
     import_catalog_channel,
+    list_pool_models,
     probe_catalog_channel_health,
     reconcile_catalog_channel,
     router,
     update_catalog_channel,
+    update_model_routing_candidate,
+    update_model_routing_policy,
 )
 
 _Method = Literal["GET", "POST", "PUT", "DELETE"]
@@ -94,6 +100,12 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
         ("POST", "/account_pool/channels/{channel_id}/health-probe"),
         ("GET", "/account_pool/channels/{channel_id}/health"),
         ("GET", "/account_pool/operations/{operation_id}"),
+        ("GET", "/account_pool/models"),
+        ("GET", "/account_pool/models/{model:path}/routing-table"),
+        ("GET", "/account_pool/models/{model:path}/routing-policy"),
+        ("PUT", "/account_pool/models/{model:path}/routing-policy"),
+        ("PUT", "/account_pool/models/{model:path}/routing-candidates/{binding_id}"),
+        ("DELETE", "/account_pool/models/{model:path}/routing-candidates/{binding_id}"),
     }.issubset(routes)
 
 
@@ -183,6 +195,82 @@ async def test_channel_detail_and_operation_lookup_are_unsigned_reads(monkeypatc
         ("GET", f"/api/channels/{_CHANNEL_ID}/health", None),
         ("GET", f"/api/operations/{_OPERATION_ID}", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_routing_reads_preserve_models_with_slashes_without_actor(monkeypatch: pytest.MonkeyPatch) -> None:
+    forwarded: list[tuple[_Method, str, ActorEnvelope | None]] = []
+
+    async def forward(
+        request: Request,
+        method: _Method,
+        path: str,
+        actor: ActorEnvelope | None = None,
+    ) -> Response:
+        forwarded.append((method, path, actor))
+        return Response(status_code=200)
+
+    monkeypatch.setattr(account_pool_endpoints, "_forward", forward)
+    admin: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN)
+    request: Final = Request({"type": "http", "method": "GET", "path": "/account_pool/models"})
+
+    await list_pool_models(request, admin)
+    await get_model_routing_table("openai/gpt-4o", request, admin)
+    await get_model_routing_policy("openai/gpt-4o", request, admin)
+
+    assert forwarded == [
+        ("GET", "/api/models", None),
+        ("GET", "/api/models/openai%2Fgpt-4o/routing-table", None),
+        ("GET", "/api/models/openai%2Fgpt-4o/routing-policy", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_routing_mutations_use_request_bound_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_ACTOR_SECRET", "actor-signing-secret-with-at-least-32-bytes")
+    forwarded: list[tuple[_Method, str, ActorEnvelope | None]] = []
+
+    async def forward(
+        request: Request,
+        method: _Method,
+        path: str,
+        actor: ActorEnvelope | None = None,
+    ) -> Response:
+        forwarded.append((method, path, actor))
+        return Response(status_code=200)
+
+    monkeypatch.setattr(account_pool_endpoints, "_forward", forward)
+    admin: Final = UserAPIKeyAuth(
+        api_key="hashed",
+        user_id="admin-user",
+        user_role=LitellmUserRoles.PROXY_ADMIN,
+    )
+    request: Final = Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/account_pool/models/openai/gpt-4o/routing-policy",
+            "headers": ((b"x-request-id", b"routing-request"),),
+        }
+    )
+
+    await update_model_routing_policy("openai/gpt-4o", request, admin)
+    await update_model_routing_candidate("openai/gpt-4o", _BINDING_ID, request, admin)
+    await delete_model_routing_candidate("openai/gpt-4o", _BINDING_ID, request, admin)
+
+    assert tuple((method, path, _actor_action(actor)) for method, path, actor in forwarded if actor is not None) == (
+        ("PUT", "/api/models/openai%2Fgpt-4o/routing-policy", "routing_policy:update"),
+        (
+            "PUT",
+            f"/api/models/openai%2Fgpt-4o/routing-candidates/{_BINDING_ID}",
+            "routing_candidate:update",
+        ),
+        (
+            "DELETE",
+            f"/api/models/openai%2Fgpt-4o/routing-candidates/{_BINDING_ID}",
+            "routing_candidate:delete",
+        ),
+    )
 
 
 @pytest.mark.asyncio

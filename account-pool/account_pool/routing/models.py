@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
+from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.models import AccountId
+from account_pool.models import AccountId, ModelName, Strategy
 
 
 class RoutingModel(BaseModel):
@@ -35,3 +38,55 @@ class RoutingOrder(RoutingModel):
     candidate: RoutingCandidate
     reason_codes: tuple[str, ...] = ()
     dynamic: bool = False
+
+
+class RoutingCandidateOverride(RoutingModel):
+    binding_id: UUID
+    manual_order: int | None = Field(default=None, ge=0)
+    weight: int | None = Field(default=None, ge=1, le=100)
+    paused: bool = False
+
+
+class RoutingPolicyState(RoutingModel):
+    status: Literal["loaded"] = "loaded"
+    model: ModelName
+    strategy: Strategy
+    version: int = Field(ge=0)
+    overrides: tuple[RoutingCandidateOverride, ...] = ()
+
+
+class RoutingPolicyMutation(RoutingModel):
+    expected_version: int = Field(ge=0)
+    strategy: Strategy
+
+
+class RoutingCandidateMutation(RoutingModel):
+    expected_version: int = Field(ge=0)
+    manual_order: int | None = Field(default=None, ge=0)
+    weight: int | None = Field(default=None, ge=1, le=100)
+    paused: bool = False
+
+
+class RoutingVersionMutation(RoutingModel):
+    expected_version: int = Field(ge=0)
+
+
+class RoutingFailureCode(StrEnum):
+    INVALID_ACTOR = "invalid_actor"
+    MODEL_NOT_FOUND = "model_not_found"
+    BINDING_NOT_FOUND = "binding_not_found"
+    VERSION_CONFLICT = "version_conflict"
+    CANDIDATE_CONFLICT = "candidate_conflict"
+    DATABASE_UNAVAILABLE = "database_unavailable"
+    RUNTIME_PROJECTION_FAILED = "runtime_projection_failed"
+    AUDIT_UNAVAILABLE = "audit_unavailable"
+
+
+class RoutingFailure(RoutingModel):
+    status: Literal["failed"] = "failed"
+    code: RoutingFailureCode
+    retryable: bool
+    current_version: int | None = Field(default=None, ge=0)
+
+
+RoutingPolicyResult = RoutingPolicyState | RoutingFailure

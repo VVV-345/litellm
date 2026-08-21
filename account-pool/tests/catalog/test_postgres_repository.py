@@ -29,12 +29,12 @@ class RepositoryFixture:
     repository: PostgresCatalogRepository
 
 
-def _migration_sql() -> str:
+def _migration_sql(pattern: str) -> str:
     repository_root: Final = Path(__file__).resolve().parents[3]
     migrations_root: Final = (
         repository_root / "litellm-proxy-extras" / "litellm_proxy_extras" / "migrations"
     )
-    matches: Final = tuple(migrations_root.glob("*_add_account_pool_catalog/migration.sql"))
+    matches: Final = tuple(migrations_root.glob(f"*_{pattern}/migration.sql"))
     assert len(matches) == 1
     return matches[0].read_text(encoding="utf-8")
 
@@ -50,7 +50,8 @@ async def repository_fixture() -> AsyncIterator[RepositoryFixture]:
         await connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             await connection.execute("SELECT set_config('search_path', %s, false)", (schema,))
-            await connection.execute(_migration_sql().encode("utf-8"))
+            await connection.execute(_migration_sql("add_account_pool_catalog").encode("utf-8"))
+            await connection.execute(_migration_sql("add_account_pool_routing_policy").encode("utf-8"))
             yield RepositoryFixture(
                 database_url=database_url,
                 schema=schema,

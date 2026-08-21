@@ -57,7 +57,7 @@ class Scheduler:
         return self._config.accounts
 
     async def acquire(self, request: AcquireRequest) -> AcquireResult:
-        candidates: Final = self._candidates(request.model)
+        candidates: Final = self._candidates(request.model, include_paused=False)
         if not candidates:
             return AcquireUnavailable(model=request.model, reasons=("model_not_configured",))
 
@@ -95,7 +95,7 @@ class Scheduler:
         exclusions: Final = await self._store.eligibility_exclusions()
         now: Final = time.time()
         policy: Final = self.policy(model)
-        candidates: Final = self._candidates(model)
+        candidates: Final = self._candidates(model, include_paused=True)
         routing_candidates: Final = tuple(
             _routing_candidate(
                 account=account,
@@ -150,12 +150,18 @@ class Scheduler:
         snapshots: Final = await self._store.snapshots()
         return {snapshot.account_id: snapshot for snapshot in snapshots}
 
-    def _candidates(self, model: str) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
+    def _candidates(
+        self,
+        model: str,
+        include_paused: bool,
+    ) -> tuple[tuple[AccountConfig, DeploymentConfig], ...]:
         return tuple(
             (account, deployment)
             for account in self._config.accounts
             for deployment in account.deployments
-            if deployment.enabled and deployment.public_model == model
+            if deployment.enabled
+            and deployment.public_model == model
+            and (include_paused or not deployment.routing_paused)
         )
 
     async def _ordered_candidates(
@@ -218,13 +224,18 @@ class Scheduler:
             billing_route_id=deployment.billing_route_id,
             now=now,
         )
-        reason: Final = _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
+        reason: Final = (
+            "manual_pause"
+            if deployment.routing_paused
+            else _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
+        )
         return RouteEntry(
             account_id=account.id,
             display_name=account.display_name,
             provider=account.provider,
             base_url_display=account.base_url_display,
             deployment_id=deployment.litellm_model_id,
+            binding_id=deployment.binding_id,
             public_model=deployment.public_model,
             enabled=snapshot.enabled,
             health=snapshot.health,
@@ -248,6 +259,9 @@ class Scheduler:
             remaining_quota_ratio=order.candidate.remaining_quota_ratio,
             latency_ewma_ms=order.candidate.latency_ewma_ms,
             effective_cost=order.candidate.effective_cost,
+            manual_order=deployment.manual_order,
+            effective_weight=deployment.routing_weight or account.weight,
+            routing_paused=deployment.routing_paused,
         )
 
 
@@ -280,9 +294,13 @@ def _routing_candidate(
         account_id=account.id,
         deployment_id=deployment.litellm_model_id,
         billing_route_id=deployment.billing_route_id,
-        available=_unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None,
+        available=(
+            not deployment.routing_paused
+            and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
+        ),
         priority=account.priority,
-        weight=account.weight,
+        weight=deployment.routing_weight or account.weight,
+        manual_order=deployment.manual_order,
         inflight=snapshot.inflight,
         max_concurrency=snapshot.max_concurrency,
         remaining_quota_ratio=_quota_ratio(account=account, snapshot=snapshot),

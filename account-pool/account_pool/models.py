@@ -98,6 +98,9 @@ class DeploymentConfig(FrozenModel):
     binding_id: UUID | None = None
     provider_model: str | None = None
     billing_route_id: str | None = Field(default=None, min_length=1)
+    manual_order: int | None = Field(default=None, ge=0)
+    routing_weight: int | None = Field(default=None, ge=1, le=100)
+    routing_paused: bool = False
     managed_by_pool: bool = False
     enabled: bool = True
 
@@ -128,6 +131,7 @@ class AccountConfig(FrozenModel):
 class ModelPolicy(FrozenModel):
     model: ModelName
     strategy: Strategy = Strategy.QUOTA_AWARE_LEAST_INFLIGHT
+    version: int = Field(default=0, ge=0)
 
 
 class PoolConfig(FrozenModel):
@@ -261,6 +265,7 @@ class RouteEntry(FrozenModel):
     weight: int
     available: bool
     unavailable_reason: str | None
+    binding_id: UUID | None = None
     position: int | None = Field(default=None, ge=1)
     strategy: Strategy | None = None
     dynamic_order: bool = False
@@ -268,6 +273,9 @@ class RouteEntry(FrozenModel):
     remaining_quota_ratio: float | None = Field(default=None, ge=0)
     latency_ewma_ms: float | None = Field(default=None, ge=0)
     effective_cost: Decimal | None = Field(default=None, ge=0)
+    manual_order: int | None = Field(default=None, ge=0)
+    effective_weight: int = Field(default=1, ge=1, le=100)
+    routing_paused: bool = False
 
 
 class AccountView(FrozenModel):
@@ -291,6 +299,7 @@ class ModelSummary(FrozenModel):
     available_accounts: int
     inflight: int
     max_concurrency: int
+    version: int = Field(default=0, ge=0)
 
 
 class StatsView(FrozenModel):

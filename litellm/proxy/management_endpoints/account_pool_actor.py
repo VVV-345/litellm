@@ -38,6 +38,9 @@ class AccountPoolActorAction(StrEnum):
     SNAPSHOT_IMPORT = "parser_snapshot:import"
     OVERRIDE_SET = "parser_override:set"
     OVERRIDE_REVOKE = "parser_override:revoke"
+    ROUTING_POLICY_UPDATE = "routing_policy:update"
+    ROUTING_CANDIDATE_UPDATE = "routing_candidate:update"
+    ROUTING_CANDIDATE_DELETE = "routing_candidate:delete"
 
 
 class ActorSigningFailureCode(StrEnum):

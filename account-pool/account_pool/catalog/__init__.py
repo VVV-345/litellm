@@ -12,6 +12,7 @@ from account_pool.catalog.models import (
     DeploymentBindingRecord,
     ImportConflict,
     ImportResult,
+    ModelCandidateOverrideRecord,
     ModelPolicyRecord,
 )
 from account_pool.catalog.postgres import PostgresCatalogRepository
@@ -34,6 +35,7 @@ __all__ = [
     "DeploymentBindingRecord",
     "ImportConflict",
     "ImportResult",
+    "ModelCandidateOverrideRecord",
     "ModelPolicyRecord",
     "PostgresCatalogRepository",
     "legacy_binding_id",
