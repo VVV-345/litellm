@@ -131,7 +131,7 @@ API 提供：
 
 ## 12. 当前进度
 
-截至 2026-08-21，步骤 1 至步骤 4 的安全执行范围已完成。排序内核、PostgreSQL 策略版本、模型候选人工顺序/权重/暂停、目录运行投影、正式管理 API、LiteLLM 管理代理、管理员 actor 签名及模型级脱敏审计已经接通；正式路由支持包含 `/` 的模型名
+截至 2026-08-21，步骤 1 至步骤 5 的代码交付已完成。排序内核、PostgreSQL 策略版本、模型候选人工顺序/权重/暂停、目录运行投影、正式管理 API、LiteLLM 管理代理、管理员 actor 签名及模型级脱敏审计已经接通；正式路由支持包含 `/` 的模型名
 
 最新有效解析结果现在一次读取并同时投影额度与成本。Deployment 按公共模型、LiteLLM 模型或 Provider 模型的明确身份匹配价格，优先采用每百万 token 标准化价格，否则采用解析器已经计算的有效价格；输入与输出价格之和作为无请求比例时的排序分数，单边价格保留 `partial` 证据。币种或单位不一致时不直接比较，多分组价格不一致且厂商自行决定扣费时不猜测分组。已独立绑定到 Deployment 的套餐或按量路由会投影 `billing_route_id`；需要请求参数切换但尚无已实现白名单选择器的路由不会被声称为可执行。有效套餐明确包含模型时边际成本为 0，过期或未映射套餐不按 0 排序
 
@@ -143,4 +143,8 @@ API 提供：
 
 4100 独立调度工作台已经接入正式路由 API。页面按模型展示八种策略、候选顺序及排序依据、健康与资格、并发、额度比例、延迟、有效成本、计费模式、人工顺序、模型权重和模型级暂停；策略和候选修改使用服务端版本做乐观并发控制。写请求只进入固定的 4100 UI 路由，再由 Account Pool 后端携带当前管理员令牌交给 LiteLLM 管理代理签发 actor，浏览器不接触内部服务令牌或 actor。未配置 PostgreSQL 时页面明确降级为只读路由预览。桌面和 `390x844` 窄屏浏览器验收通过，宽表在自身容器滚动，没有页面级重叠或控制台错误
 
-当前自动化验证为 Account Pool 全量 `563 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`。本批新增及修改路径的 Ruff、basedpyright、JavaScript 语法、文件头检查和 `git diff --check` 通过。当前仍需执行步骤 5、步骤 6的剩余范围：LiteLLM Dashboard 调度管理界面和最终集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成静态契约测试，四档迁移也已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移与 Prisma schema 校验仍待目标环境。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`
+LiteLLM Dashboard 已增加“渠道管理”和“模型调度”工作区。模型调度工作区复用同一正式路由 API，支持模型列表、八种策略、候选顺序及依据、健康和资格、并发和额度、延迟和成本、版本化人工顺序、权重、暂停及恢复自动设置。策略仓储不可用时保留只读运行路由，运行路由本身读取失败时显示明确错误，不误报为空候选。后端 `Decimal` 成本字段按实际 JSON 字符串契约兼容展示；模型名中的 `/` 继续经过路径编码
+
+当前自动化验证为 Account Pool 全量 `563 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `15 passed`。本批新增及修改路径的 Ruff、basedpyright、JavaScript 语法、文件头检查、Dashboard Prettier、ESLint 和 `git diff --check` 通过。Dashboard 全仓 TypeScript 检查仍被 Account Pool 之外的 `1021` 个既有测试类型错误阻断，本次 Account Pool 路径没有报告类型错误
+
+Phase 4 当前剩余步骤 6 的目标环境集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成静态契约测试，四档迁移也已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移、三份 Prisma schema 校验和登录态 LiteLLM Dashboard 浏览器链路仍待目标环境。若后续厂商确实提供请求级计费选择，还需为该厂商定义白名单选择器协议后才能启用对应 `request_parameter_ref`

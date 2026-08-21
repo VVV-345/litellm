@@ -20,6 +20,11 @@ import type {
   ParserTaskRequest,
   ParserTaskView,
   ProviderServiceManifest,
+  RoutingCandidateMutation,
+  RoutingModelSummary,
+  RoutingPolicyMutation,
+  RoutingPolicyState,
+  RoutingTableEntry,
 } from "./types";
 
 export const accountPoolKeys = {
@@ -33,6 +38,9 @@ export const accountPoolKeys = {
   providers: () => ["account-pool", "providers"] as const,
   snapshot: (channelId: string) => ["account-pool", "channels", channelId, "snapshot"] as const,
   task: (channelId: string, taskId: string) => ["account-pool", "channels", channelId, "tasks", taskId] as const,
+  routingModels: () => ["account-pool", "routing", "models"] as const,
+  routingPolicy: (model: string) => ["account-pool", "routing", model, "policy"] as const,
+  routingTable: (model: string) => ["account-pool", "routing", model, "table"] as const,
 };
 
 export const getChannels = (accessToken: string): Promise<ChannelListResponse> =>
@@ -144,4 +152,44 @@ export const revokeParserOverride = (
   apiClient.delete(`/account_pool/channels/${channelId}/overrides/${fieldPath.replace(/^\/+/, "")}`, {
     accessToken,
     body: request,
+  });
+
+const routingModelPath = (model: string): string => encodeURIComponent(model);
+
+export const getRoutingModels = (accessToken: string): Promise<RoutingModelSummary[]> =>
+  apiClient.get("/account_pool/models", { accessToken });
+
+export const getRoutingTable = (accessToken: string, model: string): Promise<RoutingTableEntry[]> =>
+  apiClient.get(`/account_pool/models/${routingModelPath(model)}/routing-table`, { accessToken });
+
+export const getRoutingPolicy = (accessToken: string, model: string): Promise<RoutingPolicyState> =>
+  apiClient.get(`/account_pool/models/${routingModelPath(model)}/routing-policy`, { accessToken });
+
+export const updateRoutingPolicy = (
+  accessToken: string,
+  model: string,
+  request: RoutingPolicyMutation,
+): Promise<RoutingPolicyState> =>
+  apiClient.put(`/account_pool/models/${routingModelPath(model)}/routing-policy`, { accessToken, body: request });
+
+export const updateRoutingCandidate = (
+  accessToken: string,
+  model: string,
+  bindingId: string,
+  request: RoutingCandidateMutation,
+): Promise<RoutingPolicyState> =>
+  apiClient.put(`/account_pool/models/${routingModelPath(model)}/routing-candidates/${bindingId}`, {
+    accessToken,
+    body: request,
+  });
+
+export const resetRoutingCandidate = (
+  accessToken: string,
+  model: string,
+  bindingId: string,
+  expectedVersion: number,
+): Promise<RoutingPolicyState> =>
+  apiClient.delete(`/account_pool/models/${routingModelPath(model)}/routing-candidates/${bindingId}`, {
+    accessToken,
+    body: { expected_version: expectedVersion },
   });

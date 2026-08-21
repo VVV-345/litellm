@@ -15,6 +15,9 @@ import {
   importParserSnapshot,
   probeChannelHealth,
   reconcileChannel,
+  resetRoutingCandidate,
+  updateRoutingCandidate,
+  updateRoutingPolicy,
   updateChannel,
 } from "./api";
 import type { ChannelMutationRequest } from "./types";
@@ -145,6 +148,30 @@ describe("channel lifecycle API", () => {
 
     expect(mockedGet).toHaveBeenCalledWith("/account_pool/channels/channel-1/health", {
       accessToken: "token",
+    });
+  });
+
+  it("uses encoded model paths and versioned routing mutations", async () => {
+    await updateRoutingPolicy("token", "openai/gpt-5.6", { expected_version: 2, strategy: "lowest_latency" });
+    await updateRoutingCandidate("token", "openai/gpt-5.6", "binding-1", {
+      expected_version: 3,
+      manual_order: 0,
+      weight: 8,
+      paused: true,
+    });
+    await resetRoutingCandidate("token", "openai/gpt-5.6", "binding-1", 4);
+
+    expect(mockedPut).toHaveBeenNthCalledWith(1, "/account_pool/models/openai%2Fgpt-5.6/routing-policy", {
+      accessToken: "token",
+      body: { expected_version: 2, strategy: "lowest_latency" },
+    });
+    expect(mockedPut).toHaveBeenNthCalledWith(2, "/account_pool/models/openai%2Fgpt-5.6/routing-candidates/binding-1", {
+      accessToken: "token",
+      body: { expected_version: 3, manual_order: 0, weight: 8, paused: true },
+    });
+    expect(mockedDelete).toHaveBeenCalledWith("/account_pool/models/openai%2Fgpt-5.6/routing-candidates/binding-1", {
+      accessToken: "token",
+      body: { expected_version: 4 },
     });
   });
 });

@@ -3,6 +3,15 @@
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type ChannelPriority = 100 | 200 | 300 | 400;
+export type RoutingStrategy =
+  | "priority"
+  | "random"
+  | "lowest_latency"
+  | "highest_remaining_quota"
+  | "lowest_effective_cost"
+  | "least_inflight"
+  | "weighted_round_robin"
+  | "quota_aware_least_inflight";
 
 export interface ChannelSummary {
   channel_id: string;
@@ -305,3 +314,94 @@ export interface ParserSnapshot {
 }
 
 export type ParserSnapshotDocument = Record<string, ParserSnapshot>;
+
+export interface RoutingModelSummary {
+  model: string;
+  strategy: RoutingStrategy;
+  accounts: number;
+  available_accounts: number;
+  inflight: number;
+  max_concurrency: number;
+  version: number;
+}
+
+export type JsonDecimal = number | string;
+
+export interface RoutingCostEvidence {
+  kind: "normalized_per_million_tokens" | "effective_prices" | "subscription_included";
+  currency: string | null;
+  unit: string | null;
+  input_price: JsonDecimal | null;
+  output_price: JsonDecimal | null;
+  cache_read_price: JsonDecimal | null;
+  cache_write_price: JsonDecimal | null;
+  effective_cost: JsonDecimal;
+  partial: boolean;
+  provider_group_id: string | null;
+  billing_mode: "subscription" | "metered" | "provider_decided";
+}
+
+export interface RoutingTableEntry {
+  account_id: string;
+  display_name: string;
+  provider: string;
+  base_url_display: string;
+  deployment_id: string;
+  billing_route_id: string | null;
+  billing_mode: "subscription" | "metered" | "provider_decided";
+  public_model: string;
+  enabled: boolean;
+  health: HealthRuntimeSnapshot["health"];
+  inflight: number;
+  max_concurrency: number;
+  cooldown_until: number | null;
+  reason_code: string | null;
+  exclusion_scope: HealthExclusion["scope"] | null;
+  exclusion_source: HealthExclusion["source"] | "administrative" | "quota" | "runtime" | null;
+  exclusion_state: "active" | "half_open" | "cleared" | null;
+  retry_at: number | null;
+  quota: QuotaConfig;
+  priority: number;
+  weight: number;
+  available: boolean;
+  unavailable_reason: string | null;
+  binding_id: string | null;
+  position: number | null;
+  strategy: RoutingStrategy | null;
+  dynamic_order: boolean;
+  sort_reason_codes: string[];
+  remaining_quota_ratio: number | null;
+  latency_ewma_ms: number | null;
+  effective_cost: JsonDecimal | null;
+  cost_evidence: RoutingCostEvidence | null;
+  manual_order: number | null;
+  effective_weight: number;
+  routing_paused: boolean;
+}
+
+export interface RoutingCandidateOverride {
+  binding_id: string;
+  manual_order: number | null;
+  weight: number | null;
+  paused: boolean;
+}
+
+export interface RoutingPolicyState {
+  status: "loaded";
+  model: string;
+  strategy: RoutingStrategy;
+  version: number;
+  overrides: RoutingCandidateOverride[];
+}
+
+export interface RoutingPolicyMutation {
+  expected_version: number;
+  strategy: RoutingStrategy;
+}
+
+export interface RoutingCandidateMutation {
+  expected_version: number;
+  manual_order: number | null;
+  weight: number | null;
+  paused: boolean;
+}

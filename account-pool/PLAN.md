@@ -1229,7 +1229,11 @@ PostgreSQL 模型策略与候选覆盖已经接通。模型策略使用版本号
 
 4100 独立调度工作台已经接入正式模型策略、路由表和候选覆盖链路。页面覆盖八种策略，展示候选排序依据、资格原因及恢复时间、并发、额度比例、延迟、有效成本、计费模式、人工顺序、权重和模型级暂停；策略和候选更新使用版本字段防止并发覆盖。4100 后端只把固定调度写路径和当前管理员令牌交给 LiteLLM 管理代理，由代理校验真实管理员并签发 actor，浏览器不接触内部服务令牌或 actor 密钥。未配置 PostgreSQL 时页面明确降级为只读预览。桌面及 `390x844` 窄屏浏览器验收没有页面级溢出、元素重叠或控制台错误
 
-当前自动化验证为 Account Pool 全量 `563 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`，LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、JavaScript 语法、文件头检查和 `git diff --check` 通过，Dashboard Prettier 通过、ESLint 无错误。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，四档迁移已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。Phase 4 仍需完成 LiteLLM Dashboard 调度管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
+LiteLLM Dashboard 已增加独立的“模型调度”工作区，并与渠道管理保持同页分区。该工作区复用正式模型策略和路由表 API，提供八种策略、候选排序依据、健康和资格、并发和额度、延迟和有效成本、人工顺序、权重、模型级暂停及恢复自动设置。策略修改与候选修改继续使用版本号防止并发覆盖；策略仓储不可用时页面保留只读运行路由，运行路由请求失败时显示明确错误。成本展示兼容后端 `Decimal` 的 JSON 字符串序列化，模型名中的 `/` 通过编码路径访问
+
+Phase 4 功能代码交付已经完成，当前自动化验证为 Account Pool 全量 `563 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `15 passed`，LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、JavaScript 语法、文件头检查和 `git diff --check` 通过，Dashboard 修改文件 Prettier 通过、ESLint 无错误。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的 `1021` 个既有测试类型错误阻断，本次 Account Pool 路径没有报告类型错误
+
+Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，四档迁移已有目标 PostgreSQL 执行测试，但真实 Redis 脚本执行、PostgreSQL 迁移、三份 Prisma schema 解析和登录态 LiteLLM Dashboard 浏览器链路仍需在目标环境验收。厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入，不阻塞当前厂商决定扣费的安全降级路径
 
 ### Phase 5：总览、日志与生产化
 
