@@ -43,6 +43,7 @@ from account_pool.models import (
     AccountSnapshot,
     AccountView,
     AcquireSuccess,
+    ChannelPriority,
     Health,
     LiteLLMStatus,
     ManagementResult,
@@ -143,7 +144,7 @@ class FakeChannelCatalogReader:
                     base_url_display="https://api.openai.com/v1",
                     administrative_state=AdministrativeState.ENABLED,
                     max_concurrency=8,
-                    priority=10,
+                    priority=ChannelPriority.HIGH,
                     weight=20,
                     key_mask="sk-***main",
                     binding_count=2,
@@ -171,7 +172,7 @@ class FakeChannelManagementService:
             base_url_display="https://api.openai.com/v1",
             administrative_state=AdministrativeState.ENABLED,
             max_concurrency=8,
-            priority=10,
+            priority=ChannelPriority.HIGH,
             weight=20,
             quotas=QuotaConfig(),
             key_mask="sk-***main",
@@ -819,6 +820,43 @@ async def test_channel_create_requires_idempotency_and_verified_actor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_channel_create_rejects_priority_outside_four_supported_tiers() -> None:
+    lifecycle: Final = FakeChannelManagementService()
+    app: Final = create_app(
+        settings=settings(actor_secret=_ACTOR_SECRET),
+        store=MemoryStateStore(),
+        channel_management=lifecycle,
+    )
+    request_id: Final = "request-invalid-priority"
+    headers: Final = {
+        "x-account-pool-token": "test-service-token",
+        "idempotency-key": "invalid-priority",
+        "x-account-pool-actor": _actor_token(ActorAction.CHANNEL_CREATE, request_id),
+        "x-account-pool-request-id": request_id,
+    }
+    body: Final = {
+        "display_name": "Invalid priority",
+        "provider": "openai_compatible",
+        "base_url_display": "https://api.openai.com/v1",
+        "priority": 250,
+        "bindings": [
+            {
+                "public_model": "gpt-5.6",
+                "provider_model": "openai/gpt-5.6",
+                "ownership": "pool_managed",
+            }
+        ],
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.post("/api/channels", headers=headers, json=body)
+
+    assert response.status_code == 422
+    assert lifecycle.calls == []
+
+
+@pytest.mark.asyncio
 async def test_legacy_account_crud_aliases_use_channel_lifecycle_and_send_deprecation_headers() -> None:
     lifecycle: Final = FakeChannelManagementService()
     app: Final = create_app(
@@ -1418,7 +1456,7 @@ async def test_channel_crud_and_policy_updates_sync_litellm_without_persisting_a
                         "provider": "openai",
                         "base_url_display": "https://provider.example/v1",
                         "max_concurrency": 4,
-                        "priority": 70,
+                        "priority": 300,
                         "weight": 2,
                         "quotas": {"unit": "tokens", "total": 10000, "five_hour": 4000, "weekly": 8000},
                         "api_key": "provider-secret",
@@ -1438,7 +1476,7 @@ async def test_channel_crud_and_policy_updates_sync_litellm_without_persisting_a
                         "provider": "openai",
                         "base_url_display": "https://provider.example/v1",
                         "max_concurrency": 6,
-                        "priority": 75,
+                        "priority": 400,
                         "weight": 2,
                         "quotas": {"unit": "tokens", "total": 10000, "five_hour": 4000, "weekly": 8000},
                         "deployments": [

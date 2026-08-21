@@ -1223,7 +1223,9 @@ PostgreSQL 模型策略与候选覆盖已经接通。模型策略使用版本号
 
 成功业务请求的 Deployment 延迟 EWMA 已接通，固定使用 `alpha=0.2`；失败请求、主动探测和零延迟占位不会污染样本，重复结算不会重复累计。内存与 Redis 保存实时指标，PostgreSQL 按稳定 `binding_id` 保存可恢复快照；Deployment ID 变化后仍可通过绑定恢复，重配置会保留较新的实时样本并移除已删除 Deployment 的指标。路由表与实际 acquire 动态读取同一延迟指标，`lowest_latency` 会把无样本候选排在有样本候选之后。延迟快照写入失败只记录错误并保留实时结算结果，不采用额度状态的失败关闭语义
 
-当前自动化验证为 Account Pool 全量 `554 passed, 45 skipped`，45 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，但真实脚本执行、PostgreSQL 延迟迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Phase 4 仍需完成四档渠道优先级、结构化无路由解释、4100 调度工作台和 LiteLLM Dashboard 管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
+渠道优先级已经固定为最高 `400`、高 `300`、中 `200`、低 `100` 四档。正式管理 API、同步状态、PostgreSQL 目录和 Dashboard 只接受固定档位，默认使用中档；旧 YAML 在加载及首次目录导入时归一。数据库迁移同时修正渠道目录和历史同步期望状态，并添加四档约束。Dashboard 创建、编辑和列表均显示中文档位，不再允许输入任意数字
+
+当前自动化验证为 Account Pool 全量 `559 passed, 46 skipped`，46 个跳过项需要目标 PostgreSQL；Dashboard Account Pool 聚焦测试 `7 passed`，LiteLLM 管理代理此前聚焦测试 `16 passed`。新增及修改 Python 路径的 Ruff、basedpyright、文件头检查和 `git diff --check` 通过，Dashboard Prettier 通过、ESLint 无错误。当前环境没有 Redis 服务、Lua 运行时或 Prisma CLI，按约束未下载；Redis 延迟脚本已完成参数、探测排除和幂等结算契约测试，四档迁移已有目标 PostgreSQL 执行测试，但真实脚本执行、PostgreSQL 迁移、三份 Prisma schema 解析和登录 Dashboard 浏览器链路仍需在目标环境验收。Dashboard 全仓 TypeScript 检查被 Account Pool 之外的既有测试类型错误阻断。Phase 4 仍需完成结构化无路由解释、4100 调度工作台和 LiteLLM Dashboard 调度管理界面；厂商请求级计费选择器需在对应 Provider 模块定义白名单协议后按需接入
 
 ### Phase 5：总览、日志与生产化
 

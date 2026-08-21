@@ -40,7 +40,7 @@ describe("AccountPoolPage", () => {
           base_url_display: "https://gateway.example.com/v1",
           administrative_state: "enabled",
           max_concurrency: 8,
-          priority: 10,
+          priority: 300,
           weight: 20,
           key_mask: "sk-***main",
           binding_count: 2,
@@ -105,6 +105,7 @@ describe("AccountPoolPage", () => {
     );
 
     expect(await screen.findAllByText("OpenAI 主渠道")).not.toHaveLength(0);
+    expect(screen.getByText("高")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "解析数据" }));
     expect(await screen.findByText('"Starter"')).toBeInTheDocument();
     expect(screen.getByText('"Pro"')).toBeInTheDocument();

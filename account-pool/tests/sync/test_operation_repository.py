@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 from account_pool.catalog.models import AdministrativeState
-from account_pool.models import QuotaConfig
+from account_pool.models import ChannelPriority, QuotaConfig
 from account_pool.sync.models import (
     ChannelDesiredState,
     SafeSyncFailure,
@@ -35,7 +35,7 @@ def _operation(*, display_name: str = "Primary", idempotency_key: str = "create-
         base_url_display="https://api.example.com/v1",
         administrative_state=AdministrativeState.ENABLED,
         max_concurrency=2,
-        priority=0,
+        priority=ChannelPriority.MEDIUM,
         weight=1,
         quotas=QuotaConfig(),
         bindings=(),

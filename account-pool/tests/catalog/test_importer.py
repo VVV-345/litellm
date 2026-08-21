@@ -29,7 +29,7 @@ def legacy_config() -> PoolConfig:
                 group="premium",
                 base_url_display="https://z.example/v1",
                 max_concurrency=3,
-                priority=20,
+                priority=300,
                 weight=2,
                 quotas=QuotaConfig(unit=QuotaUnit.USD, total=40, five_hour=10, weekly=25),
                 deployments=(
@@ -50,6 +50,7 @@ def legacy_config() -> PoolConfig:
                 base_url_display="https://a.example",
                 enabled=False,
                 max_concurrency=1,
+                priority=100,
                 deployments=(
                     DeploymentConfig(public_model="m-model", litellm_model_id="deployment-a"),
                 ),

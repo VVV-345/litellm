@@ -8,7 +8,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, Field
 
-from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig, Strategy
+from account_pool.models import AccountId, ChannelPriority, FrozenModel, ModelName, QuotaConfig, Strategy
 
 
 class AdministrativeState(StrEnum):
@@ -33,7 +33,7 @@ class ChannelRecord(FrozenModel):
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState
     max_concurrency: int = Field(ge=1)
-    priority: int
+    priority: ChannelPriority
     weight: int = Field(ge=1, le=100)
     quotas: QuotaConfig
     credential_ref: str | None = None
@@ -90,7 +90,7 @@ class ChannelSummary(FrozenModel):
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState
     max_concurrency: int = Field(ge=1)
-    priority: int
+    priority: ChannelPriority
     weight: int = Field(ge=1, le=100)
     key_mask: str | None = None
     binding_count: int = Field(ge=0)

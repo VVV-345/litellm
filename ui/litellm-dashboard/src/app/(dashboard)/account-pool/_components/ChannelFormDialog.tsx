@@ -29,6 +29,7 @@ import type {
   ChannelDetail,
   ChannelMutationRequest,
   ChannelOperation,
+  ChannelPriority,
   ChannelSummary,
   ProviderServiceManifest,
   QuotaConfig,
@@ -47,6 +48,18 @@ interface ChannelFormDialogProps {
 }
 
 const emptyQuotas: QuotaConfig = { unit: "tokens", total: null, five_hour: null, weekly: null };
+const priorityOptions: ReadonlyArray<{ label: string; value: ChannelPriority }> = [
+  { label: "最高", value: 400 },
+  { label: "高", value: 300 },
+  { label: "中", value: 200 },
+  { label: "低", value: 100 },
+];
+const priorityLabels: Record<ChannelPriority, string> = {
+  400: "最高",
+  300: "高",
+  200: "中",
+  100: "低",
+};
 const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindingInput => ({
   binding_id: null,
   public_model: "",
@@ -140,8 +153,10 @@ function ChannelFormContent({
   const [administrativeState, setAdministrativeState] = useState<AdministrativeState>(
     initial?.administrative_state ?? channel?.administrative_state ?? "enabled",
   );
-  const [maxConcurrency, setMaxConcurrency] = useState(String(initial?.max_concurrency ?? channel?.max_concurrency ?? 1));
-  const [priority, setPriority] = useState(String(initial?.priority ?? channel?.priority ?? 0));
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    String(initial?.max_concurrency ?? channel?.max_concurrency ?? 1),
+  );
+  const [priority, setPriority] = useState<ChannelPriority>(initial?.priority ?? channel?.priority ?? 200);
   const [weight, setWeight] = useState(String(initial?.weight ?? channel?.weight ?? 1));
   const [quotas, setQuotas] = useState<QuotaConfig>(initial?.quotas ?? emptyQuotas);
   const [apiKey, setApiKey] = useState("");
@@ -162,7 +177,7 @@ function ChannelFormContent({
     base_url_display: baseUrl.trim(),
     administrative_state: administrativeState,
     max_concurrency: Number(maxConcurrency),
-    priority: Number(priority),
+    priority,
     weight: Number(weight),
     quotas,
     api_key: apiKey || null,
@@ -185,10 +200,14 @@ function ChannelFormContent({
     onSettled: () => setApiKey(""),
   });
 
-  const bindingsValid = bindings.length > 0 && bindings.every((binding) => {
-    const baseValid = Boolean(binding.public_model.trim() && (binding.provider_model?.trim() || binding.litellm_deployment_id));
-    return importing ? baseValid && Boolean(binding.litellm_deployment_id) : baseValid;
-  });
+  const bindingsValid =
+    bindings.length > 0 &&
+    bindings.every((binding) => {
+      const baseValid = Boolean(
+        binding.public_model.trim() && (binding.provider_model?.trim() || binding.litellm_deployment_id),
+      );
+      return importing ? baseValid && Boolean(binding.litellm_deployment_id) : baseValid;
+    });
   const canSubmit =
     !mutation.isPending &&
     Boolean(displayName.trim() && provider && baseUrl.trim()) &&
@@ -223,82 +242,256 @@ function ChannelFormContent({
         <DialogHeader>
           <DialogTitle>{dialogTitle(mode)}</DialogTitle>
           <DialogDescription>
-            {editing ? "Key 留空表示不轮换；提交结束后输入值会立即从组件状态清除" : "Key 只随本次请求提交，结束后立即从组件状态清除"}
+            {editing
+              ? "Key 留空表示不轮换；提交结束后输入值会立即从组件状态清除"
+              : "Key 只随本次请求提交，结束后立即从组件状态清除"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="channel-name">显示名称</Label>
-                <Input id="channel-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Provider</Label>
-                <Select value={provider} onValueChange={chooseProvider}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {providers.map((item) => (
-                      <SelectItem key={item.provider_id} value={item.provider_id}>
-                        {item.display_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {selectedProvider && (
-              <div className="flex flex-wrap gap-1.5">
-                {selectedProvider.capabilities.map((capability) => (
-                  <Badge key={capability.capability} variant="outline">{capability.capability}: {capability.state}</Badge>
-                ))}
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="channel-url">上游 URL</Label>
-                <Input id="channel-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="channel-group">分组（可选）</Label>
-                <Input id="channel-group" value={group} onChange={(event) => setGroup(event.target.value)} />
-              </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="channel-name">显示名称</Label>
+              <Input id="channel-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="channel-key">{editing ? "新 Key（可选）" : "API Key（可选）"}</Label>
-              <div className="relative">
-                <KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                <Input id="channel-key" type="password" className="pl-9" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
-              </div>
+              <Label>Provider</Label>
+              <Select value={provider} onValueChange={chooseProvider}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.map((item) => (
+                    <SelectItem key={item.provider_id} value={item.provider_id}>
+                      {item.display_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="grid gap-2"><Label>状态</Label><Select value={administrativeState} onValueChange={(value) => value && setAdministrativeState(value as AdministrativeState)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="enabled">启用</SelectItem><SelectItem value="paused">暂停</SelectItem><SelectItem value="disabled">停用</SelectItem></SelectContent></Select></div>
-              <div className="grid gap-2"><Label htmlFor="channel-concurrency">最大并发</Label><Input id="channel-concurrency" type="number" min={1} value={maxConcurrency} onChange={(event) => setMaxConcurrency(event.target.value)} /></div>
-              <div className="grid gap-2"><Label htmlFor="channel-priority">优先级</Label><Input id="channel-priority" type="number" value={priority} onChange={(event) => setPriority(event.target.value)} /></div>
-              <div className="grid gap-2"><Label htmlFor="channel-weight">权重</Label><Input id="channel-weight" type="number" min={1} max={100} value={weight} onChange={(event) => setWeight(event.target.value)} /></div>
-            </div>
-            <div className="grid gap-3 rounded-md border p-3">
-              <div className="flex items-center justify-between"><div><p className="text-sm font-medium">模型绑定</p><p className="text-xs text-muted-foreground">可选择或输入公共模型名</p></div><Button type="button" variant="outline" size="sm" onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}><Plus />添加</Button></div>
-              <CreatableModelSelect value={selectedModels} models={knownModels} placeholder="选择或输入模型" onChange={setModels} testId="channel-model-select" />
-              {bindings.map((binding, index) => (
-                <div key={binding.binding_id ?? `${binding.public_model}-${index}`} className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto]">
-                  <div className="grid gap-1"><Label>公共模型</Label><Input value={binding.public_model} onChange={(event) => updateBinding(index, { public_model: event.target.value })} /></div>
-                  <div className="grid gap-1"><Label>Provider 模型</Label><Input value={binding.provider_model ?? ""} onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })} /></div>
-                  <Button type="button" variant="ghost" size="icon" className="self-end" onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}><Trash2 /><span className="sr-only">删除绑定</span></Button>
-                  {(importing || binding.ownership === "externally_managed") && <div className="grid gap-1 sm:col-span-2"><Label>LiteLLM Deployment ID</Label><Input value={binding.litellm_deployment_id ?? ""} onChange={(event) => updateBinding(index, { litellm_deployment_id: event.target.value || null, ownership: "externally_managed" })} /></div>}
-                  <label className="flex items-center gap-2 self-end text-sm"><Checkbox checked={binding.enabled} onCheckedChange={(checked) => updateBinding(index, { enabled: checked })} />启用</label>
-                </div>
+          </div>
+          {selectedProvider && (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedProvider.capabilities.map((capability) => (
+                <Badge key={capability.capability} variant="outline">
+                  {capability.capability}: {capability.state}
+                </Badge>
               ))}
             </div>
-            <div className="grid gap-3 rounded-md border p-3">
-              <div className="flex items-center justify-between"><p className="text-sm font-medium">额度（可选）</p><Select value={quotas.unit} onValueChange={(value) => value && setQuotas({ ...quotas, unit: value as QuotaConfig["unit"] })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tokens">tokens</SelectItem><SelectItem value="usd">USD</SelectItem></SelectContent></Select></div>
-              <div className="grid grid-cols-3 gap-3"><div className="grid gap-1"><Label>总额</Label><Input type="number" min={0} value={quotas.total ?? ""} onChange={(event) => setQuotas({ ...quotas, total: optionalNumber(event.target.value) })} /></div><div className="grid gap-1"><Label>5 小时</Label><Input type="number" min={0} value={quotas.five_hour ?? ""} onChange={(event) => setQuotas({ ...quotas, five_hour: optionalNumber(event.target.value) })} /></div><div className="grid gap-1"><Label>每周</Label><Input type="number" min={0} value={quotas.weekly ?? ""} onChange={(event) => setQuotas({ ...quotas, weekly: optionalNumber(event.target.value) })} /></div></div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="channel-url">上游 URL</Label>
+              <Input id="channel-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="channel-group">分组（可选）</Label>
+              <Input id="channel-group" value={group} onChange={(event) => setGroup(event.target.value)} />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="channel-key">{editing ? "新 Key（可选）" : "API Key（可选）"}</Label>
+            <div className="relative">
+              <KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
+              <Input
+                id="channel-key"
+                type="password"
+                className="pl-9"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid gap-2">
+              <Label>状态</Label>
+              <Select
+                value={administrativeState}
+                onValueChange={(value) => value && setAdministrativeState(value as AdministrativeState)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="enabled">启用</SelectItem>
+                  <SelectItem value="paused">暂停</SelectItem>
+                  <SelectItem value="disabled">停用</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="channel-concurrency">最大并发</Label>
+              <Input
+                id="channel-concurrency"
+                type="number"
+                min={1}
+                value={maxConcurrency}
+                onChange={(event) => setMaxConcurrency(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="channel-priority">优先级</Label>
+              <Select
+                value={String(priority)}
+                onValueChange={(value) => value && setPriority(Number(value) as ChannelPriority)}
+              >
+                <SelectTrigger id="channel-priority">
+                  <SelectValue>{priorityLabels[priority]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {priorityOptions.map((option) => (
+                    <SelectItem key={option.value} value={String(option.value)}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="channel-weight">权重</Label>
+              <Input
+                id="channel-weight"
+                type="number"
+                min={1}
+                max={100}
+                value={weight}
+                onChange={(event) => setWeight(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">模型绑定</p>
+                <p className="text-xs text-muted-foreground">可选择或输入公共模型名</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}
+              >
+                <Plus />
+                添加
+              </Button>
+            </div>
+            <CreatableModelSelect
+              value={selectedModels}
+              models={knownModels}
+              placeholder="选择或输入模型"
+              onChange={setModels}
+              testId="channel-model-select"
+            />
+            {bindings.map((binding, index) => (
+              <div
+                key={binding.binding_id ?? `${binding.public_model}-${index}`}
+                className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto]"
+              >
+                <div className="grid gap-1">
+                  <Label>公共模型</Label>
+                  <Input
+                    value={binding.public_model}
+                    onChange={(event) => updateBinding(index, { public_model: event.target.value })}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label>Provider 模型</Label>
+                  <Input
+                    value={binding.provider_model ?? ""}
+                    onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="self-end"
+                  onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}
+                >
+                  <Trash2 />
+                  <span className="sr-only">删除绑定</span>
+                </Button>
+                {(importing || binding.ownership === "externally_managed") && (
+                  <div className="grid gap-1 sm:col-span-2">
+                    <Label>LiteLLM Deployment ID</Label>
+                    <Input
+                      value={binding.litellm_deployment_id ?? ""}
+                      onChange={(event) =>
+                        updateBinding(index, {
+                          litellm_deployment_id: event.target.value || null,
+                          ownership: "externally_managed",
+                        })
+                      }
+                    />
+                  </div>
+                )}
+                <label className="flex items-center gap-2 self-end text-sm">
+                  <Checkbox
+                    checked={binding.enabled}
+                    onCheckedChange={(checked) => updateBinding(index, { enabled: checked })}
+                  />
+                  启用
+                </label>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">额度（可选）</p>
+              <Select
+                value={quotas.unit}
+                onValueChange={(value) => value && setQuotas({ ...quotas, unit: value as QuotaConfig["unit"] })}
+              >
+                <SelectTrigger className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tokens">tokens</SelectItem>
+                  <SelectItem value="usd">USD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1">
+                <Label>总额</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={quotas.total ?? ""}
+                  onChange={(event) => setQuotas({ ...quotas, total: optionalNumber(event.target.value) })}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label>5 小时</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={quotas.five_hour ?? ""}
+                  onChange={(event) => setQuotas({ ...quotas, five_hour: optionalNumber(event.target.value) })}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label>每周</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={quotas.weekly ?? ""}
+                  onChange={(event) => setQuotas({ ...quotas, weekly: optionalNumber(event.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={close} disabled={mutation.isPending}>取消</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>{mutation.isPending && <Loader2 className="animate-spin" />}{submitLabel(mode)}</Button>
+          <Button variant="outline" onClick={close} disabled={mutation.isPending}>
+            取消
+          </Button>
+          <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>
+            {mutation.isPending && <Loader2 className="animate-spin" />}
+            {submitLabel(mode)}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

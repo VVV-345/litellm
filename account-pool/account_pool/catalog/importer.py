@@ -13,7 +13,14 @@ from account_pool.catalog.models import (
     DeploymentBindingRecord,
     ModelPolicyRecord,
 )
-from account_pool.models import AccountConfig, DeploymentConfig, FrozenModel, ModelPolicy, PoolConfig
+from account_pool.models import (
+    AccountConfig,
+    DeploymentConfig,
+    FrozenModel,
+    ModelPolicy,
+    PoolConfig,
+    normalize_channel_priority,
+)
 
 
 class _ImportTimestamp(FrozenModel):
@@ -54,7 +61,7 @@ def _channel_record(account: AccountConfig, account_order: int, imported_at: Awa
         base_url_display=account.base_url_display,
         administrative_state=AdministrativeState.ENABLED if account.enabled else AdministrativeState.DISABLED,
         max_concurrency=account.max_concurrency,
-        priority=account.priority,
+        priority=normalize_channel_priority(account.priority),
         weight=account.weight,
         quotas=account.quotas,
         created_at=imported_at,

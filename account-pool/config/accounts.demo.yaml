@@ -6,7 +6,7 @@ accounts:
     base_url_display: https://api.openai.com
     enabled: true
     max_concurrency: 6
-    priority: 100
+    priority: 400
     weight: 3
     quotas:
       unit: tokens
@@ -30,7 +30,7 @@ accounts:
     base_url_display: https://api.openai.com
     enabled: true
     max_concurrency: 3
-    priority: 80
+    priority: 300
     weight: 1
     quotas:
       unit: tokens
@@ -54,7 +54,7 @@ accounts:
     base_url_display: https://api.openai.com
     enabled: true
     max_concurrency: 10
-    priority: 60
+    priority: 200
     weight: 5
     quotas:
       unit: tokens

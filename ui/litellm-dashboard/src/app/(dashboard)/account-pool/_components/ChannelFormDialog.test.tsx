@@ -21,7 +21,7 @@ const summary: ChannelSummary = {
   base_url_display: "https://summary.example/v1",
   administrative_state: "enabled",
   max_concurrency: 1,
-  priority: 0,
+  priority: 200,
   weight: 1,
   key_mask: "sk-***main",
   binding_count: 1,
@@ -39,7 +39,7 @@ const detail: ChannelDetail = {
   base_url_display: "https://database.example/v1",
   administrative_state: "paused",
   max_concurrency: 8,
-  priority: 10,
+  priority: 300,
   weight: 20,
   quotas: { unit: "tokens", total: 1000, five_hour: 100, weekly: 500 },
   key_mask: "sk-***main",
@@ -76,6 +76,7 @@ describe("ChannelFormDialog", () => {
 
     expect(await screen.findByDisplayValue("数据库完整名称")).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://database.example/v1")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "优先级" })).toHaveTextContent("高");
     expect(screen.queryByDisplayValue("摘要名称")).not.toBeInTheDocument();
   });
 });

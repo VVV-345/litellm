@@ -2,6 +2,7 @@
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type ChannelPriority = 100 | 200 | 300 | 400;
 
 export interface ChannelSummary {
   channel_id: string;
@@ -11,7 +12,7 @@ export interface ChannelSummary {
   base_url_display: string;
   administrative_state: "enabled" | "paused" | "disabled" | "pending_delete";
   max_concurrency: number;
-  priority: number;
+  priority: ChannelPriority;
   weight: number;
   key_mask: string | null;
   binding_count: number;
@@ -53,7 +54,7 @@ export interface ChannelMutationRequest {
   base_url_display: string;
   administrative_state: AdministrativeState;
   max_concurrency: number;
-  priority: number;
+  priority: ChannelPriority;
   weight: number;
   quotas: QuotaConfig;
   api_key: string | null;

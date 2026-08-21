@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from account_pool.catalog.models import AdministrativeState, BindingOwnership
-from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig
+from account_pool.models import AccountId, ChannelPriority, FrozenModel, ModelName, QuotaConfig
 
 
 class SyncAction(StrEnum):
@@ -57,7 +57,7 @@ class ChannelDesiredState(FrozenModel):
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState
     max_concurrency: int = Field(ge=1)
-    priority: int
+    priority: ChannelPriority
     weight: int = Field(ge=1, le=100)
     quotas: QuotaConfig
     credential_ref: str | None = None

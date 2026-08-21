@@ -33,7 +33,7 @@ def test_channel_requires_aware_timestamp() -> None:
             base_url_display="https://api.openai.com",
             administrative_state=AdministrativeState.ENABLED,
             max_concurrency=1,
-            priority=0,
+            priority=200,
             weight=1,
             quotas=QuotaConfig(),
             created_at=datetime(2026, 8, 19),

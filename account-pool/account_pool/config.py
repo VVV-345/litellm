@@ -10,7 +10,7 @@ from typing import Final, Literal, cast
 import yaml
 from pydantic import TypeAdapter
 
-from account_pool.models import PoolConfig
+from account_pool.models import PoolConfig, normalize_channel_priority
 
 StoreMode = Literal["memory", "redis"]
 
@@ -67,7 +67,15 @@ class Settings:
 def load_pool_config(path: Path) -> PoolConfig:
     loaded: Final = cast(object, yaml.safe_load(path.read_text(encoding="utf-8")))
     raw: Final = TypeAdapter(dict[str, object]).validate_python(loaded)
-    return PoolConfig.model_validate(raw)
+    config: Final = PoolConfig.model_validate(raw)
+    return config.model_copy(
+        update={
+            "accounts": tuple(
+                account.model_copy(update={"priority": normalize_channel_priority(account.priority)})
+                for account in config.accounts
+            )
+        }
+    )
 
 
 def save_pool_config(path: Path, config: PoolConfig) -> None:

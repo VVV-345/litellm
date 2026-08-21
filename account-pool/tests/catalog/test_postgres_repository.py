@@ -19,6 +19,7 @@ from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportRe
 from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.models import Strategy
 from psycopg import sql
+from psycopg.types.json import Jsonb
 from tests.catalog.test_importer import legacy_config
 
 
@@ -68,6 +69,75 @@ def _command(imported_at: datetime | None = None) -> CatalogImport:
 
 async def test_load_snapshot_is_empty_after_migration(repository_fixture: RepositoryFixture) -> None:
     assert await repository_fixture.repository.load_snapshot() == CatalogSnapshot()
+
+
+def test_priority_migration_normalizes_history_and_adds_constraint() -> None:
+    migration: Final = _migration_sql("constrain_account_pool_channel_priority")
+
+    assert 'UPDATE "LiteLLM_AccountPoolChannel"' in migration
+    assert 'UPDATE "LiteLLM_AccountPoolSyncOperation"' in migration
+    assert '"desired_payload"' in migration
+    assert "~ '^-?[0-9]+([.][0-9]+)?$'" in migration
+    assert "::INTEGER" not in migration
+    assert 'CHECK ("priority" IN (100, 200, 300, 400))' in migration
+
+
+async def test_priority_migration_normalizes_rows_and_rejects_new_arbitrary_values(
+    repository_fixture: RepositoryFixture,
+) -> None:
+    async with await psycopg.AsyncConnection.connect(repository_fixture.database_url, autocommit=True) as connection:
+        await connection.execute("SELECT set_config('search_path', %s, false)", (repository_fixture.schema,))
+        await connection.execute(_migration_sql("add_account_pool_sync_and_audit").encode("utf-8"))
+        for index, priority in enumerate((450, 350, 250, 150)):
+            await connection.execute(
+                """
+                INSERT INTO "LiteLLM_AccountPoolChannel" (
+                    channel_id, account_order, display_name, provider, base_url_display,
+                    administrative_state, max_concurrency, priority, weight, quota_unit, updated_at
+                ) VALUES (%s, %s, %s, 'openai', 'https://example.test/v1', 'enabled', 1, %s, 1, 'tokens', NOW())
+                """,
+                (f"channel-{index}", index, f"Channel {index}", priority),
+            )
+        for index, priority in enumerate((450, "350", None, "invalid")):
+            await connection.execute(
+                """
+                INSERT INTO "LiteLLM_AccountPoolSyncOperation" (
+                    operation_id, idempotency_key, channel_id, action, status,
+                    desired_payload, updated_at, applied_at
+                ) VALUES (%s, %s, %s, 'create_channel', 'applied', %s, NOW(), NOW())
+                """,
+                (
+                    f"operation-{index}",
+                    f"key-{index}",
+                    f"channel-{index}",
+                    Jsonb({"priority": priority}),
+                ),
+            )
+
+        await connection.execute(_migration_sql("constrain_account_pool_channel_priority").encode("utf-8"))
+        channel_rows: Final = await (
+            await connection.execute(
+                'SELECT "priority" FROM "LiteLLM_AccountPoolChannel" ORDER BY "account_order"'
+            )
+        ).fetchall()
+        operation_rows: Final = await (
+            await connection.execute(
+                'SELECT "desired_payload"->>\'priority\' FROM "LiteLLM_AccountPoolSyncOperation" ORDER BY "operation_id"'
+            )
+        ).fetchall()
+
+        assert tuple(row[0] for row in channel_rows) == (400, 300, 200, 100)
+        assert tuple(row[0] for row in operation_rows) == ("400", "300", "100", "100")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            await connection.execute(
+                """
+                INSERT INTO "LiteLLM_AccountPoolChannel" (
+                    channel_id, account_order, display_name, provider, base_url_display,
+                    administrative_state, max_concurrency, priority, weight, quota_unit, updated_at
+                ) VALUES ('invalid-priority', 10, 'Invalid', 'openai', 'https://example.test/v1',
+                    'enabled', 1, 250, 1, 'tokens', NOW())
+                """
+            )
 
 
 async def test_first_import_is_created_and_timestamp_only_rerun_is_unchanged(

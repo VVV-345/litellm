@@ -52,7 +52,7 @@ def _operation(
         base_url_display="https://provider.example/v1",
         administrative_state=AdministrativeState.ENABLED,
         max_concurrency=2,
-        priority=0,
+        priority=200,
         weight=1,
         quotas=QuotaConfig(),
         bindings=(binding,),

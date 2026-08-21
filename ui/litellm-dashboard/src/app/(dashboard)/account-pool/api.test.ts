@@ -40,7 +40,7 @@ const request: ChannelMutationRequest = {
   base_url_display: "https://gateway.example.com/v1",
   administrative_state: "enabled",
   max_concurrency: 8,
-  priority: 10,
+  priority: 300,
   weight: 20,
   quotas: { unit: "tokens", total: null, five_hour: null, weekly: null },
   api_key: "sk-once",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
@@ -26,6 +26,23 @@ class Strategy(StrEnum):
     LEAST_INFLIGHT = "least_inflight"
     WEIGHTED_ROUND_ROBIN = "weighted_round_robin"
     QUOTA_AWARE_LEAST_INFLIGHT = "quota_aware_least_inflight"
+
+
+class ChannelPriority(IntEnum):
+    LOW = 100
+    MEDIUM = 200
+    HIGH = 300
+    HIGHEST = 400
+
+
+def normalize_channel_priority(value: int) -> ChannelPriority:
+    if value >= ChannelPriority.HIGHEST:
+        return ChannelPriority.HIGHEST
+    if value >= ChannelPriority.HIGH:
+        return ChannelPriority.HIGH
+    if value >= ChannelPriority.MEDIUM:
+        return ChannelPriority.MEDIUM
+    return ChannelPriority.LOW
 
 
 class Health(StrEnum):
@@ -382,7 +399,7 @@ class AccountMutation(FrozenModel):
     base_url_display: str = Field(min_length=1)
     enabled: bool = True
     max_concurrency: int = Field(ge=1)
-    priority: int = 0
+    priority: ChannelPriority = ChannelPriority.MEDIUM
     weight: int = Field(default=1, ge=1, le=100)
     quotas: QuotaConfig = QuotaConfig()
     deployments: tuple[DeploymentInput, ...] = Field(min_length=1)

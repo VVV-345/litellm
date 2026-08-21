@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import type { ChannelSummary } from "../types";
+import type { ChannelPriority, ChannelSummary } from "../types";
 
 interface ChannelListProps {
   channels: ChannelSummary[];
@@ -19,6 +19,13 @@ const stateLabel: Record<ChannelSummary["administrative_state"], string> = {
   pending_delete: "待删除",
 };
 
+const priorityLabel: Record<ChannelPriority, string> = {
+  400: "最高",
+  300: "高",
+  200: "中",
+  100: "低",
+};
+
 export default function ChannelList({ channels, selectedChannelId, onSelect }: ChannelListProps) {
   if (channels.length === 0) {
     return <div className="px-4 py-10 text-center text-sm text-muted-foreground">PostgreSQL 渠道目录中暂无数据</div>;
@@ -30,6 +37,7 @@ export default function ChannelList({ channels, selectedChannelId, onSelect }: C
         <TableRow>
           <TableHead>渠道</TableHead>
           <TableHead>状态</TableHead>
+          <TableHead>优先级</TableHead>
           <TableHead className="text-right">绑定</TableHead>
         </TableRow>
       </TableHeader>
@@ -56,6 +64,7 @@ export default function ChannelList({ channels, selectedChannelId, onSelect }: C
                 {stateLabel[channel.administrative_state]}
               </Badge>
             </TableCell>
+            <TableCell>{priorityLabel[channel.priority]}</TableCell>
             <TableCell className="text-right tabular-nums">
               {channel.enabled_binding_count}/{channel.binding_count}
             </TableCell>

@@ -39,7 +39,7 @@ from account_pool.catalog.models import (
     ModelCandidateOverrideRecord,
     ModelPolicyRecord,
 )
-from account_pool.models import AccountId, FrozenModel, ModelName, QuotaConfig, QuotaUnit, Strategy
+from account_pool.models import AccountId, ChannelPriority, FrozenModel, ModelName, QuotaConfig, QuotaUnit, Strategy
 
 _SCHEMA_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CATALOG_LOCK_KEY: Final = 4_186_343_189_064_001_901
@@ -117,7 +117,7 @@ class _ChannelRow(FrozenModel):
     base_url_display: str
     administrative_state: AdministrativeState
     max_concurrency: int
-    priority: int
+    priority: ChannelPriority
     weight: int
     quota_unit: QuotaUnit
     quota_total: float | None

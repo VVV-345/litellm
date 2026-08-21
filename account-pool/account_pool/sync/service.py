@@ -48,7 +48,7 @@ from account_pool.catalog.models import (
 )
 from account_pool.catalog.repository import CatalogRepository
 from account_pool.catalog.service import CatalogService
-from account_pool.models import AccountId, FrozenModel, QuotaConfig
+from account_pool.models import AccountId, ChannelPriority, FrozenModel, QuotaConfig
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.sync.litellm import (
     LiteLLMSyncAction,
@@ -121,7 +121,7 @@ class ChannelMutation(FrozenModel):
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState = AdministrativeState.ENABLED
     max_concurrency: int = Field(default=1, ge=1)
-    priority: int = 0
+    priority: ChannelPriority = ChannelPriority.MEDIUM
     weight: int = Field(default=1, ge=1, le=100)
     quotas: QuotaConfig = QuotaConfig()
     api_key: SecretStr | None = None
@@ -155,7 +155,7 @@ class ChannelDetail(FrozenModel):
     base_url_display: str
     administrative_state: AdministrativeState
     max_concurrency: int
-    priority: int
+    priority: ChannelPriority
     weight: int
     quotas: QuotaConfig
     key_mask: str | None
