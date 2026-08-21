@@ -31,6 +31,8 @@ def candidate(
         remaining_quota_ratio=quota,
         latency_ewma_ms=latency,
         effective_cost=None if cost is None else Decimal(cost),
+        cost_currency=None if cost is None else "USD",
+        cost_unit=None if cost is None else "million_tokens",
     )
 
 
@@ -81,6 +83,22 @@ def test_latency_and_cost_put_unknown_evidence_after_known_values() -> None:
     assert by_cost[-1].reason_codes == ("cost_unknown",)
 
 
+def test_cost_does_not_compare_different_currency_or_units() -> None:
+    usd: Final = candidate("usd", cost="2")
+    credits: Final = usd.model_copy(
+        update={
+            "account_id": "credits",
+            "deployment_id": "deployment-credits",
+            "effective_cost": Decimal("1"),
+            "cost_currency": "CREDITS",
+        }
+    )
+
+    ordered: Final = order_candidates((credits, usd), Strategy.LOWEST_EFFECTIVE_COST, "model-a")
+
+    assert all(item.reason_codes == ("cost_basis_conflict",) for item in ordered)
+
+
 def test_remaining_quota_prefers_largest_tightest_window_ratio() -> None:
     ordered: Final = order_candidates(
         candidates=(
@@ -102,7 +120,9 @@ def test_unavailable_candidate_stays_last_for_every_strategy() -> None:
         candidate("available", priority=100, latency=100, cost="10", quota=0.1),
     )
 
-    results: Final = tuple(order_candidates(candidates, strategy, "model-a", request_id="request") for strategy in strategies)
+    results: Final = tuple(
+        order_candidates(candidates, strategy, "model-a", request_id="request") for strategy in strategies
+    )
 
     assert all(ids(result)[-1] == "unavailable" for result in results)
 

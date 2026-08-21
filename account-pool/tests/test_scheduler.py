@@ -12,11 +12,14 @@ from account_pool.models import (
     AcquireRequest,
     AcquireSuccess,
     AcquireUnavailable,
+    CostEvidenceKind,
     DeploymentConfig,
+    DeploymentCostEvidence,
     ModelPolicy,
     PoolConfig,
     QuotaConfig,
     QuotaWindowConfig,
+    RuntimeBillingMode,
     RuntimeQuotaKind,
     RuntimeQuotaScope,
     RuntimeQuotaWindowType,
@@ -435,6 +438,64 @@ async def test_weighted_round_robin_honors_configured_weight() -> None:
 
 
 @pytest.mark.asyncio
+async def test_lowest_effective_cost_selects_the_cheapest_projected_candidate() -> None:
+    expensive: Final = account("expensive", max_concurrency=2).model_copy(
+        update={
+            "deployments": (
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="expensive-model-a",
+                    cost_evidence=DeploymentCostEvidence(
+                        kind=CostEvidenceKind.NORMALIZED_PER_MILLION_TOKENS,
+                        currency="USD",
+                        unit="million_tokens",
+                        input_price=Decimal("4"),
+                        output_price=Decimal("12"),
+                        effective_cost=Decimal("16"),
+                        billing_mode=RuntimeBillingMode.PROVIDER_DECIDED,
+                    ),
+                ),
+            )
+        }
+    )
+    cheap: Final = account("cheap", max_concurrency=2).model_copy(
+        update={
+            "deployments": (
+                DeploymentConfig(
+                    public_model="model-a",
+                    litellm_model_id="cheap-model-a",
+                    cost_evidence=DeploymentCostEvidence(
+                        kind=CostEvidenceKind.NORMALIZED_PER_MILLION_TOKENS,
+                        currency="USD",
+                        unit="million_tokens",
+                        input_price=Decimal("1"),
+                        output_price=Decimal("3"),
+                        effective_cost=Decimal("4"),
+                        billing_mode=RuntimeBillingMode.PROVIDER_DECIDED,
+                    ),
+                ),
+            )
+        }
+    )
+    scheduler, _ = await initialized_scheduler(
+        PoolConfig(
+            accounts=(expensive, cheap),
+            policies=(ModelPolicy(model="model-a", strategy=Strategy.LOWEST_EFFECTIVE_COST),),
+        )
+    )
+
+    routes: Final = await scheduler.route_table("model-a")
+    acquired: Final = await scheduler.acquire(AcquireRequest(request_id="request-cost", model="model-a"))
+
+    assert tuple(route.account_id for route in routes) == ("cheap", "expensive")
+    assert routes[0].effective_cost == Decimal("4")
+    assert routes[0].cost_evidence is not None
+    assert routes[0].cost_evidence.billing_mode == "provider_decided"
+    assert isinstance(acquired, AcquireSuccess)
+    assert acquired.lease.account_id == "cheap"
+
+
+@pytest.mark.asyncio
 async def test_route_table_and_acquire_share_the_static_strategy_order() -> None:
     busy: Final = account("busy", 10).model_copy(update={"priority": 100})
     idle: Final = account("idle", 10).model_copy(update={"priority": 0})
@@ -473,9 +534,7 @@ async def test_model_candidate_pause_remains_visible_but_is_not_acquired() -> No
         manual_order=0,
         routing_paused=True,
     )
-    paused: Final = account("paused", 10).model_copy(
-        update={"priority": 400, "deployments": (paused_deployment,)}
-    )
+    paused: Final = account("paused", 10).model_copy(update={"priority": 400, "deployments": (paused_deployment,)})
     fallback: Final = account("fallback", 10)
     scheduler, _ = await initialized_scheduler(
         PoolConfig(

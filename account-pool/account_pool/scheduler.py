@@ -18,6 +18,7 @@ from account_pool.models import (
     AcquireResult,
     AcquireSuccess,
     AcquireUnavailable,
+    CostEvidenceKind,
     DeploymentConfig,
     Health,
     ModelPolicy,
@@ -235,6 +236,8 @@ class Scheduler:
             provider=account.provider,
             base_url_display=account.base_url_display,
             deployment_id=deployment.litellm_model_id,
+            billing_route_id=deployment.billing_route_id,
+            billing_mode=deployment.billing_mode,
             binding_id=deployment.binding_id,
             public_model=deployment.public_model,
             enabled=snapshot.enabled,
@@ -259,6 +262,7 @@ class Scheduler:
             remaining_quota_ratio=order.candidate.remaining_quota_ratio,
             latency_ewma_ms=order.candidate.latency_ewma_ms,
             effective_cost=order.candidate.effective_cost,
+            cost_evidence=deployment.cost_evidence,
             manual_order=deployment.manual_order,
             effective_weight=deployment.routing_weight or account.weight,
             routing_paused=deployment.routing_paused,
@@ -295,8 +299,7 @@ def _routing_candidate(
         deployment_id=deployment.litellm_model_id,
         billing_route_id=deployment.billing_route_id,
         available=(
-            not deployment.routing_paused
-            and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
+            not deployment.routing_paused and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
         ),
         priority=account.priority,
         weight=deployment.routing_weight or account.weight,
@@ -304,6 +307,15 @@ def _routing_candidate(
         inflight=snapshot.inflight,
         max_concurrency=snapshot.max_concurrency,
         remaining_quota_ratio=_quota_ratio(account=account, snapshot=snapshot),
+        effective_cost=None if deployment.cost_evidence is None else deployment.cost_evidence.effective_cost,
+        cost_currency=None if deployment.cost_evidence is None else deployment.cost_evidence.currency,
+        cost_unit=None if deployment.cost_evidence is None else deployment.cost_evidence.unit,
+        cost_partial=False if deployment.cost_evidence is None else deployment.cost_evidence.partial,
+        cost_included=(
+            False
+            if deployment.cost_evidence is None
+            else deployment.cost_evidence.kind == CostEvidenceKind.SUBSCRIPTION_INCLUDED
+        ),
     )
 
 

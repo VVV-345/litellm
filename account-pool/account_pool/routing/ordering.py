@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from hashlib import sha256
 from typing import Final
 
@@ -17,17 +18,19 @@ def order_candidates(
     request_id: str | None = None,
     sequence: int | None = None,
 ) -> tuple[RoutingOrder, ...]:
-    ordered: Final = tuple(sorted(candidates, key=_sort_key(strategy, model, request_id)))
+    cost_basis: Final = _shared_cost_basis(candidates)
+    ordered: Final = tuple(sorted(candidates, key=_sort_key(strategy, model, request_id, cost_basis)))
     if strategy == Strategy.WEIGHTED_ROUND_ROBIN:
         weighted: Final = _weighted_order(ordered, sequence or 1)
-        return tuple(_result(candidate, strategy) for candidate in weighted)
-    return tuple(_result(candidate, strategy) for candidate in ordered)
+        return tuple(_result(candidate, strategy, cost_basis) for candidate in weighted)
+    return tuple(_result(candidate, strategy, cost_basis) for candidate in ordered)
 
 
 def _sort_key(
     strategy: Strategy,
     model: str,
     request_id: str | None,
+    cost_basis: tuple[str, str] | None,
 ) -> Callable[[RoutingCandidate], tuple[object, ...]]:
     def key(candidate: RoutingCandidate) -> tuple[object, ...]:
         availability: Final = 0 if candidate.available else 1
@@ -49,7 +52,8 @@ def _sort_key(
                 stable,
             )
         if strategy == Strategy.LOWEST_EFFECTIVE_COST:
-            return (availability, _missing(candidate.effective_cost), candidate.effective_cost or 0, priority, stable)
+            cost: Final = _comparable_cost(candidate, cost_basis)
+            return (availability, _missing(cost), cost or 0, priority, stable)
         if strategy == Strategy.LEAST_INFLIGHT:
             return (availability, _inflight_ratio(candidate), priority, stable)
         if strategy == Strategy.QUOTA_AWARE_LEAST_INFLIGHT:
@@ -82,19 +86,19 @@ def _weighted_order(candidates: tuple[RoutingCandidate, ...], sequence: int) -> 
     return unique + unavailable
 
 
-def _result(candidate: RoutingCandidate, strategy: Strategy) -> RoutingOrder:
+def _result(
+    candidate: RoutingCandidate,
+    strategy: Strategy,
+    cost_basis: tuple[str, str] | None,
+) -> RoutingOrder:
     evidence: Final = {
         Strategy.PRIORITY: ("manual_order" if candidate.manual_order is not None else "channel_priority",),
         Strategy.RANDOM: ("request_random",),
-        Strategy.LOWEST_LATENCY: (
-            "latency_ewma" if candidate.latency_ewma_ms is not None else "latency_unknown",
-        ),
+        Strategy.LOWEST_LATENCY: ("latency_ewma" if candidate.latency_ewma_ms is not None else "latency_unknown",),
         Strategy.HIGHEST_REMAINING_QUOTA: (
             "remaining_quota_ratio" if candidate.remaining_quota_ratio is not None else "quota_unknown",
         ),
-        Strategy.LOWEST_EFFECTIVE_COST: (
-            "effective_cost" if candidate.effective_cost is not None else "cost_unknown",
-        ),
+        Strategy.LOWEST_EFFECTIVE_COST: (_cost_reason(candidate, cost_basis),),
         Strategy.LEAST_INFLIGHT: ("inflight_ratio",),
         Strategy.WEIGHTED_ROUND_ROBIN: ("configured_weight",),
         Strategy.QUOTA_AWARE_LEAST_INFLIGHT: ("inflight_ratio", "remaining_quota_ratio"),
@@ -117,3 +121,33 @@ def _inflight_ratio(candidate: RoutingCandidate) -> float:
 
 def _missing(value: object | None) -> int:
     return 1 if value is None else 0
+
+
+def _shared_cost_basis(candidates: tuple[RoutingCandidate, ...]) -> tuple[str, str] | None:
+    bases: Final = frozenset(
+        (candidate.cost_currency.casefold(), candidate.cost_unit.casefold())
+        for candidate in candidates
+        if candidate.effective_cost is not None
+        and candidate.cost_currency is not None
+        and candidate.cost_unit is not None
+    )
+    return next(iter(bases)) if len(bases) == 1 else None
+
+
+def _comparable_cost(candidate: RoutingCandidate, basis: tuple[str, str] | None) -> Decimal | None:
+    if candidate.cost_included:
+        return Decimal("0")
+    if basis is None or candidate.cost_currency is None or candidate.cost_unit is None:
+        return None
+    candidate_basis: Final = (candidate.cost_currency.casefold(), candidate.cost_unit.casefold())
+    return candidate.effective_cost if candidate_basis == basis else None
+
+
+def _cost_reason(candidate: RoutingCandidate, basis: tuple[str, str] | None) -> str:
+    if candidate.cost_included:
+        return "subscription_included"
+    if candidate.effective_cost is None:
+        return "cost_unknown"
+    if _comparable_cost(candidate, basis) is None:
+        return "cost_basis_conflict"
+    return "effective_cost_partial" if candidate.cost_partial else "effective_cost"

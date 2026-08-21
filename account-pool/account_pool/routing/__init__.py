@@ -11,6 +11,7 @@ from account_pool.routing.models import (
 )
 from account_pool.routing.ordering import order_candidates
 from account_pool.routing.postgres import PostgresRoutingPolicyRepository
+from account_pool.routing.projection import project_routing_deployments
 from account_pool.routing.service import RoutingPolicyService
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "RoutingPolicyState",
     "RoutingVersionMutation",
     "order_candidates",
+    "project_routing_deployments",
 ]

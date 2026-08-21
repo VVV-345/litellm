@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
@@ -64,6 +64,47 @@ class RuntimeQuotaWindowType(StrEnum):
     LIFETIME = "lifetime"
 
 
+class CostEvidenceKind(StrEnum):
+    NORMALIZED_PER_MILLION_TOKENS = "normalized_per_million_tokens"
+    EFFECTIVE_PRICES = "effective_prices"
+    SUBSCRIPTION_INCLUDED = "subscription_included"
+
+
+class RuntimeBillingMode(StrEnum):
+    SUBSCRIPTION = "subscription"
+    METERED = "metered"
+    PROVIDER_DECIDED = "provider_decided"
+
+
+class DeploymentCostEvidence(FrozenModel):
+    kind: CostEvidenceKind
+    currency: str | None = Field(default=None, min_length=1)
+    unit: str | None = Field(default=None, min_length=1)
+    input_price: Decimal | None = Field(default=None, ge=0)
+    output_price: Decimal | None = Field(default=None, ge=0)
+    cache_read_price: Decimal | None = Field(default=None, ge=0)
+    cache_write_price: Decimal | None = Field(default=None, ge=0)
+    effective_cost: Decimal = Field(ge=0)
+    partial: bool = False
+    provider_group_id: str | None = Field(default=None, min_length=1)
+    billing_mode: RuntimeBillingMode = RuntimeBillingMode.PROVIDER_DECIDED
+
+    @model_validator(mode="after")
+    def validate_cost(self) -> DeploymentCostEvidence:
+        if self.kind == CostEvidenceKind.SUBSCRIPTION_INCLUDED:
+            if self.effective_cost != 0 or self.currency is not None or self.unit is not None:
+                raise ValueError("included subscription cost must be zero without a currency basis")
+            return self
+        expected: Final = tuple(value for value in (self.input_price, self.output_price) if value is not None)
+        if self.currency is None or self.unit is None or not expected:
+            raise ValueError("metered cost requires a currency, unit, and token price")
+        if self.effective_cost != sum(expected, Decimal("0")):
+            raise ValueError("effective cost must equal the available input and output prices")
+        if self.partial != ((self.input_price is None) != (self.output_price is None)):
+            raise ValueError("partial must identify one-sided token price evidence")
+        return self
+
+
 class QuotaWindowConfig(FrozenModel):
     window_id: str = Field(min_length=1, max_length=200)
     scope: RuntimeQuotaScope
@@ -98,6 +139,8 @@ class DeploymentConfig(FrozenModel):
     binding_id: UUID | None = None
     provider_model: str | None = None
     billing_route_id: str | None = Field(default=None, min_length=1)
+    billing_mode: RuntimeBillingMode = RuntimeBillingMode.PROVIDER_DECIDED
+    cost_evidence: DeploymentCostEvidence | None = None
     manual_order: int | None = Field(default=None, ge=0)
     routing_weight: int | None = Field(default=None, ge=1, le=100)
     routing_paused: bool = False
@@ -249,6 +292,8 @@ class RouteEntry(FrozenModel):
     provider: str
     base_url_display: str
     deployment_id: str
+    billing_route_id: str | None = None
+    billing_mode: RuntimeBillingMode = RuntimeBillingMode.PROVIDER_DECIDED
     public_model: ModelName
     enabled: bool
     health: Health
@@ -273,6 +318,7 @@ class RouteEntry(FrozenModel):
     remaining_quota_ratio: float | None = Field(default=None, ge=0)
     latency_ewma_ms: float | None = Field(default=None, ge=0)
     effective_cost: Decimal | None = Field(default=None, ge=0)
+    cost_evidence: DeploymentCostEvidence | None = None
     manual_order: int | None = Field(default=None, ge=0)
     effective_weight: int = Field(default=1, ge=1, le=100)
     routing_paused: bool = False

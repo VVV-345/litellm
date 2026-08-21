@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from account_pool.models import AccountId, ModelName, Strategy
 
@@ -29,6 +29,23 @@ class RoutingCandidate(RoutingModel):
     remaining_quota_ratio: float | None = Field(default=None, ge=0)
     latency_ewma_ms: float | None = Field(default=None, ge=0)
     effective_cost: Decimal | None = Field(default=None, ge=0)
+    cost_currency: str | None = Field(default=None, min_length=1)
+    cost_unit: str | None = Field(default=None, min_length=1)
+    cost_partial: bool = False
+    cost_included: bool = False
+
+    @model_validator(mode="after")
+    def validate_cost_basis(self) -> RoutingCandidate:
+        has_basis = self.cost_currency is not None and self.cost_unit is not None
+        if self.cost_included:
+            if self.effective_cost != 0 or has_basis:
+                raise ValueError("included cost must be zero without a currency basis")
+            return self
+        if (self.effective_cost is not None) != has_basis:
+            raise ValueError("effective cost requires a complete currency and unit basis")
+        if self.cost_partial and self.effective_cost is None:
+            raise ValueError("partial cost requires effective cost evidence")
+        return self
 
     def stable_id(self) -> str:
         return f"{self.account_id}\x00{self.deployment_id}\x00{self.billing_route_id or ''}"

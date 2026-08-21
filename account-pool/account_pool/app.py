@@ -85,6 +85,7 @@ from account_pool.parsing.overrides.commands import (
 from account_pool.parsing.overrides.postgres import PostgresOverrideEventRepository
 from account_pool.parsing.overrides.service import ParserOverrideService, ParserOverrideWriter
 from account_pool.parsing.postgres import PostgresParserRunRepository
+from account_pool.parsing.projection import ParserRuntimeConfigEnricher
 from account_pool.parsing.registry import ParserRegistry
 from account_pool.parsing.service import (
     EffectiveParserData,
@@ -109,7 +110,6 @@ from account_pool.provider_services.glm import GlmOfficialProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
-from account_pool.quota import ParserQuotaConfigEnricher
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.quota.postgres import PostgresQuotaRuntimeRepository
 from account_pool.routing.models import (
@@ -323,7 +323,7 @@ def create_app(
                     )
                 ),
                 scheduler,
-                enricher=_quota_enricher(resolved_parser_data),
+                enricher=_parser_runtime_enricher(resolved_parser_data),
             ).project()
         else:
             await scheduler.initialize()
@@ -1248,7 +1248,7 @@ def _build_routing_policies(
         projector=RuntimeProjector(
             CatalogService(catalog_repository),
             scheduler,
-            enricher=_quota_enricher(parser_data),
+            enricher=_parser_runtime_enricher(parser_data),
         ),
         audit=PostgresManagementAuditRepository(
             settings.database_url,
@@ -1283,7 +1283,7 @@ def _build_channel_management(
         runtime_projector=RuntimeProjector(
             CatalogService(catalog_repository),
             scheduler,
-            enricher=_quota_enricher(parser_data),
+            enricher=_parser_runtime_enricher(parser_data),
         ),
         audit=PostgresManagementAuditRepository(
             settings.database_url,
@@ -1440,8 +1440,8 @@ def _build_parser_data(settings: Settings) -> ParserDataReader | None:
     )
 
 
-def _quota_enricher(parser_data: ParserDataReader | None) -> ParserQuotaConfigEnricher | None:
-    return None if parser_data is None else ParserQuotaConfigEnricher(parser_data)
+def _parser_runtime_enricher(parser_data: ParserDataReader | None) -> ParserRuntimeConfigEnricher | None:
+    return None if parser_data is None else ParserRuntimeConfigEnricher(parser_data)
 
 
 def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
