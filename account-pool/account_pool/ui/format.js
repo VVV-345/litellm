@@ -1,6 +1,10 @@
 // 本文件集中处理号池状态、额度和调度策略的界面文本。
 export const strategyNames = {
   priority: "手动优先级",
+  random: "随机",
+  lowest_latency: "延迟优先",
+  highest_remaining_quota: "剩余额度优先",
+  lowest_effective_cost: "成本最低优先",
   least_inflight: "并发最少优先",
   weighted_round_robin: "权重轮询",
   quota_aware_least_inflight: "额度感知优先",
@@ -24,6 +28,10 @@ export const priorityName = (value) => {
 };
 
 export const formatNumber = (value) => value == null ? "不限" : new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(value);
+
+export const formatPercent = (value) => value == null ? "未知" : `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 }).format(value * 100)}%`;
+
+export const formatTime = (value) => value == null ? "-" : new Date(value * 1000).toLocaleString("zh-CN", { hour12: false });
 
 export const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")

@@ -1,6 +1,7 @@
 // 本文件装配 4100 调度控制台，管理渠道、模型策略和实时路由状态。
-import { api, clearToken, getToken, setToken } from "./api.js";
-import { escapeHtml, formatNumber, healthNames, priorityName, statusBadge, strategyNames, strategyOptions } from "./format.js";
+import { api, clearToken, getToken, setToken } from "./api.js?v=4";
+import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=4";
+import { createRoutingWorkbench } from "./routing.js?v=4";
 
 const state = {
   accounts: [],
@@ -8,8 +9,6 @@ const state = {
   stats: null,
   status: null,
   manifests: [],
-  routes: [],
-  selectedModel: null,
   selectedModels: [],
   validation: null,
   editingAccount: null,
@@ -63,10 +62,7 @@ const loadDashboard = async () => {
     api.accounts(), api.models(), api.stats(), api.litellmStatus(), api.providerServices(),
   ]);
   Object.assign(state, { accounts, models, stats, status, manifests });
-  if (!state.selectedModel || !models.some((item) => item.model === state.selectedModel)) {
-    state.selectedModel = models[0]?.model ?? null;
-  }
-  state.routes = state.selectedModel ? await api.routingTable(state.selectedModel) : [];
+  await routing.sync(models);
   render();
 };
 
@@ -80,14 +76,14 @@ const refresh = async (silent = false) => {
   }
 };
 
+const routing = createRoutingWorkbench({ showNotice, refreshDashboard: refresh });
+
 const render = () => {
   renderStatus();
   renderStats();
   renderModels("#overview-models", false);
   renderChannels("#overview-channels", false);
   renderChannels("#channel-table", true);
-  renderModelList();
-  renderRouteTable();
   $("#last-updated").textContent = `更新于 ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
 };
 
@@ -139,46 +135,9 @@ const renderChannels = (selector, interactive) => {
   $(selector).innerHTML = `<table><thead><tr><th>渠道</th><th>供应商</th><th>模型</th><th>状态</th><th>并发</th><th>优先级</th><th>权重</th><th>剩余额度</th>${interactive ? "<th>操作</th>" : ""}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="${interactive ? 9 : 8}">暂无渠道，请先添加上游渠道</td></tr>`}</tbody></table>`;
 };
 
-const renderModelList = () => {
-  $("#model-list").innerHTML = state.models.map((model) => `
-    <button class="model-item ${model.model === state.selectedModel ? "active" : ""}" data-select-model="${escapeHtml(model.model)}">
-      <strong>${escapeHtml(model.model)}</strong>
-      <span>${escapeHtml(strategyNames[model.strategy] ?? model.strategy)} · ${model.available_accounts}/${model.accounts} 可用</span>
-    </button>`).join("") || '<div class="empty">尚未配置模型</div>';
-};
-
-const renderRouteTable = () => {
-  const model = state.models.find((item) => item.model === state.selectedModel);
-  if (!model) {
-    $("#route-header").innerHTML = "<div><h2>路由顺序</h2><p>添加渠道后可配置模型调度</p></div>";
-    $("#route-table").innerHTML = '<div class="empty">暂无路由</div>';
-    return;
-  }
-  const options = strategyOptions.map(([value, label]) => `<option value="${value}" ${model.strategy === value ? "selected" : ""}>${label}</option>`).join("");
-  $("#route-header").innerHTML = `<div><h2>${escapeHtml(model.model)}</h2><p>下表为当前调度候选顺序</p></div><div class="route-controls"><label class="muted" for="strategy-select">调度策略</label><select id="strategy-select">${options}</select></div>`;
-  const rows = state.routes.map((route, index) => `
-    <tr>
-      <td>${index + 1}</td><td><strong>${escapeHtml(route.display_name)}</strong><div class="muted">${escapeHtml(route.account_id)}</div></td>
-      <td>${statusBadge(route.health)}</td><td>${route.inflight} / ${route.max_concurrency}</td>
-      <td>${priorityName(route.priority)} <span class="muted">(${route.priority})</span></td><td>${route.weight}</td>
-      <td>${formatNumber(route.quota?.total)}</td><td>${route.available ? '<span class="badge health-healthy">可调度</span>' : `<span class="badge health-disabled">${escapeHtml(route.unavailable_reason || "不可用")}</span>`}</td>
-    </tr>`).join("");
-  $("#route-table").innerHTML = `<table><thead><tr><th>顺序</th><th>渠道</th><th>状态</th><th>并发</th><th>优先级</th><th>权重</th><th>剩余额度</th><th>可用性</th></tr></thead><tbody>${rows || '<tr><td class="empty" colspan="8">此模型暂无路由</td></tr>'}</tbody></table>`;
-  $("#strategy-select").addEventListener("change", updateStrategy);
-};
-
 const selectModel = async (model) => {
-  state.selectedModel = model;
-  state.routes = await api.routingTable(model);
+  await routing.select(model);
   setView("routing");
-  renderModelList();
-  renderRouteTable();
-};
-
-const updateStrategy = async (event) => {
-  const result = await api.updatePolicy(state.selectedModel, event.target.value);
-  showNotice(result.message, !result.ok);
-  await refresh(true);
 };
 
 const resetChannelForm = () => {

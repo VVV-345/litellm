@@ -21,8 +21,12 @@ const request = async (path, options = {}) => {
   }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const detail = typeof payload.detail === "string" ? payload.detail : payload.detail?.error;
-    throw new Error(detail || payload.message || `请求失败 (${response.status})`);
+    const detail = typeof payload.detail === "string"
+      ? payload.detail
+      : payload.detail?.error ?? payload.detail?.code;
+    const error = new Error(detail || payload.message || `请求失败 (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 };
@@ -34,12 +38,21 @@ export const api = {
   litellmStatus: () => request("/litellm/status"),
   providerServices: () => request("/provider-services"),
   routingTable: (model) => request(`/models/${encodeURIComponent(model)}/routing-table`),
+  routingPolicy: (model) => request(`/models/${encodeURIComponent(model)}/routing-policy`),
   validateProvider: (body) => request("/provider-services/validate", { method: "POST", body: JSON.stringify(body) }),
   createAccount: (body) => request("/accounts", { method: "POST", body: JSON.stringify(body) }),
   updateAccount: (id, body) => request(`/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteAccount: (id) => request(`/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  updatePolicy: (model, strategy) => request(`/models/${encodeURIComponent(model)}/policy`, {
+  updateRoutingPolicy: (model, body) => request(`/models/${encodeURIComponent(model)}/routing-policy`, {
     method: "PUT",
-    body: JSON.stringify({ strategy }),
+    body: JSON.stringify(body),
   }),
+  updateRoutingCandidate: (model, bindingId, body) => request(
+    `/models/${encodeURIComponent(model)}/routing-candidates/${encodeURIComponent(bindingId)}`,
+    { method: "PUT", body: JSON.stringify(body) },
+  ),
+  deleteRoutingCandidate: (model, bindingId, body) => request(
+    `/models/${encodeURIComponent(model)}/routing-candidates/${encodeURIComponent(bindingId)}`,
+    { method: "DELETE", body: JSON.stringify(body) },
+  ),
 };

@@ -9,7 +9,8 @@ from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
@@ -396,10 +397,38 @@ def create_app(
         if x_account_pool_token is None or not secrets.compare_digest(x_account_pool_token, expected):
             raise HTTPException(status_code=401, detail="Invalid account-pool service token")
 
-    async def require_litellm_admin(authorization: str | None = Header(default=None)) -> None:
+    async def require_litellm_admin(authorization: str | None = Header(default=None)) -> str:
         scheme, _, access_token = (authorization or "").partition(" ")
         if scheme.lower() != "bearer" or not access_token or not await admin.authorize(access_token):
             raise HTTPException(status_code=401, detail="LiteLLM 管理令牌无效")
+        return access_token
+
+    async def forward_ui_routing_request(
+        request: Request,
+        method: Literal["PUT", "DELETE"],
+        path: str,
+        access_token: str,
+    ) -> Response:
+        headers: Final = {
+            "accept": "application/json",
+            "authorization": f"Bearer {access_token}",
+            "content-type": "application/json",
+        }
+        try:
+            upstream: Final = await client.request(
+                method=method,
+                url=f"{resolved_settings.litellm_url.rstrip('/')}/account_pool{path}",
+                headers=headers,
+                content=await request.body(),
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="LiteLLM 管理接口连接失败") from exc
+        response_headers: Final = {
+            name: value
+            for name, value in upstream.headers.items()
+            if name.casefold() in {"content-type", "cache-control"}
+        }
+        return Response(content=upstream.content, status_code=upstream.status_code, headers=response_headers)
 
     async def healthz() -> OperationResult:
         return OperationResult(ok=True)
@@ -858,6 +887,47 @@ def create_app(
         )
         return _routing_result(await service.delete_candidate(model, binding_id, body, actor))
 
+    async def update_ui_routing_policy(
+        model: str,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        encoded_model: Final = quote(model, safe="")
+        return await forward_ui_routing_request(
+            request=request,
+            method="PUT",
+            path=f"/models/{encoded_model}/routing-policy",
+            access_token=access_token,
+        )
+
+    async def update_ui_routing_candidate(
+        model: str,
+        binding_id: UUID,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        encoded_model: Final = quote(model, safe="")
+        return await forward_ui_routing_request(
+            request=request,
+            method="PUT",
+            path=f"/models/{encoded_model}/routing-candidates/{binding_id}",
+            access_token=access_token,
+        )
+
+    async def delete_ui_routing_candidate(
+        model: str,
+        binding_id: UUID,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        encoded_model: Final = quote(model, safe="")
+        return await forward_ui_routing_request(
+            request=request,
+            method="DELETE",
+            path=f"/models/{encoded_model}/routing-candidates/{binding_id}",
+            access_token=access_token,
+        )
+
     async def probe_channel_health(
         channel_id: UUID,
         body: HealthProbeRequest,
@@ -1110,6 +1180,21 @@ def create_app(
         routing_policy,
         methods=["GET"],
         dependencies=ui_dependency,
+    )
+    application.add_api_route(
+        "/ui-api/models/{model:path}/routing-policy",
+        update_ui_routing_policy,
+        methods=["PUT"],
+    )
+    application.add_api_route(
+        "/ui-api/models/{model:path}/routing-candidates/{binding_id}",
+        update_ui_routing_candidate,
+        methods=["PUT"],
+    )
+    application.add_api_route(
+        "/ui-api/models/{model:path}/routing-candidates/{binding_id}",
+        delete_ui_routing_candidate,
+        methods=["DELETE"],
     )
     application.add_api_route("/ui-api/stats", stats, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(

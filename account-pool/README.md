@@ -120,7 +120,9 @@ effective result。无效或已不存在的目标会形成脱敏结构化失败�
 
 解析历史和 raw/effective 有效数据已分别通过 `GET /api/channels/{id}/parser-runs` 与
 `GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。人工覆盖的设置和撤销也已通过 LiteLLM
-管理员代理接入；代理在服务端签发短时 actor 信封，4100 独立 UI 不签发该信封，当前只读预览覆盖数据。
+管理员代理接入；代理在服务端签发短时 actor 信封。4100 独立 UI 的模型策略和候选覆盖写操作会把当前管理员令牌
+转发给 LiteLLM 的固定调度代理端点，由 LiteLLM 校验真实管理员并签发 actor；浏览器不接触内部服务令牌或 actor
+密钥。解析字段覆盖仍在 LiteLLM Dashboard 管理，4100 只展示其进入运行路由后的结果。
 `GET /api/channels/{id}/snapshot` 和 `/export` 从 PostgreSQL 最新结果即时生成以渠道 ID 为键的 schema v1 脱敏文档，
 后者附带下载响应头。`POST /api/channels/{id}/parse` 接收一次性 Key，在当前 Account Pool 实例接管后返回任务 ID；
 任务所有权、心跳和结果写入 PostgreSQL，但 URL、Key 和 Key 指纹不会进入任务记录。进程中断后的超时任务会变为
@@ -145,11 +147,12 @@ $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 ```
 
 所有 `/api/*` 和 `/internal/*` 接口都要求 `X-Account-Pool-Token`；未配置服务令牌时接口会拒绝服务，
-不会退化为无认证访问。人工覆盖写接口还要求 LiteLLM 使用 `ACCOUNT_POOL_ACTOR_SECRET` 签发 actor 信封，不能由
-浏览器或 4100 独立 UI 直接调用。`/healthz` 保持无认证，供容器健康检查使用
+不会退化为无认证访问。人工覆盖和调度写接口还要求 LiteLLM 使用 `ACCOUNT_POOL_ACTOR_SECRET` 签发 actor 信封；
+4100 调度工作台只调用受限的 `/ui-api/models/*` 入口，后端再把请求交给 LiteLLM 管理代理，不能由浏览器直接调用
+内部写接口。`/healthz` 保持无认证，供容器健康检查使用
 
-`DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，但解析历史和有效数据接口返回 503；可通过
-`ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema
+`DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，4100 路由表保持只读；正式策略版本、候选人工覆盖、解析
+历史和有效数据接口返回 503。可通过 `ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema
 
 客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
 生产网络中应限制 LiteLLM Proxy 的直接访问

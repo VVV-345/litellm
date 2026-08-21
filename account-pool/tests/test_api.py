@@ -1241,6 +1241,54 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
 
 
 @pytest.mark.asyncio
+async def test_standalone_ui_forwards_routing_writes_through_litellm() -> None:
+    requests: list[httpx.Request] = []
+    binding_id: Final = UUID("10000000-0000-0000-0000-000000000001")
+
+    def litellm(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/account_pool/authorize":
+            return httpx.Response(status_code=200, json={"ok": True})
+        return httpx.Response(status_code=200, json={"status": "loaded", "version": 4})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(litellm)) as proxy_client:
+        app: Final = create_app(settings=settings(), store=MemoryStateStore(), proxy_client=proxy_client)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://account-pool",
+                headers={"authorization": "Bearer admin-secret"},
+            ) as client:
+                response: Final = await client.put(
+                    "/ui-api/models/openai%2Fgpt-4o/routing-policy",
+                    json={"expected_version": 3, "strategy": "lowest_latency"},
+                )
+                candidate: Final = await client.put(
+                    f"/ui-api/models/openai%2Fgpt-4o/routing-candidates/{binding_id}",
+                    json={"expected_version": 4, "manual_order": 0, "weight": 5, "paused": False},
+                )
+                reset: Final = await client.request(
+                    "DELETE",
+                    f"/ui-api/models/openai%2Fgpt-4o/routing-candidates/{binding_id}",
+                    json={"expected_version": 5},
+                )
+
+    assert (response.status_code, candidate.status_code, reset.status_code) == (200, 200, 200)
+    forwarded_requests: Final = tuple(
+        request for request in requests if request.url.path != "/account_pool/authorize"
+    )
+    policy_request, candidate_request, reset_request = forwarded_requests
+    assert policy_request.method == "PUT"
+    assert policy_request.url.raw_path == b"/account_pool/models/openai%2Fgpt-4o/routing-policy"
+    assert candidate_request.url.raw_path == (
+        f"/account_pool/models/openai%2Fgpt-4o/routing-candidates/{binding_id}".encode()
+    )
+    assert reset_request.method == "DELETE"
+    assert all(request.headers["authorization"] == "Bearer admin-secret" for request in forwarded_requests)
+    assert json.loads(policy_request.content) == {"expected_version": 3, "strategy": "lowest_latency"}
+
+
+@pytest.mark.asyncio
 async def test_management_api_renders_pool_state() -> None:
     app: Final = create_app(settings=settings(), store=MemoryStateStore())
 
