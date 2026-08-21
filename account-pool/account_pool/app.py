@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 from urllib.parse import quote
 from uuid import UUID
 
@@ -36,6 +36,14 @@ from account_pool.domain.provider_source import (
     ProviderServiceManifest,
     ProviderValidationRequest,
     ProviderValidationResult,
+)
+from account_pool.events import (
+    EventLogFailure,
+    EventLogFailureCode,
+    EventLogPage,
+    EventLogReader,
+    EventQuery,
+    PostgresEventLogRepository,
 )
 from account_pool.gateway import Gateway
 from account_pool.health.models import HealthProbeRequest, HealthProbeResult
@@ -178,6 +186,7 @@ class Runtime:
     health_probes: HealthProbeManager
     routing_policies: RoutingPolicyService | None
     overview: AccountPoolOverviewReader | None
+    event_log: EventLogReader | None
 
 
 def create_app(
@@ -196,6 +205,7 @@ def create_app(
     health_probes: HealthProbeManager | None = None,
     routing_policies: RoutingPolicyService | None = None,
     overview: AccountPoolOverviewReader | None = None,
+    event_log: EventLogReader | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -315,6 +325,18 @@ def create_app(
             )
         )
     )
+    resolved_event_log: Final = (
+        event_log
+        if event_log is not None
+        else (
+            None
+            if resolved_settings.database_url is None
+            else PostgresEventLogRepository(
+                resolved_settings.database_url,
+                schema=resolved_settings.database_schema,
+            )
+        )
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -336,6 +358,7 @@ def create_app(
         health_probes=resolved_health_probes,
         routing_policies=resolved_routing_policies,
         overview=resolved_overview,
+        event_log=resolved_event_log,
     )
 
     @asynccontextmanager
@@ -518,6 +541,21 @@ def create_app(
                 return result
             case AccountPoolOverviewFailure():
                 raise HTTPException(status_code=503, detail={"code": result.code, "retryable": result.retryable})
+
+    async def event_log_data(query: Annotated[EventQuery, Depends()]) -> EventLogPage:
+        if resolved_event_log is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_event_log.list_events(query)
+        match result:
+            case EventLogPage():
+                return result
+            case EventLogFailure():
+                status_code: Final = {
+                    EventLogFailureCode.INVALID_CURSOR: 422,
+                    EventLogFailureCode.INVALID_STORED_DATA: 500,
+                    EventLogFailureCode.DATABASE_UNAVAILABLE: 503,
+                }[result.code]
+                raise HTTPException(status_code=status_code, detail={"code": result.code, "retryable": result.retryable})
 
     async def channel_detail(channel_id: UUID) -> ChannelDetail:
         service: Final = _require_channel_management(resolved_channel_management)
@@ -1079,6 +1117,7 @@ def create_app(
     )
     application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/overview", overview_data, methods=["GET"], dependencies=management_dependency)
+    application.add_api_route("/api/events", event_log_data, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/channels", create_channel, methods=["POST"], dependencies=management_dependency)
     application.add_api_route(
         "/api/channels/import", import_channel, methods=["POST"], dependencies=management_dependency
@@ -1248,6 +1287,7 @@ def create_app(
     )
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route("/ui-api/overview", overview_data, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route("/ui-api/events", event_log_data, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
         "/ui-api/channels/{channel_id}/parser-runs",
         parser_runs,

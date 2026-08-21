@@ -11,6 +11,8 @@ import type {
   ChannelOperation,
   DeleteMode,
   EffectiveParserData,
+  EventLogFilters,
+  EventLogPage,
   HealthProbeResult,
   JsonValue,
   OverrideRevokeRequest,
@@ -31,6 +33,7 @@ import type {
 export const accountPoolKeys = {
   all: ["account-pool"] as const,
   overview: () => ["account-pool", "overview"] as const,
+  events: (filters: EventLogFilters) => ["account-pool", "events", filters] as const,
   channels: () => ["account-pool", "channels"] as const,
   channel: (channelId: string) => ["account-pool", "channels", channelId] as const,
   health: (channelId: string) => ["account-pool", "channels", channelId, "health"] as const,
@@ -50,6 +53,9 @@ export const getChannels = (accessToken: string): Promise<ChannelListResponse> =
 
 export const getOverview = (accessToken: string): Promise<AccountPoolOverview> =>
   apiClient.get("/account_pool/overview", { accessToken });
+
+export const getEvents = (accessToken: string, filters: EventLogFilters): Promise<EventLogPage> =>
+  apiClient.get("/account_pool/events", { accessToken, query: filters });
 
 const mutationOptions = (accessToken: string, body: unknown) => ({
   accessToken,

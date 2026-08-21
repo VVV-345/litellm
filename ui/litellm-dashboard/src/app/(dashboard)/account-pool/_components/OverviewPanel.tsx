@@ -2,9 +2,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { ListFilter, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getOverview } from "../api";
@@ -68,9 +69,10 @@ const subscriptionBalance = (channel: ChannelOverview): string | null => {
 
 interface OverviewPanelProps {
   accessToken: string;
+  onOpenChannelEvents?: (channelId: string) => void;
 }
 
-export default function OverviewPanel({ accessToken }: OverviewPanelProps) {
+export default function OverviewPanel({ accessToken, onOpenChannelEvents }: OverviewPanelProps) {
   const overviewQuery = useQuery({
     queryKey: accountPoolKeys.overview(),
     queryFn: () => getOverview(accessToken),
@@ -118,6 +120,9 @@ export default function OverviewPanel({ accessToken }: OverviewPanelProps) {
               <TableHead>健康与资格</TableHead>
               <TableHead>并发与额度</TableHead>
               <TableHead>最近活动</TableHead>
+              <TableHead className="w-12">
+                <span className="sr-only">操作</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -173,11 +178,24 @@ export default function OverviewPanel({ accessToken }: OverviewPanelProps) {
                     {channel.activity.persistence_available ? "最近请求" : "活动数据不可用"}
                   </span>
                 </TableCell>
+                <TableCell className="align-top">
+                  {onOpenChannelEvents && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="查看渠道日志"
+                      onClick={() => onOpenChannelEvents(channel.channel_id)}
+                    >
+                      <ListFilter />
+                      <span className="sr-only">查看渠道日志</span>
+                    </Button>
+                  )}
+                </TableCell>
               </TableRow>
             ))}
             {overview.channels.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
                   PostgreSQL 渠道目录中暂无数据
                 </TableCell>
               </TableRow>

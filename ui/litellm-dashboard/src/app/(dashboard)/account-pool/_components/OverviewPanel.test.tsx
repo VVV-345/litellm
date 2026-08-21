@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getOverview } from "../api";
@@ -112,5 +113,21 @@ describe("OverviewPanel", () => {
     renderPanel();
 
     expect(await screen.findByText("无法读取聚合总览，请检查 Account Pool 数据库和运行服务")).toBeInTheDocument();
+  });
+
+  it("opens the event log for a selected channel", async () => {
+    const user = userEvent.setup();
+    const onOpenChannelEvents = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OverviewPanel accessToken="token" onOpenChannelEvents={onOpenChannelEvents} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "查看渠道日志" }));
+
+    expect(onOpenChannelEvents).toHaveBeenCalledWith("channel-1");
+    expect(screen.getByRole("row", { name: /主渠道/ }).querySelectorAll("td")).toHaveLength(7);
   });
 });

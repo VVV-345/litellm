@@ -488,3 +488,62 @@ export interface AccountPoolOverview {
   inflight: number;
   max_concurrency: number;
 }
+
+export type EventQueryOutcome = "accepted" | "succeeded" | "failed";
+
+export interface EventLogFilters {
+  occurred_after?: string;
+  occurred_before?: string;
+  channel_id?: string;
+  model_id?: string;
+  event_type?: string;
+  health_outcome?: "succeeded" | "failed";
+  health_transition?: HealthTransition;
+  reason_code?: string;
+  request_id?: string;
+  outcome?: EventQueryOutcome;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface EventAuditSummary {
+  operation_id: string | null;
+  actor_role: "proxy_admin" | "system";
+  actor_action: string;
+  actor_envelope_id: string;
+  outcome: "accepted" | "succeeded" | "failed";
+}
+
+export interface EventHealthSummary {
+  account_id: string;
+  source: "passive_request" | "active_probe";
+  outcome: "succeeded" | "failed";
+  transition: HealthTransition;
+  scope: HealthExclusion["scope"];
+  retry_at: string | null;
+  probe_trigger: "manual" | "initial" | "half_open" | "idle" | null;
+}
+
+export interface EventLogEntry {
+  event_id: string;
+  event_type: string;
+  occurred_at: string;
+  channel_id: string | null;
+  model_id: string | null;
+  deployment_id: string | null;
+  request_id: string | null;
+  lease_id: string | null;
+  reason_code: string | null;
+  actor_type: "user" | "system";
+  actor_id: string;
+  outcome: EventQueryOutcome;
+  safe_details: JsonValue;
+  audit: EventAuditSummary | null;
+  health: EventHealthSummary | null;
+}
+
+export interface EventLogPage {
+  status: "loaded";
+  events: EventLogEntry[];
+  next_cursor: string | null;
+}

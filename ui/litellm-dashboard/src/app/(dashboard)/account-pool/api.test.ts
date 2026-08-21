@@ -10,6 +10,7 @@ import {
   deleteExternalDeployment,
   detachChannel,
   getChannelHealth,
+  getEvents,
   getOverview,
   getOperation,
   importChannel,
@@ -157,6 +158,16 @@ describe("channel lifecycle API", () => {
 
     expect(mockedGet).toHaveBeenCalledWith("/account_pool/overview", {
       accessToken: "token",
+    });
+  });
+
+  it("loads filtered event pages through the LiteLLM management proxy", async () => {
+    const filters = { channel_id: "channel-1", outcome: "failed" as const, limit: 50 };
+    await getEvents("token", filters);
+
+    expect(mockedGet).toHaveBeenCalledWith("/account_pool/events", {
+      accessToken: "token",
+      query: filters,
     });
   });
 

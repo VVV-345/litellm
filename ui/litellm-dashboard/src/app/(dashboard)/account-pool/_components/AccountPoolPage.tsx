@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  ScrollText,
   ShieldAlert,
   Trash2,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import ChannelList from "./ChannelList";
 import ChannelFormDialog from "./ChannelFormDialog";
 import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
 import HealthStatusPanel from "./HealthStatusPanel";
+import EventLogPanel from "./EventLogPanel";
 import OperationStatusPanel from "./OperationStatusPanel";
 import OverviewPanel from "./OverviewPanel";
 import ParserDataPanel from "./ParserDataPanel";
@@ -54,6 +56,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const [lifecycleDialogOpen, setLifecycleDialogOpen] = useState(false);
   const [operation, setOperation] = useState<ChannelOperation | null>(null);
   const [workspace, setWorkspace] = useState("overview");
+  const [eventChannelId, setEventChannelId] = useState<string | null>(null);
   const authorized = isProxyAdminRole(userRole);
   const channelsQuery = useQuery({
     queryKey: accountPoolKeys.channels(),
@@ -93,6 +96,14 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const acceptOperation = async (accepted: ChannelOperation) => {
     setOperation(accepted);
     await refreshSelected();
+  };
+  const openChannelEvents = (channelId: string) => {
+    setEventChannelId(channelId);
+    setWorkspace("events");
+  };
+  const changeWorkspace = (value: string) => {
+    if (value === "events") setEventChannelId(null);
+    setWorkspace(value);
   };
 
   if (!authorized) {
@@ -138,14 +149,15 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         }
       />
 
-      <Tabs value={workspace} onValueChange={setWorkspace} className="min-w-0">
+      <Tabs value={workspace} onValueChange={changeWorkspace} className="min-w-0">
         <TabsList variant="line">
           <TabsTrigger value="overview">总览</TabsTrigger>
           <TabsTrigger value="channels">渠道管理</TabsTrigger>
           <TabsTrigger value="routing">模型调度</TabsTrigger>
+          <TabsTrigger value="events">事件日志</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4 min-w-0">
-          <OverviewPanel accessToken={accessToken!} />
+          <OverviewPanel accessToken={accessToken!} onOpenChannelEvents={openChannelEvents} />
         </TabsContent>
         <TabsContent value="channels" className="mt-4 min-w-0 space-y-4">
           {operation && (
@@ -203,6 +215,15 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          title="查看渠道日志"
+                          onClick={() => openChannelEvents(selectedChannel.channel_id)}
+                        >
+                          <ScrollText />
+                          <span className="sr-only">查看渠道日志</span>
+                        </Button>
                         <Button
                           variant="outline"
                           size="icon"
@@ -269,6 +290,13 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         </TabsContent>
         <TabsContent value="routing" className="mt-4 min-w-0">
           <RoutingPanel accessToken={accessToken!} />
+        </TabsContent>
+        <TabsContent value="events" className="mt-4 min-w-0">
+          <EventLogPanel
+            key={eventChannelId ?? "all-events"}
+            accessToken={accessToken!}
+            initialChannelId={eventChannelId}
+          />
         </TabsContent>
       </Tabs>
 

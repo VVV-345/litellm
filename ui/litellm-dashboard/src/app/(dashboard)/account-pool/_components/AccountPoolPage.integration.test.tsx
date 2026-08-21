@@ -5,7 +5,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getChannels, getEffectiveData, getOverview, getParserHistory, getProviderServices } from "../api";
+import { getChannels, getEffectiveData, getEvents, getOverview, getParserHistory, getProviderServices } from "../api";
 import AccountPoolPage from "./AccountPoolPage";
 
 vi.mock("@/app/(dashboard)/hooks/models/useModelCostMap", () => ({
@@ -18,6 +18,7 @@ vi.mock("../api", async (importOriginal) => {
     ...actual,
     getChannels: vi.fn(),
     getEffectiveData: vi.fn(),
+    getEvents: vi.fn(),
     getOverview: vi.fn(),
     getParserHistory: vi.fn(),
     getProviderServices: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("../api", async (importOriginal) => {
 
 const mockedGetChannels = vi.mocked(getChannels);
 const mockedGetEffectiveData = vi.mocked(getEffectiveData);
+const mockedGetEvents = vi.mocked(getEvents);
 const mockedGetOverview = vi.mocked(getOverview);
 const mockedGetParserHistory = vi.mocked(getParserHistory);
 const mockedGetProviderServices = vi.mocked(getProviderServices);
@@ -104,6 +106,7 @@ describe("AccountPoolPage", () => {
     });
     mockedGetProviderServices.mockResolvedValue([]);
     mockedGetEffectiveData.mockResolvedValue(effectiveDataFixture);
+    mockedGetEvents.mockResolvedValue({ status: "loaded", events: [], next_cursor: null });
     mockedGetParserHistory.mockResolvedValue({
       status: "loaded",
       channel_id: "10000000-0000-0000-0000-000000000001",
@@ -129,5 +132,21 @@ describe("AccountPoolPage", () => {
     expect(screen.getByText('"Pro"')).toBeInTheDocument();
     expect(screen.getByText("人工修正")).toBeInTheDocument();
     expect(mockedGetChannels).toHaveBeenCalledWith("proxy-token");
+  });
+
+  it("opens the event tab without retaining a hidden channel filter", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolPage accessToken="proxy-token" userRole="proxy_admin" />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "事件日志" }));
+
+    expect(await screen.findByText("当前筛选条件下没有事件")).toBeInTheDocument();
+    expect(mockedGetEvents).toHaveBeenCalledWith("proxy-token", { limit: 50 });
   });
 });

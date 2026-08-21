@@ -16,10 +16,20 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from account_pool.app import Runtime, create_app
+from account_pool.audit.models import AuditOutcome
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
 from account_pool.domain.provider_source import ProviderServiceManifest
+from account_pool.events import (
+    EventAuditSummary,
+    EventLogEntry,
+    EventLogFailure,
+    EventLogFailureCode,
+    EventLogPage,
+    EventQuery,
+    EventQueryOutcome,
+)
 from account_pool.health.models import (
     HealthActivity,
     HealthEventRecord,
@@ -201,6 +211,43 @@ class FakeOverviewReader:
 class UnavailableOverviewReader:
     async def read(self) -> AccountPoolOverviewFailure:
         return AccountPoolOverviewFailure(code=OverviewFailureCode.DEPENDENCY_UNAVAILABLE, retryable=True)
+
+
+class FakeEventLogReader:
+    def __init__(self) -> None:
+        self.queries: list[EventQuery] = []
+
+    async def list_events(self, query: EventQuery) -> EventLogPage:
+        self.queries.append(query)
+        return EventLogPage(
+            events=(
+                EventLogEntry(
+                    event_id=UUID("70000000-0000-0000-0000-000000000001"),
+                    event_type="channel_create",
+                    occurred_at=_PARSED_AT,
+                    channel_id=_CHANNEL_ID,
+                    request_id="request-events",
+                    actor_type="user",
+                    actor_id="admin-user",
+                    outcome=EventQueryOutcome.ACCEPTED,
+                    safe_details={"kind": "channel_create", "outcome": {"status": "accepted"}},
+                    audit=EventAuditSummary(
+                        actor_role="proxy_admin",
+                        actor_action=ActorAction.CHANNEL_CREATE,
+                        actor_envelope_id=UUID("70000000-0000-0000-0000-000000000002"),
+                        outcome=AuditOutcome.ACCEPTED,
+                    ),
+                ),
+            )
+        )
+
+
+class FailedEventLogReader:
+    def __init__(self, failure: EventLogFailure) -> None:
+        self._failure: Final = failure
+
+    async def list_events(self, query: EventQuery) -> EventLogFailure:
+        return self._failure
 
 
 class FakeChannelManagementService:
@@ -852,6 +899,66 @@ async def test_overview_api_maps_dependency_failure_to_service_unavailable() -> 
 
     assert response.status_code == 503
     assert response.json() == {"detail": {"code": "dependency_unavailable", "retryable": True}}
+
+
+@pytest.mark.asyncio
+async def test_events_api_validates_and_forwards_structured_filters() -> None:
+    events: Final = FakeEventLogReader()
+    app: Final = create_app(settings=settings(), store=MemoryStateStore(), event_log=events)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                "/api/events",
+                params={
+                    "channel_id": str(_CHANNEL_ID),
+                    "event_type": "channel_create",
+                    "outcome": "accepted",
+                    "request_id": "request-events",
+                    "limit": 25,
+                },
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    result: Final = EventLogPage.model_validate_json(response.content)
+    assert response.status_code == 200
+    assert result.events[0].actor_id == "admin-user"
+    assert events.queries == [
+        EventQuery(
+            channel_id=_CHANNEL_ID,
+            event_type="channel_create",
+            outcome=EventQueryOutcome.ACCEPTED,
+            request_id="request-events",
+            limit=25,
+        )
+    ]
+    assert "api_key" not in response.text.casefold()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "status_code"),
+    [
+        (EventLogFailure(code=EventLogFailureCode.INVALID_CURSOR, retryable=False), 422),
+        (EventLogFailure(code=EventLogFailureCode.DATABASE_UNAVAILABLE, retryable=True), 503),
+    ],
+)
+async def test_events_api_maps_typed_failures(failure: EventLogFailure, status_code: int) -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        event_log=FailedEventLogReader(failure),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                "/api/events",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    assert response.status_code == status_code
+    assert response.json() == {"detail": {"code": failure.code, "retryable": failure.retryable}}
 
 
 @pytest.mark.asyncio
