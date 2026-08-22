@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Final
 from uuid import UUID
 
+from account_pool.audit.models import ManagementAuditRecord, ManagementEventType
+from account_pool.audit.repository import AuditLoadResult, AuditWriteResult, AuditWriteSuccess
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.parsing.models import ParsedChannelData, ParserRun, ParserRunStatus, SubscriptionData
 from account_pool.parsing.overrides.commands import (
@@ -103,6 +105,18 @@ class FakeOverrideRepository:
         return OverrideEventsLoadSuccess(events=self.events)
 
 
+class FakeAuditRepository:
+    def __init__(self) -> None:
+        self.records: tuple[ManagementAuditRecord, ...] = ()
+
+    async def append(self, record: ManagementAuditRecord) -> AuditWriteResult:
+        self.records = (*self.records, record)
+        return AuditWriteSuccess(status="created", record=record)
+
+    async def load(self, event_id: UUID) -> AuditLoadResult:
+        raise AssertionError(f"override service must not load audit events: {event_id}")
+
+
 def _clock() -> datetime:
     return _NOW
 
@@ -134,7 +148,8 @@ def _set_request(
 
 async def test_set_modify_and_revoke_preserve_raw_result_and_actor() -> None:
     overrides: Final = FakeOverrideRepository()
-    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, clock=_clock)
+    audit: Final = FakeAuditRepository()
+    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, audit, clock=_clock)
 
     first: Final = await service.set_override(
         _CHANNEL_ID,
@@ -178,11 +193,19 @@ async def test_set_modify_and_revoke_preserve_raw_result_and_actor() -> None:
     assert first.event.request_id == "request-123"
     assert overrides.events[1].previous_value == "20"
     assert overrides.events[2].previous_value == "30"
+    assert tuple(record.event.event_type for record in audit.records) == (
+        ManagementEventType.PARSER_OVERRIDE_SET,
+        ManagementEventType.PARSER_OVERRIDE_SET,
+        ManagementEventType.PARSER_OVERRIDE_REVOKE,
+    )
+    serialized_audit: Final = "".join(record.model_dump_json() for record in audit.records)
+    assert "人工核对余额" not in serialized_audit
+    assert '"value"' not in serialized_audit
 
 
 async def test_same_business_request_is_idempotent_without_new_event() -> None:
     overrides: Final = FakeOverrideRepository()
-    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, clock=_clock)
+    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, FakeAuditRepository(), clock=_clock)
     request: Final = _set_request()
     actor: Final = _actor(ActorAction.OVERRIDE_SET)
 
@@ -199,7 +222,7 @@ async def test_same_business_request_is_idempotent_without_new_event() -> None:
 
 async def test_stale_predecessor_and_wrong_actor_action_are_rejected() -> None:
     overrides: Final = FakeOverrideRepository()
-    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, clock=_clock)
+    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, FakeAuditRepository(), clock=_clock)
     assert isinstance(
         await service.set_override(_CHANNEL_ID, _set_request(), _actor(ActorAction.OVERRIDE_SET)),
         OverrideMutationSuccess,
@@ -225,7 +248,7 @@ async def test_stale_predecessor_and_wrong_actor_action_are_rejected() -> None:
 
 async def test_invalid_target_and_sensitive_reason_are_not_persisted() -> None:
     overrides: Final = FakeOverrideRepository()
-    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, clock=_clock)
+    service: Final = ParserOverrideService(FakeParserRunRepository(), overrides, FakeAuditRepository(), clock=_clock)
     missing_target: Final = OverrideSetRequest(
         override_id=_FIRST_OVERRIDE_ID,
         target=SubscriptionModelTarget(provider_model_id="missing-model"),

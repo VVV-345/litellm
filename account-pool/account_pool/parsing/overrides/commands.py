@@ -36,6 +36,7 @@ class OverrideMutationFailureCode(StrEnum):
     INVALID_VALUE = "invalid_value"
     INVALID_DATA = "invalid_data"
     DATABASE_UNAVAILABLE = "database_unavailable"
+    AUDIT_UNAVAILABLE = "audit_unavailable"
 
 
 class OverrideMutationFailure(FrozenModel):

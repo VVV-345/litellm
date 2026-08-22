@@ -5,6 +5,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 from uuid import UUID
 
+from account_pool.audit.models import ManagementAuditRecord, ManagementEventType
+from account_pool.audit.repository import (
+    AuditLoadResult,
+    AuditPersistenceFailure,
+    AuditPersistenceFailureCode,
+    AuditWriteResult,
+    AuditWriteSuccess,
+)
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.domain.provider_source import ModelOffer, ProviderValidationRequest, ProviderValidationResult
 from account_pool.parsing.models import ParsedChannelData, ParserRun, ParserRunStatus
@@ -12,6 +20,8 @@ from account_pool.parsing.persistence import ParserExportState, ParserExportStat
 from account_pool.parsing.tasks.models import (
     ParserTaskAccepted,
     ParserTaskFailureCode,
+    ParserTaskOperationFailure,
+    ParserTaskOperationFailureCode,
     ParserTaskRecord,
     ParserTaskStartRequest,
     ParserTaskStatus,
@@ -118,6 +128,26 @@ class FakeTaskRepository:
         return ParserTaskSweepSuccess(interrupted_task_ids=interrupted)
 
 
+class FakeAuditRepository:
+    def __init__(self) -> None:
+        self.records: tuple[ManagementAuditRecord, ...] = ()
+
+    async def append(self, record: ManagementAuditRecord) -> AuditWriteResult:
+        self.records = (*self.records, record)
+        return AuditWriteSuccess(status="created", record=record)
+
+    async def load(self, event_id: UUID) -> AuditLoadResult:
+        raise AssertionError(f"parser task service must not load audit events: {event_id}")
+
+
+class FailingAuditRepository:
+    async def append(self, record: ManagementAuditRecord) -> AuditWriteResult:
+        return AuditPersistenceFailure(code=AuditPersistenceFailureCode.DATABASE_UNAVAILABLE, retryable=True)
+
+    async def load(self, event_id: UUID) -> AuditLoadResult:
+        raise AssertionError(f"parser task service must not load audit events: {event_id}")
+
+
 class GatedProvider:
     def __init__(self) -> None:
         self.started: Final = asyncio.Event()
@@ -213,10 +243,12 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
     repository: Final = FakeTaskRepository()
     provider: Final = GatedProvider()
     worker: Final = SuccessfulWorker()
+    audit: Final = FakeAuditRepository()
     service: Final = ParserTaskService(
         providers=provider,
         worker=worker,
         repository=repository,
+        audit=audit,
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         id_factory=FixedIdFactory(),
@@ -234,6 +266,10 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
     assert "api_key" not in persisted
     assert provider.request is not None
     assert provider.request.api_key.get_secret_value() == _SECRET
+    assert len(audit.records) == 1
+    assert audit.records[0].event.event_type == ManagementEventType.PARSER_TASK_START
+    assert audit.records[0].audit.outcome.value == "accepted"
+    assert _SECRET not in audit.records[0].model_dump_json()
 
     provider.release.set()
     finished: Final = await _wait_until_finished(service)
@@ -264,6 +300,7 @@ async def test_initialize_marks_stale_foreign_task_interrupted_without_running_i
         providers=GatedProvider(),
         worker=SuccessfulWorker(),
         repository=repository,
+        audit=FakeAuditRepository(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         stale_after_seconds=30,
@@ -275,6 +312,27 @@ async def test_initialize_marks_stale_foreign_task_interrupted_without_running_i
     assert repository.records[_TASK_ID].status == ParserTaskStatus.INTERRUPTED_REQUIRES_KEY
 
 
+async def test_audit_failure_prevents_provider_request_and_marks_created_task_failed() -> None:
+    repository: Final = FakeTaskRepository()
+    provider: Final = GatedProvider()
+    service: Final = ParserTaskService(
+        providers=provider,
+        worker=SuccessfulWorker(),
+        repository=repository,
+        audit=FailingAuditRepository(),
+        instance_id=_INSTANCE_ID,
+        clock=lambda: _NOW,
+        id_factory=FixedIdFactory(),
+    )
+
+    result: Final = await service.start(_CHANNEL_ID, _request(), _actor())
+
+    assert isinstance(result, ParserTaskOperationFailure)
+    assert result.code == ParserTaskOperationFailureCode.AUDIT_UNAVAILABLE
+    assert not provider.started.is_set()
+    assert repository.records[_TASK_ID].status == ParserTaskStatus.FAILED
+
+
 async def test_bounded_shutdown_marks_unfinished_local_task_as_requiring_key() -> None:
     repository: Final = FakeTaskRepository()
     provider: Final = GatedProvider()
@@ -283,6 +341,7 @@ async def test_bounded_shutdown_marks_unfinished_local_task_as_requiring_key() -
         providers=provider,
         worker=worker,
         repository=repository,
+        audit=FakeAuditRepository(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         id_factory=FixedIdFactory(),

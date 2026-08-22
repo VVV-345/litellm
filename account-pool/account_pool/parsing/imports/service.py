@@ -7,6 +7,13 @@ from uuid import UUID, uuid5
 
 from pydantic import AwareDatetime, JsonValue, TypeAdapter, ValidationError
 
+from account_pool.audit.models import (
+    AuditOutcome,
+    ParserSnapshotImportDetails,
+    SafeAuditOutcome,
+    build_management_audit_record,
+)
+from account_pool.audit.repository import AuditPersistenceFailure, ManagementAuditRepository
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.parsing.imports.models import (
     SnapshotImportFailure,
@@ -32,6 +39,7 @@ from account_pool.parsing.safety import has_safe_parser_content
 Clock = Callable[[], AwareDatetime]
 _JSON_VALUE: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 _ROOT_FIELDS: Final = tuple(RootField)
+_SNAPSHOT_IMPORT_AUDIT_NAMESPACE: Final = UUID("236003ee-cdfa-4b45-b604-22539748af7c")
 
 
 class SnapshotImporter(Protocol):
@@ -53,11 +61,13 @@ class SnapshotImportService:
         parser_runs: ParserRunRepository,
         overrides: OverrideEventRepository,
         batch_writer: OverrideEventBatchRepository,
+        audit: ManagementAuditRepository,
         clock: Clock = utc_now,
     ) -> None:
         self._parser_runs: Final = parser_runs
         self._overrides: Final = overrides
         self._batch_writer: Final = batch_writer
+        self._audit: Final = audit
         self._clock: Final = clock
 
     async def import_snapshot(
@@ -68,6 +78,15 @@ class SnapshotImportService:
     ) -> SnapshotImportResult:
         if actor.action != ActorAction.SNAPSHOT_IMPORT or tuple(request.document) != (channel_id,):
             return _failure(SnapshotImportFailureCode.INVALID_REQUEST)
+        result: Final = await self._import_snapshot(channel_id, request, actor)
+        return await self._audited(channel_id, request.import_id, actor, result)
+
+    async def _import_snapshot(
+        self,
+        channel_id: UUID,
+        request: SnapshotImportRequest,
+        actor: ActorContext,
+    ) -> SnapshotImportResult:
         imported: Final = request.document[channel_id]
         if not has_safe_parser_content(imported.model_dump_json()) or not has_safe_parser_content(request.reason):
             return _failure(SnapshotImportFailureCode.INVALID_DATA)
@@ -130,6 +149,44 @@ class SnapshotImportService:
             applied_override_ids=candidate.applied_override_ids,
             override_failures=candidate.failures,
         )
+
+    async def _audited(
+        self,
+        channel_id: UUID,
+        import_id: UUID,
+        actor: ActorContext,
+        result: SnapshotImportResult,
+    ) -> SnapshotImportResult:
+        failure_code: Final = result.code.value if isinstance(result, SnapshotImportFailure) else None
+        outcome: Final = SafeAuditOutcome(
+            status=AuditOutcome.FAILED if failure_code is not None else AuditOutcome.SUCCEEDED,
+            failure_code=failure_code,
+        )
+        details: Final = ParserSnapshotImportDetails(
+            outcome=outcome,
+            import_id=import_id,
+            source_parser_run_id=None if isinstance(result, SnapshotImportFailure) else result.source_parser_run_id,
+            changed_field_count=None if isinstance(result, SnapshotImportFailure) else len(result.events),
+        )
+        result_status: Final = result.status
+        audit_result: Final = await self._audit.append(
+            build_management_audit_record(
+                event_id=uuid5(
+                    _SNAPSHOT_IMPORT_AUDIT_NAMESPACE,
+                    f"{actor.envelope_id}:{import_id}:{result_status}:{outcome.status}:{failure_code}",
+                ),
+                occurred_at=self._clock(),
+                actor=actor,
+                channel_id=channel_id,
+                details=details,
+            )
+        )
+        if isinstance(audit_result, AuditPersistenceFailure):
+            return SnapshotImportFailure(
+                code=SnapshotImportFailureCode.AUDIT_UNAVAILABLE,
+                retryable=audit_result.retryable,
+            )
+        return result
 
 
 def _build_events(

@@ -1267,11 +1267,13 @@ Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务�
 
 统一事件日志已经完成第一版管理审计与健康事实纵向链路。独立 `events` 模块从公共 `LiteLLM_AccountPoolEvent` 信封关联规范化管理审计或健康事实，使用 `(occurred_at, event_id)` 不透明游标稳定分页，并支持时间、渠道、模型、事件类型、健康结果与转换、原因码、request_id 和最终结果筛选。读取时只接受已注册的严格 Pydantic `safe_details` 模型；未知事件类型、额外敏感字段和不完整领域事实会拒绝返回，数据库不可用、无效游标和无效存量数据分别映射为结构化失败。接口已接入 Account Pool `/api/events`、4100 `/ui-api/events` 和 LiteLLM 管理代理 `/account_pool/events`
 
+统一事件中的管理审计已经扩展到解析任务启动、解析快照导入、人工覆盖设置和人工覆盖撤销。事件仅保存任务、解析运行、导入或覆盖 ID、规范化字段路径、变更字段数量和类型化结果，不保存一次性 Key、API Base、覆盖值、导入文档或修改原因正文。解析任务只有在审计事件成功持久化后才允许调用上游；审计失败时已创建的任务被标记失败并返回可重试错误
+
 Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加载更多、中文事件和原因说明、脱敏详情查看，以及从总览和渠道详情按 `channel_id` 跳转。直接点击事件日志标签会恢复全部事件，避免保留不可见的渠道筛选。前端使用 React Query 管理服务端分页，不复制服务器结果到 effect 状态。4100 调度工作台本轮同时修复了低高度主侧栏和长模型列表的左侧重叠，模型列表现在具有视口边界和独立滚动，`390x844` 窄屏没有页面级横向溢出
 
-当前自动化验证为 Account Pool 全量 `594 passed, 47 skipped`，47 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、详情模块 basedpyright 和 Account Pool 路径 TypeScript 检查通过，Dashboard 本次修改路径 ESLint 无错误，仍有 3 条既有复杂度或风格警告。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
+当前自动化验证为 Account Pool 全量 `600 passed, 47 skipped`，47 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、详情与本轮事件路径 basedpyright 和 Account Pool 路径 TypeScript 检查通过，Dashboard 本次修改路径 ESLint 无错误，仍有 3 条既有复杂度或风格警告。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
 
-Phase 5 仍需把解析、人工覆盖、同步重试、冷却与限制、usage、acquire、settle、release、租约回收、JSON 导入导出等事件写入同一个公共信封和日志查询；当前第一版只查询已经规范化持久化的管理审计与健康事件。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 仍需把解析任务完成与中断、公开元数据解析、快照导出与重试、同步后台重试、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

@@ -6,10 +6,17 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Final, Protocol
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from pydantic import AwareDatetime
 
+from account_pool.audit.models import (
+    AuditOutcome,
+    ParserTaskStartDetails,
+    SafeAuditOutcome,
+    build_management_audit_record,
+)
+from account_pool.audit.repository import AuditPersistenceFailure, ManagementAuditRepository
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.domain.provider_source import ProviderValidationRequest, ProviderValidationResult
 from account_pool.parsing.registry import ParserSelectionRequest
@@ -35,6 +42,7 @@ from account_pool.parsing.worker import ParserWorkFailure, ParserWorkRequest, Pa
 
 Clock = Callable[[], AwareDatetime]
 IdFactory = Callable[[], UUID]
+_PARSER_TASK_AUDIT_NAMESPACE: Final = UUID("4fed85ab-994c-419e-b564-ee444f110d2e")
 
 
 class ParserTaskManager(Protocol):
@@ -70,6 +78,7 @@ class ParserTaskService:
         providers: ProviderValidator,
         worker: ParserWorkerRunner,
         repository: ParserTaskRepository,
+        audit: ManagementAuditRepository,
         *,
         instance_id: UUID | None = None,
         clock: Clock = utc_now,
@@ -80,6 +89,7 @@ class ParserTaskService:
         self._providers: Final = providers
         self._worker: Final = worker
         self._repository: Final = repository
+        self._audit: Final = audit
         self._instance_id: Final = instance_id or uuid4()
         self._clock: Final = clock
         self._id_factory: Final = id_factory
@@ -102,6 +112,38 @@ class ParserTaskService:
     ) -> ParserTaskStartResult:
         if actor.action != ActorAction.PARSER_START or actor.role != "proxy_admin":
             return _failure(ParserTaskOperationFailureCode.INVALID_REQUEST, retryable=False)
+        created: Final = await self._create_task(channel_id, request, actor)
+        result: Final = (
+            created
+            if isinstance(created, ParserTaskOperationFailure)
+            else ParserTaskAccepted(
+                task_id=created.task_id,
+                channel_id=created.channel_id,
+                parser_run_id=created.parser_run_id,
+            )
+        )
+        audited: Final = await self._audited(channel_id, actor, result)
+        if isinstance(created, ParserTaskOperationFailure) or isinstance(audited, ParserTaskOperationFailure):
+            if not isinstance(created, ParserTaskOperationFailure):
+                await self._repository.finish(
+                    task_id=created.task_id,
+                    owner_instance_id=self._instance_id,
+                    status=ParserTaskStatus.FAILED,
+                    failure_code=ParserTaskFailureCode.INTERNAL,
+                    at=self._clock(),
+                )
+            return audited
+        local_task: Final = asyncio.create_task(self._execute(created, request))
+        self._tasks[created.task_id] = local_task
+        local_task.add_done_callback(lambda _: self._tasks.pop(created.task_id, None))
+        return audited
+
+    async def _create_task(
+        self,
+        channel_id: UUID,
+        request: ParserTaskStartRequest,
+        actor: ActorContext,
+    ) -> ParserTaskRecord | ParserTaskOperationFailure:
         task_id: Final = self._id_factory()
         parser_run_id: Final = self._id_factory()
         now: Final = self._clock()
@@ -115,7 +157,7 @@ class ParserTaskService:
             status=ParserTaskStatus.RUNNING,
             owner_instance_id=self._instance_id,
             actor_id=actor.user_id,
-            actor_role=actor.role,
+            actor_role="proxy_admin",
             request_id=actor.request_id,
             created_at=now,
             heartbeat_at=now,
@@ -123,10 +165,38 @@ class ParserTaskService:
         created: Final = await self._repository.create(record)
         if isinstance(created, ParserTaskPersistenceFailure):
             return _from_persistence_failure(created)
-        local_task: Final = asyncio.create_task(self._execute(record, request))
-        self._tasks[task_id] = local_task
-        local_task.add_done_callback(lambda _: self._tasks.pop(task_id, None))
-        return ParserTaskAccepted(task_id=task_id, channel_id=channel_id, parser_run_id=parser_run_id)
+        return created.record
+
+    async def _audited(
+        self,
+        channel_id: UUID,
+        actor: ActorContext,
+        result: ParserTaskStartResult,
+    ) -> ParserTaskStartResult:
+        failure_code: Final = result.code.value if isinstance(result, ParserTaskOperationFailure) else None
+        outcome: Final = SafeAuditOutcome(
+            status=AuditOutcome.FAILED if failure_code is not None else AuditOutcome.ACCEPTED,
+            failure_code=failure_code,
+        )
+        audit_result: Final = await self._audit.append(
+            build_management_audit_record(
+                event_id=uuid5(
+                    _PARSER_TASK_AUDIT_NAMESPACE,
+                    f"{actor.envelope_id}:{channel_id}:{outcome.status}:{failure_code}",
+                ),
+                occurred_at=self._clock(),
+                actor=actor,
+                channel_id=channel_id,
+                details=ParserTaskStartDetails(
+                    outcome=outcome,
+                    task_id=None if isinstance(result, ParserTaskOperationFailure) else result.task_id,
+                    parser_run_id=None if isinstance(result, ParserTaskOperationFailure) else result.parser_run_id,
+                ),
+            )
+        )
+        if isinstance(audit_result, AuditPersistenceFailure):
+            return _failure(ParserTaskOperationFailureCode.AUDIT_UNAVAILABLE, retryable=audit_result.retryable)
+        return result
 
     async def view(self, channel_id: UUID, task_id: UUID) -> ParserTaskViewResult:
         loaded: Final = await self._repository.load(channel_id=channel_id, task_id=task_id)

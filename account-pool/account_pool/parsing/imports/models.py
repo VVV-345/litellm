@@ -33,6 +33,7 @@ class SnapshotImportFailureCode(StrEnum):
     CONTENT_CONFLICT = "content_conflict"
     INVALID_DATA = "invalid_data"
     DATABASE_UNAVAILABLE = "database_unavailable"
+    AUDIT_UNAVAILABLE = "audit_unavailable"
 
 
 class SnapshotImportFailure(FrozenModel):

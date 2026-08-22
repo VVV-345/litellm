@@ -16,6 +16,10 @@ from account_pool.audit.models import (
     ChannelUpdateDetails,
     ManagementAuditDetails,
     ManagementAuditRecord,
+    ParserOverrideRevokeDetails,
+    ParserOverrideSetDetails,
+    ParserSnapshotImportDetails,
+    ParserTaskStartDetails,
     PoolEvent,
     RoutingPolicyUpdateDetails,
     SafeAuditOutcome,
@@ -60,6 +64,35 @@ def _actor(action: ActorAction) -> ActorContext:
             ChannelDeleteExternalDeploymentDetails(outcome=_ACCEPTED, binding_id=_BINDING_ID),
         ),
         (ActorAction.CHANNEL_RECONCILE, ChannelReconcileDetails(outcome=_ACCEPTED)),
+        (
+            ActorAction.PARSER_START,
+            ParserTaskStartDetails(outcome=_ACCEPTED, task_id=_OPERATION_ID, parser_run_id=_BINDING_ID),
+        ),
+        (
+            ActorAction.SNAPSHOT_IMPORT,
+            ParserSnapshotImportDetails(
+                outcome=_ACCEPTED,
+                import_id=_OPERATION_ID,
+                source_parser_run_id=_BINDING_ID,
+                changed_field_count=2,
+            ),
+        ),
+        (
+            ActorAction.OVERRIDE_SET,
+            ParserOverrideSetDetails(
+                outcome=_ACCEPTED,
+                override_id=_OPERATION_ID,
+                field_path="/subscription/balance",
+            ),
+        ),
+        (
+            ActorAction.OVERRIDE_REVOKE,
+            ParserOverrideRevokeDetails(
+                outcome=_ACCEPTED,
+                override_id=_OPERATION_ID,
+                field_path="/subscription/balance",
+            ),
+        ),
     ],
 )
 def test_builder_records_verified_actor_and_operation_correlation(

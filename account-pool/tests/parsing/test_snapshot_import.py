@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import Final
 from uuid import UUID
 
+from account_pool.audit.models import ManagementAuditRecord, ManagementEventType
+from account_pool.audit.repository import AuditLoadResult, AuditWriteResult, AuditWriteSuccess
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.parsing.imports.models import (
     SnapshotImportFailure,
@@ -79,6 +81,18 @@ class FakeOverrideRepository:
         return OverrideEventsLoadSuccess(events=self.events)
 
 
+class FakeAuditRepository:
+    def __init__(self) -> None:
+        self.records: tuple[ManagementAuditRecord, ...] = ()
+
+    async def append(self, record: ManagementAuditRecord) -> AuditWriteResult:
+        self.records = (*self.records, record)
+        return AuditWriteSuccess(status="created", record=record)
+
+    async def load(self, event_id: UUID) -> AuditLoadResult:
+        raise AssertionError(f"snapshot importer must not load audit events: {event_id}")
+
+
 def _run() -> ParserRun:
     return ParserRun(
         parser_run_id=_RUN_ID,
@@ -125,10 +139,12 @@ async def test_import_converts_differences_to_one_atomic_override_batch() -> Non
         }
     )
     repository: Final = FakeOverrideRepository()
+    audit: Final = FakeAuditRepository()
     service: Final = SnapshotImportService(
         parser_runs=FakeParserRunRepository(_record()),
         overrides=repository,
         batch_writer=repository,
+        audit=audit,
         clock=lambda: _NOW,
     )
 
@@ -151,6 +167,10 @@ async def test_import_converts_differences_to_one_atomic_override_batch() -> Non
     original_subscription: Final = _record().run.result.subscription
     assert original_subscription is not None
     assert original_subscription.balance == Decimal("10")
+    assert len(audit.records) == 1
+    assert audit.records[0].event.event_type == ManagementEventType.PARSER_SNAPSHOT_IMPORT
+    assert audit.records[0].event.safe_details.changed_field_count == 2
+    assert "管理员修正值" not in audit.records[0].model_dump_json()
 
     repeated: Final = await service.import_snapshot(
         _CHANNEL_ID,
@@ -170,6 +190,7 @@ async def test_import_rejects_sensitive_cross_channel_and_wrong_actor_without_wr
         parser_runs=FakeParserRunRepository(_record()),
         overrides=repository,
         batch_writer=repository,
+        audit=FakeAuditRepository(),
         clock=lambda: _NOW,
     )
     other_channel: Final = UUID("50000000-0000-0000-0000-000000000005")

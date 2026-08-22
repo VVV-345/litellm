@@ -58,7 +58,7 @@ const secondPage: EventLogPage = {
   events: [
     {
       event_id: "event-2",
-      event_type: "channel_update",
+      event_type: "parser_override_set",
       occurred_at: "2026-08-21T09:00:00Z",
       channel_id: "channel-1",
       model_id: null,
@@ -69,11 +69,16 @@ const secondPage: EventLogPage = {
       actor_type: "user",
       actor_id: "admin-user",
       outcome: "succeeded",
-      safe_details: { kind: "channel_update", outcome: { status: "succeeded" } },
+      safe_details: {
+        kind: "parser_override_set",
+        outcome: { status: "succeeded" },
+        override_id: "override-1",
+        field_path: "/subscription/balance",
+      },
       audit: {
         operation_id: null,
         actor_role: "proxy_admin",
-        actor_action: "channel:update",
+        actor_action: "parser_override:set",
         actor_envelope_id: "envelope-1",
         outcome: "succeeded",
       },
@@ -108,7 +113,7 @@ describe("EventLogPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "加载更多" }));
 
-    expect(await screen.findByText("修改渠道")).toBeInTheDocument();
+    expect(await screen.findByText("设置人工修正")).toBeInTheDocument();
     expect(getEvents).toHaveBeenLastCalledWith("token", {
       channel_id: "channel-1",
       cursor: "next-page",

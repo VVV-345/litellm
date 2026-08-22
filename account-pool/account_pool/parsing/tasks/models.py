@@ -30,6 +30,7 @@ class ParserTaskOperationFailureCode(StrEnum):
     CONFLICT = "conflict"
     DATABASE_UNAVAILABLE = "database_unavailable"
     INVALID_DATA = "invalid_data"
+    AUDIT_UNAVAILABLE = "audit_unavailable"
 
 
 class ParserTaskStartRequest(FrozenModel):

@@ -1667,6 +1667,7 @@ def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
     return ParserOverrideService(
         parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
         overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
+        audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
     )
 
 
@@ -1696,6 +1697,7 @@ def _build_parser_runtime(
             providers=providers,
             worker=worker,
             repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
+            audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
         ),
         export_retries=ParserExportRetryLoop(
             worker,
@@ -1722,6 +1724,7 @@ def _build_snapshot_importer(settings: Settings) -> SnapshotImporter | None:
         parser_runs=parser_runs,
         overrides=overrides,
         batch_writer=overrides,
+        audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
     )
 
 
@@ -1808,7 +1811,10 @@ def _override_mutation_http_error(failure: OverrideMutationFailure) -> HTTPExcep
         OverrideMutationFailureCode.INVALID_VALUE,
     ):
         return HTTPException(status_code=422, detail=detail)
-    if failure.code == OverrideMutationFailureCode.DATABASE_UNAVAILABLE:
+    if failure.code in (
+        OverrideMutationFailureCode.DATABASE_UNAVAILABLE,
+        OverrideMutationFailureCode.AUDIT_UNAVAILABLE,
+    ):
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 
@@ -1824,7 +1830,10 @@ def _parser_task_http_error(failure: ParserTaskOperationFailure) -> HTTPExceptio
         return HTTPException(status_code=422, detail=detail)
     if failure.code == ParserTaskOperationFailureCode.CONFLICT:
         return HTTPException(status_code=409, detail=detail)
-    if failure.code == ParserTaskOperationFailureCode.DATABASE_UNAVAILABLE:
+    if failure.code in (
+        ParserTaskOperationFailureCode.DATABASE_UNAVAILABLE,
+        ParserTaskOperationFailureCode.AUDIT_UNAVAILABLE,
+    ):
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 
@@ -1846,7 +1855,10 @@ def _snapshot_import_http_error(failure: SnapshotImportFailure) -> HTTPException
         SnapshotImportFailureCode.CONTENT_CONFLICT,
     ):
         return HTTPException(status_code=409, detail=detail)
-    if failure.code == SnapshotImportFailureCode.DATABASE_UNAVAILABLE:
+    if failure.code in (
+        SnapshotImportFailureCode.DATABASE_UNAVAILABLE,
+        SnapshotImportFailureCode.AUDIT_UNAVAILABLE,
+    ):
         return HTTPException(status_code=503, detail=detail)
     return HTTPException(status_code=500, detail=detail)
 

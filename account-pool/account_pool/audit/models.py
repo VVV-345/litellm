@@ -72,6 +72,35 @@ class ChannelReconcileDetails(FrozenModel):
     outcome: SafeAuditOutcome
 
 
+class ParserTaskStartDetails(FrozenModel):
+    kind: Literal["parser_task_start"] = "parser_task_start"
+    outcome: SafeAuditOutcome
+    task_id: UUID | None = None
+    parser_run_id: UUID | None = None
+
+
+class ParserSnapshotImportDetails(FrozenModel):
+    kind: Literal["parser_snapshot_import"] = "parser_snapshot_import"
+    outcome: SafeAuditOutcome
+    import_id: UUID
+    source_parser_run_id: UUID | None = None
+    changed_field_count: int | None = Field(default=None, ge=0)
+
+
+class ParserOverrideSetDetails(FrozenModel):
+    kind: Literal["parser_override_set"] = "parser_override_set"
+    outcome: SafeAuditOutcome
+    override_id: UUID
+    field_path: str | None = Field(default=None, min_length=1, max_length=512, pattern=r"^/")
+
+
+class ParserOverrideRevokeDetails(FrozenModel):
+    kind: Literal["parser_override_revoke"] = "parser_override_revoke"
+    outcome: SafeAuditOutcome
+    override_id: UUID
+    field_path: str | None = Field(default=None, min_length=1, max_length=512, pattern=r"^/")
+
+
 class RoutingPolicyUpdateDetails(FrozenModel):
     kind: Literal["routing_policy_update"] = "routing_policy_update"
     outcome: SafeAuditOutcome
@@ -103,6 +132,10 @@ ManagementAuditDetails = Annotated[
     | ChannelDeleteDetails
     | ChannelDeleteExternalDeploymentDetails
     | ChannelReconcileDetails
+    | ParserTaskStartDetails
+    | ParserSnapshotImportDetails
+    | ParserOverrideSetDetails
+    | ParserOverrideRevokeDetails
     | RoutingPolicyUpdateDetails
     | RoutingCandidateUpdateDetails
     | RoutingCandidateDeleteDetails,
@@ -118,6 +151,10 @@ class ManagementEventType(StrEnum):
     CHANNEL_DELETE = "channel_delete"
     CHANNEL_DELETE_EXTERNAL_DEPLOYMENT = "channel_delete_external_deployment"
     CHANNEL_RECONCILE = "channel_reconcile"
+    PARSER_TASK_START = "parser_task_start"
+    PARSER_SNAPSHOT_IMPORT = "parser_snapshot_import"
+    PARSER_OVERRIDE_SET = "parser_override_set"
+    PARSER_OVERRIDE_REVOKE = "parser_override_revoke"
     ROUTING_POLICY_UPDATE = "routing_policy_update"
     ROUTING_CANDIDATE_UPDATE = "routing_candidate_update"
     ROUTING_CANDIDATE_DELETE = "routing_candidate_delete"
@@ -187,6 +224,10 @@ _EVENT_TYPE_BY_ACTION: Final = {
     ActorAction.CHANNEL_DELETE: ManagementEventType.CHANNEL_DELETE,
     ActorAction.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT: ManagementEventType.CHANNEL_DELETE_EXTERNAL_DEPLOYMENT,
     ActorAction.CHANNEL_RECONCILE: ManagementEventType.CHANNEL_RECONCILE,
+    ActorAction.PARSER_START: ManagementEventType.PARSER_TASK_START,
+    ActorAction.SNAPSHOT_IMPORT: ManagementEventType.PARSER_SNAPSHOT_IMPORT,
+    ActorAction.OVERRIDE_SET: ManagementEventType.PARSER_OVERRIDE_SET,
+    ActorAction.OVERRIDE_REVOKE: ManagementEventType.PARSER_OVERRIDE_REVOKE,
     ActorAction.ROUTING_POLICY_UPDATE: ManagementEventType.ROUTING_POLICY_UPDATE,
     ActorAction.ROUTING_CANDIDATE_UPDATE: ManagementEventType.ROUTING_CANDIDATE_UPDATE,
     ActorAction.ROUTING_CANDIDATE_DELETE: ManagementEventType.ROUTING_CANDIDATE_DELETE,

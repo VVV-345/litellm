@@ -143,6 +143,35 @@ def test_health_event_decodes_registered_safe_details() -> None:
     assert event.audit is None
 
 
+def test_parser_override_event_decodes_only_registered_safe_details() -> None:
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "parser_override_set",
+                {
+                    "kind": "parser_override_set",
+                    "outcome": {"status": "succeeded"},
+                    "override_id": "30000000-0000-0000-0000-000000000003",
+                    "field_path": "/subscription/balance",
+                },
+            ),
+            "actor_type": "user",
+            "actor_id": "admin",
+            "operation_id": None,
+            "actor_role": "proxy_admin",
+            "actor_action": "parser_override:set",
+            "actor_envelope_id": _ENVELOPE_ID,
+            "audit_outcome": "succeeded",
+            **_empty_health_fact(),
+        }
+    )
+
+    assert event.event_type == "parser_override_set"
+    assert event.audit is not None and event.audit.actor_action == "parser_override:set"
+    assert event.safe_details["field_path"] == "/subscription/balance"
+    assert "value" not in event.safe_details
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(

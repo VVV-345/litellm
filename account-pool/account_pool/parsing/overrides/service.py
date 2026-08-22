@@ -3,10 +3,18 @@
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Final, Literal, Protocol
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from pydantic import AwareDatetime, ValidationError
 
+from account_pool.audit.models import (
+    AuditOutcome,
+    ParserOverrideRevokeDetails,
+    ParserOverrideSetDetails,
+    SafeAuditOutcome,
+    build_management_audit_record,
+)
+from account_pool.audit.repository import AuditPersistenceFailure, ManagementAuditRepository
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.models import FrozenModel
 from account_pool.parsing.overrides.commands import (
@@ -34,6 +42,7 @@ from account_pool.parsing.repository import ParserRunRepository
 from account_pool.parsing.safety import has_safe_parser_content
 
 Clock = Callable[[], AwareDatetime]
+_OVERRIDE_AUDIT_NAMESPACE: Final = UUID("35ecce8e-cc72-4ac8-a1d8-7869fd5a9f2e")
 
 
 class _LoadedState(FrozenModel):
@@ -67,10 +76,12 @@ class ParserOverrideService:
         self,
         parser_runs: ParserRunRepository,
         overrides: OverrideEventRepository,
+        audit: ManagementAuditRepository,
         clock: Clock = utc_now,
     ) -> None:
         self._parser_runs: Final = parser_runs
         self._overrides: Final = overrides
+        self._audit: Final = audit
         self._clock: Final = clock
 
     async def set_override(
@@ -81,6 +92,20 @@ class ParserOverrideService:
     ) -> OverrideMutationResult:
         if actor.action != ActorAction.OVERRIDE_SET:
             return _failure(OverrideMutationFailureCode.INVALID_REQUEST)
+        result: Final = await self._set_override(channel_id, request, actor)
+        return await self._audited(
+            channel_id=channel_id,
+            actor=actor,
+            override_id=request.override_id,
+            result=result,
+        )
+
+    async def _set_override(
+        self,
+        channel_id: UUID,
+        request: OverrideSetRequest,
+        actor: ActorContext,
+    ) -> OverrideMutationResult:
         loaded: Final = await self._load(channel_id)
         if isinstance(loaded, OverrideMutationFailure):
             return loaded
@@ -149,6 +174,21 @@ class ParserOverrideService:
     ) -> OverrideMutationResult:
         if actor.action != ActorAction.OVERRIDE_REVOKE or not field_path.startswith("/"):
             return _failure(OverrideMutationFailureCode.INVALID_REQUEST)
+        result: Final = await self._revoke_override(channel_id, field_path, request, actor)
+        return await self._audited(
+            channel_id=channel_id,
+            actor=actor,
+            override_id=request.override_id,
+            result=result,
+        )
+
+    async def _revoke_override(
+        self,
+        channel_id: UUID,
+        field_path: str,
+        request: OverrideRevokeRequest,
+        actor: ActorContext,
+    ) -> OverrideMutationResult:
         loaded: Final = await self._load(channel_id)
         if isinstance(loaded, OverrideMutationFailure):
             return loaded
@@ -196,6 +236,53 @@ class ParserOverrideService:
             return _from_override_failure(written)
         state: Final = _LoadedState(record=loaded.record, events=candidate_events)
         return _success(status=written.status, state=state, event=written.event)
+
+    async def _audited(
+        self,
+        *,
+        channel_id: UUID,
+        actor: ActorContext,
+        override_id: UUID,
+        result: OverrideMutationResult,
+    ) -> OverrideMutationResult:
+        failure_code: Final = result.code.value if isinstance(result, OverrideMutationFailure) else None
+        outcome: Final = SafeAuditOutcome(
+            status=AuditOutcome.FAILED if failure_code is not None else AuditOutcome.SUCCEEDED,
+            failure_code=failure_code,
+        )
+        safe_field_path: Final = None if isinstance(result, OverrideMutationFailure) else result.event.field_path
+        occurred_at: Final = self._clock() if isinstance(result, OverrideMutationFailure) else result.event.occurred_at
+        details: Final = (
+            ParserOverrideSetDetails(
+                outcome=outcome,
+                override_id=override_id,
+                field_path=safe_field_path,
+            )
+            if actor.action == ActorAction.OVERRIDE_SET
+            else ParserOverrideRevokeDetails(
+                outcome=outcome,
+                override_id=override_id,
+                field_path=safe_field_path,
+            )
+        )
+        audit_result: Final = await self._audit.append(
+            build_management_audit_record(
+                event_id=uuid5(
+                    _OVERRIDE_AUDIT_NAMESPACE,
+                    f"{actor.envelope_id}:{actor.action}:{override_id}:{outcome.status}:{failure_code}",
+                ),
+                occurred_at=occurred_at,
+                actor=actor,
+                channel_id=channel_id,
+                details=details,
+            )
+        )
+        if isinstance(audit_result, AuditPersistenceFailure):
+            return OverrideMutationFailure(
+                code=OverrideMutationFailureCode.AUDIT_UNAVAILABLE,
+                retryable=audit_result.retryable,
+            )
+        return result
 
     async def _load(self, channel_id: UUID) -> _LoadedState | OverrideMutationFailure:
         loaded_runs: Final = await self._parser_runs.load_for_channel(channel_id, limit=1)
