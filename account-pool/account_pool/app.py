@@ -84,6 +84,7 @@ from account_pool.models import (
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
 from account_pool.operational.request_lifecycle import RequestEventRecorder, RequestEventStateStore
+from account_pool.operational.restrictions import RestrictionEventRecorder, RestrictionEventStateStore
 from account_pool.overview import (
     AccountPoolOverview,
     AccountPoolOverviewFailure,
@@ -220,7 +221,13 @@ def create_app(
     resolved_settings: Final = settings or Settings.from_env()
     base_store: Final = store or _build_store(resolved_settings)
     request_events: Final = _build_request_events(resolved_settings)
-    resolved_store: Final = base_store if request_events is None else RequestEventStateStore(base_store, request_events)
+    restriction_events: Final = _build_restriction_events(resolved_settings)
+    restricted_store: Final = (
+        base_store if restriction_events is None else RestrictionEventStateStore(base_store, restriction_events)
+    )
+    resolved_store: Final = (
+        restricted_store if request_events is None else RequestEventStateStore(restricted_store, request_events)
+    )
     owns_client: Final = proxy_client is None
     client: Final = proxy_client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=5))
     config: Final = load_pool_config(resolved_settings.config_path)
@@ -1439,6 +1446,17 @@ def _build_request_events(settings: Settings) -> RequestEventRecorder | None:
     if settings.database_url is None:
         return None
     return RequestEventRecorder(
+        PostgresOperationalEventRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        )
+    )
+
+
+def _build_restriction_events(settings: Settings) -> RestrictionEventRecorder | None:
+    if settings.database_url is None:
+        return None
+    return RestrictionEventRecorder(
         PostgresOperationalEventRepository(
             settings.database_url,
             schema=settings.database_schema,

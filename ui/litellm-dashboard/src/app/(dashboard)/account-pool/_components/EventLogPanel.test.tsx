@@ -164,6 +164,37 @@ const firstPage: EventLogPage = {
         outcome: "succeeded",
       },
     },
+    {
+      event_id: "event-7",
+      event_type: "eligibility_restriction_activated",
+      occurred_at: "2026-08-21T09:00:00Z",
+      channel_id: "channel-1",
+      model_id: "gpt-5.6",
+      deployment_id: "deployment-1",
+      request_id: null,
+      lease_id: null,
+      reason_code: "monthly_exhausted",
+      actor_type: "system",
+      actor_id: "account_pool_eligibility",
+      outcome: "succeeded",
+      safe_details: {
+        kind: "eligibility_restriction_activated",
+        restriction_id: "restriction-7",
+        scope: "deployment",
+        source: "restriction",
+        state: "active",
+        billing_route_id: null,
+        starts_at: 1777000000,
+        retry_at: null,
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "eligibility_transition",
+        operation_id: "restriction-7",
+        outcome: "succeeded",
+      },
+    },
   ],
 };
 
@@ -228,6 +259,7 @@ describe("EventLogPanel", () => {
     expect(screen.getByText("解析快照已导出")).toBeInTheDocument();
     expect(screen.getByText("后台同步失败")).toBeInTheDocument();
     expect(screen.getByText("请求已结算")).toBeInTheDocument();
+    expect(screen.getByText("限制已生效")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
     expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
 

@@ -11,6 +11,12 @@ from uuid import UUID, uuid5
 from pydantic import AwareDatetime, Field, model_validator
 
 from account_pool.models import AcquireCandidateRejection, FrozenModel, Lease, ModelName, SettleRequest
+from account_pool.operational.restriction_models import (
+    RestrictionActivatedDetails,
+    RestrictionClearedDetails,
+    RestrictionEventDetails,
+    RestrictionUpdatedDetails,
+)
 
 _OPERATIONAL_EVENT_NAMESPACE: Final = UUID("0bf35742-af58-4413-bac9-6c216914bd6c")
 _SAFE_CODE_PATTERN: Final = r"^[a-z][a-z0-9_]{0,99}$"
@@ -34,6 +40,9 @@ class OperationalEventType(StrEnum):
     REQUEST_USAGE_RECORDED = "request_usage_recorded"
     REQUEST_RELEASED = "request_released"
     LEASE_EXPIRED = "lease_expired"
+    ELIGIBILITY_RESTRICTION_ACTIVATED = "eligibility_restriction_activated"
+    ELIGIBILITY_RESTRICTION_UPDATED = "eligibility_restriction_updated"
+    ELIGIBILITY_RESTRICTION_CLEARED = "eligibility_restriction_cleared"
 
 
 class OperationalEventSource(StrEnum):
@@ -41,6 +50,7 @@ class OperationalEventSource(StrEnum):
     PARSER_SNAPSHOT_EXPORT = "parser_snapshot_export"
     SYNC_RECONCILE = "sync_reconcile"
     REQUEST_LIFECYCLE = "request_lifecycle"
+    ELIGIBILITY_TRANSITION = "eligibility_transition"
 
 
 class OperationalEventOutcome(StrEnum):
@@ -186,7 +196,8 @@ OperationalEventDetails = Annotated[
     | RequestSettledDetails
     | RequestUsageRecordedDetails
     | RequestReleasedDetails
-    | LeaseExpiredDetails,
+    | LeaseExpiredDetails
+    | RestrictionEventDetails,
     Field(discriminator="kind"),
 ]
 
@@ -209,6 +220,7 @@ class OperationalPoolEvent(FrozenModel):
         "account_pool_scheduler",
         "account_pool_state_store",
         "account_pool_lease_reaper",
+        "account_pool_eligibility",
     ]
     safe_details: OperationalEventDetails
 
@@ -224,6 +236,9 @@ class OperationalPoolEvent(FrozenModel):
             OperationalEventType.SYNC_RETRY_DEFERRED,
             OperationalEventType.REQUEST_ACQUIRE_FAILED,
             OperationalEventType.LEASE_EXPIRED,
+            OperationalEventType.ELIGIBILITY_RESTRICTION_ACTIVATED,
+            OperationalEventType.ELIGIBILITY_RESTRICTION_UPDATED,
+            OperationalEventType.ELIGIBILITY_RESTRICTION_CLEARED,
         )
         failed_settlement: Final = (
             self.event_type == OperationalEventType.REQUEST_SETTLED
@@ -630,6 +645,12 @@ def _event_outcome(
             return OperationalEventOutcome.SUCCEEDED if details.released else OperationalEventOutcome.FAILED
         case OperationalEventType.LEASE_EXPIRED:
             return OperationalEventOutcome.INTERRUPTED
+        case (
+            OperationalEventType.ELIGIBILITY_RESTRICTION_ACTIVATED
+            | OperationalEventType.ELIGIBILITY_RESTRICTION_UPDATED
+            | OperationalEventType.ELIGIBILITY_RESTRICTION_CLEARED
+        ):
+            return OperationalEventOutcome.SUCCEEDED
     assert_never(event_type)
 
 
@@ -727,7 +748,16 @@ def _event_source(event_type: OperationalEventType) -> OperationalEventSource:
         OperationalEventType.SYNC_RETRY_DEFERRED,
     ):
         return OperationalEventSource.SYNC_RECONCILE
-    return OperationalEventSource.REQUEST_LIFECYCLE
+    if event_type in (
+        OperationalEventType.REQUEST_ACQUIRED,
+        OperationalEventType.REQUEST_ACQUIRE_FAILED,
+        OperationalEventType.REQUEST_SETTLED,
+        OperationalEventType.REQUEST_USAGE_RECORDED,
+        OperationalEventType.REQUEST_RELEASED,
+        OperationalEventType.LEASE_EXPIRED,
+    ):
+        return OperationalEventSource.REQUEST_LIFECYCLE
+    return OperationalEventSource.ELIGIBILITY_TRANSITION
 
 
 def _event_operation_id(event: OperationalPoolEvent) -> UUID:
@@ -746,6 +776,8 @@ def _event_operation_id(event: OperationalPoolEvent) -> UUID:
             _OPERATIONAL_EVENT_NAMESPACE,
             f"request:{event.request_id}:{event.deployment_id}:{event.reason_code}",
         )
+    if isinstance(details, (RestrictionActivatedDetails, RestrictionUpdatedDetails, RestrictionClearedDetails)):
+        return details.restriction_id
     if event.lease_id is None:
         raise ValueError("lease lifecycle events require a lease ID")
     return uuid5(_OPERATIONAL_EVENT_NAMESPACE, f"lease:{event.lease_id}")

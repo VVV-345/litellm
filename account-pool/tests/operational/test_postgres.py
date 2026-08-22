@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 import pytest_asyncio
+from account_pool.eligibility import EligibilityScope, EligibilitySource, activate_exclusion
+from account_pool.models import AccountConfig, DeploymentConfig
 from account_pool.operational.models import (
     OperationalEventRecord,
     OperationalEventType,
@@ -27,6 +29,7 @@ from account_pool.operational.repository import (
     OperationalPersistenceFailureCode,
     OperationalWriteSuccess,
 )
+from account_pool.operational.restrictions import build_restriction_transition_records
 from account_pool.parsing.tasks.models import ParserTaskRecord, ParserTaskStatus
 from psycopg import sql
 from pydantic import ValidationError
@@ -67,6 +70,14 @@ _REQUEST_MIGRATION: Final = (
     / "litellm_proxy_extras"
     / "migrations"
     / "20260822040000_expand_account_pool_request_events"
+    / "migration.sql"
+)
+_RESTRICTION_MIGRATION: Final = (
+    Path(__file__).resolve().parents[3]
+    / "litellm-proxy-extras"
+    / "litellm_proxy_extras"
+    / "migrations"
+    / "20260822050000_expand_account_pool_restriction_events"
     / "migration.sql"
 )
 
@@ -125,6 +136,35 @@ def _sync_record() -> OperationalEventRecord:
     )
 
 
+def _restriction_record() -> OperationalEventRecord:
+    account: Final = AccountConfig(
+        id="channel-account",
+        channel_id=_CHANNEL_ID,
+        display_name="Channel",
+        provider="openai_compatible",
+        base_url_display="https://example.test",
+        max_concurrency=2,
+        deployments=(DeploymentConfig(public_model="model-a", litellm_model_id="deployment-a"),),
+    )
+    exclusion: Final = activate_exclusion(
+        scope=EligibilityScope.CHANNEL,
+        source=EligibilitySource.RESTRICTION,
+        account_id=account.id,
+        model=None,
+        deployment_id=None,
+        billing_route_id=None,
+        reason_code="monthly_exhausted",
+        starts_at=_NOW.timestamp(),
+        retry_at=None,
+    )
+    return build_restriction_transition_records(
+        accounts=(account,),
+        before=(),
+        after=(exclusion,),
+        occurred_at=_NOW,
+    )[0]
+
+
 @pytest_asyncio.fixture
 async def operational_repository_fixture() -> AsyncIterator[OperationalRepositoryFixture]:
     database_url: Final = os.getenv("DATABASE_URL")
@@ -158,6 +198,7 @@ async def operational_repository_fixture() -> AsyncIterator[OperationalRepositor
             await connection.execute(_EXPANSION_MIGRATION.read_bytes())
             await connection.execute(_SYNC_MIGRATION.read_bytes())
             await connection.execute(_REQUEST_MIGRATION.read_bytes())
+            await connection.execute(_RESTRICTION_MIGRATION.read_bytes())
             yield OperationalRepositoryFixture(
                 repository=PostgresOperationalEventRepository(database_url, schema=schema)
             )
@@ -180,6 +221,9 @@ async def test_repository_writes_linked_event_idempotently(
     assert repeated.status == "unchanged"
     assert isinstance(await repository.append(_snapshot_record()), OperationalWriteSuccess)
     assert isinstance(await repository.append(_sync_record()), OperationalWriteSuccess)
+    restriction: Final = await repository.append(_restriction_record())
+    assert isinstance(restriction, OperationalWriteSuccess)
+    assert restriction.record.event.actor_id == "account_pool_eligibility"
 
 
 async def test_same_event_id_with_changed_content_is_rejected(
@@ -214,6 +258,7 @@ def test_migration_contains_only_normalized_operational_fields() -> None:
     expansion: Final = _EXPANSION_MIGRATION.read_text(encoding="utf-8")
     sync_expansion: Final = _SYNC_MIGRATION.read_text(encoding="utf-8")
     request_expansion: Final = _REQUEST_MIGRATION.read_text(encoding="utf-8")
+    restriction_expansion: Final = _RESTRICTION_MIGRATION.read_text(encoding="utf-8")
 
     assert 'CREATE TABLE "LiteLLM_AccountPoolOperationalEvent"' in migration
     assert '"operation_id" TEXT NOT NULL' in migration
@@ -221,6 +266,7 @@ def test_migration_contains_only_normalized_operational_fields() -> None:
     assert "parser_snapshot_export" in expansion
     assert "sync_reconcile" in sync_expansion
     assert "request_lifecycle" in request_expansion
+    assert "eligibility_transition" in restriction_expansion
     assert "api_key" not in migration.casefold()
     assert "authorization" not in migration.casefold()
     assert "response_body" not in migration.casefold()

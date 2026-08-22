@@ -27,6 +27,11 @@ from account_pool.operational.repository import (
     OperationalWriteResult,
     OperationalWriteSuccess,
 )
+from account_pool.operational.restrictions import (
+    RestrictionEventRecorder,
+    RestrictionEventStateStore,
+    build_restriction_transition_records,
+)
 
 __all__ = [
     "OperationalEventFact",
@@ -43,6 +48,8 @@ __all__ = [
     "ParserSnapshotExportTrigger",
     "ParserTaskInterruptionSource",
     "PostgresOperationalEventRepository",
+    "RestrictionEventRecorder",
+    "RestrictionEventStateStore",
     "build_lease_expired_record",
     "build_parser_snapshot_export_record",
     "build_parser_task_operational_record",
@@ -51,5 +58,6 @@ __all__ = [
     "build_request_released_record",
     "build_request_settled_record",
     "build_request_usage_recorded_record",
+    "build_restriction_transition_records",
     "build_sync_reconcile_record",
 ]

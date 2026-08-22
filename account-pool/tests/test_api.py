@@ -71,6 +71,7 @@ from account_pool.models import (
     StatsView,
 )
 from account_pool.operational.request_lifecycle import RequestEventStateStore
+from account_pool.operational.restrictions import RestrictionEventStateStore
 from account_pool.overview import (
     AccountPoolOverview,
     AccountPoolOverviewFailure,
@@ -674,8 +675,18 @@ def test_build_store_enables_durable_quota_runtime_with_postgres() -> None:
 
     assert isinstance(memory_runtime.store, MemoryStateStore)
     assert isinstance(durable_runtime.store, RequestEventStateStore)
-    assert isinstance(durable_runtime.store._backend, DurableLatencyStateStore)
-    assert isinstance(durable_runtime.store._backend._backend, DurableQuotaStateStore)
+    assert isinstance(
+        durable_runtime.store._backend,  # pyright: ignore[reportPrivateUsage]  # 验证运行时装饰器的固定装配顺序
+        RestrictionEventStateStore,
+    )
+    assert isinstance(
+        durable_runtime.store._backend._backend,  # pyright: ignore[reportPrivateUsage]  # 验证运行时装饰器的固定装配顺序
+        DurableLatencyStateStore,
+    )
+    assert isinstance(
+        durable_runtime.store._backend._backend._backend,  # pyright: ignore[reportPrivateUsage]  # 验证运行时装饰器的固定装配顺序
+        DurableQuotaStateStore,
+    )
 
 
 def _parser_data_reader() -> FakeParserDataReader:

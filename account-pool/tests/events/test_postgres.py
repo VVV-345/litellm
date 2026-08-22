@@ -174,6 +174,7 @@ def test_parser_override_event_decodes_only_registered_safe_details() -> None:
 
     assert event.event_type == "parser_override_set"
     assert event.audit is not None and event.audit.actor_action == "parser_override:set"
+    assert isinstance(event.safe_details, dict)
     assert event.safe_details["field_path"] == "/subscription/balance"
     assert "value" not in event.safe_details
 
@@ -231,6 +232,7 @@ def test_snapshot_export_event_decodes_registered_safe_details() -> None:
 
     assert event.outcome == EventQueryOutcome.FAILED
     assert event.operational is not None and event.operational.source == "parser_snapshot_export"
+    assert isinstance(event.safe_details, dict)
     assert event.safe_details["attempt_count"] == 2
 
 
@@ -259,6 +261,7 @@ def test_sync_retry_event_decodes_registered_safe_details() -> None:
 
     assert event.outcome == EventQueryOutcome.FAILED
     assert event.operational is not None and event.operational.source == "sync_reconcile"
+    assert isinstance(event.safe_details, dict)
     assert event.safe_details["sync_action"] == "update_channel"
 
 
@@ -291,6 +294,7 @@ def test_request_settlement_event_decodes_registered_safe_details() -> None:
 
     assert event.outcome == EventQueryOutcome.SUCCEEDED
     assert event.operational is not None and event.operational.source == "request_lifecycle"
+    assert isinstance(event.safe_details, dict)
     assert event.safe_details["input_tokens"] == 12
 
 
@@ -324,6 +328,38 @@ def test_request_usage_event_decodes_registered_safe_details() -> None:
         "output_tokens": 4,
         "cost_usd": 0.002,
     }
+
+
+def test_restriction_event_decodes_registered_safe_details() -> None:
+    restriction_id: Final = UUID("92000000-0000-0000-0000-000000000006")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "eligibility_restriction_activated",
+                {
+                    "kind": "eligibility_restriction_activated",
+                    "restriction_id": str(restriction_id),
+                    "scope": "billing_route",
+                    "source": "restriction",
+                    "state": "active",
+                    "billing_route_id": "route-a",
+                    "starts_at": 1_777_000_000,
+                    "retry_at": 1_777_018_000,
+                },
+            ),
+            "reason_code": "five_hour_exhausted",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "eligibility_transition",
+            "operational_operation_id": str(restriction_id),
+            "operational_outcome": "succeeded",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.SUCCEEDED
+    assert event.operational is not None and event.operational.source == "eligibility_transition"
+    assert isinstance(event.safe_details, dict)
+    assert event.safe_details["billing_route_id"] == "route-a"
 
 
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
