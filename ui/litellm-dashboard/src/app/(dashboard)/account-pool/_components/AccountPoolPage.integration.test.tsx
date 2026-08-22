@@ -5,7 +5,16 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getChannels, getEffectiveData, getEvents, getOverview, getParserHistory, getProviderServices } from "../api";
+import {
+  getChannelAggregate,
+  getChannels,
+  getEffectiveData,
+  getEvents,
+  getOverview,
+  getParserHistory,
+  getProviderServices,
+} from "../api";
+import type { ChannelAggregateDetail } from "../types";
 import AccountPoolPage from "./AccountPoolPage";
 
 vi.mock("@/app/(dashboard)/hooks/models/useModelCostMap", () => ({
@@ -16,6 +25,7 @@ vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
   return {
     ...actual,
+    getChannelAggregate: vi.fn(),
     getChannels: vi.fn(),
     getEffectiveData: vi.fn(),
     getEvents: vi.fn(),
@@ -26,6 +36,7 @@ vi.mock("../api", async (importOriginal) => {
 });
 
 const mockedGetChannels = vi.mocked(getChannels);
+const mockedGetChannelAggregate = vi.mocked(getChannelAggregate);
 const mockedGetEffectiveData = vi.mocked(getEffectiveData);
 const mockedGetEvents = vi.mocked(getEvents);
 const mockedGetOverview = vi.mocked(getOverview);
@@ -97,9 +108,32 @@ const effectiveDataFixture = {
   applied_override_ids: ["30000000-0000-0000-0000-000000000003"],
   override_failures: [],
 };
+const aggregateFixture: ChannelAggregateDetail = {
+  status: "loaded",
+  channel: {
+    channel_id: channelFixture.channel_id,
+    display_name: channelFixture.display_name,
+    provider: channelFixture.provider,
+    group: channelFixture.group,
+    base_url_display: channelFixture.base_url_display,
+    administrative_state: channelFixture.administrative_state,
+    max_concurrency: channelFixture.max_concurrency,
+    priority: channelFixture.priority,
+    weight: channelFixture.weight,
+    quotas: { unit: "tokens", total: null, five_hour: null, weekly: null },
+    key_mask: channelFixture.key_mask,
+    bindings: [],
+  },
+  overview: { status: "unavailable", data: null, failure: { code: "runtime_not_projected", retryable: true } },
+  parser: { status: "unavailable", data: null, failure: { code: "run_not_found", retryable: false } },
+  health: { status: "unavailable", data: null, failure: { code: "runtime_unavailable", retryable: true } },
+  routes: { status: "unavailable", data: null, failure: { code: "runtime_unavailable", retryable: true } },
+  events: { status: "loaded", data: [], failure: null },
+};
 
 describe("AccountPoolPage", () => {
   beforeEach(() => {
+    mockedGetChannelAggregate.mockResolvedValue(aggregateFixture);
     mockedGetOverview.mockResolvedValue(emptyOverview);
     mockedGetChannels.mockResolvedValue({
       channels: [channelFixture],

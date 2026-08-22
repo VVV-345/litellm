@@ -10,6 +10,7 @@ import {
   deleteExternalDeployment,
   detachChannel,
   getChannelHealth,
+  getChannelAggregate,
   getEvents,
   getOverview,
   getOperation,
@@ -149,6 +150,14 @@ describe("channel lifecycle API", () => {
     await getChannelHealth("token", "channel-1");
 
     expect(mockedGet).toHaveBeenCalledWith("/account_pool/channels/channel-1/health", {
+      accessToken: "token",
+    });
+  });
+
+  it("loads the partitioned aggregate channel detail", async () => {
+    await getChannelAggregate("token", "channel-1");
+
+    expect(mockedGet).toHaveBeenCalledWith("/account_pool/channels/channel-1/aggregate", {
       accessToken: "token",
     });
   });

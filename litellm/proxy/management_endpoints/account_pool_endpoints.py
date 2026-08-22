@@ -204,6 +204,16 @@ async def get_catalog_channel(
     return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}")
 
 
+@router.get("/channels/{channel_id}/aggregate")
+async def get_catalog_channel_aggregate(
+    channel_id: UUID,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path=f"/api/channels/{channel_id}/aggregate")
+
+
 @router.put("/channels/{channel_id}")
 async def update_catalog_channel(
     channel_id: UUID,

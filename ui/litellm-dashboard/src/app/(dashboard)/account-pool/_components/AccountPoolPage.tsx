@@ -29,6 +29,7 @@ import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap"
 import { accountPoolKeys, getChannels, getProviderServices, probeChannelHealth } from "../api";
 import ChannelList from "./ChannelList";
 import ChannelFormDialog from "./ChannelFormDialog";
+import ChannelAggregatePanel from "./ChannelAggregatePanel";
 import ChannelLifecycleDialog from "./ChannelLifecycleDialog";
 import HealthStatusPanel from "./HealthStatusPanel";
 import EventLogPanel from "./EventLogPanel";
@@ -264,13 +265,17 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                         </Button>
                       </div>
                     </div>
-                    <Tabs defaultValue="health" className="min-w-0">
+                    <Tabs defaultValue="aggregate" className="min-w-0">
                       <div className="border-b px-4">
                         <TabsList variant="line">
+                          <TabsTrigger value="aggregate">综合详情</TabsTrigger>
                           <TabsTrigger value="health">健康与冷却</TabsTrigger>
                           <TabsTrigger value="parser">解析数据</TabsTrigger>
                         </TabsList>
                       </div>
+                      <TabsContent value="aggregate" className="min-w-0 p-4">
+                        <ChannelAggregatePanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
+                      </TabsContent>
                       <TabsContent value="health" className="min-w-0 p-4">
                         <HealthStatusPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
                       </TabsContent>

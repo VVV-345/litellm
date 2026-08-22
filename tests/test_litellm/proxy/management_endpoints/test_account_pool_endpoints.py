@@ -27,6 +27,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     detach_catalog_channel,
     get_account_pool_overview,
     get_catalog_channel,
+    get_catalog_channel_aggregate,
     get_catalog_channel_health,
     get_channel_operation,
     get_model_routing_policy,
@@ -92,6 +93,7 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
         ("GET", "/account_pool/events"),
         ("POST", "/account_pool/channels"),
         ("GET", "/account_pool/channels/{channel_id}"),
+        ("GET", "/account_pool/channels/{channel_id}/aggregate"),
         ("PUT", "/account_pool/channels/{channel_id}"),
         ("POST", "/account_pool/channels/import"),
         ("POST", "/account_pool/channels/{channel_id}/detach"),
@@ -191,6 +193,7 @@ async def test_channel_detail_and_operation_lookup_are_unsigned_reads(monkeypatc
     request: Final = Request({"type": "http", "method": "GET", "path": "/account_pool/channels"})
 
     await get_catalog_channel(_CHANNEL_ID, request, admin)
+    await get_catalog_channel_aggregate(_CHANNEL_ID, request, admin)
     await get_catalog_channel_health(_CHANNEL_ID, request, admin)
     await get_account_pool_overview(request, admin)
     await list_account_pool_events(request, admin)
@@ -198,6 +201,7 @@ async def test_channel_detail_and_operation_lookup_are_unsigned_reads(monkeypatc
 
     assert forwarded == [
         ("GET", f"/api/channels/{_CHANNEL_ID}", None),
+        ("GET", f"/api/channels/{_CHANNEL_ID}/aggregate", None),
         ("GET", f"/api/channels/{_CHANNEL_ID}/health", None),
         ("GET", "/api/overview", None),
         ("GET", "/api/events", None),

@@ -4,6 +4,7 @@ import { apiClient } from "@/components/networking";
 
 import type {
   AccountPoolOverview,
+  ChannelAggregateDetail,
   ChannelDetail,
   ChannelHealthDetail,
   ChannelListResponse,
@@ -36,6 +37,7 @@ export const accountPoolKeys = {
   events: (filters: EventLogFilters) => ["account-pool", "events", filters] as const,
   channels: () => ["account-pool", "channels"] as const,
   channel: (channelId: string) => ["account-pool", "channels", channelId] as const,
+  aggregate: (channelId: string) => ["account-pool", "channels", channelId, "aggregate"] as const,
   health: (channelId: string) => ["account-pool", "channels", channelId, "health"] as const,
   operation: (operationId: string) => ["account-pool", "operations", operationId] as const,
   effective: (channelId: string) => ["account-pool", "channels", channelId, "effective"] as const,
@@ -55,7 +57,7 @@ export const getOverview = (accessToken: string): Promise<AccountPoolOverview> =
   apiClient.get("/account_pool/overview", { accessToken });
 
 export const getEvents = (accessToken: string, filters: EventLogFilters): Promise<EventLogPage> =>
-  apiClient.get("/account_pool/events", { accessToken, query: filters });
+  apiClient.get("/account_pool/events", { accessToken, query: { ...filters } });
 
 const mutationOptions = (accessToken: string, body: unknown) => ({
   accessToken,
@@ -65,6 +67,9 @@ const mutationOptions = (accessToken: string, body: unknown) => ({
 
 export const getChannel = (accessToken: string, channelId: string): Promise<ChannelDetail> =>
   apiClient.get(`/account_pool/channels/${channelId}`, { accessToken });
+
+export const getChannelAggregate = (accessToken: string, channelId: string): Promise<ChannelAggregateDetail> =>
+  apiClient.get(`/account_pool/channels/${channelId}/aggregate`, { accessToken });
 
 export const createChannel = (accessToken: string, request: ChannelMutationRequest): Promise<ChannelOperation> =>
   apiClient.post("/account_pool/channels", mutationOptions(accessToken, request));

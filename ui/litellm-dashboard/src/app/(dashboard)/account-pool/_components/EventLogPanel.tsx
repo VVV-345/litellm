@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { accountPoolKeys, getEvents } from "../api";
 import { reasonLabelWithCode } from "../reasonLabels";
-import type { EventLogEntry, EventLogFilters, EventQueryOutcome } from "../types";
+import type { EventLogEntry, EventLogFilters, EventLogPage, EventQueryOutcome } from "../types";
 
 const eventTypeLabels: Record<string, string> = {
   active_health_probe_result: "主动健康探测",
@@ -91,9 +91,10 @@ export default function EventLogPanel({ accessToken, initialChannelId = null }: 
   const queryFilters = cleanFilters(activeFilters);
   const eventsQueryOptions = {
     queryKey: accountPoolKeys.events(queryFilters),
-    queryFn: ({ pageParam }) => getEvents(accessToken, cleanFilters({ ...queryFilters, cursor: pageParam })),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      getEvents(accessToken, cleanFilters({ ...queryFilters, cursor: pageParam })),
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    getNextPageParam: (lastPage: EventLogPage) => lastPage.next_cursor ?? undefined,
   };
   const eventsQuery = useInfiniteQuery(eventsQueryOptions);
   const events = eventsQuery.data?.pages.flatMap((page) => page.events) ?? [];
@@ -157,7 +158,12 @@ function EventFilters({ draftFilters, isFetching, onChange, onApply, onReset }: 
       />
       <Select
         value={draftFilters.event_type ?? "all"}
-        onValueChange={(value) => onChange({ ...draftFilters, event_type: value === "all" ? undefined : value })}
+        onValueChange={(value) =>
+          onChange({
+            ...draftFilters,
+            event_type: value === null || value === "all" ? undefined : value,
+          })
+        }
       >
         <SelectTrigger className="w-full" aria-label="事件类型">
           <SelectValue placeholder="事件类型" />

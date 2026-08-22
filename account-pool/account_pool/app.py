@@ -32,6 +32,12 @@ from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.catalog.query import ChannelCatalogQueryService, ChannelCatalogReader
 from account_pool.catalog.service import CatalogService
 from account_pool.config import Settings, load_pool_config
+from account_pool.details import (
+    ChannelAggregateDetail,
+    ChannelAggregateFailure,
+    ChannelAggregateReader,
+    ChannelAggregateService,
+)
 from account_pool.domain.provider_source import (
     ProviderServiceManifest,
     ProviderValidationRequest,
@@ -187,6 +193,7 @@ class Runtime:
     routing_policies: RoutingPolicyService | None
     overview: AccountPoolOverviewReader | None
     event_log: EventLogReader | None
+    channel_details: ChannelAggregateReader | None
 
 
 def create_app(
@@ -206,6 +213,7 @@ def create_app(
     routing_policies: RoutingPolicyService | None = None,
     overview: AccountPoolOverviewReader | None = None,
     event_log: EventLogReader | None = None,
+    channel_details: ChannelAggregateReader | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     resolved_store: Final = store or _build_store(resolved_settings)
@@ -337,6 +345,22 @@ def create_app(
             )
         )
     )
+    resolved_channel_details: Final = (
+        channel_details
+        if channel_details is not None
+        else (
+            None
+            if resolved_channel_management is None or resolved_overview is None
+            else ChannelAggregateService(
+                channels=resolved_channel_management,
+                overview=resolved_overview,
+                parser_data=resolved_parser_data,
+                health=resolved_health_details,
+                routing=scheduler,
+                events=resolved_event_log,
+            )
+        )
+    )
     runtime: Final = Runtime(
         settings=resolved_settings,
         scheduler=scheduler,
@@ -359,6 +383,7 @@ def create_app(
         routing_policies=resolved_routing_policies,
         overview=resolved_overview,
         event_log=resolved_event_log,
+        channel_details=resolved_channel_details,
     )
 
     @asynccontextmanager
@@ -562,6 +587,15 @@ def create_app(
         result: Final = await service.detail(channel_id)
         if isinstance(result, ChannelManagementFailure):
             raise _channel_management_http_error(result)
+        return result
+
+    async def channel_aggregate_detail(channel_id: UUID) -> ChannelAggregateDetail:
+        if resolved_channel_details is None:
+            raise HTTPException(status_code=503, detail="Account-pool database is not configured")
+        result: Final = await resolved_channel_details.read_channel(channel_id)
+        if isinstance(result, ChannelAggregateFailure):
+            status_code: Final = 404 if result.code == "channel_not_found" else 503
+            raise HTTPException(status_code=status_code, detail={"code": result.code, "retryable": result.retryable})
         return result
 
     async def channel_operation(operation_id: UUID) -> ChannelOperationView:
@@ -1126,6 +1160,12 @@ def create_app(
         "/api/channels/{channel_id}", channel_detail, methods=["GET"], dependencies=management_dependency
     )
     application.add_api_route(
+        "/api/channels/{channel_id}/aggregate",
+        channel_aggregate_detail,
+        methods=["GET"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
         "/api/channels/{channel_id}", update_channel, methods=["PUT"], dependencies=management_dependency
     )
     application.add_api_route(
@@ -1288,6 +1328,12 @@ def create_app(
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route("/ui-api/overview", overview_data, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route("/ui-api/events", event_log_data, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}/aggregate",
+        channel_aggregate_detail,
+        methods=["GET"],
+        dependencies=ui_dependency,
+    )
     application.add_api_route(
         "/ui-api/channels/{channel_id}/parser-runs",
         parser_runs,

@@ -547,3 +547,24 @@ export interface EventLogPage {
   events: EventLogEntry[];
   next_cursor: string | null;
 }
+
+export interface DetailSectionFailure {
+  code: string;
+  retryable: boolean;
+}
+
+export interface DetailSection<T> {
+  status: "loaded" | "unavailable";
+  data: T | null;
+  failure: DetailSectionFailure | null;
+}
+
+export interface ChannelAggregateDetail {
+  status: "loaded";
+  channel: ChannelDetail;
+  overview: DetailSection<ChannelOverview>;
+  parser: DetailSection<EffectiveParserData>;
+  health: DetailSection<ChannelHealthDetail>;
+  routes: DetailSection<RoutingTableEntry[]>;
+  events: DetailSection<EventLogEntry[]>;
+}

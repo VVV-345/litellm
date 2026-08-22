@@ -20,6 +20,12 @@ from account_pool.audit.models import AuditOutcome
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.config import Settings
+from account_pool.details import (
+    ChannelAggregateDetail,
+    ChannelAggregateFailure,
+    DetailSection,
+    DetailSectionFailure,
+)
 from account_pool.domain.provider_source import ProviderServiceManifest
 from account_pool.events import (
     EventAuditSummary,
@@ -248,6 +254,31 @@ class FailedEventLogReader:
 
     async def list_events(self, query: EventQuery) -> EventLogFailure:
         return self._failure
+
+
+class FakeChannelAggregateReader:
+    async def read_channel(self, channel_id: UUID) -> ChannelAggregateDetail:
+        channel: Final = await FakeChannelManagementService().detail(channel_id)
+        assert isinstance(channel, ChannelDetail)
+        return ChannelAggregateDetail(
+            channel=channel,
+            overview=DetailSection(status="loaded", data=(await FakeOverviewReader().read()).channels[0]),
+            parser=DetailSection[EffectiveParserData](
+                status="unavailable",
+                failure=DetailSectionFailure(code="run_not_found", retryable=False),
+            ),
+            health=DetailSection[ChannelHealthDetail](
+                status="unavailable",
+                failure=DetailSectionFailure(code="runtime_unavailable", retryable=True),
+            ),
+            routes=DetailSection(status="loaded", data=()),
+            events=DetailSection(status="loaded", data=(await FakeEventLogReader().list_events(EventQuery())).events),
+        )
+
+
+class FailedChannelAggregateReader:
+    async def read_channel(self, channel_id: UUID) -> ChannelAggregateFailure:
+        return ChannelAggregateFailure(code="channel_not_found", retryable=False)
 
 
 class FakeChannelManagementService:
@@ -959,6 +990,48 @@ async def test_events_api_maps_typed_failures(failure: EventLogFailure, status_c
 
     assert response.status_code == status_code
     assert response.json() == {"detail": {"code": failure.code, "retryable": failure.retryable}}
+
+
+@pytest.mark.asyncio
+async def test_channel_aggregate_api_returns_redacted_partitioned_detail() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        channel_details=FakeChannelAggregateReader(),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                f"/api/channels/{_CHANNEL_ID}/aggregate",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    result: Final = ChannelAggregateDetail.model_validate_json(response.content)
+    assert response.status_code == 200
+    assert result.channel.channel_id == _CHANNEL_ID
+    assert result.parser.failure is not None and result.parser.failure.code == "run_not_found"
+    assert result.events.data is not None and result.events.data[0].event_type == "channel_create"
+    assert "credential_ref" not in response.text.casefold()
+
+
+@pytest.mark.asyncio
+async def test_channel_aggregate_api_maps_missing_channel_to_not_found() -> None:
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        channel_details=FailedChannelAggregateReader(),
+    )
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.get(
+                f"/api/channels/{_CHANNEL_ID}/aggregate",
+                headers={"x-account-pool-token": "test-service-token"},
+            )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": {"code": "channel_not_found", "retryable": False}}
 
 
 @pytest.mark.asyncio
