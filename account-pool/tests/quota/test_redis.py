@@ -1,5 +1,6 @@
 """验证 Redis 额度编码在高精度和异常输入下不会静默截断。"""
 
+import asyncio
 from decimal import Decimal
 from typing import Final, cast
 from uuid import uuid4
@@ -50,6 +51,19 @@ from fakeredis.aioredis import FakeRedis
 from redis.asyncio import Redis
 
 
+class _OperationCounter:
+    def __init__(self) -> None:
+        self.active = 0
+        self.peak = 0
+
+    async def run(self, value: int) -> int:
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        await asyncio.sleep(0)
+        self.active -= 1
+        return value
+
+
 def _window(
     limit: Decimal | None = Decimal("1000.123456789123456789"),
     remaining: Decimal | None = Decimal("250.987654321987654321"),
@@ -80,6 +94,17 @@ def test_amount_codec_round_trips_eighteen_decimal_places_without_int64_limit() 
     assert isinstance(encoded, EncodedQuotaAmount)
     assert encoded.units == "1000123456789123456789"
     assert decode_quota_amount(encoded.units, encoded.scale) == value
+
+
+async def test_redis_operations_are_batched_to_protect_the_connection_pool() -> None:
+    counter: Final = _OperationCounter()
+
+    results: Final = await store_module._gather_redis_operations(  # pyright: ignore[reportPrivateUsage]  # 验证连接池保护边界
+        tuple(counter.run(value) for value in range(65))
+    )
+
+    assert results == tuple(range(65))
+    assert counter.peak == 32
 
 
 def test_window_codec_uses_one_exact_scale_for_all_amounts() -> None:

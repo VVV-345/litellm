@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from functools import reduce
-from typing import Final, Protocol, cast
+from typing import Final, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter, ValidationError
@@ -93,6 +94,18 @@ from account_pool.quota.redis_scripts import (
 )
 from account_pool.quota.runtime import quota_window_exclusions
 from account_pool.routing.latency import LATENCY_EWMA_ALPHA, DeploymentLatencyMetric, update_latency_ewma
+
+_RedisOperation = TypeVar("_RedisOperation")
+_REDIS_OPERATION_BATCH_SIZE: Final = 32
+
+
+async def _gather_redis_operations(
+    operations: tuple[Awaitable[_RedisOperation], ...],
+) -> tuple[_RedisOperation, ...]:
+    results: list[_RedisOperation] = []
+    for start in range(0, len(operations), _REDIS_OPERATION_BATCH_SIZE):
+        results.extend(await asyncio.gather(*operations[start : start + _REDIS_OPERATION_BATCH_SIZE]))
+    return tuple(results)
 
 
 class StateStore(Protocol):
@@ -809,9 +822,11 @@ class RedisStateStore:
         )
         stale_latency: Final = previous_deployments - configured_deployments
         self._accounts = {account.id: account for account in accounts}
-        quota_failures: Final = await asyncio.gather(*(self._configure_quota_account(account) for account in accounts))
-        await asyncio.gather(
-            *(
+        quota_failures: Final = await _gather_redis_operations(
+            tuple(self._configure_quota_account(account) for account in accounts)
+        )
+        await _gather_redis_operations(
+            tuple(
                 self._configure_account(
                     account,
                     reset_quotas=runtime_reconfigure
@@ -834,13 +849,17 @@ class RedisStateStore:
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         subjects: Final = eligibility_subjects(tuple(self._accounts.values()))
-        encoded: Final = await asyncio.gather(*(self._redis.hgetall(eligibility_key(subject)) for subject in subjects))
+        encoded: Final = await _gather_redis_operations(
+            tuple(self._redis.hgetall(eligibility_key(subject)) for subject in subjects)
+        )
         standard: Final = tuple(
             exclusion
             for subject, entries in zip(subjects, encoded, strict=True)
             for exclusion in decode_exclusions(subject, entries)
         )
-        quota: Final = await asyncio.gather(*(self._quota_exclusions(account) for account in self._accounts.values()))
+        quota: Final = await _gather_redis_operations(
+            tuple(self._quota_exclusions(account) for account in self._accounts.values())
+        )
         return (*standard, *(exclusion for exclusions in quota for exclusion in exclusions))
 
     async def reserve(
@@ -986,8 +1005,8 @@ class RedisStateStore:
         deployment_ids: Final = tuple(
             deployment.litellm_model_id for account in self._accounts.values() for deployment in account.deployments
         )
-        encoded: Final = await asyncio.gather(
-            *(self._redis.hgetall(self._latency_key(item)) for item in deployment_ids)
+        encoded: Final = await _gather_redis_operations(
+            tuple(self._redis.hgetall(self._latency_key(item)) for item in deployment_ids)
         )
         return tuple(DeploymentLatencyMetric.model_validate(fields) for fields in encoded if fields)
 
@@ -997,8 +1016,8 @@ class RedisStateStore:
         configured: Final = tuple(
             deployment.litellm_model_id for account in self._accounts.values() for deployment in account.deployments
         )
-        await asyncio.gather(
-            *(
+        await _gather_redis_operations(
+            tuple(
                 self._restore_latency_metric(
                     deployment_id,
                     _newest_metric(existing.get(deployment_id), supplied.get(deployment_id)),
@@ -1022,8 +1041,8 @@ class RedisStateStore:
         lease_ids: Final = tuple(
             str(lease_id) for lease_id in await self._redis.zrangebyscore(self._expiries, min=0, max=time.time())
         )
-        leases: Final = await asyncio.gather(*(self._read_lease(lease_id) for lease_id in lease_ids))
-        results: Final = await asyncio.gather(*(self.release(lease_id) for lease_id in lease_ids))
+        leases: Final = await _gather_redis_operations(tuple(self._read_lease(lease_id) for lease_id in lease_ids))
+        results: Final = await _gather_redis_operations(tuple(self.release(lease_id) for lease_id in lease_ids))
         return tuple(lease for lease, released in zip(leases, results, strict=True) if lease is not None and released)
 
     async def close(self) -> None:
@@ -1047,8 +1066,8 @@ class RedisStateStore:
         )
         if account_id is not None and not accounts:
             return None
-        states: Final = await asyncio.gather(
-            *(
+        states: Final = await _gather_redis_operations(
+            tuple(
                 self._read_quota_backend_window(account.id, window.window_id)
                 for account in accounts
                 for window in account.quota_windows
@@ -1100,14 +1119,14 @@ class RedisStateStore:
         # generation key 最后写入；恢复中途失败时，所有 acquire 都会因代次缺失而关闭。
         await self._redis.delete(self._quota_generation_key)
         await self._clear_lease_runtime()
-        await asyncio.gather(
-            *(
+        await _gather_redis_operations(
+            tuple(
                 self._restore_quota_window(state, record)
                 for state, record in encoded
                 if isinstance(record, RedisQuotaWindowRecord)
             )
         )
-        await asyncio.gather(*(self._restore_quota_usage(state, amounts) for state, amounts in usage))
+        await _gather_redis_operations(tuple(self._restore_quota_usage(state, amounts) for state, amounts in usage))
         await self._redis.set(self._quota_schema_version_key, self._quota_schema_version)
         await self._redis.set(self._quota_generation_key, str(generation_id))
         return True
@@ -1120,7 +1139,9 @@ class RedisStateStore:
         )
         stale_keys: Final = (self._expiries, *lease_keys, *request_keys, *probe_keys)
         await self._redis.delete(*stale_keys)
-        await asyncio.gather(*(self._redis.set(self._inflight_key(account_id), 0) for account_id in self._accounts))
+        await _gather_redis_operations(
+            tuple(self._redis.set(self._inflight_key(account_id), 0) for account_id in self._accounts)
+        )
 
     async def _scan_keys(self, pattern: str) -> tuple[str, ...]:
         return tuple([str(key) async for key in self._redis.scan_iter(match=pattern)])
@@ -1256,8 +1277,8 @@ class RedisStateStore:
             quota_window_key(account.id, record.window_id) for record in configuration.records
         )
         existing_keys: Final = frozenset(str(key) for key in await self._redis.smembers(manifest_key))
-        script_results: Final = await asyncio.gather(
-            *(self._configure_quota_window(account.id, record) for record in configuration.records)
+        script_results: Final = await _gather_redis_operations(
+            tuple(self._configure_quota_window(account.id, record) for record in configuration.records)
         )
         invalid_result: Final = next((result for result in script_results if int(result) not in (-1, 0, 1)), None)
         if invalid_result is not None:
@@ -1300,8 +1321,8 @@ class RedisStateStore:
         return int(_SCRIPT_STATUS_ADAPTER.validate_python(result))
 
     async def _quota_exclusions(self, account: AccountConfig) -> tuple[EligibilityExclusion, ...]:
-        encoded: Final = await asyncio.gather(
-            *(self._redis.hgetall(quota_window_key(account.id, window.window_id)) for window in account.quota_windows)
+        encoded: Final = await _gather_redis_operations(
+            tuple(self._redis.hgetall(quota_window_key(account.id, window.window_id)) for window in account.quota_windows)
         )
         if any(not fields for fields in encoded):
             return (_invalid_quota_state_exclusion(account.id),)
