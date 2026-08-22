@@ -12,6 +12,7 @@ from account_pool.domain.provider_source import (
 )
 from account_pool.models import FrozenModel
 from account_pool.parsing.models import (
+    MeteredData,
     ParsedChannelData,
     ParserFailureCategory,
     ParserIssue,
@@ -38,6 +39,8 @@ def parse_model_discovery_result(
     parsed_at: AwareDatetime,
     validation: ProviderValidationResult,
     spec: ModelDiscoveryParserSpec,
+    *,
+    metered: MeteredData | None = None,
 ) -> ParserRun:
     if validation.ok and validation.models:
         return _partial_result(
@@ -46,6 +49,7 @@ def parse_model_discovery_result(
             parsed_at=parsed_at,
             validation=validation,
             spec=spec,
+            metered=metered,
         )
     failure_code: Final = validation.failure_code or ProviderValidationFailureCode.UPSTREAM_RESPONSE
     status, category, retryable, next_action, evidence = _failure_details(failure_code)
@@ -77,12 +81,20 @@ def _partial_result(
     parsed_at: AwareDatetime,
     validation: ProviderValidationResult,
     spec: ModelDiscoveryParserSpec,
+    metered: MeteredData | None,
 ) -> ParserRun:
     discovered_models: Final = tuple(sorted(frozenset(offer.model for offer in validation.models)))
+    unresolved_paths: Final = tuple(path for path in _BILLING_FIELDS if path != "metered" or metered is None)
+    capabilities: Final = (
+        (ProviderCapability.MODEL_DISCOVERY, ProviderCapability.MODEL_PRICING)
+        if metered is not None
+        else (ProviderCapability.MODEL_DISCOVERY,)
+    )
     result: Final = ParsedChannelData(
-        capabilities=(ProviderCapability.MODEL_DISCOVERY,),
+        capabilities=capabilities,
+        metered=metered,
         unresolved_fields=tuple(
-            UnresolvedField(path=path, reason=spec.unresolved_reason, retryable=False) for path in _BILLING_FIELDS
+            UnresolvedField(path=path, reason=spec.unresolved_reason, retryable=False) for path in unresolved_paths
         ),
         warnings=(spec.warning,),
     )
@@ -101,7 +113,7 @@ def _partial_result(
                 spec=spec,
                 stage="billing_discovery",
                 category=ParserFailureCategory.UNSUPPORTED,
-                field_paths=_BILLING_FIELDS,
+                field_paths=unresolved_paths,
                 retryable=False,
                 next_action=spec.next_action,
                 evidence_summary=spec.evidence_summary,

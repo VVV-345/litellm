@@ -76,6 +76,17 @@ def test_openai_compatible_fallback_requires_explicit_compatibility() -> None:
     assert manual.source == ParserSelectionSource.MANUAL
 
 
+def test_new_api_provider_only_selection_without_fixed_origin() -> None:
+    registry: Final = build_parser_registry()
+    selection: Final = registry.select(
+        ParserSelectionRequest(provider_id="new_api", api_base="https://gateway.example.com/v1")
+    )
+
+    assert selection.parser_id == "new-api"
+    assert selection.source == ParserSelectionSource.PROVIDER_ONLY
+    assert registry.resolve("new-api") is not None
+
+
 def test_unknown_explicit_parser_does_not_silently_fallback() -> None:
     selection: Final = build_parser_registry().select(
         ParserSelectionRequest(

@@ -1,0 +1,111 @@
+"""验证 New API 倍率价格到统一按量分组的转换，及分组倍率的有效价格计算。"""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Final
+from uuid import uuid4
+
+from account_pool.domain.provider_source import (
+    MeteredPriceOffer,
+    ModelOffer,
+    ProviderValidationResult,
+)
+from account_pool.parsing.models import ParserRunStatus
+from account_pool.provider_services.new_api.manifest import NEW_API_MANIFEST
+from account_pool.provider_services.new_api.parser import parse_new_api_result
+
+
+def _validation(models: tuple[ModelOffer, ...], pricing: tuple[MeteredPriceOffer, ...]) -> ProviderValidationResult:
+    return ProviderValidationResult(
+        ok=True,
+        provider_id="new_api",
+        normalized_api_base="https://gateway.example.com/v1",
+        group="premium",
+        key_fingerprint="fingerprint",
+        message="不会复制到解析结果的渠道校验文案",
+        capabilities=NEW_API_MANIFEST.capabilities,
+        models=models,
+        pricing=pricing,
+    )
+
+
+def test_new_api_parser_applies_group_multiplier_to_effective_prices() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(
+            models=(ModelOffer(model="gpt-4o"), ModelOffer(model="claude-3.5-sonnet")),
+            pricing=(
+                MeteredPriceOffer(
+                    provider_model_id="gpt-4o",
+                    group_name="premium",
+                    currency="RATIO",
+                    unit="multiplier",
+                    input_price=Decimal("2.0"),
+                    output_price=Decimal("4.0"),
+                    group_multiplier=Decimal("1.5"),
+                ),
+            ),
+        ),
+    )
+
+    assert run.parser_id == "new-api"
+    assert run.status == ParserRunStatus.PARTIAL
+    assert run.discovered_models == ("claude-3.5-sonnet", "gpt-4o")
+    assert run.result.metered is not None
+    assert run.result.subscription is None
+
+    group: Final = run.result.metered.groups[0]
+    price: Final = group.models[0]
+    assert group.group_name == "premium"
+    assert price.input_price == Decimal("2.0")
+    assert price.output_price == Decimal("4.0")
+    assert price.group_multiplier == Decimal("1.5")
+    assert price.effective_prices.input_price == Decimal("3.0")
+    assert price.effective_prices.output_price == Decimal("6.0")
+    assert price.normalized_per_million_tokens is None
+
+    serialized: Final = run.model_dump_json()
+    assert "gateway.example.com" not in serialized
+    assert "fingerprint" not in serialized
+    assert "渠道校验文案" not in serialized
+
+
+def test_new_api_parser_omits_unpriced_visible_models() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(
+            models=(ModelOffer(model="priced-model"), ModelOffer(model="unpriced-model")),
+            pricing=(
+                MeteredPriceOffer(
+                    provider_model_id="priced-model",
+                    group_name="premium",
+                    currency="RATIO",
+                    unit="multiplier",
+                    input_price=Decimal("2.0"),
+                    output_price=Decimal("4.0"),
+                    group_multiplier=Decimal("1.5"),
+                ),
+            ),
+        ),
+    )
+
+    assert run.result.metered is not None
+    assert tuple(price.provider_model_id for price in run.result.metered.groups[0].models) == ("priced-model",)
+    assert run.discovered_models == ("priced-model", "unpriced-model")
+
+
+def test_new_api_parser_without_pricing_keeps_metered_unresolved() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(models=(ModelOffer(model="gpt-4o"),), pricing=()),
+    )
+
+    assert run.status == ParserRunStatus.PARTIAL
+    assert run.result.metered is None
+    assert tuple(field.path for field in run.result.unresolved_fields) == ("subscription", "metered")

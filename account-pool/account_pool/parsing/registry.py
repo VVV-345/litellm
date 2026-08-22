@@ -20,6 +20,7 @@ from account_pool.parsing.models import ParserRun
 class ParserSelectionSource(StrEnum):
     EXPLICIT = "explicit"
     PROVIDER_ORIGIN = "provider_origin"
+    PROVIDER_ONLY = "provider_only"
     OPENAI_COMPATIBLE = "openai_compatible"
     MANUAL = "manual"
 
@@ -29,6 +30,7 @@ class ParserRegistration(FrozenModel):
     provider_ids: tuple[str, ...] = Field(min_length=1)
     exact_origins: tuple[str, ...] = ()
     openai_compatible_fallback: bool = False
+    match_provider_only: bool = False
 
     @model_validator(mode="after")
     def validate_registration(self) -> Self:
@@ -38,6 +40,8 @@ class ParserRegistration(FrozenModel):
             raise ValueError("parser origins must be unique")
         if any(normalize_provider_origin(origin) != origin for origin in self.exact_origins):
             raise ValueError("parser origins must be normalized HTTPS origins")
+        if self.match_provider_only and self.openai_compatible_fallback:
+            raise ValueError("a parser cannot be both provider-only and OpenAI-compatible fallback")
         return self
 
 
@@ -103,11 +107,21 @@ class ParserRegistry:
         exact_map: Final = {key: parser for key, parser in exact_entries}
         if len(exact_map) != len(exact_entries):
             raise ValueError("provider and origin pairs must select exactly one parser")
+        provider_only_entries: Final = tuple(
+            (provider_id, parser)
+            for parser in resolved
+            for provider_id in parser.registration.provider_ids
+            if parser.registration.match_provider_only
+        )
+        provider_only_map: Final = {provider_id: parser for provider_id, parser in provider_only_entries}
+        if len(provider_only_map) != len(provider_only_entries):
+            raise ValueError("provider-only parsers must map to unique provider IDs")
         fallbacks: Final = tuple(parser for parser in resolved if parser.registration.openai_compatible_fallback)
         if len(fallbacks) > 1:
             raise ValueError("only one OpenAI-compatible fallback parser can be registered")
         self._by_id = MappingProxyType(by_id)
         self._exact = MappingProxyType(exact_map)
+        self._provider_only = MappingProxyType(provider_only_map)
         self._openai_compatible = fallbacks[0] if fallbacks else None
 
     def select(self, request: ParserSelectionRequest) -> ParserSelection:
@@ -131,6 +145,13 @@ class ParserRegistry:
                 parser_id=exact.registration.parser_id,
                 source=ParserSelectionSource.PROVIDER_ORIGIN,
                 reason="Provider 与标准化 origin 精确匹配专用解析器",
+            )
+        provider_only: Final = self._provider_only.get(request.provider_id)
+        if provider_only is not None:
+            return ParserSelection(
+                parser_id=provider_only.registration.parser_id,
+                source=ParserSelectionSource.PROVIDER_ONLY,
+                reason="Provider 专用解析器（自托管无固定 origin）",
             )
         if request.openai_compatible and self._openai_compatible is not None:
             return ParserSelection(

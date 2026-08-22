@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from enum import StrEnum
 from typing import Self
 
@@ -87,6 +88,19 @@ class PeriodicLimitSnapshot(FrozenModel):
     resets_at: str | None = None
 
 
+class MeteredPriceOffer(FrozenModel):
+    provider_model_id: str = Field(min_length=1)
+    group_id: str | None = None
+    group_name: str | None = None
+    currency: str | None = None
+    unit: str | None = None
+    input_price: Decimal | None = Field(default=None, ge=0)
+    output_price: Decimal | None = Field(default=None, ge=0)
+    cache_read_price: Decimal | None = Field(default=None, ge=0)
+    cache_write_price: Decimal | None = Field(default=None, ge=0)
+    group_multiplier: Decimal = Field(default=Decimal("1"), gt=0)
+
+
 class ProviderValidationResult(FrozenModel):
     ok: bool
     provider_id: str
@@ -97,6 +111,7 @@ class ProviderValidationResult(FrozenModel):
     failure_code: ProviderValidationFailureCode | None = None
     capabilities: tuple[ProviderCapabilityView, ...]
     models: tuple[ModelOffer, ...] = ()
+    pricing: tuple[MeteredPriceOffer, ...] = ()
     balance: AccountBalance | None = None
     subscriptions: tuple[SubscriptionSnapshot, ...] = ()
     limits: tuple[PeriodicLimitSnapshot, ...] = ()

@@ -144,6 +144,7 @@ from account_pool.parsing.tasks.postgres import PostgresParserTaskRepository
 from account_pool.parsing.tasks.service import ParserTaskManager, ParserTaskService
 from account_pool.parsing.worker import ParserWorker
 from account_pool.provider_services.glm import GlmOfficialProviderService
+from account_pool.provider_services.new_api import NewApiProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
@@ -305,6 +306,7 @@ def create_app(
         (
             GlmOfficialProviderService(client),
             OpenAICompatibleProviderService(client),
+            NewApiProviderService(client),
         )
     )
     parser_registry: Final = build_parser_registry()
