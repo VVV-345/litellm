@@ -110,6 +110,9 @@ from account_pool.parsing.overrides.postgres import PostgresOverrideEventReposit
 from account_pool.parsing.overrides.service import ParserOverrideService, ParserOverrideWriter
 from account_pool.parsing.postgres import PostgresParserRunRepository
 from account_pool.parsing.projection import ParserRuntimeConfigEnricher
+from account_pool.parsing.public_metadata.postgres import PostgresPublicMetadataTaskRepository
+from account_pool.parsing.public_metadata.service import PublicMetadataTaskLoop, PublicMetadataTaskManager
+from account_pool.parsing.public_metadata.source import PublicMetadataSourceRegistry
 from account_pool.parsing.registry import ParserRegistry
 from account_pool.parsing.service import (
     EffectiveParserData,
@@ -189,6 +192,7 @@ class Runtime:
     parser_overrides: ParserOverrideWriter | None
     parser_tasks: ParserTaskManager | None
     parser_export_retries: ParserExportRetryManager | None
+    public_metadata_tasks: PublicMetadataTaskManager | None
     snapshot_importer: SnapshotImporter | None
     health_events: HealthEventRepository | None
     health_details: ChannelHealthDetailReader
@@ -209,6 +213,8 @@ def create_app(
     parser_overrides: ParserOverrideWriter | None = None,
     parser_tasks: ParserTaskManager | None = None,
     parser_export_retries: ParserExportRetryManager | None = None,
+    public_metadata_tasks: PublicMetadataTaskManager | None = None,
+    public_metadata_sources: PublicMetadataSourceRegistry | None = None,
     snapshot_importer: SnapshotImporter | None = None,
     health_events: HealthEventRepository | None = None,
     health_details: ChannelHealthDetailReader | None = None,
@@ -278,6 +284,7 @@ def create_app(
         )
     )
     parser_registry: Final = build_parser_registry()
+    resolved_public_metadata_sources: Final = public_metadata_sources or PublicMetadataSourceRegistry(())
     resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
     resolved_parser_data: Final = parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     resolved_routing_policies: Final = (
@@ -302,18 +309,35 @@ def create_app(
     resolved_parser_overrides: Final = (
         parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
     )
+    build_public_metadata_tasks: Final = (
+        public_metadata_tasks is None
+        and resolved_catalog is not None
+        and bool(resolved_public_metadata_sources.provider_ids)
+    )
+    build_parser_tasks: Final = parser_tasks is None
+    build_parser_export_retries: Final = parser_export_retries is None and (
+        build_parser_tasks or build_public_metadata_tasks
+    )
     parser_runtime: Final = (
         None
-        if parser_tasks is not None
+        if not (build_parser_tasks or build_parser_export_retries or build_public_metadata_tasks)
         else _build_parser_runtime(
             settings=resolved_settings,
             providers=provider_services,
             registry=parser_registry,
+            catalog=resolved_catalog,
+            public_metadata_sources=resolved_public_metadata_sources,
+            build_tasks=build_parser_tasks,
+            build_export_retries=build_parser_export_retries,
+            build_public_metadata_tasks=build_public_metadata_tasks,
         )
     )
     resolved_parser_tasks: Final = parser_tasks if parser_tasks is not None else _runtime_tasks(parser_runtime)
     resolved_parser_export_retries: Final = (
         parser_export_retries if parser_export_retries is not None else _runtime_export_retries(parser_runtime)
+    )
+    resolved_public_metadata_tasks: Final = (
+        public_metadata_tasks if public_metadata_tasks is not None else _runtime_public_metadata_tasks(parser_runtime)
     )
     resolved_snapshot_importer: Final = (
         snapshot_importer if snapshot_importer is not None else _build_snapshot_importer(resolved_settings)
@@ -386,6 +410,7 @@ def create_app(
         parser_overrides=resolved_parser_overrides,
         parser_tasks=resolved_parser_tasks,
         parser_export_retries=resolved_parser_export_retries,
+        public_metadata_tasks=resolved_public_metadata_tasks,
         snapshot_importer=resolved_snapshot_importer,
         health_events=resolved_health_events,
         health_details=resolved_health_details,
@@ -413,6 +438,8 @@ def create_app(
             await scheduler.initialize()
         if resolved_parser_tasks is not None:
             await resolved_parser_tasks.initialize()
+        if resolved_public_metadata_tasks is not None:
+            await resolved_public_metadata_tasks.initialize()
         reaper: Final = asyncio.create_task(_run_reaper(resolved_store))
         reconciler: Final = (
             None
@@ -428,6 +455,11 @@ def create_app(
             None
             if resolved_parser_export_retries is None
             else asyncio.create_task(resolved_parser_export_retries.run())
+        )
+        public_metadata_task: Final = (
+            None
+            if resolved_public_metadata_tasks is None
+            else asyncio.create_task(resolved_public_metadata_tasks.run())
         )
         health_probe_task: Final = (
             None
@@ -453,6 +485,10 @@ def create_app(
                 parser_export_retry_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await parser_export_retry_task
+            if public_metadata_task is not None:
+                public_metadata_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await public_metadata_task
             if health_probe_task is not None:
                 health_probe_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -1707,14 +1743,20 @@ def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
 
 @dataclass(frozen=True, slots=True)
 class _ParserRuntime:
-    tasks: ParserTaskManager
-    export_retries: ParserExportRetryManager
+    tasks: ParserTaskManager | None
+    export_retries: ParserExportRetryManager | None
+    public_metadata_tasks: PublicMetadataTaskManager | None
 
 
 def _build_parser_runtime(
     settings: Settings,
     providers: ProviderServiceRegistry,
     registry: ParserRegistry,
+    catalog: ChannelCatalogReader | None,
+    public_metadata_sources: PublicMetadataSourceRegistry,
+    build_tasks: bool,
+    build_export_retries: bool,
+    build_public_metadata_tasks: bool,
 ) -> _ParserRuntime | None:
     if settings.database_url is None:
         return None
@@ -1729,17 +1771,44 @@ def _build_parser_runtime(
         operations=operations,
     )
     return _ParserRuntime(
-        tasks=ParserTaskService(
-            providers=providers,
-            worker=worker,
-            repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
-            audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
-            operations=operations,
+        tasks=(
+            ParserTaskService(
+                providers=providers,
+                worker=worker,
+                repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
+                audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
+                operations=operations,
+            )
+            if build_tasks
+            else None
         ),
-        export_retries=ParserExportRetryLoop(
-            worker,
-            interval_seconds=settings.parser_export_retry_interval_seconds,
-            batch_size=settings.parser_export_retry_batch_size,
+        export_retries=(
+            ParserExportRetryLoop(
+                worker,
+                interval_seconds=settings.parser_export_retry_interval_seconds,
+                batch_size=settings.parser_export_retry_batch_size,
+            )
+            if build_export_retries
+            else None
+        ),
+        public_metadata_tasks=(
+            None
+            if not build_public_metadata_tasks or catalog is None or not public_metadata_sources.provider_ids
+            else PublicMetadataTaskLoop(
+                catalog=catalog,
+                sources=public_metadata_sources,
+                repository=PostgresPublicMetadataTaskRepository(
+                    settings.database_url,
+                    schema=settings.database_schema,
+                ),
+                worker=worker,
+                operations=operations,
+                interval_seconds=settings.public_metadata_poll_interval_seconds,
+                refresh_interval_seconds=settings.public_metadata_refresh_interval_seconds,
+                retry_base_seconds=settings.public_metadata_retry_base_seconds,
+                batch_size=settings.public_metadata_batch_size,
+                max_attempts=settings.public_metadata_max_attempts,
+            )
         ),
     )
 
@@ -1750,6 +1819,10 @@ def _runtime_tasks(runtime: _ParserRuntime | None) -> ParserTaskManager | None:
 
 def _runtime_export_retries(runtime: _ParserRuntime | None) -> ParserExportRetryManager | None:
     return None if runtime is None else runtime.export_retries
+
+
+def _runtime_public_metadata_tasks(runtime: _ParserRuntime | None) -> PublicMetadataTaskManager | None:
+    return None if runtime is None else runtime.public_metadata_tasks
 
 
 def _build_snapshot_importer(settings: Settings) -> SnapshotImporter | None:

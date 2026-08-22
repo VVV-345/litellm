@@ -793,6 +793,22 @@ async def test_lifespan_starts_and_stops_parser_export_retries() -> None:
     assert retries.cancelled is True
 
 
+def test_injected_parser_tasks_do_not_create_unrelated_parser_workers() -> None:
+    tasks: Final = FakeParserTaskManager()
+    runtime: Final = cast(
+        Runtime,
+        create_app(
+            settings=settings(database_url="postgresql://account-pool.invalid/test"),
+            store=MemoryStateStore(),
+            parser_tasks=tasks,
+        ).state.runtime,
+    )
+
+    assert runtime.parser_tasks is tasks
+    assert runtime.parser_export_retries is None
+    assert runtime.public_metadata_tasks is None
+
+
 @pytest.mark.asyncio
 async def test_management_api_requires_configured_internal_token() -> None:
     app: Final = create_app(settings=settings(internal_token="service-secret"), store=MemoryStateStore())

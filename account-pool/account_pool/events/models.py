@@ -77,6 +77,7 @@ class EventOperationalSummary(FrozenModel):
         "sync_reconcile",
         "request_lifecycle",
         "eligibility_transition",
+        "public_metadata_task",
     ]
     operation_id: UUID
     outcome: Literal["succeeded", "failed", "interrupted"]

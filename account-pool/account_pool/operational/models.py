@@ -11,6 +11,12 @@ from uuid import UUID, uuid5
 from pydantic import AwareDatetime, Field, model_validator
 
 from account_pool.models import AcquireCandidateRejection, FrozenModel, Lease, ModelName, SettleRequest
+from account_pool.operational.public_metadata_models import (
+    PublicMetadataOperationalDetails,
+    PublicMetadataTaskCompletedDetails,
+    PublicMetadataTaskFailedDetails,
+    PublicMetadataTaskRetryScheduledDetails,
+)
 from account_pool.operational.restriction_models import (
     RestrictionActivatedDetails,
     RestrictionClearedDetails,
@@ -43,6 +49,9 @@ class OperationalEventType(StrEnum):
     ELIGIBILITY_RESTRICTION_ACTIVATED = "eligibility_restriction_activated"
     ELIGIBILITY_RESTRICTION_UPDATED = "eligibility_restriction_updated"
     ELIGIBILITY_RESTRICTION_CLEARED = "eligibility_restriction_cleared"
+    PUBLIC_METADATA_TASK_COMPLETED = "public_metadata_task_completed"
+    PUBLIC_METADATA_TASK_RETRY_SCHEDULED = "public_metadata_task_retry_scheduled"
+    PUBLIC_METADATA_TASK_FAILED = "public_metadata_task_failed"
 
 
 class OperationalEventSource(StrEnum):
@@ -51,6 +60,7 @@ class OperationalEventSource(StrEnum):
     SYNC_RECONCILE = "sync_reconcile"
     REQUEST_LIFECYCLE = "request_lifecycle"
     ELIGIBILITY_TRANSITION = "eligibility_transition"
+    PUBLIC_METADATA_TASK = "public_metadata_task"
 
 
 class OperationalEventOutcome(StrEnum):
@@ -197,7 +207,8 @@ OperationalEventDetails = Annotated[
     | RequestUsageRecordedDetails
     | RequestReleasedDetails
     | LeaseExpiredDetails
-    | RestrictionEventDetails,
+    | RestrictionEventDetails
+    | PublicMetadataOperationalDetails,
     Field(discriminator="kind"),
 ]
 
@@ -221,6 +232,7 @@ class OperationalPoolEvent(FrozenModel):
         "account_pool_state_store",
         "account_pool_lease_reaper",
         "account_pool_eligibility",
+        "account_pool_public_metadata",
     ]
     safe_details: OperationalEventDetails
 
@@ -239,6 +251,8 @@ class OperationalPoolEvent(FrozenModel):
             OperationalEventType.ELIGIBILITY_RESTRICTION_ACTIVATED,
             OperationalEventType.ELIGIBILITY_RESTRICTION_UPDATED,
             OperationalEventType.ELIGIBILITY_RESTRICTION_CLEARED,
+            OperationalEventType.PUBLIC_METADATA_TASK_RETRY_SCHEDULED,
+            OperationalEventType.PUBLIC_METADATA_TASK_FAILED,
         )
         failed_settlement: Final = (
             self.event_type == OperationalEventType.REQUEST_SETTLED
@@ -651,6 +665,12 @@ def _event_outcome(
             | OperationalEventType.ELIGIBILITY_RESTRICTION_CLEARED
         ):
             return OperationalEventOutcome.SUCCEEDED
+        case OperationalEventType.PUBLIC_METADATA_TASK_COMPLETED:
+            return OperationalEventOutcome.SUCCEEDED
+        case OperationalEventType.PUBLIC_METADATA_TASK_RETRY_SCHEDULED:
+            return OperationalEventOutcome.INTERRUPTED
+        case OperationalEventType.PUBLIC_METADATA_TASK_FAILED:
+            return OperationalEventOutcome.FAILED
     assert_never(event_type)
 
 
@@ -757,7 +777,19 @@ def _event_source(event_type: OperationalEventType) -> OperationalEventSource:
         OperationalEventType.LEASE_EXPIRED,
     ):
         return OperationalEventSource.REQUEST_LIFECYCLE
-    return OperationalEventSource.ELIGIBILITY_TRANSITION
+    if event_type in (
+        OperationalEventType.ELIGIBILITY_RESTRICTION_ACTIVATED,
+        OperationalEventType.ELIGIBILITY_RESTRICTION_UPDATED,
+        OperationalEventType.ELIGIBILITY_RESTRICTION_CLEARED,
+    ):
+        return OperationalEventSource.ELIGIBILITY_TRANSITION
+    if event_type in (
+        OperationalEventType.PUBLIC_METADATA_TASK_COMPLETED,
+        OperationalEventType.PUBLIC_METADATA_TASK_RETRY_SCHEDULED,
+        OperationalEventType.PUBLIC_METADATA_TASK_FAILED,
+    ):
+        return OperationalEventSource.PUBLIC_METADATA_TASK
+    assert_never(event_type)
 
 
 def _event_operation_id(event: OperationalPoolEvent) -> UUID:
@@ -778,6 +810,11 @@ def _event_operation_id(event: OperationalPoolEvent) -> UUID:
         )
     if isinstance(details, (RestrictionActivatedDetails, RestrictionUpdatedDetails, RestrictionClearedDetails)):
         return details.restriction_id
+    if isinstance(
+        details,
+        (PublicMetadataTaskCompletedDetails, PublicMetadataTaskRetryScheduledDetails, PublicMetadataTaskFailedDetails),
+    ):
+        return details.task_id
     if event.lease_id is None:
         raise ValueError("lease lifecycle events require a lease ID")
     return uuid5(_OPERATIONAL_EVENT_NAMESPACE, f"lease:{event.lease_id}")

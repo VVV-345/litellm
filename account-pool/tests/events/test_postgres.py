@@ -362,6 +362,37 @@ def test_restriction_event_decodes_registered_safe_details() -> None:
     assert event.safe_details["billing_route_id"] == "route-a"
 
 
+def test_public_metadata_event_decodes_registered_safe_details() -> None:
+    task_id: Final = UUID("92000000-0000-0000-0000-000000000007")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "public_metadata_task_retry_scheduled",
+                {
+                    "kind": "public_metadata_task_retry_scheduled",
+                    "task_id": str(task_id),
+                    "parser_run_id": "92000000-0000-0000-0000-000000000008",
+                    "provider_id": "public_fixture",
+                    "attempt_count": 1,
+                    "next_attempt_at": "2026-08-22T10:01:00Z",
+                    "failure_code": "source_transport",
+                },
+            ),
+            "reason_code": "source_transport",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "public_metadata_task",
+            "operational_operation_id": str(task_id),
+            "operational_outcome": "interrupted",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.INTERRUPTED
+    assert event.operational is not None and event.operational.source == "public_metadata_task"
+    assert isinstance(event.safe_details, dict)
+    assert event.safe_details["failure_code"] == "source_transport"
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(

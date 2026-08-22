@@ -20,6 +20,7 @@ from account_pool.operational.models import (
     build_sync_reconcile_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
+from account_pool.operational.public_metadata import build_public_metadata_task_record
 from account_pool.operational.repository import (
     OperationalEventRepository,
     OperationalPersistenceFailure,
@@ -53,6 +54,7 @@ __all__ = [
     "build_lease_expired_record",
     "build_parser_snapshot_export_record",
     "build_parser_task_operational_record",
+    "build_public_metadata_task_record",
     "build_request_acquire_failed_record",
     "build_request_acquired_record",
     "build_request_released_record",

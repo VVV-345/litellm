@@ -3,7 +3,8 @@
 from pathlib import Path
 from typing import Final
 
-from account_pool.config import load_pool_config
+import pytest
+from account_pool.config import Settings, load_pool_config
 from account_pool.models import ChannelPriority, normalize_channel_priority
 
 
@@ -51,3 +52,19 @@ def test_priority_normalization_has_four_stable_bands() -> None:
     assert normalize_channel_priority(399) == ChannelPriority.HIGH
     assert normalize_channel_priority(400) == ChannelPriority.HIGHEST
     assert normalize_channel_priority(999) == ChannelPriority.HIGHEST
+
+
+def test_public_metadata_worker_settings_load_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_PUBLIC_METADATA_POLL_INTERVAL_SECONDS", "17")
+    monkeypatch.setenv("ACCOUNT_POOL_PUBLIC_METADATA_REFRESH_INTERVAL_SECONDS", "1800")
+    monkeypatch.setenv("ACCOUNT_POOL_PUBLIC_METADATA_RETRY_BASE_SECONDS", "7")
+    monkeypatch.setenv("ACCOUNT_POOL_PUBLIC_METADATA_BATCH_SIZE", "4")
+    monkeypatch.setenv("ACCOUNT_POOL_PUBLIC_METADATA_MAX_ATTEMPTS", "2")
+
+    loaded: Final = Settings.from_env()
+
+    assert loaded.public_metadata_poll_interval_seconds == 17
+    assert loaded.public_metadata_refresh_interval_seconds == 1800
+    assert loaded.public_metadata_retry_base_seconds == 7
+    assert loaded.public_metadata_batch_size == 4
+    assert loaded.public_metadata_max_attempts == 2

@@ -99,6 +99,25 @@ LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
 自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
 生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport
 
+## 公开元数据后台队列
+
+公开元数据解析使用独立 PostgreSQL 队列，可由多个 Account Pool worker 通过 `FOR UPDATE SKIP LOCKED` 竞争认领。
+任务只保存渠道、Provider、解析运行和状态 ID；执行时从渠道目录读取当前 URL。URL、Key、凭证引用、请求或响应正文
+不会写入任务或运行事件。传输失败采用有上限的指数退避，worker 失联任务会恢复为等待重试或永久失败，每次重试使用
+新的 parser run ID，避免不同结果复用同一幂等键
+
+Provider 只有显式注册无凭证公开来源后才会进入该队列。GLM 官方开发平台和 OpenAI 兼容协议目前都没有稳定的
+无凭证账户元数据接口，因此默认不注册，后台队列不会请求它们，也不会从公开页面猜测余额、套餐或实际价格。新增来源
+需在对应 `provider_services/{provider_id}/public_metadata.py` 内实现，具体安全和字段契约见 `PARSER_TEMPLATE.md`
+
+可通过以下环境变量调整队列：
+
+- `ACCOUNT_POOL_PUBLIC_METADATA_POLL_INTERVAL_SECONDS`：扫描周期，默认 300 秒
+- `ACCOUNT_POOL_PUBLIC_METADATA_REFRESH_INTERVAL_SECONDS`：同一渠道刷新间隔，默认 86400 秒
+- `ACCOUNT_POOL_PUBLIC_METADATA_RETRY_BASE_SECONDS`：指数退避基数，默认 30 秒
+- `ACCOUNT_POOL_PUBLIC_METADATA_BATCH_SIZE`：单轮最大任务数，默认 25
+- `ACCOUNT_POOL_PUBLIC_METADATA_MAX_ATTEMPTS`：最大尝试次数，默认 3
+
 ## 解析运行持久化与 JSON 快照
 
 统一解析结果可通过 `ParserSnapshotStore` 导出到 `account-pool/data/parser-snapshots/`。`latest.json` 以渠道 UUID

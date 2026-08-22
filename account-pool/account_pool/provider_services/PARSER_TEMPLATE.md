@@ -14,11 +14,28 @@ schemas.py   typed upstream response models
 client.py    URL validation, authentication, HTTP calls, and safe failures
 service.py   conversion to Account Pool domain results
 parser.py    conversion from validated provider data to the unified parser contract
+public_metadata.py optional credential-free metadata source registration
 fixtures/    sanitized provider responses for contract tests, when needed
 ```
 
 The validation registry depends only on `ProviderService`. The credential-free parser registry depends on immutable parser
 registrations. Provider-specific branching must remain inside the provider directory.
+
+## Credential-Free Background Source
+
+Only add `public_metadata.py` when the provider has a stable official endpoint that can return useful metadata without an API key,
+cookie, session, or account token. Register `RegisteredPublicMetadataSource` with the provider IDs, an existing parser ID, and an
+async fetch function. Providers without such an endpoint remain unregistered; the worker must not infer balances, subscriptions, or
+prices from marketing pages or public model names.
+
+The persistent task contains only task, channel, parser-run and provider IDs plus execution state. The worker resolves the current
+channel URL from the PostgreSQL catalog at execution time. URL, Key, credential reference, request and response bodies, cookies,
+headers, and upstream error text must not enter the queue or operational events. A source result containing `key_fingerprint` is
+rejected as unsafe.
+
+Public tasks use PostgreSQL claiming with `FOR UPDATE SKIP LOCKED`, bounded exponential retry, heartbeat, and stale-worker recovery.
+Each retry receives a new parser-run ID. Source transport failures are retryable; invalid or unsupported responses are persisted as a
+typed parser run and then complete as a permanent task failure.
 
 ## Selection
 

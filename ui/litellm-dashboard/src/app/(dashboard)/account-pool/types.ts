@@ -525,7 +525,13 @@ export interface EventHealthSummary {
 }
 
 export interface EventOperationalSummary {
-  source: "parser_task" | "parser_snapshot_export" | "sync_reconcile" | "request_lifecycle" | "eligibility_transition";
+  source:
+    | "parser_task"
+    | "parser_snapshot_export"
+    | "sync_reconcile"
+    | "request_lifecycle"
+    | "eligibility_transition"
+    | "public_metadata_task";
   operation_id: string;
   outcome: "succeeded" | "failed" | "interrupted";
 }

@@ -30,6 +30,11 @@ class Settings:
     reconcile_interval_seconds: int = 30
     parser_export_retry_interval_seconds: int = 30
     parser_export_retry_batch_size: int = 25
+    public_metadata_poll_interval_seconds: int = 300
+    public_metadata_refresh_interval_seconds: int = 86_400
+    public_metadata_retry_base_seconds: int = 30
+    public_metadata_batch_size: int = 25
+    public_metadata_max_attempts: int = 3
     health_probe_interval_seconds: int = 0
     health_idle_probe_after_seconds: int = 86_400
 
@@ -57,6 +62,17 @@ class Settings:
             parser_export_retry_batch_size=int(
                 os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_BATCH_SIZE", "25")
             ),
+            public_metadata_poll_interval_seconds=int(
+                os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_POLL_INTERVAL_SECONDS", "300")
+            ),
+            public_metadata_refresh_interval_seconds=int(
+                os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_REFRESH_INTERVAL_SECONDS", "86400")
+            ),
+            public_metadata_retry_base_seconds=int(
+                os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_RETRY_BASE_SECONDS", "30")
+            ),
+            public_metadata_batch_size=int(os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_BATCH_SIZE", "25")),
+            public_metadata_max_attempts=int(os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_MAX_ATTEMPTS", "3")),
             health_probe_interval_seconds=int(os.environ.get("ACCOUNT_POOL_HEALTH_PROBE_INTERVAL_SECONDS", "0")),
             health_idle_probe_after_seconds=int(
                 os.environ.get("ACCOUNT_POOL_HEALTH_IDLE_PROBE_AFTER_SECONDS", "86400")

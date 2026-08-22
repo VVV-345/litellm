@@ -1588,6 +1588,7 @@ model LiteLLM_AccountPoolChannel {
   created_at            DateTime @default(now()) @client.Timestamptz(6)
   updated_at            DateTime @updatedAt @client.Timestamptz(6)
   bindings              LiteLLM_AccountPoolBinding[]
+  public_metadata_tasks LiteLLM_AccountPoolPublicMetadataTask[]
 }
 
 model LiteLLM_AccountPoolBinding {
@@ -1733,6 +1734,27 @@ model LiteLLM_AccountPoolOperationalEvent {
 
   @@index([operation_id])
   @@index([source, outcome])
+}
+
+model LiteLLM_AccountPoolPublicMetadataTask {
+  task_id           String   @id
+  channel_id        String
+  parser_run_id     String   @unique
+  provider_id       String
+  status            String
+  attempt_count     Int      @default(0)
+  max_attempts      Int      @default(3)
+  owner_instance_id String?
+  next_attempt_at   DateTime @client.Timestamptz(6)
+  created_at        DateTime @default(now()) @client.Timestamptz(6)
+  updated_at        DateTime @updatedAt @client.Timestamptz(6)
+  started_at        DateTime? @client.Timestamptz(6)
+  completed_at      DateTime? @client.Timestamptz(6)
+  failure_code      String?
+  channel           LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+
+  @@index([channel_id, updated_at])
+  @@index([status, next_attempt_at, created_at])
 }
 
 model LiteLLM_AccountPoolHealthActivity {

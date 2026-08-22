@@ -80,6 +80,7 @@ class _LinkedRow(FrozenModel):
         "account_pool_state_store",
         "account_pool_lease_reaper",
         "account_pool_eligibility",
+        "account_pool_public_metadata",
     ]
     safe_details: object
     operational_event_id: UUID

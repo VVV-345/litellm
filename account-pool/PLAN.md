@@ -1143,7 +1143,7 @@ Account Pool
 - JSON 以 channel_id 为键且不含 URL 和 Key
 - 新解析器必须通过统一契约测试才能注册
 
-实施状态（2026-08-19）：Phase 2 已完成解析器契约、GLM 与 OpenAI 兼容解析器、规范化 PostgreSQL 仓储、人工覆盖、一次性 Key 任务、JSON 快照及后台导出重试。当前剩余公开元数据任务的普通 worker 队列，以及目标 PostgreSQL 和登录 Dashboard 环境中的真实链路验收；OpenAI 官方专用解析器按已确认范围暂缓，不阻塞当前 OpenAI 兼容渠道流程
+实施状态（2026-08-22）：Phase 2 已完成解析器契约、GLM 与 OpenAI 兼容解析器、规范化 PostgreSQL 仓储、人工覆盖、一次性 Key 任务、JSON 快照、后台导出重试及公开元数据普通 worker 队列。公开任务使用独立 PostgreSQL 表、`FOR UPDATE SKIP LOCKED` 竞争认领、心跳、陈旧任务恢复和有上限指数退避，且不保存 URL、Key、凭证引用或上游正文；GLM 与 OpenAI 兼容当前没有稳定的官方无凭证账户元数据接口，因此默认不注册公开来源。当前剩余目标 PostgreSQL 和登录 Dashboard 环境中的真实链路验收；OpenAI 官方专用解析器按已确认范围暂缓，不阻塞当前 OpenAI 兼容渠道流程
 
 ### Phase 3：健康、额度窗口与冷却
 
@@ -1283,7 +1283,11 @@ Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加�
 
 当前自动化验证为 Account Pool 全量 `630 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint/Prettier 均无错误，三份 Prisma schema 已同步运行事件关系，新增资格限制来源由数据库迁移扩展约束；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
 
-Phase 5 仍需把公开元数据解析任务接入普通 worker 队列，并把任务生命周期写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+公开元数据解析任务已经接入独立普通 worker 队列，并把完成、等待重试和永久失败生命周期写入同一个公共信封和日志查询。任务不携带 URL 或凭证，执行时读取当前渠道目录；多实例通过 `FOR UPDATE SKIP LOCKED` 认领，传输失败指数退避，失联任务启动时恢复。Provider 必须显式注册无凭证公开来源才会调度，GLM 和 OpenAI 兼容当前默认不注册，避免伪造余额、套餐或价格
+
+本批代码验证中 Account Pool 全量为 `654 passed, 53 skipped`，53 个跳过项需要目标 PostgreSQL；公开队列服务、事件和配置聚焦测试通过。新增及修改 Python 路径 basedpyright 与 Ruff 无错误，Dashboard 修改路径 Prettier 与 ESLint 通过，三份 Prisma 模型文本一致。Dashboard 事件面板功能测试在增加公开事件样例后已修正为按目标事件行点击，但按用户安排未再次执行；Prisma CLI 未安装，未下载依赖，也未执行真实 PostgreSQL 迁移或多 worker 竞争验收
+
+Phase 5 其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情、日志和公开元数据队列仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

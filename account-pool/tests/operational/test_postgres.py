@@ -24,6 +24,7 @@ from account_pool.operational.models import (
     build_sync_reconcile_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository, decode_operational_record
+from account_pool.operational.public_metadata import build_public_metadata_task_record
 from account_pool.operational.repository import (
     OperationalPersistenceFailure,
     OperationalPersistenceFailureCode,
@@ -78,6 +79,14 @@ _RESTRICTION_MIGRATION: Final = (
     / "litellm_proxy_extras"
     / "migrations"
     / "20260822050000_expand_account_pool_restriction_events"
+    / "migration.sql"
+)
+_PUBLIC_METADATA_MIGRATION: Final = (
+    Path(__file__).resolve().parents[3]
+    / "litellm-proxy-extras"
+    / "litellm_proxy_extras"
+    / "migrations"
+    / "20260822060000_add_account_pool_public_metadata_tasks"
     / "migration.sql"
 )
 
@@ -165,6 +174,18 @@ def _restriction_record() -> OperationalEventRecord:
     )[0]
 
 
+def _public_metadata_record() -> OperationalEventRecord:
+    return build_public_metadata_task_record(
+        task_id=_TASK_ID,
+        channel_id=_CHANNEL_ID,
+        parser_run_id=_RUN_ID,
+        provider_id="public_fixture",
+        attempt_count=1,
+        occurred_at=_NOW,
+        event_type=OperationalEventType.PUBLIC_METADATA_TASK_COMPLETED,
+    )
+
+
 @pytest_asyncio.fixture
 async def operational_repository_fixture() -> AsyncIterator[OperationalRepositoryFixture]:
     database_url: Final = os.getenv("DATABASE_URL")
@@ -199,6 +220,14 @@ async def operational_repository_fixture() -> AsyncIterator[OperationalRepositor
             await connection.execute(_SYNC_MIGRATION.read_bytes())
             await connection.execute(_REQUEST_MIGRATION.read_bytes())
             await connection.execute(_RESTRICTION_MIGRATION.read_bytes())
+            await connection.execute(
+                b"""
+                CREATE TABLE "LiteLLM_AccountPoolChannel" (
+                    channel_id TEXT PRIMARY KEY
+                )
+                """
+            )
+            await connection.execute(_PUBLIC_METADATA_MIGRATION.read_bytes())
             yield OperationalRepositoryFixture(
                 repository=PostgresOperationalEventRepository(database_url, schema=schema)
             )
@@ -224,6 +253,9 @@ async def test_repository_writes_linked_event_idempotently(
     restriction: Final = await repository.append(_restriction_record())
     assert isinstance(restriction, OperationalWriteSuccess)
     assert restriction.record.event.actor_id == "account_pool_eligibility"
+    public_metadata: Final = await repository.append(_public_metadata_record())
+    assert isinstance(public_metadata, OperationalWriteSuccess)
+    assert public_metadata.record.operational.source.value == "public_metadata_task"
 
 
 async def test_same_event_id_with_changed_content_is_rejected(
@@ -259,6 +291,7 @@ def test_migration_contains_only_normalized_operational_fields() -> None:
     sync_expansion: Final = _SYNC_MIGRATION.read_text(encoding="utf-8")
     request_expansion: Final = _REQUEST_MIGRATION.read_text(encoding="utf-8")
     restriction_expansion: Final = _RESTRICTION_MIGRATION.read_text(encoding="utf-8")
+    public_metadata_expansion: Final = _PUBLIC_METADATA_MIGRATION.read_text(encoding="utf-8")
 
     assert 'CREATE TABLE "LiteLLM_AccountPoolOperationalEvent"' in migration
     assert '"operation_id" TEXT NOT NULL' in migration
@@ -267,6 +300,7 @@ def test_migration_contains_only_normalized_operational_fields() -> None:
     assert "sync_reconcile" in sync_expansion
     assert "request_lifecycle" in request_expansion
     assert "eligibility_transition" in restriction_expansion
+    assert "public_metadata_task" in public_metadata_expansion
     assert "api_key" not in migration.casefold()
     assert "authorization" not in migration.casefold()
     assert "response_body" not in migration.casefold()

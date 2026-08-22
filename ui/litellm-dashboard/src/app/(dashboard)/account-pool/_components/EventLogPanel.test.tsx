@@ -1,7 +1,7 @@
 // 本文件验证统一事件日志的筛选、原因说明和游标分页交互。
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +18,36 @@ const firstPage: EventLogPage = {
   status: "loaded",
   next_cursor: "next-page",
   events: [
+    {
+      event_id: "event-public-metadata",
+      event_type: "public_metadata_task_retry_scheduled",
+      occurred_at: "2026-08-21T10:05:00Z",
+      channel_id: "channel-1",
+      model_id: null,
+      deployment_id: null,
+      request_id: null,
+      lease_id: null,
+      reason_code: "source_transport",
+      actor_type: "system",
+      actor_id: "account_pool_public_metadata",
+      outcome: "interrupted",
+      safe_details: {
+        kind: "public_metadata_task_retry_scheduled",
+        task_id: "task-public-metadata",
+        parser_run_id: "run-public-metadata",
+        provider_id: "public_fixture",
+        attempt_count: 1,
+        next_attempt_at: "2026-08-21T10:06:00Z",
+        failure_code: "source_transport",
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "public_metadata_task",
+        operation_id: "task-public-metadata",
+        outcome: "interrupted",
+      },
+    },
     {
       event_id: "event-1",
       event_type: "passive_health_result",
@@ -255,6 +285,7 @@ describe("EventLogPanel", () => {
     renderPanel("channel-1");
 
     expect(await screen.findByText("请求健康结果")).toBeInTheDocument();
+    expect(screen.getByText("公开元数据等待重试")).toBeInTheDocument();
     expect(screen.getByText("解析任务已中断")).toBeInTheDocument();
     expect(screen.getByText("解析快照已导出")).toBeInTheDocument();
     expect(screen.getByText("后台同步失败")).toBeInTheDocument();
@@ -272,7 +303,9 @@ describe("EventLogPanel", () => {
       limit: 50,
     });
 
-    await user.click(screen.getAllByRole("button", { name: "查看事件详情" })[0]);
+    const healthEventRow = screen.getByText("请求健康结果").closest("tr");
+    expect(healthEventRow).not.toBeNull();
+    await user.click(within(healthEventRow!).getByRole("button", { name: "查看事件详情" }));
     expect(screen.getByRole("dialog", { name: "事件详情" })).toBeInTheDocument();
     expect(screen.getByText("lease-1")).toBeInTheDocument();
     expect(screen.getByText(/"transition": "cooldown"/)).toBeInTheDocument();
