@@ -68,3 +68,25 @@ def test_public_metadata_worker_settings_load_from_environment(monkeypatch: pyte
     assert loaded.public_metadata_retry_base_seconds == 7
     assert loaded.public_metadata_batch_size == 4
     assert loaded.public_metadata_max_attempts == 2
+
+
+def test_event_retention_settings_load_without_exposing_archive_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_EVENT_RETENTION_DAYS", "91")
+    monkeypatch.setenv("ACCOUNT_POOL_AUDIT_EVENT_RETENTION_DAYS", "365")
+    monkeypatch.setenv("ACCOUNT_POOL_RETENTION_INTERVAL_SECONDS", "7200")
+    monkeypatch.setenv("ACCOUNT_POOL_RETENTION_BATCH_SIZE", "500")
+    monkeypatch.setenv("ACCOUNT_POOL_EVENT_ARCHIVE_PATH", "archives/events")
+    monkeypatch.setenv("ACCOUNT_POOL_EVENT_ARCHIVE_KEY", "secret-key-material")
+    monkeypatch.setenv("ACCOUNT_POOL_EVENT_ARCHIVE_KEY_ID", "production-2026")
+
+    loaded: Final = Settings.from_env()
+
+    assert loaded.event_retention_days == 91
+    assert loaded.audit_event_retention_days == 365
+    assert loaded.retention_interval_seconds == 7200
+    assert loaded.retention_batch_size == 500
+    assert loaded.event_archive_path == Path("archives/events")
+    assert loaded.event_archive_key is not None
+    assert loaded.event_archive_key.get_secret_value() == "secret-key-material"
+    assert "secret-key-material" not in repr(loaded.event_archive_key)
+    assert loaded.event_archive_key_id == "production-2026"

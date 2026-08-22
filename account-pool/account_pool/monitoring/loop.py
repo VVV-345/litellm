@@ -11,8 +11,13 @@ from account_pool.monitoring.models import WorkerName
 from account_pool.monitoring.registry import WorkerMonitor
 
 Cycle = Callable[[], Awaitable[object]]
+CycleSuccess = Callable[[object], bool]
 Sleep = Callable[[float], Awaitable[None]]
 Monotonic = Callable[[], float]
+
+
+def cycle_completed(_: object) -> bool:
+    return True
 
 
 async def run_worker_loop(
@@ -26,6 +31,7 @@ async def run_worker_loop(
     initial_delay: bool = False,
     sleep: Sleep = asyncio.sleep,
     monotonic: Monotonic = time.perf_counter,
+    result_is_success: CycleSuccess = cycle_completed,
 ) -> None:
     if interval_seconds <= 0:
         raise ValueError("worker interval must be positive")
@@ -37,14 +43,19 @@ async def run_worker_loop(
             monitor.cycle_started(worker)
             started_at = monotonic()
             try:
-                await cycle()
+                result = await cycle()
             except asyncio.CancelledError:
                 raise
             except Exception:
                 monitor.failed(worker, monotonic() - started_at)
                 logger.error(failure_message)
             else:
-                monitor.succeeded(worker, monotonic() - started_at)
+                duration = monotonic() - started_at
+                if result_is_success(result):
+                    monitor.succeeded(worker, duration)
+                else:
+                    monitor.failed(worker, duration)
+                    logger.error(failure_message)
             await sleep(interval_seconds)
     finally:
         monitor.stopped(worker)

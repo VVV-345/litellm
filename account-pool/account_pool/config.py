@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Final, Literal, cast
 
 import yaml
-from pydantic import TypeAdapter
+from pydantic import SecretStr, TypeAdapter
 
 from account_pool.models import PoolConfig, normalize_channel_priority
 
@@ -37,11 +37,20 @@ class Settings:
     public_metadata_max_attempts: int = 3
     health_probe_interval_seconds: int = 0
     health_idle_probe_after_seconds: int = 86_400
+    event_retention_days: int = 90
+    audit_event_retention_days: int = 90
+    retention_interval_seconds: int = 300
+    retention_batch_size: int = 10_000
+    event_archive_path: Path | None = None
+    event_archive_key: SecretStr | None = None
+    event_archive_key_id: str = "default"
 
     @classmethod
     def from_env(cls) -> Settings:
         root: Final = Path(__file__).resolve().parents[1]
         mode_value: Final = os.environ.get("ACCOUNT_POOL_STORE", "memory").lower()
+        archive_path_value: Final = os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_PATH") or None
+        archive_key_value: Final = os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_KEY") or None
         if mode_value not in {"memory", "redis"}:
             raise ValueError("ACCOUNT_POOL_STORE must be memory or redis")
         return cls(
@@ -59,9 +68,7 @@ class Settings:
             parser_export_retry_interval_seconds=int(
                 os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_INTERVAL_SECONDS", "30")
             ),
-            parser_export_retry_batch_size=int(
-                os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_BATCH_SIZE", "25")
-            ),
+            parser_export_retry_batch_size=int(os.environ.get("ACCOUNT_POOL_PARSER_EXPORT_RETRY_BATCH_SIZE", "25")),
             public_metadata_poll_interval_seconds=int(
                 os.environ.get("ACCOUNT_POOL_PUBLIC_METADATA_POLL_INTERVAL_SECONDS", "300")
             ),
@@ -77,6 +84,13 @@ class Settings:
             health_idle_probe_after_seconds=int(
                 os.environ.get("ACCOUNT_POOL_HEALTH_IDLE_PROBE_AFTER_SECONDS", "86400")
             ),
+            event_retention_days=int(os.environ.get("ACCOUNT_POOL_EVENT_RETENTION_DAYS", "90")),
+            audit_event_retention_days=int(os.environ.get("ACCOUNT_POOL_AUDIT_EVENT_RETENTION_DAYS", "90")),
+            retention_interval_seconds=int(os.environ.get("ACCOUNT_POOL_RETENTION_INTERVAL_SECONDS", "300")),
+            retention_batch_size=int(os.environ.get("ACCOUNT_POOL_RETENTION_BATCH_SIZE", "10000")),
+            event_archive_path=None if archive_path_value is None else Path(archive_path_value),
+            event_archive_key=None if archive_key_value is None else SecretStr(archive_key_value),
+            event_archive_key_id=os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_KEY_ID", "default"),
         )
 
 

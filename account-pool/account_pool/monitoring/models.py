@@ -14,6 +14,7 @@ class WorkerName(StrEnum):
     PARSER_EXPORT_RETRY = "parser_export_retry"
     PUBLIC_METADATA = "public_metadata"
     ACTIVE_HEALTH_PROBE = "active_health_probe"
+    EVENT_RETENTION = "event_retention"
 
 
 class WorkerStatus(StrEnum):

@@ -193,5 +193,35 @@ Worker 超过两个预期间隔没有完成周期时动态标记为 `stalled`。
 
 周期异常不会终止 Worker 循环。公共日志仅写固定失败说明，不附加异常正文；业务失败详情通过既有稳定原因码事件查看
 
+## 事件保留与加密归档
+
+统一事件默认在线保留 90 天，并且只归档已经完整结束的月份。普通事件与管理审计分开归档，审计保留天数可以更长，
+但配置短于普通事件时服务会拒绝启动。每轮最多归档一个范围内的固定批次，避免大月份占用无界内存；后续周期继续处理
+同月剩余事件
+
+归档只读取已经通过统一事件 Pydantic 模型验证的公共信封和单一关联事实，不读取渠道目录、URL、Key、凭证引用或上游
+响应。每个归档目录包含 AES-256-GCM 密文和不含业务正文的清单，清单记录事件 ID、月份范围、密钥标识、明文 SHA-256
+和密文 SHA-256。密文、清单和解密内容全部校验成功后，PostgreSQL 才会按清单中的精确事件 ID 事务删除关联事实与公共信封；
+写入、校验或数据库删除失败都会保留在线数据，重复周期会验证已有归档后继续完成删除
+
+归档默认关闭。启用时必须同时设置：
+
+- `ACCOUNT_POOL_EVENT_ARCHIVE_PATH`：持久化归档目录，容器部署时必须挂载持久卷
+- `ACCOUNT_POOL_EVENT_ARCHIVE_KEY`：URL-safe Base64 编码的 32 字节随机密钥，不得提交到仓库
+- `ACCOUNT_POOL_EVENT_ARCHIVE_KEY_ID`：非敏感密钥版本标识，默认 `default`
+- `ACCOUNT_POOL_EVENT_RETENTION_DAYS`：普通事件在线保留天数，默认 90
+- `ACCOUNT_POOL_AUDIT_EVENT_RETENTION_DAYS`：审计事件在线保留天数，默认 90
+- `ACCOUNT_POOL_RETENTION_INTERVAL_SECONDS`：归档扫描周期，默认 300 秒
+- `ACCOUNT_POOL_RETENTION_BATCH_SIZE`：单个加密归档的最大事件数，默认 10000，最大 100000
+
+PowerShell 可使用已有 Python 环境生成密钥：
+
+```powershell
+$env:ACCOUNT_POOL_EVENT_ARCHIVE_KEY = python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))"
+```
+
+密钥必须由部署密钥管理系统保存。轮换时先保留旧密钥用于历史归档恢复，再使用新的 `KEY_ID` 和密钥写后续归档；当前
+服务不会在数据库删除之后重新加密历史文件
+
 客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
 生产网络中应限制 LiteLLM Proxy 的直接访问

@@ -32,6 +32,12 @@ class StopAfterTwoSleeps:
             raise asyncio.CancelledError
 
 
+class StopAfterOneSleep:
+    async def __call__(self, delay: float) -> None:
+        assert delay == 5
+        raise asyncio.CancelledError
+
+
 def _monotonic(values: tuple[float, ...]) -> Callable[[], float]:
     iterator: Final = iter(values)
     return lambda: next(iterator)
@@ -88,3 +94,28 @@ async def test_monitored_service_reports_unexpected_exit_without_exception_text(
     assert state.failure_count == 1
     assert "public metadata worker stopped" in caplog.text
     assert "private provider response" not in caplog.text
+
+
+async def test_worker_loop_counts_unsuccessful_result_as_failure(caplog: pytest.LogCaptureFixture) -> None:
+    registry: Final = WorkerMonitorRegistry((WorkerRegistration(WorkerName.EVENT_RETENTION, True, 5),))
+
+    async def failed_result() -> str:
+        return "failed"
+
+    with caplog.at_level(logging.ERROR), pytest.raises(asyncio.CancelledError):
+        await run_worker_loop(
+            worker=WorkerName.EVENT_RETENTION,
+            cycle=failed_result,
+            interval_seconds=5,
+            monitor=registry,
+            logger=logging.getLogger(__name__),
+            failure_message="retention cycle failed",
+            sleep=StopAfterOneSleep(),
+            monotonic=_monotonic((1.0, 1.25)),
+            result_is_success=lambda result: result != "failed",
+        )
+
+    state: Final = registry.snapshot().workers[0]
+    assert state.failure_count == 1
+    assert state.success_count == 0
+    assert "retention cycle failed" in caplog.text

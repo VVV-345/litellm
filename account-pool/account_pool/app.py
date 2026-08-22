@@ -149,6 +149,15 @@ from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.quota.postgres import PostgresQuotaRuntimeRepository
+from account_pool.retention import (
+    EncryptedEventArchive,
+    EventRetentionService,
+    PostgresRetentionRepository,
+    RetentionFailure,
+    RetentionPolicy,
+    RetentionRunner,
+    decode_archive_key,
+)
 from account_pool.routing.latency_postgres import PostgresLatencyMetricRepository
 from account_pool.routing.latency_store import DurableLatencyStateStore
 from account_pool.routing.models import (
@@ -211,6 +220,7 @@ class Runtime:
     overview: AccountPoolOverviewReader | None
     event_log: EventLogReader | None
     channel_details: ChannelAggregateReader | None
+    retention: RetentionRunner | None
     worker_monitor: WorkerMonitorRegistry
 
 
@@ -234,6 +244,7 @@ def create_app(
     overview: AccountPoolOverviewReader | None = None,
     event_log: EventLogReader | None = None,
     channel_details: ChannelAggregateReader | None = None,
+    retention: RetentionRunner | None = None,
     worker_monitor: WorkerMonitorRegistry | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
@@ -297,6 +308,7 @@ def create_app(
     )
     parser_registry: Final = build_parser_registry()
     resolved_public_metadata_sources: Final = public_metadata_sources or PublicMetadataSourceRegistry(())
+    resolved_retention: Final = retention if retention is not None else _build_retention(resolved_settings)
     resolved_catalog: Final = catalog if catalog is not None else _build_catalog(resolved_settings)
     resolved_parser_data: Final = parser_data if parser_data is not None else _build_parser_data(resolved_settings)
     resolved_routing_policies: Final = (
@@ -341,6 +353,7 @@ def create_app(
             public_metadata_tasks is not None
             or (resolved_settings.database_url is not None and build_public_metadata_tasks)
         ),
+        retention_enabled=resolved_retention is not None,
     )
     parser_runtime: Final = (
         None
@@ -444,6 +457,7 @@ def create_app(
         overview=resolved_overview,
         event_log=resolved_event_log,
         channel_details=resolved_channel_details,
+        retention=resolved_retention,
         worker_monitor=resolved_worker_monitor,
     )
 
@@ -515,6 +529,22 @@ def create_app(
                 )
             )
         )
+        retention_task: Final = (
+            None
+            if resolved_retention is None
+            else asyncio.create_task(
+                run_worker_loop(
+                    worker=WorkerName.EVENT_RETENTION,
+                    cycle=resolved_retention.run_once,
+                    interval_seconds=resolved_settings.retention_interval_seconds,
+                    monitor=resolved_worker_monitor,
+                    logger=_LOGGER,
+                    failure_message="Event retention worker cycle crashed",
+                    initial_delay=True,
+                    result_is_success=lambda result: not isinstance(result, RetentionFailure),
+                )
+            )
+        )
         try:
             yield
         finally:
@@ -537,6 +567,10 @@ def create_app(
                 health_probe_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await health_probe_task
+            if retention_task is not None:
+                retention_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await retention_task
             if resolved_parser_tasks is not None:
                 await resolved_parser_tasks.close()
             await resolved_store.close()
@@ -1904,6 +1938,7 @@ def _build_worker_monitor(
     reconciler_enabled: bool,
     parser_export_enabled: bool,
     public_metadata_enabled: bool,
+    retention_enabled: bool,
 ) -> WorkerMonitorRegistry:
     health_interval: Final = max(settings.health_probe_interval_seconds, 1)
     return WorkerMonitorRegistry(
@@ -1929,7 +1964,40 @@ def _build_worker_monitor(
                 settings.health_probe_interval_seconds > 0,
                 health_interval,
             ),
+            WorkerRegistration(
+                WorkerName.EVENT_RETENTION,
+                retention_enabled,
+                settings.retention_interval_seconds,
+            ),
         )
+    )
+
+
+def _build_retention(settings: Settings) -> RetentionRunner | None:
+    configured: Final = (settings.event_archive_path is not None, settings.event_archive_key is not None)
+    if configured == (False, False):
+        return None
+    if settings.database_url is None:
+        raise ValueError("DATABASE_URL is required when event archive retention is configured")
+    if not all(configured):
+        raise ValueError("event archive path and key must be configured together")
+    archive_path: Final = settings.event_archive_path
+    archive_key: Final = settings.event_archive_key
+    if archive_path is None or archive_key is None:
+        raise ValueError("event archive configuration is incomplete")
+    policy: Final = RetentionPolicy(
+        event_retention_days=settings.event_retention_days,
+        audit_retention_days=settings.audit_event_retention_days,
+        batch_size=settings.retention_batch_size,
+    )
+    return EventRetentionService(
+        repository=PostgresRetentionRepository(settings.database_url, schema=settings.database_schema),
+        archive=EncryptedEventArchive(
+            archive_path,
+            decode_archive_key(archive_key.get_secret_value()),
+            settings.event_archive_key_id,
+        ),
+        policy=policy,
     )
 
 
