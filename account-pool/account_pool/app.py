@@ -1687,11 +1687,13 @@ def _build_parser_runtime(
         return None
     parser_runs: Final = PostgresParserRunRepository(settings.database_url, schema=settings.database_schema)
     overrides: Final = PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema)
+    operations: Final = PostgresOperationalEventRepository(settings.database_url, schema=settings.database_schema)
     worker: Final = ParserWorker(
         registry=registry,
         repository=parser_runs,
         overrides=overrides,
         snapshots=ParserSnapshotStore(),
+        operations=operations,
     )
     return _ParserRuntime(
         tasks=ParserTaskService(
@@ -1699,7 +1701,7 @@ def _build_parser_runtime(
             worker=worker,
             repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
             audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
-            operations=PostgresOperationalEventRepository(settings.database_url, schema=settings.database_schema),
+            operations=operations,
         ),
         export_retries=ParserExportRetryLoop(
             worker,

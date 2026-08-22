@@ -7,7 +7,9 @@ from account_pool.operational.models import (
     OperationalEventSource,
     OperationalEventType,
     OperationalPoolEvent,
+    ParserSnapshotExportTrigger,
     ParserTaskInterruptionSource,
+    build_parser_snapshot_export_record,
     build_parser_task_operational_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
@@ -31,7 +33,9 @@ __all__ = [
     "OperationalPoolEvent",
     "OperationalWriteResult",
     "OperationalWriteSuccess",
+    "ParserSnapshotExportTrigger",
     "ParserTaskInterruptionSource",
     "PostgresOperationalEventRepository",
+    "build_parser_snapshot_export_record",
     "build_parser_task_operational_record",
 ]

@@ -16,6 +16,8 @@ import pytest_asyncio
 from account_pool.operational.models import (
     OperationalEventRecord,
     OperationalEventType,
+    ParserSnapshotExportTrigger,
+    build_parser_snapshot_export_record,
     build_parser_task_operational_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository, decode_operational_record
@@ -39,6 +41,14 @@ _MIGRATION: Final = (
     / "litellm_proxy_extras"
     / "migrations"
     / "20260822010000_add_account_pool_operational_events"
+    / "migration.sql"
+)
+_EXPANSION_MIGRATION: Final = (
+    Path(__file__).resolve().parents[3]
+    / "litellm-proxy-extras"
+    / "litellm_proxy_extras"
+    / "migrations"
+    / "20260822020000_expand_account_pool_operational_events"
     / "migration.sql"
 )
 
@@ -75,6 +85,17 @@ def _record(provider_id: str = "openai_compatible") -> OperationalEventRecord:
     )
 
 
+def _snapshot_record() -> OperationalEventRecord:
+    return build_parser_snapshot_export_record(
+        channel_id=_CHANNEL_ID,
+        parser_run_id=_RUN_ID,
+        occurred_at=_NOW,
+        event_type=OperationalEventType.PARSER_SNAPSHOT_EXPORTED,
+        attempt_count=1,
+        trigger=ParserSnapshotExportTrigger.INITIAL,
+    )
+
+
 @pytest_asyncio.fixture
 async def operational_repository_fixture() -> AsyncIterator[OperationalRepositoryFixture]:
     database_url: Final = os.getenv("DATABASE_URL")
@@ -105,6 +126,7 @@ async def operational_repository_fixture() -> AsyncIterator[OperationalRepositor
                 """
             )
             await connection.execute(_MIGRATION.read_bytes())
+            await connection.execute(_EXPANSION_MIGRATION.read_bytes())
             yield OperationalRepositoryFixture(
                 repository=PostgresOperationalEventRepository(database_url, schema=schema)
             )
@@ -125,6 +147,7 @@ async def test_repository_writes_linked_event_idempotently(
     assert created.status == "created"
     assert isinstance(repeated, OperationalWriteSuccess)
     assert repeated.status == "unchanged"
+    assert isinstance(await repository.append(_snapshot_record()), OperationalWriteSuccess)
 
 
 async def test_same_event_id_with_changed_content_is_rejected(
@@ -156,10 +179,12 @@ def test_decoder_rejects_unregistered_sensitive_columns() -> None:
 
 def test_migration_contains_only_normalized_operational_fields() -> None:
     migration: Final = _MIGRATION.read_text(encoding="utf-8")
+    expansion: Final = _EXPANSION_MIGRATION.read_text(encoding="utf-8")
 
     assert 'CREATE TABLE "LiteLLM_AccountPoolOperationalEvent"' in migration
     assert '"operation_id" TEXT NOT NULL' in migration
     assert "parser_task" in migration
+    assert "parser_snapshot_export" in expansion
     assert "api_key" not in migration.casefold()
     assert "authorization" not in migration.casefold()
     assert "response_body" not in migration.casefold()

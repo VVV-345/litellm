@@ -1271,11 +1271,13 @@ Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务�
 
 系统运行事件新增独立 `operational` 模块和 `LiteLLM_AccountPoolOperationalEvent` 关联事实，首批覆盖解析任务完成、失败、优雅关闭中断和失联实例清理中断。公共事件只保存任务 ID、解析运行 ID、Provider、稳定失败码和中断来源，不保存 URL、Key、上游响应或异常正文；公共信封与运行事实由 PostgreSQL 仓储在单个事务中幂等写入。解析任务的正常结束、启动审计失败、实例关闭和启动时 stale sweeper 均已接入该事件写入路径，Dashboard 支持运行事件中文名称、结果筛选和关联任务展示
 
+解析快照导出与后台重试也已接入运行事实。首次导出、可重试失败、重试成功和永久失败均在导出状态成功写回 PostgreSQL 后生成事件，记录解析运行 ID、尝试次数、首次或重试触发方式和稳定失败码；导出文件内容、失败异常正文和解析证据不会进入事件。事件来源独立标记为 `parser_snapshot_export`，Dashboard 可区分“已导出”“等待重试”和“导出失败”
+
 Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加载更多、中文事件和原因说明、脱敏详情查看，以及从总览和渠道详情按 `channel_id` 跳转。直接点击事件日志标签会恢复全部事件，避免保留不可见的渠道筛选。前端使用 React Query 管理服务端分页，不复制服务器结果到 effect 状态。4100 调度工作台本轮同时修复了低高度主侧栏和长模型列表的左侧重叠，模型列表现在具有视口边界和独立滚动，`390x844` 窄屏没有页面级横向溢出
 
-当前自动化验证为 Account Pool 全量 `612 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint 均无错误，三份 Prisma schema 已同步同一运行事件关系；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
+当前自动化验证为 Account Pool 全量 `614 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint 均无错误，三份 Prisma schema 已同步同一运行事件关系；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
 
-Phase 5 仍需把公开元数据解析、快照导出与重试、同步后台重试、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 仍需把公开元数据解析、同步后台重试、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

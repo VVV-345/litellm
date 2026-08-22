@@ -5,6 +5,14 @@ from typing import Final
 from uuid import UUID
 
 from account_pool.domain.provider_source import ModelOffer, ProviderValidationResult
+from account_pool.operational.models import (
+    OperationalEventRecord,
+    OperationalEventType,
+    ParserSnapshotExportedDetails,
+    ParserSnapshotExportRetryScheduledDetails,
+    ParserSnapshotExportTrigger,
+)
+from account_pool.operational.repository import OperationalWriteResult, OperationalWriteSuccess
 from account_pool.parsing.models import ParsedChannelData, ParserRun, ParserRunStatus
 from account_pool.parsing.overrides.models import (
     FieldOverrideEvent,
@@ -131,6 +139,15 @@ class RecordingSnapshotExporter:
         return SnapshotExportSuccess(snapshot=project_parser_snapshot(run, effective_result))
 
 
+class FakeOperationalRepository:
+    def __init__(self) -> None:
+        self.records: tuple[OperationalEventRecord, ...] = ()
+
+    async def append(self, record: OperationalEventRecord) -> OperationalWriteResult:
+        self.records = (*self.records, record)
+        return OperationalWriteSuccess(status="created", record=record)
+
+
 def _request(openai_compatible: bool = True) -> ParserWorkRequest:
     return ParserWorkRequest(
         channel_id=_CHANNEL_ID,
@@ -189,7 +206,15 @@ async def test_worker_commits_before_snapshot_and_records_success() -> None:
     repository: Final = FakeParserRepository(events)
     overrides: Final = FakeOverrideRepository(events)
     exporter: Final = RecordingSnapshotExporter(events)
-    worker: Final = ParserWorker(build_parser_registry(), repository, overrides, exporter, clock=_clock)
+    operations: Final = FakeOperationalRepository()
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        repository,
+        overrides,
+        exporter,
+        operations=operations,
+        clock=_clock,
+    )
 
     result: Final = await worker.run(_request())
 
@@ -198,7 +223,12 @@ async def test_worker_commits_before_snapshot_and_records_success() -> None:
     assert result.persistence_status == "created"
     assert result.export.status == ParserExportStatus.SUCCEEDED
     assert events == ["persist_committed", "load_overrides", "snapshot_export", "record_export"]
+    assert operations.records[0].event.event_type == OperationalEventType.PARSER_SNAPSHOT_EXPORTED
+    details: Final = operations.records[0].event.safe_details
+    assert isinstance(details, ParserSnapshotExportedDetails)
+    assert details.trigger == ParserSnapshotExportTrigger.INITIAL
     assert "fingerprint-must-not-persist" not in result.run.model_dump_json()
+    assert "fingerprint-must-not-persist" not in operations.records[0].model_dump_json()
 
 
 async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
@@ -212,7 +242,15 @@ async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
             retryable=True,
         ),
     )
-    worker: Final = ParserWorker(build_parser_registry(), repository, overrides, exporter, clock=_clock)
+    operations: Final = FakeOperationalRepository()
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        repository,
+        overrides,
+        exporter,
+        operations=operations,
+        clock=_clock,
+    )
 
     first: Final = await worker.run(_request())
     assert isinstance(first, ParserWorkSuccess)
@@ -228,6 +266,16 @@ async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
     assert isinstance(outcome, ParserWorkSuccess)
     assert outcome.status == "exported"
     assert outcome.export.attempt_count == 2
+    assert tuple(record.event.event_type for record in operations.records) == (
+        OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED,
+        OperationalEventType.PARSER_SNAPSHOT_EXPORTED,
+    )
+    first_details: Final = operations.records[0].event.safe_details
+    second_details: Final = operations.records[1].event.safe_details
+    assert isinstance(first_details, ParserSnapshotExportRetryScheduledDetails)
+    assert isinstance(second_details, ParserSnapshotExportedDetails)
+    assert first_details.trigger == ParserSnapshotExportTrigger.INITIAL
+    assert second_details.trigger == ParserSnapshotExportTrigger.RETRY
     assert events == [
         "persist_committed",
         "load_overrides",
@@ -238,6 +286,33 @@ async def test_retryable_snapshot_failure_is_loaded_and_retried() -> None:
         "snapshot_export",
         "record_export",
     ]
+
+
+async def test_permanent_snapshot_failure_records_terminal_operational_event() -> None:
+    events: Final[list[str]] = []
+    repository: Final = FakeParserRepository(events)
+    operations: Final = FakeOperationalRepository()
+    worker: Final = ParserWorker(
+        build_parser_registry(),
+        repository,
+        FakeOverrideRepository(events),
+        RecordingSnapshotExporter(
+            events,
+            failure=SnapshotExportFailure(
+                code=SnapshotExportFailureCode.UNSAFE_CONTENT,
+                retryable=False,
+            ),
+        ),
+        operations=operations,
+        clock=_clock,
+    )
+
+    result: Final = await worker.run(_request())
+
+    assert isinstance(result, ParserWorkSuccess)
+    assert result.status == "export_failed_permanently"
+    assert operations.records[0].event.event_type == OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED
+    assert operations.records[0].event.reason_code == SnapshotExportFailureCode.UNSAFE_CONTENT
 
 
 async def test_persistence_failure_prevents_snapshot_export() -> None:

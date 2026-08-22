@@ -19,10 +19,14 @@ class OperationalEventType(StrEnum):
     PARSER_TASK_COMPLETED = "parser_task_completed"
     PARSER_TASK_FAILED = "parser_task_failed"
     PARSER_TASK_INTERRUPTED = "parser_task_interrupted"
+    PARSER_SNAPSHOT_EXPORTED = "parser_snapshot_exported"
+    PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED = "parser_snapshot_export_retry_scheduled"
+    PARSER_SNAPSHOT_EXPORT_FAILED = "parser_snapshot_export_failed"
 
 
 class OperationalEventSource(StrEnum):
     PARSER_TASK = "parser_task"
+    PARSER_SNAPSHOT_EXPORT = "parser_snapshot_export"
 
 
 class OperationalEventOutcome(StrEnum):
@@ -34,6 +38,11 @@ class OperationalEventOutcome(StrEnum):
 class ParserTaskInterruptionSource(StrEnum):
     GRACEFUL_SHUTDOWN = "graceful_shutdown"
     STALE_HEARTBEAT = "stale_heartbeat"
+
+
+class ParserSnapshotExportTrigger(StrEnum):
+    INITIAL = "initial"
+    RETRY = "retry"
 
 
 class ParserTaskCompletedDetails(FrozenModel):
@@ -59,8 +68,36 @@ class ParserTaskInterruptedDetails(FrozenModel):
     interruption_source: ParserTaskInterruptionSource
 
 
+class ParserSnapshotExportedDetails(FrozenModel):
+    kind: Literal["parser_snapshot_exported"] = "parser_snapshot_exported"
+    parser_run_id: UUID
+    attempt_count: int = Field(ge=1)
+    trigger: ParserSnapshotExportTrigger
+
+
+class ParserSnapshotExportRetryScheduledDetails(FrozenModel):
+    kind: Literal["parser_snapshot_export_retry_scheduled"] = "parser_snapshot_export_retry_scheduled"
+    parser_run_id: UUID
+    attempt_count: int = Field(ge=1)
+    trigger: ParserSnapshotExportTrigger
+    failure_code: str = Field(pattern=_SAFE_CODE_PATTERN)
+
+
+class ParserSnapshotExportFailedDetails(FrozenModel):
+    kind: Literal["parser_snapshot_export_failed"] = "parser_snapshot_export_failed"
+    parser_run_id: UUID
+    attempt_count: int = Field(ge=1)
+    trigger: ParserSnapshotExportTrigger
+    failure_code: str = Field(pattern=_SAFE_CODE_PATTERN)
+
+
 OperationalEventDetails = Annotated[
-    ParserTaskCompletedDetails | ParserTaskFailedDetails | ParserTaskInterruptedDetails,
+    ParserTaskCompletedDetails
+    | ParserTaskFailedDetails
+    | ParserTaskInterruptedDetails
+    | ParserSnapshotExportedDetails
+    | ParserSnapshotExportRetryScheduledDetails
+    | ParserSnapshotExportFailedDetails,
     Field(discriminator="kind"),
 ]
 
@@ -72,19 +109,24 @@ class OperationalPoolEvent(FrozenModel):
     channel_id: UUID
     model_id: ModelName | None = None
     deployment_id: str | None = None
-    request_id: str = Field(min_length=1, max_length=128, pattern=_REQUEST_ID_PATTERN)
+    request_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=_REQUEST_ID_PATTERN)
     lease_id: str | None = None
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
     actor_type: Literal["system"] = "system"
-    actor_id: Literal["account_pool_parser_task"] = "account_pool_parser_task"
+    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot"]
     safe_details: OperationalEventDetails
 
     @model_validator(mode="after")
     def validate_event_details(self) -> Self:
         if self.event_type.value != self.safe_details.kind:
             raise ValueError("event type must match safe details")
-        if (self.event_type == OperationalEventType.PARSER_TASK_FAILED) != (self.reason_code is not None):
-            raise ValueError("only failed parser task events require a reason code")
+        requires_reason: Final = self.event_type in (
+            OperationalEventType.PARSER_TASK_FAILED,
+            OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED,
+            OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED,
+        )
+        if requires_reason != (self.reason_code is not None):
+            raise ValueError("event reason code does not match its outcome")
         return self
 
 
@@ -103,10 +145,10 @@ class OperationalEventRecord(FrozenModel):
     def validate_linked_facts(self) -> Self:
         if self.event.event_id != self.operational.event_id:
             raise ValueError("common event and operational fact must share an event ID")
-        if self.operational.source != OperationalEventSource.PARSER_TASK:
-            raise ValueError("parser task events require the parser task source")
-        if self.operational.operation_id != self.event.safe_details.task_id:
-            raise ValueError("operation ID must match the parser task ID")
+        if _event_source(self.event.event_type) != self.operational.source:
+            raise ValueError("event type must match operational source")
+        if self.operational.operation_id != _details_operation_id(self.event.safe_details):
+            raise ValueError("operation ID must match event details")
         if _event_outcome(self.event.event_type) != self.operational.outcome:
             raise ValueError("event type must match operational outcome")
         return self
@@ -141,12 +183,53 @@ def build_parser_task_operational_record(
             channel_id=channel_id,
             request_id=request_id,
             reason_code=failure_code,
+            actor_id="account_pool_parser_task",
             safe_details=details,
         ),
         operational=OperationalEventFact(
             event_id=event_id,
             source=OperationalEventSource.PARSER_TASK,
             operation_id=task_id,
+            outcome=_event_outcome(event_type),
+        ),
+    )
+
+
+def build_parser_snapshot_export_record(
+    *,
+    channel_id: UUID,
+    parser_run_id: UUID,
+    occurred_at: AwareDatetime,
+    event_type: OperationalEventType,
+    attempt_count: int,
+    trigger: ParserSnapshotExportTrigger,
+    failure_code: str | None = None,
+) -> OperationalEventRecord:
+    details: Final = _snapshot_export_details(
+        event_type=event_type,
+        parser_run_id=parser_run_id,
+        attempt_count=attempt_count,
+        trigger=trigger,
+        failure_code=failure_code,
+    )
+    event_id: Final = uuid5(
+        _OPERATIONAL_EVENT_NAMESPACE,
+        f"snapshot:{parser_run_id}:{attempt_count}:{event_type.value}",
+    )
+    return OperationalEventRecord(
+        event=OperationalPoolEvent(
+            event_id=event_id,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            channel_id=channel_id,
+            reason_code=failure_code,
+            actor_id="account_pool_parser_snapshot",
+            safe_details=details,
+        ),
+        operational=OperationalEventFact(
+            event_id=event_id,
+            source=OperationalEventSource.PARSER_SNAPSHOT_EXPORT,
+            operation_id=parser_run_id,
             outcome=_event_outcome(event_type),
         ),
     )
@@ -160,6 +243,13 @@ def _event_outcome(event_type: OperationalEventType) -> OperationalEventOutcome:
             return OperationalEventOutcome.FAILED
         case OperationalEventType.PARSER_TASK_INTERRUPTED:
             return OperationalEventOutcome.INTERRUPTED
+        case OperationalEventType.PARSER_SNAPSHOT_EXPORTED:
+            return OperationalEventOutcome.SUCCEEDED
+        case (
+            OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED
+            | OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED
+        ):
+            return OperationalEventOutcome.FAILED
     assert_never(event_type)
 
 
@@ -197,3 +287,54 @@ def _parser_task_details(
             interruption_source=interruption_source,
         )
     raise ValueError("interrupted parser tasks require only an interruption source")
+
+
+def _snapshot_export_details(
+    *,
+    event_type: OperationalEventType,
+    parser_run_id: UUID,
+    attempt_count: int,
+    trigger: ParserSnapshotExportTrigger,
+    failure_code: str | None,
+) -> OperationalEventDetails:
+    if event_type == OperationalEventType.PARSER_SNAPSHOT_EXPORTED:
+        if failure_code is not None:
+            raise ValueError("successful snapshot exports cannot have a failure code")
+        return ParserSnapshotExportedDetails(
+            parser_run_id=parser_run_id,
+            attempt_count=attempt_count,
+            trigger=trigger,
+        )
+    if event_type == OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED:
+        if failure_code is None:
+            raise ValueError("scheduled snapshot retries require a failure code")
+        return ParserSnapshotExportRetryScheduledDetails(
+            parser_run_id=parser_run_id,
+            attempt_count=attempt_count,
+            trigger=trigger,
+            failure_code=failure_code,
+        )
+    if event_type == OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED and failure_code is not None:
+        return ParserSnapshotExportFailedDetails(
+            parser_run_id=parser_run_id,
+            attempt_count=attempt_count,
+            trigger=trigger,
+            failure_code=failure_code,
+        )
+    raise ValueError("permanent snapshot export failures require a failure code")
+
+
+def _event_source(event_type: OperationalEventType) -> OperationalEventSource:
+    if event_type in (
+        OperationalEventType.PARSER_TASK_COMPLETED,
+        OperationalEventType.PARSER_TASK_FAILED,
+        OperationalEventType.PARSER_TASK_INTERRUPTED,
+    ):
+        return OperationalEventSource.PARSER_TASK
+    return OperationalEventSource.PARSER_SNAPSHOT_EXPORT
+
+
+def _details_operation_id(details: OperationalEventDetails) -> UUID:
+    if isinstance(details, (ParserTaskCompletedDetails, ParserTaskFailedDetails, ParserTaskInterruptedDetails)):
+        return details.task_id
+    return details.parser_run_id

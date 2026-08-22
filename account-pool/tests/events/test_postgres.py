@@ -206,6 +206,34 @@ def test_parser_task_operational_event_decodes_registered_safe_details() -> None
     assert "api_key" not in event.model_dump_json()
 
 
+def test_snapshot_export_event_decodes_registered_safe_details() -> None:
+    parser_run_id: Final = UUID("92000000-0000-0000-0000-000000000002")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "parser_snapshot_export_retry_scheduled",
+                {
+                    "kind": "parser_snapshot_export_retry_scheduled",
+                    "parser_run_id": str(parser_run_id),
+                    "attempt_count": 2,
+                    "trigger": "retry",
+                    "failure_code": "latest_write_failed",
+                },
+            ),
+            "reason_code": "latest_write_failed",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "parser_snapshot_export",
+            "operational_operation_id": str(parser_run_id),
+            "operational_outcome": "failed",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.FAILED
+    assert event.operational is not None and event.operational.source == "parser_snapshot_export"
+    assert event.safe_details["attempt_count"] == 2
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(

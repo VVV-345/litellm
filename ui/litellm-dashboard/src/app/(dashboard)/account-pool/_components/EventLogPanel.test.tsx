@@ -78,6 +78,33 @@ const firstPage: EventLogPage = {
         outcome: "interrupted",
       },
     },
+    {
+      event_id: "event-4",
+      event_type: "parser_snapshot_exported",
+      occurred_at: "2026-08-21T09:15:00Z",
+      channel_id: "channel-1",
+      model_id: null,
+      deployment_id: null,
+      request_id: null,
+      lease_id: null,
+      reason_code: null,
+      actor_type: "system",
+      actor_id: "account_pool_parser_snapshot",
+      outcome: "succeeded",
+      safe_details: {
+        kind: "parser_snapshot_exported",
+        parser_run_id: "run-4",
+        attempt_count: 2,
+        trigger: "retry",
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "parser_snapshot_export",
+        operation_id: "run-4",
+        outcome: "succeeded",
+      },
+    },
   ],
 };
 
@@ -139,6 +166,7 @@ describe("EventLogPanel", () => {
 
     expect(await screen.findByText("请求健康结果")).toBeInTheDocument();
     expect(screen.getByText("解析任务已中断")).toBeInTheDocument();
+    expect(screen.getByText("解析快照已导出")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
     expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
 
