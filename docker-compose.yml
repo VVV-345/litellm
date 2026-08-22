@@ -109,6 +109,7 @@ services:
     volumes:
       - prometheus_data:/prometheus
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./account-pool/deploy/prometheus/account-pool-alerts.yml:/etc/prometheus/rules/account-pool-alerts.yml:ro
     ports:
       - "9090:9090"
     command:

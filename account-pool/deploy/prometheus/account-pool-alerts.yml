@@ -1,0 +1,65 @@
+# 本文件定义 Account Pool 服务与后台 Worker 的 Prometheus 告警规则。
+groups:
+  - name: account-pool-availability
+    rules:
+      - alert: AccountPoolMetricsUnavailable
+        expr: up{job="account-pool"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: account-pool
+        annotations:
+          summary: Account Pool 指标端点不可用
+          description: Prometheus 连续 2 分钟无法抓取 Account Pool，请检查 4100 服务和网络
+
+      - alert: AccountPoolWorkerUnavailable
+        expr: account_pool_worker_enabled == 1 and on(worker) account_pool_worker_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: account-pool
+        annotations:
+          summary: Account Pool Worker 不可用
+          description: Worker {{ $labels.worker }} 已启用但连续 2 分钟未处于可用状态
+
+  - name: account-pool-worker-health
+    rules:
+      - alert: AccountPoolWorkerRepeatedFailures
+        expr: increase(account_pool_worker_failures_total[10m]) >= 3
+        labels:
+          severity: warning
+          service: account-pool
+        annotations:
+          summary: Account Pool Worker 连续出现失败
+          description: Worker {{ $labels.worker }} 在最近 10 分钟至少失败 3 次
+
+      - alert: AccountPoolWorkerNeverSucceeded
+        expr: |
+          account_pool_worker_enabled == 1
+          and on(worker) account_pool_worker_process_started_timestamp_seconds > 0
+          and on(worker) account_pool_worker_last_success_timestamp_seconds == 0
+          and on(worker)
+            time() - account_pool_worker_process_started_timestamp_seconds
+              > 2 * account_pool_worker_expected_interval_seconds
+        for: 1m
+        labels:
+          severity: warning
+          service: account-pool
+        annotations:
+          summary: Account Pool Worker 启动后从未成功
+          description: Worker {{ $labels.worker }} 启动超过两个预期周期后仍没有成功记录
+
+      - alert: AccountPoolWorkerSuccessStale
+        expr: |
+          account_pool_worker_enabled == 1
+          and on(worker) account_pool_worker_last_success_timestamp_seconds > 0
+          and on(worker)
+            time() - account_pool_worker_last_success_timestamp_seconds
+              > 3 * account_pool_worker_expected_interval_seconds
+        for: 1m
+        labels:
+          severity: warning
+          service: account-pool
+        annotations:
+          summary: Account Pool Worker 长时间没有成功
+          description: Worker {{ $labels.worker }} 超过三个预期周期没有成功完成任务

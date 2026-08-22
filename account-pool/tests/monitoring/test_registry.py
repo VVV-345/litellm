@@ -82,6 +82,8 @@ def test_prometheus_output_uses_only_fixed_worker_labels() -> None:
     assert '# TYPE account_pool_worker_runs_total counter' in rendered
     assert 'account_pool_worker_up{worker="lease_reaper"} 1' in rendered
     assert 'account_pool_worker_enabled{worker="active_health_probe"} 0' in rendered
+    assert 'account_pool_worker_expected_interval_seconds{worker="lease_reaper"} 10.000000' in rendered
+    assert 'account_pool_worker_process_started_timestamp_seconds{worker="lease_reaper"} 1779624000.000000' in rendered
     assert 'account_pool_worker_last_cycle_duration_seconds{worker="lease_reaper"} 0.125000' in rendered
     assert "api_key" not in rendered
     assert "authorization" not in rendered.casefold()

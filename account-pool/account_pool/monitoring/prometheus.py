@@ -25,6 +25,18 @@ def render_prometheus_metrics(snapshot: WorkerStateList) -> str:
             tuple(_up(item) for item in states),
         ),
         (
+            "account_pool_worker_expected_interval_seconds",
+            "Configured interval between worker cycles.",
+            "gauge",
+            tuple(item.expected_interval_seconds for item in states),
+        ),
+        (
+            "account_pool_worker_process_started_timestamp_seconds",
+            "Unix timestamp when the worker process started.",
+            "gauge",
+            tuple(_timestamp(item.process_started_at) for item in states),
+        ),
+        (
             "account_pool_worker_runs_total",
             "Worker cycles started in this process.",
             "counter",
