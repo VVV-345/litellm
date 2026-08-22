@@ -18,6 +18,7 @@ from account_pool.audit.models import (
 )
 from account_pool.audit.repository import AuditPersistenceFailure, ManagementAuditRepository
 from account_pool.auth.actor import ActorAction, ActorContext
+from account_pool.catalog.query import ChannelCatalogReader
 from account_pool.domain.provider_source import ProviderValidationRequest, ProviderValidationResult
 from account_pool.operational.models import (
     OperationalEventType,
@@ -87,6 +88,7 @@ class ParserTaskService:
         repository: ParserTaskRepository,
         audit: ManagementAuditRepository,
         operations: OperationalEventRepository,
+        catalog: ChannelCatalogReader,
         *,
         instance_id: UUID | None = None,
         clock: Clock = utc_now,
@@ -99,6 +101,7 @@ class ParserTaskService:
         self._repository: Final = repository
         self._audit: Final = audit
         self._operations: Final = operations
+        self._catalog: Final = catalog
         self._instance_id: Final = instance_id or uuid4()
         self._clock: Final = clock
         self._id_factory: Final = id_factory
@@ -125,6 +128,10 @@ class ParserTaskService:
     ) -> ParserTaskStartResult:
         if actor.action != ActorAction.PARSER_START or actor.role != "proxy_admin":
             return _failure(ParserTaskOperationFailureCode.INVALID_REQUEST, retryable=False)
+        channel: Final = await self._catalog.get_channel(channel_id)
+        if channel is None:
+            result: Final = _failure(ParserTaskOperationFailureCode.CHANNEL_NOT_FOUND, retryable=False)
+            return await self._audited(channel_id, actor, result)
         created: Final = await self._create_task(channel_id, request, actor)
         result: Final = (
             created
@@ -145,7 +152,7 @@ class ParserTaskService:
                     at=self._clock(),
                 )
             return audited
-        local_task: Final = asyncio.create_task(self._execute(created, request))
+        local_task: Final = asyncio.create_task(self._execute(created, request, channel.base_url_display))
         self._tasks[created.task_id] = local_task
         local_task.add_done_callback(lambda _: self._tasks.pop(created.task_id, None))
         return audited
@@ -240,13 +247,13 @@ class ParserTaskService:
                 interruption_source=ParserTaskInterruptionSource.GRACEFUL_SHUTDOWN,
             )
 
-    async def _execute(self, record: ParserTaskRecord, request: ParserTaskStartRequest) -> None:
+    async def _execute(self, record: ParserTaskRecord, request: ParserTaskStartRequest, api_base: str) -> None:
         heartbeat: Final = asyncio.create_task(self._heartbeat(record.task_id))
         try:
             validation: Final = await self._providers.validate(
                 ProviderValidationRequest(
                     provider_id=request.provider_id,
-                    api_base=request.api_base,
+                    api_base=api_base,
                     api_key=request.api_key,
                     group=request.group,
                 )
@@ -258,7 +265,7 @@ class ParserTaskService:
                     parsed_at=record.created_at,
                     selection=ParserSelectionRequest(
                         provider_id=request.provider_id,
-                        api_base=request.api_base,
+                        api_base=api_base,
                         explicit_parser_id=request.explicit_parser_id,
                         openai_compatible=request.openai_compatible,
                     ),

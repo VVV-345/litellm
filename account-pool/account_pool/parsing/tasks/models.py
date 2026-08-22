@@ -35,7 +35,6 @@ class ParserTaskOperationFailureCode(StrEnum):
 
 class ParserTaskStartRequest(FrozenModel):
     provider_id: str = Field(min_length=1, max_length=100)
-    api_base: str = Field(min_length=1, max_length=2048)
     api_key: SecretStr
     group: str | None = Field(default=None, max_length=255)
     explicit_parser_id: str | None = Field(default=None, min_length=1, max_length=100)

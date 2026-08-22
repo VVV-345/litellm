@@ -60,3 +60,19 @@ async def test_channel_list_aggregates_enabled_models_without_internal_credentia
     assert "key_fingerprint" not in rendered
     assert "provider-secret-reference" not in rendered
     assert "secret-fingerprint" not in rendered
+
+
+async def test_channel_lookup_returns_the_saved_url_without_credential_reference() -> None:
+    imported_at: Final = datetime(2026, 8, 19, 5, 0, tzinfo=UTC)
+    imported: Final = catalog_import_from_pool_config(legacy_config(), imported_at)
+    channel: Final = imported.channels[0].model_copy(update={"credential_ref": "provider-secret-reference"})
+    service: Final = ChannelCatalogQueryService(
+        FakeCatalogRepository(CatalogSnapshot(channels=(channel,), bindings=imported.bindings))
+    )
+
+    found: Final = await service.get_channel(channel.channel_id)
+
+    assert found is not None
+    assert found.channel_id == channel.channel_id
+    assert found.base_url_display == channel.base_url_display
+    assert "credential_ref" not in found.model_dump_json()

@@ -1,6 +1,7 @@
 """将渠道目录快照聚合为不含内部凭证引用的公开查询视图。"""
 
 from typing import Final, Protocol
+from uuid import UUID
 
 from account_pool.catalog.models import CatalogSnapshot, ChannelList, ChannelRecord, ChannelSummary
 from account_pool.catalog.repository import CatalogRepository
@@ -8,6 +9,8 @@ from account_pool.catalog.repository import CatalogRepository
 
 class ChannelCatalogReader(Protocol):
     async def list_channels(self) -> ChannelList: ...
+
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None: ...
 
 
 class ChannelCatalogQueryService:
@@ -17,6 +20,11 @@ class ChannelCatalogQueryService:
     async def list_channels(self) -> ChannelList:
         snapshot: Final = await self._repository.load_snapshot()
         return ChannelList(channels=tuple(_channel_summary(channel, snapshot) for channel in snapshot.channels))
+
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        snapshot: Final = await self._repository.load_snapshot()
+        channel: Final = next((item for item in snapshot.channels if item.channel_id == channel_id), None)
+        return None if channel is None else _channel_summary(channel, snapshot)
 
 
 def _channel_summary(channel: ChannelRecord, snapshot: CatalogSnapshot) -> ChannelSummary:

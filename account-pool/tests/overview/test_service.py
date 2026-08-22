@@ -62,6 +62,9 @@ class _Catalog:
             )
         )
 
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        return next((channel for channel in (await self.list_channels()).channels if channel.channel_id == channel_id), None)
+
 
 class _Runtime:
     def account_configs(self) -> tuple[AccountConfig, ...]:
@@ -183,6 +186,9 @@ class _UnavailableHealthEvents:
 class _UnavailableCatalog:
     async def list_channels(self) -> ChannelList:
         raise psycopg.OperationalError("database unavailable")
+
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        raise psycopg.OperationalError(f"database unavailable for {channel_id}")
 
 
 @pytest.mark.asyncio

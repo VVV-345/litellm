@@ -51,7 +51,6 @@ export default function ParserTaskDialog({
     providers[0]?.provider_id ??
     "openai_compatible";
   const [providerId, setProviderId] = useState(initialProvider);
-  const [apiBase, setApiBase] = useState(channel.base_url_display);
   const [apiKey, setApiKey] = useState("");
   const [group, setGroup] = useState(channel.group ?? "");
   const [explicitParserId, setExplicitParserId] = useState("");
@@ -70,7 +69,6 @@ export default function ParserTaskDialog({
     mutationFn: () =>
       startParserTask(accessToken, channel.channel_id, {
         provider_id: providerId,
-        api_base: apiBase.trim(),
         api_key: apiKey,
         group: group.trim() || null,
         explicit_parser_id: explicitParserId.trim() || null,
@@ -96,12 +94,10 @@ export default function ParserTaskDialog({
   const selectProvider = (value: string | null) => {
     if (!value) return;
     setProviderId(value);
-    const provider = providers.find((candidate) => candidate.provider_id === value);
-    if (provider) setApiBase(provider.default_api_base);
     setOpenAICompatible(value === "openai_compatible");
   };
 
-  const canStart = !startMutation.isPending && Boolean(apiKey && apiBase.trim() && providerId);
+  const canStart = !startMutation.isPending && Boolean(apiKey && providerId);
 
   return (
     <Dialog open onOpenChange={(open) => !open && void close()}>
@@ -139,7 +135,7 @@ export default function ParserTaskDialog({
             )}
             <div className="grid gap-2">
               <Label htmlFor="parser-api-base">上游 URL</Label>
-              <Input id="parser-api-base" value={apiBase} onChange={(event) => setApiBase(event.target.value)} />
+              <Input id="parser-api-base" value={channel.base_url_display} readOnly />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="parser-api-key">一次性 Key</Label>

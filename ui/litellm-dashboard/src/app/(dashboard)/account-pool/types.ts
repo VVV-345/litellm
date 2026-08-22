@@ -278,7 +278,6 @@ export interface ParserTaskView {
 
 export interface ParserTaskRequest {
   provider_id: string;
-  api_base: string;
   api_key: string;
   group: string | null;
   explicit_parser_id: string | null;

@@ -14,7 +14,9 @@ from account_pool.audit.repository import (
     AuditWriteSuccess,
 )
 from account_pool.auth.actor import ActorAction, ActorContext
+from account_pool.catalog.models import AdministrativeState, ChannelList, ChannelSummary
 from account_pool.domain.provider_source import ModelOffer, ProviderValidationRequest, ProviderValidationResult
+from account_pool.models import ChannelPriority
 from account_pool.operational.models import (
     OperationalEventRecord,
     OperationalEventType,
@@ -54,6 +56,33 @@ _INSTANCE_ID: Final = UUID("40000000-0000-0000-0000-000000000004")
 _NOW: Final = datetime(2026, 8, 19, 22, 0, tzinfo=UTC)
 _SECRET: Final = "one-time-provider-secret"
 _API_BASE: Final = "https://gateway.example.com/v1"
+
+
+class FakeChannelCatalogReader:
+    async def list_channels(self) -> ChannelList:
+        return ChannelList(channels=(_channel(),))
+
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        channel: Final = _channel()
+        return channel if channel.channel_id == channel_id else None
+
+
+def _channel() -> ChannelSummary:
+    return ChannelSummary(
+        channel_id=_CHANNEL_ID,
+        display_name="解析测试渠道",
+        provider="openai_compatible",
+        group=None,
+        base_url_display=_API_BASE,
+        administrative_state=AdministrativeState.ENABLED,
+        max_concurrency=1,
+        priority=ChannelPriority.MEDIUM,
+        weight=1,
+        binding_count=0,
+        enabled_binding_count=0,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
 
 
 class FakeTaskRepository:
@@ -227,7 +256,6 @@ def _actor() -> ActorContext:
 def _request() -> ParserTaskStartRequest:
     return ParserTaskStartRequest(
         provider_id="openai_compatible",
-        api_base=_API_BASE,
         api_key=SecretStr(_SECRET),
         openai_compatible=True,
     )
@@ -266,6 +294,7 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
         repository=repository,
         audit=audit,
         operations=operations,
+        catalog=FakeChannelCatalogReader(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         id_factory=FixedIdFactory(),
@@ -301,6 +330,35 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
     await service.close()
 
 
+async def test_task_uses_the_catalog_url_and_rejects_unknown_channel() -> None:
+    repository: Final = FakeTaskRepository()
+    provider: Final = GatedProvider()
+    service: Final = ParserTaskService(
+        providers=provider,
+        worker=SuccessfulWorker(),
+        repository=repository,
+        audit=FakeAuditRepository(),
+        operations=FakeOperationalRepository(),
+        catalog=FakeChannelCatalogReader(),
+        instance_id=_INSTANCE_ID,
+        clock=lambda: _NOW,
+        id_factory=FixedIdFactory(),
+    )
+
+    missing: Final = await service.start(UUID("90000000-0000-0000-0000-000000000009"), _request(), _actor())
+    accepted: Final = await service.start(_CHANNEL_ID, _request(), _actor())
+
+    assert isinstance(missing, ParserTaskOperationFailure)
+    assert missing.code == ParserTaskOperationFailureCode.CHANNEL_NOT_FOUND
+    assert isinstance(accepted, ParserTaskAccepted)
+    await provider.started.wait()
+    assert provider.request is not None
+    assert provider.request.api_base == _API_BASE
+    provider.release.set()
+    await _wait_until_finished(service)
+    await service.close()
+
+
 async def test_initialize_marks_stale_foreign_task_interrupted_without_running_it() -> None:
     repository: Final = FakeTaskRepository()
     stale: Final = ParserTaskRecord(
@@ -325,6 +383,7 @@ async def test_initialize_marks_stale_foreign_task_interrupted_without_running_i
         repository=repository,
         audit=FakeAuditRepository(),
         operations=operations,
+        catalog=FakeChannelCatalogReader(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         stale_after_seconds=30,
@@ -348,6 +407,7 @@ async def test_audit_failure_prevents_provider_request_and_marks_created_task_fa
         repository=repository,
         audit=FailingAuditRepository(),
         operations=operations,
+        catalog=FakeChannelCatalogReader(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         id_factory=FixedIdFactory(),
@@ -374,6 +434,7 @@ async def test_bounded_shutdown_marks_unfinished_local_task_as_requiring_key() -
         repository=repository,
         audit=FakeAuditRepository(),
         operations=operations,
+        catalog=FakeChannelCatalogReader(),
         instance_id=_INSTANCE_ID,
         clock=lambda: _NOW,
         id_factory=FixedIdFactory(),

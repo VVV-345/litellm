@@ -1912,7 +1912,7 @@ def _build_parser_runtime(
     build_public_metadata_tasks: bool,
     worker_monitor: WorkerMonitorRegistry,
 ) -> _ParserRuntime | None:
-    if settings.database_url is None:
+    if settings.database_url is None or catalog is None:
         return None
     parser_runs: Final = PostgresParserRunRepository(settings.database_url, schema=settings.database_schema)
     overrides: Final = PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema)
@@ -1932,6 +1932,7 @@ def _build_parser_runtime(
                 repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
                 audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
                 operations=operations,
+                catalog=catalog,
             )
             if build_tasks
             else None

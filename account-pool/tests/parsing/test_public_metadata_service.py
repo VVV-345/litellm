@@ -58,6 +58,10 @@ class FakeCatalog:
     async def list_channels(self) -> ChannelList:
         return ChannelList(channels=(_channel(self._state),))
 
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        channel: Final = _channel(self._state)
+        return channel if channel.channel_id == channel_id else None
+
 
 class FakeRepository:
     def __init__(self, recovered: tuple[PublicMetadataTaskRecord, ...] = ()) -> None:

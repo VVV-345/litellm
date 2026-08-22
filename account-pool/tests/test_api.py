@@ -235,6 +235,9 @@ class FakeChannelCatalogReader:
             )
         )
 
+    async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
+        return next((channel for channel in (await self.list_channels()).channels if channel.channel_id == channel_id), None)
+
 
 class FakeOverviewReader:
     async def read(self) -> AccountPoolOverview:
@@ -1435,7 +1438,6 @@ async def test_parser_task_api_requires_actor_and_never_returns_one_time_credent
     base_path: Final = f"/api/channels/{_CHANNEL_ID}"
     body: Final = {
         "provider_id": "openai_compatible",
-        "api_base": "https://gateway.example.com/v1",
         "api_key": "one-time-secret",
         "openai_compatible": True,
     }
@@ -1449,6 +1451,11 @@ async def test_parser_task_api_requires_actor_and_never_returns_one_time_credent
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
             missing_actor: Final = await client.post(f"{base_path}/parse", headers=service_headers, json=body)
+            legacy_response: Final = await client.post(
+                f"{base_path}/parse",
+                headers=actor_headers,
+                json={**body, "api_base": "https://gateway.example.com/v1"},
+            )
             accepted_response: Final = await client.post(f"{base_path}/parse", headers=actor_headers, json=body)
             task_response: Final = await client.get(
                 f"{base_path}/parser-tasks/{task_id}",
@@ -1461,6 +1468,7 @@ async def test_parser_task_api_requires_actor_and_never_returns_one_time_credent
     task: Final = ParserTaskView.model_validate_json(task_response.content)
     rendered: Final = f"{accepted_response.text}{task_response.text}".casefold()
     assert missing_actor.status_code == 401
+    assert legacy_response.status_code == 422
     assert accepted_response.status_code == 202
     assert accepted.task_id == task_id
     assert task.task.status == ParserTaskStatus.RUNNING
