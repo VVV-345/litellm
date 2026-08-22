@@ -1780,6 +1780,7 @@ model LiteLLM_AccountPoolQuotaGeneration {
   predecessor_generation_id String?
   status                    String
   created_at                DateTime                                      @client.Timestamptz(6)
+  isolation_until           DateTime?                                     @client.Timestamptz(6)
   activated_at              DateTime?                                     @client.Timestamptz(6)
   closed_at                 DateTime?                                     @client.Timestamptz(6)
   failure_code              String?

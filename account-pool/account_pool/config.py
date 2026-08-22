@@ -24,6 +24,7 @@ class Settings:
     litellm_admin_key: str | None
     lease_ttl_seconds: int
     internal_token: str | None
+    maximum_lease_seconds: int = 3_600
     database_url: str | None = None
     database_schema: str = "public"
     actor_secret: str | None = None
@@ -51,15 +52,20 @@ class Settings:
         mode_value: Final = os.environ.get("ACCOUNT_POOL_STORE", "memory").lower()
         archive_path_value: Final = os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_PATH") or None
         archive_key_value: Final = os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_KEY") or None
+        lease_ttl_seconds: Final = int(os.environ.get("ACCOUNT_POOL_LEASE_TTL_SECONDS", "120"))
+        maximum_lease_seconds: Final = int(os.environ.get("ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS", "3600"))
         if mode_value not in {"memory", "redis"}:
             raise ValueError("ACCOUNT_POOL_STORE must be memory or redis")
+        if lease_ttl_seconds < 1 or maximum_lease_seconds < lease_ttl_seconds:
+            raise ValueError("ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS must be at least ACCOUNT_POOL_LEASE_TTL_SECONDS")
         return cls(
             config_path=Path(os.environ.get("ACCOUNT_POOL_CONFIG", root / "config" / "accounts.yaml")),
             store_mode=cast(StoreMode, mode_value),
             redis_url=os.environ.get("ACCOUNT_POOL_REDIS_URL", "redis://127.0.0.1:6379/0"),
             litellm_url=os.environ.get("ACCOUNT_POOL_LITELLM_URL", "http://127.0.0.1:4000").rstrip("/"),
             litellm_admin_key=os.environ.get("ACCOUNT_POOL_LITELLM_ADMIN_KEY"),
-            lease_ttl_seconds=int(os.environ.get("ACCOUNT_POOL_LEASE_TTL_SECONDS", "120")),
+            lease_ttl_seconds=lease_ttl_seconds,
+            maximum_lease_seconds=maximum_lease_seconds,
             internal_token=os.environ.get("ACCOUNT_POOL_INTERNAL_TOKEN"),
             database_url=os.environ.get("DATABASE_URL"),
             database_schema=os.environ.get("ACCOUNT_POOL_DATABASE_SCHEMA", "public"),

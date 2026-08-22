@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import time
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
@@ -36,6 +37,7 @@ from account_pool.events import (
     EventQuery,
     EventQueryOutcome,
 )
+from account_pool.gateway import Gateway
 from account_pool.health.models import (
     HealthActivity,
     HealthEventRecord,
@@ -61,6 +63,7 @@ from account_pool.models import (
     AcquireSuccess,
     ChannelPriority,
     Health,
+    Lease,
     LiteLLMStatus,
     ManagementResult,
     ModelSummary,
@@ -68,6 +71,7 @@ from account_pool.models import (
     QuotaSnapshot,
     QuotaUnit,
     RouteEntry,
+    SettleRequest,
     StatsView,
 )
 from account_pool.monitoring.models import WorkerStateList
@@ -119,7 +123,8 @@ from account_pool.parsing.tasks.models import (
 )
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.routing.latency_store import DurableLatencyStateStore
-from account_pool.store import MemoryStateStore
+from account_pool.scheduler import Scheduler
+from account_pool.store import MemoryStateStore, StateStore
 from account_pool.sync.models import SyncStatus
 from account_pool.sync.service import (
     ChannelDeleteRequest,
@@ -147,6 +152,52 @@ class _GatewayError(BaseModel):
 
 class _GatewayErrorResponse(BaseModel):
     error: _GatewayError
+
+
+class _TrackedStream(httpx.AsyncByteStream):
+    def __init__(self, *, interrupt: bool = False) -> None:
+        self.closed = False
+        self._interrupt: Final = interrupt
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"data"
+        if self._interrupt:
+            raise httpx.ReadError("stream interrupted")
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _StreamingStore:
+    def __init__(self, heartbeat_result: bool) -> None:
+        self._heartbeat_result: Final = heartbeat_result
+        self.heartbeat_calls = 0
+        self.settlements: list[SettleRequest] = []
+        self.releases: list[str] = []
+
+    async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
+        self.heartbeat_calls += 1
+        return self._heartbeat_result
+
+    async def settle(self, request: SettleRequest) -> bool:
+        self.settlements.append(request)
+        return True
+
+    async def release(self, lease_id: str) -> bool:
+        self.releases.append(lease_id)
+        return True
+
+
+def _stream_lease(absolute_expires_at: float) -> Lease:
+    return Lease(
+        lease_id="stream-lease",
+        request_id="stream-request",
+        account_id="primary-east",
+        deployment_id="pool-gpt4o-primary",
+        public_model="gpt-4o",
+        expires_at=min(time.time() + 1, absolute_expires_at),
+        absolute_expires_at=absolute_expires_at,
+    )
 
 
 _MODEL_SUMMARIES_ADAPTER: Final = TypeAdapter(tuple[ModelSummary, ...])
@@ -846,6 +897,7 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert {item.worker.value for item in worker_states.workers} == {
         "active_health_probe",
         "channel_reconciler",
+        "event_retention",
         "lease_reaper",
         "parser_export_retry",
         "public_metadata",
@@ -1664,6 +1716,92 @@ async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_release
     assert health_events.records[0].event.request_id == "request-123"
     assert health_events.records[0].event.safe_details.outcome == "succeeded"
     assert "client-key" not in health_events.records[0].model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_stream_heartbeat_failure_closes_upstream() -> None:
+    store: Final = _StreamingStore(heartbeat_result=False)
+    stream: Final = _TrackedStream()
+    upstream: Final = httpx.Response(200, stream=stream)
+    failed: Final = asyncio.Event()
+    async with httpx.AsyncClient() as client:
+        gateway: Final = Gateway(
+            scheduler=cast(Scheduler, object()),
+            store=cast(StateStore, store),
+            client=client,
+            litellm_url="http://litellm.internal",
+            lease_ttl_seconds=1,
+        )
+        await gateway._maintain_stream_lease(  # pyright: ignore[reportPrivateUsage]  # 直接验证流式租约任务
+            upstream,
+            _stream_lease(time.time() + 5),
+            failed,
+        )
+
+    assert failed.is_set()
+    assert store.heartbeat_calls == 1
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_absolute_expiry_closes_upstream_without_heartbeat() -> None:
+    store: Final = _StreamingStore(heartbeat_result=True)
+    stream: Final = _TrackedStream()
+    upstream: Final = httpx.Response(200, stream=stream)
+    failed: Final = asyncio.Event()
+    async with httpx.AsyncClient() as client:
+        gateway: Final = Gateway(
+            scheduler=cast(Scheduler, object()),
+            store=cast(StateStore, store),
+            client=client,
+            litellm_url="http://litellm.internal",
+            lease_ttl_seconds=60,
+        )
+        await gateway._maintain_stream_lease(  # pyright: ignore[reportPrivateUsage]  # 直接验证绝对截止时间
+            upstream,
+            _stream_lease(time.time() - 0.01),
+            failed,
+        )
+
+    assert failed.is_set()
+    assert store.heartbeat_calls == 0
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_interrupted_stream_is_settled_and_released() -> None:
+    store: Final = _StreamingStore(heartbeat_result=True)
+    stream: Final = _TrackedStream(interrupt=True)
+    upstream: Final = httpx.Response(
+        200,
+        request=httpx.Request("POST", "http://litellm.internal/v1/chat/completions"),
+        stream=stream,
+    )
+    async with httpx.AsyncClient() as client:
+        gateway: Final = Gateway(
+            scheduler=cast(Scheduler, object()),
+            store=cast(StateStore, store),
+            client=client,
+            litellm_url="http://litellm.internal",
+            lease_ttl_seconds=60,
+        )
+        with pytest.raises(httpx.ReadError):
+            tuple(
+                [
+                    chunk
+                    async for chunk in gateway._stream_response(  # pyright: ignore[reportPrivateUsage]  # 验证中断清理
+                        upstream=upstream,
+                        lease=_stream_lease(time.time() + 5),
+                        started=time.perf_counter(),
+                    )
+                ]
+            )
+
+    assert stream.closed is True
+    assert store.releases == ["stream-lease"]
+    assert len(store.settlements) == 1
+    assert store.settlements[0].success is False
+    assert store.settlements[0].error_type == "stream_interrupted"
 
 
 @pytest.mark.asyncio

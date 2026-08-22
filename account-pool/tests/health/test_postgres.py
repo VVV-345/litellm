@@ -70,6 +70,7 @@ def _record() -> HealthEventRecord:
             deployment_id="deployment-a",
             public_model="model-a",
             expires_at=(_NOW + timedelta(minutes=1)).timestamp(),
+            absolute_expires_at=(_NOW + timedelta(hours=1)).timestamp(),
         ),
         request=SettleRequest(lease_id="lease-a", success=True, status_code=200, latency_ms=25),
         occurred_at=_NOW,
@@ -171,9 +172,7 @@ async def test_same_event_id_with_changed_content_is_rejected(
     assert isinstance(await repository.append(record), HealthWriteSuccess)
 
     result: Final = await repository.append(
-        record.model_copy(
-            update={"health": record.health.model_copy(update={"scope": EligibilityScope.CHANNEL})}
-        )
+        record.model_copy(update={"health": record.health.model_copy(update={"scope": EligibilityScope.CHANNEL})})
     )
 
     assert isinstance(result, HealthPersistenceFailure)

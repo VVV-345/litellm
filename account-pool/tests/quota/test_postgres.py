@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -47,13 +48,17 @@ from pydantic import ValidationError
 _GENERATION_ID: Final = UUID("60000000-0000-0000-0000-000000000001")
 _CHANNEL_ID: Final = UUID("60000000-0000-0000-0000-000000000002")
 _NOW: Final = datetime(2026, 8, 19, 13, 0, tzinfo=UTC)
-_MIGRATION: Final = (
+_MIGRATIONS: Final = tuple(
     Path(__file__).resolve().parents[3]
     / "litellm-proxy-extras"
     / "litellm_proxy_extras"
     / "migrations"
-    / "20260819230000_add_account_pool_quota_runtime"
+    / name
     / "migration.sql"
+    for name in (
+        "20260819230000_add_account_pool_quota_runtime",
+        "20260822070000_add_account_pool_quota_recovery_isolation",
+    )
 )
 
 
@@ -115,6 +120,7 @@ def _usage_event() -> QuotaUsageEvent:
         deployment_id="deployment-a",
         public_model="model-a",
         expires_at=(_NOW + timedelta(minutes=2)).timestamp(),
+        absolute_expires_at=(_NOW + timedelta(hours=1)).timestamp(),
     )
     events: Final = build_quota_usage_events(
         generation_id=_GENERATION_ID,
@@ -138,7 +144,8 @@ async def quota_repository_fixture() -> AsyncIterator[QuotaRepositoryFixture]:
         await connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         try:
             await connection.execute("SELECT set_config('search_path', %s, false)", (schema,))
-            await connection.execute(_MIGRATION.read_bytes())
+            for migration in _MIGRATIONS:
+                await connection.execute(migration.read_bytes())
             yield QuotaRepositoryFixture(
                 database_url=database_url,
                 schema=schema,
@@ -180,6 +187,25 @@ async def test_repository_round_trips_active_generation_usage_and_snapshot(
     assert loaded.state.windows == (snapshot,)
 
 
+async def test_repository_reuses_one_initializing_generation_for_concurrent_recovery(
+    quota_repository_fixture: QuotaRepositoryFixture,
+) -> None:
+    repository: Final = quota_repository_fixture.repository
+    first: Final = _generation().model_copy(update={"isolation_until": _NOW + timedelta(hours=1)})
+    competing: Final = first.model_copy(update={"generation_id": uuid4(), "created_at": _NOW + timedelta(seconds=1)})
+
+    results: Final = await asyncio.gather(
+        repository.begin_generation(first),
+        repository.begin_generation(competing),
+    )
+
+    assert all(isinstance(result, QuotaGenerationWriteSuccess) for result in results)
+    successful: Final = tuple(result for result in results if isinstance(result, QuotaGenerationWriteSuccess))
+    assert sorted(result.status for result in successful) == ["created", "unchanged"]
+    assert len({result.generation.generation_id for result in successful}) == 1
+    assert successful[0].generation.isolation_until == _NOW + timedelta(hours=1)
+
+
 async def test_usage_append_is_idempotent_and_rejects_changed_content(
     quota_repository_fixture: QuotaRepositoryFixture,
 ) -> None:
@@ -216,9 +242,7 @@ async def test_usage_content_conflict_rolls_back_other_events_in_batch(
     )
     assert isinstance(await repository.append_usage((event,)), QuotaUsageWriteSuccess)
 
-    conflicting: Final = await repository.append_usage(
-        (event.model_copy(update={"amount": Decimal("31")}), second)
-    )
+    conflicting: Final = await repository.append_usage((event.model_copy(update={"amount": Decimal("31")}), second))
     loaded: Final = await repository.load_active_recovery_state()
 
     assert isinstance(conflicting, QuotaPersistenceFailure)

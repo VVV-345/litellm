@@ -82,6 +82,7 @@ def _lease(model: str = "model-a", billing_route_id: str | None = "route-a") -> 
         public_model=model,
         billing_route_id=billing_route_id,
         expires_at=2_000,
+        absolute_expires_at=3_000,
     )
 
 

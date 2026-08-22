@@ -288,6 +288,7 @@ def create_app(
         store=resolved_store,
         client=client,
         litellm_url=resolved_settings.litellm_url,
+        lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
         health_recorder=resolved_health_recorder,
     )
     admin: Final = LiteLLMAdminClient(
@@ -1564,7 +1565,11 @@ async def _model_summary(
 
 
 def _build_store(settings: Settings) -> StateStore:
-    backend: Final = RedisStateStore(settings.redis_url) if settings.store_mode == "redis" else MemoryStateStore()
+    backend: Final = (
+        RedisStateStore(settings.redis_url, maximum_lease_seconds=settings.maximum_lease_seconds)
+        if settings.store_mode == "redis"
+        else MemoryStateStore(maximum_lease_seconds=settings.maximum_lease_seconds)
+    )
     if settings.database_url is None:
         return backend
     return DurableLatencyStateStore(
@@ -1574,6 +1579,7 @@ def _build_store(settings: Settings) -> StateStore:
                 settings.database_url,
                 schema=settings.database_schema,
             ),
+            maximum_lease_seconds=settings.maximum_lease_seconds,
         ),
         repository=PostgresLatencyMetricRepository(
             settings.database_url,

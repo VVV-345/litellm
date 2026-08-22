@@ -47,6 +47,7 @@ class QuotaRuntimeGeneration(FrozenModel):
     predecessor_generation_id: UUID | None = None
     status: QuotaGenerationStatus
     created_at: AwareDatetime
+    isolation_until: AwareDatetime | None = None
     activated_at: AwareDatetime | None = None
     closed_at: AwareDatetime | None = None
     failure_code: str | None = Field(default=None, pattern=_SAFE_CODE_PATTERN)
@@ -61,6 +62,8 @@ class QuotaRuntimeGeneration(FrozenModel):
             raise ValueError("closed quota generations require closed_at")
         if (self.status == QuotaGenerationStatus.FAILED) != (self.failure_code is not None):
             raise ValueError("only failed quota generations require failure_code")
+        if self.isolation_until is not None and self.isolation_until < self.created_at:
+            raise ValueError("quota generation isolation cannot end before creation")
         return self
 
 
@@ -263,15 +266,6 @@ def restore_quota_window(
         retry_at=None if snapshot.retry_at is None else snapshot.retry_at.timestamp(),
         usage=usage,
     )
-
-
-def quota_recovery_isolation_until(state: QuotaRecoveryState, now: AwareDatetime) -> AwareDatetime | None:
-    expiries: Final = tuple(
-        snapshot.reservation_expires_at
-        for snapshot in state.windows
-        if snapshot.reservation_expires_at is not None and snapshot.reservation_expires_at > now
-    )
-    return max(expiries, default=None)
 
 
 def _settlement_amount(kind: RuntimeQuotaKind, request: SettleRequest) -> Decimal | None:

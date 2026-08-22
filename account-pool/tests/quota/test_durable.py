@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Final
@@ -18,6 +19,7 @@ from account_pool.models import (
     RuntimeQuotaWindowType,
     SettleRequest,
 )
+from account_pool.quota.backend import QuotaBackendWindowState
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.quota.persistence_models import (
     QuotaGenerationStatus,
@@ -62,6 +64,19 @@ class _QuotaRepository:
         self.fail_usage = False
 
     async def begin_generation(self, generation: QuotaRuntimeGeneration):
+        if self.active is not None and self.active.predecessor_generation_id == generation.predecessor_generation_id:
+            return QuotaGenerationWriteSuccess(status="unchanged", generation=self.active)
+        existing: Final = next(
+            (
+                item
+                for item in self.generations.values()
+                if item.status == QuotaGenerationStatus.INITIALIZING
+                and item.predecessor_generation_id == generation.predecessor_generation_id
+            ),
+            None,
+        )
+        if existing is not None:
+            return QuotaGenerationWriteSuccess(status="unchanged", generation=existing)
         self.generations[generation.generation_id] = generation
         self.operations.append("begin")
         return QuotaGenerationWriteSuccess(status="created", generation=generation)
@@ -168,13 +183,37 @@ def _account() -> AccountConfig:
     )
 
 
+class _BlockingRestoreStore(MemoryStateStore):
+    def __init__(self, maximum_lease_seconds: int) -> None:
+        super().__init__(maximum_lease_seconds=maximum_lease_seconds)
+        self.restore_started = asyncio.Event()
+        self.allow_restore = asyncio.Event()
+        self.restore_calls = 0
+
+    async def restore_quota_backend(
+        self,
+        generation_id: UUID,
+        windows: tuple[QuotaBackendWindowState, ...],
+    ) -> bool:
+        self.restore_calls += 1
+        self.restore_started.set()
+        await self.allow_restore.wait()
+        return await super().restore_quota_backend(generation_id, windows)
+
+
 async def _configured_store(
     repository: _QuotaRepository,
     clock: _Clock,
     backend: MemoryStateStore | None = None,
+    maximum_lease_seconds: int = 3_600,
 ) -> tuple[DurableQuotaStateStore, MemoryStateStore]:
     resolved_backend: Final = backend or MemoryStateStore()
-    store: Final = DurableQuotaStateStore(resolved_backend, repository, clock=clock)
+    store: Final = DurableQuotaStateStore(
+        resolved_backend,
+        repository,
+        clock=clock,
+        maximum_lease_seconds=maximum_lease_seconds,
+    )
     await store.configure((_account(),))
     return store, resolved_backend
 
@@ -242,7 +281,7 @@ async def test_usage_persistence_failure_closes_generation_and_future_acquire() 
     assert await backend.read_quota_generation() is None
 
 
-async def test_generation_mismatch_rejects_callback_and_fails_closed() -> None:
+async def test_generation_mismatch_recovers_and_rejects_old_callback() -> None:
     repository: Final = _QuotaRepository()
     clock: Final = _Clock()
     store, backend = await _configured_store(repository, clock)
@@ -263,15 +302,21 @@ async def test_generation_mismatch_rejects_callback_and_fails_closed() -> None:
 
     assert settled is False
     assert active_generation is not None
-    assert repository.generations[active_generation].status == QuotaGenerationStatus.FAILED
-    assert repository.generations[active_generation].failure_code == "quota_generation_mismatch"
-    assert await backend.read_quota_generation() is None
+    assert repository.generations[active_generation].status == QuotaGenerationStatus.RETIRED
+    assert repository.active is not None
+    assert repository.active.generation_id != active_generation
+    assert await backend.read_quota_generation() == repository.active.generation_id
 
 
 async def test_restart_rebuilds_usage_and_isolates_until_old_reservation_expires() -> None:
     repository: Final = _QuotaRepository()
     clock: Final = _Clock()
-    first, _ = await _configured_store(repository, clock)
+    first, _ = await _configured_store(
+        repository,
+        clock,
+        MemoryStateStore(maximum_lease_seconds=180),
+        maximum_lease_seconds=180,
+    )
     reserved: Final = await first.reserve(
         account=_account(),
         deployment_id="deployment-a",
@@ -284,7 +329,12 @@ async def test_restart_rebuilds_usage_and_isolates_until_old_reservation_expires
     assert isinstance(reserved, ReserveSuccess)
     old_generation: Final = reserved.lease.generation_id
 
-    restarted, backend = await _configured_store(repository, clock, MemoryStateStore())
+    restarted, backend = await _configured_store(
+        repository,
+        clock,
+        MemoryStateStore(maximum_lease_seconds=180),
+        maximum_lease_seconds=180,
+    )
     isolated: Final = await restarted.reserve(
         account=_account(),
         deployment_id="deployment-a",
@@ -294,7 +344,7 @@ async def test_restart_rebuilds_usage_and_isolates_until_old_reservation_expires
         estimated_tokens=10,
         ttl_seconds=120,
     )
-    clock.advance(121)
+    clock.advance(181)
     recovered: Final = await restarted.reserve(
         account=_account(),
         deployment_id="deployment-a",
@@ -312,6 +362,135 @@ async def test_restart_rebuilds_usage_and_isolates_until_old_reservation_expires
     state: Final = await backend.quota_backend_state("channel-a")
     assert state is not None
     assert state.windows[0].window.reserved == Decimal("10")
+
+
+async def test_worker_joining_recovered_generation_keeps_shared_isolation_deadline() -> None:
+    repository: Final = _QuotaRepository()
+    clock: Final = _Clock()
+    first, _ = await _configured_store(
+        repository,
+        clock,
+        MemoryStateStore(maximum_lease_seconds=600),
+        maximum_lease_seconds=600,
+    )
+    reserved: Final = await first.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-a",
+        estimated_tokens=40,
+        ttl_seconds=120,
+    )
+    assert isinstance(reserved, ReserveSuccess)
+
+    recovered_backend: Final = MemoryStateStore(maximum_lease_seconds=600)
+    second, _ = await _configured_store(repository, clock, recovered_backend, maximum_lease_seconds=600)
+    joined, _ = await _configured_store(repository, clock, recovered_backend, maximum_lease_seconds=600)
+    second_result: Final = await second.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-b",
+        estimated_tokens=10,
+        ttl_seconds=120,
+    )
+    joined_result: Final = await joined.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-c",
+        estimated_tokens=10,
+        ttl_seconds=120,
+    )
+
+    assert repository.active is not None
+    assert repository.active.isolation_until == clock.current + timedelta(seconds=600)
+    assert isinstance(second_result, ReserveRejected)
+    assert second_result.reason == "quota_recovery_isolation"
+    assert isinstance(joined_result, ReserveRejected)
+    assert joined_result.reason == "quota_recovery_isolation"
+
+
+async def test_only_generation_creator_restores_shared_runtime() -> None:
+    repository: Final = _QuotaRepository()
+    clock: Final = _Clock()
+    first, _ = await _configured_store(repository, clock)
+    reserved: Final = await first.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-a",
+        estimated_tokens=40,
+        ttl_seconds=120,
+    )
+    assert isinstance(reserved, ReserveSuccess)
+
+    backend: Final = _BlockingRestoreStore(maximum_lease_seconds=600)
+    leader: Final = DurableQuotaStateStore(backend, repository, clock=clock, maximum_lease_seconds=600)
+    follower: Final = DurableQuotaStateStore(backend, repository, clock=clock, maximum_lease_seconds=600)
+    leader_configure: Final = asyncio.create_task(leader.configure((_account(),)))
+    await backend.restore_started.wait()
+
+    await follower.configure((_account(),))
+    unavailable: Final = await follower.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-b",
+        estimated_tokens=10,
+        ttl_seconds=120,
+    )
+    assert isinstance(unavailable, ReserveRejected)
+    assert unavailable.reason == "quota_persistence_unavailable"
+    assert backend.restore_calls == 1
+
+    backend.allow_restore.set()
+    await leader_configure
+    joined: Final = await follower.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-c",
+        estimated_tokens=10,
+        ttl_seconds=120,
+    )
+
+    assert isinstance(joined, ReserveRejected)
+    assert joined.reason == "quota_recovery_isolation"
+    assert backend.restore_calls == 1
+
+
+async def test_heartbeat_cannot_extend_lease_beyond_absolute_expiry() -> None:
+    repository: Final = _QuotaRepository()
+    clock: Final = _Clock()
+    store, _ = await _configured_store(
+        repository,
+        clock,
+        MemoryStateStore(maximum_lease_seconds=180),
+        maximum_lease_seconds=180,
+    )
+    reserved: Final = await store.reserve(
+        account=_account(),
+        deployment_id="deployment-a",
+        billing_route_id=None,
+        public_model="model-a",
+        request_id="request-a",
+        estimated_tokens=10,
+        ttl_seconds=120,
+    )
+    assert isinstance(reserved, ReserveSuccess)
+
+    assert await store.heartbeat(reserved.lease.lease_id, ttl_seconds=3_600)
+    extended: Final = await store.read_lease(reserved.lease.lease_id)
+
+    assert extended is not None
+    assert extended.expires_at == extended.absolute_expires_at
 
 
 async def test_restart_rebuilds_settled_rolling_usage_without_double_counting() -> None:

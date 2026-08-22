@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import AsyncIterator, Mapping
@@ -43,12 +44,14 @@ class Gateway:
         store: StateStore,
         client: httpx.AsyncClient,
         litellm_url: str,
+        lease_ttl_seconds: int,
         health_recorder: HealthEventRecorder | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._store = store
         self._client = client
         self._litellm_url = litellm_url
+        self._lease_ttl_seconds: Final = lease_ttl_seconds
         self._health_recorder = health_recorder
 
     async def forward(self, path: str, request: Request) -> Response:
@@ -103,8 +106,9 @@ class Gateway:
         )
         started: Final = time.perf_counter()
         try:
-            upstream: Final = await self._client.send(upstream_request, stream=bool(parsed.get("stream")))
-        except httpx.HTTPError as exc:
+            async with asyncio.timeout(max(0, lease.absolute_expires_at - time.time())):
+                upstream: Final = await self._client.send(upstream_request, stream=bool(parsed.get("stream")))
+        except (httpx.HTTPError, TimeoutError) as exc:
             await self._settle(
                 lease,
                 SettleRequest(
@@ -160,11 +164,16 @@ class Gateway:
         started: float,
     ) -> AsyncIterator[bytes]:
         completed = False
+        heartbeat_failed = asyncio.Event()
+        heartbeat_task: Final = asyncio.create_task(self._maintain_stream_lease(upstream, lease, heartbeat_failed))
         try:
-            async for chunk in upstream.aiter_bytes():
-                yield chunk
-            completed = True
+            async with asyncio.timeout(max(0, lease.absolute_expires_at - time.time())):
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
+                completed = not heartbeat_failed.is_set()
         finally:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
             await upstream.aclose()
             await self._settle(
                 lease,
@@ -178,6 +187,24 @@ class Gateway:
                 ),
             )
             await self._store.release(lease.lease_id)
+
+    async def _maintain_stream_lease(
+        self,
+        upstream: httpx.Response,
+        lease: Lease,
+        failed: asyncio.Event,
+    ) -> None:
+        interval: Final = max(0.1, self._lease_ttl_seconds / 2)
+        while True:
+            remaining = lease.absolute_expires_at - time.time()  # rebind-ok: 每个心跳周期都要重新计算剩余时间
+            if remaining <= 0 or not await self._store.heartbeat(
+                lease.lease_id,
+                self._lease_ttl_seconds,
+            ):
+                failed.set()
+                await upstream.aclose()
+                return
+            await asyncio.sleep(min(interval, remaining))
 
     async def _record_request_activity(self, lease: Lease) -> None:
         if self._health_recorder is not None:
@@ -231,11 +258,7 @@ def _provider_error_code(content: bytes) -> str | None:
     typed_error: Final = _JSON_OBJECT.validate_python(error)
     candidates: Final = (typed_error.get("code"), typed_error.get("type"))
     return next(
-        (
-            candidate
-            for candidate in candidates
-            if isinstance(candidate, str) and candidate and len(candidate) <= 128
-        ),
+        (candidate for candidate in candidates if isinstance(candidate, str) and candidate and len(candidate) <= 128),
         None,
     )
 

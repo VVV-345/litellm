@@ -161,6 +161,8 @@ $env:ACCOUNT_POOL_LITELLM_URL = "http://127.0.0.1:4000"
 $env:ACCOUNT_POOL_LITELLM_ADMIN_KEY = "your-litellm-master-key"
 $env:ACCOUNT_POOL_INTERNAL_TOKEN = "your-service-token"
 $env:ACCOUNT_POOL_ACTOR_SECRET = "your-separate-random-secret-at-least-32-bytes"
+$env:ACCOUNT_POOL_LEASE_TTL_SECONDS = "120"
+$env:ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS = "3600"
 $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 .\.venv\Scripts\python.exe -m uvicorn account_pool.app:app --host 127.0.0.1 --port 4100
 ```
@@ -172,6 +174,14 @@ $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 
 `DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，4100 路由表保持只读；正式策略版本、候选人工覆盖、解析
 历史和有效数据接口返回 503。可通过 `ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema
+
+`ACCOUNT_POOL_LEASE_TTL_SECONDS` 是心跳租约长度，默认 120 秒；
+`ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS` 是单次请求不可延长的绝对上限，默认 3600 秒且不能小于心跳租约。
+流式请求由 4100 网关在后台续租，但到达绝对上限后仍会中止。Redis 数据集丢失后，新代次至少隔离到故障前租约的
+绝对截止时间，旧代次的 settle、release 和 heartbeat 不会修改新代次
+
+Redis 丢失、多 Worker 和迟到回调的目标环境验证步骤见 `deploy/redis/RUNBOOK.md`
+额度运行态使用 Redis schema v2 标记；升级后首次发现旧状态时会创建恢复代次并执行最长租约隔离
 
 ## Worker 监控与 Prometheus 指标
 

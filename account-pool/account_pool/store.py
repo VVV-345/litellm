@@ -9,7 +9,7 @@ from functools import reduce
 from typing import Final, Protocol, cast
 from uuid import UUID, uuid4
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from redis.asyncio import Redis
 
 from account_pool.eligibility import (
@@ -135,6 +135,10 @@ class StateStore(Protocol):
     async def close(self) -> None: ...
 
 
+class _AsyncClosable(Protocol):
+    async def aclose(self) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class _MemoryLeaseState:
     lease: Lease
@@ -144,8 +148,11 @@ class _MemoryLeaseState:
 
 
 class MemoryStateStore:
-    def __init__(self) -> None:
+    def __init__(self, maximum_lease_seconds: int = 3_600) -> None:
+        if maximum_lease_seconds < 1:
+            raise ValueError("maximum_lease_seconds must be positive")
         self._lock = asyncio.Lock()
+        self._maximum_lease_seconds: Final = maximum_lease_seconds
         self._runtime: dict[str, AccountSnapshot] = {}
         self._leases: dict[str, _MemoryLeaseState] = {}
         self._requests: dict[str, str] = {}
@@ -275,6 +282,7 @@ class MemoryStateStore:
             if isinstance(quota_reserve, QuotaReserveRejected):
                 return ReserveRejected(reason=quota_reserve.reason_code)
 
+            absolute_expires_at: Final = now + self._maximum_lease_seconds
             lease: Final = Lease(
                 lease_id=uuid4().hex,
                 generation_id=self._quota_generation,
@@ -284,7 +292,8 @@ class MemoryStateStore:
                 public_model=public_model,
                 billing_route_id=billing_route_id,
                 probe=probe,
-                expires_at=now + ttl_seconds,
+                expires_at=min(now + ttl_seconds, absolute_expires_at),
+                absolute_expires_at=absolute_expires_at,
             )
             self._runtime[account.id] = runtime.model_copy(update={"inflight": runtime.inflight + 1})
             self._quota_windows[account.id] = quota_reserve.windows
@@ -408,7 +417,12 @@ class MemoryStateStore:
             lease_state: Final = self._leases.get(lease_id)
             if lease_state is None or lease_state.lease.released:
                 return False
-            extended: Final = lease_state.lease.model_copy(update={"expires_at": time.time() + ttl_seconds})
+            now: Final = time.time()
+            if now >= lease_state.lease.absolute_expires_at:
+                return False
+            extended: Final = lease_state.lease.model_copy(
+                update={"expires_at": min(now + ttl_seconds, lease_state.lease.absolute_expires_at)}
+            )
             self._leases[lease_id] = _MemoryLeaseState(
                 lease=extended,
                 usage_applied=lease_state.usage_applied,
@@ -524,7 +538,7 @@ class MemoryStateStore:
 
     def _reservation_expires_at(self, account_id: str, window_id: str) -> float | None:
         expiries: Final = tuple(
-            state.lease.expires_at
+            state.lease.absolute_expires_at
             for state in self._leases.values()
             if state.lease.account_id == account_id
             and not state.lease.released
@@ -538,12 +552,18 @@ class MemoryStateStore:
 _RESERVE_SCRIPT = (
     REDIS_QUOTA_RUNTIME_LUA
     + r"""
+local requested_quota_count = tonumber(ARGV[11])
+local expected_generation = ARGV[13 + requested_quota_count]
+local runtime_generation = redis.call('GET', KEYS[10 + requested_quota_count * 2]) or ''
+if expected_generation ~= '' and runtime_generation ~= expected_generation then
+  return {0, '', 'quota_generation_mismatch'}
+end
 local existing = redis.call('GET', KEYS[4])
 if existing then
   return {2, existing, 'existing'}
 end
-local requested_quota_count = tonumber(ARGV[11])
 local probe_mode = ARGV[14 + requested_quota_count] == '1'
+local absolute_expires_at = ARGV[15 + requested_quota_count]
 local function exclusion_status(key, now, ignore_health)
   local entries = redis.call('HGETALL', key)
   local half_open = false
@@ -604,6 +624,7 @@ redis.call('INCR', KEYS[2])
 redis.call('HSET', KEYS[3],
   'lease_id', ARGV[1], 'request_id', ARGV[2], 'account_id', ARGV[3],
   'deployment_id', ARGV[4], 'public_model', ARGV[5], 'billing_route_id', ARGV[6], 'expires_at', ARGV[7],
+  'absolute_expires_at', absolute_expires_at,
   'probe_key', probe_key, 'quota_count', quota_count, 'generation_id', ARGV[13 + quota_count],
   'probe', ARGV[14 + quota_count], 'settled', '0', 'released', '0')
 """
@@ -622,6 +643,13 @@ _RELEASE_SCRIPT = (
     REDIS_QUOTA_RUNTIME_LUA
     + r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
+local runtime_generation = redis.call('GET', KEYS[3]) or ''
+if lease_generation ~= '' and runtime_generation ~= lease_generation then
+  redis.call('ZREM', KEYS[2], ARGV[2])
+  redis.call('EXPIRE', KEYS[1], ARGV[3])
+  return 0
+end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 1 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
@@ -646,16 +674,25 @@ return 1
 _HEARTBEAT_SCRIPT = (
     r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
+local runtime_generation = redis.call('GET', KEYS[3]) or ''
+if lease_generation ~= '' and runtime_generation ~= lease_generation then return 0 end
 if redis.call('HGET', KEYS[1], 'released') == '1' then return 0 end
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
 local probe_key = redis.call('HGET', KEYS[1], 'probe_key')
+local absolute_expires_at = tonumber(redis.call('HGET', KEYS[1], 'absolute_expires_at') or '')
+local now = tonumber(ARGV[4])
+if not absolute_expires_at or not now or now >= absolute_expires_at then return 0 end
+local expires_at = math.min(tonumber(ARGV[1]), absolute_expires_at)
+local lease_ttl = math.ceil(expires_at - now)
+if lease_ttl <= 0 then return 0 end
 if probe_key and probe_key ~= '' and redis.call('GET', probe_key) ~= lease_id then return 0 end
-if probe_key and probe_key ~= '' then redis.call('EXPIRE', probe_key, ARGV[3]) end
+if probe_key and probe_key ~= '' then redis.call('EXPIRE', probe_key, lease_ttl) end
 """
     + REDIS_QUOTA_HEARTBEAT_LUA
     + r"""
-redis.call('HSET', KEYS[1], 'expires_at', ARGV[1])
-redis.call('ZADD', KEYS[2], ARGV[1], ARGV[2])
+redis.call('HSET', KEYS[1], 'expires_at', expires_at)
+redis.call('ZADD', KEYS[2], expires_at, ARGV[2])
 return 1
 """
 )
@@ -666,6 +703,9 @@ _SETTLE_SCRIPT = (
     REDIS_QUOTA_RUNTIME_LUA
     + r"""
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
+local runtime_generation = redis.call('GET', KEYS[7]) or ''
+if lease_generation ~= '' and runtime_generation ~= lease_generation then return 0 end
 if redis.call('HGET', KEYS[1], 'settled') == '1' then return 2 end
 local account_id = redis.call('HGET', KEYS[1], 'account_id')
 local lease_id = redis.call('HGET', KEYS[1], 'lease_id')
@@ -740,9 +780,14 @@ class RedisStateStore:
     _prefix = "pool:account:"
     _expiries = "pool:leases:expiries"
     _quota_generation_key = "pool:quota:generation"
+    _quota_schema_version_key = "pool:quota:schema-version"
+    _quota_schema_version = "2"
 
-    def __init__(self, url: str) -> None:
-        self._redis = Redis.from_url(url, decode_responses=True)
+    def __init__(self, url: str, maximum_lease_seconds: int = 3_600, client: Redis[str] | None = None) -> None:
+        if maximum_lease_seconds < 1:
+            raise ValueError("maximum_lease_seconds must be positive")
+        self._redis: Final = client or Redis.from_url(url, decode_responses=True)
+        self._maximum_lease_seconds: Final = maximum_lease_seconds
         self._accounts: dict[str, AccountConfig] = {}
         self._reserve_script = self._redis.register_script(_RESERVE_SCRIPT)
         self._release_script = self._redis.register_script(_RELEASE_SCRIPT)
@@ -819,6 +864,8 @@ class RedisStateStore:
             return ReserveRejected(reason=f"quota_configuration_{quota_plan.code}")
         lease_id: Final = uuid4().hex
         now: Final = time.time()
+        absolute_expires_at: Final = now + self._maximum_lease_seconds
+        expires_at: Final = min(now + ttl_seconds, absolute_expires_at)
         retention: Final = max(ttl_seconds * 10, 600)
         generation_id: Final = str(await self._redis.get(self._quota_generation_key) or "")
         result: Final = _RESERVE_RESULT_ADAPTER.validate_python(
@@ -834,6 +881,7 @@ class RedisStateStore:
                     deployment_eligibility_key(account.id, deployment_id),
                     billing_route_eligibility_key(account.id, billing_route_id),
                     *quota_plan.keys,
+                    self._quota_generation_key,
                 ],
                 args=[
                     lease_id,
@@ -842,7 +890,7 @@ class RedisStateStore:
                     deployment_id,
                     public_model,
                     billing_route_id or "",
-                    now + ttl_seconds,
+                    expires_at,
                     now,
                     retention,
                     ttl_seconds,
@@ -851,6 +899,7 @@ class RedisStateStore:
                     *quota_plan.arguments,
                     generation_id,
                     1 if probe else 0,
+                    absolute_expires_at,
                 ],
             )
         )
@@ -884,6 +933,7 @@ class RedisStateStore:
                     deployment_eligibility_key(lease.account_id, lease.deployment_id),
                     billing_route_eligibility_key(lease.account_id, lease.billing_route_id),
                     self._latency_key(lease.deployment_id),
+                    self._quota_generation_key,
                 ],
                 args=[
                     self._prefix,
@@ -912,18 +962,19 @@ class RedisStateStore:
         now: Final = time.time()
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._release_script(
-                keys=[self._lease_key(lease_id), self._expiries],
+                keys=[self._lease_key(lease_id), self._expiries, self._quota_generation_key],
                 args=[self._prefix, lease_id, 600, now, REDIS_QUOTA_DECIMAL_SCALE],
             )
         )
         return bool(result)
 
     async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
-        expires_at: Final = time.time() + ttl_seconds
+        now: Final = time.time()
+        expires_at: Final = now + ttl_seconds
         result: Final = _SCRIPT_STATUS_ADAPTER.validate_python(
             await self._heartbeat_script(
-                keys=[self._lease_key(lease_id), self._expiries],
-                args=[expires_at, lease_id, ttl_seconds],
+                keys=[self._lease_key(lease_id), self._expiries, self._quota_generation_key],
+                args=[expires_at, lease_id, ttl_seconds, now],
             )
         )
         return bool(result)
@@ -976,12 +1027,17 @@ class RedisStateStore:
         return tuple(lease for lease, released in zip(leases, results, strict=True) if lease is not None and released)
 
     async def close(self) -> None:
-        await self._redis.close()
+        await cast(_AsyncClosable, self._redis).aclose()
 
     async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
         generation_value: Final = await self._redis.get(self._quota_generation_key)
+        schema_version: Final = await self._redis.get(self._quota_schema_version_key)
         try:
-            generation_id: Final = None if generation_value is None else UUID(str(generation_value))
+            generation_id: Final = (
+                None
+                if generation_value is None or schema_version != self._quota_schema_version
+                else UUID(str(generation_value))
+            )
         except ValueError:
             return None
         accounts: Final = (
@@ -1006,7 +1062,12 @@ class RedisStateStore:
         )
 
     async def read_quota_generation(self) -> UUID | None:
-        value: Final = await self._redis.get(self._quota_generation_key)
+        value, schema_version = await asyncio.gather(
+            self._redis.get(self._quota_generation_key),
+            self._redis.get(self._quota_schema_version_key),
+        )
+        if schema_version != self._quota_schema_version:
+            return None
         try:
             return None if value is None else UUID(str(value))
         except ValueError:
@@ -1038,6 +1099,7 @@ class RedisStateStore:
 
         # generation key 最后写入；恢复中途失败时，所有 acquire 都会因代次缺失而关闭。
         await self._redis.delete(self._quota_generation_key)
+        await self._clear_lease_runtime()
         await asyncio.gather(
             *(
                 self._restore_quota_window(state, record)
@@ -1046,13 +1108,28 @@ class RedisStateStore:
             )
         )
         await asyncio.gather(*(self._restore_quota_usage(state, amounts) for state, amounts in usage))
+        await self._redis.set(self._quota_schema_version_key, self._quota_schema_version)
         await self._redis.set(self._quota_generation_key, str(generation_id))
         return True
+
+    async def _clear_lease_runtime(self) -> None:
+        lease_keys, request_keys, probe_keys = await asyncio.gather(
+            self._scan_keys("pool:lease:*"),
+            self._scan_keys("pool:request:*"),
+            self._scan_keys("pool:eligibility:probe:*"),
+        )
+        stale_keys: Final = (self._expiries, *lease_keys, *request_keys, *probe_keys)
+        await self._redis.delete(*stale_keys)
+        await asyncio.gather(*(self._redis.set(self._inflight_key(account_id), 0) for account_id in self._accounts))
+
+    async def _scan_keys(self, pattern: str) -> tuple[str, ...]:
+        return tuple([str(key) async for key in self._redis.scan_iter(match=pattern)])
 
     async def set_quota_generation(self, generation_id: UUID | None) -> None:
         if generation_id is None:
             await self._redis.delete(self._quota_generation_key)
             return
+        await self._redis.set(self._quota_schema_version_key, self._quota_schema_version)
         await self._redis.set(self._quota_generation_key, str(generation_id))
 
     async def read_lease(self, lease_id: str) -> Lease | None:
@@ -1068,7 +1145,7 @@ class RedisStateStore:
         decoded: Final = decode_quota_window(fields)
         if isinstance(decoded, RedisQuotaCodecFailure):
             return None
-        reservations_key: Final = self._reservation_key(window_key)
+        reservations_key: Final = self._absolute_reservation_key(window_key)
         await self._redis.zremrangebyscore(reservations_key, min=0, max=time.time())
         latest: Final = await self._redis.zrevrange(reservations_key, 0, 0, withscores=True)
         expires_at: Final = None if not latest else float(latest[0][1])
@@ -1089,7 +1166,12 @@ class RedisStateStore:
             window_key,
             mapping=quota_window_hash_fields(record),  # pyright: ignore[reportArgumentType]  # redis-py 泛型不完整
         )
-        await self._redis.delete(usage_key, self._reservation_key(window_key), f"{window_key}:probe")
+        await self._redis.delete(
+            usage_key,
+            self._reservation_key(window_key),
+            self._absolute_reservation_key(window_key),
+            f"{window_key}:probe",
+        )
 
     async def _restore_quota_usage(
         self,
@@ -1111,6 +1193,10 @@ class RedisStateStore:
     @staticmethod
     def _reservation_key(window_key: str) -> str:
         return f"{window_key}:reservations"
+
+    @staticmethod
+    def _absolute_reservation_key(window_key: str) -> str:
+        return f"{window_key}:absolute_reservations"
 
     async def _configure_account(
         self,
@@ -1186,7 +1272,13 @@ class RedisStateStore:
                 *(
                     key
                     for stale_key in stale_keys
-                    for key in (stale_key, f"{stale_key}:usage", self._reservation_key(stale_key), f"{stale_key}:probe")
+                    for key in (
+                        stale_key,
+                        f"{stale_key}:usage",
+                        self._reservation_key(stale_key),
+                        self._absolute_reservation_key(stale_key),
+                        f"{stale_key}:probe",
+                    )
                 )
             )
         await self._redis.delete(manifest_key)
@@ -1244,19 +1336,23 @@ class RedisStateStore:
         data: Final = await self._redis.hgetall(self._lease_key(lease_id))
         if not data:
             return None
-        return Lease(
-            lease_id=data["lease_id"],
-            generation_id=UUID(data["generation_id"]) if data.get("generation_id") else None,
-            request_id=data["request_id"],
-            account_id=data["account_id"],
-            deployment_id=data["deployment_id"],
-            public_model=data["public_model"],
-            billing_route_id=data.get("billing_route_id") or None,
-            probe=data.get("probe") == "1",
-            expires_at=float(data["expires_at"]),
-            settled=data.get("settled") == "1",
-            released=data.get("released") == "1",
-        )
+        try:
+            return Lease(
+                lease_id=data["lease_id"],
+                generation_id=UUID(data["generation_id"]) if data.get("generation_id") else None,
+                request_id=data["request_id"],
+                account_id=data["account_id"],
+                deployment_id=data["deployment_id"],
+                public_model=data["public_model"],
+                billing_route_id=data.get("billing_route_id") or None,
+                probe=data.get("probe") == "1",
+                expires_at=float(data["expires_at"]),
+                absolute_expires_at=float(data["absolute_expires_at"]),
+                settled=data.get("settled") == "1",
+                released=data.get("released") == "1",
+            )
+        except (KeyError, ValidationError, ValueError):
+            return None
 
     @classmethod
     def _state_key(cls, account_id: str) -> str:

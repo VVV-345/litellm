@@ -90,3 +90,11 @@ def test_event_retention_settings_load_without_exposing_archive_key(monkeypatch:
     assert loaded.event_archive_key.get_secret_value() == "secret-key-material"
     assert "secret-key-material" not in repr(loaded.event_archive_key)
     assert loaded.event_archive_key_id == "production-2026"
+
+
+def test_maximum_lease_must_cover_heartbeat_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_LEASE_TTL_SECONDS", "120")
+    monkeypatch.setenv("ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS", "60")
+
+    with pytest.raises(ValueError, match="MAXIMUM_LEASE_SECONDS"):
+        Settings.from_env()

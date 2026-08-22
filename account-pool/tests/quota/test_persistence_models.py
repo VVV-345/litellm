@@ -92,6 +92,7 @@ def _lease() -> Lease:
         public_model="model-a",
         billing_route_id="route-a",
         expires_at=(_NOW + timedelta(minutes=2)).timestamp(),
+        absolute_expires_at=(_NOW + timedelta(hours=1)).timestamp(),
     )
 
 
@@ -194,4 +195,14 @@ def test_generation_lifecycle_rejects_active_without_activation_time() -> None:
             generation_id=_GENERATION_ID,
             status=QuotaGenerationStatus.ACTIVE,
             created_at=_NOW,
+        )
+
+
+def test_generation_rejects_isolation_deadline_before_creation() -> None:
+    with pytest.raises(ValidationError, match="isolation"):
+        QuotaRuntimeGeneration(
+            generation_id=_GENERATION_ID,
+            status=QuotaGenerationStatus.INITIALIZING,
+            created_at=_NOW,
+            isolation_until=_NOW - timedelta(seconds=1),
         )

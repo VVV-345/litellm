@@ -246,8 +246,15 @@ class Lease(FrozenModel):
     probe: bool = False
     generation_id: UUID | None = None
     expires_at: float
+    absolute_expires_at: float
     settled: bool = False
     released: bool = False
+
+    @model_validator(mode="after")
+    def validate_expiry(self) -> Lease:
+        if self.expires_at > self.absolute_expires_at:
+            raise ValueError("lease expiry cannot exceed its absolute expiry")
+        return self
 
 
 class AcquireRequest(FrozenModel):

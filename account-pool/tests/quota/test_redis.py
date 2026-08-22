@@ -1,7 +1,8 @@
 """验证 Redis 额度编码在高精度和异常输入下不会静默截断。"""
 
 from decimal import Decimal
-from typing import Final
+from typing import Final, cast
+from uuid import uuid4
 
 import account_pool.store as store_module
 from account_pool.models import (
@@ -44,6 +45,9 @@ from account_pool.quota.redis_scripts import (
     REDIS_UNSIGNED_DECIMAL_LUA,
 )
 from account_pool.quota.runtime import RuntimeQuotaWindow
+from account_pool.store import RedisStateStore
+from fakeredis.aioredis import FakeRedis
+from redis.asyncio import Redis
 
 
 def _window(
@@ -134,6 +138,61 @@ def test_lua_arithmetic_never_converts_complete_quota_values_to_numbers() -> Non
     assert "quota_compare_unsigned" in REDIS_UNSIGNED_DECIMAL_LUA
     assert "quota_add_unsigned" in REDIS_UNSIGNED_DECIMAL_LUA
     assert "quota_subtract_unsigned" in REDIS_UNSIGNED_DECIMAL_LUA
+
+
+async def test_legacy_runtime_requires_schema_upgrade_and_rejects_old_lease() -> None:
+    client: Final = FakeRedis(decode_responses=True)
+    generation_id: Final = uuid4()
+    store: Final = RedisStateStore("redis://unused", client=cast("Redis[str]", client))
+    await client.set(store._quota_generation_key, str(generation_id))  # pyright: ignore[reportPrivateUsage]  # 旧状态夹具
+    await client.hset(
+        store._lease_key("legacy-lease"),  # pyright: ignore[reportPrivateUsage]  # 旧状态夹具
+        mapping={
+            "lease_id": "legacy-lease",
+            "request_id": "legacy-request",
+            "account_id": "channel-a",
+            "deployment_id": "deployment-a",
+            "public_model": "model-a",
+            "expires_at": "2000",
+        },
+    )
+
+    assert await store.read_quota_generation() is None
+    assert await store.read_lease("legacy-lease") is None
+
+    await store.set_quota_generation(generation_id)
+    assert await store.read_quota_generation() == generation_id
+    await store.close()
+
+
+async def test_recovery_clears_old_lease_runtime_before_publishing_generation() -> None:
+    client: Final = FakeRedis(decode_responses=True)
+    generation_id: Final = uuid4()
+    store: Final = RedisStateStore("redis://unused", client=cast("Redis[str]", client))
+    account: Final = AccountConfig(
+        id="channel-a",
+        display_name="Channel A",
+        provider="test",
+        base_url_display="https://example.test",
+        max_concurrency=2,
+        deployments=(DeploymentConfig(public_model="model-a", litellm_model_id="deployment-a"),),
+    )
+    await store.configure((account,))
+    await client.set("pool:account:channel-a:inflight", "1")
+    await client.set("pool:leases:expiries", "legacy")
+    await client.set("pool:lease:legacy", "legacy")
+    await client.set("pool:request:legacy", "legacy")
+    await client.set("pool:eligibility:probe:legacy", "legacy")
+
+    assert await store.restore_quota_backend(generation_id, ()) is True
+
+    assert await client.get("pool:account:channel-a:inflight") == "0"
+    assert await client.get("pool:leases:expiries") is None
+    assert await client.get("pool:lease:legacy") is None
+    assert await client.get("pool:request:legacy") is None
+    assert await client.get("pool:eligibility:probe:legacy") is None
+    assert await store.read_quota_generation() == generation_id
+    await store.close()
 
 
 def test_configure_contract_preserves_amounts_as_strings() -> None:
@@ -303,10 +362,17 @@ def test_lifecycle_scripts_preserve_atomic_reservation_contract() -> None:
     assert "tonumber(ARGV[11])" not in REDIS_QUOTA_SETTLE_LUA
     assert "tonumber(ARGV[12])" not in REDIS_QUOTA_SETTLE_LUA
     assert "window_key .. ':reservations'" in REDIS_QUOTA_RESERVE_COMMIT_LUA
+    assert "window_key .. ':absolute_reservations'" in REDIS_QUOTA_RESERVE_COMMIT_LUA
     assert "ZREM', window_key .. ':reservations'" in REDIS_QUOTA_RELEASE_LUA
+    assert "ZREM', window_key .. ':absolute_reservations'" in REDIS_QUOTA_RELEASE_LUA
     assert "ZADD', window_key .. ':reservations'" in REDIS_QUOTA_HEARTBEAT_LUA
+    assert "absolute_expires_at" in store_module._HEARTBEAT_SCRIPT
     assert "ZREM', quota_state.window_key .. ':reservations'" in REDIS_QUOTA_SETTLE_LUA
     assert "'generation_id', ARGV[13 + quota_count]" in store_module._RESERVE_SCRIPT
+    assert "runtime_generation ~= expected_generation" in store_module._RESERVE_SCRIPT
+    assert "runtime_generation ~= lease_generation" in store_module._SETTLE_SCRIPT
+    assert "runtime_generation ~= lease_generation" in store_module._RELEASE_SCRIPT
+    assert "runtime_generation ~= lease_generation" in store_module._HEARTBEAT_SCRIPT
     assert "probe_mode = ARGV[14 + requested_quota_count] == '1'" in store_module._RESERVE_SCRIPT
     assert "source ~= 'health'" in store_module._RESERVE_SCRIPT
     assert "probe_source_key = health_source_key or KEYS[8]" in store_module._RESERVE_SCRIPT

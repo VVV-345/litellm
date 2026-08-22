@@ -44,6 +44,7 @@ def _lease() -> Lease:
         deployment_id="deployment-a",
         public_model="model-a",
         expires_at=(_NOW + timedelta(minutes=1)).timestamp(),
+        absolute_expires_at=(_NOW + timedelta(hours=1)).timestamp(),
     )
 
 

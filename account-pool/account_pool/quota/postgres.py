@@ -36,7 +36,7 @@ from account_pool.quota.repository import (
 
 _SCHEMA_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _GENERATION_COLUMNS: Final = """
-generation_id, predecessor_generation_id, status, created_at, activated_at, closed_at, failure_code
+generation_id, predecessor_generation_id, status, created_at, isolation_until, activated_at, closed_at, failure_code
 """
 _USAGE_COLUMNS: Final = """
 event_id, generation_id, channel_id, account_id, window_id, lease_id, request_id,
@@ -60,6 +60,7 @@ class _GenerationRow(FrozenModel):
     predecessor_generation_id: UUID | None
     status: QuotaGenerationStatus
     created_at: AwareDatetime
+    isolation_until: AwareDatetime | None
     activated_at: AwareDatetime | None
     closed_at: AwareDatetime | None
     failure_code: str | None
@@ -128,10 +129,24 @@ class PostgresQuotaRuntimeRepository:
         try:
             async with await self._connect() as connection, connection.transaction():
                 await self._set_search_path(connection)
+                await _lock_generation_transition(connection)
+                active: Final = await _load_active_generation(connection, lock=True)
+                if active is not None and active.generation_id != generation.predecessor_generation_id:
+                    if active.predecessor_generation_id == generation.predecessor_generation_id:
+                        return QuotaGenerationWriteSuccess(status="unchanged", generation=active)
+                    return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=True)
+                initializing: Final = await _load_initializing_successor(
+                    connection,
+                    generation.predecessor_generation_id,
+                )
+                if initializing is not None:
+                    return QuotaGenerationWriteSuccess(status="unchanged", generation=initializing)
+                if (active is None) != (generation.predecessor_generation_id is None):
+                    return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=True)
                 cursor: Final = await connection.execute(
                     f"""
                     INSERT INTO "LiteLLM_AccountPoolQuotaGeneration" ({_GENERATION_COLUMNS})
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (generation_id) DO NOTHING
                     RETURNING {_GENERATION_COLUMNS}
                     """,
@@ -155,6 +170,7 @@ class PostgresQuotaRuntimeRepository:
         try:
             async with await self._connect() as connection, connection.transaction():
                 await self._set_search_path(connection)
+                await _lock_generation_transition(connection)
                 current: Final = await _load_generation(connection, generation_id, lock=True)
                 if current is None:
                     return _failure(QuotaPersistenceFailureCode.GENERATION_NOT_FOUND, retryable=False)
@@ -162,6 +178,11 @@ class PostgresQuotaRuntimeRepository:
                     return QuotaGenerationWriteSuccess(status="unchanged", generation=current)
                 if current.status != QuotaGenerationStatus.INITIALIZING:
                     return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=False)
+                active: Final = await _load_active_generation(connection, lock=True)
+                if (active is None) != (current.predecessor_generation_id is None):
+                    return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=True)
+                if active is not None and active.generation_id != current.predecessor_generation_id:
+                    return _failure(QuotaPersistenceFailureCode.STATE_CONFLICT, retryable=True)
 
                 # 激活新代次和退役旧代次必须处于同一事务，数据库中始终最多只有一个 active 代次。
                 await connection.execute(
@@ -361,6 +382,7 @@ def decode_generation_row(value: object) -> QuotaRuntimeGeneration:
         predecessor_generation_id=row.predecessor_generation_id,
         status=row.status,
         created_at=row.created_at,
+        isolation_until=row.isolation_until,
         activated_at=row.activated_at,
         closed_at=row.closed_at,
         failure_code=row.failure_code,
@@ -430,6 +452,47 @@ async def _load_generation(
     return None if row is None else decode_generation_row(row)
 
 
+async def _load_active_generation(
+    connection: AsyncConnection[DatabaseRow],
+    *,
+    lock: bool,
+) -> QuotaRuntimeGeneration | None:
+    cursor: Final = await connection.execute(
+        f"""
+        SELECT {_GENERATION_COLUMNS}
+        FROM "LiteLLM_AccountPoolQuotaGeneration"
+        WHERE status = 'active'
+        {"FOR UPDATE" if lock else ""}
+        """
+    )
+    row: Final = await cursor.fetchone()
+    return None if row is None else decode_generation_row(row)
+
+
+async def _load_initializing_successor(
+    connection: AsyncConnection[DatabaseRow],
+    predecessor_generation_id: UUID | None,
+) -> QuotaRuntimeGeneration | None:
+    cursor: Final = await connection.execute(
+        f"""
+        SELECT {_GENERATION_COLUMNS}
+        FROM "LiteLLM_AccountPoolQuotaGeneration"
+        WHERE status = 'initializing'
+          AND predecessor_generation_id IS NOT DISTINCT FROM %s
+        ORDER BY created_at, generation_id
+        LIMIT 1
+        FOR UPDATE
+        """,
+        (None if predecessor_generation_id is None else str(predecessor_generation_id),),
+    )
+    row: Final = await cursor.fetchone()
+    return None if row is None else decode_generation_row(row)
+
+
+async def _lock_generation_transition(connection: AsyncConnection[DatabaseRow]) -> None:
+    await connection.execute("SELECT pg_advisory_xact_lock(hashtext('account_pool_quota_generation'))")
+
+
 async def _load_usage_events(
     connection: AsyncConnection[DatabaseRow],
     event_ids: tuple[UUID, ...],
@@ -494,6 +557,7 @@ def _generation_values(generation: QuotaRuntimeGeneration) -> tuple[object, ...]
         None if generation.predecessor_generation_id is None else str(generation.predecessor_generation_id),
         generation.status.value,
         generation.created_at,
+        generation.isolation_until,
         generation.activated_at,
         generation.closed_at,
         generation.failure_code,

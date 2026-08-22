@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Final, Protocol
 from uuid import UUID, uuid4
 
@@ -28,7 +29,6 @@ from account_pool.quota.persistence_models import (
     QuotaWindowRuntimeSnapshot,
     build_quota_usage_events,
     build_quota_window_snapshot,
-    quota_recovery_isolation_until,
     restore_quota_window,
 )
 from account_pool.quota.repository import (
@@ -57,15 +57,21 @@ class DurableQuotaStateStore:
         backend: DurableQuotaBackend,
         repository: QuotaRuntimeRepository,
         clock: Callable[[], datetime] | None = None,
+        maximum_lease_seconds: int = 3_600,
     ) -> None:
+        if maximum_lease_seconds < 1:
+            raise ValueError("maximum_lease_seconds must be positive")
         self._backend: Final = backend
         self._repository: Final = repository
         self._clock: Final = clock or _utc_now
+        self._maximum_lease_seconds: Final = maximum_lease_seconds
+        self._recovery_lock: Final = asyncio.Lock()
         self._accounts: dict[str, AccountConfig] = {}
         self._generation_id: UUID | None = None
         self._isolation_until: datetime | None = None
         self._initialized = False
         self._ready = False
+        self._join_pending = False
 
     async def configure(self, accounts: tuple[AccountConfig, ...]) -> None:
         self._accounts = {account.id: account for account in accounts}
@@ -108,6 +114,9 @@ class DurableQuotaStateStore:
         )
         if not isinstance(result, ReserveSuccess):
             return result
+        if result.lease.generation_id != self._generation_id:
+            await self._fail_closed("quota_lease_generation_mismatch")
+            return ReserveRejected(reason="quota_generation_mismatch")
         if await self._persist_snapshots(account.id):
             return result
         await self._backend.release(result.lease.lease_id)
@@ -202,8 +211,10 @@ class DurableQuotaStateStore:
             active: Final = recovery_result.state.generation
             if backend_generation == active.generation_id:
                 self._generation_id = active.generation_id
+                self._isolation_until = active.isolation_until
                 self._initialized = True
                 self._ready = True
+                self._join_pending = False
                 if not await self._persist_snapshots():
                     await self._fail_closed("quota_snapshot_persistence_failed")
                 return
@@ -212,10 +223,6 @@ class DurableQuotaStateStore:
         if recovery_result.code != QuotaPersistenceFailureCode.ACTIVE_GENERATION_NOT_FOUND:
             self._initialized = True
             await self._fail_closed("quota_recovery_load_failed")
-            return
-        if backend_generation is not None:
-            self._initialized = True
-            await self._fail_closed("quota_generation_orphaned")
             return
         await self._recover_new_generation(None)
 
@@ -231,34 +238,54 @@ class DurableQuotaStateStore:
             predecessor_generation_id=None if recovery is None else recovery.generation.generation_id,
             status=QuotaGenerationStatus.INITIALIZING,
             created_at=now,
+            isolation_until=None if recovery is None else now + timedelta(seconds=self._maximum_lease_seconds),
         )
         begun: Final = await self._repository.begin_generation(generation)
         if not isinstance(begun, QuotaGenerationWriteSuccess):
             self._initialized = True
             await self._fail_closed("quota_generation_begin_failed")
             return
+        selected_generation: Final = begun.generation
+        if selected_generation.status == QuotaGenerationStatus.ACTIVE:
+            self._generation_id = selected_generation.generation_id
+            self._isolation_until = selected_generation.isolation_until
+            self._initialized = True
+            self._ready = await self._backend.read_quota_generation() == selected_generation.generation_id
+            self._join_pending = False
+            if not self._ready:
+                await self._fail_closed("quota_generation_join_failed")
+            return
+        if begun.status == "unchanged":
+            self._generation_id = selected_generation.generation_id
+            self._isolation_until = selected_generation.isolation_until
+            self._initialized = True
+            self._ready = False
+            self._join_pending = True
+            return
         restored_windows: Final = _recovered_backend_windows(
             current=backend_state.windows,
             recovery=recovery,
             now=now,
         )
-        if not await self._backend.restore_quota_backend(generation.generation_id, restored_windows):
-            self._generation_id = generation.generation_id
+        if not await self._backend.restore_quota_backend(selected_generation.generation_id, restored_windows):
+            self._generation_id = selected_generation.generation_id
             self._initialized = True
             await self._fail_closed("quota_runtime_restore_failed")
             return
-        self._generation_id = generation.generation_id
-        self._isolation_until = None if recovery is None else quota_recovery_isolation_until(recovery, now)
+        self._generation_id = selected_generation.generation_id
+        self._isolation_until = selected_generation.isolation_until
         if not await self._persist_snapshots():
             self._initialized = True
             await self._fail_closed("quota_snapshot_persistence_failed")
             return
-        activated: Final = await self._repository.activate_generation(generation.generation_id, now)
+        activated: Final = await self._repository.activate_generation(selected_generation.generation_id, now)
         self._initialized = True
         if not isinstance(activated, QuotaGenerationWriteSuccess):
             await self._fail_closed("quota_generation_activation_failed")
             return
+        self._isolation_until = activated.generation.isolation_until
         self._ready = True
+        self._join_pending = False
 
     async def _persist_snapshots(self, account_id: str | None = None) -> bool:
         generation_id: Final = self._generation_id
@@ -287,13 +314,30 @@ class DurableQuotaStateStore:
 
     async def _generation_rejection(self) -> str | None:
         if not self._ready or self._generation_id is None:
-            return "quota_persistence_unavailable"
+            if not self._join_pending:
+                return "quota_persistence_unavailable"
+            initialized_generation: Final = await self._synchronize_runtime_generation()
+            if initialized_generation is None:
+                return "quota_persistence_unavailable"
         if await self._backend.read_quota_generation() != self._generation_id:
-            await self._fail_closed("quota_generation_mismatch")
-            return "quota_generation_mismatch"
+            synchronized_generation: Final = await self._synchronize_runtime_generation()
+            if synchronized_generation is None:
+                return "quota_generation_mismatch"
+            if await self._backend.read_quota_generation() != synchronized_generation:
+                return "quota_generation_mismatch"
         if self._isolation_until is not None and self._isolation_until > self._clock():
             return "quota_recovery_isolation"
         return None
+
+    async def _synchronize_runtime_generation(self) -> UUID | None:
+        async with self._recovery_lock:
+            backend_generation: Final = await self._backend.read_quota_generation()
+            if self._ready and self._generation_id is not None and backend_generation == self._generation_id:
+                return self._generation_id
+            self._ready = False
+            self._initialized = False
+            await self._initialize()
+            return self._generation_id if self._ready else None
 
     async def _valid_lease(self, lease_id: str) -> Lease | None:
         if await self._generation_rejection() is not None:
@@ -304,7 +348,10 @@ class DurableQuotaStateStore:
     async def _fail_closed(self, failure_code: str) -> None:
         generation_id: Final = self._generation_id
         self._ready = False
-        await self._backend.set_quota_generation(None)
+        self._join_pending = False
+        backend_generation: Final = await self._backend.read_quota_generation()
+        if generation_id is not None and backend_generation == generation_id:
+            await self._backend.set_quota_generation(None)
         if generation_id is not None:
             result: Final = await self._repository.fail_generation(generation_id, failure_code, self._clock())
             if isinstance(result, QuotaPersistenceFailure):
