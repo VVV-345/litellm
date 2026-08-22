@@ -81,6 +81,12 @@ async def event_repository_fixture() -> AsyncIterator[EventRepositoryFixture]:
                     retry_at TIMESTAMPTZ,
                     probe_trigger TEXT
                 );
+                CREATE TABLE "LiteLLM_AccountPoolOperationalEvent" (
+                    event_id TEXT PRIMARY KEY REFERENCES "LiteLLM_AccountPoolEvent"(event_id),
+                    source TEXT NOT NULL,
+                    operation_id TEXT NOT NULL,
+                    outcome TEXT NOT NULL
+                );
                 """
             )
             yield EventRepositoryFixture(
@@ -172,6 +178,34 @@ def test_parser_override_event_decodes_only_registered_safe_details() -> None:
     assert "value" not in event.safe_details
 
 
+def test_parser_task_operational_event_decodes_registered_safe_details() -> None:
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "parser_task_interrupted",
+                {
+                    "kind": "parser_task_interrupted",
+                    "task_id": "92000000-0000-0000-0000-000000000001",
+                    "parser_run_id": "92000000-0000-0000-0000-000000000002",
+                    "provider_id": "openai_compatible",
+                    "interruption_source": "stale_heartbeat",
+                },
+            ),
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "parser_task",
+            "operational_operation_id": "92000000-0000-0000-0000-000000000001",
+            "operational_outcome": "interrupted",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.INTERRUPTED
+    assert event.operational is not None and event.operational.source == "parser_task"
+    assert event.audit is None
+    assert event.health is None
+    assert "api_key" not in event.model_dump_json()
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(
@@ -254,6 +288,25 @@ async def test_postgres_query_filters_and_paginates_without_duplicate_events(
     assert second.next_cursor is None
 
 
+async def test_postgres_query_filters_operational_outcome(
+    event_repository_fixture: EventRepositoryFixture,
+) -> None:
+    fixture: Final = event_repository_fixture
+    task_id: Final = UUID("92000000-0000-0000-0000-000000000001")
+    async with await psycopg.AsyncConnection.connect(fixture.database_url) as connection, connection.transaction():
+        await connection.execute("SELECT set_config('search_path', %s, true)", (fixture.schema,))
+        await _insert_operational_event(connection, task_id)
+
+    page: Final = await fixture.repository.list_events(
+        EventQuery(channel_id=_CHANNEL_ID, outcome=EventQueryOutcome.INTERRUPTED)
+    )
+
+    assert isinstance(page, EventLogPage)
+    assert len(page.events) == 1
+    assert page.events[0].operational is not None
+    assert page.events[0].operational.operation_id == task_id
+
+
 def _common_row(event_type: str, safe_details: object) -> dict[str, object]:
     return {
         "event_id": _EVENT_ID,
@@ -268,6 +321,7 @@ def _common_row(event_type: str, safe_details: object) -> dict[str, object]:
         "actor_type": "user" if event_type == "channel_create" else "system",
         "actor_id": "admin" if event_type == "channel_create" else "account_pool_gateway",
         "safe_details": safe_details,
+        **_empty_operational_fact(),
     }
 
 
@@ -290,6 +344,14 @@ def _empty_health_fact() -> dict[str, object]:
         "health_scope": None,
         "health_retry_at": None,
         "health_probe_trigger": None,
+    }
+
+
+def _empty_operational_fact() -> dict[str, object]:
+    return {
+        "operational_source": None,
+        "operational_operation_id": None,
+        "operational_outcome": None,
     }
 
 
@@ -319,4 +381,40 @@ async def _insert_management_event(
         ) VALUES (%s, 'proxy_admin', 'channel:create', %s, 'accepted')
         """,
         (str(event_id), str(_ENVELOPE_ID)),
+    )
+
+
+async def _insert_operational_event(
+    connection: psycopg.AsyncConnection[tuple[object, ...]],
+    task_id: UUID,
+) -> None:
+    await connection.execute(
+        """
+        INSERT INTO "LiteLLM_AccountPoolEvent" (
+            event_id, event_type, occurred_at, channel_id, request_id,
+            actor_type, actor_id, safe_details_schema_version, safe_details
+        ) VALUES (%s, 'parser_task_interrupted', %s, %s, 'request-3',
+                  'system', 'account_pool_parser_task', 1, %s)
+        """,
+        (
+            str(_EVENT_ID),
+            _NOW,
+            str(_CHANNEL_ID),
+            Jsonb(
+                {
+                    "kind": "parser_task_interrupted",
+                    "task_id": str(task_id),
+                    "parser_run_id": "92000000-0000-0000-0000-000000000002",
+                    "provider_id": "openai_compatible",
+                    "interruption_source": "stale_heartbeat",
+                }
+            ),
+        ),
+    )
+    await connection.execute(
+        """
+        INSERT INTO "LiteLLM_AccountPoolOperationalEvent" (event_id, source, operation_id, outcome)
+        VALUES (%s, 'parser_task', %s, 'interrupted')
+        """,
+        (str(_EVENT_ID), str(task_id)),
     )

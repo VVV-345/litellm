@@ -206,6 +206,7 @@ const aggregate: ChannelAggregateDetail = {
         safe_details: {},
         audit: null,
         health: null,
+        operational: null,
       },
     ],
   },

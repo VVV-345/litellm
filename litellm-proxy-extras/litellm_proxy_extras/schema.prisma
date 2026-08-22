@@ -1872,6 +1872,7 @@ model LiteLLM_AccountPoolEvent {
   safe_details                Json
   audit_event                 LiteLLM_AccountPoolAuditEvent?
   health_event                LiteLLM_AccountPoolHealthEvent?
+  operational_event           LiteLLM_AccountPoolOperationalEvent?
 
   @@index([occurred_at(sort: Desc), event_id(sort: Desc)])
   @@index([channel_id, occurred_at(sort: Desc)])
@@ -1907,6 +1908,17 @@ model LiteLLM_AccountPoolHealthEvent {
   event         LiteLLM_AccountPoolEvent     @relation(fields: [event_id], references: [event_id], onDelete: Restrict)
 
   @@index([account_id])
+  @@index([source, outcome])
+}
+
+model LiteLLM_AccountPoolOperationalEvent {
+  event_id     String                   @id
+  source       String
+  operation_id String
+  outcome      String
+  event        LiteLLM_AccountPoolEvent @relation(fields: [event_id], references: [event_id], onDelete: Restrict)
+
+  @@index([operation_id])
   @@index([source, outcome])
 }
 

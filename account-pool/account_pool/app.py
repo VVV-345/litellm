@@ -82,6 +82,7 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.operational.postgres import PostgresOperationalEventRepository
 from account_pool.overview import (
     AccountPoolOverview,
     AccountPoolOverviewFailure,
@@ -1698,6 +1699,7 @@ def _build_parser_runtime(
             worker=worker,
             repository=PostgresParserTaskRepository(settings.database_url, schema=settings.database_schema),
             audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
+            operations=PostgresOperationalEventRepository(settings.database_url, schema=settings.database_schema),
         ),
         export_retries=ParserExportRetryLoop(
             worker,

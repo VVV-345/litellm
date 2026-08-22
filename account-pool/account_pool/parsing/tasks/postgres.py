@@ -140,11 +140,11 @@ class PostgresParserTaskRepository:
             async with await self._connect() as connection, connection.transaction():
                 await self._set_search_path(connection)
                 cursor: Final = await connection.execute(
-                    """
+                    f"""
                     UPDATE "LiteLLM_AccountPoolParserTask"
                     SET status = %s, completed_at = %s, heartbeat_at = %s
                     WHERE status = %s AND heartbeat_at < %s
-                    RETURNING task_id
+                    RETURNING {_COLUMNS}
                     """,
                     (
                         ParserTaskStatus.INTERRUPTED_REQUIRES_KEY,
@@ -155,9 +155,7 @@ class PostgresParserTaskRepository:
                     ),
                 )
                 rows: Final = tuple(await cursor.fetchall())
-                return ParserTaskSweepSuccess(
-                    interrupted_task_ids=tuple(UUID(str(row["task_id"])) for row in rows)
-                )
+                return ParserTaskSweepSuccess(interrupted_tasks=tuple(_decode(row) for row in rows))
         except (KeyError, ValueError):
             return _sweep_failure(ParserTaskPersistenceFailureCode.INVALID_STORED_DATA, retryable=False)
         except psycopg.Error:

@@ -25,6 +25,7 @@ from account_pool.events.models import (
     EventLogFailureCode,
     EventLogPage,
     EventLogResult,
+    EventOperationalSummary,
     EventQuery,
     EventQueryOutcome,
 )
@@ -37,10 +38,17 @@ from account_pool.health.models import (
 )
 from account_pool.health.settlement import HealthTransitionAction
 from account_pool.models import FrozenModel, ModelName
+from account_pool.operational.models import (
+    OperationalEventDetails,
+    OperationalEventOutcome,
+    OperationalEventSource,
+    OperationalEventType,
+)
 
 _SCHEMA_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MANAGEMENT_DETAILS: Final[TypeAdapter[ManagementAuditDetails]] = TypeAdapter(ManagementAuditDetails)
 _HEALTH_DETAILS: Final[TypeAdapter[HealthEventDetails]] = TypeAdapter(HealthEventDetails)
+_OPERATIONAL_DETAILS: Final[TypeAdapter[OperationalEventDetails]] = TypeAdapter(OperationalEventDetails)
 _EVENT_QUERY: Final = """
 SELECT
     e.event_id,
@@ -66,10 +74,14 @@ SELECT
     h.transition AS health_transition,
     h.scope AS health_scope,
     h.retry_at AS health_retry_at,
-    h.probe_trigger AS health_probe_trigger
+    h.probe_trigger AS health_probe_trigger,
+    o.source AS operational_source,
+    o.operation_id AS operational_operation_id,
+    o.outcome AS operational_outcome
 FROM "LiteLLM_AccountPoolEvent" AS e
 LEFT JOIN "LiteLLM_AccountPoolAuditEvent" AS a ON a.event_id = e.event_id
 LEFT JOIN "LiteLLM_AccountPoolHealthEvent" AS h ON h.event_id = e.event_id
+LEFT JOIN "LiteLLM_AccountPoolOperationalEvent" AS o ON o.event_id = e.event_id
 WHERE (%s::timestamptz IS NULL OR e.occurred_at >= %s::timestamptz)
   AND (%s::timestamptz IS NULL OR e.occurred_at <= %s::timestamptz)
   AND (%s::text IS NULL OR e.channel_id = %s::text)
@@ -79,7 +91,7 @@ WHERE (%s::timestamptz IS NULL OR e.occurred_at >= %s::timestamptz)
   AND (%s::text IS NULL OR h.transition = %s::text)
   AND (%s::text IS NULL OR e.reason_code = %s::text)
   AND (%s::text IS NULL OR e.request_id = %s::text)
-  AND (%s::text IS NULL OR COALESCE(a.outcome, h.outcome) = %s::text)
+  AND (%s::text IS NULL OR COALESCE(a.outcome, h.outcome, o.outcome) = %s::text)
   AND (
       %s::timestamptz IS NULL
       OR (e.occurred_at, e.event_id) < (%s::timestamptz, %s::text)
@@ -119,6 +131,9 @@ class _EventRow(FrozenModel):
     health_scope: EligibilityScope | None
     health_retry_at: AwareDatetime | None
     health_probe_trigger: HealthProbeTrigger | None
+    operational_source: OperationalEventSource | None
+    operational_operation_id: UUID | None
+    operational_outcome: OperationalEventOutcome | None
 
     @model_validator(mode="after")
     def validate_linked_fact(self) -> _EventRow:
@@ -130,9 +145,15 @@ class _EventRow(FrozenModel):
             self.health_transition,
             self.health_scope,
         )
-        audit_present: Final = all(value is not None for value in audit_values)
-        health_present: Final = all(value is not None for value in health_values)
-        if audit_present == health_present:
+        operational_values: Final = (
+            self.operational_source,
+            self.operational_operation_id,
+            self.operational_outcome,
+        )
+        audit_present: Final = _complete_fact(audit_values)
+        health_present: Final = _complete_fact(health_values)
+        operational_present: Final = _complete_fact(operational_values)
+        if sum((audit_present, health_present, operational_present)) != 1:
             raise ValueError("event row requires exactly one complete linked fact")
         return self
 
@@ -224,7 +245,16 @@ def decode_event_row(value: object) -> EventLogEntry:
     row: Final = _EventRow.model_validate(value)
     audit: Final = _audit_summary(row)
     health: Final = _health_summary(row)
-    outcome: Final = audit.outcome.value if audit is not None else health.outcome.value if health is not None else None
+    operational: Final = _operational_summary(row)
+    outcome: Final = (
+        audit.outcome.value
+        if audit is not None
+        else health.outcome.value
+        if health is not None
+        else operational.outcome
+        if operational is not None
+        else None
+    )
     if outcome is None:
         raise ValueError("linked event outcome is missing")
     return EventLogEntry(
@@ -243,6 +273,7 @@ def decode_event_row(value: object) -> EventLogEntry:
         safe_details=_safe_details(row.event_type, row.safe_details),
         audit=audit,
         health=health,
+        operational=operational,
     )
 
 
@@ -251,6 +282,8 @@ def _safe_details(event_type: str, value: object) -> JsonValue:
         return cast(JsonValue, _MANAGEMENT_DETAILS.validate_python(value).model_dump(mode="json"))
     if event_type in frozenset(item.value for item in HealthEventType):
         return cast(JsonValue, _HEALTH_DETAILS.validate_python(value).model_dump(mode="json"))
+    if event_type in frozenset(item.value for item in OperationalEventType):
+        return cast(JsonValue, _OPERATIONAL_DETAILS.validate_python(value).model_dump(mode="json"))
     raise ValueError("event type has no registered safe details model")
 
 
@@ -287,3 +320,22 @@ def _health_summary(row: _EventRow) -> EventHealthSummary | None:
         retry_at=row.health_retry_at,
         probe_trigger=row.health_probe_trigger,
     )
+
+
+def _operational_summary(row: _EventRow) -> EventOperationalSummary | None:
+    if row.operational_source is None:
+        return None
+    if row.operational_operation_id is None or row.operational_outcome is None:
+        raise ValueError("operational fact is incomplete")
+    return EventOperationalSummary(
+        source=row.operational_source.value,
+        operation_id=row.operational_operation_id,
+        outcome=row.operational_outcome.value,
+    )
+
+
+def _complete_fact(values: tuple[object | None, ...]) -> bool:
+    present: Final = tuple(value is not None for value in values)
+    if any(present) and not all(present):
+        raise ValueError("linked event fact is incomplete")
+    return all(present)

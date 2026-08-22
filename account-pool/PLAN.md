@@ -1259,21 +1259,23 @@ Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务�
 - 日志、指标、导出和错误响应均不泄露 Key
 - PostgreSQL 或 Redis 短暂故障不会静默绕过限制
 
-实施状态（2026-08-21）：Phase 5 已完成第一版聚合总览纵向链路。新增独立 `overview` 模块，在查询时按 `channel_id` 合并 PostgreSQL 渠道目录、最新有效解析数据、调度运行快照、模型路由资格和健康活动，不新增重复存储的大表。总览明确区分管理员启用、运行健康和模型可调度状态，并提供渠道 ID、脱敏 URL 与 Key 摘要、配置和可调度模型、解析器身份及状态、套餐与按量摘要、并发、余额或额度、不可调度原因码和最近请求时间。解析未运行、解析数据异常、辅助活动仓储不可用及运行态尚未投影均以独立状态展示，不伪装成空值或正常状态
+实施状态（2026-08-22）：Phase 5 已完成第一版聚合总览纵向链路。新增独立 `overview` 模块，在查询时按 `channel_id` 合并 PostgreSQL 渠道目录、最新有效解析数据、调度运行快照、模型路由资格和健康活动，不新增重复存储的大表。总览明确区分管理员启用、运行健康和模型可调度状态，并提供渠道 ID、脱敏 URL 与 Key 摘要、配置和可调度模型、解析器身份及状态、套餐与按量摘要、并发、余额或额度、不可调度原因码和最近请求时间。解析未运行、解析数据异常、辅助活动仓储不可用及运行态尚未投影均以独立状态展示，不伪装成空值或正常状态
 
 聚合总览已经接入 Account Pool `/api/overview`、4100 的 `/ui-api/overview`、LiteLLM 管理代理 `/account_pool/overview` 和 Dashboard 默认“总览”工作区。真实凭证引用不会进入总览响应，Dashboard 只展示 Key 掩码。核心目录或 Redis 运行态不可用时接口返回可重试的结构化 `503`，不会把依赖故障伪装为空总览；不可调度渠道始终提供机器原因码，Dashboard 同时展示中文说明
 
 渠道综合详情已经完成代码交付。独立 `details` 模块以渠道目录为必需主数据，并行组合总览、最新有效解析数据、健康与冷却状态、各模型路由位置和最近事件；渠道不存在时返回 `404`，辅助模块不可用时只把对应分区标记为 `unavailable`，基础配置和 Deployment 绑定仍可查看。接口已经接入 Account Pool `/api/channels/{channel_id}/aggregate`、4100 的 `/ui-api/channels/{channel_id}/aggregate` 和 LiteLLM 管理代理 `/account_pool/channels/{channel_id}/aggregate`。Dashboard 渠道内页默认展示“综合详情”，并继续保留“健康与冷却”和“解析数据”两个专项工作区；响应和页面只使用 Key 掩码，不返回凭证引用
 
-统一事件日志已经完成第一版管理审计与健康事实纵向链路。独立 `events` 模块从公共 `LiteLLM_AccountPoolEvent` 信封关联规范化管理审计或健康事实，使用 `(occurred_at, event_id)` 不透明游标稳定分页，并支持时间、渠道、模型、事件类型、健康结果与转换、原因码、request_id 和最终结果筛选。读取时只接受已注册的严格 Pydantic `safe_details` 模型；未知事件类型、额外敏感字段和不完整领域事实会拒绝返回，数据库不可用、无效游标和无效存量数据分别映射为结构化失败。接口已接入 Account Pool `/api/events`、4100 `/ui-api/events` 和 LiteLLM 管理代理 `/account_pool/events`
+统一事件日志已经接通管理审计、健康事实和第一批系统运行事实。独立 `events` 模块从公共 `LiteLLM_AccountPoolEvent` 信封关联规范化管理审计、健康事实或运行事实，三类事实严格三选一；使用 `(occurred_at, event_id)` 不透明游标稳定分页，并支持时间、渠道、模型、事件类型、健康结果与转换、原因码、request_id 和最终结果筛选。读取时只接受已注册的严格 Pydantic `safe_details` 模型；未知事件类型、额外敏感字段、不完整事实和多重事实会拒绝返回，数据库不可用、无效游标和无效存量数据分别映射为结构化失败。接口已接入 Account Pool `/api/events`、4100 `/ui-api/events` 和 LiteLLM 管理代理 `/account_pool/events`
 
 统一事件中的管理审计已经扩展到解析任务启动、解析快照导入、人工覆盖设置和人工覆盖撤销。事件仅保存任务、解析运行、导入或覆盖 ID、规范化字段路径、变更字段数量和类型化结果，不保存一次性 Key、API Base、覆盖值、导入文档或修改原因正文。解析任务只有在审计事件成功持久化后才允许调用上游；审计失败时已创建的任务被标记失败并返回可重试错误
 
+系统运行事件新增独立 `operational` 模块和 `LiteLLM_AccountPoolOperationalEvent` 关联事实，首批覆盖解析任务完成、失败、优雅关闭中断和失联实例清理中断。公共事件只保存任务 ID、解析运行 ID、Provider、稳定失败码和中断来源，不保存 URL、Key、上游响应或异常正文；公共信封与运行事实由 PostgreSQL 仓储在单个事务中幂等写入。解析任务的正常结束、启动审计失败、实例关闭和启动时 stale sweeper 均已接入该事件写入路径，Dashboard 支持运行事件中文名称、结果筛选和关联任务展示
+
 Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加载更多、中文事件和原因说明、脱敏详情查看，以及从总览和渠道详情按 `channel_id` 跳转。直接点击事件日志标签会恢复全部事件，避免保留不可见的渠道筛选。前端使用 React Query 管理服务端分页，不复制服务器结果到 effect 状态。4100 调度工作台本轮同时修复了低高度主侧栏和长模型列表的左侧重叠，模型列表现在具有视口边界和独立滚动，`390x844` 窄屏没有页面级横向溢出
 
-当前自动化验证为 Account Pool 全量 `600 passed, 47 skipped`，47 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、详情与本轮事件路径 basedpyright 和 Account Pool 路径 TypeScript 检查通过，Dashboard 本次修改路径 ESLint 无错误，仍有 3 条既有复杂度或风格警告。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
+当前自动化验证为 Account Pool 全量 `612 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint 均无错误，三份 Prisma schema 已同步同一运行事件关系；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
 
-Phase 5 仍需把解析任务完成与中断、公开元数据解析、快照导出与重试、同步后台重试、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 仍需把公开元数据解析、快照导出与重试、同步后台重试、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

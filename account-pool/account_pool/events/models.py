@@ -24,6 +24,7 @@ class EventQueryOutcome(StrEnum):
     ACCEPTED = "accepted"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 class EventQuery(FrozenModel):
@@ -69,6 +70,12 @@ class EventHealthSummary(FrozenModel):
     probe_trigger: HealthProbeTrigger | None = None
 
 
+class EventOperationalSummary(FrozenModel):
+    source: Literal["parser_task"]
+    operation_id: UUID
+    outcome: Literal["succeeded", "failed", "interrupted"]
+
+
 class EventLogEntry(FrozenModel):
     event_id: UUID
     event_type: str = Field(min_length=1, max_length=100)
@@ -85,10 +92,11 @@ class EventLogEntry(FrozenModel):
     safe_details: JsonValue
     audit: EventAuditSummary | None = None
     health: EventHealthSummary | None = None
+    operational: EventOperationalSummary | None = None
 
     @model_validator(mode="after")
     def validate_domain_fact(self) -> EventLogEntry:
-        if (self.audit is None) == (self.health is None):
+        if sum(fact is not None for fact in (self.audit, self.health, self.operational)) != 1:
             raise ValueError("an event log entry requires exactly one linked domain fact")
         return self
 

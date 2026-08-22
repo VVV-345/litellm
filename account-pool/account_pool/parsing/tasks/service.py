@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Final, Protocol
+from typing import Final, Protocol, assert_never
 from uuid import UUID, uuid4, uuid5
 
 from pydantic import AwareDatetime
@@ -19,6 +19,12 @@ from account_pool.audit.models import (
 from account_pool.audit.repository import AuditPersistenceFailure, ManagementAuditRepository
 from account_pool.auth.actor import ActorAction, ActorContext
 from account_pool.domain.provider_source import ProviderValidationRequest, ProviderValidationResult
+from account_pool.operational.models import (
+    OperationalEventType,
+    ParserTaskInterruptionSource,
+    build_parser_task_operational_record,
+)
+from account_pool.operational.repository import OperationalEventRepository
 from account_pool.parsing.registry import ParserSelectionRequest
 from account_pool.parsing.tasks.models import (
     ParserTaskAccepted,
@@ -36,6 +42,7 @@ from account_pool.parsing.tasks.repository import (
     ParserTaskPersistenceFailure,
     ParserTaskPersistenceFailureCode,
     ParserTaskRepository,
+    ParserTaskWriteResult,
     ParserTaskWriteSuccess,
 )
 from account_pool.parsing.worker import ParserWorkFailure, ParserWorkRequest, ParserWorkResult
@@ -79,6 +86,7 @@ class ParserTaskService:
         worker: ParserWorkerRunner,
         repository: ParserTaskRepository,
         audit: ManagementAuditRepository,
+        operations: OperationalEventRepository,
         *,
         instance_id: UUID | None = None,
         clock: Clock = utc_now,
@@ -90,6 +98,7 @@ class ParserTaskService:
         self._worker: Final = worker
         self._repository: Final = repository
         self._audit: Final = audit
+        self._operations: Final = operations
         self._instance_id: Final = instance_id or uuid4()
         self._clock: Final = clock
         self._id_factory: Final = id_factory
@@ -99,10 +108,14 @@ class ParserTaskService:
 
     async def initialize(self) -> None:
         now: Final = self._clock()
-        await self._repository.sweep_stale(
+        swept: Final = await self._repository.sweep_stale(
             stale_before=now - timedelta(seconds=self._stale_after_seconds),
             at=now,
         )
+        if isinstance(swept, ParserTaskPersistenceFailure):
+            return
+        for task in swept.interrupted_tasks:
+            await self._record_terminal(task, ParserTaskInterruptionSource.STALE_HEARTBEAT)
 
     async def start(
         self,
@@ -125,9 +138,8 @@ class ParserTaskService:
         audited: Final = await self._audited(channel_id, actor, result)
         if isinstance(created, ParserTaskOperationFailure) or isinstance(audited, ParserTaskOperationFailure):
             if not isinstance(created, ParserTaskOperationFailure):
-                await self._repository.finish(
+                await self._finish(
                     task_id=created.task_id,
-                    owner_instance_id=self._instance_id,
                     status=ParserTaskStatus.FAILED,
                     failure_code=ParserTaskFailureCode.INTERNAL,
                     at=self._clock(),
@@ -220,12 +232,12 @@ class ParserTaskService:
         await asyncio.gather(*pending, return_exceptions=True)
         at: Final = self._clock()
         for task_id in pending_ids:
-            await self._repository.finish(
+            await self._finish(
                 task_id=task_id,
-                owner_instance_id=self._instance_id,
                 status=ParserTaskStatus.INTERRUPTED_REQUIRES_KEY,
                 failure_code=None,
                 at=at,
+                interruption_source=ParserTaskInterruptionSource.GRACEFUL_SHUTDOWN,
             )
 
     async def _execute(self, record: ParserTaskRecord, request: ParserTaskStartRequest) -> None:
@@ -254,9 +266,8 @@ class ParserTaskService:
                 )
             )
             failure_code: Final = _worker_failure_code(outcome) if isinstance(outcome, ParserWorkFailure) else None
-            await self._repository.finish(
+            await self._finish(
                 task_id=record.task_id,
-                owner_instance_id=self._instance_id,
                 status=ParserTaskStatus.FAILED if failure_code is not None else ParserTaskStatus.COMPLETED,
                 failure_code=failure_code,
                 at=self._clock(),
@@ -264,9 +275,8 @@ class ParserTaskService:
         except asyncio.CancelledError:
             return
         except Exception:
-            await self._repository.finish(
+            await self._finish(
                 task_id=record.task_id,
-                owner_instance_id=self._instance_id,
                 status=ParserTaskStatus.FAILED,
                 failure_code=ParserTaskFailureCode.INTERNAL,
                 at=self._clock(),
@@ -288,6 +298,46 @@ class ParserTaskService:
         )
         return isinstance(updated, ParserTaskWriteSuccess)
 
+    async def _finish(
+        self,
+        *,
+        task_id: UUID,
+        status: ParserTaskStatus,
+        failure_code: ParserTaskFailureCode | None,
+        at: AwareDatetime,
+        interruption_source: ParserTaskInterruptionSource | None = None,
+    ) -> ParserTaskWriteResult:
+        finished: Final = await self._repository.finish(
+            task_id=task_id,
+            owner_instance_id=self._instance_id,
+            status=status,
+            failure_code=failure_code,
+            at=at,
+        )
+        if isinstance(finished, ParserTaskWriteSuccess):
+            await self._record_terminal(finished.record, interruption_source)
+        return finished
+
+    async def _record_terminal(
+        self,
+        task: ParserTaskRecord,
+        interruption_source: ParserTaskInterruptionSource | None,
+    ) -> None:
+        assert task.completed_at is not None
+        await self._operations.append(
+            build_parser_task_operational_record(
+                task_id=task.task_id,
+                channel_id=task.channel_id,
+                parser_run_id=task.parser_run_id,
+                provider_id=task.provider_id,
+                request_id=task.request_id,
+                occurred_at=task.completed_at,
+                event_type=_operational_event_type(task.status),
+                failure_code=None if task.failure_code is None else task.failure_code.value,
+                interruption_source=interruption_source,
+            )
+        )
+
 
 def _worker_failure_code(failure: ParserWorkFailure) -> ParserTaskFailureCode:
     if failure.stage == "persistence":
@@ -295,6 +345,19 @@ def _worker_failure_code(failure: ParserWorkFailure) -> ParserTaskFailureCode:
     if failure.stage == "overrides":
         return ParserTaskFailureCode.WORKER_OVERRIDES
     return ParserTaskFailureCode.WORKER_EXPORT_STATE
+
+
+def _operational_event_type(status: ParserTaskStatus) -> OperationalEventType:
+    match status:
+        case ParserTaskStatus.COMPLETED:
+            return OperationalEventType.PARSER_TASK_COMPLETED
+        case ParserTaskStatus.FAILED:
+            return OperationalEventType.PARSER_TASK_FAILED
+        case ParserTaskStatus.INTERRUPTED_REQUIRES_KEY:
+            return OperationalEventType.PARSER_TASK_INTERRUPTED
+        case ParserTaskStatus.RUNNING:
+            raise ValueError("running parser tasks cannot produce terminal events")
+    assert_never(status)
 
 
 def _from_persistence_failure(failure: ParserTaskPersistenceFailure) -> ParserTaskOperationFailure:

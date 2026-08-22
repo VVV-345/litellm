@@ -37,7 +37,11 @@ class ParserTaskLoadSuccess(FrozenModel):
 
 class ParserTaskSweepSuccess(FrozenModel):
     status: Literal["swept"] = "swept"
-    interrupted_task_ids: tuple[UUID, ...] = ()
+    interrupted_tasks: tuple[ParserTaskRecord, ...] = ()
+
+    @property
+    def interrupted_task_ids(self) -> tuple[UUID, ...]:
+        return tuple(task.task_id for task in self.interrupted_tasks)
 
 
 ParserTaskWriteResult = ParserTaskWriteSuccess | ParserTaskPersistenceFailure

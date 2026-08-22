@@ -48,6 +48,35 @@ const firstPage: EventLogPage = {
         retry_at: null,
         probe_trigger: null,
       },
+      operational: null,
+    },
+    {
+      event_id: "event-3",
+      event_type: "parser_task_interrupted",
+      occurred_at: "2026-08-21T09:30:00Z",
+      channel_id: "channel-1",
+      model_id: null,
+      deployment_id: null,
+      request_id: "request-3",
+      lease_id: null,
+      reason_code: null,
+      actor_type: "system",
+      actor_id: "account_pool_parser_task",
+      outcome: "interrupted",
+      safe_details: {
+        kind: "parser_task_interrupted",
+        task_id: "task-3",
+        parser_run_id: "run-3",
+        provider_id: "openai_compatible",
+        interruption_source: "stale_heartbeat",
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "parser_task",
+        operation_id: "task-3",
+        outcome: "interrupted",
+      },
     },
   ],
 };
@@ -83,6 +112,7 @@ const secondPage: EventLogPage = {
         outcome: "succeeded",
       },
       health: null,
+      operational: null,
     },
   ],
 };
@@ -108,6 +138,7 @@ describe("EventLogPanel", () => {
     renderPanel("channel-1");
 
     expect(await screen.findByText("请求健康结果")).toBeInTheDocument();
+    expect(screen.getByText("解析任务已中断")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
     expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
 

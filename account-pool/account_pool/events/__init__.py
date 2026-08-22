@@ -8,6 +8,7 @@ from account_pool.events.models import (
     EventLogFailureCode,
     EventLogPage,
     EventLogResult,
+    EventOperationalSummary,
     EventQuery,
     EventQueryOutcome,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "EventLogPage",
     "EventLogReader",
     "EventLogResult",
+    "EventOperationalSummary",
     "EventQuery",
     "EventQueryOutcome",
     "PostgresEventLogRepository",

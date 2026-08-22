@@ -489,7 +489,7 @@ export interface AccountPoolOverview {
   max_concurrency: number;
 }
 
-export type EventQueryOutcome = "accepted" | "succeeded" | "failed";
+export type EventQueryOutcome = "accepted" | "succeeded" | "failed" | "interrupted";
 
 export interface EventLogFilters {
   occurred_after?: string;
@@ -524,6 +524,12 @@ export interface EventHealthSummary {
   probe_trigger: "manual" | "initial" | "half_open" | "idle" | null;
 }
 
+export interface EventOperationalSummary {
+  source: "parser_task";
+  operation_id: string;
+  outcome: "succeeded" | "failed" | "interrupted";
+}
+
 export interface EventLogEntry {
   event_id: string;
   event_type: string;
@@ -540,6 +546,7 @@ export interface EventLogEntry {
   safe_details: JsonValue;
   audit: EventAuditSummary | null;
   health: EventHealthSummary | null;
+  operational: EventOperationalSummary | null;
 }
 
 export interface EventLogPage {

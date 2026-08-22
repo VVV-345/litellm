@@ -27,6 +27,9 @@ const eventTypeLabels: Record<string, string> = {
   channel_delete_external_deployment: "删除外部 Deployment",
   channel_reconcile: "重新同步渠道",
   parser_task_start: "启动解析任务",
+  parser_task_completed: "解析任务已完成",
+  parser_task_failed: "解析任务失败",
+  parser_task_interrupted: "解析任务已中断",
   parser_snapshot_import: "导入解析快照",
   parser_override_set: "设置人工修正",
   parser_override_revoke: "撤销人工修正",
@@ -39,6 +42,7 @@ const outcomeLabels: Record<EventQueryOutcome, string> = {
   accepted: "已受理",
   succeeded: "成功",
   failed: "失败",
+  interrupted: "已中断",
 };
 
 const transitionLabels = {
@@ -78,6 +82,9 @@ const eventDetails = (event: EventLogEntry): string => {
   }
   if (event.audit) {
     return `${event.audit.actor_action} · ${event.actor_id}`;
+  }
+  if (event.operational) {
+    return `${event.operational.source} · ${event.operational.operation_id}`;
   }
   return event.actor_id;
 };
@@ -198,6 +205,7 @@ function EventFilters({ draftFilters, isFetching, onChange, onApply, onReset }: 
           <SelectItem value="accepted">已受理</SelectItem>
           <SelectItem value="succeeded">成功</SelectItem>
           <SelectItem value="failed">失败</SelectItem>
+          <SelectItem value="interrupted">已中断</SelectItem>
         </SelectContent>
       </Select>
       <Select
@@ -294,7 +302,7 @@ function EventTable({ events, isError, isFetching, isLoading, hasNextPage, onLoa
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold">事件与审计日志</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">按时间倒序展示脱敏后的健康和管理事件</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">按时间倒序展示脱敏后的健康、管理和运行事件</p>
         </div>
         {isFetching && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
       </div>
@@ -327,7 +335,11 @@ function EventTable({ events, isError, isFetching, isLoading, hasNextPage, onLoa
                   {eventScope(event)}
                 </TableCell>
                 <TableCell className="align-top">
-                  <Badge variant={event.outcome === "failed" ? "destructive" : "secondary"}>
+                  <Badge
+                    variant={
+                      event.outcome === "failed" || event.outcome === "interrupted" ? "destructive" : "secondary"
+                    }
+                  >
                     {outcomeLabels[event.outcome]}
                   </Badge>
                 </TableCell>
