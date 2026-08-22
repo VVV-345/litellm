@@ -227,5 +227,14 @@ $env:ACCOUNT_POOL_EVENT_ARCHIVE_KEY = python -c "import base64,secrets; print(ba
 密钥必须由部署密钥管理系统保存。轮换时先保留旧密钥用于历史归档恢复，再使用新的 `KEY_ID` 和密钥写后续归档；当前
 服务不会在数据库删除之后重新加密历史文件
 
+## PostgreSQL 加密备份与恢复
+
+`account-pool-postgres` 命令提供整库备份、离线校验和显式确认恢复。备份使用 PostgreSQL custom format，并把
+`pg_dump` 标准输出直接进行 AES-256-GCM 流式加密；数据库 URL 仅通过受限子进程环境传递，日志和结果只包含稳定状态码。
+恢复前必须同时通过密文摘要、认证标签、明文摘要和 `pg_restore --list` 校验，并把清单中的完整归档 ID 传给 `--confirm`
+
+详细命令、密钥要求、恢复破坏性说明和验收清单见 `deploy/postgres/RUNBOOK.md`。工具要求执行环境已有兼容版本的
+`pg_dump` 与 `pg_restore`，不会自动下载数据库客户端
+
 客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
 生产网络中应限制 LiteLLM Proxy 的直接访问

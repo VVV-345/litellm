@@ -19,6 +19,9 @@ dependencies = [
   "uvicorn>=0.34",
 ]
 
+[project.scripts]
+account-pool-postgres = "account_pool.maintenance.postgres_backup:main"
+
 [project.optional-dependencies]
 test = [
   "pytest>=8.3",

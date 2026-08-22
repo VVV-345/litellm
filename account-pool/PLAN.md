@@ -1289,13 +1289,15 @@ Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加�
 
 后台 Worker 运行监控与 Prometheus 指标代码已经接通。独立 `monitoring` 模块使用固定 Worker 枚举和不可变状态快照，覆盖 lease reaper、Deployment reconciler、解析快照导出重试、公开元数据和主动健康探测；统一周期执行器记录启动、周期、成功、失败、连续失败、耗时和停止，异常周期不会让 Worker 静默退出。运行中超过两个预期间隔没有完成时查询态标记为 `stalled`。`/metrics` 仅暴露固定 Worker 标签的 Prometheus 文本，`/api/workers` 使用内部令牌返回脱敏状态详情；异常日志不附加第三方错误正文。指标和 API 测试代码已补齐，按用户安排未执行功能测试，只完成静态检查
 
-Phase 5 其余待办包括 PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情、日志、公开元数据队列和 Worker 监控仍需随 Phase 4 一起在真实 PostgreSQL、Redis、Prometheus 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 其余待办包括 PostgreSQL 备份恢复演练、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情、日志、公开元数据队列和 Worker 监控仍需随 Phase 4 一起在真实 PostgreSQL、Redis、Prometheus 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 数据保留与加密归档代码已经完成。独立 `retention` 模块按普通事件和管理审计分别计算完整月份边界，审计保留期不能短于普通事件；PostgreSQL 仓储分别读取两个范围内最早月份的有限批次，服务优先处理月份更早的批次，避免任一类型长期饥饿，并继续使用统一事件解码器拒绝未知类型、未注册字段、错误 schema 版本和不完整关联事实。归档使用 AES-256-GCM、随机 nonce、认证附加数据、明文与密文 SHA-256 以及原子目录替换；已存在归档必须完整解密并与当前批次一致才视为幂等成功。只有校验成功后才按清单中的精确事件 ID 在事务内先删除三类关联事实、再删除公共信封，归档、校验或数据库删除失败都不会扩大删除范围
 
 归档 Worker 默认关闭，只有同时配置 PostgreSQL、持久化归档目录和 URL-safe Base64 32 字节密钥时启动，并已加入统一 Worker 监控。新增单元测试覆盖加密内容不可见、重复归档、错误密钥、归档失败不删库、精确 ID 删除和独立审计截止时间；PostgreSQL 实际删除与容器持久卷仍需在目标环境验收。Phase 5 其余待办包括 PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役
 
 Prometheus 告警规则已经加入 Compose 默认监控配置。Worker 指标新增固定标签的预期间隔和进程启动时间，告警覆盖 Account Pool 抓取失败、已启用 Worker 不可用、短时间重复失败、启动后从未成功和成功时间过旧；所有表达式仅使用固定 Worker 名称，不引入渠道、模型或请求等高基数标签。规则结构测试已补齐，仍需在目标 Prometheus 与 Alertmanager 环境验证加载、路由和通知
+
+PostgreSQL 备份恢复工具代码已经完成。独立 `maintenance` 模块通过无 shell 子进程调用 `pg_dump`，输出直接进入 AES-256-GCM 流式加密，数据库密码不会出现在命令行或结果中；归档清单保存密钥版本、认证参数、明文与密文 SHA-256 和大小。恢复要求完整归档 ID 二次确认，并在解密校验和 `pg_restore --list` 成功后才以单事务执行 `--clean --if-exists`。备份失败不会发布归档，恢复临时明文使用仅当前用户权限并在退出时删除。真实 PostgreSQL 恢复演练尚未执行，不能仅凭代码标记该交付完全验收
 
 ## 18. 测试策略
 
