@@ -955,7 +955,7 @@ Lua 或等价原子事务负责：
 
 创建、更新和删除必须支持幂等请求，并按 3.1 的 operation_id、同步状态、LiteLLM 标记和 reconciler 规则处理跨服务最终一致性
 
-迁移期间保留现有 `/api/accounts` 下与渠道 CRUD 对应的端点作为 `/api/channels` 兼容别名，响应中发送弃用提示，但两套路由必须调用同一 application service，不维护双份业务逻辑。新 LiteLLM Dashboard 只调用 `/api/channels`；新页面切换完成并稳定运行一个发布周期后，在 Phase 5 删除兼容端点和旧页面
+迁移期间保留现有 `/api/accounts` 下与渠道 CRUD 对应的端点作为 `/api/channels` 兼容别名，响应中发送弃用提示，但两套路由必须调用同一 application service，不维护双份业务逻辑。LiteLLM Dashboard 和 4100 调度器 UI 都只调用正式 `/api/channels` 契约；稳定运行一个发布周期后只删除兼容端点，长期保留 4100 独立调度器 UI
 
 ### 14.2 解析与覆盖
 
@@ -1071,15 +1071,9 @@ Account Pool
 - 新渠道、长期空闲渠道、half-open 和手动触发的主动健康探测
 - PostgreSQL 脱敏健康事件、最近活动时间、渠道健康详情 API 和 Dashboard 健康与冷却面板
 
-当前缺失或需要替换：
+当前代码基线还保留两项有意延期内容：OpenAI 官方专用解析器继续使用 OpenAI 兼容通用解析器替代；`/api/accounts` 兼容端点需等待正式渠道界面稳定运行一个发布周期后才能安全删除。4100 独立调度器 UI 已切换到正式渠道读取、详情和生命周期写入契约，兼容端点不再是新界面的依赖
 
-- parser worker 的公开元数据任务；OpenAI 官方专用解析器按当前实施范围暂缓，现阶段使用 OpenAI 兼容通用解析器
-- 在目标 Redis 环境验证额度 Lua 的真实并发竞争、滚动过期和故障恢复，并继续细分厂商 429 窗口语义
-- 余额耗尽策略
-- 完整调度解释和最低有效成本策略
-- 健康事件以外的持久化运行事件查询和统一日志 UI；Phase 1 已完成渠道管理审计写入
-
-现有计划中曾描述“Phase 1 有文件日志”“429 优先使用 Retry-After”“stats 包含完整额度与健康统计”，实际实现尚未满足。这些能力以本文后续阶段和验收标准为准
+以下工作按当前决定只保留验收清单，不阻塞代码阶段完成：PostgreSQL migration 实际执行；真实 Redis、多 Worker 与故障恢复演练；Dashboard 登录态、Prometheus 和 PostgreSQL 备份恢复实机验收
 
 ## 17. 分阶段实施路线
 
@@ -1289,11 +1283,11 @@ Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加�
 
 后台 Worker 运行监控与 Prometheus 指标代码已经接通。独立 `monitoring` 模块使用固定 Worker 枚举和不可变状态快照，覆盖 lease reaper、Deployment reconciler、解析快照导出重试、公开元数据和主动健康探测；统一周期执行器记录启动、周期、成功、失败、连续失败、耗时和停止，异常周期不会让 Worker 静默退出。运行中超过两个预期间隔没有完成时查询态标记为 `stalled`。`/metrics` 仅暴露固定 Worker 标签的 Prometheus 文本，`/api/workers` 使用内部令牌返回脱敏状态详情；异常日志不附加第三方错误正文。指标和 API 测试代码已补齐，按用户安排未执行功能测试，只完成静态检查
 
-Phase 5 其余待办包括 PostgreSQL 备份恢复演练、Redis 丢失恢复的真实环境演练、多 worker 和故障注入验证，以及兼容端点退役。总览、详情、日志、公开元数据队列和 Worker 监控仍需随 Phase 4 一起在真实 PostgreSQL、Redis、Prometheus 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 的功能代码已经交付。按当前安排暂缓 PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、故障注入、Prometheus 和登录态 Dashboard 验收。`/api/accounts` 兼容端点退役是发布周期后的兼容性动作，不属于当前代码缺口；4100 调度器 UI 已改用正式渠道契约并长期保留
 
 数据保留与加密归档代码已经完成。独立 `retention` 模块按普通事件和管理审计分别计算完整月份边界，审计保留期不能短于普通事件；PostgreSQL 仓储分别读取两个范围内最早月份的有限批次，服务优先处理月份更早的批次，避免任一类型长期饥饿，并继续使用统一事件解码器拒绝未知类型、未注册字段、错误 schema 版本和不完整关联事实。归档使用 AES-256-GCM、随机 nonce、认证附加数据、明文与密文 SHA-256 以及原子目录替换；已存在归档必须完整解密并与当前批次一致才视为幂等成功。只有校验成功后才按清单中的精确事件 ID 在事务内先删除三类关联事实、再删除公共信封，归档、校验或数据库删除失败都不会扩大删除范围
 
-归档 Worker 默认关闭，只有同时配置 PostgreSQL、持久化归档目录和 URL-safe Base64 32 字节密钥时启动，并已加入统一 Worker 监控。新增单元测试覆盖加密内容不可见、重复归档、错误密钥、归档失败不删库、精确 ID 删除和独立审计截止时间；PostgreSQL 实际删除与容器持久卷仍需在目标环境验收。Phase 5 其余待办包括 PostgreSQL 备份恢复演练、Redis 丢失恢复的真实环境演练、真实多 worker 和故障注入验证，以及兼容端点退役
+归档 Worker 默认关闭，只有同时配置 PostgreSQL、持久化归档目录和 URL-safe Base64 32 字节密钥时启动，并已加入统一 Worker 监控。新增单元测试覆盖加密内容不可见、重复归档、错误密钥、归档失败不删库、精确 ID 删除和独立审计截止时间；PostgreSQL 实际删除与容器持久卷按当前安排保留为目标环境验收项
 
 Prometheus 告警规则已经加入 Compose 默认监控配置。Worker 指标新增固定标签的预期间隔和进程启动时间，告警覆盖 Account Pool 抓取失败、已启用 Worker 不可用、短时间重复失败、启动后从未成功和成功时间过旧；所有表达式仅使用固定 Worker 名称，不引入渠道、模型或请求等高基数标签。规则结构测试已补齐，仍需在目标 Prometheus 与 Alertmanager 环境验证加载、路由和通知
 

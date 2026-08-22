@@ -1,17 +1,17 @@
 // 本文件装配 4100 调度控制台，管理渠道、模型策略和实时路由状态。
-import { api, clearToken, getToken, setToken } from "./api.js?v=4";
-import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=4";
-import { createRoutingWorkbench } from "./routing.js?v=4";
+import { api, clearToken, getToken, setToken } from "./api.js?v=5";
+import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=5";
+import { createRoutingWorkbench } from "./routing.js?v=5";
 
 const state = {
-  accounts: [],
+  channels: [],
   models: [],
   stats: null,
   status: null,
   manifests: [],
   selectedModels: [],
   validation: null,
-  editingAccount: null,
+  editingChannel: null,
   activeView: "overview",
 };
 
@@ -58,10 +58,16 @@ const setView = (view) => {
 };
 
 const loadDashboard = async () => {
-  const [accounts, models, stats, status, manifests] = await Promise.all([
-    api.accounts(), api.models(), api.stats(), api.litellmStatus(), api.providerServices(),
+  const [channelList, overview, models, stats, status, manifests] = await Promise.all([
+    api.channels(), api.overview(), api.models(), api.stats(), api.litellmStatus(), api.providerServices(),
   ]);
-  Object.assign(state, { accounts, models, stats, status, manifests });
+  const runtimeByChannel = new Map(overview.channels.map((channel) => [channel.channel_id, channel.runtime]));
+  const channels = channelList.channels.map((channel) => ({
+    ...channel,
+    id: channel.channel_id,
+    runtime: runtimeByChannel.get(channel.channel_id) ?? null,
+  }));
+  Object.assign(state, { channels, models, stats, status, manifests });
   await routing.sync(models);
   render();
 };
@@ -120,17 +126,17 @@ const renderModels = (selector, interactive) => {
 const modelTags = (models) => `<div class="tag-row">${models.map((model) => `<span class="tag">${escapeHtml(model)}</span>`).join("")}</div>`;
 
 const renderChannels = (selector, interactive) => {
-  const rows = state.accounts.map((account) => `
+  const rows = state.channels.map((channel) => `
     <tr>
-      <td><strong>${escapeHtml(account.display_name)}</strong><div class="muted">${escapeHtml(account.group || account.id)}</div></td>
-      <td>${escapeHtml(account.provider)}</td>
-      <td>${modelTags(account.models)}</td>
-      <td>${statusBadge(account.runtime.health)}</td>
-      <td>${account.runtime.inflight} / ${account.runtime.max_concurrency}</td>
-      <td>${priorityName(account.priority)} <span class="muted">(${account.priority})</span></td>
-      <td>${account.weight}</td>
-      <td>${formatNumber(account.runtime.quota?.total)}</td>
-      ${interactive ? `<td><div class="action-row"><button class="button ghost" data-edit-account="${escapeHtml(account.id)}">编辑</button><button class="button ghost" data-delete-account="${escapeHtml(account.id)}">删除</button></div></td>` : ""}
+      <td><strong>${escapeHtml(channel.display_name)}</strong><div class="muted">${escapeHtml(channel.group || channel.channel_id)}</div></td>
+      <td>${escapeHtml(channel.provider)}</td>
+      <td>${modelTags(channel.models)}</td>
+      <td>${statusBadge(channel.runtime?.health ?? (channel.administrative_state === "enabled" ? "unknown" : "disabled"))}</td>
+      <td>${channel.runtime?.inflight ?? 0} / ${channel.runtime?.max_concurrency ?? channel.max_concurrency}</td>
+      <td>${priorityName(channel.priority)} <span class="muted">(${channel.priority})</span></td>
+      <td>${channel.weight}</td>
+      <td>${formatNumber(channel.runtime?.quota?.total)}</td>
+      ${interactive ? `<td><div class="action-row"><button class="button ghost" data-edit-channel="${escapeHtml(channel.channel_id)}">编辑</button><button class="button ghost" data-delete-channel="${escapeHtml(channel.channel_id)}">删除</button></div></td>` : ""}
     </tr>`).join("");
   $(selector).innerHTML = `<table><thead><tr><th>渠道</th><th>供应商</th><th>模型</th><th>状态</th><th>并发</th><th>优先级</th><th>权重</th><th>剩余额度</th>${interactive ? "<th>操作</th>" : ""}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="${interactive ? 9 : 8}">暂无渠道，请先添加上游渠道</td></tr>`}</tbody></table>`;
 };
@@ -142,7 +148,7 @@ const selectModel = async (model) => {
 
 const resetChannelForm = () => {
   channelForm.reset();
-  state.editingAccount = null;
+  state.editingChannel = null;
   state.selectedModels = [];
   state.validation = null;
   $("#form-mode").value = "create";
@@ -169,29 +175,28 @@ const openCreateDialog = () => {
 
 const priorityValue = (value) => value >= 400 ? "400" : value >= 300 ? "300" : value >= 200 ? "200" : "100";
 
-const openEditDialog = (accountId) => {
-  const account = state.accounts.find((item) => item.id === accountId);
-  if (!account) return;
+const openEditDialog = async (channelId) => {
+  const channel = await api.channel(channelId);
   resetChannelForm();
-  state.editingAccount = account;
-  state.selectedModels = account.models.slice();
+  state.editingChannel = channel;
+  state.selectedModels = channel.bindings.filter((item) => item.enabled).map((item) => item.public_model);
   $("#form-mode").value = "edit";
   $("#channel-dialog-title").textContent = "编辑渠道调度参数";
-  $("#account-id").value = account.id;
+  $("#account-id").value = channel.channel_id;
   $("#account-id").disabled = true;
-  $("#display-name").value = account.display_name;
-  $("#group").value = account.group ?? "";
-  $("#api-base").value = account.base_url_display;
+  $("#display-name").value = channel.display_name;
+  $("#group").value = channel.group ?? "";
+  $("#api-base").value = channel.base_url_display;
   $("#api-key").required = false;
-  $("#provider-id").innerHTML = `<option value="${escapeHtml(account.provider)}">${escapeHtml(account.provider)}</option>`;
+  $("#provider-id").innerHTML = `<option value="${escapeHtml(channel.provider)}">${escapeHtml(channel.provider)}</option>`;
   $("#provider-id").disabled = true;
-  $("#priority").value = priorityValue(account.priority);
-  $("#weight").value = account.weight;
-  $("#max-concurrency").value = account.max_concurrency ?? account.runtime.max_concurrency;
-  $("#enabled").checked = account.runtime.enabled;
-  $("#quota-total").value = account.quotas?.total ?? "";
-  $("#quota-five-hour").value = account.quotas?.five_hour ?? "";
-  $("#quota-weekly").value = account.quotas?.weekly ?? "";
+  $("#priority").value = priorityValue(channel.priority);
+  $("#weight").value = channel.weight;
+  $("#max-concurrency").value = channel.max_concurrency;
+  $("#enabled").checked = channel.administrative_state === "enabled";
+  $("#quota-total").value = channel.quotas?.total ?? "";
+  $("#quota-five-hour").value = channel.quotas?.five_hour ?? "";
+  $("#quota-weekly").value = channel.quotas?.weekly ?? "";
   $("#validation-actions").hidden = true;
   renderSelectedModels();
   channelDialog.showModal();
@@ -251,35 +256,55 @@ const validateChannel = async () => {
   }
 };
 
-const accountPayload = () => {
-  const editing = state.editingAccount;
+const channelPayload = () => {
+  const editing = state.editingChannel;
   const manifest = state.manifests.find((item) => item.provider_id === $("#provider-id").value);
   const prefix = manifest?.litellm_provider_prefix ?? editing?.provider ?? $("#provider-id").value;
-  const existing = new Map((editing?.deployments ?? []).map((item) => [item.public_model, item]));
-  const deployments = state.selectedModels.map((model) => {
+  const existing = new Map((editing?.bindings ?? []).map((item) => [item.public_model, item]));
+  const bindings = state.selectedModels.map((model) => {
     const current = existing.get(model);
     return current ? {
+      binding_id: current.binding_id,
       public_model: current.public_model,
       provider_model: current.provider_model,
-      litellm_model_id: current.litellm_model_id,
+      litellm_deployment_id: current.litellm_deployment_id,
+      ownership: current.ownership,
       enabled: current.enabled,
-    } : { public_model: model, provider_model: `${prefix}/${model}`, enabled: true };
+    } : {
+      binding_id: null,
+      public_model: model,
+      provider_model: `${prefix}/${model}`,
+      litellm_deployment_id: null,
+      ownership: "pool_managed",
+      enabled: true,
+    };
   });
   const apiKey = $("#api-key").value.trim();
   return {
-    id: editing?.id ?? $("#account-id").value.trim(),
+    ...(!editing ? { legacy_account_id: $("#account-id").value.trim() } : {}),
     display_name: $("#display-name").value.trim(),
     provider: prefix,
     group: $("#group").value.trim() || null,
     base_url_display: $("#api-base").value.trim(),
-    enabled: $("#enabled").checked,
+    administrative_state: $("#enabled").checked ? "enabled" : "disabled",
     max_concurrency: Number($("#max-concurrency").value),
     priority: Number($("#priority").value),
     weight: Number($("#weight").value),
-    quotas: { unit: editing?.quotas?.unit ?? "tokens", total: numericOrNull("#quota-total"), five_hour: numericOrNull("#quota-five-hour"), weekly: numericOrNull("#quota-weekly") },
-    deployments,
+    quotas: {
+      unit: editing?.quotas?.unit ?? "tokens",
+      total: numericOrNull("#quota-total"),
+      five_hour: numericOrNull("#quota-five-hour"),
+      weekly: numericOrNull("#quota-weekly"),
+    },
+    bindings,
     ...(apiKey ? { api_key: apiKey } : {}),
   };
+};
+
+const operationMessage = (operation, action) => {
+  if (operation.failure?.message) return operation.failure.message;
+  if (operation.requires_key) return `${action}需要重新提供 API Key`;
+  return `${action}已提交，状态：${operation.operation_status}`;
 };
 
 const saveChannel = async (event) => {
@@ -288,17 +313,20 @@ const saveChannel = async (event) => {
     showNotice("请至少选择或输入一个模型", true);
     return;
   }
-  if (!state.editingAccount && !state.validation?.ok) {
+  if (!state.editingChannel && !state.validation?.ok) {
     showNotice("请先校验上游渠道", true);
     return;
   }
   const button = $("#save-channel-button");
   button.disabled = true;
   try {
-    const payload = accountPayload();
-    const result = state.editingAccount ? await api.updateAccount(state.editingAccount.id, payload) : await api.createAccount(payload);
-    showNotice(result.message, !result.ok);
-    if (!result.ok) return;
+    const payload = channelPayload();
+    const result = state.editingChannel
+      ? await api.updateChannel(state.editingChannel.channel_id, payload)
+      : await api.createChannel(payload);
+    const failed = result.operation_status === "failed";
+    showNotice(operationMessage(result, state.editingChannel ? "渠道更新" : "渠道创建"), failed);
+    if (failed) return;
     channelDialog.close();
     await refresh(true);
   } catch (error) {
@@ -308,21 +336,23 @@ const saveChannel = async (event) => {
   }
 };
 
-const openDeleteDialog = (accountId) => {
-  const account = state.accounts.find((item) => item.id === accountId);
-  if (!account) return;
-  deleteDialog.dataset.accountId = accountId;
-  $("#delete-message").textContent = `将删除“${account.display_name}”及由号池创建的 LiteLLM Deployment。`;
+const openDeleteDialog = (channelId) => {
+  const channel = state.channels.find((item) => item.channel_id === channelId);
+  if (!channel) return;
+  deleteDialog.dataset.channelId = channelId;
+  $("#delete-message").textContent = `将删除“${channel.display_name}”及由号池创建的 LiteLLM Deployment。`;
   deleteDialog.showModal();
 };
 
 const confirmDelete = async (event) => {
   event.preventDefault();
-  const accountId = deleteDialog.dataset.accountId;
+  const channelId = deleteDialog.dataset.channelId;
   deleteDialog.close();
   try {
-    const result = await api.deleteAccount(accountId);
-    showNotice(result.message, !result.ok);
+    const result = await api.deleteChannel(channelId);
+    const failed = result.operation_status === "failed";
+    showNotice(operationMessage(result, "渠道删除"), failed);
+    if (failed) return;
     await refresh(true);
   } catch (error) {
     showNotice(error.message, true);
@@ -334,8 +364,8 @@ document.addEventListener("click", (event) => {
   if (!target) return;
   if (target.dataset.view) setView(target.dataset.view);
   if (target.dataset.selectModel) selectModel(target.dataset.selectModel).catch((error) => showNotice(error.message, true));
-  if (target.dataset.editAccount) openEditDialog(target.dataset.editAccount);
-  if (target.dataset.deleteAccount) openDeleteDialog(target.dataset.deleteAccount);
+  if (target.dataset.editChannel) openEditDialog(target.dataset.editChannel).catch((error) => showNotice(error.message, true));
+  if (target.dataset.deleteChannel) openDeleteDialog(target.dataset.deleteChannel);
   if (target.dataset.removeModel) {
     state.selectedModels = state.selectedModels.filter((model) => model !== target.dataset.removeModel);
     renderSelectedModels();

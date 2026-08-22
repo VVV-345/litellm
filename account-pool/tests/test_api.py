@@ -1580,6 +1580,7 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
             ) as client:
                 root: Final = await client.get("/")
                 ui: Final = await client.get("/ui/")
+                ui_api: Final = await client.get("/ui/api.js")
                 missing: Final = await client.get("/ui-api/stats")
                 invalid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer invalid"})
                 viewer: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer viewer-secret"})
@@ -1589,6 +1590,8 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
     assert root.headers["location"] == "/ui/"
     assert ui.status_code == 200
     assert "号池调度器" in ui.text
+    assert 'request("/channels")' in ui_api.text
+    assert 'request("/accounts")' not in ui_api.text
     assert missing.status_code == 401
     assert invalid.status_code == 401
     assert viewer.status_code == 401
@@ -1639,6 +1642,68 @@ async def test_standalone_ui_forwards_routing_writes_through_litellm() -> None:
     assert reset_request.method == "DELETE"
     assert all(request.headers["authorization"] == "Bearer admin-secret" for request in forwarded_requests)
     assert json.loads(policy_request.content) == {"expected_version": 3, "strategy": "lowest_latency"}
+
+
+@pytest.mark.asyncio
+async def test_standalone_ui_forwards_channel_writes_through_litellm() -> None:
+    requests: list[httpx.Request] = []
+    channel_id: Final = UUID("20000000-0000-0000-0000-000000000001")
+
+    def litellm(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/account_pool/authorize":
+            return httpx.Response(status_code=200, json={"ok": True})
+        return httpx.Response(
+            status_code=200,
+            json={
+                "status": "accepted",
+                "operation_id": "30000000-0000-0000-0000-000000000001",
+                "channel_id": str(channel_id),
+                "operation_status": "applied",
+                "requires_key": False,
+                "failure": None,
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(litellm)) as proxy_client:
+        app: Final = create_app(settings=settings(), store=MemoryStateStore(), proxy_client=proxy_client)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://account-pool",
+                headers={"authorization": "Bearer admin-secret"},
+            ) as client:
+                created: Final = await client.post(
+                    "/ui-api/channels",
+                    headers={"idempotency-key": "create-channel"},
+                    json={"display_name": "Primary"},
+                )
+                updated: Final = await client.put(
+                    f"/ui-api/channels/{channel_id}",
+                    headers={"idempotency-key": "update-channel"},
+                    json={"display_name": "Primary Updated"},
+                )
+                deleted: Final = await client.request(
+                    "DELETE",
+                    f"/ui-api/channels/{channel_id}",
+                    headers={"idempotency-key": "delete-channel"},
+                    json={"delete_mode": "delete_managed_deployment"},
+                )
+
+    assert (created.status_code, updated.status_code, deleted.status_code) == (200, 200, 200)
+    forwarded_requests: Final = tuple(request for request in requests if request.url.path != "/account_pool/authorize")
+    create_request, update_request, delete_request = forwarded_requests
+    assert (create_request.method, update_request.method, delete_request.method) == ("POST", "PUT", "DELETE")
+    assert create_request.url.path == "/account_pool/channels"
+    assert update_request.url.path == f"/account_pool/channels/{channel_id}"
+    assert delete_request.url.path == f"/account_pool/channels/{channel_id}"
+    assert tuple(request.headers["idempotency-key"] for request in forwarded_requests) == (
+        "create-channel",
+        "update-channel",
+        "delete-channel",
+    )
+    assert all(request.headers["authorization"] == "Bearer admin-secret" for request in forwarded_requests)
+    assert json.loads(delete_request.content) == {"delete_mode": "delete_managed_deployment"}
 
 
 @pytest.mark.asyncio

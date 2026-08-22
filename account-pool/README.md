@@ -139,15 +139,15 @@ effective result。无效或已不存在的目标会形成脱敏结构化失败�
 
 解析历史和 raw/effective 有效数据已分别通过 `GET /api/channels/{id}/parser-runs` 与
 `GET /api/channels/{id}/effective-data` 提供，并由 LiteLLM 同域代理转发。人工覆盖的设置和撤销也已通过 LiteLLM
-管理员代理接入；代理在服务端签发短时 actor 信封。4100 独立 UI 的模型策略和候选覆盖写操作会把当前管理员令牌
-转发给 LiteLLM 的固定调度代理端点，由 LiteLLM 校验真实管理员并签发 actor；浏览器不接触内部服务令牌或 actor
+管理员代理接入；代理在服务端签发短时 actor 信封。4100 独立 UI 的渠道生命周期、模型策略和候选覆盖写操作会把当前管理员令牌
+转发给 LiteLLM 的固定管理代理端点，由 LiteLLM 校验真实管理员并签发 actor；浏览器不接触内部服务令牌或 actor
 密钥。解析字段覆盖仍在 LiteLLM Dashboard 管理，4100 只展示其进入运行路由后的结果。
 `GET /api/channels/{id}/snapshot` 和 `/export` 从 PostgreSQL 最新结果即时生成以渠道 ID 为键的 schema v1 脱敏文档，
 后者附带下载响应头。`POST /api/channels/{id}/parse` 接收一次性 Key，在当前 Account Pool 实例接管后返回任务 ID；
 任务所有权、心跳和结果写入 PostgreSQL，但 URL、Key 和 Key 指纹不会进入任务记录。进程中断后的超时任务会变为
 `interrupted_requires_key`，不会由其他实例接管或自动重试。`POST /api/channels/{id}/import` 接受单渠道 schema v1
 脱敏文档，只把 effective result 差异原子转换为可审计人工
-覆盖，不替换 parser run 或快照文件。后台导出重试循环及字段差异 UI 仍按 Phase 2 后续步骤接入
+覆盖，不替换 parser run 或快照文件。后台导出重试循环与 Dashboard 字段差异、人工覆盖界面均已接入
 
 ## 本地开发
 
@@ -169,8 +169,9 @@ $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 
 所有 `/api/*` 和 `/internal/*` 接口都要求 `X-Account-Pool-Token`；未配置服务令牌时接口会拒绝服务，
 不会退化为无认证访问。人工覆盖和调度写接口还要求 LiteLLM 使用 `ACCOUNT_POOL_ACTOR_SECRET` 签发 actor 信封；
-4100 调度工作台只调用受限的 `/ui-api/models/*` 入口，后端再把请求交给 LiteLLM 管理代理，不能由浏览器直接调用
-内部写接口。`/healthz` 保持无认证，供容器健康检查使用
+4100 调度工作台通过 `/ui-api/channels*` 使用正式渠道契约，并通过受限的 `/ui-api/models/*` 管理调度；所有写请求
+由后端交给 LiteLLM 管理代理，不能由浏览器直接调用内部写接口。旧 `/ui-api/accounts*` 仅保留为发布期兼容别名，
+4100 页面不再依赖。`/healthz` 保持无认证，供容器健康检查使用
 
 `DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，4100 路由表保持只读；正式策略版本、候选人工覆盖、解析
 历史和有效数据接口返回 503。可通过 `ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema

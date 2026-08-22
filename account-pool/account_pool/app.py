@@ -599,16 +599,18 @@ def create_app(
             raise HTTPException(status_code=401, detail="LiteLLM 管理令牌无效")
         return access_token
 
-    async def forward_ui_routing_request(
+    async def forward_ui_management_request(
         request: Request,
-        method: Literal["PUT", "DELETE"],
+        method: Literal["POST", "PUT", "DELETE"],
         path: str,
         access_token: str,
     ) -> Response:
+        idempotency_key: Final = request.headers.get("idempotency-key")
         headers: Final = {
             "accept": "application/json",
             "authorization": f"Bearer {access_token}",
             "content-type": "application/json",
+            **({"idempotency-key": idempotency_key} if idempotency_key is not None else {}),
         }
         try:
             upstream: Final = await client.request(
@@ -1134,7 +1136,7 @@ def create_app(
         access_token: str = Depends(require_litellm_admin),
     ) -> Response:
         encoded_model: Final = quote(model, safe="")
-        return await forward_ui_routing_request(
+        return await forward_ui_management_request(
             request=request,
             method="PUT",
             path=f"/models/{encoded_model}/routing-policy",
@@ -1148,7 +1150,7 @@ def create_app(
         access_token: str = Depends(require_litellm_admin),
     ) -> Response:
         encoded_model: Final = quote(model, safe="")
-        return await forward_ui_routing_request(
+        return await forward_ui_management_request(
             request=request,
             method="PUT",
             path=f"/models/{encoded_model}/routing-candidates/{binding_id}",
@@ -1162,10 +1164,45 @@ def create_app(
         access_token: str = Depends(require_litellm_admin),
     ) -> Response:
         encoded_model: Final = quote(model, safe="")
-        return await forward_ui_routing_request(
+        return await forward_ui_management_request(
             request=request,
             method="DELETE",
             path=f"/models/{encoded_model}/routing-candidates/{binding_id}",
+            access_token=access_token,
+        )
+
+    async def create_ui_channel(
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        return await forward_ui_management_request(
+            request=request,
+            method="POST",
+            path="/channels",
+            access_token=access_token,
+        )
+
+    async def update_ui_channel(
+        channel_id: UUID,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        return await forward_ui_management_request(
+            request=request,
+            method="PUT",
+            path=f"/channels/{channel_id}",
+            access_token=access_token,
+        )
+
+    async def delete_ui_channel(
+        channel_id: UUID,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        return await forward_ui_management_request(
+            request=request,
+            method="DELETE",
+            path=f"/channels/{channel_id}",
             access_token=access_token,
         )
 
@@ -1462,6 +1499,12 @@ def create_app(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
     )
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
+    application.add_api_route("/ui-api/channels", create_ui_channel, methods=["POST"])
+    application.add_api_route(
+        "/ui-api/channels/{channel_id}", channel_detail, methods=["GET"], dependencies=ui_dependency
+    )
+    application.add_api_route("/ui-api/channels/{channel_id}", update_ui_channel, methods=["PUT"])
+    application.add_api_route("/ui-api/channels/{channel_id}", delete_ui_channel, methods=["DELETE"])
     application.add_api_route("/ui-api/overview", overview_data, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route("/ui-api/events", event_log_data, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
