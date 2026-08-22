@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { accountPoolKeys, createChannel, getChannel, importChannel, updateChannel } from "../api";
+import { providerModelForSelectedModel } from "./providerModel";
 import type {
   AdministrativeState,
   ChannelBindingInput,
@@ -222,8 +223,12 @@ function ChannelFormContent({
       models.map((model) => {
         const existing = bindings.find((binding) => binding.public_model === model);
         if (existing) return existing;
-        const prefix = selectedProvider?.litellm_provider_prefix ?? "";
-        return { ...emptyBinding(defaultOwnership(mode)), public_model: model, provider_model: `${prefix}${model}` };
+        const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
+        return {
+          ...emptyBinding(defaultOwnership(mode)),
+          public_model: model,
+          provider_model: providerModelForSelectedModel(model, providerPrefix),
+        };
       }),
     );
   };
