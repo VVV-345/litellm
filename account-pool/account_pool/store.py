@@ -130,7 +130,7 @@ class StateStore(Protocol):
 
     async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None: ...
 
-    async def sweep_expired(self) -> int: ...
+    async def sweep_expired(self) -> tuple[Lease, ...]: ...
 
     async def close(self) -> None: ...
 
@@ -250,8 +250,7 @@ class MemoryStateStore:
             )
             probe_subject: Final = (
                 exclusion_subject(evidence)
-                if evidence is not None
-                and (probe or effective_state(evidence, now) == EligibilityState.HALF_OPEN)
+                if evidence is not None and (probe or effective_state(evidence, now) == EligibilityState.HALF_OPEN)
                 else EligibilitySubject(
                     scope=EligibilityScope.DEPLOYMENT,
                     account_id=account.id,
@@ -355,7 +354,12 @@ class MemoryStateStore:
                 probe_subject=lease_state.probe_subject,
                 quota_reservations=(),
             )
-            if request.success and request.latency_ms is not None and request.latency_ms > 0 and not lease_state.lease.probe:
+            if (
+                request.success
+                and request.latency_ms is not None
+                and request.latency_ms > 0
+                and not lease_state.lease.probe
+            ):
                 deployment_id: Final = lease_state.lease.deployment_id
                 self._latency_metrics[deployment_id] = update_latency_ewma(
                     current=self._latency_metrics.get(deployment_id),
@@ -426,9 +430,7 @@ class MemoryStateStore:
     async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None:
         async with self._lock:
             configured: Final = frozenset(
-                deployment.litellm_model_id
-                for account in self._accounts.values()
-                for deployment in account.deployments
+                deployment.litellm_model_id for account in self._accounts.values() for deployment in account.deployments
             )
             supplied: Final = {metric.deployment_id: metric for metric in metrics}
             self._latency_metrics = {
@@ -442,16 +444,16 @@ class MemoryStateStore:
         async with self._lock:
             self._latency_metrics[metric.deployment_id] = metric
 
-    async def sweep_expired(self) -> int:
+    async def sweep_expired(self) -> tuple[Lease, ...]:
         now: Final = time.time()
         async with self._lock:
             expired: Final = tuple(
-                lease_id
-                for lease_id, state in self._leases.items()
+                state.lease
+                for state in self._leases.values()
                 if not state.lease.released and state.lease.expires_at <= now
             )
-        results: Final = await asyncio.gather(*(self.release(lease_id) for lease_id in expired))
-        return sum(1 for released in results if released)
+        results: Final = await asyncio.gather(*(self.release(lease.lease_id) for lease in expired))
+        return tuple(lease for lease, released in zip(expired, results, strict=True) if released)
 
     async def close(self) -> None:
         return None
@@ -752,9 +754,7 @@ class RedisStateStore:
         previous_accounts: Final = self._accounts
         runtime_reconfigure: Final = bool(previous_accounts)
         previous_deployments: Final = frozenset(
-            deployment.litellm_model_id
-            for account in previous_accounts.values()
-            for deployment in account.deployments
+            deployment.litellm_model_id for account in previous_accounts.values() for deployment in account.deployments
         )
         configured_deployments: Final = frozenset(
             deployment.litellm_model_id for account in accounts for deployment in account.deployments
@@ -933,24 +933,18 @@ class RedisStateStore:
 
     async def latency_metrics(self) -> tuple[DeploymentLatencyMetric, ...]:
         deployment_ids: Final = tuple(
-            deployment.litellm_model_id
-            for account in self._accounts.values()
-            for deployment in account.deployments
+            deployment.litellm_model_id for account in self._accounts.values() for deployment in account.deployments
         )
-        encoded: Final = await asyncio.gather(*(self._redis.hgetall(self._latency_key(item)) for item in deployment_ids))
-        return tuple(
-            DeploymentLatencyMetric.model_validate(fields)
-            for fields in encoded
-            if fields
+        encoded: Final = await asyncio.gather(
+            *(self._redis.hgetall(self._latency_key(item)) for item in deployment_ids)
         )
+        return tuple(DeploymentLatencyMetric.model_validate(fields) for fields in encoded if fields)
 
     async def restore_latency_metrics(self, metrics: tuple[DeploymentLatencyMetric, ...]) -> None:
         existing: Final = {metric.deployment_id: metric for metric in await self.latency_metrics()}
         supplied: Final = {metric.deployment_id: metric for metric in metrics}
         configured: Final = tuple(
-            deployment.litellm_model_id
-            for account in self._accounts.values()
-            for deployment in account.deployments
+            deployment.litellm_model_id for account in self._accounts.values() for deployment in account.deployments
         )
         await asyncio.gather(
             *(
@@ -973,10 +967,13 @@ class RedisStateStore:
             },
         )
 
-    async def sweep_expired(self) -> int:
-        expired: Final = await self._redis.zrangebyscore(self._expiries, min=0, max=time.time())
-        results: Final = await asyncio.gather(*(self.release(str(lease_id)) for lease_id in expired))
-        return sum(1 for released in results if released)
+    async def sweep_expired(self) -> tuple[Lease, ...]:
+        lease_ids: Final = tuple(
+            str(lease_id) for lease_id in await self._redis.zrangebyscore(self._expiries, min=0, max=time.time())
+        )
+        leases: Final = await asyncio.gather(*(self._read_lease(lease_id) for lease_id in lease_ids))
+        results: Final = await asyncio.gather(*(self.release(lease_id) for lease_id in lease_ids))
+        return tuple(lease for lease, released in zip(leases, results, strict=True) if lease is not None and released)
 
     async def close(self) -> None:
         await self._redis.close()

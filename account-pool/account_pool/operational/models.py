@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from enum import StrEnum
 from typing import Annotated, Final, Literal, Self, assert_never
 from uuid import UUID, uuid5
 
 from pydantic import AwareDatetime, Field, model_validator
 
-from account_pool.models import FrozenModel, ModelName
+from account_pool.models import AcquireCandidateRejection, FrozenModel, Lease, ModelName, SettleRequest
 
 _OPERATIONAL_EVENT_NAMESPACE: Final = UUID("0bf35742-af58-4413-bac9-6c216914bd6c")
 _SAFE_CODE_PATTERN: Final = r"^[a-z][a-z0-9_]{0,99}$"
 _REQUEST_ID_PATTERN: Final = r"^[A-Za-z0-9._:-]+$"
+_REQUEST_ID_RE: Final = re.compile(_REQUEST_ID_PATTERN)
 
 
 class OperationalEventType(StrEnum):
@@ -25,12 +28,19 @@ class OperationalEventType(StrEnum):
     SYNC_RETRY_SUCCEEDED = "sync_retry_succeeded"
     SYNC_RETRY_FAILED = "sync_retry_failed"
     SYNC_RETRY_DEFERRED = "sync_retry_deferred"
+    REQUEST_ACQUIRED = "request_acquired"
+    REQUEST_ACQUIRE_FAILED = "request_acquire_failed"
+    REQUEST_SETTLED = "request_settled"
+    REQUEST_USAGE_RECORDED = "request_usage_recorded"
+    REQUEST_RELEASED = "request_released"
+    LEASE_EXPIRED = "lease_expired"
 
 
 class OperationalEventSource(StrEnum):
     PARSER_TASK = "parser_task"
     PARSER_SNAPSHOT_EXPORT = "parser_snapshot_export"
     SYNC_RECONCILE = "sync_reconcile"
+    REQUEST_LIFECYCLE = "request_lifecycle"
 
 
 class OperationalEventOutcome(StrEnum):
@@ -118,6 +128,49 @@ class SyncRetryDeferredDetails(FrozenModel):
     reason_code: str = Field(pattern=_SAFE_CODE_PATTERN)
 
 
+class RequestAcquiredDetails(FrozenModel):
+    kind: Literal["request_acquired"] = "request_acquired"
+    estimated_tokens: int = Field(ge=0)
+    billing_route_id: str | None = None
+
+
+class RequestAcquireFailedDetails(FrozenModel):
+    kind: Literal["request_acquire_failed"] = "request_acquire_failed"
+    rejection_stage: str = Field(pattern=_SAFE_CODE_PATTERN)
+    rejection_scope: str = Field(pattern=_SAFE_CODE_PATTERN)
+    rejection_source: str = Field(pattern=_SAFE_CODE_PATTERN)
+    retry_at: float | None = Field(default=None, ge=0)
+
+
+class RequestSettledDetails(FrozenModel):
+    kind: Literal["request_settled"] = "request_settled"
+    applied: bool
+    success: bool
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+    latency_ms: float | None = Field(default=None, ge=0)
+
+
+class RequestReleasedDetails(FrozenModel):
+    kind: Literal["request_released"] = "request_released"
+    released: bool
+    settled: bool
+
+
+class RequestUsageRecordedDetails(FrozenModel):
+    kind: Literal["request_usage_recorded"] = "request_usage_recorded"
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+
+
+class LeaseExpiredDetails(FrozenModel):
+    kind: Literal["lease_expired"] = "lease_expired"
+    settled: bool
+
+
 OperationalEventDetails = Annotated[
     ParserTaskCompletedDetails
     | ParserTaskFailedDetails
@@ -127,7 +180,13 @@ OperationalEventDetails = Annotated[
     | ParserSnapshotExportFailedDetails
     | SyncRetrySucceededDetails
     | SyncRetryFailedDetails
-    | SyncRetryDeferredDetails,
+    | SyncRetryDeferredDetails
+    | RequestAcquiredDetails
+    | RequestAcquireFailedDetails
+    | RequestSettledDetails
+    | RequestUsageRecordedDetails
+    | RequestReleasedDetails
+    | LeaseExpiredDetails,
     Field(discriminator="kind"),
 ]
 
@@ -143,7 +202,14 @@ class OperationalPoolEvent(FrozenModel):
     lease_id: str | None = None
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
     actor_type: Literal["system"] = "system"
-    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot", "account_pool_reconciler"]
+    actor_id: Literal[
+        "account_pool_parser_task",
+        "account_pool_parser_snapshot",
+        "account_pool_reconciler",
+        "account_pool_scheduler",
+        "account_pool_state_store",
+        "account_pool_lease_reaper",
+    ]
     safe_details: OperationalEventDetails
 
     @model_validator(mode="after")
@@ -156,8 +222,20 @@ class OperationalPoolEvent(FrozenModel):
             OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED,
             OperationalEventType.SYNC_RETRY_FAILED,
             OperationalEventType.SYNC_RETRY_DEFERRED,
+            OperationalEventType.REQUEST_ACQUIRE_FAILED,
+            OperationalEventType.LEASE_EXPIRED,
         )
-        if requires_reason != (self.reason_code is not None):
+        failed_settlement: Final = (
+            self.event_type == OperationalEventType.REQUEST_SETTLED
+            and isinstance(self.safe_details, RequestSettledDetails)
+            and (not self.safe_details.applied or not self.safe_details.success)
+        )
+        failed_release: Final = (
+            self.event_type == OperationalEventType.REQUEST_RELEASED
+            and isinstance(self.safe_details, RequestReleasedDetails)
+            and not self.safe_details.released
+        )
+        if (requires_reason or failed_settlement or failed_release) != (self.reason_code is not None):
             raise ValueError("event reason code does not match its outcome")
         return self
 
@@ -179,9 +257,12 @@ class OperationalEventRecord(FrozenModel):
             raise ValueError("common event and operational fact must share an event ID")
         if _event_source(self.event.event_type) != self.operational.source:
             raise ValueError("event type must match operational source")
-        if self.operational.operation_id != _details_operation_id(self.event.safe_details):
+        if self.operational.operation_id != _event_operation_id(self.event):
             raise ValueError("operation ID must match event details")
-        if _event_outcome(self.event.event_type) != self.operational.outcome:
+        if (
+            _event_outcome(self.event.event_type, _request_outcome_details(self.event.safe_details))
+            != self.operational.outcome
+        ):
             raise ValueError("event type must match operational outcome")
         return self
 
@@ -213,7 +294,7 @@ def build_parser_task_operational_record(
             event_type=event_type,
             occurred_at=occurred_at,
             channel_id=channel_id,
-            request_id=request_id,
+            request_id=_safe_request_id(request_id),
             reason_code=failure_code,
             actor_id="account_pool_parser_task",
             safe_details=details,
@@ -306,7 +387,210 @@ def build_sync_reconcile_record(
             outcome=_event_outcome(event_type),
         ),
     )
-def _event_outcome(event_type: OperationalEventType) -> OperationalEventOutcome:
+
+
+def build_request_acquired_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    estimated_tokens: int,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    return _request_record(
+        channel_id=channel_id,
+        lease=lease,
+        occurred_at=occurred_at,
+        event_type=OperationalEventType.REQUEST_ACQUIRED,
+        details=RequestAcquiredDetails(
+            estimated_tokens=estimated_tokens,
+            billing_route_id=lease.billing_route_id,
+        ),
+        actor_id="account_pool_scheduler",
+    )
+
+
+def build_request_acquire_failed_record(
+    *,
+    channel_id: UUID,
+    model_id: ModelName,
+    request_id: str,
+    rejection: AcquireCandidateRejection,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    safe_request_id: Final = _safe_request_id(request_id)
+    operation_id: Final = uuid5(
+        _OPERATIONAL_EVENT_NAMESPACE,
+        f"request:{safe_request_id}:{rejection.deployment_id}:{rejection.reason_code}",
+    )
+    event_id: Final = uuid5(
+        _OPERATIONAL_EVENT_NAMESPACE,
+        f"{operation_id}:request_acquire_failed:{occurred_at.isoformat()}",
+    )
+    return OperationalEventRecord(
+        event=OperationalPoolEvent(
+            event_id=event_id,
+            event_type=OperationalEventType.REQUEST_ACQUIRE_FAILED,
+            occurred_at=occurred_at,
+            channel_id=channel_id,
+            model_id=model_id,
+            deployment_id=rejection.deployment_id,
+            request_id=safe_request_id,
+            reason_code=rejection.reason_code,
+            actor_id="account_pool_scheduler",
+            safe_details=RequestAcquireFailedDetails(
+                rejection_stage=rejection.stage.value,
+                rejection_scope=rejection.scope.value,
+                rejection_source=rejection.source.value,
+                retry_at=rejection.retry_at,
+            ),
+        ),
+        operational=OperationalEventFact(
+            event_id=event_id,
+            source=OperationalEventSource.REQUEST_LIFECYCLE,
+            operation_id=operation_id,
+            outcome=OperationalEventOutcome.FAILED,
+        ),
+    )
+
+
+def build_request_settled_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    request: SettleRequest,
+    applied: bool,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    reason_code: Final = (
+        None if applied and request.success else "upstream_request_failed" if applied else "settlement_rejected"
+    )
+    return _request_record(
+        channel_id=channel_id,
+        lease=lease,
+        occurred_at=occurred_at,
+        event_type=OperationalEventType.REQUEST_SETTLED,
+        details=RequestSettledDetails(
+            applied=applied,
+            success=request.success,
+            status_code=request.status_code,
+            input_tokens=request.input_tokens,
+            output_tokens=request.output_tokens,
+            cost_usd=request.cost_usd,
+            latency_ms=request.latency_ms,
+        ),
+        actor_id="account_pool_state_store",
+        reason_code=reason_code,
+    )
+
+
+def build_request_released_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    released: bool,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    reason_code: Final = None if released else "release_rejected"
+    return _request_record(
+        channel_id=channel_id,
+        lease=lease,
+        occurred_at=occurred_at,
+        event_type=OperationalEventType.REQUEST_RELEASED,
+        details=RequestReleasedDetails(released=released, settled=lease.settled),
+        actor_id="account_pool_state_store",
+        reason_code=reason_code,
+    )
+
+
+def build_request_usage_recorded_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    request: SettleRequest,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    return _request_record(
+        channel_id=channel_id,
+        lease=lease,
+        occurred_at=occurred_at,
+        event_type=OperationalEventType.REQUEST_USAGE_RECORDED,
+        details=RequestUsageRecordedDetails(
+            input_tokens=request.input_tokens,
+            output_tokens=request.output_tokens,
+            cost_usd=request.cost_usd,
+        ),
+        actor_id="account_pool_state_store",
+    )
+
+
+def build_lease_expired_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    occurred_at: AwareDatetime,
+) -> OperationalEventRecord:
+    return _request_record(
+        channel_id=channel_id,
+        lease=lease,
+        occurred_at=occurred_at,
+        event_type=OperationalEventType.LEASE_EXPIRED,
+        details=LeaseExpiredDetails(settled=lease.settled),
+        actor_id="account_pool_lease_reaper",
+        reason_code="lease_expired",
+    )
+
+
+def _request_record(
+    *,
+    channel_id: UUID,
+    lease: Lease,
+    occurred_at: AwareDatetime,
+    event_type: OperationalEventType,
+    details: RequestAcquiredDetails
+    | RequestSettledDetails
+    | RequestUsageRecordedDetails
+    | RequestReleasedDetails
+    | LeaseExpiredDetails,
+    actor_id: Literal["account_pool_scheduler", "account_pool_state_store", "account_pool_lease_reaper"],
+    reason_code: str | None = None,
+) -> OperationalEventRecord:
+    operation_id: Final = uuid5(_OPERATIONAL_EVENT_NAMESPACE, f"lease:{lease.lease_id}")
+    event_id: Final = uuid5(
+        _OPERATIONAL_EVENT_NAMESPACE,
+        f"{lease.lease_id}:{event_type.value}:{reason_code or 'succeeded'}",
+    )
+    return OperationalEventRecord(
+        event=OperationalPoolEvent(
+            event_id=event_id,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            channel_id=channel_id,
+            model_id=lease.public_model,
+            deployment_id=lease.deployment_id,
+            request_id=_safe_request_id(lease.request_id),
+            lease_id=lease.lease_id,
+            reason_code=reason_code,
+            actor_id=actor_id,
+            safe_details=details,
+        ),
+        operational=OperationalEventFact(
+            event_id=event_id,
+            source=OperationalEventSource.REQUEST_LIFECYCLE,
+            operation_id=operation_id,
+            outcome=_event_outcome(event_type, details),
+        ),
+    )
+
+
+def _event_outcome(
+    event_type: OperationalEventType,
+    details: RequestAcquiredDetails
+    | RequestSettledDetails
+    | RequestUsageRecordedDetails
+    | RequestReleasedDetails
+    | LeaseExpiredDetails
+    | None = None,
+) -> OperationalEventOutcome:
     match event_type:
         case OperationalEventType.PARSER_TASK_COMPLETED:
             return OperationalEventOutcome.SUCCEEDED
@@ -325,6 +609,26 @@ def _event_outcome(event_type: OperationalEventType) -> OperationalEventOutcome:
         case OperationalEventType.SYNC_RETRY_SUCCEEDED:
             return OperationalEventOutcome.SUCCEEDED
         case OperationalEventType.SYNC_RETRY_DEFERRED:
+            return OperationalEventOutcome.INTERRUPTED
+        case OperationalEventType.REQUEST_ACQUIRED:
+            return OperationalEventOutcome.SUCCEEDED
+        case OperationalEventType.REQUEST_ACQUIRE_FAILED:
+            return OperationalEventOutcome.FAILED
+        case OperationalEventType.REQUEST_SETTLED:
+            if not isinstance(details, RequestSettledDetails):
+                raise ValueError("request settlement requires settlement details")
+            return (
+                OperationalEventOutcome.SUCCEEDED
+                if details.applied and details.success
+                else OperationalEventOutcome.FAILED
+            )
+        case OperationalEventType.REQUEST_USAGE_RECORDED:
+            return OperationalEventOutcome.SUCCEEDED
+        case OperationalEventType.REQUEST_RELEASED:
+            if not isinstance(details, RequestReleasedDetails):
+                raise ValueError("request release requires release details")
+            return OperationalEventOutcome.SUCCEEDED if details.released else OperationalEventOutcome.FAILED
+        case OperationalEventType.LEASE_EXPIRED:
             return OperationalEventOutcome.INTERRUPTED
     assert_never(event_type)
 
@@ -355,7 +659,11 @@ def _parser_task_details(
             provider_id=provider_id,
             failure_code=failure_code,
         )
-    if event_type == OperationalEventType.PARSER_TASK_INTERRUPTED and failure_code is None and interruption_source is not None:
+    if (
+        event_type == OperationalEventType.PARSER_TASK_INTERRUPTED
+        and failure_code is None
+        and interruption_source is not None
+    ):
         return ParserTaskInterruptedDetails(
             task_id=task_id,
             parser_run_id=parser_run_id,
@@ -413,10 +721,17 @@ def _event_source(event_type: OperationalEventType) -> OperationalEventSource:
         OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED,
     ):
         return OperationalEventSource.PARSER_SNAPSHOT_EXPORT
-    return OperationalEventSource.SYNC_RECONCILE
+    if event_type in (
+        OperationalEventType.SYNC_RETRY_SUCCEEDED,
+        OperationalEventType.SYNC_RETRY_FAILED,
+        OperationalEventType.SYNC_RETRY_DEFERRED,
+    ):
+        return OperationalEventSource.SYNC_RECONCILE
+    return OperationalEventSource.REQUEST_LIFECYCLE
 
 
-def _details_operation_id(details: OperationalEventDetails) -> UUID:
+def _event_operation_id(event: OperationalPoolEvent) -> UUID:
+    details: Final = event.safe_details
     if isinstance(details, (ParserTaskCompletedDetails, ParserTaskFailedDetails, ParserTaskInterruptedDetails)):
         return details.task_id
     if isinstance(
@@ -424,7 +739,47 @@ def _details_operation_id(details: OperationalEventDetails) -> UUID:
         (ParserSnapshotExportedDetails, ParserSnapshotExportRetryScheduledDetails, ParserSnapshotExportFailedDetails),
     ):
         return details.parser_run_id
-    return details.operation_id
+    if isinstance(details, (SyncRetrySucceededDetails, SyncRetryFailedDetails, SyncRetryDeferredDetails)):
+        return details.operation_id
+    if isinstance(details, RequestAcquireFailedDetails):
+        return uuid5(
+            _OPERATIONAL_EVENT_NAMESPACE,
+            f"request:{event.request_id}:{event.deployment_id}:{event.reason_code}",
+        )
+    if event.lease_id is None:
+        raise ValueError("lease lifecycle events require a lease ID")
+    return uuid5(_OPERATIONAL_EVENT_NAMESPACE, f"lease:{event.lease_id}")
+
+
+def _request_outcome_details(
+    details: OperationalEventDetails,
+) -> (
+    RequestAcquiredDetails
+    | RequestSettledDetails
+    | RequestUsageRecordedDetails
+    | RequestReleasedDetails
+    | LeaseExpiredDetails
+    | None
+):
+    if isinstance(
+        details,
+        (
+            RequestAcquiredDetails,
+            RequestSettledDetails,
+            RequestUsageRecordedDetails,
+            RequestReleasedDetails,
+            LeaseExpiredDetails,
+        ),
+    ):
+        return details
+    return None
+
+
+def _safe_request_id(request_id: str) -> str:
+    if len(request_id) <= 128 and _REQUEST_ID_RE.fullmatch(request_id) is not None:
+        return request_id
+    digest: Final = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
 
 
 def _sync_retry_details(

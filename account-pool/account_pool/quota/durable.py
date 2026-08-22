@@ -186,9 +186,9 @@ class DurableQuotaStateStore:
     async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None:
         await self._backend.set_latency_metric(metric)
 
-    async def sweep_expired(self) -> int:
+    async def sweep_expired(self) -> tuple[Lease, ...]:
         released: Final = await self._backend.sweep_expired()
-        if released > 0 and self._ready and not await self._persist_snapshots():
+        if released and self._ready and not await self._persist_snapshots():
             await self._fail_closed("quota_snapshot_persistence_failed")
         return released
 

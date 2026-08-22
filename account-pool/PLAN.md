@@ -1275,11 +1275,13 @@ Phase 4 尚未完成目标环境集成验收。当前环境没有 Redis 服务�
 
 后台 Deployment 同步重试已经接入运行事实。`reconcile_pending()` 对每个待处理操作记录成功、失败或推迟事件，推迟原因区分需要管理员重新提交 Key 和仍处于待处理状态；事件保存同步操作 ID、渠道 ID、动作、尝试次数和稳定原因码，不保存 Key、URL、期望状态正文或 LiteLLM 响应。人工点击重新同步仍使用管理审计，只有后台 reconciler 写入 `sync_reconcile` 运行事实，避免同一操作产生两类含义重叠的记录
 
+请求调度生命周期已经接入运行事实。成功 acquire、各候选最终拒绝、settle、usage、release 和租约过期回收均进入 `request_lifecycle` 来源；事件保存渠道、公共模型、Deployment、request_id、lease_id、稳定原因码、状态码、延迟及聚合 token/成本，不保存提示词、响应正文、Key、Authorization 或上游错误正文。不符合日志字符约束的外部 request_id 使用 SHA-256 摘要，健康探测租约继续只进入健康事实，避免重复语义。租约回收契约现在返回实际被回收租约的安全对象，使内存、Redis、额度持久化和延迟装饰链都能准确记录逐条过期事件
+
 Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加载更多、中文事件和原因说明、脱敏详情查看，以及从总览和渠道详情按 `channel_id` 跳转。直接点击事件日志标签会恢复全部事件，避免保留不可见的渠道筛选。前端使用 React Query 管理服务端分页，不复制服务器结果到 effect 状态。4100 调度工作台本轮同时修复了低高度主侧栏和长模型列表的左侧重叠，模型列表现在具有视口边界和独立滚动，`390x844` 窄屏没有页面级横向溢出
 
-当前自动化验证为 Account Pool 全量 `615 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff 全量、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint 均无错误，三份 Prisma schema 已同步同一运行事件关系；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
+当前自动化验证为 Account Pool 全量 `624 passed, 50 skipped`，50 个跳过项需要目标 PostgreSQL；LiteLLM 管理代理此前聚焦验证 `11 passed`；Dashboard Account Pool `26 passed`。Account Pool Ruff、本轮运行事件路径 basedpyright 和 Dashboard 修改路径 ESLint/Prettier 均无错误，三份 Prisma schema 已同步同一运行事件关系；当前环境没有 Prisma CLI，尚未执行实际 schema 解析。4100 布局此前已在 `1280x720` 和 `390x844` 浏览器尺寸完成 DOM 边界与溢出检查；由于本机 LiteLLM 4000 管理端未运行，本轮未执行渠道综合详情的真实管理员登录数据链路截图
 
-Phase 5 仍需把公开元数据解析、冷却与限制、usage、acquire、settle、release 和租约回收等事件写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+Phase 5 仍需把公开元数据解析、冷却与限制变化写入同一个公共信封和日志查询。其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情和日志仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

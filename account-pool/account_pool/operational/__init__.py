@@ -9,8 +9,14 @@ from account_pool.operational.models import (
     OperationalPoolEvent,
     ParserSnapshotExportTrigger,
     ParserTaskInterruptionSource,
+    build_lease_expired_record,
     build_parser_snapshot_export_record,
     build_parser_task_operational_record,
+    build_request_acquire_failed_record,
+    build_request_acquired_record,
+    build_request_released_record,
+    build_request_settled_record,
+    build_request_usage_recorded_record,
     build_sync_reconcile_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
@@ -37,7 +43,13 @@ __all__ = [
     "ParserSnapshotExportTrigger",
     "ParserTaskInterruptionSource",
     "PostgresOperationalEventRepository",
+    "build_lease_expired_record",
     "build_parser_snapshot_export_record",
     "build_parser_task_operational_record",
+    "build_request_acquire_failed_record",
+    "build_request_acquired_record",
+    "build_request_released_record",
+    "build_request_settled_record",
+    "build_request_usage_recorded_record",
     "build_sync_reconcile_record",
 ]

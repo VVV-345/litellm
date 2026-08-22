@@ -33,17 +33,25 @@ from account_pool.models import (
     RuntimeQuotaScope,
     Strategy,
 )
+from account_pool.operational.request_lifecycle import RequestEventRecorder
 from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
 from account_pool.store import StateStore
 
 
 class Scheduler:
-    def __init__(self, config: PoolConfig, store: StateStore, lease_ttl_seconds: int) -> None:
+    def __init__(
+        self,
+        config: PoolConfig,
+        store: StateStore,
+        lease_ttl_seconds: int,
+        request_events: RequestEventRecorder | None = None,
+    ) -> None:
         self._config = config
         self._store = store
         self._lease_ttl_seconds = lease_ttl_seconds
         self._accounts = {account.id: account for account in config.accounts}
         self._policies = {policy.model: policy for policy in config.policies}
+        self._request_events: Final = request_events
 
     async def initialize(self) -> None:
         await self._store.configure(self._config.accounts)
@@ -99,6 +107,13 @@ class Scheduler:
                 ttl_seconds=self._lease_ttl_seconds,
             )
             if isinstance(result, ReserveSuccess):
+                if self._request_events is not None:
+                    await self._request_events.acquired(
+                        account,
+                        result.lease,
+                        request.estimated_tokens,
+                        self._lease_ttl_seconds,
+                    )
                 return AcquireSuccess(lease=result.lease)
             rejections.append(
                 _reserve_rejection(
@@ -110,7 +125,7 @@ class Scheduler:
                     now=now,
                 )
             )
-        return AcquireUnavailable(
+        unavailable: Final = AcquireUnavailable(
             model=request.model,
             reason_codes=tuple(dict.fromkeys(rejection.reason_code for rejection in rejections)),
             candidates=tuple(rejections),
@@ -119,6 +134,16 @@ class Scheduler:
                 default=None,
             ),
         )
+        if self._request_events is not None:
+            accounts: Final = {account.id: account for account, _ in candidates}
+            for rejection in unavailable.candidates:
+                await self._request_events.acquire_failed(
+                    accounts[rejection.account_id],
+                    request.model,
+                    request.request_id,
+                    rejection,
+                )
+        return unavailable
 
     async def route_table(self, model: str) -> tuple[RouteEntry, ...]:
         snapshots: Final = await self._snapshot_map()
@@ -418,9 +443,7 @@ def _reserve_rejection(
         binding_id=deployment.binding_id,
         billing_route_id=deployment.billing_route_id,
         stage=(
-            AcquireRejectionStage.ELIGIBILITY
-            if prechecked_reason == reason_code
-            else AcquireRejectionStage.RESERVATION
+            AcquireRejectionStage.ELIGIBILITY if prechecked_reason == reason_code else AcquireRejectionStage.RESERVATION
         ),
         reason_code=reason_code,
         scope=(
@@ -463,16 +486,17 @@ def _quota_rejection_scope(
         and (
             window.scope == RuntimeQuotaScope.CHANNEL
             or (window.scope == RuntimeQuotaScope.MODEL and window.subject_id == deployment.public_model)
-            or (
-                window.scope == RuntimeQuotaScope.BILLING_ROUTE
-                and window.subject_id == deployment.billing_route_id
-            )
+            or (window.scope == RuntimeQuotaScope.BILLING_ROUTE and window.subject_id == deployment.billing_route_id)
         )
     )
     if not matching:
         return None
     scope: Final = matching[0].scope
-    return AcquireRejectionScope.BILLING_ROUTE if scope == RuntimeQuotaScope.BILLING_ROUTE else AcquireRejectionScope(scope.value)
+    return (
+        AcquireRejectionScope.BILLING_ROUTE
+        if scope == RuntimeQuotaScope.BILLING_ROUTE
+        else AcquireRejectionScope(scope.value)
+    )
 
 
 def _fallback_rejection_source(reason_code: str) -> AcquireRejectionSource:

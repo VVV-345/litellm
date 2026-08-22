@@ -70,6 +70,7 @@ from account_pool.models import (
     RouteEntry,
     StatsView,
 )
+from account_pool.operational.request_lifecycle import RequestEventStateStore
 from account_pool.overview import (
     AccountPoolOverview,
     AccountPoolOverviewFailure,
@@ -614,9 +615,9 @@ class FakeHealthEventRepository:
         return HealthActivityLoadSuccess(activities=activities)
 
     async def list_recent(self, channel_id: UUID, limit: int = 50) -> HealthEventListSuccess:
-        records: Final = tuple(
-            record for record in reversed(self.records) if record.event.channel_id == channel_id
-        )[:limit]
+        records: Final = tuple(record for record in reversed(self.records) if record.event.channel_id == channel_id)[
+            :limit
+        ]
         return HealthEventListSuccess(records=records)
 
 
@@ -672,8 +673,9 @@ def test_build_store_enables_durable_quota_runtime_with_postgres() -> None:
     )
 
     assert isinstance(memory_runtime.store, MemoryStateStore)
-    assert isinstance(durable_runtime.store, DurableLatencyStateStore)
-    assert isinstance(durable_runtime.store._backend, DurableQuotaStateStore)
+    assert isinstance(durable_runtime.store, RequestEventStateStore)
+    assert isinstance(durable_runtime.store._backend, DurableLatencyStateStore)
+    assert isinstance(durable_runtime.store._backend._backend, DurableQuotaStateStore)
 
 
 def _parser_data_reader() -> FakeParserDataReader:
@@ -1480,15 +1482,9 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
                 root: Final = await client.get("/")
                 ui: Final = await client.get("/ui/")
                 missing: Final = await client.get("/ui-api/stats")
-                invalid: Final = await client.get(
-                    "/ui-api/stats", headers={"authorization": "Bearer invalid"}
-                )
-                viewer: Final = await client.get(
-                    "/ui-api/stats", headers={"authorization": "Bearer viewer-secret"}
-                )
-                valid: Final = await client.get(
-                    "/ui-api/stats", headers={"authorization": "Bearer admin-secret"}
-                )
+                invalid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer invalid"})
+                viewer: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer viewer-secret"})
+                valid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer admin-secret"})
 
     assert root.status_code == 307
     assert root.headers["location"] == "/ui/"
@@ -1534,9 +1530,7 @@ async def test_standalone_ui_forwards_routing_writes_through_litellm() -> None:
                 )
 
     assert (response.status_code, candidate.status_code, reset.status_code) == (200, 200, 200)
-    forwarded_requests: Final = tuple(
-        request for request in requests if request.url.path != "/account_pool/authorize"
-    )
+    forwarded_requests: Final = tuple(request for request in requests if request.url.path != "/account_pool/authorize")
     policy_request, candidate_request, reset_request = forwarded_requests
     assert policy_request.method == "PUT"
     assert policy_request.url.raw_path == b"/account_pool/models/openai%2Fgpt-4o/routing-policy"

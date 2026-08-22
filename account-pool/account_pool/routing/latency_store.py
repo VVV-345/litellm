@@ -38,7 +38,9 @@ class DurableLatencyStateStore:
         if not isinstance(loaded, LatencyLoadSuccess):
             _LOGGER.error("Failed to restore latency metrics: %s", loaded.code)
             return
-        deployments_by_binding: Final = {binding_id: deployment_id for deployment_id, binding_id in self._bindings.items()}
+        deployments_by_binding: Final = {
+            binding_id: deployment_id for deployment_id, binding_id in self._bindings.items()
+        }
         await self._backend.restore_latency_metrics(
             tuple(
                 DeploymentLatencyMetric(
@@ -122,7 +124,7 @@ class DurableLatencyStateStore:
     async def set_latency_metric(self, metric: DeploymentLatencyMetric) -> None:
         await self._backend.set_latency_metric(metric)
 
-    async def sweep_expired(self) -> int:
+    async def sweep_expired(self) -> tuple[Lease, ...]:
         return await self._backend.sweep_expired()
 
     async def close(self) -> None:

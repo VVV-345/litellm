@@ -525,7 +525,7 @@ export interface EventHealthSummary {
 }
 
 export interface EventOperationalSummary {
-  source: "parser_task" | "parser_snapshot_export" | "sync_reconcile";
+  source: "parser_task" | "parser_snapshot_export" | "sync_reconcile" | "request_lifecycle";
   operation_id: string;
   outcome: "succeeded" | "failed" | "interrupted";
 }

@@ -83,6 +83,7 @@ from account_pool.models import (
     StatsView,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
+from account_pool.operational.request_lifecycle import RequestEventRecorder, RequestEventStateStore
 from account_pool.overview import (
     AccountPoolOverview,
     AccountPoolOverviewFailure,
@@ -217,7 +218,9 @@ def create_app(
     channel_details: ChannelAggregateReader | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
-    resolved_store: Final = store or _build_store(resolved_settings)
+    base_store: Final = store or _build_store(resolved_settings)
+    request_events: Final = _build_request_events(resolved_settings)
+    resolved_store: Final = base_store if request_events is None else RequestEventStateStore(base_store, request_events)
     owns_client: Final = proxy_client is None
     client: Final = proxy_client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=5))
     config: Final = load_pool_config(resolved_settings.config_path)
@@ -225,8 +228,11 @@ def create_app(
         config=config,
         store=resolved_store,
         lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
+        request_events=request_events,
     )
-    resolved_health_events: Final = health_events if health_events is not None else _build_health_events(resolved_settings)
+    resolved_health_events: Final = (
+        health_events if health_events is not None else _build_health_events(resolved_settings)
+    )
     resolved_health_recorder: Final = (
         None
         if resolved_health_events is None
@@ -300,14 +306,10 @@ def create_app(
     )
     resolved_parser_tasks: Final = parser_tasks if parser_tasks is not None else _runtime_tasks(parser_runtime)
     resolved_parser_export_retries: Final = (
-        parser_export_retries
-        if parser_export_retries is not None
-        else _runtime_export_retries(parser_runtime)
+        parser_export_retries if parser_export_retries is not None else _runtime_export_retries(parser_runtime)
     )
     resolved_snapshot_importer: Final = (
-        snapshot_importer
-        if snapshot_importer is not None
-        else _build_snapshot_importer(resolved_settings)
+        snapshot_importer if snapshot_importer is not None else _build_snapshot_importer(resolved_settings)
     )
     resolved_health_probes: Final = health_probes or ActiveHealthProbeService(
         accounts=scheduler,
@@ -581,7 +583,9 @@ def create_app(
                     EventLogFailureCode.INVALID_STORED_DATA: 500,
                     EventLogFailureCode.DATABASE_UNAVAILABLE: 503,
                 }[result.code]
-                raise HTTPException(status_code=status_code, detail={"code": result.code, "retryable": result.retryable})
+                raise HTTPException(
+                    status_code=status_code, detail={"code": result.code, "retryable": result.retryable}
+                )
 
     async def channel_detail(channel_id: UUID) -> ChannelDetail:
         service: Final = _require_channel_management(resolved_channel_management)
@@ -1311,9 +1315,7 @@ def create_app(
         methods=["DELETE"],
     )
     application.add_api_route("/ui-api/stats", stats, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route(
-        "/ui-api/litellm/status", litellm_status, methods=["GET"], dependencies=ui_dependency
-    )
+    application.add_api_route("/ui-api/litellm/status", litellm_status, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route(
         "/ui-api/provider-services", provider_service_manifests, methods=["GET"], dependencies=ui_dependency
     )
@@ -1433,12 +1435,21 @@ def _build_store(settings: Settings) -> StateStore:
     )
 
 
+def _build_request_events(settings: Settings) -> RequestEventRecorder | None:
+    if settings.database_url is None:
+        return None
+    return RequestEventRecorder(
+        PostgresOperationalEventRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        )
+    )
+
+
 def _build_catalog(settings: Settings) -> ChannelCatalogReader | None:
     if settings.database_url is None:
         return None
-    return ChannelCatalogQueryService(
-        PostgresCatalogRepository(settings.database_url, schema=settings.database_schema)
-    )
+    return ChannelCatalogQueryService(PostgresCatalogRepository(settings.database_url, schema=settings.database_schema))
 
 
 def _build_health_events(settings: Settings) -> HealthEventRepository | None:

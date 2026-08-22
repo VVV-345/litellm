@@ -262,6 +262,70 @@ def test_sync_retry_event_decodes_registered_safe_details() -> None:
     assert event.safe_details["sync_action"] == "update_channel"
 
 
+def test_request_settlement_event_decodes_registered_safe_details() -> None:
+    operation_id: Final = UUID("92000000-0000-0000-0000-000000000004")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "request_settled",
+                {
+                    "kind": "request_settled",
+                    "applied": True,
+                    "success": True,
+                    "status_code": 200,
+                    "input_tokens": 12,
+                    "output_tokens": 4,
+                    "cost_usd": None,
+                    "latency_ms": 25,
+                },
+            ),
+            "request_id": "request-1",
+            "lease_id": "lease-1",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "request_lifecycle",
+            "operational_operation_id": str(operation_id),
+            "operational_outcome": "succeeded",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.SUCCEEDED
+    assert event.operational is not None and event.operational.source == "request_lifecycle"
+    assert event.safe_details["input_tokens"] == 12
+
+
+def test_request_usage_event_decodes_registered_safe_details() -> None:
+    operation_id: Final = UUID("92000000-0000-0000-0000-000000000005")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "request_usage_recorded",
+                {
+                    "kind": "request_usage_recorded",
+                    "input_tokens": 12,
+                    "output_tokens": 4,
+                    "cost_usd": 0.002,
+                },
+            ),
+            "request_id": "request-1",
+            "lease_id": "lease-1",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "request_lifecycle",
+            "operational_operation_id": str(operation_id),
+            "operational_outcome": "succeeded",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.SUCCEEDED
+    assert event.safe_details == {
+        "kind": "request_usage_recorded",
+        "input_tokens": 12,
+        "output_tokens": 4,
+        "cost_usd": 0.002,
+    }
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(
@@ -338,9 +402,7 @@ async def test_postgres_query_filters_and_paginates_without_duplicate_events(
         )
     )
     assert isinstance(second, EventLogPage)
-    assert tuple(event.event_id for event in second.events) == (
-        UUID("91000000-0000-0000-0000-000000000004"),
-    )
+    assert tuple(event.event_id for event in second.events) == (UUID("91000000-0000-0000-0000-000000000004"),)
     assert second.next_cursor is None
 
 

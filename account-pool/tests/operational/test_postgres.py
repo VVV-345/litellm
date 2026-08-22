@@ -61,6 +61,14 @@ _SYNC_MIGRATION: Final = (
     / "20260822030000_expand_account_pool_sync_events"
     / "migration.sql"
 )
+_REQUEST_MIGRATION: Final = (
+    Path(__file__).resolve().parents[3]
+    / "litellm-proxy-extras"
+    / "litellm_proxy_extras"
+    / "migrations"
+    / "20260822040000_expand_account_pool_request_events"
+    / "migration.sql"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +157,7 @@ async def operational_repository_fixture() -> AsyncIterator[OperationalRepositor
             await connection.execute(_MIGRATION.read_bytes())
             await connection.execute(_EXPANSION_MIGRATION.read_bytes())
             await connection.execute(_SYNC_MIGRATION.read_bytes())
+            await connection.execute(_REQUEST_MIGRATION.read_bytes())
             yield OperationalRepositoryFixture(
                 repository=PostgresOperationalEventRepository(database_url, schema=schema)
             )
@@ -204,12 +213,14 @@ def test_migration_contains_only_normalized_operational_fields() -> None:
     migration: Final = _MIGRATION.read_text(encoding="utf-8")
     expansion: Final = _EXPANSION_MIGRATION.read_text(encoding="utf-8")
     sync_expansion: Final = _SYNC_MIGRATION.read_text(encoding="utf-8")
+    request_expansion: Final = _REQUEST_MIGRATION.read_text(encoding="utf-8")
 
     assert 'CREATE TABLE "LiteLLM_AccountPoolOperationalEvent"' in migration
     assert '"operation_id" TEXT NOT NULL' in migration
     assert "parser_task" in migration
     assert "parser_snapshot_export" in expansion
     assert "sync_reconcile" in sync_expansion
+    assert "request_lifecycle" in request_expansion
     assert "api_key" not in migration.casefold()
     assert "authorization" not in migration.casefold()
     assert "response_body" not in migration.casefold()

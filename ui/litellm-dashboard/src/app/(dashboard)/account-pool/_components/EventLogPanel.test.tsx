@@ -133,6 +133,37 @@ const firstPage: EventLogPage = {
         outcome: "failed",
       },
     },
+    {
+      event_id: "event-6",
+      event_type: "request_settled",
+      occurred_at: "2026-08-21T09:05:00Z",
+      channel_id: "channel-1",
+      model_id: "gpt-5.6",
+      deployment_id: "deployment-1",
+      request_id: "request-6",
+      lease_id: "lease-6",
+      reason_code: null,
+      actor_type: "system",
+      actor_id: "account_pool_state_store",
+      outcome: "succeeded",
+      safe_details: {
+        kind: "request_settled",
+        applied: true,
+        success: true,
+        status_code: 200,
+        input_tokens: 12,
+        output_tokens: 4,
+        cost_usd: null,
+        latency_ms: 25,
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "request_lifecycle",
+        operation_id: "operation-6",
+        outcome: "succeeded",
+      },
+    },
   ],
 };
 
@@ -196,6 +227,7 @@ describe("EventLogPanel", () => {
     expect(screen.getByText("解析任务已中断")).toBeInTheDocument();
     expect(screen.getByText("解析快照已导出")).toBeInTheDocument();
     expect(screen.getByText("后台同步失败")).toBeInTheDocument();
+    expect(screen.getByText("请求已结算")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
     expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
 
