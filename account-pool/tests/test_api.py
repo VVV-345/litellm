@@ -70,6 +70,7 @@ from account_pool.models import (
     RouteEntry,
     StatsView,
 )
+from account_pool.monitoring.models import WorkerStateList
 from account_pool.operational.request_lifecycle import RequestEventStateStore
 from account_pool.operational.restrictions import RestrictionEventStateStore
 from account_pool.overview import (
@@ -821,6 +822,12 @@ async def test_management_api_requires_configured_internal_token() -> None:
                 "/api/provider-services", headers={"x-account-pool-token": "service-secret"}
             )
             health: Final = await client.get("/healthz")
+            metrics: Final = await client.get("/metrics")
+            workers_missing: Final = await client.get("/api/workers")
+            workers: Final = await client.get(
+                "/api/workers",
+                headers={"x-account-pool-token": "service-secret"},
+            )
 
     assert missing.status_code == 401
     assert invalid.status_code == 401
@@ -830,6 +837,19 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert manifest_ids == ("glm_official", "openai_compatible")
     assert manifests[1].default_api_base == "https://api.openai.com/v1"
     assert health.status_code == 200
+    assert metrics.status_code == 200
+    assert metrics.headers["content-type"].startswith("text/plain; version=0.0.4")
+    assert 'account_pool_worker_enabled{worker="lease_reaper"} 1' in metrics.text
+    assert workers_missing.status_code == 401
+    assert workers.status_code == 200
+    worker_states: Final = WorkerStateList.model_validate_json(workers.content)
+    assert {item.worker.value for item in worker_states.workers} == {
+        "active_health_probe",
+        "channel_reconciler",
+        "lease_reaper",
+        "parser_export_retry",
+        "public_metadata",
+    }
 
 
 @pytest.mark.asyncio

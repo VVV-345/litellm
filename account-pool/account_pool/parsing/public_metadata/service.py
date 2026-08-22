@@ -14,6 +14,9 @@ from pydantic import AwareDatetime
 from account_pool.catalog.models import AdministrativeState, ChannelSummary
 from account_pool.catalog.query import ChannelCatalogReader
 from account_pool.domain.provider_source import ProviderValidationFailureCode, ProviderValidationResult
+from account_pool.monitoring.loop import run_worker_loop
+from account_pool.monitoring.models import WorkerName
+from account_pool.monitoring.registry import NoopWorkerMonitor, WorkerMonitor
 from account_pool.operational.models import OperationalEventType
 from account_pool.operational.public_metadata import build_public_metadata_task_record
 from account_pool.operational.repository import OperationalEventRepository, OperationalWriteSuccess
@@ -73,6 +76,7 @@ class PublicMetadataTaskLoop:
         instance_id: UUID | None = None,
         clock: Clock = utc_now,
         id_factory: IdFactory = uuid4,
+        monitor: WorkerMonitor | None = None,
     ) -> None:
         if min(interval_seconds, refresh_interval_seconds, retry_base_seconds, batch_size, max_attempts) <= 0:
             raise ValueError("public metadata worker settings must be positive")
@@ -91,6 +95,7 @@ class PublicMetadataTaskLoop:
         self._instance_id: Final = instance_id or uuid4()
         self._clock: Final = clock
         self._id_factory: Final = id_factory
+        self._monitor: Final = monitor or NoopWorkerMonitor()
 
     async def initialize(self) -> None:
         now: Final = self._clock()
@@ -103,12 +108,14 @@ class PublicMetadataTaskLoop:
         await asyncio.gather(*(self._record_recovery(task) for task in recovered.records))
 
     async def run(self) -> None:
-        while True:
-            try:
-                await self.run_once()
-            except Exception:
-                _LOGGER.exception("Public metadata parser pass failed")
-            await asyncio.sleep(self._interval_seconds)
+        await run_worker_loop(
+            worker=WorkerName.PUBLIC_METADATA,
+            cycle=self.run_once,
+            interval_seconds=self._interval_seconds,
+            monitor=self._monitor,
+            logger=_LOGGER,
+            failure_message="Public metadata parser pass failed",
+        )
 
     async def run_once(self) -> None:
         await self._schedule_due()

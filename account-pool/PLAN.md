@@ -1287,7 +1287,9 @@ Dashboard 已增加“事件日志”工作区，支持上述筛选、游标加�
 
 本批代码验证中 Account Pool 全量为 `654 passed, 53 skipped`，53 个跳过项需要目标 PostgreSQL；公开队列服务、事件和配置聚焦测试通过。新增及修改 Python 路径 basedpyright 与 Ruff 无错误，Dashboard 修改路径 Prettier 与 ESLint 通过，三份 Prisma 模型文本一致。Dashboard 事件面板功能测试在增加公开事件样例后已修正为按目标事件行点击，但按用户安排未再次执行；Prisma CLI 未安装，未下载依赖，也未执行真实 PostgreSQL 迁移或多 worker 竞争验收
 
-Phase 5 其余待办包括 Prometheus 指标与告警、后台 worker 运行监控、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情、日志和公开元数据队列仍需随 Phase 4 一起在真实 PostgreSQL、Redis 和登录态 Dashboard 环境中完成浏览器与集成验收
+后台 Worker 运行监控与 Prometheus 指标代码已经接通。独立 `monitoring` 模块使用固定 Worker 枚举和不可变状态快照，覆盖 lease reaper、Deployment reconciler、解析快照导出重试、公开元数据和主动健康探测；统一周期执行器记录启动、周期、成功、失败、连续失败、耗时和停止，异常周期不会让 Worker 静默退出。运行中超过两个预期间隔没有完成时查询态标记为 `stalled`。`/metrics` 仅暴露固定 Worker 标签的 Prometheus 文本，`/api/workers` 使用内部令牌返回脱敏状态详情；异常日志不附加第三方错误正文。指标和 API 测试代码已补齐，按用户安排未执行功能测试，只完成静态检查
+
+Phase 5 其余待办包括告警规则部署、数据保留与加密归档、PostgreSQL 备份恢复、Redis 丢失恢复、真实多 worker、流式中断和故障注入验证，以及兼容端点退役。总览、详情、日志、公开元数据队列和 Worker 监控仍需随 Phase 4 一起在真实 PostgreSQL、Redis、Prometheus 和登录态 Dashboard 环境中完成浏览器与集成验收
 
 ## 18. 测试策略
 

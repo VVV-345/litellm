@@ -7,6 +7,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Final, Protocol
 
+from account_pool.monitoring.loop import run_worker_loop
+from account_pool.monitoring.models import WorkerName
+from account_pool.monitoring.registry import NoopWorkerMonitor, WorkerMonitor
 from account_pool.parsing.worker import (
     ParserRetryBatchFailure,
     ParserRetryBatchResult,
@@ -33,6 +36,7 @@ class ParserExportRetryLoop:
         interval_seconds: float = 30,
         batch_size: int = 25,
         sleep: Sleep = asyncio.sleep,
+        monitor: WorkerMonitor | None = None,
     ) -> None:
         if interval_seconds <= 0:
             raise ValueError("interval_seconds must be positive")
@@ -42,16 +46,18 @@ class ParserExportRetryLoop:
         self._interval_seconds: Final = interval_seconds
         self._batch_size: Final = batch_size
         self._sleep: Final = sleep
+        self._monitor: Final = monitor or NoopWorkerMonitor()
 
     async def run(self) -> None:
-        while True:
-            try:
-                await self._run_cycle()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                _LOGGER.exception("parser snapshot export retry cycle crashed")
-            await self._sleep(self._interval_seconds)
+        await run_worker_loop(
+            worker=WorkerName.PARSER_EXPORT_RETRY,
+            cycle=self._run_cycle,
+            interval_seconds=self._interval_seconds,
+            monitor=self._monitor,
+            logger=_LOGGER,
+            failure_message="parser snapshot export retry cycle crashed",
+            sleep=self._sleep,
+        )
 
     async def _run_cycle(self) -> None:
         result: Final = await self._retrier.retry_exports(self._batch_size)

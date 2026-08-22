@@ -82,6 +82,16 @@ from account_pool.models import (
     SettleRequest,
     StatsView,
 )
+from account_pool.monitoring import (
+    PROMETHEUS_CONTENT_TYPE,
+    WorkerMonitorRegistry,
+    WorkerName,
+    WorkerRegistration,
+    WorkerStateList,
+    render_prometheus_metrics,
+    run_monitored_service,
+    run_worker_loop,
+)
 from account_pool.operational.postgres import PostgresOperationalEventRepository
 from account_pool.operational.request_lifecycle import RequestEventRecorder, RequestEventStateStore
 from account_pool.operational.restrictions import RestrictionEventRecorder, RestrictionEventStateStore
@@ -201,6 +211,7 @@ class Runtime:
     overview: AccountPoolOverviewReader | None
     event_log: EventLogReader | None
     channel_details: ChannelAggregateReader | None
+    worker_monitor: WorkerMonitorRegistry
 
 
 def create_app(
@@ -223,6 +234,7 @@ def create_app(
     overview: AccountPoolOverviewReader | None = None,
     event_log: EventLogReader | None = None,
     channel_details: ChannelAggregateReader | None = None,
+    worker_monitor: WorkerMonitorRegistry | None = None,
 ) -> FastAPI:
     resolved_settings: Final = settings or Settings.from_env()
     base_store: Final = store or _build_store(resolved_settings)
@@ -318,6 +330,18 @@ def create_app(
     build_parser_export_retries: Final = parser_export_retries is None and (
         build_parser_tasks or build_public_metadata_tasks
     )
+    resolved_worker_monitor: Final = worker_monitor or _build_worker_monitor(
+        settings=resolved_settings,
+        reconciler_enabled=resolved_channel_management is not None,
+        parser_export_enabled=(
+            parser_export_retries is not None
+            or (resolved_settings.database_url is not None and build_parser_export_retries)
+        ),
+        public_metadata_enabled=(
+            public_metadata_tasks is not None
+            or (resolved_settings.database_url is not None and build_public_metadata_tasks)
+        ),
+    )
     parser_runtime: Final = (
         None
         if not (build_parser_tasks or build_parser_export_retries or build_public_metadata_tasks)
@@ -330,6 +354,7 @@ def create_app(
             build_tasks=build_parser_tasks,
             build_export_retries=build_parser_export_retries,
             build_public_metadata_tasks=build_public_metadata_tasks,
+            worker_monitor=resolved_worker_monitor,
         )
     )
     resolved_parser_tasks: Final = parser_tasks if parser_tasks is not None else _runtime_tasks(parser_runtime)
@@ -419,6 +444,7 @@ def create_app(
         overview=resolved_overview,
         event_log=resolved_event_log,
         channel_details=resolved_channel_details,
+        worker_monitor=resolved_worker_monitor,
     )
 
     @asynccontextmanager
@@ -440,7 +466,7 @@ def create_app(
             await resolved_parser_tasks.initialize()
         if resolved_public_metadata_tasks is not None:
             await resolved_public_metadata_tasks.initialize()
-        reaper: Final = asyncio.create_task(_run_reaper(resolved_store))
+        reaper: Final = asyncio.create_task(_run_reaper(resolved_store, resolved_worker_monitor))
         reconciler: Final = (
             None
             if resolved_channel_management is None
@@ -448,18 +474,35 @@ def create_app(
                 _run_reconciler(
                     resolved_channel_management,
                     resolved_settings.reconcile_interval_seconds,
+                    resolved_worker_monitor,
                 )
             )
         )
         parser_export_retry_task: Final = (
             None
             if resolved_parser_export_retries is None
-            else asyncio.create_task(resolved_parser_export_retries.run())
+            else asyncio.create_task(
+                run_monitored_service(
+                    worker=WorkerName.PARSER_EXPORT_RETRY,
+                    service=resolved_parser_export_retries.run,
+                    monitor=resolved_worker_monitor,
+                    logger=_LOGGER,
+                    failure_message="Parser export retry worker stopped unexpectedly",
+                )
+            )
         )
         public_metadata_task: Final = (
             None
             if resolved_public_metadata_tasks is None
-            else asyncio.create_task(resolved_public_metadata_tasks.run())
+            else asyncio.create_task(
+                run_monitored_service(
+                    worker=WorkerName.PUBLIC_METADATA,
+                    service=resolved_public_metadata_tasks.run,
+                    monitor=resolved_worker_monitor,
+                    logger=_LOGGER,
+                    failure_message="Public metadata worker stopped unexpectedly",
+                )
+            )
         )
         health_probe_task: Final = (
             None
@@ -468,6 +511,7 @@ def create_app(
                 _run_health_probes(
                     resolved_health_probes,
                     resolved_settings.health_probe_interval_seconds,
+                    resolved_worker_monitor,
                 )
             )
         )
@@ -549,6 +593,15 @@ def create_app(
 
     async def healthz() -> OperationResult:
         return OperationResult(ok=True)
+
+    async def worker_states() -> WorkerStateList:
+        return resolved_worker_monitor.snapshot()
+
+    async def metrics() -> Response:
+        return Response(
+            content=render_prometheus_metrics(resolved_worker_monitor.snapshot()),
+            headers={"content-type": PROMETHEUS_CONTENT_TYPE, "cache-control": "no-store"},
+        )
 
     async def accounts(response: Response) -> tuple[AccountView, ...]:
         _mark_accounts_compatibility_deprecated(response)
@@ -1149,6 +1202,8 @@ def create_app(
     # 管理接口和调度接口共用服务令牌，防止绕过 LiteLLM Admin 代理直连 4100 端口。
     management_dependency: Final = [Depends(require_internal_token)]
     application.add_api_route("/healthz", healthz, methods=["GET"])
+    application.add_api_route("/metrics", metrics, methods=["GET"], include_in_schema=False)
+    application.add_api_route("/api/workers", worker_states, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/accounts", accounts, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/accounts", create_account, methods=["POST"], dependencies=management_dependency)
     application.add_api_route(
@@ -1415,32 +1470,47 @@ def create_app(
     return application
 
 
-async def _run_reaper(store: StateStore) -> None:
-    while True:
-        await asyncio.sleep(1)
-        await store.sweep_expired()
+async def _run_reaper(store: StateStore, monitor: WorkerMonitorRegistry) -> None:
+    await run_worker_loop(
+        worker=WorkerName.LEASE_REAPER,
+        cycle=store.sweep_expired,
+        interval_seconds=1,
+        monitor=monitor,
+        logger=_LOGGER,
+        failure_message="Account Pool lease reaper pass failed",
+        initial_delay=True,
+    )
 
 
-async def _run_health_probes(service: HealthProbeManager, interval_seconds: int) -> None:
-    if interval_seconds < 1:
-        raise ValueError("health probe interval must be positive")
-    while True:
-        try:
-            await service.probe_due()
-        except Exception:
-            _LOGGER.exception("Account Pool active health probe pass failed")
-        await asyncio.sleep(interval_seconds)
+async def _run_health_probes(
+    service: HealthProbeManager,
+    interval_seconds: int,
+    monitor: WorkerMonitorRegistry,
+) -> None:
+    await run_worker_loop(
+        worker=WorkerName.ACTIVE_HEALTH_PROBE,
+        cycle=service.probe_due,
+        interval_seconds=interval_seconds,
+        monitor=monitor,
+        logger=_LOGGER,
+        failure_message="Account Pool active health probe pass failed",
+    )
 
 
-async def _run_reconciler(service: ChannelManager, interval_seconds: int) -> None:
-    if interval_seconds < 1:
-        raise ValueError("reconcile interval must be positive")
-    while True:
-        await asyncio.sleep(interval_seconds)
-        try:
-            await service.reconcile_pending()
-        except Exception:
-            _LOGGER.exception("Account Pool reconcile pass failed")
+async def _run_reconciler(
+    service: ChannelManager,
+    interval_seconds: int,
+    monitor: WorkerMonitorRegistry,
+) -> None:
+    await run_worker_loop(
+        worker=WorkerName.CHANNEL_RECONCILER,
+        cycle=service.reconcile_pending,
+        interval_seconds=interval_seconds,
+        monitor=monitor,
+        logger=_LOGGER,
+        failure_message="Account Pool reconcile pass failed",
+        initial_delay=True,
+    )
 
 
 async def _model_summary(
@@ -1757,6 +1827,7 @@ def _build_parser_runtime(
     build_tasks: bool,
     build_export_retries: bool,
     build_public_metadata_tasks: bool,
+    worker_monitor: WorkerMonitorRegistry,
 ) -> _ParserRuntime | None:
     if settings.database_url is None:
         return None
@@ -1787,6 +1858,7 @@ def _build_parser_runtime(
                 worker,
                 interval_seconds=settings.parser_export_retry_interval_seconds,
                 batch_size=settings.parser_export_retry_batch_size,
+                monitor=worker_monitor,
             )
             if build_export_retries
             else None
@@ -1808,6 +1880,7 @@ def _build_parser_runtime(
                 retry_base_seconds=settings.public_metadata_retry_base_seconds,
                 batch_size=settings.public_metadata_batch_size,
                 max_attempts=settings.public_metadata_max_attempts,
+                monitor=worker_monitor,
             )
         ),
     )
@@ -1823,6 +1896,41 @@ def _runtime_export_retries(runtime: _ParserRuntime | None) -> ParserExportRetry
 
 def _runtime_public_metadata_tasks(runtime: _ParserRuntime | None) -> PublicMetadataTaskManager | None:
     return None if runtime is None else runtime.public_metadata_tasks
+
+
+def _build_worker_monitor(
+    *,
+    settings: Settings,
+    reconciler_enabled: bool,
+    parser_export_enabled: bool,
+    public_metadata_enabled: bool,
+) -> WorkerMonitorRegistry:
+    health_interval: Final = max(settings.health_probe_interval_seconds, 1)
+    return WorkerMonitorRegistry(
+        (
+            WorkerRegistration(WorkerName.LEASE_REAPER, True, 1),
+            WorkerRegistration(
+                WorkerName.CHANNEL_RECONCILER,
+                reconciler_enabled,
+                settings.reconcile_interval_seconds,
+            ),
+            WorkerRegistration(
+                WorkerName.PARSER_EXPORT_RETRY,
+                parser_export_enabled,
+                settings.parser_export_retry_interval_seconds,
+            ),
+            WorkerRegistration(
+                WorkerName.PUBLIC_METADATA,
+                public_metadata_enabled,
+                settings.public_metadata_poll_interval_seconds,
+            ),
+            WorkerRegistration(
+                WorkerName.ACTIVE_HEALTH_PROBE,
+                settings.health_probe_interval_seconds > 0,
+                health_interval,
+            ),
+        )
+    )
 
 
 def _build_snapshot_importer(settings: Settings) -> SnapshotImporter | None:

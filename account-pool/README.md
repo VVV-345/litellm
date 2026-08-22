@@ -173,5 +173,25 @@ $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 `DATABASE_URL` 未配置时，现有调度和渠道接口仍可启动，4100 路由表保持只读；正式策略版本、候选人工覆盖、解析
 历史和有效数据接口返回 503。可通过 `ACCOUNT_POOL_DATABASE_SCHEMA` 指定非 `public` schema
 
+## Worker 监控与 Prometheus 指标
+
+`GET /metrics` 提供 Prometheus exposition 文本，无需认证，便于集群抓取。该端点只使用固定 Worker 名称标签，
+不包含渠道 ID、URL、Key、request_id、模型名、上游错误或响应正文。`GET /api/workers` 返回带时间戳的 Worker
+状态详情，并要求 `X-Account-Pool-Token`
+
+当前监控覆盖 `lease_reaper`、`channel_reconciler`、`parser_export_retry`、`public_metadata` 和
+`active_health_probe`。状态包括 `disabled`、`starting`、`healthy`、`degraded`、`stalled` 和 `stopped`；运行中
+Worker 超过两个预期间隔没有完成周期时动态标记为 `stalled`。指标提供启用与存活状态、周期总数、成功与失败总数、
+连续失败、最后成功或失败时间及最近周期耗时
+
+建议至少配置以下告警：
+
+- 已启用 Worker 的 `account_pool_worker_up` 连续两个周期为 0
+- `account_pool_worker_consecutive_failures` 大于等于 3
+- `rate(account_pool_worker_failures_total[5m])` 持续大于 0
+- 关键 Worker 最后成功时间超过其预期间隔的两倍
+
+周期异常不会终止 Worker 循环。公共日志仅写固定失败说明，不附加异常正文；业务失败详情通过既有稳定原因码事件查看
+
 客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
 生产网络中应限制 LiteLLM Proxy 的直接访问
