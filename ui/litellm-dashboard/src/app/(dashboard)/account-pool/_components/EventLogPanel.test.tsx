@@ -105,6 +105,34 @@ const firstPage: EventLogPage = {
         outcome: "succeeded",
       },
     },
+    {
+      event_id: "event-5",
+      event_type: "sync_retry_failed",
+      occurred_at: "2026-08-21T09:10:00Z",
+      channel_id: "channel-1",
+      model_id: null,
+      deployment_id: null,
+      request_id: "reconcile:operation-5:2",
+      lease_id: null,
+      reason_code: "transport_failed",
+      actor_type: "system",
+      actor_id: "account_pool_reconciler",
+      outcome: "failed",
+      safe_details: {
+        kind: "sync_retry_failed",
+        operation_id: "operation-5",
+        sync_action: "update_channel",
+        attempt_count: 2,
+        failure_code: "transport_failed",
+      },
+      audit: null,
+      health: null,
+      operational: {
+        source: "sync_reconcile",
+        operation_id: "operation-5",
+        outcome: "failed",
+      },
+    },
   ],
 };
 
@@ -167,6 +195,7 @@ describe("EventLogPanel", () => {
     expect(await screen.findByText("请求健康结果")).toBeInTheDocument();
     expect(screen.getByText("解析任务已中断")).toBeInTheDocument();
     expect(screen.getByText("解析快照已导出")).toBeInTheDocument();
+    expect(screen.getByText("后台同步失败")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
     expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
 

@@ -72,7 +72,7 @@ class _LinkedRow(FrozenModel):
     lease_id: str | None
     reason_code: str | None
     actor_type: Literal["system"]
-    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot"]
+    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot", "account_pool_reconciler"]
     safe_details: object
     operational_event_id: UUID
     source: OperationalEventSource

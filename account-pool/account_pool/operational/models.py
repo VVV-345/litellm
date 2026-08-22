@@ -22,11 +22,15 @@ class OperationalEventType(StrEnum):
     PARSER_SNAPSHOT_EXPORTED = "parser_snapshot_exported"
     PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED = "parser_snapshot_export_retry_scheduled"
     PARSER_SNAPSHOT_EXPORT_FAILED = "parser_snapshot_export_failed"
+    SYNC_RETRY_SUCCEEDED = "sync_retry_succeeded"
+    SYNC_RETRY_FAILED = "sync_retry_failed"
+    SYNC_RETRY_DEFERRED = "sync_retry_deferred"
 
 
 class OperationalEventSource(StrEnum):
     PARSER_TASK = "parser_task"
     PARSER_SNAPSHOT_EXPORT = "parser_snapshot_export"
+    SYNC_RECONCILE = "sync_reconcile"
 
 
 class OperationalEventOutcome(StrEnum):
@@ -91,13 +95,39 @@ class ParserSnapshotExportFailedDetails(FrozenModel):
     failure_code: str = Field(pattern=_SAFE_CODE_PATTERN)
 
 
+class SyncRetrySucceededDetails(FrozenModel):
+    kind: Literal["sync_retry_succeeded"] = "sync_retry_succeeded"
+    operation_id: UUID
+    sync_action: str = Field(pattern=_SAFE_CODE_PATTERN)
+    attempt_count: int = Field(ge=1)
+
+
+class SyncRetryFailedDetails(FrozenModel):
+    kind: Literal["sync_retry_failed"] = "sync_retry_failed"
+    operation_id: UUID
+    sync_action: str = Field(pattern=_SAFE_CODE_PATTERN)
+    attempt_count: int = Field(ge=1)
+    failure_code: str = Field(pattern=_SAFE_CODE_PATTERN)
+
+
+class SyncRetryDeferredDetails(FrozenModel):
+    kind: Literal["sync_retry_deferred"] = "sync_retry_deferred"
+    operation_id: UUID
+    sync_action: str = Field(pattern=_SAFE_CODE_PATTERN)
+    attempt_count: int = Field(ge=0)
+    reason_code: str = Field(pattern=_SAFE_CODE_PATTERN)
+
+
 OperationalEventDetails = Annotated[
     ParserTaskCompletedDetails
     | ParserTaskFailedDetails
     | ParserTaskInterruptedDetails
     | ParserSnapshotExportedDetails
     | ParserSnapshotExportRetryScheduledDetails
-    | ParserSnapshotExportFailedDetails,
+    | ParserSnapshotExportFailedDetails
+    | SyncRetrySucceededDetails
+    | SyncRetryFailedDetails
+    | SyncRetryDeferredDetails,
     Field(discriminator="kind"),
 ]
 
@@ -113,7 +143,7 @@ class OperationalPoolEvent(FrozenModel):
     lease_id: str | None = None
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
     actor_type: Literal["system"] = "system"
-    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot"]
+    actor_id: Literal["account_pool_parser_task", "account_pool_parser_snapshot", "account_pool_reconciler"]
     safe_details: OperationalEventDetails
 
     @model_validator(mode="after")
@@ -124,6 +154,8 @@ class OperationalPoolEvent(FrozenModel):
             OperationalEventType.PARSER_TASK_FAILED,
             OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED,
             OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED,
+            OperationalEventType.SYNC_RETRY_FAILED,
+            OperationalEventType.SYNC_RETRY_DEFERRED,
         )
         if requires_reason != (self.reason_code is not None):
             raise ValueError("event reason code does not match its outcome")
@@ -235,6 +267,45 @@ def build_parser_snapshot_export_record(
     )
 
 
+def build_sync_reconcile_record(
+    *,
+    operation_id: UUID,
+    channel_id: UUID,
+    sync_action: str,
+    attempt_count: int,
+    occurred_at: AwareDatetime,
+    event_type: OperationalEventType,
+    reason_code: str | None = None,
+) -> OperationalEventRecord:
+    details: Final = _sync_retry_details(
+        event_type=event_type,
+        operation_id=operation_id,
+        sync_action=sync_action,
+        attempt_count=attempt_count,
+        reason_code=reason_code,
+    )
+    event_id: Final = uuid5(
+        _OPERATIONAL_EVENT_NAMESPACE,
+        f"sync:{operation_id}:{attempt_count}:{event_type.value}",
+    )
+    return OperationalEventRecord(
+        event=OperationalPoolEvent(
+            event_id=event_id,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            channel_id=channel_id,
+            request_id=f"reconcile:{operation_id.hex}:{attempt_count}",
+            reason_code=reason_code,
+            actor_id="account_pool_reconciler",
+            safe_details=details,
+        ),
+        operational=OperationalEventFact(
+            event_id=event_id,
+            source=OperationalEventSource.SYNC_RECONCILE,
+            operation_id=operation_id,
+            outcome=_event_outcome(event_type),
+        ),
+    )
 def _event_outcome(event_type: OperationalEventType) -> OperationalEventOutcome:
     match event_type:
         case OperationalEventType.PARSER_TASK_COMPLETED:
@@ -248,8 +319,13 @@ def _event_outcome(event_type: OperationalEventType) -> OperationalEventOutcome:
         case (
             OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED
             | OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED
+            | OperationalEventType.SYNC_RETRY_FAILED
         ):
             return OperationalEventOutcome.FAILED
+        case OperationalEventType.SYNC_RETRY_SUCCEEDED:
+            return OperationalEventOutcome.SUCCEEDED
+        case OperationalEventType.SYNC_RETRY_DEFERRED:
+            return OperationalEventOutcome.INTERRUPTED
     assert_never(event_type)
 
 
@@ -331,10 +407,56 @@ def _event_source(event_type: OperationalEventType) -> OperationalEventSource:
         OperationalEventType.PARSER_TASK_INTERRUPTED,
     ):
         return OperationalEventSource.PARSER_TASK
-    return OperationalEventSource.PARSER_SNAPSHOT_EXPORT
+    if event_type in (
+        OperationalEventType.PARSER_SNAPSHOT_EXPORTED,
+        OperationalEventType.PARSER_SNAPSHOT_EXPORT_RETRY_SCHEDULED,
+        OperationalEventType.PARSER_SNAPSHOT_EXPORT_FAILED,
+    ):
+        return OperationalEventSource.PARSER_SNAPSHOT_EXPORT
+    return OperationalEventSource.SYNC_RECONCILE
 
 
 def _details_operation_id(details: OperationalEventDetails) -> UUID:
     if isinstance(details, (ParserTaskCompletedDetails, ParserTaskFailedDetails, ParserTaskInterruptedDetails)):
         return details.task_id
-    return details.parser_run_id
+    if isinstance(
+        details,
+        (ParserSnapshotExportedDetails, ParserSnapshotExportRetryScheduledDetails, ParserSnapshotExportFailedDetails),
+    ):
+        return details.parser_run_id
+    return details.operation_id
+
+
+def _sync_retry_details(
+    *,
+    event_type: OperationalEventType,
+    operation_id: UUID,
+    sync_action: str,
+    attempt_count: int,
+    reason_code: str | None,
+) -> OperationalEventDetails:
+    if event_type == OperationalEventType.SYNC_RETRY_SUCCEEDED:
+        if reason_code is not None:
+            raise ValueError("successful sync retries cannot have a reason code")
+        return SyncRetrySucceededDetails(
+            operation_id=operation_id,
+            sync_action=sync_action,
+            attempt_count=attempt_count,
+        )
+    if event_type == OperationalEventType.SYNC_RETRY_FAILED:
+        if reason_code is None:
+            raise ValueError("failed sync retries require a failure code")
+        return SyncRetryFailedDetails(
+            operation_id=operation_id,
+            sync_action=sync_action,
+            attempt_count=attempt_count,
+            failure_code=reason_code,
+        )
+    if event_type == OperationalEventType.SYNC_RETRY_DEFERRED and reason_code is not None:
+        return SyncRetryDeferredDetails(
+            operation_id=operation_id,
+            sync_action=sync_action,
+            attempt_count=attempt_count,
+            reason_code=reason_code,
+        )
+    raise ValueError("deferred sync retries require a reason code")

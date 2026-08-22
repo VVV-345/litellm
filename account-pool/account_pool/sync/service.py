@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -49,6 +50,8 @@ from account_pool.catalog.models import (
 from account_pool.catalog.repository import CatalogRepository
 from account_pool.catalog.service import CatalogService
 from account_pool.models import AccountId, ChannelPriority, FrozenModel, QuotaConfig
+from account_pool.operational.models import OperationalEventType, build_sync_reconcile_record
+from account_pool.operational.repository import OperationalEventRepository
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.sync.litellm import (
     LiteLLMSyncAction,
@@ -266,6 +269,7 @@ class ChannelManagementService:
         synchronizer: DeploymentSynchronizer,
         runtime_projector: RuntimeProjector,
         audit: ManagementAuditRepository,
+        operational_events: OperationalEventRepository,
         clock: Clock = lambda: datetime.now(UTC),
     ) -> None:
         self._catalog_repository: Final = catalog_repository
@@ -274,6 +278,7 @@ class ChannelManagementService:
         self._synchronizer: Final = synchronizer
         self._runtime_projector: Final = runtime_projector
         self._audit: Final = audit
+        self._operational_events: Final = operational_events
         self._clock: Final = clock
 
     async def detail(self, channel_id: UUID) -> ChannelDetail | ChannelManagementFailure:
@@ -510,6 +515,9 @@ class ChannelManagementService:
                 for operation in listed.operations
             ]
         )
+        await asyncio.gather(
+            *(self._record_reconcile_event(operation, item) for operation, item in zip(listed.operations, items))
+        )
         discovered: Final = await self._synchronizer.list_managed_deployments()
         if isinstance(discovered, LiteLLMSyncFailure):
             return ReconcilePassResult(
@@ -543,6 +551,23 @@ class ChannelManagementService:
             channel_id=operation.channel_id,
             status="applied" if result.operation_status == SyncStatus.APPLIED else "failed",
             failure_code=None if result.failure is None else result.failure.code,
+        )
+
+    async def _record_reconcile_event(self, operation: SyncOperation, item: ReconcilePassItem) -> None:
+        event_type, reason_code = _reconcile_event_outcome(item)
+        attempt_count: Final = operation.attempt_count + (
+            1 if item.status == "applied" or item.failure_code is not None else 0
+        )
+        await self._operational_events.append(
+            build_sync_reconcile_record(
+                operation_id=operation.operation_id,
+                channel_id=operation.channel_id,
+                sync_action=operation.action.value,
+                attempt_count=attempt_count,
+                occurred_at=self._clock(),
+                event_type=event_type,
+                reason_code=reason_code,
+            )
         )
 
     async def _removal_operation(
@@ -1129,6 +1154,16 @@ def _retry_requires_key(operation: SyncOperation, api_key: SecretStr | None) -> 
         binding.ownership == BindingOwnership.POOL_MANAGED and binding.sync_mode == "create"
         for binding in operation.desired.bindings
     )
+
+
+def _reconcile_event_outcome(item: ReconcilePassItem) -> tuple[OperationalEventType, str | None]:
+    if item.status == "applied":
+        return OperationalEventType.SYNC_RETRY_SUCCEEDED, None
+    if item.status == "requires_key":
+        return OperationalEventType.SYNC_RETRY_DEFERRED, "requires_key"
+    if item.failure_code is not None:
+        return OperationalEventType.SYNC_RETRY_FAILED, item.failure_code
+    return OperationalEventType.SYNC_RETRY_DEFERRED, "operation_pending"
 
 
 def _orphan_deployments(

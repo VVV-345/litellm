@@ -26,6 +26,8 @@ from account_pool.catalog.models import (
     ImportResult,
 )
 from account_pool.models import AccountSnapshot, Health, PoolConfig, QuotaSnapshot, QuotaUnit
+from account_pool.operational.models import OperationalEventRecord
+from account_pool.operational.repository import OperationalWriteResult, OperationalWriteSuccess
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.sync.litellm import (
     LiteLLMSyncAction,
@@ -302,6 +304,15 @@ class RecordingAuditRepository:
         raise AssertionError("not used")
 
 
+class RecordingOperationalRepository:
+    def __init__(self, events: list[str]) -> None:
+        self._events: Final = events
+
+    async def append(self, record: OperationalEventRecord) -> OperationalWriteResult:
+        self._events.append(f"operational:{record.event.event_type.value}")
+        return OperationalWriteSuccess(status="created", record=record)
+
+
 def _service(fail_sync: bool = False, fail_projection_once: bool = False):
     events: Final[list[str]] = []
     operations: Final = RecordingOperationRepository(events)
@@ -318,6 +329,7 @@ def _service(fail_sync: bool = False, fail_projection_once: bool = False):
             scheduler,
         ),
         audit=audit,
+        operational_events=RecordingOperationalRepository(events),
         clock=lambda: _NOW,
     )
     return service, events, operations, catalog, synchronizer, audit, scheduler
@@ -409,6 +421,7 @@ async def test_upstream_failure_leaves_catalog_and_runtime_unchanged() -> None:
     assert isinstance(reconcile_result, ReconcilePassResult)
     assert reconcile_result.items[0].status == "requires_key"
     assert events.count("litellm:create") == 1
+    assert events[-1] == "operational:sync_retry_deferred"
 
 
 async def test_external_deployment_delete_uses_separate_confirmed_operation() -> None:
@@ -542,7 +555,7 @@ async def test_runtime_projection_failure_keeps_catalog_operation_applied_and_re
 
 
 async def test_background_reconciler_retries_keyless_update_with_system_audit_identity() -> None:
-    service, _, _, catalog, synchronizer, audit, _ = _service()
+    service, events, _, catalog, synchronizer, audit, _ = _service()
     created: Final = await service.create(
         _create_request(),
         "create-before-reconcile",
@@ -578,6 +591,13 @@ async def test_background_reconciler_retries_keyless_update_with_system_audit_id
     assert failed_update.operation_status == SyncStatus.FAILED
     assert not failed_update.requires_key
 
+    synchronizer.fail_next_update()
+    failed_reconcile: Final = await service.reconcile_pending()
+
+    assert isinstance(failed_reconcile, ReconcilePassResult)
+    assert failed_reconcile.items[0].status == "failed"
+    assert events[-1] == "operational:sync_retry_failed"
+
     reconciled: Final = await service.reconcile_pending()
 
     assert isinstance(reconciled, ReconcilePassResult)
@@ -586,7 +606,9 @@ async def test_background_reconciler_retries_keyless_update_with_system_audit_id
     assert synchronizer.updated_deployments == (
         retained.litellm_deployment_id,
         retained.litellm_deployment_id,
+        retained.litellm_deployment_id,
     )
+    assert events[-1] == "operational:sync_retry_succeeded"
     assert audit.records[-1].event.actor_type == "system"
     assert audit.records[-1].audit.actor_role == "system"
     assert audit.records[-1].audit.actor_action == ActorAction.CHANNEL_RECONCILE

@@ -11,6 +11,7 @@ from account_pool.operational.models import (
     ParserTaskInterruptionSource,
     build_parser_snapshot_export_record,
     build_parser_task_operational_record,
+    build_sync_reconcile_record,
 )
 from account_pool.operational.postgres import PostgresOperationalEventRepository
 from account_pool.operational.repository import (
@@ -38,4 +39,5 @@ __all__ = [
     "PostgresOperationalEventRepository",
     "build_parser_snapshot_export_record",
     "build_parser_task_operational_record",
+    "build_sync_reconcile_record",
 ]

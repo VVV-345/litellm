@@ -1507,6 +1507,10 @@ def _build_channel_management(
             settings.database_url,
             schema=settings.database_schema,
         ),
+        operational_events=PostgresOperationalEventRepository(
+            settings.database_url,
+            schema=settings.database_schema,
+        ),
     )
 
 

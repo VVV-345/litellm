@@ -71,7 +71,7 @@ class EventHealthSummary(FrozenModel):
 
 
 class EventOperationalSummary(FrozenModel):
-    source: Literal["parser_task", "parser_snapshot_export"]
+    source: Literal["parser_task", "parser_snapshot_export", "sync_reconcile"]
     operation_id: UUID
     outcome: Literal["succeeded", "failed", "interrupted"]
 

@@ -234,6 +234,34 @@ def test_snapshot_export_event_decodes_registered_safe_details() -> None:
     assert event.safe_details["attempt_count"] == 2
 
 
+def test_sync_retry_event_decodes_registered_safe_details() -> None:
+    operation_id: Final = UUID("92000000-0000-0000-0000-000000000003")
+    event: Final = decode_event_row(
+        {
+            **_common_row(
+                "sync_retry_failed",
+                {
+                    "kind": "sync_retry_failed",
+                    "operation_id": str(operation_id),
+                    "sync_action": "update_channel",
+                    "attempt_count": 3,
+                    "failure_code": "transport_failed",
+                },
+            ),
+            "reason_code": "transport_failed",
+            **_empty_audit_fact(),
+            **_empty_health_fact(),
+            "operational_source": "sync_reconcile",
+            "operational_operation_id": str(operation_id),
+            "operational_outcome": "failed",
+        }
+    )
+
+    assert event.outcome == EventQueryOutcome.FAILED
+    assert event.operational is not None and event.operational.source == "sync_reconcile"
+    assert event.safe_details["sync_action"] == "update_channel"
+
+
 def test_unknown_or_unregistered_safe_details_are_rejected() -> None:
     with pytest.raises(ValueError, match="registered"):
         decode_event_row(
