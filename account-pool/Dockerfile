@@ -4,6 +4,12 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2
 FROM $UV_IMAGE AS uvbin
 FROM litellm_image
 
+# account-pool-postgres 备份 CLI 需要 pg_dump/pg_restore，版本须与 postgres:16 服务端一致。
+USER root
+RUN apk add --no-cache postgresql-16-client \
+    && test -x "$(command -v pg_dump)" \
+    && test -x "$(command -v pg_restore)"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -16,6 +22,9 @@ COPY account-pool/account_pool ./account_pool
 
 RUN uv sync --project /app/account-pool --frozen --no-dev --no-editable \
     && /app/account-pool/.venv/bin/python -c "import psycopg"
+
+# 运行时使用基础镜像自带的非特权用户；/data 挂载点由 compose 侧卷负责可写。
+USER nonroot
 
 EXPOSE 4100
 

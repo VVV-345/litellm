@@ -1925,7 +1925,9 @@ def _build_parser_runtime(
         registry=registry,
         repository=parser_runs,
         overrides=overrides,
-        snapshots=ParserSnapshotStore(),
+        snapshots=ParserSnapshotStore(root=settings.parser_snapshot_root)
+        if settings.parser_snapshot_root is not None
+        else ParserSnapshotStore(),
         operations=operations,
     )
     return _ParserRuntime(

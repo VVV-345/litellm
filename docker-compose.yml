@@ -13,12 +13,12 @@ services:
     ports:
       - "4000:4000" # Map the container port to the host, change the host port if necessary
     environment:
-      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
+      DATABASE_URL: "postgresql://llmproxy:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/litellm"
       # Optional: route read-only queries (find_*, count, group_by, query_raw/_first)
       # to a separate reader endpoint, e.g. an Aurora reader. Leave unset for
       # single-DB deployments. With IAM_TOKEN_DB_AUTH enabled, the reader URL
       # is auto-refreshed alongside the writer.
-      # DATABASE_URL_READ_REPLICA: "postgresql://llmproxy:dbpassword9090@db-reader:5432/litellm"
+      # DATABASE_URL_READ_REPLICA: "postgresql://llmproxy:${POSTGRES_PASSWORD}@db-reader:5432/litellm"
       STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
       # Admin UI 只通过该内网地址访问号池，服务令牌不会发送到浏览器。
       ACCOUNT_POOL_INTERNAL_URL: "http://account-pool:4100"
@@ -27,7 +27,9 @@ services:
     env_file:
       - .env # Load local .env file
     depends_on:
-      - db  # Indicates that this service depends on the 'db' service, ensuring 'db' starts first
+      db:
+        condition: service_healthy # 健康门控，避免冷启动时 Prisma 连不上数据库
+    restart: unless-stopped
     healthcheck:  # Defines the health check configuration for the container
       test:
         - CMD-SHELL
@@ -50,21 +52,28 @@ services:
       ACCOUNT_POOL_STORE: "redis"
       ACCOUNT_POOL_REDIS_URL: "redis://redis:6379/0"
       ACCOUNT_POOL_CONFIG: "/data/accounts.yaml"
+      # 快照目录落到专用卷，容器以非 root 运行时仍可写。
+      ACCOUNT_POOL_PARSER_SNAPSHOT_ROOT: "/data/parser-snapshots"
       ACCOUNT_POOL_LEASE_TTL_SECONDS: "${ACCOUNT_POOL_LEASE_TTL_SECONDS:-120}"
       ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS: "${ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS:-3600}"
       ACCOUNT_POOL_LITELLM_URL: "http://litellm:4000"
-      ACCOUNT_POOL_LITELLM_ADMIN_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
+      ACCOUNT_POOL_LITELLM_ADMIN_KEY: "${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}"
       ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
       ACCOUNT_POOL_ACTOR_SECRET: "${ACCOUNT_POOL_ACTOR_SECRET:?Set ACCOUNT_POOL_ACTOR_SECRET in .env}"
-      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
+      DATABASE_URL: "postgresql://llmproxy:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/litellm"
     volumes:
       # 渠道增删会原子写回该文件，Key 不会进入此配置。
       - ./account-pool/config/accounts.yaml:/data/accounts.yaml
+      - account_pool_snapshot_data:/data/parser-snapshots
     depends_on:
       litellm:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db:
+        condition: service_healthy
+    # 流式请求收尾依赖 drain 宽限期，默认 10s 会强杀连接并丢掉末段结算。
+    stop_grace_period: 40s
     healthcheck:
       test:
         - CMD
@@ -95,9 +104,9 @@ services:
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: llmproxy
-      POSTGRES_PASSWORD: dbpassword9090
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432" # 仅绑定本机回环，避免数据库暴露到外网网卡
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persists Postgres data across container restarts
     healthcheck:
@@ -118,11 +127,23 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - alertmanager
     restart: always
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    volumes:
+      - ./account-pool/deploy/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
 
 volumes:
   account_pool_redis_data:
     name: litellm_account_pool_redis_data
+  account_pool_snapshot_data:
+    name: litellm_account_pool_snapshot_data
   prometheus_data:
     driver: local
   postgres_data:

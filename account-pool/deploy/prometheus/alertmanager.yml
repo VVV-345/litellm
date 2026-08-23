@@ -1,0 +1,25 @@
+# 本文件配置 Alertmanager 接收 Account Pool 告警的路由，默认通过 Webhook 转发。
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "worker", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: default
+
+receivers:
+  - name: default
+    webhook_configs:
+      # 部署时把 URL 换成实际通知渠道（Slack/钉钉/飞书机器人等）的地址。
+      - url: "http://localhost:15000/alert"
+        send_resolved: true
+
+inhibit_rules:
+  # critical 告警触发时抑制同源的 warning，避免重复通知。
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ["service"]

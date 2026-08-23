@@ -28,6 +28,7 @@ class Settings:
     database_url: str | None = None
     database_schema: str = "public"
     actor_secret: str | None = None
+    parser_snapshot_root: Path | None = None
     reconcile_interval_seconds: int = 30
     parser_export_retry_interval_seconds: int = 30
     parser_export_retry_batch_size: int = 25
@@ -68,6 +69,9 @@ class Settings:
             litellm_admin_key=os.environ.get("ACCOUNT_POOL_LITELLM_ADMIN_KEY"),
             lease_ttl_seconds=lease_ttl_seconds,
             maximum_lease_seconds=maximum_lease_seconds,
+            parser_snapshot_root=(
+                Path(snapshot_root) if (snapshot_root := os.environ.get("ACCOUNT_POOL_PARSER_SNAPSHOT_ROOT")) else None
+            ),
             internal_token=os.environ.get("ACCOUNT_POOL_INTERNAL_TOKEN"),
             database_url=os.environ.get("DATABASE_URL"),
             database_schema=os.environ.get("ACCOUNT_POOL_DATABASE_SCHEMA", "public"),
