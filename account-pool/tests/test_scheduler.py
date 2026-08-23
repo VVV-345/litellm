@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from decimal import Decimal
 from typing import Final
+from uuid import UUID, uuid4
 
 import pytest
 from account_pool.models import (
@@ -27,6 +28,8 @@ from account_pool.models import (
     SettleRequest,
     Strategy,
 )
+from account_pool.quota.backend import QuotaBackendWindowState
+from account_pool.quota.runtime import RuntimeQuotaWindow
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore
 
@@ -79,6 +82,46 @@ async def initialized_scheduler(config: PoolConfig) -> tuple[Scheduler, MemorySt
     scheduler: Final = Scheduler(config=config, store=store, lease_ttl_seconds=60)
     await scheduler.initialize()
     return scheduler, store
+
+
+@pytest.mark.asyncio
+async def test_memory_restore_rejects_windows_with_outstanding_reservations() -> None:
+    config: Final = QuotaWindowConfig(
+        window_id="window-a",
+        scope=RuntimeQuotaScope.CHANNEL,
+        subject_id=None,
+        kind=RuntimeQuotaKind.TOKENS,
+        window_type=RuntimeQuotaWindowType.ROLLING,
+        duration_seconds=18_000,
+        limit=Decimal("100"),
+        remaining=Decimal("80"),
+        observed_at=time.time(),
+        source="provider-api",
+        reason_code="five_hour_exhausted",
+    )
+    account_config: Final = AccountConfig(
+        id="channel-a",
+        display_name="Channel A",
+        provider="test",
+        base_url_display="https://example.test",
+        max_concurrency=2,
+        deployments=(DeploymentConfig(public_model="model-a", litellm_model_id="deployment-a"),),
+        quota_windows=(config,),
+    )
+    store: Final = MemoryStateStore()
+    await store.configure((account_config,))
+
+    def restored_state(reserved: Decimal) -> QuotaBackendWindowState:
+        return QuotaBackendWindowState(
+            account_id="channel-a",
+            window=RuntimeQuotaWindow(config=config, remaining=Decimal("80"), retry_at=None, reserved=reserved),
+        )
+
+    generation: Final = UUID("30000000-0000-0000-0000-000000000003")
+    assert await store.restore_quota_backend(generation, (restored_state(Decimal("0")),)) is True
+    assert await store.read_quota_generation() == generation
+    assert await store.restore_quota_backend(uuid4(), (restored_state(Decimal("5")),)) is False
+    assert await store.read_quota_generation() == generation
 
 
 @pytest.mark.asyncio
@@ -549,12 +592,8 @@ async def test_lowest_latency_uses_successful_ewma_for_route_table_and_acquire()
     )
     assert isinstance(slow_sample, ReserveSuccess)
     assert isinstance(fast_sample, ReserveSuccess)
-    assert await store.settle(
-        SettleRequest(lease_id=slow_sample.lease.lease_id, success=True, latency_ms=300)
-    )
-    assert await store.settle(
-        SettleRequest(lease_id=fast_sample.lease.lease_id, success=True, latency_ms=50)
-    )
+    assert await store.settle(SettleRequest(lease_id=slow_sample.lease.lease_id, success=True, latency_ms=300))
+    assert await store.settle(SettleRequest(lease_id=fast_sample.lease.lease_id, success=True, latency_ms=50))
     assert await store.release(slow_sample.lease.lease_id)
     assert await store.release(fast_sample.lease.lease_id)
 

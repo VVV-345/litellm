@@ -147,6 +147,8 @@ litellm.log
 
 # Account Pool runtime parser exports
 /account-pool/data/parser-snapshots/
+# Local scratch files under account-pool may hold real credentials (测试.txt etc.)
+/account-pool/*.txt
 
 # Local Docker Compose override builds the currently checked-out branch.
 docker-compose.override.yml

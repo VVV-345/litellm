@@ -518,7 +518,7 @@ class MemoryStateStore:
                 for window in account.quota_windows
             )
             supplied: Final = frozenset((state.account_id, state.window.config.window_id) for state in windows)
-            if supplied != expected:
+            if supplied != expected or any(state.window.reserved != 0 for state in windows):
                 return False
             restored: Final = {
                 account.id: tuple(state.window for state in windows if state.account_id == account.id)
@@ -1322,7 +1322,9 @@ class RedisStateStore:
 
     async def _quota_exclusions(self, account: AccountConfig) -> tuple[EligibilityExclusion, ...]:
         encoded: Final = await _gather_redis_operations(
-            tuple(self._redis.hgetall(quota_window_key(account.id, window.window_id)) for window in account.quota_windows)
+            tuple(
+                self._redis.hgetall(quota_window_key(account.id, window.window_id)) for window in account.quota_windows
+            )
         )
         if any(not fields for fields in encoded):
             return (_invalid_quota_state_exclusion(account.id),)

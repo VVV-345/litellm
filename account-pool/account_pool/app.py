@@ -291,6 +291,8 @@ def create_app(
         litellm_url=resolved_settings.litellm_url,
         lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
         health_recorder=resolved_health_recorder,
+        pre_auth=resolved_settings.gateway_pre_auth,
+        pre_auth_cache_seconds=resolved_settings.gateway_pre_auth_cache_seconds,
     )
     admin: Final = LiteLLMAdminClient(
         client=client,

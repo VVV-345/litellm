@@ -17,6 +17,8 @@ from account_pool.models import (
     RuntimeQuotaWindowType,
     SettleRequest,
 )
+from account_pool.quota.semantics import reservation_amount as shared_reservation_amount
+from account_pool.quota.semantics import window_matches_request
 
 QUOTA_WINDOW_REASON_CODES: Final = frozenset(
     {
@@ -172,17 +174,7 @@ def matching_quota_windows(
     public_model: str,
     billing_route_id: str | None,
 ) -> tuple[RuntimeQuotaWindow, ...]:
-    return tuple(
-        window
-        for window in windows
-        if window.config.scope == RuntimeQuotaScope.CHANNEL
-        or (window.config.scope == RuntimeQuotaScope.MODEL and window.config.subject_id == public_model)
-        or (
-            window.config.scope == RuntimeQuotaScope.BILLING_ROUTE
-            and billing_route_id is not None
-            and window.config.subject_id == billing_route_id
-        )
-    )
+    return tuple(window for window in windows if window_matches_request(window.config, public_model, billing_route_id))
 
 
 def synchronize_quota_exclusions(
@@ -393,11 +385,7 @@ def _remaining_at(window: RuntimeQuotaWindow, now: float) -> RuntimeQuotaWindow:
 
 
 def _reservation_amount(kind: RuntimeQuotaKind, estimated_tokens: int) -> Decimal:
-    if kind == RuntimeQuotaKind.REQUESTS:
-        return Decimal("1")
-    if kind == RuntimeQuotaKind.TOKENS:
-        return Decimal(estimated_tokens)
-    return Decimal("0")
+    return shared_reservation_amount(kind, estimated_tokens)
 
 
 def _available(window: RuntimeQuotaWindow) -> Decimal:

@@ -74,7 +74,7 @@ def normalize_new_api_api_base(value: str) -> str | None:
 def new_api_admin_base(api_base: str) -> str:
     parsed: Final = urlsplit(api_base)
     path: Final = parsed.path.rstrip("/")
-    admin_path: Final = path[:-3] if path.endswith("/v1") else path
+    admin_path: Final = path.removesuffix("/v1")
     return urlunsplit((parsed.scheme, parsed.netloc, admin_path.rstrip("/"), "", ""))
 
 

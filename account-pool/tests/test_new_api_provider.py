@@ -7,7 +7,6 @@ from decimal import Decimal
 from typing import Final
 
 import httpx
-import pytest
 from account_pool.domain.provider_source import (
     CapabilityState,
     ProviderCapability,

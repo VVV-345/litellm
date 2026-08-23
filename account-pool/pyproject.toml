@@ -24,6 +24,7 @@ account-pool-postgres = "account_pool.maintenance.postgres_backup:main"
 
 [project.optional-dependencies]
 test = [
+  "fakeredis>=2.26",
   "pytest>=8.3",
   "pytest-asyncio>=0.25",
 ]

@@ -10,8 +10,10 @@ from hashlib import sha256
 from types import MappingProxyType
 from typing import Final, Literal
 
-from account_pool.models import AccountConfig, QuotaWindowConfig, RuntimeQuotaKind, RuntimeQuotaScope, SettleRequest
+from account_pool.models import AccountConfig, QuotaWindowConfig, SettleRequest
 from account_pool.quota.runtime import RuntimeQuotaWindow, reconcile_quota_windows
+from account_pool.quota.semantics import reservation_amount as shared_reservation_amount
+from account_pool.quota.semantics import window_matches_request
 
 MAXIMUM_DECIMAL_SCALE: Final = 36
 REDIS_QUOTA_DECIMAL_SCALE: Final = MAXIMUM_DECIMAL_SCALE
@@ -198,10 +200,12 @@ def prepare_quota_reservation_plan(
     if isinstance(configuration, RedisQuotaCodecFailure):
         return configuration
     matching: Final = tuple(
-        record for record in configuration.records if _matches_request(record.config, public_model, billing_route_id)
+        record
+        for record in configuration.records
+        if window_matches_request(record.config, public_model, billing_route_id)
     )
     encoded_amounts: Final = tuple(
-        encode_quota_amount(_reservation_amount(record.config.kind, estimated_tokens), REDIS_QUOTA_DECIMAL_SCALE)
+        encode_quota_amount(shared_reservation_amount(record.config.kind, estimated_tokens), REDIS_QUOTA_DECIMAL_SCALE)
         for record in matching
     )
     failure: Final = next(
@@ -386,22 +390,6 @@ def _encode_optional(value: Decimal | None, scale: int) -> EncodedQuotaAmount | 
 
 def _decode_optional(value: str, scale: int) -> Decimal | RedisQuotaCodecFailure | None:
     return None if not value else decode_quota_amount(value, scale)
-
-
-def _matches_request(config: QuotaWindowConfig, public_model: str, billing_route_id: str | None) -> bool:
-    if config.scope == RuntimeQuotaScope.CHANNEL:
-        return True
-    if config.scope == RuntimeQuotaScope.MODEL:
-        return config.subject_id == public_model
-    return billing_route_id is not None and config.subject_id == billing_route_id
-
-
-def _reservation_amount(kind: RuntimeQuotaKind, estimated_tokens: int) -> Decimal:
-    if kind == RuntimeQuotaKind.REQUESTS:
-        return Decimal("1")
-    if kind == RuntimeQuotaKind.TOKENS:
-        return Decimal(estimated_tokens)
-    return Decimal("0")
 
 
 def _snapshot_fingerprint(

@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Final, cast
 from uuid import uuid4
 
@@ -35,6 +36,7 @@ _RESPONSE_HEADER_DENYLIST: Final = frozenset(
     {"connection", "content-encoding", "content-length", "keep-alive", "transfer-encoding"}
 )
 _JSON_OBJECT: Final = TypeAdapter(dict[str, object])
+_PRE_AUTH_CACHE_MAX_ENTRIES: Final = 10_000
 
 
 class Gateway:
@@ -46,6 +48,8 @@ class Gateway:
         litellm_url: str,
         lease_ttl_seconds: int,
         health_recorder: HealthEventRecorder | None = None,
+        pre_auth: bool = False,
+        pre_auth_cache_seconds: int = 30,
     ) -> None:
         self._scheduler = scheduler
         self._store = store
@@ -53,8 +57,16 @@ class Gateway:
         self._litellm_url = litellm_url
         self._lease_ttl_seconds: Final = lease_ttl_seconds
         self._health_recorder = health_recorder
+        self._pre_auth: Final = pre_auth
+        self._pre_auth_cache_seconds: Final = pre_auth_cache_seconds
+        self._pre_auth_cache: Final[dict[str, float]] = {}
+        self._pre_auth_lock: Final = asyncio.Lock()
 
     async def forward(self, path: str, request: Request) -> Response:
+        if self._pre_auth:
+            authorized: Final = await self._pre_authorized(request)
+            if authorized is not None:
+                return authorized
         parsed: Final = await _request_json(request)
         if isinstance(parsed, JSONResponse):
             return parsed
@@ -85,16 +97,7 @@ class Gateway:
         metadata: Final[dict[str, object]] = (
             _JSON_OBJECT.validate_python(metadata_value) if isinstance(metadata_value, dict) else {}
         )
-        forwarded_body: Final = {
-            **parsed,
-            "model": lease.deployment_id,
-            "metadata": {
-                **metadata,
-                "account_pool_lease_id": lease.lease_id,
-                "account_pool_request_id": request_id,
-                "account_pool_public_model": public_model,
-            },
-        }
+        forwarded_body: Final = _with_stream_usage(parsed, lease, request_id, metadata)
         headers: Final = {
             name: value for name, value in request.headers.items() if name.lower() in _REQUEST_HEADER_ALLOWLIST
         }
@@ -164,11 +167,13 @@ class Gateway:
         started: float,
     ) -> AsyncIterator[bytes]:
         completed = False
+        usage = (0, 0)
         heartbeat_failed = asyncio.Event()
         heartbeat_task: Final = asyncio.create_task(self._maintain_stream_lease(upstream, lease, heartbeat_failed))
         try:
             async with asyncio.timeout(max(0, lease.absolute_expires_at - time.time())):
                 async for chunk in upstream.aiter_bytes():
+                    usage = _stream_usage_from_chunk(chunk, usage)
                     yield chunk
                 completed = not heartbeat_failed.is_set()
         finally:
@@ -181,6 +186,8 @@ class Gateway:
                     lease_id=lease.lease_id,
                     success=completed and upstream.status_code < 400,
                     status_code=upstream.status_code,
+                    input_tokens=usage[0],
+                    output_tokens=usage[1],
                     latency_ms=(time.perf_counter() - started) * 1000,
                     error_type=None if completed and upstream.status_code < 400 else "stream_interrupted",
                     retry_after_seconds=_retry_after_from_response(upstream),
@@ -206,6 +213,36 @@ class Gateway:
                 return
             await asyncio.sleep(min(interval, remaining))
 
+    async def _pre_authorized(self, request: Request) -> JSONResponse | None:
+        key: Final = request.headers.get("x-litellm-api-key") or request.headers.get("authorization") or ""
+        if not key:
+            return _error_response(status_code=401, message="Missing API key")
+        now: Final = time.monotonic()
+        cache_key: Final = sha256(key.encode("utf-8")).hexdigest()
+        async with self._pre_auth_lock:
+            cached_until: Final = self._pre_auth_cache.get(cache_key)
+            if cached_until is not None and cached_until > now:
+                return None
+        probe: Final = self._client.build_request(
+            method="GET",
+            url=f"{self._litellm_url}/key/info",
+            headers={"authorization": key},
+        )
+        try:
+            response: Final = await self._client.send(probe)
+        except httpx.HTTPError:
+            return _error_response(status_code=502, message="LiteLLM Proxy is unavailable")
+        if response.status_code in (200, 403):
+            async with self._pre_auth_lock:
+                if len(self._pre_auth_cache) >= _PRE_AUTH_CACHE_MAX_ENTRIES:
+                    expired: Final = tuple(digest for digest, until in self._pre_auth_cache.items() if until <= now)
+                    for digest in expired:
+                        del self._pre_auth_cache[digest]
+                if len(self._pre_auth_cache) < _PRE_AUTH_CACHE_MAX_ENTRIES:
+                    self._pre_auth_cache[cache_key] = now + self._pre_auth_cache_seconds
+            return None
+        return _error_response(status_code=401, message="Invalid API key")
+
     async def _record_request_activity(self, lease: Lease) -> None:
         if self._health_recorder is not None:
             await self._health_recorder.record_request(lease)
@@ -230,6 +267,42 @@ def _estimated_tokens(body: Mapping[str, object]) -> int:
     return max_tokens if isinstance(max_tokens, int) and max_tokens > 0 else 0
 
 
+def _with_stream_usage(
+    body: Mapping[str, object],
+    lease: Lease,
+    request_id: str,
+    metadata: Mapping[str, object],
+) -> dict[str, object]:
+    forwarded: Final[dict[str, object]] = {
+        **body,
+        "model": lease.deployment_id,
+        "metadata": {
+            **metadata,
+            "account_pool_lease_id": lease.lease_id,
+            "account_pool_request_id": request_id,
+            "account_pool_public_model": lease.public_model,
+        },
+    }
+    if body.get("stream") is True:
+        stream_options: Final = body.get("stream_options")
+        if isinstance(stream_options, dict) and stream_options.get("include_usage") is True:
+            return forwarded
+        forwarded["stream_options"] = {
+            **(stream_options if isinstance(stream_options, dict) else {}),
+            "include_usage": True,
+        }
+    return forwarded
+
+
+def _usage_fields(usage: Mapping[str, object]) -> tuple[int, int]:
+    input_tokens: Final = usage.get("prompt_tokens", usage.get("input_tokens", 0))
+    output_tokens: Final = usage.get("completion_tokens", usage.get("output_tokens", 0))
+    return (
+        input_tokens if isinstance(input_tokens, int) else 0,
+        output_tokens if isinstance(output_tokens, int) else 0,
+    )
+
+
 def _usage_from_content(content: bytes) -> tuple[int, int]:
     try:
         value: Final = _JSON_OBJECT.validate_python(cast(object, json.loads(content)))
@@ -238,13 +311,24 @@ def _usage_from_content(content: bytes) -> tuple[int, int]:
     usage: Final = value.get("usage")
     if not isinstance(usage, dict):
         return 0, 0
-    typed_usage: Final = _JSON_OBJECT.validate_python(usage)
-    input_tokens: Final = typed_usage.get("prompt_tokens", typed_usage.get("input_tokens", 0))
-    output_tokens: Final = typed_usage.get("completion_tokens", typed_usage.get("output_tokens", 0))
-    return (
-        input_tokens if isinstance(input_tokens, int) else 0,
-        output_tokens if isinstance(output_tokens, int) else 0,
-    )
+    return _usage_fields(_JSON_OBJECT.validate_python(usage))
+
+
+def _stream_usage_from_chunk(chunk: bytes, previous: tuple[int, int]) -> tuple[int, int]:
+    for line in chunk.splitlines():
+        payload: Final = line.removeprefix(b"data: ").strip()
+        if not payload or payload == b"[DONE]":
+            continue
+        try:
+            value: Final = _JSON_OBJECT.validate_python(cast(object, json.loads(payload)))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError):
+            continue
+        usage: Final = value.get("usage")
+        if isinstance(usage, dict):
+            extracted: Final = _usage_fields(_JSON_OBJECT.validate_python(usage))
+            if extracted != (0, 0):
+                return extracted
+    return previous
 
 
 def _provider_error_code(content: bytes) -> str | None:

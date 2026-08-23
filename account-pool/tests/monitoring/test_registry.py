@@ -62,9 +62,7 @@ def test_running_worker_becomes_stalled_after_two_expected_intervals() -> None:
     registry.cycle_started(WorkerName.LEASE_REAPER)
 
     clock.now = _NOW + timedelta(seconds=21)
-    state: Final = next(
-        item for item in registry.snapshot().workers if item.worker == WorkerName.LEASE_REAPER
-    )
+    state: Final = next(item for item in registry.snapshot().workers if item.worker == WorkerName.LEASE_REAPER)
 
     assert state.running is True
     assert state.status == WorkerStatus.STALLED
@@ -79,11 +77,14 @@ def test_prometheus_output_uses_only_fixed_worker_labels() -> None:
 
     rendered: Final = render_prometheus_metrics(registry.snapshot())
 
-    assert '# TYPE account_pool_worker_runs_total counter' in rendered
+    assert "# TYPE account_pool_worker_runs_total counter" in rendered
     assert 'account_pool_worker_up{worker="lease_reaper"} 1' in rendered
     assert 'account_pool_worker_enabled{worker="active_health_probe"} 0' in rendered
     assert 'account_pool_worker_expected_interval_seconds{worker="lease_reaper"} 10.000000' in rendered
-    assert 'account_pool_worker_process_started_timestamp_seconds{worker="lease_reaper"} 1779624000.000000' in rendered
+    assert (
+        f'account_pool_worker_process_started_timestamp_seconds{{worker="lease_reaper"}} {_NOW.timestamp():.6f}'
+        in rendered
+    )
     assert 'account_pool_worker_last_cycle_duration_seconds{worker="lease_reaper"} 0.125000' in rendered
     assert "api_key" not in rendered
     assert "authorization" not in rendered.casefold()
