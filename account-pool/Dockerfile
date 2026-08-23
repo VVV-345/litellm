@@ -23,6 +23,8 @@ COPY account-pool/account_pool ./account_pool
 RUN uv sync --project /app/account-pool --frozen --no-dev --no-editable \
     && /app/account-pool/.venv/bin/python -c "import psycopg"
 
+# 确保非特权用户能写入数据挂载点；named volume 首次创建时继承镜像内的权限。
+RUN mkdir -p /data /data/parser-snapshots && chown -R nonroot:nonroot /data
 # 运行时使用基础镜像自带的非特权用户；/data 挂载点由 compose 侧卷负责可写。
 USER nonroot
 

@@ -77,7 +77,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - python
+        - python3
         - -c
         - "import urllib.request; urllib.request.urlopen('http://localhost:4100/healthz')"
       interval: 10s
@@ -136,7 +136,7 @@ services:
     volumes:
       - ./account-pool/deploy/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
     restart: unless-stopped
 
 volumes:
