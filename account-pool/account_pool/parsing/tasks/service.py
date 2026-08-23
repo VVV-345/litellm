@@ -130,8 +130,8 @@ class ParserTaskService:
             return _failure(ParserTaskOperationFailureCode.INVALID_REQUEST, retryable=False)
         channel: Final = await self._catalog.get_channel(channel_id)
         if channel is None:
-            result: Final = _failure(ParserTaskOperationFailureCode.CHANNEL_NOT_FOUND, retryable=False)
-            return await self._audited(channel_id, actor, result)
+            not_found: Final = _failure(ParserTaskOperationFailureCode.CHANNEL_NOT_FOUND, retryable=False)
+            return await self._audited(channel_id, actor, not_found)
         created: Final = await self._create_task(channel_id, request, actor)
         result: Final = (
             created

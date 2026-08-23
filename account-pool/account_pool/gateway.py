@@ -316,16 +316,16 @@ def _usage_from_content(content: bytes) -> tuple[int, int]:
 
 def _stream_usage_from_chunk(chunk: bytes, previous: tuple[int, int]) -> tuple[int, int]:
     for line in chunk.splitlines():
-        payload: Final = line.removeprefix(b"data: ").strip()
+        payload = line.removeprefix(b"data: ").strip()
         if not payload or payload == b"[DONE]":
             continue
         try:
-            value: Final = _JSON_OBJECT.validate_python(cast(object, json.loads(payload)))
+            value = _JSON_OBJECT.validate_python(cast(object, json.loads(payload)))
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError):
             continue
-        usage: Final = value.get("usage")
+        usage = value.get("usage")
         if isinstance(usage, dict):
-            extracted: Final = _usage_fields(_JSON_OBJECT.validate_python(usage))
+            extracted = _usage_fields(_JSON_OBJECT.validate_python(usage))
             if extracted != (0, 0):
                 return extracted
     return previous
