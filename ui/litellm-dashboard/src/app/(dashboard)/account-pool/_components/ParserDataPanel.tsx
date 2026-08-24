@@ -2,7 +2,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileWarning, Loader2, Pencil } from "lucide-react";
+import { FileWarning, Loader2, Pencil, ReceiptText } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { accountPoolKeys, getEffectiveData, getParserHistory } from "../api";
+import { buildMeteredPriceDrafts } from "../meteredPriceEditor";
 import { buildParserFieldRows, formatJsonValue, type ParserFieldRow } from "../parserRows";
+import MeteredPriceDialog from "./MeteredPriceDialog";
 import OverrideDialog from "./OverrideDialog";
 
 interface ParserDataPanelProps {
@@ -40,6 +42,7 @@ const FieldStatus = ({ field }: { field: ParserFieldRow }) => {
 export default function ParserDataPanel({ accessToken, channelId }: ParserDataPanelProps) {
   const queryClient = useQueryClient();
   const [editingRow, setEditingRow] = useState<ParserFieldRow | null>(null);
+  const [editingMeteredPrice, setEditingMeteredPrice] = useState(false);
   const effectiveQuery = useQuery({
     queryKey: accountPoolKeys.effective(channelId),
     queryFn: () => getEffectiveData(accessToken, channelId),
@@ -124,6 +127,12 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
                         <FieldStatus field={field} />
                       </TableCell>
                       <TableCell className="text-right">
+                        {field.path === "/metered" && (
+                          <Button variant="outline" size="sm" onClick={() => setEditingMeteredPrice(true)}>
+                            <ReceiptText />
+                            补充价格
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => setEditingRow(field)}>
                           <Pencil />
                           修正
@@ -176,6 +185,21 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
         </TabsContent>
       </Tabs>
 
+      {editingMeteredPrice && effectiveQuery.data && (
+        <MeteredPriceDialog
+          accessToken={accessToken}
+          channelId={channelId}
+          initialDrafts={buildMeteredPriceDrafts(
+            effectiveQuery.data.effective_result.metered,
+            historyQuery.data?.runs[0]?.discovered_models ?? [],
+          )}
+          expectedOverrideId={
+            effectiveQuery.data.active_overrides.find((override) => override.field_path === "/metered")?.override_id ?? null
+          }
+          onClose={() => setEditingMeteredPrice(false)}
+          onSaved={refresh}
+        />
+      )}
       {editingRow && (
         <OverrideDialog
           accessToken={accessToken}

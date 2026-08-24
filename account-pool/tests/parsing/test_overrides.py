@@ -15,6 +15,7 @@ from account_pool.parsing.models import (
     ParsedChannelData,
     ParserRun,
     ParserRunStatus,
+    PriceCalculation,
     SubscriptionData,
 )
 from account_pool.parsing.overrides.composer import (
@@ -38,6 +39,20 @@ _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
 _NOW: Final = datetime(2026, 8, 19, 15, 0, tzinfo=UTC)
 _JSON: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
+
+
+def test_metered_override_requires_effective_prices_to_match_group_multiplier() -> None:
+    with pytest.raises(ValidationError):
+        MeteredModelPrice(
+            provider_model_id="model-a",
+            currency="RATIO",
+            unit="multiplier",
+            input_price=Decimal("2"),
+            output_price=Decimal("3"),
+            group_multiplier=Decimal("1.5"),
+            price_calculation=PriceCalculation.MULTIPLIER,
+            effective_prices=EffectivePrices(input_price=Decimal("2"), output_price=Decimal("3")),
+        )
 
 
 def _price(model: str, input_price: str) -> MeteredModelPrice:
