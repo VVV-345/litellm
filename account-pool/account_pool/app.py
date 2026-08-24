@@ -144,6 +144,7 @@ from account_pool.parsing.tasks.postgres import PostgresParserTaskRepository
 from account_pool.parsing.tasks.service import ParserTaskManager, ParserTaskService
 from account_pool.parsing.worker import ParserWorker
 from account_pool.provider_services.glm import GlmOfficialProviderService
+from account_pool.provider_services.lmu_static_metadata import LmuStaticMetadataProviderService
 from account_pool.provider_services.new_api import NewApiProviderService
 from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
@@ -307,6 +308,7 @@ def create_app(
     provider_services: Final = ProviderServiceRegistry(
         (
             GlmOfficialProviderService(client),
+            LmuStaticMetadataProviderService(),
             OpenAICompatibleProviderService(client),
             NewApiProviderService(client),
         )

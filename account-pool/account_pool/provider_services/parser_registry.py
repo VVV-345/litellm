@@ -5,6 +5,10 @@ from account_pool.provider_services.glm.parser import (
     GLM_OFFICIAL_PARSER_REGISTRATION,
     parse_glm_official_result,
 )
+from account_pool.provider_services.lmu_static_metadata.parser import (
+    LMU_STATIC_METADATA_PARSER_REGISTRATION,
+    parse_lmu_static_metadata_result,
+)
 from account_pool.provider_services.new_api.parser import (
     NEW_API_PARSER_REGISTRATION,
     parse_new_api_result,
@@ -25,6 +29,10 @@ def build_parser_registry() -> ParserRegistry:
             RegisteredParser(
                 registration=OPENAI_COMPATIBLE_PARSER_REGISTRATION,
                 parse=parse_openai_compatible_result,
+            ),
+            RegisteredParser(
+                registration=LMU_STATIC_METADATA_PARSER_REGISTRATION,
+                parse=parse_lmu_static_metadata_result,
             ),
             RegisteredParser(
                 registration=NEW_API_PARSER_REGISTRATION,
