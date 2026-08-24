@@ -34,3 +34,17 @@ class NewApiPricingResponse(BaseModel):
 
     success: bool
     data: dict[str, NewApiPricingEntry] = Field(default_factory=dict)
+
+
+class NewApiLoginData(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: int | None = None
+
+
+class NewApiLoginResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    success: bool
+    message: str | None = None
+    data: NewApiLoginData | None = None

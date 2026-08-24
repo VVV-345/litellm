@@ -39,6 +39,14 @@ class ParserTaskStartRequest(FrozenModel):
     group: str | None = Field(default=None, max_length=255)
     explicit_parser_id: str | None = Field(default=None, min_length=1, max_length=100)
     openai_compatible: bool = False
+    username: SecretStr | None = None
+    password: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def validate_login_credentials(self) -> Self:
+        if (self.username is None) != (self.password is None):
+            raise ValueError("username and password must be provided together")
+        return self
 
 
 class ParserTaskRecord(FrozenModel):

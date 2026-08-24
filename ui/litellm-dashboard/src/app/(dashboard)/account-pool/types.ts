@@ -282,6 +282,8 @@ export interface ParserTaskRequest {
   group: string | null;
   explicit_parser_id: string | null;
   openai_compatible: boolean;
+  username: string | null;
+  password: string | null;
 }
 
 export interface OverrideTarget {

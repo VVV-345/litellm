@@ -6,7 +6,11 @@ from uuid import UUID
 
 from pydantic import AwareDatetime
 
-from account_pool.domain.provider_source import MeteredPriceOffer, ProviderValidationResult
+from account_pool.domain.provider_source import (
+    MeteredPriceOffer,
+    PricingDiscoveryFailureCode,
+    ProviderValidationResult,
+)
 from account_pool.parsing.model_discovery import ModelDiscoveryParserSpec, parse_model_discovery_result
 from account_pool.parsing.models import (
     EffectivePrices,
@@ -20,13 +24,45 @@ from account_pool.parsing.registry import ParserRegistration
 
 PARSER_ID: Final = "new-api"
 PARSER_VERSION: Final = "1.0.0"
-NEW_API_PARSER_SPEC: Final = ModelDiscoveryParserSpec(
+_PRICED_SPEC: Final = ModelDiscoveryParserSpec(
     parser_id=PARSER_ID,
     parser_version=PARSER_VERSION,
     unresolved_reason="New API 倍率为相对价格，未返回渠道基础价格与币种",
     warning="模型发现与分组倍率已完成，绝对金额需要人工补充渠道基础价格",
     next_action="在管理界面补充渠道基础价格，或将倍率换算为每百万 token 绝对价格",
     evidence_summary="上游返回模型倍率与分组倍率，未提供可换算为货币的基础价格",
+)
+_UNPRICED_SPEC: Final = ModelDiscoveryParserSpec(
+    parser_id=PARSER_ID,
+    parser_version=PARSER_VERSION,
+    unresolved_reason="未获取到 New API 倍率价格，倍率接口不可用或需要管理员会话",
+    warning="已完成模型发现，未获取到倍率价格",
+    next_action="提供 New API 管理员账号与密码后重新解析，或在管理界面手动补充分组倍率与价格",
+    evidence_summary="模型列表获取成功，倍率价格接口不可用或需要管理员登录",
+)
+_AUTHENTICATION_UNPRICED_SPEC: Final = ModelDiscoveryParserSpec(
+    parser_id=PARSER_ID,
+    parser_version=PARSER_VERSION,
+    unresolved_reason="New API 管理员认证未通过，未获取到倍率价格",
+    warning="已完成模型发现，管理员认证未通过，未获取到倍率价格",
+    next_action="检查 New API 管理员账号与密码后重新解析，或在管理界面手动补充分组倍率与价格",
+    evidence_summary="模型列表获取成功，管理员认证未通过",
+)
+_INVALID_UNPRICED_SPEC: Final = ModelDiscoveryParserSpec(
+    parser_id=PARSER_ID,
+    parser_version=PARSER_VERSION,
+    unresolved_reason="New API 倍率价格接口响应无效",
+    warning="已完成模型发现，倍率价格接口响应无效",
+    next_action="确认 New API 倍率价格接口及响应格式后重新解析",
+    evidence_summary="模型列表获取成功，倍率价格接口响应无效",
+)
+_TRANSIENT_UNPRICED_SPEC: Final = ModelDiscoveryParserSpec(
+    parser_id=PARSER_ID,
+    parser_version=PARSER_VERSION,
+    unresolved_reason="New API 倍率价格接口暂时不可用",
+    warning="已完成模型发现，倍率价格接口暂时不可用",
+    next_action="等待上游倍率价格接口恢复后重新解析",
+    evidence_summary="模型列表获取成功，倍率价格接口暂时不可用",
 )
 NEW_API_PARSER_REGISTRATION: Final = ParserRegistration(
     parser_id=PARSER_ID,
@@ -41,14 +77,28 @@ def parse_new_api_result(
     parsed_at: AwareDatetime,
     validation: ProviderValidationResult,
 ) -> ParserRun:
+    metered: Final = _metered_data(validation)
+    spec: Final = _parser_spec(validation, metered)
     return parse_model_discovery_result(
         channel_id=channel_id,
         parser_run_id=parser_run_id,
         parsed_at=parsed_at,
         validation=validation,
-        spec=NEW_API_PARSER_SPEC,
-        metered=_metered_data(validation),
+        spec=spec,
+        metered=metered,
     )
+
+
+def _parser_spec(validation: ProviderValidationResult, metered: MeteredData | None) -> ModelDiscoveryParserSpec:
+    if metered is not None:
+        return _PRICED_SPEC
+    if validation.pricing_failure_code == PricingDiscoveryFailureCode.TRANSPORT:
+        return _TRANSIENT_UNPRICED_SPEC
+    if validation.pricing_failure_code == PricingDiscoveryFailureCode.AUTHENTICATION:
+        return _AUTHENTICATION_UNPRICED_SPEC
+    if validation.pricing_failure_code == PricingDiscoveryFailureCode.UPSTREAM_RESPONSE:
+        return _INVALID_UNPRICED_SPEC
+    return _UNPRICED_SPEC
 
 
 def _metered_data(validation: ProviderValidationResult) -> MeteredData | None:

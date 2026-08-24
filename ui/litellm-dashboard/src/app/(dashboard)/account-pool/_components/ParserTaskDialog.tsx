@@ -52,6 +52,8 @@ export default function ParserTaskDialog({
     "openai_compatible";
   const [providerId, setProviderId] = useState(initialProvider);
   const [apiKey, setApiKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [group, setGroup] = useState(channel.group ?? "");
   const [explicitParserId, setExplicitParserId] = useState("");
   const [openAICompatible, setOpenAICompatible] = useState(initialProvider === "openai_compatible");
@@ -73,9 +75,13 @@ export default function ParserTaskDialog({
         group: group.trim() || null,
         explicit_parser_id: explicitParserId.trim() || null,
         openai_compatible: openAICompatible,
+        username: username.trim() || null,
+        password: password || null,
       }),
     onSuccess: (accepted) => {
       setApiKey("");
+      setUsername("");
+      setPassword("");
       setTaskId(accepted.task_id);
       NotificationsManager.success("解析任务已启动");
     },
@@ -97,7 +103,9 @@ export default function ParserTaskDialog({
     setOpenAICompatible(value === "openai_compatible");
   };
 
-  const canStart = !startMutation.isPending && Boolean(apiKey && providerId);
+  const hasCompleteAdminCredentials = Boolean(username.trim() && password);
+  const hasPartialAdminCredentials = Boolean(username.trim()) !== Boolean(password);
+  const canStart = !startMutation.isPending && Boolean(apiKey && providerId) && !hasPartialAdminCredentials;
 
   return (
     <Dialog open onOpenChange={(open) => !open && void close()}>
@@ -151,6 +159,33 @@ export default function ParserTaskDialog({
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="parser-username">New API 管理员账号（可选）</Label>
+                <Input
+                  id="parser-username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoComplete="username"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="parser-password">New API 管理员密码（可选）</Label>
+                <Input
+                  id="parser-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+            </div>
+            {hasPartialAdminCredentials && (
+              <p className="text-sm text-destructive">管理员账号与密码必须同时提供</p>
+            )}
+            {hasCompleteAdminCredentials && (
+              <p className="text-sm text-muted-foreground">管理员凭证仅用于本次解析后获取倍率价格，不会被保存</p>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="parser-group">分组（可选）</Label>

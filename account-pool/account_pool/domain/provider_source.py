@@ -40,6 +40,12 @@ class ProviderValidationFailureCode(StrEnum):
     UNSUPPORTED_PROVIDER = "unsupported_provider"
 
 
+class PricingDiscoveryFailureCode(StrEnum):
+    AUTHENTICATION = "authentication"
+    TRANSPORT = "transport"
+    UPSTREAM_RESPONSE = "upstream_response"
+
+
 class ProviderCapabilityView(FrozenModel):
     capability: ProviderCapability
     state: CapabilityState
@@ -59,6 +65,14 @@ class ProviderValidationRequest(FrozenModel):
     api_base: str = Field(min_length=1)
     api_key: SecretStr
     group: str | None = None
+    username: SecretStr | None = None
+    password: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def validate_login_credentials(self) -> Self:
+        if (self.username is None) != (self.password is None):
+            raise ValueError("username and password must be provided together")
+        return self
 
 
 class ModelOffer(FrozenModel):
@@ -109,6 +123,7 @@ class ProviderValidationResult(FrozenModel):
     key_fingerprint: str | None
     message: str
     failure_code: ProviderValidationFailureCode | None = None
+    pricing_failure_code: PricingDiscoveryFailureCode | None = None
     capabilities: tuple[ProviderCapabilityView, ...]
     models: tuple[ModelOffer, ...] = ()
     pricing: tuple[MeteredPriceOffer, ...] = ()
@@ -120,6 +135,10 @@ class ProviderValidationResult(FrozenModel):
     def validate_failure_code(self) -> Self:
         if self.ok and self.failure_code is not None:
             raise ValueError("successful provider validation cannot have a failure code")
+        if self.ok and self.pricing_failure_code is not None and self.pricing:
+            raise ValueError("priced provider validation cannot have a pricing failure code")
         if not self.ok and self.failure_code is None:
             raise ValueError("failed provider validation requires a failure code")
+        if not self.ok and self.pricing_failure_code is not None:
+            raise ValueError("failed provider validation cannot have a pricing failure code")
         return self

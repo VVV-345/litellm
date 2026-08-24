@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, Field
 
 from account_pool.domain.provider_source import (
+    PricingDiscoveryFailureCode,
     ProviderCapability,
     ProviderValidationFailureCode,
     ProviderValidationResult,
@@ -85,6 +86,7 @@ def _partial_result(
 ) -> ParserRun:
     discovered_models: Final = tuple(sorted(frozenset(offer.model for offer in validation.models)))
     unresolved_paths: Final = tuple(path for path in _BILLING_FIELDS if path != "metered" or metered is None)
+    pricing_retryable: Final = validation.pricing_failure_code == PricingDiscoveryFailureCode.TRANSPORT
     capabilities: Final = (
         (ProviderCapability.MODEL_DISCOVERY, ProviderCapability.MODEL_PRICING)
         if metered is not None
@@ -94,7 +96,8 @@ def _partial_result(
         capabilities=capabilities,
         metered=metered,
         unresolved_fields=tuple(
-            UnresolvedField(path=path, reason=spec.unresolved_reason, retryable=False) for path in unresolved_paths
+            UnresolvedField(path=path, reason=spec.unresolved_reason, retryable=pricing_retryable)
+            for path in unresolved_paths
         ),
         warnings=(spec.warning,),
     )
@@ -112,9 +115,9 @@ def _partial_result(
                 parsed_at=parsed_at,
                 spec=spec,
                 stage="billing_discovery",
-                category=ParserFailureCategory.UNSUPPORTED,
+                category=ParserFailureCategory.TRANSPORT if pricing_retryable else ParserFailureCategory.UNSUPPORTED,
                 field_paths=unresolved_paths,
-                retryable=False,
+                retryable=pricing_retryable,
                 next_action=spec.next_action,
                 evidence_summary=spec.evidence_summary,
             ),

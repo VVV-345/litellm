@@ -256,6 +256,8 @@ class ParserTaskService:
                     api_base=api_base,
                     api_key=request.api_key,
                     group=request.group,
+                    username=request.username,
+                    password=request.password,
                 )
             )
             outcome: Final = await self._worker.run(

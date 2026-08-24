@@ -55,6 +55,8 @@ _RUN_ID: Final = UUID("30000000-0000-0000-0000-000000000003")
 _INSTANCE_ID: Final = UUID("40000000-0000-0000-0000-000000000004")
 _NOW: Final = datetime(2026, 8, 19, 22, 0, tzinfo=UTC)
 _SECRET: Final = "one-time-provider-secret"
+_USERNAME: Final = "one-time-admin"
+_PASSWORD: Final = "one-time-admin-password"
 _API_BASE: Final = "https://gateway.example.com/v1"
 
 
@@ -258,6 +260,8 @@ def _request() -> ParserTaskStartRequest:
         provider_id="openai_compatible",
         api_key=SecretStr(_SECRET),
         openai_compatible=True,
+        username=SecretStr(_USERNAME),
+        password=SecretStr(_PASSWORD),
     )
 
 
@@ -308,14 +312,24 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
     assert isinstance(running, ParserTaskView)
     persisted: Final = running.model_dump_json()
     assert _SECRET not in persisted
+    assert _USERNAME not in persisted
+    assert _PASSWORD not in persisted
     assert _API_BASE not in persisted
     assert "api_key" not in persisted
+    assert "username" not in persisted
+    assert "password" not in persisted
     assert provider.request is not None
     assert provider.request.api_key.get_secret_value() == _SECRET
+    assert provider.request.username is not None
+    assert provider.request.username.get_secret_value() == _USERNAME
+    assert provider.request.password is not None
+    assert provider.request.password.get_secret_value() == _PASSWORD
     assert len(audit.records) == 1
     assert audit.records[0].event.event_type == ManagementEventType.PARSER_TASK_START
     assert audit.records[0].audit.outcome.value == "accepted"
     assert _SECRET not in audit.records[0].model_dump_json()
+    assert _USERNAME not in audit.records[0].model_dump_json()
+    assert _PASSWORD not in audit.records[0].model_dump_json()
 
     provider.release.set()
     finished: Final = await _wait_until_finished(service)
@@ -326,6 +340,8 @@ async def test_one_time_key_stays_out_of_persistent_task_and_public_view() -> No
         OperationalEventType.PARSER_TASK_COMPLETED,
     )
     assert _SECRET not in operations.records[0].model_dump_json()
+    assert _USERNAME not in operations.records[0].model_dump_json()
+    assert _PASSWORD not in operations.records[0].model_dump_json()
     assert _API_BASE not in operations.records[0].model_dump_json()
     await service.close()
 
@@ -450,6 +466,5 @@ async def test_bounded_shutdown_marks_unfinished_local_task_as_requiring_key() -
     assert worker.request is None
     assert operations.records[0].event.event_type == OperationalEventType.PARSER_TASK_INTERRUPTED
     assert (
-        operations.records[0].event.safe_details.interruption_source
-        == ParserTaskInterruptionSource.GRACEFUL_SHUTDOWN
+        operations.records[0].event.safe_details.interruption_source == ParserTaskInterruptionSource.GRACEFUL_SHUTDOWN
     )

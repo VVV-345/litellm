@@ -8,6 +8,7 @@ from uuid import uuid4
 from account_pool.domain.provider_source import (
     MeteredPriceOffer,
     ModelOffer,
+    PricingDiscoveryFailureCode,
     ProviderValidationResult,
 )
 from account_pool.parsing.models import ParserRunStatus
@@ -15,7 +16,11 @@ from account_pool.provider_services.new_api.manifest import NEW_API_MANIFEST
 from account_pool.provider_services.new_api.parser import parse_new_api_result
 
 
-def _validation(models: tuple[ModelOffer, ...], pricing: tuple[MeteredPriceOffer, ...]) -> ProviderValidationResult:
+def _validation(
+    models: tuple[ModelOffer, ...],
+    pricing: tuple[MeteredPriceOffer, ...],
+    pricing_failure_code: PricingDiscoveryFailureCode | None = None,
+) -> ProviderValidationResult:
     return ProviderValidationResult(
         ok=True,
         provider_id="new_api",
@@ -23,6 +28,7 @@ def _validation(models: tuple[ModelOffer, ...], pricing: tuple[MeteredPriceOffer
         group="premium",
         key_fingerprint="fingerprint",
         message="不会复制到解析结果的渠道校验文案",
+        pricing_failure_code=pricing_failure_code,
         capabilities=NEW_API_MANIFEST.capabilities,
         models=models,
         pricing=pricing,
@@ -109,3 +115,55 @@ def test_new_api_parser_without_pricing_keeps_metered_unresolved() -> None:
     assert run.status == ParserRunStatus.PARTIAL
     assert run.result.metered is None
     assert tuple(field.path for field in run.result.unresolved_fields) == ("subscription", "metered")
+    assert run.result.warnings == ("已完成模型发现，未获取到倍率价格",)
+    assert "账号" in run.issues[0].next_action
+
+
+def test_new_api_parser_marks_authentication_pricing_failure_with_targeted_remediation() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(
+            models=(ModelOffer(model="gpt-4o"),),
+            pricing=(),
+            pricing_failure_code=PricingDiscoveryFailureCode.AUTHENTICATION,
+        ),
+    )
+
+    assert run.result.warnings == ("已完成模型发现，管理员认证未通过，未获取到倍率价格",)
+    assert run.issues[0].next_action == "检查 New API 管理员账号与密码后重新解析，或在管理界面手动补充分组倍率与价格"
+
+
+def test_new_api_parser_marks_invalid_pricing_response_with_targeted_remediation() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(
+            models=(ModelOffer(model="gpt-4o"),),
+            pricing=(),
+            pricing_failure_code=PricingDiscoveryFailureCode.UPSTREAM_RESPONSE,
+        ),
+    )
+
+    assert run.result.warnings == ("已完成模型发现，倍率价格接口响应无效",)
+    assert run.issues[0].next_action == "确认 New API 倍率价格接口及响应格式后重新解析"
+
+
+def test_new_api_parser_marks_transient_pricing_failure_retryable() -> None:
+    run: Final = parse_new_api_result(
+        channel_id=uuid4(),
+        parser_run_id=uuid4(),
+        parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
+        validation=_validation(
+            models=(ModelOffer(model="gpt-4o"),),
+            pricing=(),
+            pricing_failure_code=PricingDiscoveryFailureCode.TRANSPORT,
+        ),
+    )
+
+    assert run.result.warnings == ("已完成模型发现，倍率价格接口暂时不可用",)
+    assert run.result.unresolved_fields[1].retryable
+    assert run.issues[0].retryable
+    assert run.issues[0].next_action == "等待上游倍率价格接口恢复后重新解析"
