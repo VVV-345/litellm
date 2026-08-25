@@ -26,6 +26,7 @@ from litellm.constants import (
     GLOBAL_PROXY_SPEND_CACHE_KEY,
     LITELLM_PROXY_BUDGET_NAME,
     LITELLM_PROXY_MASTER_KEY_ALIAS,
+    UI_SESSION_TOKEN_TEAM_ID,
 )
 from litellm.integrations.otel.model.config import is_otel_v2_enabled
 from litellm.integrations.otel.runtime import phase_span, seed_request_identity
@@ -2178,6 +2179,8 @@ def _token_can_vouch_for_team(valid_token: UserAPIKeyAuth, lookup_error: BaseExc
     back out, and is only consulted here because the failure is known by this
     point to be a degraded read.
     """
+    if valid_token.team_id == UI_SESSION_TOKEN_TEAM_ID:
+        return True
     if isinstance(lookup_error, TeamNotFoundError):
         return False
     if valid_token.team_models:
