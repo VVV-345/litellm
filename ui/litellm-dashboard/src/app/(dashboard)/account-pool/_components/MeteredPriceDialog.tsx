@@ -5,6 +5,7 @@ import { Plus, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
+import { generateRequestUuid } from "@/lib/uuid";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,7 +57,7 @@ export default function MeteredPriceDialog({
   const saveMutation = useMutation({
     mutationFn: () =>
       setParserOverride(accessToken, channelId, {
-        override_id: crypto.randomUUID(),
+        override_id: generateRequestUuid(),
         target: { kind: "root_field", field: "metered" },
         value: buildMeteredOverrideValue(drafts),
         expected_override_id: expectedOverrideId,

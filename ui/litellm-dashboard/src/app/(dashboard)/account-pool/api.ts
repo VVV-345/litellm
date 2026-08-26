@@ -2,6 +2,7 @@
 
 import { apiClient } from "@/components/networking";
 
+import { generateRequestUuid } from "@/lib/uuid";
 import type {
   AccountPoolOverview,
   ChannelAggregateDetail,
@@ -62,7 +63,7 @@ export const getEvents = (accessToken: string, filters: EventLogFilters): Promis
 const mutationOptions = (accessToken: string, body: unknown) => ({
   accessToken,
   body,
-  headers: { "Idempotency-Key": crypto.randomUUID() },
+  headers: { "Idempotency-Key": generateRequestUuid() },
 });
 
 export const getChannel = (accessToken: string, channelId: string): Promise<ChannelDetail> =>
@@ -150,7 +151,7 @@ export const importParserSnapshot = (
 ): Promise<JsonValue> =>
   apiClient.post(`/account_pool/channels/${channelId}/import`, {
     accessToken,
-    body: { import_id: crypto.randomUUID(), reason, document },
+    body: { import_id: generateRequestUuid(), reason, document },
   });
 
 export const setParserOverride = (

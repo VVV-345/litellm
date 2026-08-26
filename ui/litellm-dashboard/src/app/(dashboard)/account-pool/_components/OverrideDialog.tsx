@@ -6,6 +6,7 @@ import { RotateCcw, Save } from "lucide-react";
 import { useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
+import { generateRequestUuid } from "@/lib/uuid";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -39,7 +40,7 @@ export default function OverrideDialog({ accessToken, channelId, row, onClose, o
     mutationFn: async () => {
       const value = JSON.parse(valueText) as JsonValue;
       return setParserOverride(accessToken, channelId, {
-        override_id: crypto.randomUUID(),
+        override_id: generateRequestUuid(),
         target: row.target,
         value,
         expected_override_id: row.activeOverrideId,
@@ -57,7 +58,7 @@ export default function OverrideDialog({ accessToken, channelId, row, onClose, o
   const revokeMutation = useMutation({
     mutationFn: () =>
       revokeParserOverride(accessToken, channelId, row.path, {
-        override_id: crypto.randomUUID(),
+        override_id: generateRequestUuid(),
         expected_override_id: row.activeOverrideId!,
         reason: reason.trim(),
       }),
