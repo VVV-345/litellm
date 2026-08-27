@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from account_pool.catalog.models import AdministrativeState, BindingOwnership
 from account_pool.details import ChannelAggregateDetail, ChannelAggregateService
-from account_pool.events import EventLogFailure, EventLogFailureCode
+from account_pool.events import EventLogFailure, EventLogFailureCode, EventQuery
 from account_pool.health.service import ChannelHealthDetailFailure
 from account_pool.models import (
     ChannelPriority,
@@ -128,19 +128,23 @@ class _Routing:
 
 
 class _Events:
-    async def list_events(self, query: object) -> EventLogFailure:
+    query: EventQuery | None = None
+
+    async def list_events(self, query: EventQuery) -> EventLogFailure:
+        self.query = query
         return EventLogFailure(code=EventLogFailureCode.DATABASE_UNAVAILABLE, retryable=True)
 
 
 @pytest.mark.asyncio
 async def test_combines_loaded_sections_and_preserves_typed_section_failures() -> None:
+    events: Final = _Events()
     result: Final = await ChannelAggregateService(
         channels=_Channels(),
         overview=_Overview(),
         parser_data=_Parser(),
         health=_Health(),
         routing=_Routing(),
-        events=_Events(),
+        events=events,
     ).read_channel(_CHANNEL_ID)
 
     assert isinstance(result, ChannelAggregateDetail)
@@ -150,4 +154,5 @@ async def test_combines_loaded_sections_and_preserves_typed_section_failures() -
     assert result.parser.failure is not None and result.parser.failure.code == "run_not_found"
     assert result.health.failure is not None and result.health.failure.retryable
     assert result.events.failure is not None and result.events.failure.code == "database_unavailable"
+    assert events.query == EventQuery(channel_id=_CHANNEL_ID, limit=8)
     assert "credential" not in result.model_dump_json().casefold()

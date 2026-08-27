@@ -1,8 +1,8 @@
 // 本文件提供统一事件与审计日志的筛选、分页和脱敏详情查看界面。
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { Eye, Loader2, RotateCcw, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Eye, Loader2, RotateCcw, Search } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import { accountPoolKeys, getEvents } from "../api";
 import { reasonLabelWithCode } from "../reasonLabels";
-import type { EventLogEntry, EventLogFilters, EventLogPage, EventQueryOutcome } from "../types";
+import type { EventLogEntry, EventLogFilters, EventQueryOutcome } from "../types";
 
 const eventTypeLabels: Record<string, string> = {
   active_health_probe_result: "主动健康探测",
@@ -72,7 +72,8 @@ const transitionLabels = {
 } as const;
 
 const eventTypeOptions = Object.entries(eventTypeLabels);
-const emptyFilters: EventLogFilters = { limit: 50 };
+const eventPageSize = 10;
+const emptyFilters: EventLogFilters = { limit: eventPageSize };
 
 const initialFiltersFor = (channelId: string | null): EventLogFilters =>
   channelId ? { ...emptyFilters, channel_id: channelId } : emptyFilters;
@@ -107,6 +108,9 @@ const eventDetails = (event: EventLogEntry): string => {
   return event.actor_id;
 };
 
+const columnDividerClass =
+  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
+
 interface EventLogPanelProps {
   accessToken: string;
   initialChannelId?: string | null;
@@ -116,26 +120,34 @@ export default function EventLogPanel({ accessToken, initialChannelId = null }: 
   const initialFilters = initialFiltersFor(initialChannelId);
   const [draftFilters, setDraftFilters] = useState<EventLogFilters>(initialFilters);
   const [activeFilters, setActiveFilters] = useState<EventLogFilters>(initialFilters);
+  const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventLogEntry | null>(null);
   const queryFilters = cleanFilters(activeFilters);
-  const eventsQueryOptions = {
-    queryKey: accountPoolKeys.events(queryFilters),
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      getEvents(accessToken, cleanFilters({ ...queryFilters, cursor: pageParam })),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: EventLogPage) => lastPage.next_cursor ?? undefined,
-  };
-  const eventsQuery = useInfiniteQuery(eventsQueryOptions);
-  const events = eventsQuery.data?.pages.flatMap((page) => page.events) ?? [];
+  const cursor = cursorHistory.at(-1);
+  const requestFilters = cursor === undefined ? queryFilters : { ...queryFilters, cursor };
+  const eventsQuery = useQuery({
+    queryKey: accountPoolKeys.events(requestFilters),
+    queryFn: () => getEvents(accessToken, requestFilters),
+  });
+  const events = eventsQuery.data?.events ?? [];
 
   const applyFilters = () => {
-    setActiveFilters(cleanFilters({ ...draftFilters, limit: 50 }));
+    setCursorHistory([]);
+    setActiveFilters(cleanFilters({ ...draftFilters, limit: eventPageSize }));
   };
 
   const resetFilters = () => {
+    setCursorHistory([]);
     setDraftFilters(emptyFilters);
     setActiveFilters(emptyFilters);
   };
+
+  const nextPage = () => {
+    const nextCursor = eventsQuery.data?.next_cursor;
+    if (nextCursor) setCursorHistory((history) => [...history, nextCursor]);
+  };
+
+  const previousPage = () => setCursorHistory((history) => history.slice(0, -1));
 
   return (
     <div className="min-w-0 space-y-4">
@@ -152,8 +164,12 @@ export default function EventLogPanel({ accessToken, initialChannelId = null }: 
         isError={eventsQuery.isError}
         isFetching={eventsQuery.isFetching}
         isLoading={eventsQuery.isLoading}
-        hasNextPage={eventsQuery.hasNextPage}
-        onLoadMore={() => eventsQuery.fetchNextPage()}
+        hasNextPage={Boolean(eventsQuery.data?.next_cursor)}
+        hasPreviousPage={cursorHistory.length > 0}
+        isPreviousPageEnabled={!eventsQuery.isFetching}
+        onNextPage={nextPage}
+        onPreviousPage={previousPage}
+        pageNumber={cursorHistory.length + 1}
         onSelect={setSelectedEvent}
       />
 
@@ -310,11 +326,27 @@ interface EventTableProps {
   isFetching: boolean;
   isLoading: boolean;
   hasNextPage: boolean;
-  onLoadMore: () => void;
+  hasPreviousPage: boolean;
+  isPreviousPageEnabled: boolean;
+  onNextPage: () => void;
+  onPreviousPage: () => void;
+  pageNumber: number;
   onSelect: (event: EventLogEntry) => void;
 }
 
-function EventTable({ events, isError, isFetching, isLoading, hasNextPage, onLoadMore, onSelect }: EventTableProps) {
+function EventTable({
+  events,
+  isError,
+  isFetching,
+  isLoading,
+  hasNextPage,
+  hasPreviousPage,
+  isPreviousPageEnabled,
+  onNextPage,
+  onPreviousPage,
+  pageNumber,
+  onSelect,
+}: EventTableProps) {
   return (
     <section className="min-w-0 overflow-hidden rounded-md border bg-background">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -327,7 +359,7 @@ function EventTable({ events, isError, isFetching, isLoading, hasNextPage, onLoa
       {isError && events.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-destructive">无法读取事件日志，请检查 PostgreSQL</div>
       ) : (
-        <Table>
+        <Table className={columnDividerClass}>
           <TableHeader>
             <TableRow>
               <TableHead>时间</TableHead>
@@ -388,12 +420,26 @@ function EventTable({ events, isError, isFetching, isLoading, hasNextPage, onLoa
           </TableBody>
         </Table>
       )}
-      {hasNextPage && (
-        <div className="flex justify-center border-t p-3">
-          <Button variant="outline" onClick={onLoadMore} disabled={isFetching}>
-            {isFetching && <Loader2 className="animate-spin" />}
-            加载更多
-          </Button>
+      {(hasPreviousPage || hasNextPage) && (
+        <div className="flex items-center justify-between gap-3 border-t px-4 py-3">
+          <span className="text-xs tabular-nums text-muted-foreground">
+            第 {pageNumber} 页，每页 {eventPageSize} 条
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPreviousPage}
+              disabled={!hasPreviousPage || !isPreviousPageEnabled}
+            >
+              <ChevronLeft />
+              上一页
+            </Button>
+            <Button variant="outline" size="sm" onClick={onNextPage} disabled={!hasNextPage || isFetching}>
+              {isFetching ? <Loader2 className="animate-spin" /> : <ChevronRight />}
+              下一页
+            </Button>
+          </div>
         </div>
       )}
     </section>

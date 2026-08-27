@@ -40,6 +40,9 @@ const healthBadgeClass: Record<NonNullable<ChannelOverview["runtime"]>["health"]
   disabled: "border-slate-300 bg-slate-100 text-slate-700",
 };
 
+const columnDividerClass =
+  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
+
 const formatNumber = (value: JsonDecimal | null): string => {
   if (value === null) return "未知";
   const numericValue = Number(value);
@@ -127,7 +130,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
           <h2 className="text-sm font-semibold">渠道运行总览</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">配置、解析和实时调度资格的统一视图</p>
         </div>
-        <Table>
+        <Table className={columnDividerClass}>
           <TableHeader>
             <TableRow>
               <TableHead>渠道</TableHead>

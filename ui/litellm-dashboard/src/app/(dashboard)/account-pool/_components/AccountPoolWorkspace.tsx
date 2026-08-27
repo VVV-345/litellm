@@ -20,9 +20,13 @@ const accountPoolModules = [
 
 export function AccountPoolModuleNavigation() {
   return (
-    <TabsList variant="line" className="h-auto w-full flex-wrap justify-start gap-x-1">
+    <TabsList variant="line" className="h-auto w-full flex-wrap justify-start gap-0 border-y bg-background px-1">
       {accountPoolModules.map(({ value, label, icon: Icon }) => (
-        <TabsTrigger key={value} value={value} className="gap-2 px-3 py-2">
+        <TabsTrigger
+          key={value}
+          value={value}
+          className="gap-2 rounded-none border-r border-border/70 px-3 py-2 last:border-r-0"
+        >
           <Icon className="size-4" />
           {label}
         </TabsTrigger>

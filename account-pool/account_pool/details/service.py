@@ -30,6 +30,7 @@ from account_pool.parsing.service import EffectiveParserData, ParserDataFailure
 from account_pool.sync.service import ChannelDetail, ChannelManagementFailure
 
 SectionValue = TypeVar("SectionValue")
+RECENT_EVENT_LIMIT: Final = 8
 
 
 class DetailChannelSource(Protocol):
@@ -94,7 +95,7 @@ class ChannelAggregateService:
     async def _event_page(self, channel_id: UUID) -> EventLogPage | EventLogFailure | None:
         if self._events is None:
             return None
-        return await self._events.list_events(EventQuery(channel_id=channel_id, limit=20))
+        return await self._events.list_events(EventQuery(channel_id=channel_id, limit=RECENT_EVENT_LIMIT))
 
     async def _routes_section(
         self,

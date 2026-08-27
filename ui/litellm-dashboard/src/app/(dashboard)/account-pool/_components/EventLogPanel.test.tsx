@@ -280,7 +280,7 @@ describe("EventLogPanel", () => {
     );
   });
 
-  it("loads a channel-filtered page and appends the next cursor page", async () => {
+  it("loads a small channel-filtered page and replaces it when navigating", async () => {
     const user = userEvent.setup();
     renderPanel("channel-1");
 
@@ -292,16 +292,20 @@ describe("EventLogPanel", () => {
     expect(screen.getByText("请求已结算")).toBeInTheDocument();
     expect(screen.getByText("限制已生效")).toBeInTheDocument();
     expect(screen.getByText("周额度已耗尽 (weekly_quota)")).toBeInTheDocument();
-    expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 50 });
+    expect(getEvents).toHaveBeenCalledWith("token", { channel_id: "channel-1", limit: 10 });
 
-    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    await user.click(screen.getByRole("button", { name: "下一页" }));
 
     expect(await screen.findByText("设置人工修正")).toBeInTheDocument();
+    expect(screen.queryByText("请求健康结果")).not.toBeInTheDocument();
     expect(getEvents).toHaveBeenLastCalledWith("token", {
       channel_id: "channel-1",
       cursor: "next-page",
-      limit: 50,
+      limit: 10,
     });
+
+    await user.click(screen.getByRole("button", { name: "上一页" }));
+    expect(await screen.findByText("请求健康结果")).toBeInTheDocument();
 
     const healthEventRow = screen.getByText("请求健康结果").closest("tr");
     expect(healthEventRow).not.toBeNull();
@@ -324,7 +328,7 @@ describe("EventLogPanel", () => {
       expect(getEvents).toHaveBeenLastCalledWith("token", {
         model_id: "gpt-5.6",
         request_id: "request-1",
-        limit: 50,
+        limit: 10,
       }),
     );
   });

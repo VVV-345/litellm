@@ -126,6 +126,12 @@ describe("ChannelFormDialog", () => {
     });
   });
 
+  it("does not expose provider implementation capability flags in the channel form", () => {
+    render(<DialogHarness />);
+
+    expect(screen.queryByText("model_discovery: supported")).not.toBeInTheDocument();
+  });
+
   it("mounts editable state from the complete channel detail instead of the list summary", async () => {
     vi.mocked(getChannel).mockResolvedValue(detail);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

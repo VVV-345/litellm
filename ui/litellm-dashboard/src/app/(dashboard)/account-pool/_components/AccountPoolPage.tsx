@@ -297,7 +297,11 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                         </TabsList>
                       </div>
                       <TabsContent value="aggregate" className="min-w-0 p-4">
-                        <ChannelAggregatePanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />
+                        <ChannelAggregatePanel
+                          accessToken={accessToken!}
+                          channelId={selectedChannel.channel_id}
+                          onOpenChannelEvents={openChannelEvents}
+                        />
                       </TabsContent>
                       <TabsContent value="health" className="min-w-0 p-4">
                         <HealthStatusPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />

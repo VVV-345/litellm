@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getChannelAggregate } from "../api";
@@ -212,17 +213,20 @@ const aggregate: ChannelAggregateDetail = {
   },
 };
 
+const onOpenChannelEvents = vi.fn();
+
 const renderPanel = () => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ChannelAggregatePanel accessToken="token" channelId="channel-1" />
+      <ChannelAggregatePanel accessToken="token" channelId="channel-1" onOpenChannelEvents={onOpenChannelEvents} />
     </QueryClientProvider>,
   );
 };
 
 describe("ChannelAggregatePanel", () => {
   beforeEach(() => {
+    onOpenChannelEvents.mockReset();
     vi.mocked(getChannelAggregate).mockResolvedValue(aggregate);
   });
 
@@ -234,6 +238,16 @@ describe("ChannelAggregatePanel", () => {
     expect(screen.getByText("lowest_effective_cost")).toBeInTheDocument();
     expect(screen.getByText("channel_update")).toBeInTheDocument();
     expect(screen.getByText("request-1")).toBeInTheDocument();
+  });
+
+  it("opens the channel-scoped paged event log from the recent event preview", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await screen.findByText("channel_update");
+    await user.click(screen.getByRole("button", { name: "查看完整日志" }));
+
+    expect(onOpenChannelEvents).toHaveBeenCalledWith("channel-1");
   });
 
   it("keeps base configuration visible when parser, health, routes, and events are unavailable", async () => {

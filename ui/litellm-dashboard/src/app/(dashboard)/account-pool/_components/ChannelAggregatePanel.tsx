@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getChannelAggregate } from "../api";
@@ -15,6 +16,7 @@ import type { ChannelAggregateDetail, DetailSection, JsonValue, RoutingTableEntr
 interface ChannelAggregatePanelProps {
   accessToken: string;
   channelId: string;
+  onOpenChannelEvents: (channelId: string) => void;
 }
 
 const formatDate = (value: string | null): string =>
@@ -25,7 +27,14 @@ const formatJson = (value: JsonValue): string => JSON.stringify(value, null, 2);
 const routeStatus = (route: RoutingTableEntry): string =>
   route.available ? "可调度" : reasonLabelWithCode(route.reason_code ?? route.unavailable_reason ?? "不可调度");
 
-export default function ChannelAggregatePanel({ accessToken, channelId }: ChannelAggregatePanelProps) {
+const columnDividerClass =
+  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
+
+export default function ChannelAggregatePanel({
+  accessToken,
+  channelId,
+  onOpenChannelEvents,
+}: ChannelAggregatePanelProps) {
   const query = useQuery({
     queryKey: accountPoolKeys.aggregate(channelId),
     queryFn: () => getChannelAggregate(accessToken, channelId),
@@ -47,10 +56,16 @@ export default function ChannelAggregatePanel({ accessToken, channelId }: Channe
     );
   }
 
-  return <AggregateContent detail={query.data} />;
+  return <AggregateContent detail={query.data} onOpenChannelEvents={onOpenChannelEvents} />;
 }
 
-function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
+function AggregateContent({
+  detail,
+  onOpenChannelEvents,
+}: {
+  detail: ChannelAggregateDetail;
+  onOpenChannelEvents: (channelId: string) => void;
+}) {
   const overview = detail.overview.data;
   const parser = detail.parser.data;
   const health = detail.health.data;
@@ -66,7 +81,7 @@ function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
         <SummaryItem label="最近请求" value={formatDate(overview?.activity.last_request_at ?? null)} />
       </div>
 
-      <section>
+      <section className="border-t pt-5">
         <SectionHeading title="基础配置与 Deployment 绑定" status="loaded" />
         <div className="grid gap-x-8 gap-y-3 border-y py-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
           <DetailValue label="渠道 ID" value={detail.channel.channel_id} />
@@ -79,7 +94,7 @@ function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
           <DetailValue label="最大并发" value={String(detail.channel.max_concurrency)} />
         </div>
         <div className="overflow-x-auto rounded-md border">
-          <Table>
+          <Table className={columnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>对外模型</TableHead>
@@ -108,7 +123,7 @@ function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
         </div>
       </section>
 
-      <section>
+      <section className="border-t pt-5">
         <SectionHeading title="套餐、按量和解析状态" section={detail.parser} />
         {parser && (
           <div className="grid gap-4 lg:grid-cols-2">
@@ -120,7 +135,7 @@ function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
         )}
       </section>
 
-      <section>
+      <section className="border-t pt-5">
         <SectionHeading title="健康、冷却与资格" section={detail.health} />
         {health && (
           <div className="grid gap-x-8 gap-y-3 border-y py-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
@@ -133,18 +148,18 @@ function AggregateContent({ detail }: { detail: ChannelAggregateDetail }) {
       </section>
 
       <RouteSection section={detail.routes} />
-      <EventSection detail={detail} />
+      <EventSection detail={detail} onOpenChannelEvents={onOpenChannelEvents} />
     </div>
   );
 }
 
 function RouteSection({ section }: { section: DetailSection<RoutingTableEntry[]> }) {
   return (
-    <section>
+    <section className="border-t pt-5">
       <SectionHeading title="模型调度位置" section={section} />
       {section.data && (
         <div className="overflow-x-auto rounded-md border">
-          <Table>
+          <Table className={columnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>顺序</TableHead>
@@ -181,13 +196,27 @@ function RouteSection({ section }: { section: DetailSection<RoutingTableEntry[]>
   );
 }
 
-function EventSection({ detail }: { detail: ChannelAggregateDetail }) {
+function EventSection({
+  detail,
+  onOpenChannelEvents,
+}: {
+  detail: ChannelAggregateDetail;
+  onOpenChannelEvents: (channelId: string) => void;
+}) {
   return (
-    <section>
-      <SectionHeading title="最近事件" section={detail.events} />
+    <section className="border-t pt-5">
+      <SectionHeading
+        title="最近事件"
+        section={detail.events}
+        action={
+          <Button variant="outline" size="sm" onClick={() => onOpenChannelEvents(detail.channel.channel_id)}>
+            查看完整日志
+          </Button>
+        }
+      />
       {detail.events.data && (
         <div className="overflow-x-auto rounded-md border">
-          <Table>
+          <Table className={columnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -226,16 +255,19 @@ function SectionHeading<T>({
   title,
   section,
   status,
+  action,
 }: {
   title: string;
   section?: DetailSection<T>;
   status?: "loaded";
+  action?: ReactNode;
 }) {
   const loaded = status === "loaded" || section?.status === "loaded";
   return (
     <div className="mb-2 flex flex-wrap items-center gap-2">
       <h3 className="text-sm font-semibold">{title}</h3>
       <Badge variant={loaded ? "secondary" : "outline"}>{loaded ? "已加载" : section?.failure?.code ?? "不可用"}</Badge>
+      {action && <div className="ml-auto">{action}</div>}
     </div>
   );
 }

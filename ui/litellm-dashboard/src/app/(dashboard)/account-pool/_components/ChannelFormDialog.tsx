@@ -6,7 +6,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import CreatableModelSelect from "@/components/add_model/CreatableModelSelect";
 import NotificationsManager from "@/components/molecules/notifications_manager";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -21,7 +20,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { accountPoolKeys, createChannel, getChannel, importChannel, updateChannel, validateProviderService } from "../api";
+import {
+  accountPoolKeys,
+  createChannel,
+  getChannel,
+  importChannel,
+  updateChannel,
+  validateProviderService,
+} from "../api";
 import {
   buildDiscoveredBindings,
   canSubmitCreateSelection,
@@ -294,7 +300,12 @@ function ChannelFormContent({
   const setDiscoveredModels = (models: string[]) => {
     if (modelSelection.kind !== "discovered") return;
     const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
-    setBindings(buildDiscoveredBindings(models.filter((model) => modelSelection.models.includes(model)), providerPrefix));
+    setBindings(
+      buildDiscoveredBindings(
+        models.filter((model) => modelSelection.models.includes(model)),
+        providerPrefix,
+      ),
+    );
   };
   const manualFallback = () => {
     manualMappingRef.current = true;
@@ -336,15 +347,6 @@ function ChannelFormContent({
               </Select>
             </div>
           </div>
-          {selectedProvider && (
-            <div className="flex flex-wrap gap-1.5">
-              {selectedProvider.capabilities.map((capability) => (
-                <Badge key={capability.capability} variant="outline">
-                  {capability.capability}: {capability.state}
-                </Badge>
-              ))}
-            </div>
-          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="channel-url">上游 URL</Label>
