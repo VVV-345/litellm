@@ -41,6 +41,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     update_catalog_channel,
     update_model_routing_candidate,
     update_model_routing_policy,
+    validate_provider_service,
 )
 
 _Method = Literal["GET", "POST", "PUT", "DELETE"]
@@ -91,6 +92,7 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
         ("GET", "/account_pool/channels"),
         ("GET", "/account_pool/overview"),
         ("GET", "/account_pool/events"),
+        ("POST", "/account_pool/provider-services/validate"),
         ("POST", "/account_pool/channels"),
         ("GET", "/account_pool/channels/{channel_id}"),
         ("GET", "/account_pool/channels/{channel_id}/aggregate"),
@@ -114,6 +116,30 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
         ("DELETE", "/account_pool/models/{model:path}/routing-candidates/{binding_id}"),
     }.issubset(routes)
 
+
+@pytest.mark.asyncio
+async def test_validate_provider_service_requires_proxy_admin_and_forwards_to_internal_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[tuple[_Method, str]] = []
+
+    async def forward(request: Request, method: _Method, path: str) -> Response:
+        forwarded.append((method, path))
+        return Response(status_code=200)
+
+    monkeypatch.setattr(account_pool_endpoints, "_forward", forward)
+    request: Final = Request({"type": "http", "method": "POST", "path": "/account_pool/provider-services/validate"})
+    admin: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN)
+    viewer: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY)
+
+    response: Final = await validate_provider_service(request, admin)
+
+    assert response.status_code == 200
+    assert forwarded == [("POST", "/api/provider-services/validate")]
+    with pytest.raises(HTTPException) as error:
+        await validate_provider_service(request, viewer)
+
+    assert error.value.status_code == 403
 
 @pytest.mark.asyncio
 async def test_channel_lifecycle_writes_use_request_bound_actions(monkeypatch: pytest.MonkeyPatch) -> None:

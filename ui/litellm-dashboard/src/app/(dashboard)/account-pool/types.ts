@@ -250,6 +250,28 @@ export interface ProviderServiceManifest {
   capabilities: ProviderCapability[];
 }
 
+export interface ProviderValidationRequest {
+  provider_id: string;
+  api_base: string;
+  api_key: string;
+  group: string | null;
+}
+
+export interface ProviderValidationModel {
+  model: string;
+}
+
+export interface ProviderValidationResult {
+  ok: boolean;
+  provider_id: string;
+  normalized_api_base: string;
+  group: string | null;
+  key_fingerprint: string | null;
+  message: string;
+  failure_code: string | null;
+  models: ProviderValidationModel[];
+}
+
 export interface ParserTaskAccepted {
   status: "accepted";
   task_id: string;

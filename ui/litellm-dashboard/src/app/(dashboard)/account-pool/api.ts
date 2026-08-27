@@ -25,6 +25,8 @@ import type {
   ParserTaskRequest,
   ParserTaskView,
   ProviderServiceManifest,
+  ProviderValidationRequest,
+  ProviderValidationResult,
   RoutingCandidateMutation,
   RoutingModelSummary,
   RoutingPolicyMutation,
@@ -129,6 +131,12 @@ export const getParserHistory = (accessToken: string, channelId: string): Promis
 
 export const getProviderServices = (accessToken: string): Promise<ProviderServiceManifest[]> =>
   apiClient.get("/account_pool/provider-services", { accessToken });
+
+export const validateProviderService = (
+  accessToken: string,
+  request: ProviderValidationRequest,
+): Promise<ProviderValidationResult> =>
+  apiClient.post("/account_pool/provider-services/validate", { accessToken, body: request });
 
 export const startParserTask = (
   accessToken: string,

@@ -1,9 +1,8 @@
-// 本文件提供渠道创建、编辑和 LiteLLM Deployment 导入表单，并限制一次性凭证只存在组件状态中。
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import CreatableModelSelect from "@/components/add_model/CreatableModelSelect";
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -22,7 +21,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { accountPoolKeys, createChannel, getChannel, importChannel, updateChannel } from "../api";
+import { accountPoolKeys, createChannel, getChannel, importChannel, updateChannel, validateProviderService } from "../api";
+import {
+  buildDiscoveredBindings,
+  canSubmitCreateSelection,
+  initialModelSelection,
+  selectManualMapping,
+  validateDiscoveryResult,
+} from "../channelModelSelection";
+import { MultiSelect } from "@/components/shared/MultiSelect";
 import { providerModelForSelectedModel } from "./providerModel";
 import type {
   AdministrativeState,
@@ -162,9 +169,30 @@ function ChannelFormContent({
   const [quotas, setQuotas] = useState<QuotaConfig>(initial?.quotas ?? emptyQuotas);
   const [apiKey, setApiKey] = useState("");
   const [bindings, setBindings] = useState<ChannelBindingInput[]>(
-    initial?.bindings ?? [emptyBinding(defaultOwnership(mode))],
+    initial?.bindings ?? (mode === "create" ? [] : [emptyBinding(defaultOwnership(mode))]),
   );
   const selectedProvider = providers.find((item) => item.provider_id === provider);
+  const discoveryCapabilityState = selectedProvider?.capabilities.find(
+    (capability) => capability.capability === "model_discovery",
+  )?.state;
+  const discoveryCapabilitySignature = `${provider}:${discoveryCapabilityState ?? "missing"}`;
+  const [modelSelection, setModelSelection] = useState(() => initialModelSelection(selectedProvider));
+  const manualMappingRef = useRef(false);
+  const discoveryCapabilitySignatureRef = useRef(discoveryCapabilitySignature);
+
+  useEffect(() => {
+    if (discoveryCapabilitySignatureRef.current === discoveryCapabilitySignature) return;
+    discoveryCapabilitySignatureRef.current = discoveryCapabilitySignature;
+    if (mode !== "create" || manualMappingRef.current) return;
+    setModelSelection(initialModelSelection(selectedProvider));
+    setBindings([]);
+  }, [mode, discoveryCapabilitySignature, selectedProvider]);
+
+  const invalidateDiscovery = (nextProvider: ProviderServiceManifest | undefined = selectedProvider) => {
+    if (mode !== "create" || manualMappingRef.current) return;
+    setModelSelection(initialModelSelection(nextProvider));
+    setBindings([]);
+  };
 
   const close = () => {
     setApiKey("");
@@ -200,6 +228,26 @@ function ChannelFormContent({
     onError: (error) => NotificationsManager.fromBackend(error),
     onSettled: () => setApiKey(""),
   });
+  const discoveryMutation = useMutation({
+    mutationFn: () => {
+      const snapshot = {
+        provider_id: provider,
+        api_base: baseUrl.trim(),
+        api_key: apiKey,
+        group: group.trim() || null,
+      };
+      return validateProviderService(accessToken, snapshot).then((result) => ({ result, snapshot }));
+    },
+    onSuccess: ({ result, snapshot }) => {
+      const inputsMatch =
+        snapshot.provider_id === provider &&
+        snapshot.api_base === baseUrl.trim() &&
+        snapshot.api_key === apiKey &&
+        snapshot.group === (group.trim() || null);
+      if (inputsMatch) setModelSelection((selection) => validateDiscoveryResult(selection, result));
+    },
+    onError: () => setModelSelection({ kind: "manual-required", reason: "validation-failed" }),
+  });
 
   const bindingsValid =
     bindings.length > 0 &&
@@ -215,7 +263,9 @@ function ChannelFormContent({
     Number(maxConcurrency) >= 1 &&
     Number(weight) >= 1 &&
     Number(weight) <= 100 &&
-    bindingsValid;
+    bindingsValid &&
+    (mode !== "create" || canSubmitCreateSelection(modelSelection, bindings));
+  const inputsDisabled = discoveryMutation.isPending;
 
   const selectedModels = useMemo(() => bindings.map((binding) => binding.public_model).filter(Boolean), [bindings]);
   const setModels = (models: string[]) => {
@@ -236,9 +286,20 @@ function ChannelFormContent({
     setBindings(bindings.map((binding, bindingIndex) => (bindingIndex === index ? { ...binding, ...patch } : binding)));
   const chooseProvider = (value: string | null) => {
     if (!value) return;
-    setProvider(value);
     const manifest = providers.find((item) => item.provider_id === value);
+    setProvider(value);
     if (manifest?.default_api_base) setBaseUrl(manifest.default_api_base);
+    invalidateDiscovery(manifest);
+  };
+  const setDiscoveredModels = (models: string[]) => {
+    if (modelSelection.kind !== "discovered") return;
+    const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
+    setBindings(buildDiscoveredBindings(models.filter((model) => modelSelection.models.includes(model)), providerPrefix));
+  };
+  const manualFallback = () => {
+    manualMappingRef.current = true;
+    setModelSelection((selection) => selectManualMapping(selection));
+    setBindings([emptyBinding(defaultOwnership(mode))]);
   };
 
   return (
@@ -261,7 +322,7 @@ function ChannelFormContent({
             </div>
             <div className="grid gap-2">
               <Label>Provider</Label>
-              <Select value={provider} onValueChange={chooseProvider}>
+              <Select value={provider} onValueChange={chooseProvider} disabled={inputsDisabled}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -287,11 +348,27 @@ function ChannelFormContent({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="channel-url">上游 URL</Label>
-              <Input id="channel-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} />
+              <Input
+                id="channel-url"
+                value={baseUrl}
+                disabled={inputsDisabled}
+                onChange={(event) => {
+                  setBaseUrl(event.target.value);
+                  invalidateDiscovery();
+                }}
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="channel-group">分组（可选）</Label>
-              <Input id="channel-group" value={group} onChange={(event) => setGroup(event.target.value)} />
+              <Input
+                id="channel-group"
+                value={group}
+                disabled={inputsDisabled}
+                onChange={(event) => {
+                  setGroup(event.target.value);
+                  invalidateDiscovery();
+                }}
+              />
             </div>
           </div>
           <div className="grid gap-2">
@@ -303,7 +380,11 @@ function ChannelFormContent({
                 type="password"
                 className="pl-9"
                 value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
+                disabled={inputsDisabled}
+                onChange={(event) => {
+                  setApiKey(event.target.value);
+                  invalidateDiscovery();
+                }}
                 autoComplete="off"
               />
             </div>
@@ -369,77 +450,121 @@ function ChannelFormContent({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">模型绑定</p>
-                <p className="text-xs text-muted-foreground">可选择或输入公共模型名</p>
+                <p className="text-xs text-muted-foreground">
+                  {mode === "create" ? "先验证上游连接并选择实际可用模型" : "可选择或输入公共模型名"}
+                </p>
               </div>
+              {(mode !== "create" || modelSelection.kind === "manual") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}
+                >
+                  <Plus />
+                  添加
+                </Button>
+              )}
+            </div>
+            {mode === "create" && modelSelection.kind === "ready-to-validate" && (
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}
+                onClick={() => discoveryMutation.mutate()}
+                disabled={!provider || !baseUrl.trim() || !apiKey || discoveryMutation.isPending}
               >
-                <Plus />
-                添加
+                {discoveryMutation.isPending && <Loader2 className="animate-spin" />}
+                验证并发现模型
               </Button>
-            </div>
-            <CreatableModelSelect
-              value={selectedModels}
-              models={knownModels}
-              placeholder="选择或输入模型"
-              onChange={setModels}
-              testId="channel-model-select"
-            />
-            {bindings.map((binding, index) => (
-              <div
-                key={binding.binding_id ?? `${binding.public_model}-${index}`}
-                className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto]"
-              >
-                <div className="grid gap-1">
-                  <Label>公共模型</Label>
-                  <Input
-                    value={binding.public_model}
-                    onChange={(event) => updateBinding(index, { public_model: event.target.value })}
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label>Provider 模型</Label>
-                  <Input
-                    value={binding.provider_model ?? ""}
-                    onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="self-end"
-                  onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}
-                >
-                  <Trash2 />
-                  <span className="sr-only">删除绑定</span>
+            )}
+            {mode === "create" && modelSelection.kind === "discovered" && (
+              <>
+                <MultiSelect
+                  options={modelSelection.models.map((model) => ({ label: model, value: model }))}
+                  value={selectedModels}
+                  placeholder="选择已验证的上游模型"
+                  disabled={inputsDisabled}
+                  onValueChange={setDiscoveredModels}
+                />
+                <Button type="button" variant="link" className="w-fit px-0" onClick={manualFallback}>
+                  使用手动映射
                 </Button>
-                {(importing || binding.ownership === "externally_managed") && (
-                  <div className="grid gap-1 sm:col-span-2">
-                    <Label>LiteLLM Deployment ID</Label>
-                    <Input
-                      value={binding.litellm_deployment_id ?? ""}
-                      onChange={(event) =>
-                        updateBinding(index, {
-                          litellm_deployment_id: event.target.value || null,
-                          ownership: "externally_managed",
-                        })
-                      }
-                    />
-                  </div>
-                )}
-                <label className="flex items-center gap-2 self-end text-sm">
-                  <Checkbox
-                    checked={binding.enabled}
-                    onCheckedChange={(checked) => updateBinding(index, { enabled: checked })}
-                  />
-                  启用
-                </label>
+              </>
+            )}
+            {mode === "create" && modelSelection.kind === "manual-required" && (
+              <div className="grid gap-2 text-sm text-muted-foreground">
+                <p>{modelSelection.message || "无法使用上游模型发现。请检查连接信息，或明确切换到手动映射"}</p>
+                {modelSelection.failureCode && <p>错误代码: {modelSelection.failureCode}</p>}
+                <Button type="button" variant="outline" className="w-fit" onClick={manualFallback}>
+                  使用手动映射
+                </Button>
               </div>
-            ))}
+            )}
+            {(mode !== "create" || modelSelection.kind === "manual") && (
+              <>
+                <CreatableModelSelect
+                  value={selectedModels}
+                  models={mode === "create" ? [] : knownModels}
+                  placeholder="选择或输入模型"
+                  onChange={setModels}
+                  testId="channel-model-select"
+                />
+                {bindings.map((binding, index) => (
+                  <div
+                    key={binding.binding_id ?? index}
+                    className="grid gap-2 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto]"
+                  >
+                    <div className="grid gap-1">
+                      <Label htmlFor={`binding-public-${index}`}>公共模型</Label>
+                      <Input
+                        id={`binding-public-${index}`}
+                        value={binding.public_model}
+                        onChange={(event) => updateBinding(index, { public_model: event.target.value })}
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label htmlFor={`binding-provider-${index}`}>Provider 模型</Label>
+                      <Input
+                        id={`binding-provider-${index}`}
+                        value={binding.provider_model ?? ""}
+                        onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="self-end"
+                      onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}
+                    >
+                      <Trash2 />
+                      <span className="sr-only">删除绑定</span>
+                    </Button>
+                    {(importing || binding.ownership === "externally_managed") && (
+                      <div className="grid gap-1 sm:col-span-2">
+                        <Label>LiteLLM Deployment ID</Label>
+                        <Input
+                          value={binding.litellm_deployment_id ?? ""}
+                          onChange={(event) =>
+                            updateBinding(index, {
+                              litellm_deployment_id: event.target.value || null,
+                              ownership: "externally_managed",
+                            })
+                          }
+                        />
+                      </div>
+                    )}
+                    <label className="flex items-center gap-2 self-end text-sm">
+                      <Checkbox
+                        checked={binding.enabled}
+                        onCheckedChange={(checked) => updateBinding(index, { enabled: checked })}
+                      />
+                      启用
+                    </label>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
           <div className="grid gap-3 rounded-md border p-3">
             <div className="flex items-center justify-between">

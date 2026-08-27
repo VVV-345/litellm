@@ -22,6 +22,7 @@ import {
   updateRoutingCandidate,
   updateRoutingPolicy,
   updateChannel,
+  validateProviderService,
 } from "./api";
 import type { ChannelMutationRequest } from "./types";
 
@@ -135,6 +136,22 @@ describe("channel lifecycle API", () => {
       headers: { "Idempotency-Key": "request-id" },
     });
     expect(apiClient.get).toHaveBeenCalledWith("/account_pool/operations/operation-1", { accessToken: "token" });
+  });
+
+  it("validates a provider service without lifecycle idempotency headers", async () => {
+    const validationRequest = {
+      provider_id: "openai_compatible",
+      api_base: "https://gateway.example/v1",
+      api_key: "sk-once",
+      group: null,
+    };
+
+    await validateProviderService("token", validationRequest);
+
+    expect(mockedPost).toHaveBeenCalledWith("/account_pool/provider-services/validate", {
+      accessToken: "token",
+      body: validationRequest,
+    });
   });
 
   it("runs a directed health probe without sending provider credentials", async () => {
