@@ -2,7 +2,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, RotateCcw } from "lucide-react";
+import { Loader2, Pencil, RotateCcw, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -31,6 +31,7 @@ import {
   updateRoutingCandidate,
   updateRoutingPolicy,
 } from "../api";
+import { buildAutoRankingPreview, type AutoRankingSignal } from "../autoRankingPreview";
 import { reasonLabel } from "../reasonLabels";
 import type {
   JsonDecimal,
@@ -80,6 +81,22 @@ const sortReasonLabels: Record<string, string> = {
   stable_id: "稳定 ID",
 };
 
+const autoRankingSignalLabels: Record<AutoRankingSignal, string> = {
+  latency: "低延迟",
+  quota: "高余额",
+  cost: "低价格",
+};
+
+const healthBadgeClass: Record<RoutingTableEntry["health"], string> = {
+  unknown: "border-slate-300 bg-slate-50 text-slate-700",
+  healthy: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  degraded: "border-amber-300 bg-amber-50 text-amber-900",
+  unhealthy: "border-red-300 bg-red-50 text-red-800",
+  half_open: "border-sky-300 bg-sky-50 text-sky-800",
+  cooldown: "border-orange-300 bg-orange-50 text-orange-900",
+  disabled: "border-slate-300 bg-slate-100 text-slate-700",
+};
+
 const formatNumber = (value: JsonDecimal | null, maximumFractionDigits = 2): string => {
   if (value === null) return "未知";
   const numericValue = Number(value);
@@ -87,8 +104,6 @@ const formatNumber = (value: JsonDecimal | null, maximumFractionDigits = 2): str
     ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(numericValue)
     : "未知";
 };
-
-const formatPercent = (value: number | null): string => (value === null ? "未知" : `${formatNumber(value * 100, 1)}%`);
 
 const formatRecovery = (value: number | null): string =>
   value === null ? "" : new Date(value * 1000).toLocaleString("zh-CN", { hour12: false });
@@ -109,6 +124,97 @@ const costText = (route: RoutingTableEntry): string => {
 
 const sortReasonText = (route: RoutingTableEntry): string =>
   route.sort_reason_codes.map((code) => sortReasonLabels[code] ?? code).join(" / ") || "稳定顺序";
+
+function CapacityMeter({ value, label, tone = "bg-sky-500" }: { value: number | null; label: string; tone?: string }) {
+  const percent = value === null ? null : Math.min(100, Math.max(0, value * 100));
+  return (
+    <div className="mt-1.5 min-w-28">
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{label}</span>
+        <span className="tabular-nums">{percent === null ? "未知" : `${formatNumber(percent, 0)}%`}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${percent ?? 0}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function AutoRankingPreviewDialog({
+  routes,
+  model,
+  onClose,
+}: {
+  routes: RoutingTableEntry[];
+  model: string;
+  onClose: () => void;
+}) {
+  const preview = useMemo(() => buildAutoRankingPreview(routes), [routes]);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>自动排序建议</DialogTitle>
+          <DialogDescription>
+            {model} 的建议基于当前健康状态、延迟、余额和可比较价格生成，不会修改正式调度策略或人工顺序
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-hidden rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>建议</TableHead>
+                <TableHead>渠道</TableHead>
+                <TableHead>识别依据</TableHead>
+                <TableHead className="text-right">评分</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {preview.map((entry) => (
+                <TableRow
+                  key={`${entry.route.account_id}:${entry.route.deployment_id}:${entry.route.billing_route_id ?? ""}`}
+                >
+                  <TableCell className="font-medium tabular-nums">{entry.position}</TableCell>
+                  <TableCell>
+                    <span className="block font-medium">{entry.route.display_name}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{entry.route.deployment_id}</span>
+                  </TableCell>
+                  <TableCell>
+                    {entry.route.available ? (
+                      entry.signals.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {entry.signals.map((signal) => (
+                            <Badge key={signal} variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+                              {autoRankingSignalLabels[signal]}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">尚无可用的延迟、余额或价格数据</span>
+                      )
+                    ) : (
+                      <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800">
+                        当前不可调度
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {entry.score === null ? "-" : formatNumber(entry.score, 0)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            关闭
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 interface CandidateDialogProps {
   route: RoutingTableEntry;
@@ -218,6 +324,7 @@ interface RoutingWorkspaceProps {
   policyError: boolean;
   policyPending: boolean;
   onStrategyChange: (strategy: RoutingStrategy) => void;
+  onPreview: () => void;
   onEdit: (route: RoutingTableEntry) => void;
 }
 
@@ -274,14 +381,15 @@ function RoutingTableContent({
               </span>
             </TableCell>
             <TableCell className="align-top">
-              <Badge variant="outline">{healthLabels[route.health]}</Badge>
+              <Badge variant="outline" className={healthBadgeClass[route.health]}>
+                {healthLabels[route.health]}
+              </Badge>
               <span className="mt-1 block text-xs text-muted-foreground">{billingLabels[route.billing_mode]}</span>
             </TableCell>
             <TableCell className="align-top tabular-nums">
               {route.inflight} / {route.max_concurrency}
-              <span className="mt-1 block text-xs text-muted-foreground">
-                额度 {formatPercent(route.remaining_quota_ratio)}
-              </span>
+              <CapacityMeter value={route.inflight / route.max_concurrency} label="并发占用" tone="bg-violet-500" />
+              <CapacityMeter value={route.remaining_quota_ratio} label="余额可用" tone="bg-emerald-500" />
             </TableCell>
             <TableCell className="align-top tabular-nums">
               {route.latency_ewma_ms === null ? "未知" : `${formatNumber(route.latency_ewma_ms)} ms`}
@@ -337,6 +445,7 @@ function RoutingWorkspace({
   policyError,
   policyPending,
   onStrategyChange,
+  onPreview,
   onEdit,
 }: RoutingWorkspaceProps) {
   const strategy = policy?.strategy ?? activeSummary.strategy;
@@ -350,22 +459,28 @@ function RoutingWorkspace({
             {routes.some((route) => route.dynamic_order) ? " · 动态策略预览" : ""}
           </p>
         </div>
-        <Select
-          value={strategy}
-          onValueChange={(value) => value && onStrategyChange(value as RoutingStrategy)}
-          disabled={!policy || policyPending}
-        >
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue>{strategyLabels[strategy]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(strategyLabels).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
+          <Button variant="outline" onClick={onPreview} disabled={routes.length === 0}>
+            <Sparkles />
+            识别并预览
+          </Button>
+          <Select
+            value={strategy}
+            onValueChange={(value) => value && onStrategyChange(value as RoutingStrategy)}
+            disabled={!policy || policyPending}
+          >
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue>{strategyLabels[strategy]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(strategyLabels).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       {policyError && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
@@ -381,6 +496,7 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
   const queryClient = useQueryClient();
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [editingRoute, setEditingRoute] = useState<RoutingTableEntry | null>(null);
+  const [autoPreviewOpen, setAutoPreviewOpen] = useState(false);
   const modelsQuery = useQuery({
     queryKey: accountPoolKeys.routingModels(),
     queryFn: () => getRoutingModels(accessToken),
@@ -483,8 +599,13 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
         policyError={policyQuery.isError}
         policyPending={policyMutation.isPending}
         onStrategyChange={(strategy) => policyMutation.mutate(strategy)}
+        onPreview={() => setAutoPreviewOpen(true)}
         onEdit={setEditingRoute}
       />
+
+      {autoPreviewOpen && (
+        <AutoRankingPreviewDialog routes={routes} model={activeModel} onClose={() => setAutoPreviewOpen(false)} />
+      )}
 
       {editingRoute && policy && (
         <CandidateDialog
