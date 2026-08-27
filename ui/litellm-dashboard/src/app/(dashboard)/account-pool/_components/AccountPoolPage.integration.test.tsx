@@ -204,7 +204,7 @@ describe("AccountPoolPage", () => {
     await user.click(screen.getByRole("tab", { name: "事件日志" }));
 
     expect(await screen.findByText("当前筛选条件下没有事件")).toBeInTheDocument();
-    expect(mockedGetEvents).toHaveBeenCalledWith("proxy-token", { limit: 50 });
+    expect(mockedGetEvents).toHaveBeenCalledWith("proxy-token", { limit: 10 });
   });
 
   it("exposes parser and health as top-level workspaces", async () => {

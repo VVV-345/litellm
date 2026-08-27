@@ -31,11 +31,17 @@ import {
   updateRoutingCandidate,
   updateRoutingPolicy,
 } from "../api";
+import {
+  accountPoolTableColumnDividerClass,
+  formatAccountPoolEpoch,
+  formatAccountPoolNumber,
+  healthPresentation,
+  parseOptionalNumber,
+} from "../accountPoolPresentation";
 import { buildAutoRankingPreview, type AutoRankingPreviewEntry, type AutoRankingSignal } from "../autoRankingPreview";
 import { reasonLabel } from "../reasonLabels";
 import CapacityMeter from "./CapacityMeter";
 import type {
-  JsonDecimal,
   RoutingCandidateMutation,
   RoutingModelSummary,
   RoutingPolicyState,
@@ -52,16 +58,6 @@ const strategyLabels: Record<RoutingStrategy, string> = {
   least_inflight: "并发最少优先",
   weighted_round_robin: "权重轮询",
   quota_aware_least_inflight: "额度感知优先",
-};
-
-const healthLabels: Record<RoutingTableEntry["health"], string> = {
-  unknown: "等待请求",
-  healthy: "正常",
-  degraded: "异常",
-  unhealthy: "不可用",
-  half_open: "半开探测",
-  cooldown: "冷却中",
-  disabled: "已停用",
 };
 
 const billingLabels: Record<RoutingTableEntry["billing_mode"], string> = {
@@ -88,29 +84,6 @@ const autoRankingSignalLabels: Record<AutoRankingSignal, string> = {
   cost: "低价格",
 };
 
-const healthBadgeClass: Record<RoutingTableEntry["health"], string> = {
-  unknown: "border-slate-300 bg-slate-50 text-slate-700",
-  healthy: "border-emerald-300 bg-emerald-50 text-emerald-800",
-  degraded: "border-amber-300 bg-amber-50 text-amber-900",
-  unhealthy: "border-red-300 bg-red-50 text-red-800",
-  half_open: "border-sky-300 bg-sky-50 text-sky-800",
-  cooldown: "border-orange-300 bg-orange-50 text-orange-900",
-  disabled: "border-slate-300 bg-slate-100 text-slate-700",
-};
-
-const formatNumber = (value: JsonDecimal | null, maximumFractionDigits = 2): string => {
-  if (value === null) return "未知";
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue)
-    ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(numericValue)
-    : "未知";
-};
-
-const formatRecovery = (value: number | null): string =>
-  value === null ? "" : new Date(value * 1000).toLocaleString("zh-CN", { hour12: false });
-
-const optionalInteger = (value: string): number | null => (value.trim() === "" ? null : Number(value));
-
 const selectActiveModel = (models: RoutingModelSummary[], selectedModel: string | null): string | null => {
   const selected = selectedModel === null ? undefined : models.find((item) => item.model === selectedModel);
   return selected?.model ?? models[0]?.model ?? null;
@@ -120,7 +93,7 @@ const costText = (route: RoutingTableEntry): string => {
   const evidence = route.cost_evidence;
   if (!evidence) return "未知";
   if (evidence.kind === "subscription_included") return "套餐内包含";
-  return `${formatNumber(evidence.effective_cost)} ${evidence.currency}/${evidence.unit}${evidence.partial ? "（部分）" : ""}`;
+  return `${formatAccountPoolNumber(evidence.effective_cost)} ${evidence.currency}/${evidence.unit}${evidence.partial ? "（部分）" : ""}`;
 };
 
 const sortReasonText = (route: RoutingTableEntry): string =>
@@ -146,7 +119,7 @@ function AutoRankingPreviewDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="overflow-hidden rounded-md border">
-          <Table>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>建议</TableHead>
@@ -169,7 +142,7 @@ function AutoRankingPreviewDialog({
                     <AutoRankingEvidence entry={entry} />
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
-                    {entry.score === null ? "-" : formatNumber(entry.score, 0)}
+                    {entry.score === null ? "-" : formatAccountPoolNumber(entry.score, 0)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -271,7 +244,7 @@ function CandidateDialog({ route, policy, pending, onClose, onSave, onReset }: C
               取消
             </Button>
             <Button
-              onClick={() => onSave(optionalInteger(manualOrder), optionalInteger(weight), paused)}
+              onClick={() => onSave(parseOptionalNumber(manualOrder), parseOptionalNumber(weight), paused)}
               disabled={pending}
             >
               {pending && <Loader2 className="animate-spin" />}
@@ -342,7 +315,7 @@ function RoutingTableContent({
     );
   }
   return (
-    <Table>
+    <Table className={accountPoolTableColumnDividerClass}>
       <TableHeader>
         <TableRow>
           <TableHead>顺序与依据</TableHead>
@@ -373,8 +346,8 @@ function RoutingTableContent({
               </span>
             </TableCell>
             <TableCell className="align-top">
-              <Badge variant="outline" className={healthBadgeClass[route.health]}>
-                {healthLabels[route.health]}
+              <Badge variant="outline" className={healthPresentation[route.health].className}>
+                {healthPresentation[route.health].label}
               </Badge>
               <span className="mt-1 block text-xs text-muted-foreground">{billingLabels[route.billing_mode]}</span>
             </TableCell>
@@ -384,7 +357,7 @@ function RoutingTableContent({
               <CapacityMeter value={route.remaining_quota_ratio} label="余额可用" tone="emerald" />
             </TableCell>
             <TableCell className="align-top tabular-nums">
-              {route.latency_ewma_ms === null ? "未知" : `${formatNumber(route.latency_ewma_ms)} ms`}
+              {route.latency_ewma_ms === null ? "未知" : `${formatAccountPoolNumber(route.latency_ewma_ms)} ms`}
               <span className="mt-1 block max-w-48 whitespace-normal text-xs text-muted-foreground">
                 {costText(route)}
               </span>
@@ -398,7 +371,9 @@ function RoutingTableContent({
                 {route.available ? "可调度" : reasonLabel(route.reason_code ?? route.unavailable_reason ?? "不可用")}
               </Badge>
               {route.retry_at && (
-                <span className="mt-1 block text-xs text-muted-foreground">恢复 {formatRecovery(route.retry_at)}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  恢复 {formatAccountPoolEpoch(route.retry_at, "")}
+                </span>
               )}
             </TableCell>
             <TableCell className="text-right align-top">

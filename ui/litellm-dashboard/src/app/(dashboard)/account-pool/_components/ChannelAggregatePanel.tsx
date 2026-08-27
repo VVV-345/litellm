@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getChannelAggregate } from "../api";
+import { accountPoolTableColumnDividerClass, formatAccountPoolDateTime } from "../accountPoolPresentation";
 import { reasonLabelWithCode } from "../reasonLabels";
 import type { ChannelAggregateDetail, DetailSection, JsonValue, RoutingTableEntry } from "../types";
 
@@ -19,16 +20,10 @@ interface ChannelAggregatePanelProps {
   onOpenChannelEvents: (channelId: string) => void;
 }
 
-const formatDate = (value: string | null): string =>
-  value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "暂无";
-
 const formatJson = (value: JsonValue): string => JSON.stringify(value, null, 2);
 
 const routeStatus = (route: RoutingTableEntry): string =>
   route.available ? "可调度" : reasonLabelWithCode(route.reason_code ?? route.unavailable_reason ?? "不可调度");
-
-const columnDividerClass =
-  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
 
 export default function ChannelAggregatePanel({
   accessToken,
@@ -78,7 +73,7 @@ function AggregateContent({
           label="当前并发"
           value={overview?.runtime ? `${overview.runtime.inflight} / ${overview.runtime.max_concurrency}` : "未知"}
         />
-        <SummaryItem label="最近请求" value={formatDate(overview?.activity.last_request_at ?? null)} />
+        <SummaryItem label="最近请求" value={formatAccountPoolDateTime(overview?.activity.last_request_at ?? null)} />
       </div>
 
       <section className="border-t pt-5">
@@ -94,7 +89,7 @@ function AggregateContent({
           <DetailValue label="最大并发" value={String(detail.channel.max_concurrency)} />
         </div>
         <div className="overflow-x-auto rounded-md border">
-          <Table className={columnDividerClass}>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>对外模型</TableHead>
@@ -159,7 +154,7 @@ function RouteSection({ section }: { section: DetailSection<RoutingTableEntry[]>
       <SectionHeading title="模型调度位置" section={section} />
       {section.data && (
         <div className="overflow-x-auto rounded-md border">
-          <Table className={columnDividerClass}>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>顺序</TableHead>
@@ -216,7 +211,7 @@ function EventSection({
       />
       {detail.events.data && (
         <div className="overflow-x-auto rounded-md border">
-          <Table className={columnDividerClass}>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -229,7 +224,7 @@ function EventSection({
             <TableBody>
               {detail.events.data.map((event) => (
                 <TableRow key={event.event_id}>
-                  <TableCell className="whitespace-nowrap">{formatDate(event.occurred_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatAccountPoolDateTime(event.occurred_at)}</TableCell>
                   <TableCell>{event.event_type}</TableCell>
                   <TableCell>{event.outcome}</TableCell>
                   <TableCell>{event.reason_code ? reasonLabelWithCode(event.reason_code) : "无"}</TableCell>

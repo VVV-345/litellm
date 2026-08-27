@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getEvents } from "../api";
+import { accountPoolTableColumnDividerClass, formatAccountPoolDateTime } from "../accountPoolPresentation";
 import { reasonLabelWithCode } from "../reasonLabels";
 import type { EventLogEntry, EventLogFilters, EventQueryOutcome } from "../types";
 
@@ -78,8 +79,6 @@ const emptyFilters: EventLogFilters = { limit: eventPageSize };
 const initialFiltersFor = (channelId: string | null): EventLogFilters =>
   channelId ? { ...emptyFilters, channel_id: channelId } : emptyFilters;
 
-const formatDate = (value: string): string => new Date(value).toLocaleString("zh-CN", { hour12: false });
-
 const cleanFilters = (filters: EventLogFilters): EventLogFilters =>
   Object.fromEntries(
     Object.entries(filters)
@@ -107,9 +106,6 @@ const eventDetails = (event: EventLogEntry): string => {
   }
   return event.actor_id;
 };
-
-const columnDividerClass =
-  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
 
 interface EventLogPanelProps {
   accessToken: string;
@@ -359,7 +355,7 @@ function EventTable({
       {isError && events.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-destructive">无法读取事件日志，请检查 PostgreSQL</div>
       ) : (
-        <Table className={columnDividerClass}>
+        <Table className={accountPoolTableColumnDividerClass}>
           <TableHeader>
             <TableRow>
               <TableHead>时间</TableHead>
@@ -376,7 +372,9 @@ function EventTable({
           <TableBody>
             {events.map((event) => (
               <TableRow key={event.event_id}>
-                <TableCell className="whitespace-nowrap align-top text-xs">{formatDate(event.occurred_at)}</TableCell>
+                <TableCell className="whitespace-nowrap align-top text-xs">
+                  {formatAccountPoolDateTime(event.occurred_at)}
+                </TableCell>
                 <TableCell className="align-top">
                   <strong className="block text-sm">{eventTypeLabels[event.event_type] ?? event.event_type}</strong>
                   <span className="mt-1 block text-xs text-muted-foreground">{event.event_type}</span>
@@ -458,7 +456,7 @@ function EventDetailsDialog({ event, onClose }: { event: EventLogEntry | null; o
           <div className="space-y-4 text-sm">
             <dl className="grid gap-3 sm:grid-cols-2">
               <EventDetail label="事件类型" value={eventTypeLabels[event.event_type] ?? event.event_type} />
-              <EventDetail label="发生时间" value={formatDate(event.occurred_at)} />
+              <EventDetail label="发生时间" value={formatAccountPoolDateTime(event.occurred_at)} />
               <EventDetail label="渠道 ID" value={event.channel_id ?? "无"} />
               <EventDetail label="模型" value={event.model_id ?? "无"} />
               <EventDetail label="Deployment" value={event.deployment_id ?? "无"} />

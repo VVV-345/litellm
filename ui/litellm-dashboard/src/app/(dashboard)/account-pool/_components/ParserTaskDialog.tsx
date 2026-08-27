@@ -2,11 +2,10 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, KeyRound, Loader2, Play, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -19,10 +18,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { accountPoolKeys, getParserTask, startParserTask } from "../api";
 import type { ChannelSummary, ProviderServiceManifest } from "../types";
+import { EphemeralCredentialField, ProviderProtocolSelect } from "./AccountPoolFormFields";
 
 interface ParserTaskDialogProps {
   accessToken: string;
@@ -58,7 +57,6 @@ export default function ParserTaskDialog({
   const [explicitParserId, setExplicitParserId] = useState("");
   const [openAICompatible, setOpenAICompatible] = useState(initialProvider === "openai_compatible");
   const [taskId, setTaskId] = useState<string | null>(null);
-  const selectedProvider = providers.find((provider) => provider.provider_id === providerId);
 
   const taskQuery = useQuery({
     queryKey: accountPoolKeys.task(channel.channel_id, taskId ?? "pending"),
@@ -97,8 +95,7 @@ export default function ParserTaskDialog({
     onClose();
   };
 
-  const selectProvider = (value: string | null) => {
-    if (!value) return;
+  const selectProvider = (value: string) => {
     setProviderId(value);
     setOpenAICompatible(value === "openai_compatible");
   };
@@ -117,48 +114,17 @@ export default function ParserTaskDialog({
 
         {taskId === null ? (
           <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label>渠道服务</Label>
-              <Select value={providerId} onValueChange={selectProvider}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>{selectedProvider?.display_name ?? providerId}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {providers.map((provider) => (
-                    <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                      {provider.display_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {selectedProvider && (
-              <div className="flex flex-wrap gap-1.5">
-                {selectedProvider.capabilities.map((capability) => (
-                  <Badge key={capability.capability} variant="outline">
-                    {capability.capability}: {capability.state}
-                  </Badge>
-                ))}
-              </div>
-            )}
+            <ProviderProtocolSelect
+              providers={providers}
+              value={providerId}
+              onValueChange={selectProvider}
+              description="连接协议仅处理鉴权和资源侧接口；解析器按渠道数据选择相应解析规则"
+            />
             <div className="grid gap-2">
               <Label htmlFor="parser-api-base">上游 URL</Label>
               <Input id="parser-api-base" value={channel.base_url_display} readOnly />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="parser-api-key">一次性 Key</Label>
-              <div className="relative">
-                <KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                <Input
-                  id="parser-api-key"
-                  type="password"
-                  className="pl-9"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
+            <EphemeralCredentialField id="parser-api-key" label="一次性 Key" value={apiKey} onValueChange={setApiKey} />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="parser-username">New API 管理员账号（可选）</Label>
@@ -180,9 +146,7 @@ export default function ParserTaskDialog({
                 />
               </div>
             </div>
-            {hasPartialAdminCredentials && (
-              <p className="text-sm text-destructive">管理员账号与密码必须同时提供</p>
-            )}
+            {hasPartialAdminCredentials && <p className="text-sm text-destructive">管理员账号与密码必须同时提供</p>}
             {hasCompleteAdminCredentials && (
               <p className="text-sm text-muted-foreground">管理员凭证仅用于本次解析后获取倍率价格，不会被保存</p>
             )}

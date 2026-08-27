@@ -9,50 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getOverview } from "../api";
+import {
+  accountPoolTableColumnDividerClass,
+  formatAccountPoolDateTime,
+  formatAccountPoolNumber,
+  healthPresentation,
+  parserOverviewLabels,
+} from "../accountPoolPresentation";
 import { reasonLabelWithCode } from "../reasonLabels";
-import type { ChannelOverview, JsonDecimal, ParserOverviewState } from "../types";
+import type { ChannelOverview } from "../types";
 import CapacityMeter from "./CapacityMeter";
-
-const healthLabels: Record<NonNullable<ChannelOverview["runtime"]>["health"], string> = {
-  unknown: "等待请求",
-  healthy: "正常",
-  degraded: "异常",
-  unhealthy: "不可用",
-  half_open: "半开探测",
-  cooldown: "冷却中",
-  disabled: "已停用",
-};
-
-const parserLabels: Record<ParserOverviewState, string> = {
-  loaded: "已解析",
-  not_run: "未解析",
-  unavailable: "解析数据不可用",
-  invalid: "解析数据异常",
-};
-
-const healthBadgeClass: Record<NonNullable<ChannelOverview["runtime"]>["health"], string> = {
-  unknown: "border-slate-300 bg-slate-50 text-slate-700",
-  healthy: "border-emerald-300 bg-emerald-50 text-emerald-800",
-  degraded: "border-amber-300 bg-amber-50 text-amber-900",
-  unhealthy: "border-red-300 bg-red-50 text-red-800",
-  half_open: "border-sky-300 bg-sky-50 text-sky-800",
-  cooldown: "border-orange-300 bg-orange-50 text-orange-900",
-  disabled: "border-slate-300 bg-slate-100 text-slate-700",
-};
-
-const columnDividerClass =
-  "[&_th:not(:last-child)]:border-r [&_th:not(:last-child)]:border-border/70 [&_td:not(:last-child)]:border-r [&_td:not(:last-child)]:border-border/70";
-
-const formatNumber = (value: JsonDecimal | null): string => {
-  if (value === null) return "未知";
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue)
-    ? new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 }).format(numericValue)
-    : "未知";
-};
-
-const formatDate = (value: string | null): string =>
-  value === null ? "暂无" : new Date(value).toLocaleString("zh-CN", { hour12: false });
 
 const parserSummary = (channel: ChannelOverview): string => {
   const subscription = channel.parser.subscription;
@@ -60,17 +26,17 @@ const parserSummary = (channel: ChannelOverview): string => {
   if (subscription && metered) return `${subscription.plan_name ?? "套餐"} / ${metered.group_count} 个按量分组`;
   if (subscription) return subscription.plan_name ?? "已识别套餐";
   if (metered) return `${metered.group_count} 个按量分组`;
-  return parserLabels[channel.parser.state];
+  return parserOverviewLabels[channel.parser.state];
 };
 
 const quotaSummary = (channel: ChannelOverview): string => {
   if (!channel.runtime) return "运行态未投影";
   const quota = channel.runtime.quota;
-  return `${formatNumber(quota.total)} ${quota.unit}`;
+  return `${formatAccountPoolNumber(quota.total)} ${quota.unit}`;
 };
 
 const parserIdentity = (channel: ChannelOverview): string => {
-  if (!channel.parser.parser_id) return parserLabels[channel.parser.state];
+  if (!channel.parser.parser_id) return parserOverviewLabels[channel.parser.state];
   const version = channel.parser.parser_version ? ` ${channel.parser.parser_version}` : "";
   return `${channel.parser.parser_id}${version} · ${channel.parser.status ?? "unknown"}`;
 };
@@ -78,7 +44,7 @@ const parserIdentity = (channel: ChannelOverview): string => {
 const subscriptionBalance = (channel: ChannelOverview): string | null => {
   const subscription = channel.parser.subscription;
   if (!subscription || subscription.balance === null) return null;
-  return `${formatNumber(subscription.balance)} ${subscription.currency ?? ""}`.trim();
+  return `${formatAccountPoolNumber(subscription.balance)} ${subscription.currency ?? ""}`.trim();
 };
 
 interface OverviewPanelProps {
@@ -130,7 +96,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
           <h2 className="text-sm font-semibold">渠道运行总览</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">配置、解析和实时调度资格的统一视图</p>
         </div>
-        <Table className={columnDividerClass}>
+        <Table className={accountPoolTableColumnDividerClass}>
           <TableHeader>
             <TableRow>
               <TableHead>渠道</TableHead>
@@ -161,7 +127,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
                 </TableCell>
                 <TableCell className="align-top">
                   <Badge variant={channel.parser.state === "loaded" ? "secondary" : "outline"}>
-                    {parserLabels[channel.parser.state]}
+                    {parserOverviewLabels[channel.parser.state]}
                   </Badge>
                   <span className="mt-1 block max-w-52 whitespace-normal text-xs text-muted-foreground">
                     {parserSummary(channel)}
@@ -183,11 +149,11 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
                       ? "可调度"
                       : channel.unavailable_reason_codes.map(reasonLabelWithCode).join("、") ||
                         (channel.runtime?.reason_code ? reasonLabelWithCode(channel.runtime.reason_code) : null) ||
-                        healthLabels[channel.runtime?.health ?? "unknown"]}
+                        healthPresentation[channel.runtime?.health ?? "unknown"].label}
                   </Badge>
                   {channel.runtime ? (
-                    <Badge variant="outline" className={`mt-1 ${healthBadgeClass[channel.runtime.health]}`}>
-                      {healthLabels[channel.runtime.health]}
+                    <Badge variant="outline" className={`mt-1 ${healthPresentation[channel.runtime.health].className}`}>
+                      {healthPresentation[channel.runtime.health].label}
                     </Badge>
                   ) : (
                     <span className="mt-1 block text-xs text-muted-foreground">运行态未投影</span>
@@ -210,7 +176,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
                   )}
                 </TableCell>
                 <TableCell className="align-top">
-                  {formatDate(channel.activity.last_request_at)}
+                  {formatAccountPoolDateTime(channel.activity.last_request_at)}
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {channel.activity.persistence_available ? "最近请求" : "活动数据不可用"}
                   </span>

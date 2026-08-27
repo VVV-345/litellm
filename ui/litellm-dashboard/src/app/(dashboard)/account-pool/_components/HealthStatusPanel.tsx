@@ -9,22 +9,18 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { accountPoolKeys, getChannelHealth } from "../api";
-import type { ChannelHealthDetail, HealthEventRecord, HealthExclusion } from "../types";
+import {
+  accountPoolTableColumnDividerClass,
+  formatAccountPoolDateTime,
+  formatAccountPoolEpoch,
+  healthPresentation,
+} from "../accountPoolPresentation";
+import type { HealthEventRecord, HealthExclusion } from "../types";
 
 interface HealthStatusPanelProps {
   accessToken: string;
   channelId: string;
 }
-
-const healthLabel: Record<ChannelHealthDetail["runtime"]["health"], string> = {
-  unknown: "未知",
-  healthy: "健康",
-  degraded: "降级",
-  unhealthy: "不可用",
-  half_open: "半开探测",
-  cooldown: "冷却中",
-  disabled: "已停用",
-};
 
 const reasonLabel: Record<string, string> = {
   credential_invalid: "凭证无效",
@@ -39,8 +35,6 @@ const reasonLabel: Record<string, string> = {
   transport_failure: "连接失败",
 };
 
-const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
-const formatEpoch = (value: number | null) => (value ? new Date(value * 1000).toLocaleString() : "-");
 const latestDate = (values: Array<string | null>) =>
   values.reduce<string | null>((latest, value) => (!value || (latest && latest >= value) ? latest : value), null);
 const eventSource = (record: HealthEventRecord) =>
@@ -81,11 +75,11 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
         <SummaryItem
           icon={runtime.health === "healthy" ? <CheckCircle2 /> : <AlertTriangle />}
           label="当前状态"
-          value={healthLabel[runtime.health]}
+          value={healthPresentation[runtime.health].label}
         />
         <SummaryItem icon={<Activity />} label="当前并发" value={`${runtime.inflight} / ${runtime.max_concurrency}`} />
-        <SummaryItem icon={<Clock3 />} label="最近请求" value={formatDate(lastRequestAt)} />
-        <SummaryItem icon={<Clock3 />} label="最近探测" value={formatDate(lastProbeAt)} />
+        <SummaryItem icon={<Clock3 />} label="最近请求" value={formatAccountPoolDateTime(lastRequestAt, "-")} />
+        <SummaryItem icon={<Clock3 />} label="最近探测" value={formatAccountPoolDateTime(lastProbeAt, "-")} />
       </div>
 
       <section>
@@ -95,7 +89,7 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
           {!detail.persistence_available && <Badge variant="outline">仅运行时数据</Badge>}
         </div>
         <div className="overflow-x-auto rounded-md border">
-          <Table>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>范围</TableHead>
@@ -116,7 +110,7 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
                   <TableCell>
                     <Badge variant={exclusion.state === "active" ? "destructive" : "outline"}>{exclusion.state}</Badge>
                   </TableCell>
-                  <TableCell>{formatEpoch(exclusion.retry_at)}</TableCell>
+                  <TableCell>{formatAccountPoolEpoch(exclusion.retry_at)}</TableCell>
                 </TableRow>
               ))}
               {detail.exclusions.length === 0 && (
@@ -137,7 +131,7 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
           <Badge variant="outline">{detail.events.length}</Badge>
         </div>
         <div className="overflow-x-auto rounded-md border">
-          <Table>
+          <Table className={accountPoolTableColumnDividerClass}>
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
@@ -151,7 +145,7 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
             <TableBody>
               {detail.events.map((record) => (
                 <TableRow key={record.event.event_id}>
-                  <TableCell>{formatDate(record.event.occurred_at)}</TableCell>
+                  <TableCell>{formatAccountPoolDateTime(record.event.occurred_at, "-")}</TableCell>
                   <TableCell>{eventSource(record)}</TableCell>
                   <TableCell className="max-w-64 whitespace-normal break-all">
                     <div>{record.event.model_id}</div>

@@ -2,16 +2,16 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Loader2, RefreshCw, X } from "lucide-react";
+import { Loader2, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 import { accountPoolKeys, getOperation, reconcileChannel } from "../api";
 import type { ChannelOperation } from "../types";
+import { EphemeralCredentialInput } from "./AccountPoolFormFields";
 
 interface OperationStatusPanelProps {
   accessToken: string;
@@ -55,17 +55,39 @@ export default function OperationStatusPanel({ accessToken, initialOperation, on
     <div className="flex flex-wrap items-center gap-3 rounded-md border bg-background px-4 py-3 text-sm">
       {!terminal && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2"><span className="font-medium">渠道同步</span><Badge variant={operationBadgeVariant(operation.operation_status)}>{operation.operation_status}</Badge></div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">渠道同步</span>
+          <Badge variant={operationBadgeVariant(operation.operation_status)}>{operation.operation_status}</Badge>
+        </div>
         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{operation.operation_id}</p>
-        {operation.failure && <p className="mt-1 text-xs text-destructive">{operation.failure.code}: {operation.failure.message}</p>}
+        {operation.failure && (
+          <p className="mt-1 text-xs text-destructive">
+            {operation.failure.code}: {operation.failure.message}
+          </p>
+        )}
       </div>
       {operation.operation_status === "failed" && (
         <div className="flex min-w-64 flex-1 items-center gap-2">
-          <div className="relative flex-1"><KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" /><Input type="password" className="pl-9" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={operation.requires_key ? "重试需要一次性 Key" : "新 Key（可选）"} autoComplete="off" /></div>
-          <Button variant="outline" onClick={() => retryMutation.mutate()} disabled={retryMutation.isPending || (operation.requires_key && !apiKey)}>{retryMutation.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}重试</Button>
+          <div className="flex-1">
+            <EphemeralCredentialInput
+              value={apiKey}
+              placeholder={operation.requires_key ? "重试需要一次性 Key" : "新 Key（可选）"}
+              onValueChange={setApiKey}
+            />
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => retryMutation.mutate()}
+            disabled={retryMutation.isPending || (operation.requires_key && !apiKey)}
+          >
+            {retryMutation.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}重试
+          </Button>
         </div>
       )}
-      <Button variant="ghost" size="icon" onClick={onClose}><X /><span className="sr-only">关闭状态</span></Button>
+      <Button variant="ghost" size="icon" onClick={onClose}>
+        <X />
+        <span className="sr-only">关闭状态</span>
+      </Button>
     </div>
   );
 }

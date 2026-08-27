@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronDown, KeyRound, Link2, Loader2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { ChevronDown, Link2, Loader2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import CreatableModelSelect from "@/components/add_model/CreatableModelSelect";
@@ -36,7 +36,9 @@ import {
   selectManualMapping,
   validateDiscoveryResult,
 } from "../channelModelSelection";
+import { channelPriorityPresentation, parseOptionalNumber } from "../accountPoolPresentation";
 import { MultiSelect } from "@/components/shared/MultiSelect";
+import { EphemeralCredentialField, ProviderProtocolSelect } from "./AccountPoolFormFields";
 import { providerModelForSelectedModel } from "./providerModel";
 import type {
   AdministrativeState,
@@ -69,12 +71,6 @@ const priorityOptions: ReadonlyArray<{ label: string; value: ChannelPriority }> 
   { label: "中", value: 200 },
   { label: "低", value: 100 },
 ];
-const priorityLabels: Record<ChannelPriority, string> = {
-  400: "最高",
-  300: "高",
-  200: "中",
-  100: "低",
-};
 const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindingInput => ({
   binding_id: null,
   public_model: "",
@@ -83,7 +79,6 @@ const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindi
   ownership,
   enabled: true,
 });
-const optionalNumber = (value: string): number | null => (value.trim() ? Number(value) : null);
 const defaultOwnership = (mode: ChannelFormMode): ChannelBindingInput["ownership"] =>
   mode === "import" ? "externally_managed" : "pool_managed";
 const dialogTitle = (mode: ChannelFormMode): string => {
@@ -370,25 +365,17 @@ function ChannelFormContent({
               />
               <p className="text-xs text-muted-foreground">填写 API 基础地址，不要追加 /models</p>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="channel-key">{editing ? "新 Key（可选）" : "接入凭据"}</Label>
-              <div className="relative">
-                <KeyRound className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                <Input
-                  id="channel-key"
-                  type="password"
-                  className="pl-9"
-                  value={apiKey}
-                  disabled={inputsDisabled}
-                  onChange={(event) => {
-                    setApiKey(event.target.value);
-                    invalidateDiscovery();
-                  }}
-                  autoComplete="off"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">凭据仅随本次请求提交，不会保留在浏览器状态中</p>
-            </div>
+            <EphemeralCredentialField
+              id="channel-key"
+              label={editing ? "新 Key（可选）" : "接入凭据"}
+              value={apiKey}
+              disabled={inputsDisabled}
+              description="凭据仅随本次请求提交，不会保留在浏览器状态中"
+              onValueChange={(value) => {
+                setApiKey(value);
+                invalidateDiscovery();
+              }}
+            />
           </section>
 
           <section className="grid gap-4 rounded-md border p-4">
@@ -562,24 +549,13 @@ function ChannelFormContent({
               <ChevronDown className="size-4 text-muted-foreground" />
             </CollapsibleTrigger>
             <CollapsibleContent className="grid gap-4 border-t p-4">
-              <div className="grid gap-2">
-                <Label>连接协议</Label>
-                <Select value={provider} onValueChange={chooseProvider} disabled={inputsDisabled}>
-                  <SelectTrigger className="w-full" aria-label="连接协议">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {providers.map((item) => (
-                      <SelectItem key={item.provider_id} value={item.provider_id}>
-                        {item.display_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  仅决定鉴权和资源侧模型列表的请求方式；渠道数据解析由独立解析器处理
-                </p>
-              </div>
+              <ProviderProtocolSelect
+                providers={providers}
+                value={provider}
+                disabled={inputsDisabled}
+                onValueChange={chooseProvider}
+                description="仅决定鉴权和资源侧模型列表的请求方式；渠道数据解析由独立解析器处理"
+              />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="grid gap-2">
                   <Label>状态</Label>
@@ -614,7 +590,7 @@ function ChannelFormContent({
                     onValueChange={(value) => value && setPriority(Number(value) as ChannelPriority)}
                   >
                     <SelectTrigger id="channel-priority">
-                      <SelectValue>{priorityLabels[priority]}</SelectValue>
+                      <SelectValue>{channelPriorityPresentation[priority].label}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {priorityOptions.map((option) => (
@@ -660,7 +636,7 @@ function ChannelFormContent({
                       type="number"
                       min={0}
                       value={quotas.total ?? ""}
-                      onChange={(event) => setQuotas({ ...quotas, total: optionalNumber(event.target.value) })}
+                      onChange={(event) => setQuotas({ ...quotas, total: parseOptionalNumber(event.target.value) })}
                     />
                   </div>
                   <div className="grid gap-1">
@@ -669,7 +645,7 @@ function ChannelFormContent({
                       type="number"
                       min={0}
                       value={quotas.five_hour ?? ""}
-                      onChange={(event) => setQuotas({ ...quotas, five_hour: optionalNumber(event.target.value) })}
+                      onChange={(event) => setQuotas({ ...quotas, five_hour: parseOptionalNumber(event.target.value) })}
                     />
                   </div>
                   <div className="grid gap-1">
@@ -678,7 +654,7 @@ function ChannelFormContent({
                       type="number"
                       min={0}
                       value={quotas.weekly ?? ""}
-                      onChange={(event) => setQuotas({ ...quotas, weekly: optionalNumber(event.target.value) })}
+                      onChange={(event) => setQuotas({ ...quotas, weekly: parseOptionalNumber(event.target.value) })}
                     />
                   </div>
                 </div>

@@ -125,7 +125,8 @@ describe("RoutingPanel", () => {
     expect(screen.getByText(/成本最低优先 · 1\/1 可用/)).toBeInTheDocument();
     expect(screen.getByRole("combobox")).toHaveTextContent("成本最低优先");
     expect(screen.getByText("有效成本 / 渠道优先级")).toBeInTheDocument();
-    expect(screen.getByText("额度 75%")).toBeInTheDocument();
+    expect(screen.getByText("余额可用")).toBeInTheDocument();
+    expect(screen.getByText("75%")).toBeInTheDocument();
     expect(screen.getByText("120 ms")).toBeInTheDocument();
     expect(screen.getByText("3 USD/million_tokens")).toBeInTheDocument();
   });
