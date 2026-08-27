@@ -11,10 +11,6 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  - job_name: 'litellm'
-    static_configs:
-      - targets: ['litellm:4000']  # Assuming Litellm exposes metrics at port 4000
-
   - job_name: 'account-pool'
     metrics_path: /metrics
     static_configs:
