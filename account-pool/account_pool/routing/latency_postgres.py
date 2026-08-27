@@ -53,7 +53,7 @@ class PostgresLatencyMetricRepository:
                     WHERE binding_id = ANY(%s)
                     ORDER BY binding_id
                     """,
-                    (tuple(str(binding_id) for binding_id in binding_ids),),
+                    ([str(binding_id) for binding_id in binding_ids],),
                 )
                 rows: Final = tuple(_LatencyRow.model_validate(row) for row in await cursor.fetchall())
                 return LatencyLoadSuccess(metrics=tuple(_metric(row) for row in rows))
