@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { accountPoolKeys, getOverview } from "../api";
 import { reasonLabelWithCode } from "../reasonLabels";
 import type { ChannelOverview, JsonDecimal, ParserOverviewState } from "../types";
+import CapacityMeter from "./CapacityMeter";
 
 const healthLabels: Record<NonNullable<ChannelOverview["runtime"]>["health"], string> = {
   unknown: "等待请求",
@@ -27,6 +28,16 @@ const parserLabels: Record<ParserOverviewState, string> = {
   not_run: "未解析",
   unavailable: "解析数据不可用",
   invalid: "解析数据异常",
+};
+
+const healthBadgeClass: Record<NonNullable<ChannelOverview["runtime"]>["health"], string> = {
+  unknown: "border-slate-300 bg-slate-50 text-slate-700",
+  healthy: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  degraded: "border-amber-300 bg-amber-50 text-amber-900",
+  unhealthy: "border-red-300 bg-red-50 text-red-800",
+  half_open: "border-sky-300 bg-sky-50 text-sky-800",
+  cooldown: "border-orange-300 bg-orange-50 text-orange-900",
+  disabled: "border-slate-300 bg-slate-100 text-slate-700",
 };
 
 const formatNumber = (value: JsonDecimal | null): string => {
@@ -97,13 +108,18 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
   return (
     <div className="min-w-0 space-y-4">
       <div className="grid border-y sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryMetric label="渠道" value={`${overview.schedulable_count}/${overview.channel_count} 可调度`} />
+        <SummaryMetric
+          label="渠道"
+          value={`${overview.schedulable_count}/${overview.channel_count} 可调度`}
+          tone={overview.schedulable_count === overview.channel_count ? "emerald" : "amber"}
+        />
         <SummaryMetric
           label="模型"
           value={`${overview.schedulable_model_count}/${overview.configured_model_count} 可调度`}
+          tone="sky"
         />
-        <SummaryMetric label="健康" value={`${overview.healthy_count}/${overview.channel_count} 正常`} />
-        <SummaryMetric label="并发" value={`${overview.inflight}/${overview.max_concurrency}`} />
+        <SummaryMetric label="健康" value={`${overview.healthy_count}/${overview.channel_count} 正常`} tone="emerald" />
+        <SummaryMetric label="并发" value={`${overview.inflight}/${overview.max_concurrency}`} tone="violet" />
       </div>
 
       <section className="min-w-0 overflow-hidden rounded-md border bg-background">
@@ -152,19 +168,37 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
                   </span>
                 </TableCell>
                 <TableCell className="align-top">
-                  <Badge variant={channel.schedulable_models.length > 0 ? "secondary" : "destructive"}>
+                  <Badge
+                    variant="outline"
+                    className={
+                      channel.schedulable_models.length > 0
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                        : "border-red-300 bg-red-50 text-red-800"
+                    }
+                  >
                     {channel.schedulable_models.length > 0
                       ? "可调度"
                       : channel.unavailable_reason_codes.map(reasonLabelWithCode).join("、") ||
                         (channel.runtime?.reason_code ? reasonLabelWithCode(channel.runtime.reason_code) : null) ||
                         healthLabels[channel.runtime?.health ?? "unknown"]}
                   </Badge>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {channel.runtime ? healthLabels[channel.runtime.health] : "运行态未投影"}
-                  </span>
+                  {channel.runtime ? (
+                    <Badge variant="outline" className={`mt-1 ${healthBadgeClass[channel.runtime.health]}`}>
+                      {healthLabels[channel.runtime.health]}
+                    </Badge>
+                  ) : (
+                    <span className="mt-1 block text-xs text-muted-foreground">运行态未投影</span>
+                  )}
                 </TableCell>
                 <TableCell className="align-top tabular-nums">
                   {channel.runtime ? `${channel.runtime.inflight}/${channel.runtime.max_concurrency}` : "未知"}
+                  {channel.runtime && (
+                    <CapacityMeter
+                      value={channel.runtime.inflight / channel.runtime.max_concurrency}
+                      label="并发占用"
+                      tone="violet"
+                    />
+                  )}
                   <span className="mt-1 block text-xs text-muted-foreground">余额/额度 {quotaSummary(channel)}</span>
                   {subscriptionBalance(channel) && (
                     <span className="mt-1 block text-xs text-muted-foreground">
@@ -207,10 +241,27 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
   );
 }
 
-function SummaryMetric({ label, value }: { label: string; value: string }) {
+function SummaryMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "emerald" | "amber" | "sky" | "violet";
+}) {
+  const dotClass = {
+    emerald: "bg-emerald-500",
+    amber: "bg-amber-500",
+    sky: "bg-sky-500",
+    violet: "bg-violet-500",
+  }[tone];
   return (
     <div className="px-4 py-3 sm:border-r sm:last:border-r-0">
-      <span className="block text-xs text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className={`size-1.5 rounded-full ${dotClass}`} />
+        {label}
+      </span>
       <strong className="mt-1 block text-lg font-semibold tabular-nums">{value}</strong>
     </div>
   );

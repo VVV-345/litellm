@@ -33,6 +33,7 @@ import {
 } from "../api";
 import { buildAutoRankingPreview, type AutoRankingSignal } from "../autoRankingPreview";
 import { reasonLabel } from "../reasonLabels";
+import CapacityMeter from "./CapacityMeter";
 import type {
   JsonDecimal,
   RoutingCandidateMutation,
@@ -124,21 +125,6 @@ const costText = (route: RoutingTableEntry): string => {
 
 const sortReasonText = (route: RoutingTableEntry): string =>
   route.sort_reason_codes.map((code) => sortReasonLabels[code] ?? code).join(" / ") || "稳定顺序";
-
-function CapacityMeter({ value, label, tone = "bg-sky-500" }: { value: number | null; label: string; tone?: string }) {
-  const percent = value === null ? null : Math.min(100, Math.max(0, value * 100));
-  return (
-    <div className="mt-1.5 min-w-28">
-      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{label}</span>
-        <span className="tabular-nums">{percent === null ? "未知" : `${formatNumber(percent, 0)}%`}</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={`h-full rounded-full ${tone}`} style={{ width: `${percent ?? 0}%` }} />
-      </div>
-    </div>
-  );
-}
 
 function AutoRankingPreviewDialog({
   routes,
@@ -388,8 +374,8 @@ function RoutingTableContent({
             </TableCell>
             <TableCell className="align-top tabular-nums">
               {route.inflight} / {route.max_concurrency}
-              <CapacityMeter value={route.inflight / route.max_concurrency} label="并发占用" tone="bg-violet-500" />
-              <CapacityMeter value={route.remaining_quota_ratio} label="余额可用" tone="bg-emerald-500" />
+              <CapacityMeter value={route.inflight / route.max_concurrency} label="并发占用" tone="violet" />
+              <CapacityMeter value={route.remaining_quota_ratio} label="余额可用" tone="emerald" />
             </TableCell>
             <TableCell className="align-top tabular-nums">
               {route.latency_ewma_ms === null ? "未知" : `${formatNumber(route.latency_ewma_ms)} ms`}
