@@ -132,6 +132,22 @@ describe("ChannelFormDialog", () => {
     expect(screen.queryByText("model_discovery: supported")).not.toBeInTheDocument();
   });
 
+  it("defaults resource discovery to the OpenAI-compatible protocol instead of registry order", async () => {
+    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
+    const user = userEvent.setup();
+
+    render(<DialogHarness providers={[unavailableDiscoveryProvider, discoveryProvider]} />);
+
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+
+    expect(validateProviderService).toHaveBeenCalledWith(
+      "proxy-token",
+      expect.objectContaining({ provider_id: "openai_compatible" }),
+    );
+  });
+
   it("mounts editable state from the complete channel detail instead of the list summary", async () => {
     vi.mocked(getChannel).mockResolvedValue(detail);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -172,7 +188,7 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText(/无法使用上游模型发现/)).toBeInTheDocument();
+    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
 
     rerender(
       <QueryClientProvider client={queryClient}>
@@ -180,7 +196,7 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("button", { name: "验证并发现模型" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
   });
 
   it("retains discovered selections across an equivalent manifest refetch", async () => {
@@ -201,10 +217,11 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    await user.type(screen.getByLabelText("上游 URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
-    await user.click(await screen.findByRole("combobox", { name: "选择已验证的上游模型" }));
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+    await user.click(await screen.findByRole("button", { name: "清除全部" }));
+    await user.click(await screen.findByRole("combobox", { name: "选择资源侧模型" }));
     await user.click(await screen.findByText("model-b"));
     await user.keyboard("{Escape}");
 
@@ -237,11 +254,11 @@ describe("ChannelFormDialog", () => {
     );
 
     await user.type(screen.getByLabelText("显示名称"), "Primary");
-    await user.type(screen.getByLabelText("上游 URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
 
-    expect(await screen.findByRole("button", { name: "使用手动映射" })).toBeInTheDocument();
+    expect(await screen.findByText("已获取 2 个模型，默认全部选中")).toBeInTheDocument();
     expect(validateProviderService).toHaveBeenCalledWith("proxy-token", {
       provider_id: "openai_compatible",
       api_base: "https://gateway.example/v1",
@@ -249,14 +266,7 @@ describe("ChannelFormDialog", () => {
       group: null,
     });
     expect(screen.queryByText("generic-suggestion")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
-
-    await user.click(screen.getByRole("combobox", { name: "选择已验证的上游模型" }));
-    await user.click(await screen.findByText("vendor/model-a"));
-    await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("combobox", { name: "选择已验证的上游模型" }));
-    await user.click(await screen.findByText("model-b"));
-    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "创建" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(createChannel).toHaveBeenCalledWith(
@@ -264,8 +274,8 @@ describe("ChannelFormDialog", () => {
       expect.objectContaining({
         display_name: "Primary",
         bindings: [
-          expect.objectContaining({ public_model: "vendor/model-a", provider_model: "vendor/model-a" }),
           expect.objectContaining({ public_model: "model-b", provider_model: "openai/model-b" }),
+          expect.objectContaining({ public_model: "vendor/model-a", provider_model: "vendor/model-a" }),
         ],
       }),
     );
@@ -290,9 +300,9 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    await user.type(screen.getByLabelText("上游 URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
 
     expect(await screen.findByText("The upstream rejected this credential")).toBeInTheDocument();
     expect(screen.getByText("错误代码: authentication_failed")).toBeInTheDocument();
@@ -322,14 +332,14 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    await user.type(screen.getByLabelText("上游 URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
-    expect(await screen.findByRole("button", { name: "使用手动映射" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("上游 URL"), "/changed");
+    await user.type(screen.getByLabelText("API 地址"), "/changed");
 
-    expect(screen.getByRole("button", { name: "验证并发现模型" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
   });
 
@@ -352,22 +362,23 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    await user.type(screen.getByLabelText("上游 URL"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
-    expect(await screen.findByRole("button", { name: "使用手动映射" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("API Key（可选）"), "-changed");
-    expect(screen.getByRole("button", { name: "验证并发现模型" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("接入凭据"), "-changed");
+    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "验证并发现模型" }));
-    expect(await screen.findByRole("button", { name: "使用手动映射" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("分组（可选）"), "enterprise");
-    expect(screen.getByRole("button", { name: "验证并发现模型" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
 
-    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(screen.getByRole("button", { name: /^高级设置/ }));
+    await user.click(screen.getByRole("combobox", { name: "连接协议" }));
     await user.click(await screen.findByText("Limited API"));
-    expect(screen.getByText(/无法使用上游模型发现/)).toBeInTheDocument();
+    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
   });
 
   it("preserves manual bindings when discovery inputs change", async () => {
@@ -390,11 +401,11 @@ describe("ChannelFormDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "使用手动映射" }));
     const publicModelInput = screen.getByLabelText("公共模型");
-    const providerModelInput = screen.getByLabelText("Provider 模型");
+    const providerModelInput = screen.getByLabelText("资源侧模型");
     await user.type(publicModelInput, "customer-alias");
     await user.type(providerModelInput, "upstream-model");
-    await user.type(screen.getByLabelText("上游 URL"), "https://changed.example/v1");
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-changed");
+    await user.type(screen.getByLabelText("API 地址"), "https://changed.example/v1");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-changed");
     await user.type(screen.getByLabelText("分组（可选）"), "changed");
 
     expect(screen.getByDisplayValue("customer-alias")).toBeInTheDocument();
@@ -406,11 +417,11 @@ describe("ChannelFormDialog", () => {
 
     render(<DialogHarness />);
 
-    await user.type(screen.getByLabelText("API Key（可选）"), "sk-once");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
     await user.click(screen.getByRole("button", { name: "取消" }));
     await user.click(screen.getByRole("button", { name: "Reopen" }));
 
-    expect(screen.getByLabelText("API Key（可选）")).toHaveValue("");
+    expect(screen.getByLabelText("接入凭据")).toHaveValue("");
   });
 
   it("requires explicit manual fallback without validating unavailable discovery", async () => {
@@ -431,7 +442,7 @@ describe("ChannelFormDialog", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText(/无法使用上游模型发现/)).toBeInTheDocument();
+    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
     expect(screen.queryByText("公共模型")).not.toBeInTheDocument();
     expect(validateProviderService).not.toHaveBeenCalled();
 

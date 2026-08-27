@@ -26,7 +26,7 @@ export const validateDiscoveryResult = (
   selection: CreateModelSelection,
   result: ProviderValidationResult,
 ): CreateModelSelection => {
-  if (selection.kind !== "ready-to-validate") return selection;
+  if (selection.kind === "manual") return selection;
   if (!result.ok) {
     return {
       kind: "manual-required",

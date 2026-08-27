@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChannelBindingInput, ProviderCapability, ProviderServiceManifest, ProviderValidationResult } from "./types";
+import type {
+  ChannelBindingInput,
+  ProviderCapability,
+  ProviderServiceManifest,
+  ProviderValidationResult,
+} from "./types";
 import {
   buildDiscoveredBindings,
   canSubmitCreateSelection,
@@ -36,15 +41,14 @@ const validation = (overrides: Partial<ProviderValidationResult> = {}): Provider
 });
 
 describe("channel model selection", () => {
-  it.each<ProviderCapability["state"] | "missing">([
-    "unsupported",
-    "unavailable",
-    "missing",
-  ])("requires an explicit manual transition when model discovery is %s", (state) => {
-    const capabilities = state === "missing" ? [] : [{ ...supported, state }];
+  it.each<ProviderCapability["state"] | "missing">(["unsupported", "unavailable", "missing"])(
+    "requires an explicit manual transition when model discovery is %s",
+    (state) => {
+      const capabilities = state === "missing" ? [] : [{ ...supported, state }];
 
-    expect(initialModelSelection(provider(capabilities))).toMatchObject({ kind: "manual-required" });
-  });
+      expect(initialModelSelection(provider(capabilities))).toMatchObject({ kind: "manual-required" });
+    },
+  );
 
   it("requires validation for supported model discovery", () => {
     expect(initialModelSelection(provider([supported]))).toEqual({ kind: "ready-to-validate" });
@@ -57,10 +61,7 @@ describe("channel model selection", () => {
   });
 
   it("turns an empty successful response into an explicit manual fallback", () => {
-    const selection = validateDiscoveryResult(
-      initialModelSelection(provider([supported])),
-      validation({ models: [] }),
-    );
+    const selection = validateDiscoveryResult(initialModelSelection(provider([supported])), validation({ models: [] }));
 
     expect(selection).toMatchObject({ kind: "manual-required", reason: "empty-models" });
   });
@@ -91,6 +92,23 @@ describe("channel model selection", () => {
       message: "The upstream rejected this credential",
       failureCode: "authentication_failed",
     });
+  });
+
+  it("replaces a previous discovery result when resource models are fetched again", () => {
+    const discovered = validateDiscoveryResult(initialModelSelection(provider([supported])), validation());
+    const refreshed = validateDiscoveryResult(discovered, validation({ models: [{ model: "new-model" }] }));
+
+    expect(refreshed).toEqual({ kind: "discovered", models: ["new-model"] });
+  });
+
+  it("can recover from a failed resource model request without switching to manual mapping", () => {
+    const failed = validateDiscoveryResult(
+      initialModelSelection(provider([supported])),
+      validation({ ok: false, failure_code: "connection_failed", models: [] }),
+    );
+    const recovered = validateDiscoveryResult(failed, validation({ models: [{ model: "recovered-model" }] }));
+
+    expect(recovered).toEqual({ kind: "discovered", models: ["recovered-model"] });
   });
 
   it("only permits manual bindings after the explicit transition", () => {
