@@ -2,24 +2,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, RotateCcw, Sparkles } from "lucide-react";
+import { Pencil, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import {
@@ -36,11 +25,11 @@ import {
   formatAccountPoolEpoch,
   formatAccountPoolNumber,
   healthPresentation,
-  parseOptionalNumber,
 } from "../accountPoolPresentation";
-import { buildAutoRankingPreview, type AutoRankingPreviewEntry, type AutoRankingSignal } from "../autoRankingPreview";
 import { reasonLabel } from "../reasonLabels";
 import CapacityMeter from "./CapacityMeter";
+import { AccountPoolPanel, AccountPoolQueryState } from "./AccountPoolPanel";
+import { AutoRankingPreviewDialog, CandidateDialog } from "./RoutingDialogs";
 import type {
   RoutingCandidateMutation,
   RoutingModelSummary,
@@ -78,12 +67,6 @@ const sortReasonLabels: Record<string, string> = {
   stable_id: "稳定 ID",
 };
 
-const autoRankingSignalLabels: Record<AutoRankingSignal, string> = {
-  latency: "低延迟",
-  quota: "高余额",
-  cost: "低价格",
-};
-
 const selectActiveModel = (models: RoutingModelSummary[], selectedModel: string | null): string | null => {
   const selected = selectedModel === null ? undefined : models.find((item) => item.model === selectedModel);
   return selected?.model ?? models[0]?.model ?? null;
@@ -99,184 +82,24 @@ const costText = (route: RoutingTableEntry): string => {
 const sortReasonText = (route: RoutingTableEntry): string =>
   route.sort_reason_codes.map((code) => sortReasonLabels[code] ?? code).join(" / ") || "稳定顺序";
 
-function AutoRankingPreviewDialog({
-  routes,
-  model,
-  onClose,
-}: {
-  routes: RoutingTableEntry[];
-  model: string;
-  onClose: () => void;
-}) {
-  const preview = useMemo(() => buildAutoRankingPreview(routes), [routes]);
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>自动排序建议</DialogTitle>
-          <DialogDescription>
-            {model} 的建议基于当前健康状态、延迟、余额和可比较价格生成，不会修改正式调度策略或人工顺序
-          </DialogDescription>
-        </DialogHeader>
-        <div className="overflow-hidden rounded-md border">
-          <Table className={accountPoolTableColumnDividerClass}>
-            <TableHeader>
-              <TableRow>
-                <TableHead>建议</TableHead>
-                <TableHead>渠道</TableHead>
-                <TableHead>识别依据</TableHead>
-                <TableHead className="text-right">评分</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {preview.map((entry) => (
-                <TableRow
-                  key={`${entry.route.account_id}:${entry.route.deployment_id}:${entry.route.billing_route_id ?? ""}`}
-                >
-                  <TableCell className="font-medium tabular-nums">{entry.position}</TableCell>
-                  <TableCell>
-                    <span className="block font-medium">{entry.route.display_name}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{entry.route.deployment_id}</span>
-                  </TableCell>
-                  <TableCell>
-                    <AutoRankingEvidence entry={entry} />
-                  </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
-                    {entry.score === null ? "-" : formatAccountPoolNumber(entry.score, 0)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            关闭
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AutoRankingEvidence({ entry }: { entry: AutoRankingPreviewEntry }) {
-  if (!entry.route.available) {
-    return (
-      <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800">
-        当前不可调度
-      </Badge>
-    );
-  }
-  if (entry.signals.length === 0) {
-    return <span className="text-xs text-muted-foreground">尚无可用的延迟、余额或价格数据</span>;
-  }
-  return (
-    <div className="flex flex-wrap gap-1">
-      {entry.signals.map((signal) => (
-        <Badge key={signal} variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
-          {autoRankingSignalLabels[signal]}
-        </Badge>
-      ))}
-    </div>
-  );
-}
-
-interface CandidateDialogProps {
-  route: RoutingTableEntry;
-  policy: RoutingPolicyState;
-  pending: boolean;
-  onClose: () => void;
-  onSave: (manualOrder: number | null, weight: number | null, paused: boolean) => void;
-  onReset: () => void;
-}
-
-function CandidateDialog({ route, policy, pending, onClose, onSave, onReset }: CandidateDialogProps) {
-  const existing = policy.overrides.find((override) => override.binding_id === route.binding_id);
-  const [manualOrder, setManualOrder] = useState(route.manual_order?.toString() ?? "");
-  const [weight, setWeight] = useState(existing?.weight?.toString() ?? "");
-  const [paused, setPaused] = useState(route.routing_paused);
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{route.display_name}</DialogTitle>
-          <DialogDescription className="break-all">
-            {route.account_id} · {route.deployment_id}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="routing-manual-order">人工顺序</Label>
-            <Input
-              id="routing-manual-order"
-              type="number"
-              min={0}
-              placeholder="自动"
-              value={manualOrder}
-              onChange={(event) => setManualOrder(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="routing-weight">模型权重</Label>
-            <Input
-              id="routing-weight"
-              type="number"
-              min={1}
-              max={100}
-              placeholder="继承渠道"
-              value={weight}
-              onChange={(event) => setWeight(event.target.value)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2.5">
-            <Label htmlFor="routing-paused">暂停此模型绑定</Label>
-            <Switch id="routing-paused" checked={paused} onCheckedChange={setPaused} />
-          </div>
-        </div>
-        <DialogFooter className="sm:justify-between">
-          <Button variant="ghost" onClick={onReset} disabled={pending || !existing}>
-            <RotateCcw />
-            恢复自动
-          </Button>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              取消
-            </Button>
-            <Button
-              onClick={() => onSave(parseOptionalNumber(manualOrder), parseOptionalNumber(weight), paused)}
-              disabled={pending}
-            >
-              {pending && <Loader2 className="animate-spin" />}
-              保存
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 interface RoutingPanelProps {
   accessToken: string;
 }
 
 function RoutingPanelState({ loading, error }: { loading: boolean; error: boolean }) {
   if (loading) {
-    return (
-      <div className="flex min-h-80 items-center justify-center">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取模型调度表" className="min-h-80" />;
   }
   if (error) {
     return (
-      <div className="rounded-md border border-destructive/30 px-4 py-10 text-center text-sm text-destructive">
-        无法读取模型调度表
-      </div>
+      <AccountPoolQueryState
+        kind="error"
+        message="无法读取模型调度表"
+        className="min-h-80 rounded-md border border-destructive/30"
+      />
     );
   }
-  return <div className="rounded-md border px-4 py-16 text-center text-sm text-muted-foreground">尚未配置模型绑定</div>;
+  return <AccountPoolQueryState kind="empty" message="尚未配置模型绑定" className="min-h-40 rounded-md border" />;
 }
 
 interface RoutingWorkspaceProps {
@@ -301,18 +124,10 @@ function RoutingTableContent({
   onEdit,
 }: Pick<RoutingWorkspaceProps, "routes" | "policy" | "loading" | "routeError" | "onEdit">) {
   if (loading) {
-    return (
-      <div className="flex min-h-72 items-center justify-center">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取此模型的运行路由" />;
   }
   if (routeError) {
-    return (
-      <div className="px-4 py-10 text-center text-sm text-destructive">
-        无法读取此模型的运行路由，请检查 Account Pool 调度服务
-      </div>
-    );
+    return <AccountPoolQueryState kind="error" message="无法读取此模型的运行路由，请检查 Account Pool 调度服务" />;
   }
   return (
     <Table className={accountPoolTableColumnDividerClass}>
@@ -417,15 +232,10 @@ function RoutingWorkspace({
 }: RoutingWorkspaceProps) {
   const strategy = policy?.strategy ?? activeSummary.strategy;
   return (
-    <section className="min-w-0 overflow-hidden rounded-md border bg-background">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="break-all text-base font-semibold">{activeModel}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            版本 {policy?.version ?? activeSummary.version}
-            {routes.some((route) => route.dynamic_order) ? " · 动态策略预览" : ""}
-          </p>
-        </div>
+    <AccountPoolPanel
+      title={activeModel}
+      description={`版本 ${policy?.version ?? activeSummary.version}${routes.some((route) => route.dynamic_order) ? " · 动态策略预览" : ""}`}
+      action={
         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
           <Button variant="outline" onClick={onPreview} disabled={routes.length === 0}>
             <Sparkles />
@@ -448,14 +258,15 @@ function RoutingWorkspace({
             </SelectContent>
           </Select>
         </div>
-      </div>
+      }
+    >
       {policyError && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
           正式策略管理不可用，当前仅显示运行路由
         </div>
       )}
       <RoutingTableContent routes={routes} policy={policy} loading={loading} routeError={routeError} onEdit={onEdit} />
-    </section>
+    </AccountPoolPanel>
   );
 }
 
@@ -534,11 +345,7 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
 
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
-      <section className="min-w-0 overflow-hidden rounded-md border bg-background">
-        <div className="border-b px-4 py-3">
-          <h2 className="text-sm font-semibold">对外模型</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">{models.length} 个模型路由表</p>
-        </div>
+      <AccountPoolPanel title="对外模型" description={`${models.length} 个模型路由表`}>
         <div className="divide-y">
           {models.map((model) => (
             <button
@@ -554,7 +361,7 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
             </button>
           ))}
         </div>
-      </section>
+      </AccountPoolPanel>
 
       <RoutingWorkspace
         activeModel={activeModel}

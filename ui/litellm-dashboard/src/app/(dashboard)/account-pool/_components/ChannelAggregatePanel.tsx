@@ -2,7 +2,6 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +12,7 @@ import { accountPoolKeys, getChannelAggregate } from "../api";
 import { accountPoolTableColumnDividerClass, formatAccountPoolDateTime } from "../accountPoolPresentation";
 import { reasonLabelWithCode } from "../reasonLabels";
 import type { ChannelAggregateDetail, DetailSection, JsonValue, RoutingTableEntry } from "../types";
+import { AccountPoolQueryState } from "./AccountPoolPanel";
 
 interface ChannelAggregatePanelProps {
   accessToken: string;
@@ -36,19 +36,10 @@ export default function ChannelAggregatePanel({
   });
 
   if (query.isLoading) {
-    return (
-      <div className="flex min-h-72 items-center justify-center">
-        <Loader2 className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取渠道综合详情" />;
   }
   if (query.isError || !query.data) {
-    return (
-      <div className="flex min-h-72 flex-col items-center justify-center gap-2 text-center">
-        <AlertTriangle className="size-7 text-muted-foreground" />
-        <p className="text-sm font-medium">渠道综合详情暂不可用</p>
-      </div>
-    );
+    return <AccountPoolQueryState kind="error" message="渠道综合详情暂不可用" />;
   }
 
   return <AggregateContent detail={query.data} onOpenChannelEvents={onOpenChannelEvents} />;

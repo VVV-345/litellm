@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { accountPoolKeys, getParserSnapshot, importParserSnapshot } from "../api";
 import type { ChannelSummary, ParserSnapshotDocument } from "../types";
+import { AccountPoolQueryState } from "./AccountPoolPanel";
 
 interface SnapshotDialogProps {
   accessToken: string;
@@ -40,14 +41,10 @@ const SnapshotPreview = ({
   document: ParserSnapshotDocument | undefined;
 }) => {
   if (loading) {
-    return (
-      <div className="flex min-h-80 items-center justify-center">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取解析快照" className="min-h-80" />;
   }
   if (failed || !document) {
-    return <p className="py-10 text-center text-sm text-destructive">当前渠道还没有可预览的解析快照</p>;
+    return <AccountPoolQueryState kind="empty" message="当前渠道还没有可预览的解析快照" className="min-h-40" />;
   }
   return (
     <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted p-4 text-xs whitespace-pre-wrap">

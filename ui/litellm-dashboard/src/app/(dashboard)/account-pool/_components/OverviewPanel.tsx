@@ -2,7 +2,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ListFilter, Loader2 } from "lucide-react";
+import { ListFilter } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 } from "../accountPoolPresentation";
 import { reasonLabelWithCode } from "../reasonLabels";
 import type { ChannelOverview } from "../types";
+import { AccountPoolPanel, AccountPoolQueryState } from "./AccountPoolPanel";
 import CapacityMeter from "./CapacityMeter";
 
 const parserSummary = (channel: ChannelOverview): string => {
@@ -59,17 +60,15 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
   });
 
   if (overviewQuery.isLoading) {
-    return (
-      <div className="flex min-h-80 items-center justify-center">
-        <Loader2 className="animate-spin" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取聚合总览" className="min-h-80" />;
   }
   if (overviewQuery.isError || !overviewQuery.data) {
     return (
-      <div className="rounded-md border border-destructive/30 px-4 py-10 text-center text-sm text-destructive">
-        无法读取聚合总览，请检查 Account Pool 数据库和运行服务
-      </div>
+      <AccountPoolQueryState
+        kind="error"
+        message="无法读取聚合总览，请检查 Account Pool 数据库和运行服务"
+        className="min-h-80 rounded-md border border-destructive/30"
+      />
     );
   }
 
@@ -91,11 +90,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
         <SummaryMetric label="并发" value={`${overview.inflight}/${overview.max_concurrency}`} tone="violet" />
       </div>
 
-      <section className="min-w-0 overflow-hidden rounded-md border bg-background">
-        <div className="border-b px-4 py-3">
-          <h2 className="text-sm font-semibold">渠道运行总览</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">配置、解析和实时调度资格的统一视图</p>
-        </div>
+      <AccountPoolPanel title="渠道运行总览" description="配置、解析和实时调度资格的统一视图">
         <Table className={accountPoolTableColumnDividerClass}>
           <TableHeader>
             <TableRow>
@@ -205,7 +200,7 @@ export default function OverviewPanel({ accessToken, onOpenChannelEvents }: Over
             )}
           </TableBody>
         </Table>
-      </section>
+      </AccountPoolPanel>
     </div>
   );
 }

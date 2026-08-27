@@ -26,7 +26,11 @@ export function ProviderProtocolSelect({
   return (
     <div className="grid gap-2">
       <Label>{label}</Label>
-      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <Select
+        value={value}
+        onValueChange={(nextValue) => nextValue !== null && onValueChange(nextValue)}
+        disabled={disabled}
+      >
         <SelectTrigger className="w-full" aria-label={label}>
           <SelectValue />
         </SelectTrigger>

@@ -2,7 +2,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileWarning, Loader2, Pencil, ReceiptText } from "lucide-react";
+import { Pencil, ReceiptText } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { accountPoolKeys, getEffectiveData, getParserHistory } from "../api";
+import { accountPoolTableColumnDividerClass, formatAccountPoolDateTime } from "../accountPoolPresentation";
 import { buildMeteredPriceDrafts } from "../meteredPriceEditor";
 import { buildParserFieldRows, formatJsonValue, type ParserFieldRow } from "../parserRows";
+import { AccountPoolQueryState } from "./AccountPoolPanel";
 import MeteredPriceDialog from "./MeteredPriceDialog";
 import OverrideDialog from "./OverrideDialog";
 
@@ -79,17 +81,12 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
           <TabsTrigger value="history">解析历史</TabsTrigger>
         </TabsList>
         <TabsContent value="fields" className="pt-3">
-          {effectiveQuery.isLoading && (
-            <div className="flex min-h-72 items-center justify-center">
-              <Loader2 className="animate-spin text-muted-foreground" />
-            </div>
-          )}
+          {effectiveQuery.isLoading && <AccountPoolQueryState kind="loading" message="正在读取解析数据" />}
           {effectiveQuery.isError && (
-            <div className="flex min-h-72 flex-col items-center justify-center gap-2 text-center">
-              <FileWarning className="size-7 text-muted-foreground" />
-              <p className="text-sm font-medium">暂无解析数据</p>
-              <p className="text-xs text-muted-foreground">运行一次渠道解析后，这里会显示原始值和人工修正后的有效值</p>
-            </div>
+            <AccountPoolQueryState
+              kind="empty"
+              message="暂无解析数据，运行一次渠道解析后即可查看原始值和人工修正后的有效值"
+            />
           )}
           {effectiveQuery.data && (
             <div className="min-w-0">
@@ -97,10 +94,10 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
                 <Badge variant={statusVariant(effectiveQuery.data?.parser_status ?? "unknown")}>
                   {effectiveQuery.data?.parser_status}
                 </Badge>
-                <span>解析时间 {new Date(effectiveQuery.data!.parsed_at).toLocaleString()}</span>
+                <span>解析时间 {formatAccountPoolDateTime(effectiveQuery.data.parsed_at)}</span>
                 <span>人工修正 {effectiveQuery.data!.active_overrides.length} 项</span>
               </div>
-              <Table>
+              <Table className={accountPoolTableColumnDividerClass}>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-40">字段</TableHead>
@@ -147,15 +144,13 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
         </TabsContent>
         <TabsContent value="history" className="pt-3">
           {historyQuery.isLoading && (
-            <div className="flex min-h-52 items-center justify-center">
-              <Loader2 className="animate-spin text-muted-foreground" />
-            </div>
+            <AccountPoolQueryState kind="loading" message="正在读取解析历史" className="min-h-52" />
           )}
           {(historyQuery.isError || historyQuery.data?.runs.length === 0) && (
-            <p className="py-12 text-center text-sm text-muted-foreground">暂无解析历史</p>
+            <AccountPoolQueryState kind="empty" message="暂无解析历史" className="min-h-40" />
           )}
           {historyQuery.data && historyQuery.data.runs.length > 0 && (
-            <Table>
+            <Table className={accountPoolTableColumnDividerClass}>
               <TableHeader>
                 <TableRow>
                   <TableHead>时间</TableHead>
@@ -168,7 +163,7 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
               <TableBody>
                 {historyQuery.data?.runs.map((run) => (
                   <TableRow key={run.parser_run_id}>
-                    <TableCell>{new Date(run.parsed_at).toLocaleString()}</TableCell>
+                    <TableCell>{formatAccountPoolDateTime(run.parsed_at)}</TableCell>
                     <TableCell>
                       {run.parser_id} <span className="text-xs text-muted-foreground">v{run.parser_version}</span>
                     </TableCell>
@@ -194,7 +189,8 @@ export default function ParserDataPanel({ accessToken, channelId }: ParserDataPa
             historyQuery.data?.runs[0]?.discovered_models ?? [],
           )}
           expectedOverrideId={
-            effectiveQuery.data.active_overrides.find((override) => override.field_path === "/metered")?.override_id ?? null
+            effectiveQuery.data.active_overrides.find((override) => override.field_path === "/metered")?.override_id ??
+            null
           }
           onClose={() => setEditingMeteredPrice(false)}
           onSaved={refresh}

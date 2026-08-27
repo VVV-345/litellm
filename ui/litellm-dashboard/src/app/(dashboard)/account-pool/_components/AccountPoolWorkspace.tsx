@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import type { ChannelSummary } from "../types";
+import { AccountPoolPanel, AccountPoolQueryState } from "./AccountPoolPanel";
 
 export type AccountPoolWorkspaceName = "overview" | "channels" | "parser" | "health" | "routing" | "events";
 
@@ -74,11 +75,7 @@ export function ChannelModuleWorkspace({
 }: ChannelModuleWorkspaceProps) {
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)]">
-      <section className="min-w-0 overflow-hidden rounded-md border bg-background">
-        <div className="border-b px-4 py-3">
-          <h3 className="text-sm font-semibold">渠道</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{channels.length} 个渠道</p>
-        </div>
+      <AccountPoolPanel title="渠道" description={`${channels.length} 个渠道`}>
         <div className="divide-y">
           {channels.map((channel) => (
             <button
@@ -99,13 +96,9 @@ export function ChannelModuleWorkspace({
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div>
           )}
         </div>
-      </section>
+      </AccountPoolPanel>
       <section className="min-w-0 rounded-md border bg-background p-4">
-        {channels.length > 0 ? (
-          children
-        ) : (
-          <div className="flex min-h-72 items-center justify-center text-sm text-muted-foreground">{emptyMessage}</div>
-        )}
+        {channels.length > 0 ? children : <AccountPoolQueryState kind="empty" message={emptyMessage} />}
       </section>
     </div>
   );

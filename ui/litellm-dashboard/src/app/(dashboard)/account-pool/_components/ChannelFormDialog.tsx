@@ -39,6 +39,7 @@ import {
 import { channelPriorityPresentation, parseOptionalNumber } from "../accountPoolPresentation";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { EphemeralCredentialField, ProviderProtocolSelect } from "./AccountPoolFormFields";
+import { AccountPoolQueryState } from "./AccountPoolPanel";
 import { providerModelForSelectedModel } from "./providerModel";
 import type {
   AdministrativeState,
@@ -121,9 +122,11 @@ export default function ChannelFormDialog({
             <DialogTitle>编辑渠道</DialogTitle>
             <DialogDescription>正在读取 PostgreSQL 中的完整渠道配置</DialogDescription>
           </DialogHeader>
-          <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-            {detailQuery.isError ? "读取渠道详情失败，请关闭后重试" : <Loader2 className="animate-spin" />}
-          </div>
+          <AccountPoolQueryState
+            kind={detailQuery.isError ? "error" : "loading"}
+            message={detailQuery.isError ? "读取渠道详情失败，请关闭后重试" : "正在读取渠道详情"}
+            className="min-h-48"
+          />
         </DialogContent>
       </Dialog>
     );

@@ -2,7 +2,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, AlertTriangle, CheckCircle2, Clock3, Loader2 } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import {
   healthPresentation,
 } from "../accountPoolPresentation";
 import type { HealthEventRecord, HealthExclusion } from "../types";
+import { AccountPoolQueryState } from "./AccountPoolPanel";
 
 interface HealthStatusPanelProps {
   accessToken: string;
@@ -49,19 +50,10 @@ export default function HealthStatusPanel({ accessToken, channelId }: HealthStat
   });
 
   if (query.isLoading) {
-    return (
-      <div className="flex min-h-72 items-center justify-center">
-        <Loader2 className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <AccountPoolQueryState kind="loading" message="正在读取健康与冷却状态" />;
   }
   if (query.isError || !query.data) {
-    return (
-      <div className="flex min-h-72 flex-col items-center justify-center gap-2 text-center">
-        <AlertTriangle className="size-7 text-muted-foreground" />
-        <p className="text-sm font-medium">健康详情暂不可用</p>
-      </div>
-    );
+    return <AccountPoolQueryState kind="error" message="健康详情暂不可用" />;
   }
 
   const detail = query.data;
