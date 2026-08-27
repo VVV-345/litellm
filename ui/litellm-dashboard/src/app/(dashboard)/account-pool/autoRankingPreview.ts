@@ -11,6 +11,13 @@ export interface AutoRankingPreviewEntry {
   signals: AutoRankingSignal[];
 }
 
+interface RankingInputs {
+  latencyValues: number[];
+  quotaValues: number[];
+  costValues: number[];
+  costBasis: string | null;
+}
+
 const stableRouteId = (route: RoutingTableEntry): string =>
   `${route.account_id}\u0000${route.deployment_id}\u0000${route.billing_route_id ?? ""}`;
 
@@ -25,7 +32,9 @@ const sharedCostBasis = (routes: RoutingTableEntry[]): string | null => {
     new Set(
       routes.flatMap((route) => {
         const evidence = route.cost_evidence;
-        if (evidence?.kind === "subscription_included" || !evidence?.currency || !evidence.unit) return [];
+        if (!evidence) return [];
+        if (evidence.kind === "subscription_included") return [];
+        if (!evidence.currency || !evidence.unit) return [];
         return [`${evidence.currency.toLowerCase()}\u0000${evidence.unit.toLowerCase()}`];
       }),
     ),
@@ -35,7 +44,9 @@ const sharedCostBasis = (routes: RoutingTableEntry[]): string | null => {
 
 const routeCost = (route: RoutingTableEntry, basis: string | null): number | null => {
   const evidence = route.cost_evidence;
-  if (!basis || !evidence?.currency || !evidence.unit || evidence.kind === "subscription_included") return null;
+  if (!basis || !evidence) return null;
+  if (evidence.kind === "subscription_included") return null;
+  if (!evidence.currency || !evidence.unit) return null;
   const routeBasis = `${evidence.currency.toLowerCase()}\u0000${evidence.unit.toLowerCase()}`;
   return routeBasis === basis ? finiteNumber(route.effective_cost) : null;
 };
@@ -49,17 +60,10 @@ const rangeScore = (value: number | null, values: number[], descending: boolean)
   return (descending ? ratio : 1 - ratio) * 100;
 };
 
-const previewEntry = (
-  route: RoutingTableEntry,
-  position: number,
-  latencyValues: number[],
-  quotaValues: number[],
-  costValues: number[],
-  costBasis: string | null,
-): AutoRankingPreviewEntry => {
-  const latencyScore = rangeScore(route.latency_ewma_ms, latencyValues, false);
-  const quotaScore = rangeScore(route.remaining_quota_ratio, quotaValues, true);
-  const costScore = rangeScore(routeCost(route, costBasis), costValues, false);
+const previewEntry = (route: RoutingTableEntry, inputs: RankingInputs): AutoRankingPreviewEntry => {
+  const latencyScore = rangeScore(route.latency_ewma_ms, inputs.latencyValues, false);
+  const quotaScore = rangeScore(route.remaining_quota_ratio, inputs.quotaValues, true);
+  const costScore = rangeScore(routeCost(route, inputs.costBasis), inputs.costValues, false);
   const signals: AutoRankingSignal[] = [
     ...(latencyScore === null ? [] : ["latency" as const]),
     ...(quotaScore === null ? [] : ["quota" as const]),
@@ -68,7 +72,7 @@ const previewEntry = (
   const scoreValues = [latencyScore, quotaScore, costScore].filter((value): value is number => value !== null);
   return {
     route,
-    position,
+    position: 0,
     score:
       scoreValues.length === 0 ? null : scoreValues.reduce((total, value) => total + value, 0) / scoreValues.length,
     signals,
@@ -87,7 +91,8 @@ export const buildAutoRankingPreview = (routes: RoutingTableEntry[]): AutoRankin
     const value = routeCost(route, costBasis);
     return value === null ? [] : [value];
   });
-  const preliminary = routes.map((route) => previewEntry(route, 0, latencyValues, quotaValues, costValues, costBasis));
+  const inputs: RankingInputs = { latencyValues, quotaValues, costValues, costBasis };
+  const preliminary = routes.map((route) => previewEntry(route, inputs));
   const ordered = [...preliminary].sort((left, right) => {
     if (left.route.available !== right.route.available) return left.route.available ? -1 : 1;
     if (left.score !== right.score) return (right.score ?? -1) - (left.score ?? -1);

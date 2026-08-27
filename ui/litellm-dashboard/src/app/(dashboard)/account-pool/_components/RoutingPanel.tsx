@@ -31,7 +31,7 @@ import {
   updateRoutingCandidate,
   updateRoutingPolicy,
 } from "../api";
-import { buildAutoRankingPreview, type AutoRankingSignal } from "../autoRankingPreview";
+import { buildAutoRankingPreview, type AutoRankingPreviewEntry, type AutoRankingSignal } from "../autoRankingPreview";
 import { reasonLabel } from "../reasonLabels";
 import CapacityMeter from "./CapacityMeter";
 import type {
@@ -166,23 +166,7 @@ function AutoRankingPreviewDialog({
                     <span className="mt-1 block text-xs text-muted-foreground">{entry.route.deployment_id}</span>
                   </TableCell>
                   <TableCell>
-                    {entry.route.available ? (
-                      entry.signals.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {entry.signals.map((signal) => (
-                            <Badge key={signal} variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
-                              {autoRankingSignalLabels[signal]}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">尚无可用的延迟、余额或价格数据</span>
-                      )
-                    ) : (
-                      <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800">
-                        当前不可调度
-                      </Badge>
-                    )}
+                    <AutoRankingEvidence entry={entry} />
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
                     {entry.score === null ? "-" : formatNumber(entry.score, 0)}
@@ -199,6 +183,28 @@ function AutoRankingPreviewDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AutoRankingEvidence({ entry }: { entry: AutoRankingPreviewEntry }) {
+  if (!entry.route.available) {
+    return (
+      <Badge variant="outline" className="border-red-300 bg-red-50 text-red-800">
+        当前不可调度
+      </Badge>
+    );
+  }
+  if (entry.signals.length === 0) {
+    return <span className="text-xs text-muted-foreground">尚无可用的延迟、余额或价格数据</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entry.signals.map((signal) => (
+        <Badge key={signal} variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+          {autoRankingSignalLabels[signal]}
+        </Badge>
+      ))}
+    </div>
   );
 }
 

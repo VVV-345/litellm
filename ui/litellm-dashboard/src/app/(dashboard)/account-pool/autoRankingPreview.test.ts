@@ -46,100 +46,103 @@ const route = (overrides: Partial<RoutingTableEntry>): RoutingTableEntry => ({
 
 describe("auto ranking preview", () => {
   it("ranks available routes with lower latency, higher quota, and lower comparable cost first", () => {
-    const preview = buildAutoRankingPreview([
-      route({
-        account_id: "slow-expensive",
-        deployment_id: "slow-expensive",
-        latency_ewma_ms: 300,
-        remaining_quota_ratio: 0.2,
+    const slowExpensiveOverrides: Partial<RoutingTableEntry> = {
+      account_id: "slow-expensive",
+      deployment_id: "slow-expensive",
+      latency_ewma_ms: 300,
+      remaining_quota_ratio: 0.2,
+      effective_cost: 12,
+      cost_evidence: {
+        kind: "normalized_per_million_tokens",
+        currency: "USD",
+        unit: "million_tokens",
+        input_price: 4,
+        output_price: 8,
+        cache_read_price: null,
+        cache_write_price: null,
         effective_cost: 12,
-        cost_evidence: {
-          kind: "normalized_per_million_tokens",
-          currency: "USD",
-          unit: "million_tokens",
-          input_price: 4,
-          output_price: 8,
-          cache_read_price: null,
-          cache_write_price: null,
-          effective_cost: 12,
-          partial: false,
-          provider_group_id: null,
-          billing_mode: "metered",
-        },
-      }),
-      route({
-        account_id: "fast-cheap",
-        deployment_id: "fast-cheap",
-        latency_ewma_ms: 50,
-        remaining_quota_ratio: 0.9,
+        partial: false,
+        provider_group_id: null,
+        billing_mode: "metered",
+      },
+    };
+    const slowExpensive = route(slowExpensiveOverrides);
+    const fastCheapOverrides: Partial<RoutingTableEntry> = {
+      account_id: "fast-cheap",
+      deployment_id: "fast-cheap",
+      latency_ewma_ms: 50,
+      remaining_quota_ratio: 0.9,
+      effective_cost: 3,
+      cost_evidence: {
+        kind: "normalized_per_million_tokens",
+        currency: "USD",
+        unit: "million_tokens",
+        input_price: 1,
+        output_price: 2,
+        cache_read_price: null,
+        cache_write_price: null,
         effective_cost: 3,
-        cost_evidence: {
-          kind: "normalized_per_million_tokens",
-          currency: "USD",
-          unit: "million_tokens",
-          input_price: 1,
-          output_price: 2,
-          cache_read_price: null,
-          cache_write_price: null,
-          effective_cost: 3,
-          partial: false,
-          provider_group_id: null,
-          billing_mode: "metered",
-        },
-      }),
-    ]);
+        partial: false,
+        provider_group_id: null,
+        billing_mode: "metered",
+      },
+    };
+    const fastCheap = route(fastCheapOverrides);
+    const preview = buildAutoRankingPreview([slowExpensive, fastCheap]);
 
     expect(preview.map((entry) => entry.route.account_id)).toEqual(["fast-cheap", "slow-expensive"]);
     expect(preview[0]).toMatchObject({ position: 1, score: 100, signals: ["latency", "quota", "cost"] });
   });
 
   it("does not compare prices that use different units and keeps unavailable routes after candidates", () => {
-    const preview = buildAutoRankingPreview([
-      route({
-        account_id: "available",
-        latency_ewma_ms: 100,
+    const availableOverrides: Partial<RoutingTableEntry> = {
+      account_id: "available",
+      latency_ewma_ms: 100,
+      effective_cost: 2,
+      cost_evidence: {
+        kind: "effective_prices",
+        currency: "USD",
+        unit: "million_tokens",
+        input_price: 1,
+        output_price: 1,
+        cache_read_price: null,
+        cache_write_price: null,
         effective_cost: 2,
-        cost_evidence: {
-          kind: "effective_prices",
-          currency: "USD",
-          unit: "million_tokens",
-          input_price: 1,
-          output_price: 1,
-          cache_read_price: null,
-          cache_write_price: null,
-          effective_cost: 2,
-          partial: false,
-          provider_group_id: null,
-          billing_mode: "metered",
-        },
-      }),
-      route({
-        account_id: "different-unit",
-        deployment_id: "different-unit",
-        latency_ewma_ms: 1,
+        partial: false,
+        provider_group_id: null,
+        billing_mode: "metered",
+      },
+    };
+    const available = route(availableOverrides);
+    const differentUnitOverrides: Partial<RoutingTableEntry> = {
+      account_id: "different-unit",
+      deployment_id: "different-unit",
+      latency_ewma_ms: 1,
+      effective_cost: 1,
+      cost_evidence: {
+        kind: "effective_prices",
+        currency: "USD",
+        unit: "request",
+        input_price: 1,
+        output_price: null,
+        cache_read_price: null,
+        cache_write_price: null,
         effective_cost: 1,
-        cost_evidence: {
-          kind: "effective_prices",
-          currency: "USD",
-          unit: "request",
-          input_price: 1,
-          output_price: null,
-          cache_read_price: null,
-          cache_write_price: null,
-          effective_cost: 1,
-          partial: true,
-          provider_group_id: null,
-          billing_mode: "metered",
-        },
-      }),
-      route({
-        account_id: "unavailable",
-        deployment_id: "unavailable",
-        available: false,
-        health: "cooldown",
-        unavailable_reason: "cooldown",
-      }),
-    ]);
+        partial: true,
+        provider_group_id: null,
+        billing_mode: "metered",
+      },
+    };
+    const differentUnit = route(differentUnitOverrides);
+    const unavailableOverrides: Partial<RoutingTableEntry> = {
+      account_id: "unavailable",
+      deployment_id: "unavailable",
+      available: false,
+      health: "cooldown",
+      unavailable_reason: "cooldown",
+    };
+    const unavailable = route(unavailableOverrides);
+    const preview = buildAutoRankingPreview([available, differentUnit, unavailable]);
 
     expect(preview.map((entry) => entry.route.account_id)).toEqual(["different-unit", "available", "unavailable"]);
     expect(preview[0].signals).toEqual(["latency"]);
