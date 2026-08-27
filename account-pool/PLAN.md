@@ -1137,7 +1137,9 @@ Account Pool
 - JSON 以 channel_id 为键且不含 URL 和 Key
 - 新解析器必须通过统一契约测试才能注册
 
-实施状态（2026-08-22）：Phase 2 已完成解析器契约、GLM 与 OpenAI 兼容解析器、规范化 PostgreSQL 仓储、人工覆盖、一次性 Key 任务、JSON 快照、后台导出重试及公开元数据普通 worker 队列。公开任务使用独立 PostgreSQL 表、`FOR UPDATE SKIP LOCKED` 竞争认领、心跳、陈旧任务恢复和有上限指数退避，且不保存 URL、Key、凭证引用或上游正文；GLM 与 OpenAI 兼容当前没有稳定的官方无凭证账户元数据接口，因此默认不注册公开来源。当前剩余目标 PostgreSQL 和登录 Dashboard 环境中的真实链路验收；OpenAI 官方专用解析器按已确认范围暂缓，不阻塞当前 OpenAI 兼容渠道流程
+实施状态（2026-08-27）：Phase 2 已完成解析器契约、GLM 与 OpenAI 兼容解析器、规范化 PostgreSQL 仓储、人工覆盖、一次性 Key 任务、JSON 快照、后台导出重试及公开元数据普通 worker 队列。公开任务使用独立 PostgreSQL 表、`FOR UPDATE SKIP LOCKED` 竞争认领、心跳、陈旧任务恢复和有上限指数退避，且不保存 URL、Key、凭证引用或上游正文；GLM 与 OpenAI 兼容当前没有稳定的官方无凭证账户元数据接口，因此默认不注册公开来源。当前剩余目标 PostgreSQL 和登录 Dashboard 环境中的真实链路验收；OpenAI 官方专用解析器按已确认范围暂缓，不阻塞当前 OpenAI 兼容渠道流程
+
+后续补充已完成 NewAPI 专用解析器，可从 OpenAI 兼容模型列表和 NewAPI `/api/pricing` 读取模型及分组倍率价格，并在价格接口异常时保留模型发现结果而不伪造成本。新增 LMU 固定公开静态元数据模块，只读取不带渠道凭证的结构化模型清单，不把公开页面视为余额、套餐或实际价格证据。Dashboard 现可通过现有人工覆盖机制维护按量分组、模型输入输出与缓存价格、分组倍率和有效价格，自动解析缺价时仍可安全参与成本排序。解析数据和覆盖接口统一支持 UUID 路径参数的浏览器兼容传递。上述补充仍需在登录 Dashboard 与真实 PostgreSQL 环境中验收
 
 ### Phase 3：健康、额度窗口与冷却
 
