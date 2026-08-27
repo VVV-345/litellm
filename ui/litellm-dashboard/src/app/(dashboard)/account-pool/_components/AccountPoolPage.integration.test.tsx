@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getChannelAggregate,
+  getChannelHealth,
   getChannels,
   getEffectiveData,
   getEvents,
@@ -26,6 +27,7 @@ vi.mock("../api", async (importOriginal) => {
   return {
     ...actual,
     getChannelAggregate: vi.fn(),
+    getChannelHealth: vi.fn(),
     getChannels: vi.fn(),
     getEffectiveData: vi.fn(),
     getEvents: vi.fn(),
@@ -37,6 +39,7 @@ vi.mock("../api", async (importOriginal) => {
 
 const mockedGetChannels = vi.mocked(getChannels);
 const mockedGetChannelAggregate = vi.mocked(getChannelAggregate);
+const mockedGetChannelHealth = vi.mocked(getChannelHealth);
 const mockedGetEffectiveData = vi.mocked(getEffectiveData);
 const mockedGetEvents = vi.mocked(getEvents);
 const mockedGetOverview = vi.mocked(getOverview);
@@ -130,10 +133,30 @@ const aggregateFixture: ChannelAggregateDetail = {
   routes: { status: "unavailable", data: null, failure: { code: "runtime_unavailable", retryable: true } },
   events: { status: "loaded", data: [], failure: null },
 };
+const healthFixture = {
+  channel_id: channelFixture.channel_id,
+  account_id: "account-1",
+  runtime: {
+    account_id: "account-1",
+    enabled: true,
+    health: "healthy" as const,
+    inflight: 0,
+    max_concurrency: 8,
+    cooldown_until: null,
+    consecutive_failures: 0,
+    reason_code: null,
+    quota: { unit: "tokens" as const, total: null, five_hour: null, weekly: null },
+  },
+  exclusions: [],
+  activities: [],
+  events: [],
+  persistence_available: true,
+};
 
 describe("AccountPoolPage", () => {
   beforeEach(() => {
     mockedGetChannelAggregate.mockResolvedValue(aggregateFixture);
+    mockedGetChannelHealth.mockResolvedValue(healthFixture);
     mockedGetOverview.mockResolvedValue(emptyOverview);
     mockedGetChannels.mockResolvedValue({
       channels: [channelFixture],
@@ -182,5 +205,24 @@ describe("AccountPoolPage", () => {
 
     expect(await screen.findByText("当前筛选条件下没有事件")).toBeInTheDocument();
     expect(mockedGetEvents).toHaveBeenCalledWith("proxy-token", { limit: 50 });
+  });
+
+  it("exposes parser and health as top-level workspaces", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolPage accessToken="proxy-token" userRole="proxy_admin" />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("tab", { name: "解析器" }));
+    expect(await screen.findByText("查看渠道的模型发现、套餐、按量价格和人工修正")).toBeInTheDocument();
+    expect(await screen.findByText('"Starter"')).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "健康与冷却" }));
+    expect(await screen.findByText("查看健康探测、并发占用、额度窗口和当前排除原因")).toBeInTheDocument();
+    expect(await screen.findByText("最近健康事件")).toBeInTheDocument();
   });
 });

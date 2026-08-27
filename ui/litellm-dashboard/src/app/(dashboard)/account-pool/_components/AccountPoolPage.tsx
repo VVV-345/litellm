@@ -3,11 +3,13 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   Database,
   FileJson,
   HeartPulse,
   Import,
   Loader2,
+  ListTree,
   Pencil,
   Play,
   Plus,
@@ -27,6 +29,12 @@ import { isProxyAdminRole } from "@/utils/roles";
 import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
 import { accountPoolKeys, getChannels, getProviderServices, probeChannelHealth } from "../api";
+import {
+  AccountPoolModuleHeader,
+  AccountPoolModuleNavigation,
+  ChannelModuleWorkspace,
+  type AccountPoolWorkspaceName,
+} from "./AccountPoolWorkspace";
 import ChannelList from "./ChannelList";
 import ChannelFormDialog from "./ChannelFormDialog";
 import ChannelAggregatePanel from "./ChannelAggregatePanel";
@@ -56,7 +64,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   const [formMode, setFormMode] = useState<ChannelFormMode | null>(null);
   const [lifecycleDialogOpen, setLifecycleDialogOpen] = useState(false);
   const [operation, setOperation] = useState<ChannelOperation | null>(null);
-  const [workspace, setWorkspace] = useState("overview");
+  const [workspace, setWorkspace] = useState<AccountPoolWorkspaceName>("overview");
   const [eventChannelId, setEventChannelId] = useState<string | null>(null);
   const authorized = isProxyAdminRole(userRole);
   const channelsQuery = useQuery({
@@ -104,7 +112,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
   };
   const changeWorkspace = (value: string) => {
     if (value === "events") setEventChannelId(null);
-    setWorkspace(value);
+    setWorkspace(value as AccountPoolWorkspaceName);
   };
 
   if (!authorized) {
@@ -136,6 +144,26 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
                 </Button>
               </>
             )}
+            {workspace === "parser" && (
+              <Button onClick={() => setParserDialogOpen(true)} disabled={!selectedChannel}>
+                <Play />
+                运行解析
+              </Button>
+            )}
+            {workspace === "health" && (
+              <Button
+                variant="outline"
+                onClick={() => healthProbeMutation.mutate()}
+                disabled={
+                  !selectedChannel ||
+                  healthProbeMutation.isPending ||
+                  selectedChannel.administrative_state !== "enabled"
+                }
+              >
+                {healthProbeMutation.isPending ? <Loader2 className="animate-spin" /> : <HeartPulse />}
+                立即探测
+              </Button>
+            )}
             <Button
               variant="outline"
               size="icon"
@@ -151,12 +179,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
       />
 
       <Tabs value={workspace} onValueChange={changeWorkspace} className="min-w-0">
-        <TabsList variant="line">
-          <TabsTrigger value="overview">总览</TabsTrigger>
-          <TabsTrigger value="channels">渠道管理</TabsTrigger>
-          <TabsTrigger value="routing">模型调度</TabsTrigger>
-          <TabsTrigger value="events">事件日志</TabsTrigger>
-        </TabsList>
+        <AccountPoolModuleNavigation />
         <TabsContent value="overview" className="mt-4 min-w-0">
           <OverviewPanel accessToken={accessToken!} onOpenChannelEvents={openChannelEvents} />
         </TabsContent>
@@ -292,6 +315,36 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
               </section>
             </div>
           )}
+        </TabsContent>
+        <TabsContent value="parser" className="mt-4 min-w-0 space-y-4">
+          <AccountPoolModuleHeader
+            icon={<ListTree className="size-4" />}
+            title="解析器"
+            subtitle="查看渠道的模型发现、套餐、按量价格和人工修正"
+          />
+          <ChannelModuleWorkspace
+            channels={channels}
+            selectedChannelId={selectedChannelId}
+            onSelect={setChosenChannelId}
+            emptyMessage="添加渠道后即可运行解析器"
+          >
+            {selectedChannel && <ParserDataPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />}
+          </ChannelModuleWorkspace>
+        </TabsContent>
+        <TabsContent value="health" className="mt-4 min-w-0 space-y-4">
+          <AccountPoolModuleHeader
+            icon={<Activity className="size-4" />}
+            title="健康与冷却"
+            subtitle="查看健康探测、并发占用、额度窗口和当前排除原因"
+          />
+          <ChannelModuleWorkspace
+            channels={channels}
+            selectedChannelId={selectedChannelId}
+            onSelect={setChosenChannelId}
+            emptyMessage="添加渠道后即可查看健康与冷却状态"
+          >
+            {selectedChannel && <HealthStatusPanel accessToken={accessToken!} channelId={selectedChannel.channel_id} />}
+          </ChannelModuleWorkspace>
         </TabsContent>
         <TabsContent value="routing" className="mt-4 min-w-0">
           <RoutingPanel accessToken={accessToken!} />
