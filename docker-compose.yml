@@ -44,7 +44,7 @@ services:
       context: .
       dockerfile: account-pool/Dockerfile
       additional_contexts:
-        litellm_image: service:litellm
+        litellm_image: docker-image://litellm:local
     image: litellm-account-pool
     ports:
       - "4100:4100"
@@ -80,6 +80,41 @@ services:
         - python3
         - -c
         - "import urllib.request; urllib.request.urlopen('http://localhost:4100/healthz')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ai-gateway:
+    build:
+      context: .
+      dockerfile: litellm-rust/crates/ai-gateway/Dockerfile
+      additional_contexts:
+        litellm_image: docker-image://litellm:local
+    image: litellm-ai-gateway
+    ports:
+      - "4001:4001"
+    environment:
+      PORT: "4001"
+      ACCOUNT_POOL_RUST_ENABLED: "true"
+      ACCOUNT_POOL_RUNTIME_CONFIG_URL: "http://account-pool:4100/internal/runtime-config"
+      ACCOUNT_POOL_INTERNAL_TOKEN: "${ACCOUNT_POOL_INTERNAL_TOKEN:?Set ACCOUNT_POOL_INTERNAL_TOKEN in .env}"
+      ACCOUNT_POOL_REDIS_URL: "redis://redis:6379/0"
+      ACCOUNT_POOL_LITELLM_URL: "http://litellm:4000"
+      ACCOUNT_POOL_GATEWAY_PRE_AUTH: "${ACCOUNT_POOL_GATEWAY_PRE_AUTH:-true}"
+    depends_on:
+      account-pool:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:4001/health/readiness')"
       interval: 10s
       timeout: 5s
       retries: 5

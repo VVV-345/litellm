@@ -2,8 +2,9 @@
 
 # LiteLLM Account Pool
 
-Account Pool 是 LiteLLM 旁路运行的账号级调度服务。LiteLLM 继续负责供应商协议、加密保存 Key 和 Deployment；
-Account Pool 负责渠道配置、共享并发、租约、额度快照、健康状态和模型到具体 Deployment 的选择
+Account Pool 是 LiteLLM 旁路运行的账号级控制面。LiteLLM 继续负责供应商协议、加密保存 Key 和 Deployment；
+Account Pool 负责渠道配置、共享并发、租约、额度快照、健康状态和模型到具体 Deployment 的选择。Rust AI Gateway
+读取其无密钥运行时快照，负责客户端请求的调度和转发
 
 ## 一体启动
 
@@ -20,7 +21,9 @@ docker compose up --build
 
 - 号池调度器 UI：`http://127.0.0.1:4100/`
 - LiteLLM Admin UI：`http://127.0.0.1:4000/ui/`
+- Rust 号池网关：`http://127.0.0.1:4001/`
 - 号池健康检查：`http://127.0.0.1:4100/healthz`
+- 网关就绪检查：`http://127.0.0.1:4001/health/readiness`
 - Redis 仅在 Compose 内网提供服务
 
 进入 4100 调度器 UI，使用 LiteLLM 管理令牌登录，即可配置渠道、调度策略和实时路由。渠道创建仍复用
@@ -178,7 +181,7 @@ $env:DATABASE_URL = "postgresql://user:password@127.0.0.1:5432/litellm"
 
 `ACCOUNT_POOL_LEASE_TTL_SECONDS` 是心跳租约长度，默认 120 秒；
 `ACCOUNT_POOL_MAXIMUM_LEASE_SECONDS` 是单次请求不可延长的绝对上限，默认 3600 秒且不能小于心跳租约。
-流式请求由 4100 网关在后台续租，但到达绝对上限后仍会中止。Redis 数据集丢失后，新代次至少隔离到故障前租约的
+流式请求由 Rust 网关（4001）在后台续租，但到达绝对上限后仍会中止。Redis 数据集丢失后，新代次至少隔离到故障前租约的
 绝对截止时间，旧代次的 settle、release 和 heartbeat 不会修改新代次
 
 Redis 丢失、多 Worker 和迟到回调的目标环境验证步骤见 `deploy/redis/RUNBOOK.md`
@@ -247,5 +250,5 @@ $env:ACCOUNT_POOL_EVENT_ARCHIVE_KEY = python -c "import base64,secrets; print(ba
 详细命令、密钥要求、恢复破坏性说明和验收清单见 `deploy/postgres/RUNBOOK.md`。工具要求执行环境已有兼容版本的
 `pg_dump` 与 `pg_restore`，不会自动下载数据库客户端
 
-客户端若需要账号池调度，应访问 Account Pool 的 `/v1/*` 网关；直连 LiteLLM 会绕过账号级并发和额度约束，
-生产网络中应限制 LiteLLM Proxy 的直接访问
+客户端若需要账号池调度，应访问 Rust AI Gateway 的 `http://127.0.0.1:4001/v1/*`；直连 LiteLLM 会绕过账号级并发和额度约束，
+生产网络中应限制 LiteLLM Proxy 的直接访问。4100 只保留控制面、管理 UI 和网关所需的内部结算接口

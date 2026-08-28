@@ -14,6 +14,8 @@
 mod deployment;
 mod strategy;
 
+pub mod account_pool;
+
 pub use deployment::{Deployment, LiteLLMParams};
 pub use strategy::RoutingStrategy;
 

@@ -352,6 +352,11 @@ class SettleRequest(FrozenModel):
     retry_after_seconds: float | None = Field(default=None, ge=0, le=86_400)
 
 
+class SettlementEventRequest(FrozenModel):
+    lease: Lease
+    settlement: SettleRequest
+
+
 class ReleaseRequest(FrozenModel):
     lease_id: str = Field(min_length=1)
 

@@ -135,6 +135,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::super::app;
+    use crate::account_pool::{AccountPoolProxyRuntime, AccountPoolRuntime};
     use crate::io::realtime_pool::RealtimePool;
     use crate::state::AppState;
 
@@ -160,6 +161,8 @@ mod tests {
             master_key: master_key.map(Arc::from),
             loggers: Arc::new(Vec::new()),
             realtime_pool: RealtimePool::disabled(),
+            account_pool: AccountPoolRuntime::disabled(),
+            account_pool_proxy: AccountPoolProxyRuntime::disabled(),
         }
     }
 

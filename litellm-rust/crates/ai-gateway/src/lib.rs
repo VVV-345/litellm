@@ -13,6 +13,7 @@
 //!   binary turns on. The `python-config` feature additionally pulls in [`python`]
 //!   for the load-time config reader.
 
+pub mod account_pool;
 pub mod audio_transcription;
 mod client;
 pub mod io;

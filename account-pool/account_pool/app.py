@@ -1,4 +1,4 @@
-"""组装号池 API、渠道服务、调度器与 OpenAI 兼容网关。"""
+"""组装号池 API、渠道服务和调度控制面。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,6 @@ from account_pool.events import (
     EventQuery,
     PostgresEventLogRepository,
 )
-from account_pool.gateway import Gateway
 from account_pool.health.models import HealthProbeRequest, HealthProbeResult
 from account_pool.health.postgres import PostgresHealthEventRepository
 from account_pool.health.probe import ActiveHealthProbeService, HealthProbeManager
@@ -72,6 +71,7 @@ from account_pool.models import (
     DeploymentInput,
     Health,
     HeartbeatRequest,
+    Lease,
     LiteLLMStatus,
     ManagementResult,
     ModelSummary,
@@ -79,6 +79,7 @@ from account_pool.models import (
     PolicyUpdate,
     ReleaseRequest,
     RouteEntry,
+    SettlementEventRequest,
     SettleRequest,
     StatsView,
 )
@@ -173,6 +174,7 @@ from account_pool.routing.models import (
 )
 from account_pool.routing.postgres import PostgresRoutingPolicyRepository
 from account_pool.routing.service import RoutingPolicyService
+from account_pool.runtime_contract import RuntimeConfigSnapshot, build_runtime_config_snapshot
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
@@ -202,7 +204,6 @@ class Runtime:
     settings: Settings
     scheduler: Scheduler
     store: StateStore
-    gateway: Gateway
     manager: PoolManager
     admin: LiteLLMAdminClient
     provider_services: ProviderServiceRegistry
@@ -284,16 +285,6 @@ def create_app(
             store=resolved_store,
             events=resolved_health_events,
         )
-    )
-    gateway: Final = Gateway(
-        scheduler=scheduler,
-        store=resolved_store,
-        client=client,
-        litellm_url=resolved_settings.litellm_url,
-        lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
-        health_recorder=resolved_health_recorder,
-        pre_auth=resolved_settings.gateway_pre_auth,
-        pre_auth_cache_seconds=resolved_settings.gateway_pre_auth_cache_seconds,
     )
     admin: Final = LiteLLMAdminClient(
         client=client,
@@ -444,7 +435,6 @@ def create_app(
         settings=resolved_settings,
         scheduler=scheduler,
         store=resolved_store,
-        gateway=gateway,
         manager=manager,
         admin=admin,
         provider_services=provider_services,
@@ -636,6 +626,13 @@ def create_app(
 
     async def healthz() -> OperationResult:
         return OperationResult(ok=True)
+
+    async def runtime_config() -> RuntimeConfigSnapshot:
+        return build_runtime_config_snapshot(
+            scheduler.config(),
+            lease_ttl_seconds=resolved_settings.lease_ttl_seconds,
+            maximum_lease_seconds=resolved_settings.maximum_lease_seconds,
+        )
 
     async def worker_states() -> WorkerStateList:
         return resolved_worker_monitor.snapshot()
@@ -1267,19 +1264,33 @@ def create_app(
             await resolved_health_recorder.record_passive(lease, body)
         return OperationResult(ok=settled)
 
+    async def record_request_activity(body: Lease) -> OperationResult:
+        if resolved_health_recorder is None:
+            return OperationResult(ok=True)
+        return OperationResult(ok=await resolved_health_recorder.record_request(body))
+
+    async def record_settlement_event(body: SettlementEventRequest) -> OperationResult:
+        if resolved_health_recorder is None:
+            return OperationResult(ok=True)
+        return OperationResult(ok=await resolved_health_recorder.record_passive(body.lease, body.settlement))
+
     async def release(body: ReleaseRequest) -> OperationResult:
         return OperationResult(ok=await resolved_store.release(body.lease_id))
 
     async def heartbeat(body: HeartbeatRequest) -> OperationResult:
         return OperationResult(ok=await resolved_store.heartbeat(body.lease_id, resolved_settings.lease_ttl_seconds))
 
-    async def proxy(path: str, request: Request) -> Response:
-        return await gateway.forward(path=path, request=request)
-
     internal_dependency: Final = [Depends(require_internal_token)]
     # 管理接口和调度接口共用服务令牌，防止绕过 LiteLLM Admin 代理直连 4100 端口。
     management_dependency: Final = [Depends(require_internal_token)]
     application.add_api_route("/healthz", healthz, methods=["GET"])
+    application.add_api_route(
+        "/internal/runtime-config",
+        runtime_config,
+        methods=["GET"],
+        dependencies=internal_dependency,
+        include_in_schema=False,
+    )
     application.add_api_route("/metrics", metrics, methods=["GET"], include_in_schema=False)
     application.add_api_route("/api/workers", worker_states, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/accounts", accounts, methods=["GET"], dependencies=management_dependency)
@@ -1449,9 +1460,20 @@ def create_app(
     application.add_api_route("/api/stats", stats, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/internal/acquire", acquire, methods=["POST"], dependencies=internal_dependency)
     application.add_api_route("/internal/settle", settle, methods=["POST"], dependencies=internal_dependency)
+    application.add_api_route(
+        "/internal/request-activity",
+        record_request_activity,
+        methods=["POST"],
+        dependencies=internal_dependency,
+    )
+    application.add_api_route(
+        "/internal/settlement-event",
+        record_settlement_event,
+        methods=["POST"],
+        dependencies=internal_dependency,
+    )
     application.add_api_route("/internal/release", release, methods=["POST"], dependencies=internal_dependency)
     application.add_api_route("/internal/heartbeat", heartbeat, methods=["POST"], dependencies=internal_dependency)
-    application.add_api_route("/v1/{path:path}", proxy, methods=["POST"])
 
     ui_dependency: Final = [Depends(require_litellm_admin)]
     application.add_api_route("/ui-api/accounts", accounts, methods=["GET"], dependencies=ui_dependency)

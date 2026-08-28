@@ -13,9 +13,5 @@ model_list:
     model_info:
       id: pool-gpt4o-backup
 
-litellm_settings:
-  callbacks:
-    - account_pool.litellm_plugin.state_tracker.proxy_handler_instance
-
 router_settings:
   routing_strategy: simple-shuffle

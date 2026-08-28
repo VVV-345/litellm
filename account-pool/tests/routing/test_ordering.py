@@ -1,10 +1,14 @@
 """验证正式调度策略的稳定排序、缺失证据和硬排除优先级。"""
 
+import json
 from decimal import Decimal
-from typing import Final
+from pathlib import Path
+from typing import Final, cast
 
 from account_pool.models import Strategy
 from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
+
+_CONFORMANCE_FIXTURE: Final = Path(__file__).resolve().parents[2] / "testdata" / "routing_conformance.json"
 
 
 def candidate(
@@ -135,3 +139,45 @@ def test_weighted_round_robin_preview_uses_sequence_without_dropping_fallbacks()
 
     assert ids(first) == ("heavy", "light")
     assert ids(fourth) == ("light", "heavy")
+
+
+def test_matches_the_shared_rust_routing_conformance_fixture() -> None:
+    fixture: Final = cast(dict[str, object], json.loads(_CONFORMANCE_FIXTURE.read_text(encoding="utf-8")))
+    raw_candidates: Final = cast(list[dict[str, object]], fixture["candidates"])
+    candidates: Final = tuple(_fixture_candidate(raw) for raw in raw_candidates)
+    expected: Final = cast(dict[str, list[str]], fixture["expected"])
+    model: Final = cast(str, fixture["model"])
+    request_id: Final = cast(str, fixture["request_id"])
+    sequence: Final = cast(int, fixture["sequence"])
+
+    for strategy in Strategy:
+        ordered: Final = order_candidates(
+            candidates,
+            strategy,
+            model,
+            request_id=request_id,
+            sequence=sequence,
+        )
+        assert list(ids(ordered)) == expected[strategy.value]
+
+
+def _fixture_candidate(raw: dict[str, object]) -> RoutingCandidate:
+    effective_cost: Final = raw["effective_cost"]
+    return RoutingCandidate(
+        account_id=cast(str, raw["account_id"]),
+        deployment_id=cast(str, raw["deployment_id"]),
+        billing_route_id=cast(str | None, raw["billing_route_id"]),
+        available=cast(bool, raw["available"]),
+        priority=cast(int, raw["priority"]),
+        weight=cast(int, raw["weight"]),
+        manual_order=cast(int | None, raw["manual_order"]),
+        inflight=cast(int, raw["inflight"]),
+        max_concurrency=cast(int, raw["max_concurrency"]),
+        remaining_quota_ratio=cast(float | None, raw["remaining_quota_ratio"]),
+        latency_ewma_ms=cast(float | None, raw["latency_ewma_ms"]),
+        effective_cost=None if effective_cost is None else Decimal(cast(str, effective_cost)),
+        cost_currency=cast(str | None, raw["cost_currency"]),
+        cost_unit=cast(str | None, raw["cost_unit"]),
+        cost_partial=cast(bool, raw["cost_partial"]),
+        cost_included=cast(bool, raw["cost_included"]),
+    )

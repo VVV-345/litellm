@@ -18,14 +18,19 @@ litellm-core = { workspace = true, features = ["bedrock-auth"] }
 # reqwest (rustls + json) is used by io/ocr and ships realtime logs to the
 # Python proxy callbacks API.
 reqwest.workspace = true
+redis.workspace = true
 # `sync` powers the bounded mpsc channel the realtime logger drains.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 serde_json.workspace = true
 base64.workspace = true
+bytes.workspace = true
+httpdate.workspace = true
 axum = { workspace = true, features = ["ws"], optional = true }
 serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
 subtle = { workspace = true, optional = true }
 # sha2 hashes the master key into user_api_key_hash (matches the proxy's
 # SHA-256 hash_token) so the plaintext credential never enters a log payload.

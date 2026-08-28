@@ -5,6 +5,7 @@
 //! file (`health.rs`, `gil.rs`); a non-trivial one is a folder (`realtime/`) with
 //! `handler` (entry) + `service` (logic) + `transport` (adapters). See AGENTS.md.
 
+pub mod account_pool;
 pub mod gil;
 pub mod health;
 pub mod messages;
@@ -17,11 +18,14 @@ use crate::state::AppState;
 
 /// Assemble the application router by merging every route module's `router()`.
 pub fn app(state: AppState) -> Router {
-    Router::new()
-        .merge(health::router())
-        .merge(gil::router())
-        .merge(messages::router())
-        .merge(realtime::router())
-        .merge(responses::router())
-        .with_state(state)
+    let common = Router::new().merge(health::router()).merge(gil::router());
+    let app = if state.account_pool_proxy.enabled() {
+        common.merge(account_pool::router())
+    } else {
+        common
+            .merge(messages::router())
+            .merge(realtime::router())
+            .merge(responses::router())
+    };
+    app.with_state(state)
 }

@@ -1,4 +1,4 @@
-"""验证号池管理接口、内部鉴权和 OpenAI 兼容网关。"""
+"""验证号池管理接口和内部鉴权。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,6 @@ import base64
 import hashlib
 import hmac
 import json
-import time
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, cast
@@ -37,7 +35,6 @@ from account_pool.events import (
     EventQuery,
     EventQueryOutcome,
 )
-from account_pool.gateway import Gateway, _with_stream_usage
 from account_pool.health.models import (
     HealthActivity,
     HealthEventRecord,
@@ -63,7 +60,6 @@ from account_pool.models import (
     AcquireSuccess,
     ChannelPriority,
     Health,
-    Lease,
     LiteLLMStatus,
     ManagementResult,
     ModelSummary,
@@ -71,7 +67,6 @@ from account_pool.models import (
     QuotaSnapshot,
     QuotaUnit,
     RouteEntry,
-    SettleRequest,
     StatsView,
 )
 from account_pool.monitoring.models import WorkerStateList
@@ -123,8 +118,8 @@ from account_pool.parsing.tasks.models import (
 )
 from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.routing.latency_store import DurableLatencyStateStore
-from account_pool.scheduler import Scheduler
-from account_pool.store import MemoryStateStore, StateStore
+from account_pool.runtime_contract import RuntimeConfigSnapshot
+from account_pool.store import MemoryStateStore
 from account_pool.sync.models import SyncStatus
 from account_pool.sync.service import (
     ChannelDeleteRequest,
@@ -136,69 +131,7 @@ from account_pool.sync.service import (
     ExternalDeploymentDeleteRequest,
     ReconcilePassResult,
 )
-from pydantic import BaseModel, ConfigDict, TypeAdapter
-
-
-class _ForwardedRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    model: str
-    metadata: dict[str, str]
-
-
-class _GatewayError(BaseModel):
-    type: str
-
-
-class _GatewayErrorResponse(BaseModel):
-    error: _GatewayError
-
-
-class _TrackedStream(httpx.AsyncByteStream):
-    def __init__(self, *, interrupt: bool = False) -> None:
-        self.closed = False
-        self._interrupt: Final = interrupt
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        yield b"data"
-        if self._interrupt:
-            raise httpx.ReadError("stream interrupted")
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-class _StreamingStore:
-    def __init__(self, heartbeat_result: bool) -> None:
-        self._heartbeat_result: Final = heartbeat_result
-        self.heartbeat_calls = 0
-        self.settlements: list[SettleRequest] = []
-        self.releases: list[str] = []
-
-    async def heartbeat(self, lease_id: str, ttl_seconds: int) -> bool:
-        self.heartbeat_calls += 1
-        return self._heartbeat_result
-
-    async def settle(self, request: SettleRequest) -> bool:
-        self.settlements.append(request)
-        return True
-
-    async def release(self, lease_id: str) -> bool:
-        self.releases.append(lease_id)
-        return True
-
-
-def _stream_lease(absolute_expires_at: float) -> Lease:
-    return Lease(
-        lease_id="stream-lease",
-        request_id="stream-request",
-        account_id="primary-east",
-        deployment_id="pool-gpt4o-primary",
-        public_model="gpt-4o",
-        expires_at=min(time.time() + 1, absolute_expires_at),
-        absolute_expires_at=absolute_expires_at,
-    )
-
+from pydantic import TypeAdapter
 
 _MODEL_SUMMARIES_ADAPTER: Final = TypeAdapter(tuple[ModelSummary, ...])
 _ROUTE_ENTRIES_ADAPTER: Final = TypeAdapter(tuple[RouteEntry, ...])
@@ -709,7 +642,6 @@ def settings(
     internal_token: str | None = "test-service-token",
     actor_secret: str | None = None,
     database_url: str | None = None,
-    gateway_pre_auth: bool = False,
 ) -> Settings:
     return Settings(
         config_path=config_path or Path(__file__).resolve().parents[1] / "config" / "accounts.demo.yaml",
@@ -721,7 +653,6 @@ def settings(
         internal_token=internal_token,
         database_url=database_url,
         actor_secret=actor_secret,
-        gateway_pre_auth=gateway_pre_auth,
     )
 
 
@@ -892,8 +823,9 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert valid.status_code == 200
     manifests: Final = _PROVIDER_MANIFESTS_ADAPTER.validate_json(valid.content)
     manifest_ids: Final = tuple(manifest.provider_id for manifest in manifests)
-    assert manifest_ids == ("glm_official", "openai_compatible", "new_api")
-    assert manifests[1].default_api_base == "https://api.openai.com/v1"
+    assert manifest_ids == ("glm_official", "lmu_static_metadata", "openai_compatible", "new_api")
+    manifests_by_id: Final = {manifest.provider_id: manifest for manifest in manifests}
+    assert manifests_by_id["openai_compatible"].default_api_base == "https://api.openai.com/v1"
     assert health.status_code == 200
     assert metrics.status_code == 200
     assert metrics.headers["content-type"].startswith("text/plain; version=0.0.4")
@@ -920,6 +852,41 @@ async def test_management_api_fails_closed_without_configured_token() -> None:
             response: Final = await client.get("/api/accounts")
 
     assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_runtime_config_requires_internal_token_and_omits_upstream_details() -> None:
+    app: Final = create_app(settings=settings(internal_token="service-secret"), store=MemoryStateStore())
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            missing: Final = await client.get("/internal/runtime-config")
+            valid: Final = await client.get(
+                "/internal/runtime-config",
+                headers={"x-account-pool-token": "service-secret"},
+            )
+
+    assert missing.status_code == 401
+    assert valid.status_code == 200
+    snapshot: Final = RuntimeConfigSnapshot.model_validate_json(valid.content)
+    assert snapshot.schema_version == 1
+    assert snapshot.lease_ttl_seconds == 60
+    assert snapshot.maximum_lease_seconds == 3_600
+    assert snapshot.accounts
+    assert "base_url" not in valid.text
+    assert "provider_model" not in valid.text
+    assert "api_key" not in valid.text
+
+
+@pytest.mark.asyncio
+async def test_control_plane_does_not_expose_client_gateway_routes() -> None:
+    app: Final = create_app(settings=settings(), store=MemoryStateStore())
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://account-pool") as client:
+            response: Final = await client.post("/v1/chat/completions", json={"model": "gpt-4o"})
+
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -1741,264 +1708,6 @@ async def test_management_api_renders_pool_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gateway_rewrites_model_to_selected_litellm_deployment_and_releases_lease() -> None:
-    captured: list[_ForwardedRequest] = []
-
-    def upstream(request: httpx.Request) -> httpx.Response:
-        payload: Final = _ForwardedRequest.model_validate_json(request.content)
-        captured.append(payload)
-        return httpx.Response(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            json={
-                "id": "chatcmpl-test",
-                "model": payload.model,
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}],
-                "usage": {"prompt_tokens": 25, "completion_tokens": 7},
-            },
-        )
-
-    store: Final = MemoryStateStore()
-    health_events: Final = FakeHealthEventRepository()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(
-            settings=settings(),
-            store=store,
-            proxy_client=proxy_client,
-            health_events=health_events,
-        )
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://account-pool",
-                headers={"x-account-pool-token": "test-service-token"},
-            ) as client:
-                response: Final = await client.post(
-                    "/v1/chat/completions",
-                    headers={"authorization": "Bearer client-key", "x-request-id": "request-123"},
-                    json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
-                )
-                routes_response: Final = await client.get("/api/models/gpt-4o/routing-table")
-
-    routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
-    primary_route: Final = next(route for route in routes if route.account_id == "primary-east")
-    assert response.status_code == 200
-    assert captured[0].model == "pool-gpt4o-primary"
-    assert captured[0].metadata["account_pool_request_id"] == "request-123"
-    assert primary_route.inflight == 0
-    assert primary_route.quota.total == 2_499_968
-    assert len(health_events.request_activities) == 1
-    assert health_events.request_activities[0].deployment_id == "pool-gpt4o-primary"
-    assert len(health_events.records) == 1
-    assert health_events.records[0].event.request_id == "request-123"
-    assert health_events.records[0].event.safe_details.outcome == "succeeded"
-    assert "client-key" not in health_events.records[0].model_dump_json()
-
-
-@pytest.mark.asyncio
-async def test_stream_heartbeat_failure_closes_upstream() -> None:
-    store: Final = _StreamingStore(heartbeat_result=False)
-    stream: Final = _TrackedStream()
-    upstream: Final = httpx.Response(200, stream=stream)
-    failed: Final = asyncio.Event()
-    async with httpx.AsyncClient() as client:
-        gateway: Final = Gateway(
-            scheduler=cast(Scheduler, object()),
-            store=cast(StateStore, store),
-            client=client,
-            litellm_url="http://litellm.internal",
-            lease_ttl_seconds=1,
-        )
-        await gateway._maintain_stream_lease(  # pyright: ignore[reportPrivateUsage]  # 直接验证流式租约任务
-            upstream,
-            _stream_lease(time.time() + 5),
-            failed,
-        )
-
-    assert failed.is_set()
-    assert store.heartbeat_calls == 1
-    assert stream.closed is True
-
-
-@pytest.mark.asyncio
-async def test_stream_absolute_expiry_closes_upstream_without_heartbeat() -> None:
-    store: Final = _StreamingStore(heartbeat_result=True)
-    stream: Final = _TrackedStream()
-    upstream: Final = httpx.Response(200, stream=stream)
-    failed: Final = asyncio.Event()
-    async with httpx.AsyncClient() as client:
-        gateway: Final = Gateway(
-            scheduler=cast(Scheduler, object()),
-            store=cast(StateStore, store),
-            client=client,
-            litellm_url="http://litellm.internal",
-            lease_ttl_seconds=60,
-        )
-        await gateway._maintain_stream_lease(  # pyright: ignore[reportPrivateUsage]  # 直接验证绝对截止时间
-            upstream,
-            _stream_lease(time.time() - 0.01),
-            failed,
-        )
-
-    assert failed.is_set()
-    assert store.heartbeat_calls == 0
-    assert stream.closed is True
-
-
-@pytest.mark.asyncio
-async def test_interrupted_stream_is_settled_and_released() -> None:
-    store: Final = _StreamingStore(heartbeat_result=True)
-    stream: Final = _TrackedStream(interrupt=True)
-    upstream: Final = httpx.Response(
-        200,
-        request=httpx.Request("POST", "http://litellm.internal/v1/chat/completions"),
-        stream=stream,
-    )
-    async with httpx.AsyncClient() as client:
-        gateway: Final = Gateway(
-            scheduler=cast(Scheduler, object()),
-            store=cast(StateStore, store),
-            client=client,
-            litellm_url="http://litellm.internal",
-            lease_ttl_seconds=60,
-        )
-        with pytest.raises(httpx.ReadError):
-            tuple(
-                [
-                    chunk
-                    async for chunk in gateway._stream_response(  # pyright: ignore[reportPrivateUsage]  # 验证中断清理
-                        upstream=upstream,
-                        lease=_stream_lease(time.time() + 5),
-                        started=time.perf_counter(),
-                    )
-                ]
-            )
-
-    assert stream.closed is True
-    assert store.releases == ["stream-lease"]
-    assert len(store.settlements) == 1
-    assert store.settlements[0].success is False
-    assert store.settlements[0].error_type == "stream_interrupted"
-
-
-class _UsageStream(httpx.AsyncByteStream):
-    def __init__(self, chunks: tuple[bytes, ...]) -> None:
-        self.closed = False
-        self._chunks: Final = chunks
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        for chunk in self._chunks:
-            yield chunk
-
-    async def aclose(self) -> None:
-        self.closed = True
-
-
-@pytest.mark.asyncio
-async def test_completed_stream_settles_with_real_usage_from_sse_chunk() -> None:
-    store: Final = _StreamingStore(heartbeat_result=True)
-    stream: Final = _UsageStream(
-        (
-            b'data: {"id":"c1","choices":[{"delta":{"content":"he"}}]}\n\n',
-            b'data: {"id":"c1","choices":[{"delta":{"content":"llo"}}],"usage":{"prompt_tokens":31,"completion_tokens":5}}\n\n',
-            b"data: [DONE]\n\n",
-        )
-    )
-    upstream: Final = httpx.Response(
-        200,
-        request=httpx.Request("POST", "http://litellm.internal/v1/chat/completions"),
-        stream=stream,
-    )
-    async with httpx.AsyncClient() as client:
-        gateway: Final = Gateway(
-            scheduler=cast(Scheduler, object()),
-            store=cast(StateStore, store),
-            client=client,
-            litellm_url="http://litellm.internal",
-            lease_ttl_seconds=60,
-        )
-        received: Final = tuple(
-            [
-                chunk
-                async for chunk in gateway._stream_response(  # pyright: ignore[reportPrivateUsage]  # 验证流式真实用量结算
-                    upstream=upstream,
-                    lease=_stream_lease(time.time() + 5),
-                    started=time.perf_counter(),
-                )
-            ]
-        )
-
-    assert len(received) == 3
-    assert stream.closed is True
-    assert store.settlements[0].success is True
-    assert store.settlements[0].input_tokens == 31
-    assert store.settlements[0].output_tokens == 5
-    assert store.releases == ["stream-lease"]
-
-
-@pytest.mark.asyncio
-async def test_stream_without_usage_chunk_settles_zero_tokens() -> None:
-    store: Final = _StreamingStore(heartbeat_result=True)
-    stream: Final = _UsageStream((b'data: {"id":"c1","choices":[{"delta":{"content":"hi"}}]}\n\n', b"data: [DONE]\n\n"))
-    upstream: Final = httpx.Response(
-        200,
-        request=httpx.Request("POST", "http://litellm.internal/v1/chat/completions"),
-        stream=stream,
-    )
-    async with httpx.AsyncClient() as client:
-        gateway: Final = Gateway(
-            scheduler=cast(Scheduler, object()),
-            store=cast(StateStore, store),
-            client=client,
-            litellm_url="http://litellm.internal",
-            lease_ttl_seconds=60,
-        )
-        tuple(
-            [
-                chunk
-                async for chunk in gateway._stream_response(  # pyright: ignore[reportPrivateUsage]  # 无 usage 块时回退为 0
-                    upstream=upstream,
-                    lease=_stream_lease(time.time() + 5),
-                    started=time.perf_counter(),
-                )
-            ]
-        )
-
-    assert store.settlements[0].success is True
-    assert store.settlements[0].input_tokens == 0
-    assert store.settlements[0].output_tokens == 0
-
-
-def test_gateway_injects_include_usage_for_stream_requests() -> None:
-    lease: Final = _stream_lease(time.time() + 5)
-
-    injected: Final = _with_stream_usage(  # pyright: ignore[reportPrivateUsage]  # 验证 stream_options 注入
-        {"model": "gpt-4o", "stream": True, "messages": []},
-        lease,
-        "request-1",
-        {},
-    )
-    preserved: Final = _with_stream_usage(  # pyright: ignore[reportPrivateUsage]  # 客户端已要求 usage 时不改写
-        {"model": "gpt-4o", "stream": True, "stream_options": {"include_usage": True}, "messages": []},
-        lease,
-        "request-2",
-        {},
-    )
-    non_stream: Final = _with_stream_usage(  # pyright: ignore[reportPrivateUsage]  # 非流式不注入
-        {"model": "gpt-4o", "messages": []},
-        lease,
-        "request-3",
-        {},
-    )
-
-    assert injected["stream_options"] == {"include_usage": True}
-    assert injected["model"] == "pool-gpt4o-primary"
-    assert injected["metadata"]["account_pool_lease_id"] == "stream-lease"
-    assert preserved["stream_options"] == {"include_usage": True}
-    assert "stream_options" not in non_stream
-
-
-@pytest.mark.asyncio
 async def test_internal_acquire_and_settle_share_health_event_recording() -> None:
     health_events: Final = FakeHealthEventRepository()
     app: Final = create_app(
@@ -2035,6 +1744,45 @@ async def test_internal_acquire_and_settle_share_health_event_recording() -> Non
 
 
 @pytest.mark.asyncio
+async def test_internal_gateway_event_ingestion_records_health_history() -> None:
+    health_events: Final = FakeHealthEventRepository()
+    app: Final = create_app(
+        settings=settings(),
+        store=MemoryStateStore(),
+        health_events=health_events,
+    )
+    lease: Final = {
+        "lease_id": "rust-lease",
+        "request_id": "rust-request",
+        "account_id": "primary-east",
+        "deployment_id": "pool-gpt4o-primary",
+        "public_model": "gpt-4o",
+        "expires_at": 2.0,
+        "absolute_expires_at": 3.0,
+    }
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://account-pool",
+            headers={"x-account-pool-token": "test-service-token"},
+        ) as client:
+            activity: Final = await client.post("/internal/request-activity", json=lease)
+            settlement: Final = await client.post(
+                "/internal/settlement-event",
+                json={
+                    "lease": lease,
+                    "settlement": {"lease_id": "rust-lease", "success": True, "status_code": 200},
+                },
+            )
+
+    assert activity.status_code == 200
+    assert settlement.status_code == 200
+    assert health_events.request_activities[0].deployment_id == "pool-gpt4o-primary"
+    assert health_events.records[0].event.request_id == "rust-request"
+
+
+@pytest.mark.asyncio
 async def test_internal_acquire_returns_structured_no_route_detail() -> None:
     app: Final = create_app(settings=settings(), store=MemoryStateStore())
 
@@ -2061,159 +1809,6 @@ async def test_internal_acquire_returns_structured_no_route_detail() -> None:
         "retry_at": None,
         "reasons": ["model_not_configured"],
     }
-
-
-@pytest.mark.asyncio
-async def test_gateway_pre_auth_rejects_invalid_key_without_acquiring_lease() -> None:
-    calls: list[httpx.Request] = []
-
-    def upstream(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        if request.url.path == "/key/info":
-            return httpx.Response(status_code=401, json={"error": {"message": "Invalid proxy server token used"}})
-        return httpx.Response(status_code=200, json={})
-
-    store: Final = MemoryStateStore()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(
-            settings=settings(gateway_pre_auth=True),
-            store=store,
-            proxy_client=proxy_client,
-        )
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://account-pool",
-                headers={"x-account-pool-token": "test-service-token"},
-            ) as client:
-                response: Final = await client.post(
-                    "/v1/chat/completions",
-                    headers={"authorization": "Bearer bad-key"},
-                    json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
-                )
-                routes_response: Final = await client.get("/api/models/gpt-4o/routing-table")
-
-    routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
-    assert response.status_code == 401
-    assert len(calls) == 1
-    assert calls[0].url.path == "/key/info"
-    assert all(route.inflight == 0 for route in routes)
-
-
-@pytest.mark.asyncio
-async def test_gateway_pre_auth_accepts_valid_key_and_caches_lookup() -> None:
-    calls: list[httpx.Request] = []
-
-    def upstream(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        if request.url.path == "/key/info":
-            return httpx.Response(status_code=200, json={"key": "sk-valid", "info": {"spend": 0}})
-        return httpx.Response(
-            status_code=200,
-            headers={"content-type": "application/json"},
-            json={"id": "chatcmpl-ok", "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}}]},
-        )
-
-    store: Final = MemoryStateStore()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(
-            settings=settings(gateway_pre_auth=True, internal_token=None),
-            store=store,
-            proxy_client=proxy_client,
-        )
-        async with app.router.lifespan_context(app):
-            async with httpx.ASGITransport(app=app) as transport:
-                async with httpx.AsyncClient(
-                    transport=transport,
-                    base_url="http://account-pool",
-                    headers={"authorization": "Bearer sk-valid"},
-                ) as client:
-                    first: Final = await client.post(
-                        "/v1/chat/completions",
-                        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
-                    )
-                    second: Final = await client.post(
-                        "/v1/chat/completions",
-                        json={"model": "gpt-4o", "messages": [{"role": "user", "content": "again"}]},
-                    )
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    key_info_calls: Final = [call for call in calls if call.url.path == "/key/info"]
-    assert len(key_info_calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_gateway_applies_retry_after_and_safe_provider_error_code() -> None:
-    def upstream(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            status_code=429,
-            headers={"content-type": "application/json", "retry-after": "45"},
-            json={"error": {"type": "concurrency_limit_exceeded", "message": "busy"}},
-        )
-
-    store: Final = MemoryStateStore()
-    before: Final = time.time()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(settings=settings(), store=store, proxy_client=proxy_client)
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://account-pool",
-                headers={"x-account-pool-token": "test-service-token"},
-            ) as client:
-                response: Final = await client.post(
-                    "/v1/chat/completions",
-                    json={"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]},
-                )
-                routes_response: Final = await client.get("/api/models/gpt-4o/routing-table")
-
-    routes: Final = _ROUTE_ENTRIES_ADAPTER.validate_json(routes_response.content)
-    cooled: Final = next(route for route in routes if route.reason_code == "concurrency_limited")
-    assert response.status_code == 429
-    assert cooled.health == "unknown"
-    assert cooled.exclusion_scope == "deployment"
-    assert cooled.exclusion_source == "capacity"
-    assert cooled.exclusion_state == "active"
-    assert cooled.available is False
-    assert cooled.cooldown_until is not None
-    assert before + 45 <= cooled.cooldown_until <= time.time() + 45
-
-
-@pytest.mark.asyncio
-async def test_gateway_returns_capacity_error_without_calling_litellm() -> None:
-    calls: list[httpx.Request] = []
-
-    def upstream(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
-        return httpx.Response(status_code=200, json={})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as proxy_client:
-        app: Final = create_app(settings=settings(), store=MemoryStateStore(), proxy_client=proxy_client)
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app),
-                base_url="http://account-pool",
-                headers={"x-account-pool-token": "test-service-token"},
-            ) as client:
-                response: Final = await client.post("/v1/chat/completions", json={"model": "missing-model"})
-
-    error: Final = _GatewayErrorResponse.model_validate_json(response.content)
-    payload: Final = _JSON_OBJECT_ADAPTER.validate_json(response.content)
-    error_payload: Final = _JSON_OBJECT_ADAPTER.validate_python(payload["error"])
-    details: Final = _JSON_OBJECT_ADAPTER.validate_python(error_payload["details"])
-    assert response.status_code == 503
-    assert error.error.type == "account_pool_unavailable"
-    assert details == {
-        "status": "unavailable",
-        "code": "no_available_route",
-        "model": "missing-model",
-        "reason_codes": ["model_not_configured"],
-        "candidates": [],
-        "retry_at": None,
-        "reasons": ["model_not_configured"],
-    }
-    assert calls == []
 
 
 @pytest.mark.asyncio

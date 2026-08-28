@@ -11,13 +11,16 @@
 
 use std::sync::Arc;
 
+use litellm_ai_gateway::account_pool::{
+    AccountPoolProxyRuntime, AccountPoolProxySettings, AccountPoolRuntime, RuntimeConfigSettings,
+};
+use litellm_ai_gateway::integrations::custom_logger::CustomLogger;
+use litellm_ai_gateway::integrations::litellm_python_proxy_api::LiteLLMPythonProxyAPILogger;
 use litellm_ai_gateway::io::realtime_pool::{PoolConfig, RealtimePool, upstream_key};
 use litellm_ai_gateway::routes;
 use litellm_ai_gateway::state::AppState;
 use litellm_core::router::{Deployment, LiteLLMParams, Router};
 
-use litellm_ai_gateway::integrations::custom_logger::CustomLogger;
-use litellm_ai_gateway::integrations::litellm_python_proxy_api::LiteLLMPythonProxyAPILogger;
 #[cfg(feature = "python-config")]
 use litellm_ai_gateway::python;
 
@@ -35,12 +38,6 @@ async fn main() {
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty())
         .map(Arc::from);
-    if master_key.is_none() {
-        eprintln!(
-            "warning: LITELLM_MASTER_KEY is not set; /v1/realtime will reject all requests (fail closed)"
-        );
-    }
-
     // Spawn the realtime-logging worker (drains a channel → POSTs batches to the
     // Python proxy's /v1/callbacks/logs). Built here so the spawn lands on the
     // tokio runtime. `from_env` reads LITELLM_PROXY_BASE_URL + LITELLM_MASTER_KEY.
@@ -48,6 +45,13 @@ async fn main() {
     let loggers: Vec<Arc<dyn CustomLogger>> = vec![proxy_logger];
 
     let router = Arc::new(build_router());
+    let account_pool = build_account_pool_runtime().await;
+    let account_pool_proxy = build_account_pool_proxy_runtime(account_pool.clone()).await;
+    if master_key.is_none() && !account_pool_proxy.enabled() {
+        eprintln!(
+            "warning: LITELLM_MASTER_KEY is not set; /v1/realtime will reject all requests (fail closed)"
+        );
+    }
 
     // Build the pre-warmed realtime pool and register each deployment's upstream
     // so the background replenisher starts warming it. `REALTIME_POOL_SIZE=0`
@@ -72,6 +76,8 @@ async fn main() {
         master_key,
         loggers: Arc::new(loggers),
         realtime_pool,
+        account_pool,
+        account_pool_proxy,
     };
 
     let host = std::env::var("HOST").unwrap_or_else(|_| DEFAULT_HOST.to_string());
@@ -84,6 +90,44 @@ async fn main() {
     axum::serve(listener, routes::app(state))
         .await
         .expect("server error");
+}
+
+async fn build_account_pool_runtime() -> AccountPoolRuntime {
+    let settings = match RuntimeConfigSettings::from_env() {
+        Ok(Some(settings)) => settings,
+        Ok(None) => return AccountPoolRuntime::disabled(),
+        Err(error) => {
+            eprintln!("account-pool runtime configuration is invalid: {error}");
+            return AccountPoolRuntime::failed(error.to_string());
+        }
+    };
+    match AccountPoolRuntime::start(settings).await {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("account-pool runtime failed to start: {error}");
+            AccountPoolRuntime::failed(error.to_string())
+        }
+    }
+}
+
+async fn build_account_pool_proxy_runtime(runtime: AccountPoolRuntime) -> AccountPoolProxyRuntime {
+    if !runtime.status().await.enabled {
+        return AccountPoolProxyRuntime::disabled();
+    }
+    let settings = match AccountPoolProxySettings::from_env() {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("account-pool proxy configuration is invalid: {error}");
+            return AccountPoolProxyRuntime::failed();
+        }
+    };
+    match AccountPoolProxyRuntime::start(runtime, settings).await {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            eprintln!("account-pool proxy failed to start: {error}");
+            AccountPoolProxyRuntime::failed()
+        }
+    }
 }
 
 /// Register every deployment's upstream key with the pool so the replenisher

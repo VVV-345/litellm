@@ -32,6 +32,29 @@ pub(crate) const DEFAULT_PROVIDER: &str = "openai";
 pub(crate) const DEFAULT_RESPONSES_WS_CONNECT_TIMEOUT_SECS: u64 = 10;
 pub(crate) const DEFAULT_RESPONSES_WS_IDLE_TIMEOUT_SECS: u64 = 300;
 
+pub(crate) const ACCOUNT_POOL_ENABLED_ENV: &str = "ACCOUNT_POOL_RUST_ENABLED";
+pub(crate) const ACCOUNT_POOL_CONFIG_URL_ENV: &str = "ACCOUNT_POOL_RUNTIME_CONFIG_URL";
+pub(crate) const ACCOUNT_POOL_TOKEN_ENV: &str = "ACCOUNT_POOL_INTERNAL_TOKEN";
+pub(crate) const ACCOUNT_POOL_REFRESH_INTERVAL_ENV: &str =
+    "ACCOUNT_POOL_RUNTIME_REFRESH_INTERVAL_SECONDS";
+pub(crate) const DEFAULT_ACCOUNT_POOL_CONFIG_URL: &str =
+    "http://127.0.0.1:4100/internal/runtime-config";
+pub(crate) const DEFAULT_ACCOUNT_POOL_REFRESH_INTERVAL_SECS: u64 = 5;
+pub(crate) const DEFAULT_ACCOUNT_POOL_CONNECT_TIMEOUT_SECS: u64 = 3;
+pub(crate) const DEFAULT_ACCOUNT_POOL_REQUEST_TIMEOUT_SECS: u64 = 10;
+pub(crate) const ACCOUNT_POOL_REDIS_URL_ENV: &str = "ACCOUNT_POOL_REDIS_URL";
+pub(crate) const DEFAULT_ACCOUNT_POOL_REDIS_URL: &str = "redis://127.0.0.1:6379/0";
+pub(crate) const ACCOUNT_POOL_LITELLM_URL_ENV: &str = "ACCOUNT_POOL_LITELLM_URL";
+pub(crate) const DEFAULT_ACCOUNT_POOL_LITELLM_URL: &str = "http://127.0.0.1:4000";
+pub(crate) const ACCOUNT_POOL_PRE_AUTH_ENV: &str = "ACCOUNT_POOL_GATEWAY_PRE_AUTH";
+pub(crate) const ACCOUNT_POOL_PRE_AUTH_CACHE_SECONDS_ENV: &str =
+    "ACCOUNT_POOL_GATEWAY_PRE_AUTH_CACHE_SECONDS";
+pub(crate) const DEFAULT_ACCOUNT_POOL_PRE_AUTH_CACHE_SECONDS: u64 = 30;
+pub(crate) const DEFAULT_ACCOUNT_POOL_PROXY_CONNECT_TIMEOUT_SECS: u64 = 5;
+pub(crate) const DEFAULT_ACCOUNT_POOL_PROXY_REQUEST_TIMEOUT_SECS: u64 = 120;
+pub(crate) const DEFAULT_ACCOUNT_POOL_STREAM_CHANNEL_CAPACITY: usize = 16;
+pub(crate) const MAXIMUM_ACCOUNT_POOL_PRE_AUTH_CACHE_ENTRIES: usize = 10_000;
+
 /// HTTP path for the non-streaming Anthropic Messages route.
 #[cfg(feature = "server")]
 pub(crate) const MESSAGES_ROUTE_PATH: &str = "/v1/messages";

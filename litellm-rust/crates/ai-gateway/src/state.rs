@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use crate::io::realtime_pool::RealtimePool;
 use litellm_core::router::Router;
 
+use crate::account_pool::{AccountPoolProxyRuntime, AccountPoolRuntime};
 use crate::integrations::custom_logger::CustomLogger;
+use crate::io::realtime_pool::RealtimePool;
 
 /// Shared application state handed to every route handler.
 #[derive(Clone)]
@@ -18,4 +19,8 @@ pub struct AppState {
     /// (`RealtimePool::disabled()`) when `REALTIME_POOL_SIZE=0`, in which case
     /// every realtime connect fresh-dials exactly as before.
     pub realtime_pool: Arc<RealtimePool>,
+    /// Versioned Python control-plane configuration used by the account-pool path.
+    pub account_pool: AccountPoolRuntime,
+    /// Rust request-path runtime that schedules and forwards account-pool traffic.
+    pub account_pool_proxy: AccountPoolProxyRuntime,
 }

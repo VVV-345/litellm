@@ -46,8 +46,6 @@ class Settings:
     event_archive_path: Path | None = None
     event_archive_key: SecretStr | None = None
     event_archive_key_id: str = "default"
-    gateway_pre_auth: bool = True
-    gateway_pre_auth_cache_seconds: int = 30
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -103,8 +101,6 @@ class Settings:
             event_archive_path=None if archive_path_value is None else Path(archive_path_value),
             event_archive_key=None if archive_key_value is None else SecretStr(archive_key_value),
             event_archive_key_id=os.environ.get("ACCOUNT_POOL_EVENT_ARCHIVE_KEY_ID", "default"),
-            gateway_pre_auth=os.environ.get("ACCOUNT_POOL_GATEWAY_PRE_AUTH", "true").lower() != "false",
-            gateway_pre_auth_cache_seconds=int(os.environ.get("ACCOUNT_POOL_GATEWAY_PRE_AUTH_CACHE_SECONDS", "30")),
         )
 
 

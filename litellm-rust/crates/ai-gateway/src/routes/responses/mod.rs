@@ -239,6 +239,7 @@ async fn bridge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account_pool::{AccountPoolProxyRuntime, AccountPoolRuntime};
     use crate::io::realtime_pool::RealtimePool;
     use crate::state::AppState;
     use axum::body::Body;
@@ -318,6 +319,8 @@ mod tests {
             master_key: Some(Arc::from("master-key")),
             loggers: Arc::new(Vec::new()),
             realtime_pool: RealtimePool::disabled(),
+            account_pool: AccountPoolRuntime::disabled(),
+            account_pool_proxy: AccountPoolProxyRuntime::disabled(),
         }
     }
 
