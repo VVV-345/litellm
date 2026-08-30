@@ -5,13 +5,19 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createChannel, getChannel, validateProviderService } from "../api";
+import { createChannel, getChannel, updateChannel, validateProviderService } from "../api";
 import type { ChannelDetail, ChannelSummary, ProviderServiceManifest, ProviderValidationResult } from "../types";
 import ChannelFormDialog from "./ChannelFormDialog";
 
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
-  return { ...actual, createChannel: vi.fn(), getChannel: vi.fn(), validateProviderService: vi.fn() };
+  return {
+    ...actual,
+    createChannel: vi.fn(),
+    getChannel: vi.fn(),
+    updateChannel: vi.fn(),
+    validateProviderService: vi.fn(),
+  };
 });
 
 const discoveryProvider: ProviderServiceManifest = {
@@ -124,11 +130,20 @@ describe("ChannelFormDialog", () => {
       requires_key: false,
       failure: null,
     });
+    vi.mocked(updateChannel).mockResolvedValue({
+      status: "accepted",
+      operation_id: "operation-2",
+      channel_id: summary.channel_id,
+      operation_status: "pending_update",
+      requires_key: false,
+      failure: null,
+    });
   });
 
-  it("does not expose provider implementation capability flags in the channel form", () => {
+  it("shows the service protocol before model discovery without implementation capability flags", () => {
     render(<DialogHarness />);
 
+    expect(screen.getByRole("combobox", { name: "服务商 / 接口协议" })).toBeInTheDocument();
     expect(screen.queryByText("model_discovery: supported")).not.toBeInTheDocument();
   });
 
@@ -170,6 +185,58 @@ describe("ChannelFormDialog", () => {
     expect(screen.getByDisplayValue("https://database.example/v1")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "优先级" })).toHaveTextContent("高");
     expect(screen.queryByDisplayValue("摘要名称")).not.toBeInTheDocument();
+  });
+
+  it("fetches resource-side models while editing and preserves matching deployment bindings", async () => {
+    vi.mocked(getChannel).mockResolvedValue(detail);
+    vi.mocked(validateProviderService).mockResolvedValue({
+      ...discoveryResult,
+      models: [{ model: "database-model" }, { model: "model-c" }],
+    });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChannelFormDialog
+          accessToken="proxy-token"
+          mode="edit"
+          channel={summary}
+          providers={[discoveryProvider]}
+          knownModels={[]}
+          onClose={vi.fn()}
+          onAccepted={vi.fn(async () => undefined)}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("combobox", { name: "服务商 / 接口协议" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("用于获取模型的新 Key（可选）"), "sk-replacement");
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+
+    expect(await screen.findByText("已获取 2 个模型，默认全部选中")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(updateChannel).toHaveBeenCalledWith(
+      "proxy-token",
+      summary.channel_id,
+      expect.objectContaining({
+        api_key: "sk-replacement",
+        bindings: [
+          expect.objectContaining({
+            binding_id: detail.bindings[0].binding_id,
+            public_model: "database-model",
+            provider_model: "openai/database-model",
+            litellm_deployment_id: "deployment-1",
+          }),
+          expect.objectContaining({
+            binding_id: null,
+            public_model: "model-c",
+            provider_model: "openai/model-c",
+          }),
+        ],
+      }),
+    );
   });
 
   it("uses current provider discovery when manifests arrive after mount", async () => {
@@ -375,9 +442,9 @@ describe("ChannelFormDialog", () => {
     await user.type(screen.getByLabelText("分组（可选）"), "enterprise");
     expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^高级设置/ }));
-    await user.click(screen.getByRole("combobox", { name: "连接协议" }));
+    await user.click(screen.getByRole("combobox", { name: "服务商 / 接口协议" }));
     await user.click(await screen.findByText("Limited API"));
+    expect(screen.getByLabelText("接入凭据")).toHaveValue("");
     expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
   });
 

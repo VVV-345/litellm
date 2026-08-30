@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown, Link2, Loader2, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import CreatableModelSelect from "@/components/add_model/CreatableModelSelect";
 import NotificationsManager from "@/components/molecules/notifications_manager";
@@ -33,7 +33,6 @@ import {
   buildDiscoveredBindings,
   canSubmitCreateSelection,
   initialModelSelection,
-  selectManualMapping,
   validateDiscoveryResult,
 } from "../channelModelSelection";
 import { channelPriorityPresentation, parseOptionalNumber } from "../accountPoolPresentation";
@@ -54,6 +53,18 @@ import type {
 } from "../types";
 
 type ChannelFormMode = "create" | "edit" | "import";
+type ModelSelectionSnapshot = {
+  capabilitySignature: string;
+  revision: number;
+  selection: ReturnType<typeof initialModelSelection>;
+};
+type ModelSelectionResolution = {
+  manualMapping: boolean;
+  snapshot: ModelSelectionSnapshot | null;
+  capabilitySignature: string;
+  revision: number;
+  provider: ProviderServiceManifest | undefined;
+};
 
 interface ChannelFormDialogProps {
   accessToken: string;
@@ -80,6 +91,15 @@ const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindi
   ownership,
   enabled: true,
 });
+const preserveDiscoveredBindings = (
+  models: string[],
+  providerPrefix: string,
+  currentBindings: ChannelBindingInput[],
+): ChannelBindingInput[] =>
+  buildDiscoveredBindings(models, providerPrefix).map((binding) => {
+    const existing = currentBindings.find((candidate) => candidate.public_model === binding.public_model);
+    return existing ? { ...existing, provider_model: binding.provider_model } : binding;
+  });
 const defaultOwnership = (mode: ChannelFormMode): ChannelBindingInput["ownership"] =>
   mode === "import" ? "externally_managed" : "pool_managed";
 const dialogTitle = (mode: ChannelFormMode): string => {
@@ -96,6 +116,18 @@ const submitLabel = (mode: ChannelFormMode): string => {
   if (mode === "import") return "导入";
   if (mode === "edit") return "保存";
   return "创建";
+};
+const resolveModelSelection = ({
+  manualMapping,
+  snapshot,
+  capabilitySignature,
+  revision,
+  provider,
+}: ModelSelectionResolution) => {
+  if (manualMapping) return { kind: "manual" as const };
+  if (snapshot?.capabilitySignature === capabilitySignature && snapshot.revision === revision)
+    return snapshot.selection;
+  return initialModelSelection(provider);
 };
 
 export default function ChannelFormDialog({
@@ -183,22 +215,22 @@ function ChannelFormContent({
     (capability) => capability.capability === "model_discovery",
   )?.state;
   const discoveryCapabilitySignature = `${provider}:${discoveryCapabilityState ?? "missing"}`;
-  const [modelSelection, setModelSelection] = useState(() => initialModelSelection(selectedProvider));
-  const manualMappingRef = useRef(false);
-  const discoveryCapabilitySignatureRef = useRef(discoveryCapabilitySignature);
+  const [manualMapping, setManualMapping] = useState(false);
+  const [discoveryRevision, setDiscoveryRevision] = useState(0);
+  const [discoverySelection, setDiscoverySelection] = useState<ModelSelectionSnapshot | null>(null);
+  const modelSelectionInput: ModelSelectionResolution = {
+    manualMapping,
+    snapshot: discoverySelection,
+    capabilitySignature: discoveryCapabilitySignature,
+    revision: discoveryRevision,
+    provider: selectedProvider,
+  };
+  const modelSelection = resolveModelSelection(modelSelectionInput);
 
-  useEffect(() => {
-    if (discoveryCapabilitySignatureRef.current === discoveryCapabilitySignature) return;
-    discoveryCapabilitySignatureRef.current = discoveryCapabilitySignature;
-    if (mode !== "create" || manualMappingRef.current) return;
-    setModelSelection(initialModelSelection(selectedProvider));
-    setBindings([]);
-  }, [mode, discoveryCapabilitySignature, selectedProvider]);
-
-  const invalidateDiscovery = (nextProvider: ProviderServiceManifest | undefined = selectedProvider) => {
-    if (mode !== "create" || manualMappingRef.current) return;
-    setModelSelection(initialModelSelection(nextProvider));
-    setBindings([]);
+  const invalidateDiscovery = () => {
+    if (importing || manualMapping) return;
+    setDiscoveryRevision((current) => current + 1);
+    if (!editing) setBindings([]);
   };
 
   const close = () => {
@@ -252,13 +284,24 @@ function ChannelFormContent({
         snapshot.api_key === apiKey &&
         snapshot.group === (group.trim() || null);
       if (!inputsMatch) return;
-      const selection = validateDiscoveryResult(modelSelection, result);
-      setModelSelection(selection);
+      const discoveredProvider = providers.find((item) => item.provider_id === snapshot.provider_id);
+      const selection = validateDiscoveryResult(initialModelSelection(discoveredProvider), result);
+      setDiscoverySelection({
+        capabilitySignature: discoveryCapabilitySignature,
+        revision: discoveryRevision,
+        selection,
+      });
       if (selection.kind !== "discovered") return;
-      const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
-      setBindings(buildDiscoveredBindings(selection.models, providerPrefix));
+      setManualMapping(false);
+      const providerPrefix = discoveredProvider?.litellm_provider_prefix ?? "";
+      setBindings(preserveDiscoveredBindings(selection.models, providerPrefix, bindings));
     },
-    onError: () => setModelSelection({ kind: "manual-required", reason: "validation-failed" }),
+    onError: () =>
+      setDiscoverySelection({
+        capabilitySignature: discoveryCapabilitySignature,
+        revision: discoveryRevision,
+        selection: { kind: "manual-required", reason: "validation-failed" },
+      }),
   });
 
   const bindingsValid =
@@ -278,6 +321,10 @@ function ChannelFormContent({
     bindingsValid &&
     (mode !== "create" || canSubmitCreateSelection(modelSelection, bindings));
   const inputsDisabled = discoveryMutation.isPending;
+  const canDiscoverModels = !importing && discoveryCapabilityState === "supported";
+  const showingDiscoveredModels = modelSelection.kind === "discovered";
+  const showManualBindings =
+    importing || manualMapping || modelSelection.kind === "manual" || (editing && !showingDiscoveredModels);
 
   const selectedModels = useMemo(() => bindings.map((binding) => binding.public_model).filter(Boolean), [bindings]);
   const setModels = (models: string[]) => {
@@ -299,24 +346,27 @@ function ChannelFormContent({
   const chooseProvider = (value: string | null) => {
     if (!value) return;
     const manifest = providers.find((item) => item.provider_id === value);
+    if (value !== provider) setApiKey("");
     setProvider(value);
     if (manifest?.default_api_base) setBaseUrl(manifest.default_api_base);
-    invalidateDiscovery(manifest);
+    invalidateDiscovery();
   };
   const setDiscoveredModels = (models: string[]) => {
     if (modelSelection.kind !== "discovered") return;
     const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
     setBindings(
-      buildDiscoveredBindings(
+      preserveDiscoveredBindings(
         models.filter((model) => modelSelection.models.includes(model)),
         providerPrefix,
+        bindings,
       ),
     );
   };
   const manualFallback = () => {
-    manualMappingRef.current = true;
-    setModelSelection((selection) => selectManualMapping(selection));
-    setBindings([emptyBinding(defaultOwnership(mode))]);
+    setManualMapping(true);
+    setBindings((currentBindings) =>
+      currentBindings.length > 0 ? currentBindings : [emptyBinding(defaultOwnership(mode))],
+    );
   };
 
   return (
@@ -326,7 +376,7 @@ function ChannelFormContent({
           <DialogTitle>{dialogTitle(mode)}</DialogTitle>
           <DialogDescription>
             {editing
-              ? "Key 留空表示不轮换；提交结束后输入值会立即从组件状态清除"
+              ? "Key 留空不会轮换；输入 Key 获取模型后，保存时会一并更新渠道 Key"
               : "Key 只随本次请求提交，结束后立即从组件状态清除"}
           </DialogDescription>
         </DialogHeader>
@@ -350,10 +400,18 @@ function ChannelFormContent({
             <div className="flex items-center gap-2">
               <Link2 className="size-4 text-muted-foreground" />
               <div>
-                <h3 className="text-sm font-medium">API-Key 接入</h3>
-                <p className="text-xs text-muted-foreground">填写资源侧地址和用于读取模型列表的凭据</p>
+                <h3 className="text-sm font-medium">资源侧接入</h3>
+                <p className="text-xs text-muted-foreground">选择服务商协议后，填写地址和用于读取模型列表的凭据</p>
               </div>
             </div>
+            <ProviderProtocolSelect
+              providers={providers}
+              value={provider}
+              disabled={inputsDisabled}
+              label="服务商 / 接口协议"
+              description="该选择只决定鉴权和资源侧模型列表的请求方式；渠道数据解析由独立解析器处理"
+              onValueChange={chooseProvider}
+            />
             <div className="grid gap-2">
               <Label htmlFor="channel-url">API 地址</Label>
               <Input
@@ -370,10 +428,14 @@ function ChannelFormContent({
             </div>
             <EphemeralCredentialField
               id="channel-key"
-              label={editing ? "新 Key（可选）" : "接入凭据"}
+              label={editing ? "用于获取模型的新 Key（可选）" : "接入凭据"}
               value={apiKey}
               disabled={inputsDisabled}
-              description="凭据仅随本次请求提交，不会保留在浏览器状态中"
+              description={
+                editing
+                  ? "输入后可获取资源侧模型；保存时会更新渠道 Key，凭据不会保留在浏览器状态中"
+                  : "凭据仅随本次请求提交，不会保留在浏览器状态中"
+              }
               onValueChange={(value) => {
                 setApiKey(value);
                 invalidateDiscovery();
@@ -386,15 +448,16 @@ function ChannelFormContent({
               <div>
                 <h3 className="text-sm font-medium">模型与分组</h3>
                 <p className="text-xs text-muted-foreground">
-                  {mode === "create" ? "从资源侧读取当前凭据可访问的模型" : "可选择或输入公共模型名"}
+                  {canDiscoverModels ? "从资源侧读取当前凭据可访问的模型" : "可选择或输入公共模型名"}
                 </p>
               </div>
-              {(mode !== "create" || modelSelection.kind === "manual") && (
+              {showManualBindings && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setBindings([...bindings, emptyBinding(defaultOwnership(mode))])}
+                  disabled={inputsDisabled}
                 >
                   <Plus />
                   添加映射
@@ -402,7 +465,7 @@ function ChannelFormContent({
               )}
             </div>
 
-            {mode === "create" && modelSelection.kind !== "manual" && discoveryCapabilityState === "supported" && (
+            {canDiscoverModels && (
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -436,10 +499,14 @@ function ChannelFormContent({
               </div>
             )}
 
-            {mode === "create" && modelSelection.kind === "ready-to-validate" && (
-              <p className="text-sm text-muted-foreground">填写 API 地址和接入凭据后，一键获取资源侧模型</p>
+            {!importing && modelSelection.kind === "ready-to-validate" && (
+              <p className="text-sm text-muted-foreground">
+                {editing
+                  ? "输入用于读取模型的 Key 后，可从资源侧获取模型；未获取前会保留现有映射"
+                  : "填写 API 地址和接入凭据后，一键获取资源侧模型"}
+              </p>
             )}
-            {mode === "create" && modelSelection.kind === "discovered" && (
+            {!importing && showingDiscoveredModels && (
               <>
                 <p className="text-sm text-emerald-700">已获取 {modelSelection.models.length} 个模型，默认全部选中</p>
                 <MultiSelect
@@ -454,7 +521,7 @@ function ChannelFormContent({
                 </Button>
               </>
             )}
-            {mode === "create" && modelSelection.kind === "manual-required" && (
+            {!importing && modelSelection.kind === "manual-required" && (
               <div className="grid gap-2 text-sm text-muted-foreground">
                 <p>{modelSelection.message || "当前连接协议无法自动获取模型，请检查设置或改用手动映射"}</p>
                 {modelSelection.failureCode && <p>错误代码: {modelSelection.failureCode}</p>}
@@ -463,12 +530,13 @@ function ChannelFormContent({
                 </Button>
               </div>
             )}
-            {(mode !== "create" || modelSelection.kind === "manual") && (
+            {showManualBindings && (
               <>
                 <CreatableModelSelect
                   value={selectedModels}
                   models={mode === "create" ? [] : knownModels}
                   placeholder="选择或输入模型"
+                  disabled={inputsDisabled}
                   onChange={setModels}
                   testId="channel-model-select"
                 />
@@ -482,6 +550,7 @@ function ChannelFormContent({
                       <Input
                         id={`binding-public-${index}`}
                         value={binding.public_model}
+                        disabled={inputsDisabled}
                         onChange={(event) => updateBinding(index, { public_model: event.target.value })}
                       />
                     </div>
@@ -490,6 +559,7 @@ function ChannelFormContent({
                       <Input
                         id={`binding-provider-${index}`}
                         value={binding.provider_model ?? ""}
+                        disabled={inputsDisabled}
                         onChange={(event) => updateBinding(index, { provider_model: event.target.value || null })}
                       />
                     </div>
@@ -498,6 +568,7 @@ function ChannelFormContent({
                       variant="ghost"
                       size="icon"
                       className="self-end"
+                      disabled={inputsDisabled}
                       onClick={() => setBindings(bindings.filter((_, bindingIndex) => bindingIndex !== index))}
                     >
                       <Trash2 />
@@ -508,6 +579,7 @@ function ChannelFormContent({
                         <Label>LiteLLM Deployment ID</Label>
                         <Input
                           value={binding.litellm_deployment_id ?? ""}
+                          disabled={inputsDisabled}
                           onChange={(event) =>
                             updateBinding(index, {
                               litellm_deployment_id: event.target.value || null,
@@ -520,6 +592,7 @@ function ChannelFormContent({
                     <label className="flex items-center gap-2 self-end text-sm">
                       <Checkbox
                         checked={binding.enabled}
+                        disabled={inputsDisabled}
                         onCheckedChange={(checked) => updateBinding(index, { enabled: checked })}
                       />
                       启用
@@ -547,18 +620,11 @@ function ChannelFormContent({
             <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-4 text-left">
               <div>
                 <h3 className="text-sm font-medium">高级设置</h3>
-                <p className="text-xs text-muted-foreground">连接协议、调度参数和额度</p>
+                <p className="text-xs text-muted-foreground">调度参数和额度</p>
               </div>
               <ChevronDown className="size-4 text-muted-foreground" />
             </CollapsibleTrigger>
             <CollapsibleContent className="grid gap-4 border-t p-4">
-              <ProviderProtocolSelect
-                providers={providers}
-                value={provider}
-                disabled={inputsDisabled}
-                onValueChange={chooseProvider}
-                description="仅决定鉴权和资源侧模型列表的请求方式；渠道数据解析由独立解析器处理"
-              />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="grid gap-2">
                   <Label>状态</Label>
