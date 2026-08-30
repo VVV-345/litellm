@@ -152,3 +152,6 @@ litellm.log
 
 # Local Docker Compose override builds the currently checked-out branch.
 docker-compose.override.yml
+
+# 本地维护说明，只用于当前工作区，不进入 Git。
+/LOCAL_CHANGE_NOTES/

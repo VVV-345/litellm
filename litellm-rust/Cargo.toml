@@ -1,3 +1,4 @@
+# 本文件定义 LiteLLM Rust 工作区，以及账号池网关使用的共享构建配置。
 [workspace]
 members = [
     "crates/core",

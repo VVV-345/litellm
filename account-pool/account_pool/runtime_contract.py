@@ -116,6 +116,7 @@ def build_runtime_config_snapshot(
 ) -> RuntimeConfigSnapshot:
     accounts: Final = tuple(_runtime_account(account) for account in config.accounts)
     policies: Final = tuple(_runtime_policy(policy) for policy in config.policies)
+    # 只对外发布调度所需字段，API Key、Base URL 和供应商模型名留在 Python 控制面。
     canonical_payload: Final = {
         "schema_version": RUNTIME_CONFIG_SCHEMA_VERSION,
         "lease_ttl_seconds": lease_ttl_seconds,

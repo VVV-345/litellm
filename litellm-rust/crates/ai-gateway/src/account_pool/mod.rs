@@ -1,4 +1,4 @@
-//! Account-pool control-plane snapshot loading and last-known-good runtime cache.
+//! 本文件维护账号池运行时快照：Python 提供配置，Rust 保留最后一次有效版本并定时刷新。
 
 pub mod config;
 pub mod types;
@@ -71,6 +71,7 @@ impl AccountPoolRuntime {
         };
         runtime.refresh(&client).await;
 
+        // 初次拉取失败时仍持续刷新；就绪检查会保持未就绪，直到获得有效快照。
         let background_runtime = runtime.clone();
         tokio::spawn(async move {
             loop {

@@ -1,4 +1,4 @@
--- Exact unsigned integer arithmetic for fixed-scale quota values.
+-- 本文件提供定点额度值所需的无符号整数精确运算。
 local function quota_normalize_unsigned(value)
   if not string.match(value, '^%d+$') then return nil end
   local normalized = string.gsub(value, '^0+', '')

@@ -1,9 +1,6 @@
-//! Crate-level constants for the ai-gateway.
+//! 本文件集中定义 AI Gateway 的固定路径、默认值和运行参数，避免在功能模块中散落魔法值。
 //!
-//! Per `litellm-rust/CLAUDE.md`, magic numbers and fixed strings live here
-//! (the Rust mirror of Python's `litellm/constants.py`), not inline in feature
-//! modules. Env-overridable tunables keep their `DEFAULT_*` value here; the env
-//! read + fallback happens at the host/config layer.
+//! 可由环境变量覆盖的参数仍在这里保留默认值，具体读取和回退由网关配置层完成。
 
 /// Default LiteLLM control-plane base URL for request-log egress when
 /// `LITELLM_PROXY_BASE_URL` is unset.

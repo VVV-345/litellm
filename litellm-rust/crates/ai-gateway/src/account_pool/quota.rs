@@ -1,4 +1,4 @@
-//! Exact fixed-scale quota encoding and request-window matching for Redis Lua.
+//! 本文件把额度转换为精确定点十进制值，并匹配 Redis Lua 使用的额度窗口。
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;

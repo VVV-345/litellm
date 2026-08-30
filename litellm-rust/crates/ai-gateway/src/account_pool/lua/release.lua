@@ -1,4 +1,4 @@
--- Releases a lease and returns any unsettled quota reservation.
+-- 本文件释放租约，并归还尚未结算的额度预占。
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
 local runtime_generation = redis.call('GET', KEYS[3]) or ''

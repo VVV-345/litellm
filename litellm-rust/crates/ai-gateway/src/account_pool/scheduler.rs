@@ -1,4 +1,4 @@
-//! Combines control-plane configuration, Redis state, and pure candidate ordering.
+//! 本文件合并控制面快照、Redis 实时状态和纯排序逻辑，选出可预占的账号与 Deployment。
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -81,7 +81,7 @@ impl AccountPoolScheduler {
         );
         let mut reasons = Vec::new();
 
-        // Redis reservation remains authoritative because the state can change after ordering.
+        // 排序只是读取时的预览，状态随后可能变化；Redis Lua 预占才是最终权威判断。
         for order in ordered {
             let candidate_index = locations_by_id
                 .get(&order.candidate.stable_id())

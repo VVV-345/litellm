@@ -1,4 +1,4 @@
-//! Typed, versioned account-pool runtime configuration consumed from Python.
+//! 本文件定义 Rust 消费的版本化账号池快照，并拒绝未知字段和无效配置。
 
 use std::collections::HashSet;
 

@@ -1,4 +1,4 @@
-//! Request, lease, settlement, and runtime-state types for Rust scheduling.
+//! 本文件定义 Rust 调度所需的请求、租约、结算和运行时状态数据类型。
 
 use serde::Serialize;
 

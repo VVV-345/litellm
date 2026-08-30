@@ -1,4 +1,4 @@
--- Replaces reservations with trusted usage and updates health atomically.
+-- 本文件以可信 usage 替换预占额度，并原子更新健康状态。
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
 local runtime_generation = redis.call('GET', KEYS[7]) or ''

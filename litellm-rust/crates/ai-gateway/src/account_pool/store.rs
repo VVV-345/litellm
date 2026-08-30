@@ -1,4 +1,4 @@
-//! Redis-backed account state, atomic quota reservation, and lease lifecycle.
+//! 本文件封装 Redis 账号状态、原子额度预占、租约续期、结算和释放生命周期。
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -99,6 +99,7 @@ impl RedisLeaseStore {
         now: f64,
     ) -> Result<Option<String>, RedisStoreError> {
         let keys = eligibility_keys(account_id, public_model, deployment);
+        // 四个资格范围互不依赖，同时读取可缩短多候选调度的等待时间。
         let entries = try_join_all(keys.iter().map(|key| {
             let mut connection = self.connection.clone();
             async move {

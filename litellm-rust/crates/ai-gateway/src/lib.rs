@@ -1,17 +1,7 @@
-//! LiteLLM AI Gateway library.
+//! 本文件是 LiteLLM AI Gateway 的库入口，按功能开关拆分调用逻辑、I/O 辅助和 HTTP 服务。
 //!
-//! Two layers, split by feature so the Python `cdylib` can depend on the I/O
-//! without pulling in the HTTP server:
-//!
-//! - Call-type modules such as [`ocr`]: provider transforms, lifecycle hooks,
-//!   and provider I/O. Always available — no feature required. These predate the
-//!   rule that a route's entrypoint and handler live in `litellm-core` (see
-//!   `litellm_core::messages`) and move there as they are touched.
-//! - [`io`]: compatibility exports and realtime WebSocket splice helpers.
-//! - The server modules ([`auth`], [`routes`], [`state`]) and anything pulling
-//!   `axum` are gated behind the `server` feature, which the `litellm-ai-gateway`
-//!   binary turns on. The `python-config` feature additionally pulls in [`python`]
-//!   for the load-time config reader.
+//! Python 扩展只依赖不包含 HTTP 服务的基础模块；启用 `server` 后才编译 Axum
+//! 路由和共享状态，启用 `python-config` 后才加载 Python 配置读取器。
 
 pub mod account_pool;
 pub mod audio_transcription;

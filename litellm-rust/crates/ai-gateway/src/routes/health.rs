@@ -1,4 +1,4 @@
-//! Health probes. Simple-route template: a `router()` plus its handlers, in one file.
+//! 本文件提供存活和就绪探针，并把账号池运行时状态纳入就绪判断。
 
 use axum::Router;
 use axum::extract::State;

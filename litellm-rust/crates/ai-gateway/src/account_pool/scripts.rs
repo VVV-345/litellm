@@ -1,4 +1,4 @@
-//! Lazily assembled Redis Lua scripts shared by lease operations.
+//! 本文件延迟拼装 Redis Lua 脚本，供租约预占、续租、结算和释放共用。
 
 use std::sync::LazyLock;
 

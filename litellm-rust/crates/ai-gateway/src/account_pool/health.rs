@@ -1,4 +1,4 @@
-//! Maps request outcomes to the health and eligibility transition used by Lua.
+//! 本文件把请求结果转换为 Redis Lua 使用的健康状态和资格限制变更。
 
 use super::types::{Lease, SettleRequest};
 

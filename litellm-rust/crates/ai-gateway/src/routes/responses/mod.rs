@@ -1,3 +1,5 @@
+//! 本文件承载 Responses WebSocket HTTP 边界，并把连接生命周期交给对应服务模块。
+
 mod service;
 
 use std::sync::Arc;

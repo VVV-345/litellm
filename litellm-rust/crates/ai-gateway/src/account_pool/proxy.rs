@@ -1,4 +1,4 @@
-//! Proxies account-pool requests to LiteLLM after Rust selects a deployment.
+//! 本文件在 Rust 选择账号与 Deployment 后转发请求，并负责流式续租和结算。
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -335,6 +335,7 @@ impl AccountPoolProxy {
             .map(AccountPoolControlPlane::new)
             .transpose()?;
         let event_sender = control_plane.map(|control_plane| {
+            // 控制面事件不能阻塞推理响应；有界队列也避免异常时无限占用内存。
             let (sender, receiver) = mpsc::channel(CONTROL_PLANE_EVENT_CHANNEL_CAPACITY);
             tokio::spawn(async move {
                 control_plane.run(receiver).await;
@@ -487,6 +488,7 @@ impl AccountPoolProxy {
         let (sender, receiver) = mpsc::channel(DEFAULT_ACCOUNT_POOL_STREAM_CHANNEL_CAPACITY);
         let status = context.status;
         let proxy = self.clone();
+        // 后台逐块透传流并续租，HTTP 路由只持有接收端，不缓存完整响应。
         tokio::spawn(async move {
             proxy.copy_stream(upstream, context, sender).await;
         });

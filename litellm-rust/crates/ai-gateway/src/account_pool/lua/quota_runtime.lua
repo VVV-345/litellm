@@ -1,4 +1,4 @@
--- Runtime normalization for rolling and fixed quota windows.
+-- 本文件处理滚动与固定额度窗口的运行时归一化和使用量汇总。
 local function quota_sum_usage(usage_key)
   local members = redis.call('ZRANGE', usage_key, 0, -1)
   local total = '0'

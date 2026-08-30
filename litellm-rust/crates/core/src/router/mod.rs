@@ -1,15 +1,7 @@
-//! Minimal Rust port of LiteLLM's `router.py` deployment selection.
+//! 本文件定义纯 Rust 模型路由器，负责从 `model_list` 中选择 Deployment。
 //!
-//! A [`Router`] is built from a `model_list` of [`Deployment`]s
-//! (`{ model_name, litellm_params: { model, api_key, api_base } }`) and selects
-//! one per request via a [`RoutingStrategy`]. For now the only strategy is
-//! `simple-shuffle` — a uniform random pick within a `model_name` group.
-//!
-//! This stays pure (no I/O): it only *chooses* a deployment. The host (the
-//! gateway) takes the chosen deployment and performs the actual provider call.
-//!
-//! - [`deployment`] — the `model_list` data types.
-//! - [`strategy`] — how a deployment is chosen.
+//! 路由器只执行无 I/O 的选择逻辑，网关宿主负责使用选中的 Deployment 发起供应商请求；
+//! `deployment` 保存配置数据类型，`strategy` 保存通用选择策略。
 
 mod deployment;
 mod strategy;

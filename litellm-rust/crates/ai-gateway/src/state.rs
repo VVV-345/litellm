@@ -1,3 +1,5 @@
+//! 本文件定义 Axum 路由共享的应用状态，集中保存模型路由、账号池和日志依赖。
+
 use std::sync::Arc;
 
 use litellm_core::router::Router;

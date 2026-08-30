@@ -1,4 +1,4 @@
--- Atomically validates eligibility, capacity and quota before creating a lease.
+-- 本文件在创建租约前原子校验资格、并发容量和额度。
 local requested_quota_count = tonumber(ARGV[11])
 local expected_generation = ARGV[13 + requested_quota_count]
 local runtime_generation = redis.call('GET', KEYS[10 + requested_quota_count * 2]) or ''

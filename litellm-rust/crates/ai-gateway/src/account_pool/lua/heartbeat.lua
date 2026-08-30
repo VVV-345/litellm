@@ -1,4 +1,4 @@
--- Extends a lease without crossing its absolute deadline.
+-- 本文件在不超过绝对截止时间的前提下续期流式请求租约。
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
 local lease_generation = redis.call('HGET', KEYS[1], 'generation_id') or ''
 local runtime_generation = redis.call('GET', KEYS[3]) or ''

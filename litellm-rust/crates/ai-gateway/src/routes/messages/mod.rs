@@ -1,4 +1,4 @@
-//! `POST /v1/messages`, the Anthropic Messages HTTP surface.
+//! 本文件承载 `POST /v1/messages` 的 Anthropic Messages HTTP 接口。
 
 mod service;
 

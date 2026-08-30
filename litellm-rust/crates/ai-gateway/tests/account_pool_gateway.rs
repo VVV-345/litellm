@@ -1,4 +1,4 @@
-//! End-to-end account-pool HTTP forwarding test against a disposable Redis instance.
+//! 本文件通过临时 Redis 验证账号池 HTTP 转发、流式响应、租约释放和并发限制。
 
 #![cfg(feature = "server")]
 

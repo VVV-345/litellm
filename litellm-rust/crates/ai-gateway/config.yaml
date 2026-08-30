@@ -1,4 +1,4 @@
-# Sample realtime config for the LiteLLM Rust AI Gateway.
+# 本文件提供 Rust AI Gateway 的示例启动配置；账号池运行时数据由 Python 控制面动态提供。
 #
 # The gateway loads this model_list at boot via the embedded python config
 # reader (litellm.proxy.read_model_list), which reuses the proxy's own reader,

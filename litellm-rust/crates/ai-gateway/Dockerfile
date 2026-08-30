@@ -1,4 +1,4 @@
-# Builds the Rust gateway against the same Python runtime used by LiteLLM.
+# 本文件构建 Rust 账号池网关镜像，并复用 LiteLLM 的 Python 运行时读取启动配置。
 
 ARG RUST_BUILD_IMAGE=cgr.dev/chainguard/rust@sha256:e030496d41dda422a1feb29a2f39e1271a6a8b34b43267ce1c3e012a20092e3b
 

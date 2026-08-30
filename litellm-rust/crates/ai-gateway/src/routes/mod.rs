@@ -1,9 +1,6 @@
-//! HTTP routes.
+//! 本文件汇总 HTTP 路由。每个路由模块负责声明自己的路径和处理器，`app` 只负责合并。
 //!
-//! **Template:** every route module exposes `pub fn router() -> Router<AppState>`
-//! that mounts its own paths; [`app`] merges them. A trivial route is a single
-//! file (`health.rs`, `gil.rs`); a non-trivial one is a folder (`realtime/`) with
-//! `handler` (entry) + `service` (logic) + `transport` (adapters). See AGENTS.md.
+//! 简单路由保持单文件；包含独立业务逻辑的路由按处理入口、服务逻辑和传输适配拆分。
 
 pub mod account_pool;
 pub mod gil;

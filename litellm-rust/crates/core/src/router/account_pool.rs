@@ -1,4 +1,4 @@
-//! Pure account-pool candidate ordering shared by gateway hosts.
+//! 本文件提供无 I/O 的账号池候选排序，供不同网关宿主共享并保持结果一致。
 
 use std::cmp::Ordering;
 use std::collections::HashSet;

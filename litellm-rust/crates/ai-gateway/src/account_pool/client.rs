@@ -1,4 +1,4 @@
-//! Environment resolution and authenticated HTTP loading for runtime snapshots.
+//! 本文件读取环境变量，并通过内部令牌从 Python 控制面获取账号池运行时快照。
 
 use std::sync::Arc;
 use std::time::Duration;

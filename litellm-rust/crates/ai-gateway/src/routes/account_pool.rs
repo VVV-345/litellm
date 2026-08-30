@@ -1,4 +1,4 @@
-//! HTTP boundary for account-pool request forwarding.
+//! 本文件提供账号池请求的 Axum HTTP 边界，把请求交给 Rust 调度器并转发响应。
 
 use axum::Router;
 use axum::body::Body;
