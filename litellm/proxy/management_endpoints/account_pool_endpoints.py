@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Annotated, Final, Literal, cast
 from urllib.parse import quote
@@ -10,6 +11,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field, SecretStr
 
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
@@ -27,6 +29,12 @@ _RESPONSE_HEADER_ALLOWLIST: Final = frozenset(
     {"content-type", "cache-control", "content-disposition", "x-content-type-options"}
 )
 _BODY_METHODS: Final = frozenset({"POST", "PUT", "DELETE"})
+
+
+class UpstreamModelDiscoveryProxyRequest(BaseModel):
+    provider_id: str = Field(min_length=1)
+    upstream_url: str = Field(min_length=1)
+    api_key: SecretStr
 
 
 def _require_proxy_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -47,6 +55,7 @@ async def _forward(
     method: _Method,
     path: str,
     actor: ActorEnvelope | None = None,
+    content: bytes | None = None,
 ) -> Response:
     async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=5), follow_redirects=False) as client:
         return await _forward_with_client(
@@ -55,6 +64,7 @@ async def _forward(
             path=path,
             client=client,
             actor=actor,
+            content=content,
         )
 
 
@@ -64,6 +74,7 @@ async def _forward_with_client(
     path: str,
     client: httpx.AsyncClient,
     actor: ActorEnvelope | None = None,
+    content: bytes | None = None,
 ) -> Response:
     base_url: Final = os.environ.get("ACCOUNT_POOL_INTERNAL_URL", "http://127.0.0.1:4100").rstrip("/")
     internal_token: Final = os.environ.get("ACCOUNT_POOL_INTERNAL_TOKEN")
@@ -85,7 +96,7 @@ async def _forward_with_client(
             else {}
         ),
     }
-    content: Final = await request.body() if method in _BODY_METHODS else None
+    request_content: Final = content if content is not None else await request.body() if method in _BODY_METHODS else None
     query_bytes: Final = cast(bytes, request.scope.get("query_string", b""))
     query: Final = query_bytes.decode("ascii")
     upstream_url: Final = f"{base_url}{path}{f'?{query}' if query else ''}"
@@ -94,7 +105,7 @@ async def _forward_with_client(
             method=method,
             url=upstream_url,
             headers=headers,
-            content=content,
+            content=request_content,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Account pool service is unavailable") from exc
@@ -137,6 +148,38 @@ async def validate_provider_service(
 ) -> Response:
     _require_proxy_admin(user_api_key_dict)
     return await _forward(request=request, method="POST", path="/api/provider-services/validate")
+
+
+@router.get("/upstream-providers")
+async def list_upstream_providers(
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    return await _forward(request=request, method="GET", path="/api/upstream-providers")
+
+
+@router.post("/upstream-providers/discover-models")
+async def discover_upstream_models(
+    request: Request,
+    body: UpstreamModelDiscoveryProxyRequest,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    _require_proxy_admin(user_api_key_dict)
+    content: Final = json.dumps(
+        {
+            "provider_id": body.provider_id,
+            "api_base": body.upstream_url,
+            "api_key": body.api_key.get_secret_value(),
+        },
+        separators=(",", ":"),
+    ).encode()
+    return await _forward(
+        request=request,
+        method="POST",
+        path="/api/upstream-providers/discover-models",
+        content=content,
+    )
 
 
 @router.get("/channels")

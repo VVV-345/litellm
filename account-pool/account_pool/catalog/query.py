@@ -34,6 +34,8 @@ def _channel_summary(channel: ChannelRecord, snapshot: CatalogSnapshot) -> Chann
         channel_id=channel.channel_id,
         display_name=channel.display_name,
         provider=channel.provider,
+        model_discovery_provider_id=channel.model_discovery_provider_id,
+        parser_provider_id=channel.parser_provider_id,
         group=channel.group,
         base_url_display=channel.base_url_display,
         administrative_state=channel.administrative_state,

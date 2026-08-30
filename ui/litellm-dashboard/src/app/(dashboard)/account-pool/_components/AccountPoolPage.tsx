@@ -23,7 +23,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { isProxyAdminRole } from "@/utils/roles";
 import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
-import { accountPoolKeys, getChannels, getProviderServices, probeChannelHealth } from "../api";
+import { accountPoolKeys, getChannels, getProviderServices, getUpstreamProviders, probeChannelHealth } from "../api";
 import {
   AccountPoolModuleHeader,
   AccountPoolModuleNavigation,
@@ -67,9 +67,15 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
     queryFn: () => getChannels(accessToken!),
     enabled: Boolean(accessToken && authorized),
   });
-  const providersQuery = useQuery({
+  const parserProvidersQuery = useQuery({
     queryKey: accountPoolKeys.providers(),
     queryFn: () => getProviderServices(accessToken!),
+    enabled: Boolean(accessToken && authorized),
+    staleTime: 5 * 60 * 1000,
+  });
+  const upstreamProvidersQuery = useQuery({
+    queryKey: accountPoolKeys.upstreamProviders(),
+    queryFn: () => getUpstreamProviders(accessToken!),
     enabled: Boolean(accessToken && authorized),
     staleTime: 5 * 60 * 1000,
   });
@@ -260,7 +266,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         <ParserTaskDialog
           accessToken={accessToken!}
           channel={selectedChannel}
-          providers={providersQuery.data ?? []}
+          providers={parserProvidersQuery.data ?? []}
           onClose={() => setParserDialogOpen(false)}
           onCompleted={refreshSelected}
         />
@@ -270,7 +276,7 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
           accessToken={accessToken!}
           mode={formMode}
           channel={formMode === "edit" ? selectedChannel : null}
-          providers={providersQuery.data ?? []}
+          providers={upstreamProvidersQuery.data ?? []}
           knownModels={knownModels}
           onClose={() => setFormMode(null)}
           onAccepted={acceptOperation}

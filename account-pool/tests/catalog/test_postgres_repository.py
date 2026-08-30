@@ -52,6 +52,12 @@ async def repository_fixture() -> AsyncIterator[RepositoryFixture]:
         try:
             await connection.execute("SELECT set_config('search_path', %s, false)", (schema,))
             await connection.execute(_migration_sql("add_account_pool_catalog").encode("utf-8"))
+            await connection.execute(
+                _migration_sql("decouple_account_pool_upstream_and_parser_provider").encode("utf-8")
+            )
+            await connection.execute(
+                _migration_sql("persist_account_pool_model_discovery_provider").encode("utf-8")
+            )
             await connection.execute(_migration_sql("add_account_pool_routing_policy").encode("utf-8"))
             yield RepositoryFixture(
                 database_url=database_url,
@@ -80,6 +86,18 @@ def test_priority_migration_normalizes_history_and_adds_constraint() -> None:
     assert "~ '^-?[0-9]+([.][0-9]+)?$'" in migration
     assert "::INTEGER" not in migration
     assert 'CHECK ("priority" IN (100, 200, 300, 400))' in migration
+
+
+def test_parser_provider_migration_adds_an_independent_nullable_column() -> None:
+    migration: Final = _migration_sql("decouple_account_pool_upstream_and_parser_provider")
+
+    assert 'ADD COLUMN "parser_provider_id" TEXT' in migration
+
+
+def test_model_discovery_provider_migration_adds_an_independent_nullable_column() -> None:
+    migration: Final = _migration_sql("persist_account_pool_model_discovery_provider")
+
+    assert 'ADD COLUMN "model_discovery_provider_id" TEXT' in migration
 
 
 async def test_priority_migration_normalizes_rows_and_rejects_new_arbitrary_values(
@@ -159,6 +177,19 @@ async def test_first_import_is_created_and_timestamp_only_rerun_is_unchanged(
         bindings=command.bindings,
         policies=command.policies,
     )
+
+
+async def test_model_discovery_provider_id_round_trips_through_postgres(
+    repository_fixture: RepositoryFixture,
+) -> None:
+    original: Final = _command().channels[0]
+    channel: Final = original.model_copy(update={"model_discovery_provider_id": "openai_compatible"})
+    command: Final = CatalogImport(channels=(channel,), bindings=(), policies=())
+
+    result: Final = await repository_fixture.repository.import_once(command)
+
+    assert result.status == "created"
+    assert (await repository_fixture.repository.load_snapshot()).channels == (channel,)
 
 
 @pytest.mark.parametrize("alternate_identity", ["channel_id", "legacy_account_id"])

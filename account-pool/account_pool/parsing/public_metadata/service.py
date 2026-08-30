@@ -128,9 +128,14 @@ class PublicMetadataTaskLoop:
             channel
             for channel in channels.channels
             if channel.administrative_state == AdministrativeState.ENABLED
-            and self._sources.resolve(channel.provider) is not None
+            and channel.parser_provider_id is not None
+            and self._sources.resolve(channel.parser_provider_id) is not None
         )
-        records: Final = tuple(self._queued_record(channel, now) for channel in eligible)
+        records: Final = tuple(
+            self._queued_record(channel, channel.parser_provider_id, now)
+            for channel in eligible
+            if channel.parser_provider_id is not None
+        )
         await asyncio.gather(
             *(
                 self._repository.schedule(
@@ -207,21 +212,29 @@ class PublicMetadataTaskLoop:
         if len(matching) != 1:
             return None
         channel: Final = matching[0]
-        if channel.administrative_state != AdministrativeState.ENABLED or channel.provider != task.provider_id:
+        if (
+            channel.administrative_state != AdministrativeState.ENABLED
+            or channel.parser_provider_id != task.provider_id
+        ):
             return None
         return PublicMetadataChannel(
             channel_id=channel.channel_id,
-            provider_id=channel.provider,
+            provider_id=task.provider_id,
             api_base=channel.base_url_display,
             group=channel.group,
         )
 
-    def _queued_record(self, channel: ChannelSummary, now: AwareDatetime) -> PublicMetadataTaskRecord:
+    def _queued_record(
+        self,
+        channel: ChannelSummary,
+        parser_provider_id: str,
+        now: AwareDatetime,
+    ) -> PublicMetadataTaskRecord:
         return PublicMetadataTaskRecord(
             task_id=self._id_factory(),
             channel_id=channel.channel_id,
             parser_run_id=self._id_factory(),
-            provider_id=channel.provider,
+            provider_id=parser_provider_id,
             status=PublicMetadataTaskStatus.QUEUED,
             attempt_count=0,
             max_attempts=self._max_attempts,

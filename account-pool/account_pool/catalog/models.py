@@ -29,6 +29,8 @@ class ChannelRecord(FrozenModel):
     account_order: int = Field(ge=0)
     display_name: str = Field(min_length=1)
     provider: str = Field(min_length=1)
+    model_discovery_provider_id: str | None = Field(default=None, min_length=1)
+    parser_provider_id: str | None = Field(default=None, min_length=1)
     group: str | None = None
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState
@@ -86,6 +88,8 @@ class ChannelSummary(FrozenModel):
     channel_id: UUID
     display_name: str = Field(min_length=1)
     provider: str = Field(min_length=1)
+    model_discovery_provider_id: str | None = Field(default=None, min_length=1)
+    parser_provider_id: str | None = Field(default=None, min_length=1)
     group: str | None = None
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  ChannelBindingInput,
-  ProviderCapability,
-  ProviderServiceManifest,
-  ProviderValidationResult,
-} from "./types";
+import type { ChannelBindingInput, UpstreamModelDiscoveryResult, UpstreamProviderManifest } from "./types";
 import {
   buildDiscoveredBindings,
   canSubmitCreateSelection,
@@ -14,130 +9,75 @@ import {
   validateDiscoveryResult,
 } from "./channelModelSelection";
 
-const supported: ProviderCapability = {
-  capability: "model_discovery",
-  state: "supported",
-  message: "Models can be discovered",
+const provider: UpstreamProviderManifest = {
+  provider_id: "openrouter",
+  display_name: "OpenRouter",
+  default_api_base: "https://openrouter.ai/api/v1",
 };
 
-const provider = (capabilities: ProviderCapability[]): ProviderServiceManifest => ({
-  provider_id: "openai_compatible",
-  display_name: "Compatible API",
-  default_api_base: "https://gateway.example/v1",
-  litellm_provider_prefix: "openai",
-  capabilities,
-});
-
-const validation = (overrides: Partial<ProviderValidationResult> = {}): ProviderValidationResult => ({
+const discovery: UpstreamModelDiscoveryResult = {
   ok: true,
-  provider_id: "openai_compatible",
-  normalized_api_base: "https://gateway.example/v1",
-  group: null,
-  key_fingerprint: null,
-  message: "Validated",
+  provider_id: provider.provider_id,
+  normalized_api_base: provider.default_api_base,
+  message: "已获取模型",
   failure_code: null,
-  models: [{ model: "z-model" }, { model: "vendor/a-model" }, { model: "z-model" }],
-  ...overrides,
-});
+  models: ["openai/gpt-5.6", "model-a", "model-a"],
+};
 
 describe("channel model selection", () => {
-  it.each<ProviderCapability["state"] | "missing">(["unsupported", "unavailable", "missing"])(
-    "requires an explicit manual transition when model discovery is %s",
-    (state) => {
-      const capabilities = state === "missing" ? [] : [{ ...supported, state }];
-
-      expect(initialModelSelection(provider(capabilities))).toMatchObject({ kind: "manual-required" });
-    },
-  );
-
-  it("requires validation for supported model discovery", () => {
-    expect(initialModelSelection(provider([supported]))).toEqual({ kind: "ready-to-validate" });
+  it("requires an upstream vendor before automatic discovery", () => {
+    expect(initialModelSelection(undefined)).toMatchObject({ kind: "manual-required", reason: "missing" });
+    expect(initialModelSelection(provider)).toEqual({ kind: "ready-to-validate" });
   });
 
-  it("sorts and deduplicates exact upstream IDs after discovery", () => {
-    const selection = validateDiscoveryResult(initialModelSelection(provider([supported])), validation());
+  it("keeps upstream model IDs separate from the selected LiteLLM forwarding protocol", () => {
+    const selection = validateDiscoveryResult(initialModelSelection(provider), discovery);
 
-    expect(selection).toEqual({ kind: "discovered", models: ["vendor/a-model", "z-model"] });
-  });
-
-  it("turns an empty successful response into an explicit manual fallback", () => {
-    const selection = validateDiscoveryResult(initialModelSelection(provider([supported])), validation({ models: [] }));
-
-    expect(selection).toMatchObject({ kind: "manual-required", reason: "empty-models" });
-  });
-
-  it("turns a failed validation response into an explicit manual fallback", () => {
-    const selection = validateDiscoveryResult(
-      initialModelSelection(provider([supported])),
-      validation({ ok: false, failure_code: "connection_failed", models: [] }),
-    );
-
-    expect(selection).toMatchObject({ kind: "manual-required", reason: "validation-failed" });
-  });
-
-  it("retains the backend-safe failure message and code", () => {
-    const selection = validateDiscoveryResult(
-      initialModelSelection(provider([supported])),
-      validation({
-        ok: false,
-        failure_code: "authentication_failed",
-        message: "The upstream rejected this credential",
-        models: [],
-      }),
-    );
-
-    expect(selection).toMatchObject({
-      kind: "manual-required",
-      reason: "validation-failed",
-      message: "The upstream rejected this credential",
-      failureCode: "authentication_failed",
+    expect(selection).toEqual({
+      kind: "discovered",
+      models: ["model-a", "openai/gpt-5.6"],
     });
+    expect(selection.kind).toBe("discovered");
+    if (selection.kind !== "discovered") return;
+    expect(buildDiscoveredBindings(selection.models, "openrouter")).toEqual([
+      expect.objectContaining({ public_model: "model-a", provider_model: "openrouter/model-a" }),
+      expect.objectContaining({ public_model: "openai/gpt-5.6", provider_model: "openrouter/openai/gpt-5.6" }),
+    ]);
   });
 
-  it("replaces a previous discovery result when resource models are fetched again", () => {
-    const discovered = validateDiscoveryResult(initialModelSelection(provider([supported])), validation());
-    const refreshed = validateDiscoveryResult(discovered, validation({ models: [{ model: "new-model" }] }));
-
-    expect(refreshed).toEqual({ kind: "discovered", models: ["new-model"] });
-  });
-
-  it("can recover from a failed resource model request without switching to manual mapping", () => {
-    const failed = validateDiscoveryResult(
-      initialModelSelection(provider([supported])),
-      validation({ ok: false, failure_code: "connection_failed", models: [] }),
-    );
-    const recovered = validateDiscoveryResult(failed, validation({ models: [{ model: "recovered-model" }] }));
-
-    expect(recovered).toEqual({ kind: "discovered", models: ["recovered-model"] });
-  });
-
-  it("only permits manual bindings after the explicit transition", () => {
-    const selection = initialModelSelection(provider([{ ...supported, state: "unavailable" }]));
-    const manualSelection = selectManualMapping(selection);
-    const binding: ChannelBindingInput = {
+  it("does not permit a changed discovered mapping to be submitted", () => {
+    const selection = validateDiscoveryResult(initialModelSelection(provider), discovery);
+    const alteredBinding: ChannelBindingInput = {
       binding_id: null,
-      public_model: "alias",
-      provider_model: "openai/upstream",
+      public_model: "model-a",
+      provider_model: "openai/model-a",
       litellm_deployment_id: null,
       ownership: "pool_managed",
       enabled: true,
     };
 
-    expect(canSubmitCreateSelection(selection, [binding])).toBe(false);
-    expect(manualSelection).toEqual({ kind: "manual" });
-    expect(canSubmitCreateSelection(manualSelection, [binding])).toBe(true);
+    expect(canSubmitCreateSelection(selection, [alteredBinding], "openrouter")).toBe(false);
   });
 
-  it("requires discovered bindings to be selected exact upstream IDs", () => {
-    const selection = validateDiscoveryResult(initialModelSelection(provider([supported])), validation());
-    const validBindings = buildDiscoveredBindings(["vendor/a-model", "z-model"], "openai");
-    const invalidBindings = buildDiscoveredBindings(["not-returned"], "openai");
+  it("requires an explicit manual mapping after discovery fails", () => {
+    const failed = validateDiscoveryResult(initialModelSelection(provider), {
+      ...discovery,
+      ok: false,
+      failure_code: "authentication",
+      message: "API Key 无效",
+      models: [],
+    });
+    const manual = selectManualMapping(failed);
+    const binding: ChannelBindingInput = {
+      binding_id: null,
+      public_model: "alias",
+      provider_model: "openai/upstream-model",
+      litellm_deployment_id: null,
+      ownership: "pool_managed",
+      enabled: true,
+    };
 
-    expect(validBindings).toEqual([
-      expect.objectContaining({ public_model: "vendor/a-model", provider_model: "vendor/a-model" }),
-      expect.objectContaining({ public_model: "z-model", provider_model: "openai/z-model" }),
-    ]);
-    expect(canSubmitCreateSelection(selection, validBindings)).toBe(true);
-    expect(canSubmitCreateSelection(selection, invalidBindings)).toBe(false);
+    expect(canSubmitCreateSelection(failed, [binding], "openai")).toBe(false);
+    expect(canSubmitCreateSelection(manual, [binding], "openai")).toBe(true);
   });
 });

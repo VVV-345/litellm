@@ -24,10 +24,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   accountPoolKeys,
   createChannel,
+  discoverUpstreamModels,
   getChannel,
   importChannel,
   updateChannel,
-  validateProviderService,
 } from "../api";
 import {
   buildDiscoveredBindings,
@@ -37,9 +37,9 @@ import {
 } from "../channelModelSelection";
 import { channelPriorityPresentation, parseOptionalNumber } from "../accountPoolPresentation";
 import { MultiSelect } from "@/components/shared/MultiSelect";
-import { EphemeralCredentialField, ProviderProtocolSelect } from "./AccountPoolFormFields";
+import { EphemeralCredentialField, ForwardingProviderSelect, UpstreamProviderSelect } from "./AccountPoolFormFields";
 import { AccountPoolQueryState } from "./AccountPoolPanel";
-import { providerModelForSelectedModel } from "./providerModel";
+import { normalizeForwardingProvider } from "./providerModel";
 import type {
   AdministrativeState,
   ChannelBindingInput,
@@ -48,8 +48,8 @@ import type {
   ChannelOperation,
   ChannelPriority,
   ChannelSummary,
-  ProviderServiceManifest,
   QuotaConfig,
+  UpstreamProviderManifest,
 } from "../types";
 
 type ChannelFormMode = "create" | "edit" | "import";
@@ -63,14 +63,14 @@ type ModelSelectionResolution = {
   snapshot: ModelSelectionSnapshot | null;
   capabilitySignature: string;
   revision: number;
-  provider: ProviderServiceManifest | undefined;
+  upstreamProvider: UpstreamProviderManifest | undefined;
 };
 
 interface ChannelFormDialogProps {
   accessToken: string;
   mode: ChannelFormMode;
   channel: ChannelSummary | null;
-  providers: ProviderServiceManifest[];
+  providers: UpstreamProviderManifest[];
   knownModels: string[];
   onClose: () => void;
   onAccepted: (operation: ChannelOperation) => Promise<void>;
@@ -93,10 +93,10 @@ const emptyBinding = (ownership: ChannelBindingInput["ownership"]): ChannelBindi
 });
 const preserveDiscoveredBindings = (
   models: string[],
-  providerPrefix: string,
+  forwardingProvider: string,
   currentBindings: ChannelBindingInput[],
 ): ChannelBindingInput[] =>
-  buildDiscoveredBindings(models, providerPrefix).map((binding) => {
+  buildDiscoveredBindings(models, forwardingProvider).map((binding) => {
     const existing = currentBindings.find((candidate) => candidate.public_model === binding.public_model);
     return existing ? { ...existing, provider_model: binding.provider_model } : binding;
   });
@@ -122,12 +122,12 @@ const resolveModelSelection = ({
   snapshot,
   capabilitySignature,
   revision,
-  provider,
+  upstreamProvider,
 }: ModelSelectionResolution) => {
   if (manualMapping) return { kind: "manual" as const };
   if (snapshot?.capabilitySignature === capabilitySignature && snapshot.revision === revision)
     return snapshot.selection;
-  return initialModelSelection(provider);
+  return initialModelSelection(upstreamProvider);
 };
 
 export default function ChannelFormDialog({
@@ -190,13 +190,21 @@ function ChannelFormContent({
 }: ChannelFormDialogProps & { initial: ChannelDetail | null }) {
   const editing = mode === "edit";
   const importing = mode === "import";
-  const preferredProvider = providers.find((item) => item.provider_id === "openai_compatible") ?? providers[0];
-  const initialProvider =
-    initial?.provider ?? channel?.provider ?? preferredProvider?.provider_id ?? "openai_compatible";
+  const preferredUpstreamProvider = providers.find((item) => item.provider_id === "openai_compatible") ?? providers[0];
+  const initialUpstreamProvider =
+    initial?.model_discovery_provider_id ??
+    channel?.model_discovery_provider_id ??
+    preferredUpstreamProvider?.provider_id ??
+    "openai_compatible";
+  const initialForwardingProvider = normalizeForwardingProvider(initial?.provider ?? channel?.provider ?? "openai");
+  const initialUpstreamProviderManifest = providers.find((item) => item.provider_id === initialUpstreamProvider);
   const [displayName, setDisplayName] = useState(initial?.display_name ?? channel?.display_name ?? "");
-  const [provider, setProvider] = useState(initialProvider);
+  const [upstreamProvider, setUpstreamProvider] = useState(initialUpstreamProvider);
+  const [forwardingProvider, setForwardingProvider] = useState(initialForwardingProvider);
   const [group, setGroup] = useState(initial?.group ?? channel?.group ?? "");
-  const [baseUrl, setBaseUrl] = useState(initial?.base_url_display ?? channel?.base_url_display ?? "");
+  const [baseUrl, setBaseUrl] = useState(
+    initial?.base_url_display ?? channel?.base_url_display ?? initialUpstreamProviderManifest?.default_api_base ?? "",
+  );
   const [administrativeState, setAdministrativeState] = useState<AdministrativeState>(
     initial?.administrative_state ?? channel?.administrative_state ?? "enabled",
   );
@@ -210,11 +218,8 @@ function ChannelFormContent({
   const [bindings, setBindings] = useState<ChannelBindingInput[]>(
     initial?.bindings ?? (mode === "create" ? [] : [emptyBinding(defaultOwnership(mode))]),
   );
-  const selectedProvider = providers.find((item) => item.provider_id === provider);
-  const discoveryCapabilityState = selectedProvider?.capabilities.find(
-    (capability) => capability.capability === "model_discovery",
-  )?.state;
-  const discoveryCapabilitySignature = `${provider}:${discoveryCapabilityState ?? "missing"}`;
+  const selectedUpstreamProvider = providers.find((item) => item.provider_id === upstreamProvider);
+  const discoveryCapabilitySignature = upstreamProvider;
   const [manualMapping, setManualMapping] = useState(false);
   const [discoveryRevision, setDiscoveryRevision] = useState(0);
   const [discoverySelection, setDiscoverySelection] = useState<ModelSelectionSnapshot | null>(null);
@@ -223,7 +228,7 @@ function ChannelFormContent({
     snapshot: discoverySelection,
     capabilitySignature: discoveryCapabilitySignature,
     revision: discoveryRevision,
-    provider: selectedProvider,
+    upstreamProvider: selectedUpstreamProvider,
   };
   const modelSelection = resolveModelSelection(modelSelectionInput);
 
@@ -240,7 +245,8 @@ function ChannelFormContent({
 
   const request = (): ChannelMutationRequest => ({
     display_name: displayName.trim(),
-    provider,
+    provider: forwardingProvider,
+    model_discovery_provider_id: upstreamProvider,
     group: group.trim() || null,
     base_url_display: baseUrl.trim(),
     administrative_state: administrativeState,
@@ -270,19 +276,17 @@ function ChannelFormContent({
   const discoveryMutation = useMutation({
     mutationFn: () => {
       const snapshot = {
-        provider_id: provider,
-        api_base: baseUrl.trim(),
+        provider_id: upstreamProvider,
+        upstream_url: baseUrl.trim(),
         api_key: apiKey,
-        group: group.trim() || null,
       };
-      return validateProviderService(accessToken, snapshot).then((result) => ({ result, snapshot }));
+      return discoverUpstreamModels(accessToken, snapshot).then((result) => ({ result, snapshot }));
     },
     onSuccess: ({ result, snapshot }) => {
       const inputsMatch =
-        snapshot.provider_id === provider &&
-        snapshot.api_base === baseUrl.trim() &&
-        snapshot.api_key === apiKey &&
-        snapshot.group === (group.trim() || null);
+        snapshot.provider_id === upstreamProvider &&
+        snapshot.upstream_url === baseUrl.trim() &&
+        snapshot.api_key === apiKey;
       if (!inputsMatch) return;
       const discoveredProvider = providers.find((item) => item.provider_id === snapshot.provider_id);
       const selection = validateDiscoveryResult(initialModelSelection(discoveredProvider), result);
@@ -293,8 +297,7 @@ function ChannelFormContent({
       });
       if (selection.kind !== "discovered") return;
       setManualMapping(false);
-      const providerPrefix = discoveredProvider?.litellm_provider_prefix ?? "";
-      setBindings(preserveDiscoveredBindings(selection.models, providerPrefix, bindings));
+      setBindings(preserveDiscoveredBindings(selection.models, forwardingProvider, bindings));
     },
     onError: () =>
       setDiscoverySelection({
@@ -314,14 +317,14 @@ function ChannelFormContent({
     });
   const canSubmit =
     !mutation.isPending &&
-    Boolean(displayName.trim() && provider && baseUrl.trim()) &&
+    Boolean(displayName.trim() && forwardingProvider && baseUrl.trim()) &&
     Number(maxConcurrency) >= 1 &&
     Number(weight) >= 1 &&
     Number(weight) <= 100 &&
     bindingsValid &&
-    (mode !== "create" || canSubmitCreateSelection(modelSelection, bindings));
+    (mode !== "create" || canSubmitCreateSelection(modelSelection, bindings, forwardingProvider));
   const inputsDisabled = discoveryMutation.isPending;
-  const canDiscoverModels = !importing && discoveryCapabilityState === "supported";
+  const canDiscoverModels = !importing && selectedUpstreamProvider !== undefined;
   const showingDiscoveredModels = modelSelection.kind === "discovered";
   const showManualBindings =
     importing || manualMapping || modelSelection.kind === "manual" || (editing && !showingDiscoveredModels);
@@ -332,32 +335,34 @@ function ChannelFormContent({
       models.map((model) => {
         const existing = bindings.find((binding) => binding.public_model === model);
         if (existing) return existing;
-        const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
         return {
           ...emptyBinding(defaultOwnership(mode)),
           public_model: model,
-          provider_model: providerModelForSelectedModel(model, providerPrefix),
         };
       }),
     );
   };
   const updateBinding = (index: number, patch: Partial<ChannelBindingInput>) =>
     setBindings(bindings.map((binding, bindingIndex) => (bindingIndex === index ? { ...binding, ...patch } : binding)));
-  const chooseProvider = (value: string | null) => {
+  const chooseUpstreamProvider = (value: string | null) => {
     if (!value) return;
     const manifest = providers.find((item) => item.provider_id === value);
-    if (value !== provider) setApiKey("");
-    setProvider(value);
-    if (manifest?.default_api_base) setBaseUrl(manifest.default_api_base);
+    if (value !== upstreamProvider) setApiKey("");
+    setUpstreamProvider(value);
+    setBaseUrl(manifest?.default_api_base ?? "");
     invalidateDiscovery();
+  };
+  const chooseForwardingProvider = (value: string) => {
+    setForwardingProvider(value);
+    if (modelSelection.kind !== "discovered") return;
+    setBindings(preserveDiscoveredBindings(modelSelection.models, value, bindings));
   };
   const setDiscoveredModels = (models: string[]) => {
     if (modelSelection.kind !== "discovered") return;
-    const providerPrefix = selectedProvider?.litellm_provider_prefix ?? "";
     setBindings(
       preserveDiscoveredBindings(
-        models.filter((model) => modelSelection.models.includes(model)),
-        providerPrefix,
+        modelSelection.models.filter((model) => models.includes(model)),
+        forwardingProvider,
         bindings,
       ),
     );
@@ -401,16 +406,16 @@ function ChannelFormContent({
               <Link2 className="size-4 text-muted-foreground" />
               <div>
                 <h3 className="text-sm font-medium">资源侧接入</h3>
-                <p className="text-xs text-muted-foreground">选择服务商协议后，填写地址和用于读取模型列表的凭据</p>
+                <p className="text-xs text-muted-foreground">选择厂商后，填写地址和用于读取模型列表的凭据</p>
               </div>
             </div>
-            <ProviderProtocolSelect
+            <UpstreamProviderSelect
               providers={providers}
-              value={provider}
+              value={upstreamProvider}
               disabled={inputsDisabled}
-              label="服务商 / 接口协议"
-              description="该选择只决定鉴权和资源侧模型列表的请求方式；渠道数据解析由独立解析器处理"
-              onValueChange={chooseProvider}
+              label="上游厂商"
+              description="该选择只决定请求资源侧模型列表的协议"
+              onValueChange={chooseUpstreamProvider}
             />
             <div className="grid gap-2">
               <Label htmlFor="channel-url">API 地址</Label>
@@ -448,7 +453,7 @@ function ChannelFormContent({
               <div>
                 <h3 className="text-sm font-medium">模型与分组</h3>
                 <p className="text-xs text-muted-foreground">
-                  {canDiscoverModels ? "从资源侧读取当前凭据可访问的模型" : "可选择或输入公共模型名"}
+                  {canDiscoverModels ? "从资源侧读取当前凭据可访问的模型" : "选择厂商后可读取资源侧模型"}
                 </p>
               </div>
               {showManualBindings && (
@@ -471,7 +476,7 @@ function ChannelFormContent({
                   type="button"
                   variant="outline"
                   onClick={() => discoveryMutation.mutate()}
-                  disabled={!provider || !baseUrl.trim() || !apiKey || discoveryMutation.isPending}
+                  disabled={!upstreamProvider || !baseUrl.trim() || !apiKey || discoveryMutation.isPending}
                 >
                   {discoveryMutation.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                   从资源侧获取
@@ -608,10 +613,7 @@ function ChannelFormContent({
                 id="channel-group"
                 value={group}
                 disabled={inputsDisabled}
-                onChange={(event) => {
-                  setGroup(event.target.value);
-                  invalidateDiscovery();
-                }}
+                onChange={(event) => setGroup(event.target.value)}
               />
             </div>
           </section>
@@ -620,12 +622,17 @@ function ChannelFormContent({
             <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-4 text-left">
               <div>
                 <h3 className="text-sm font-medium">高级设置</h3>
-                <p className="text-xs text-muted-foreground">调度参数和额度</p>
+                <p className="text-xs text-muted-foreground">转发协议、调度参数和额度</p>
               </div>
               <ChevronDown className="size-4 text-muted-foreground" />
             </CollapsibleTrigger>
             <CollapsibleContent className="grid gap-4 border-t p-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <ForwardingProviderSelect
+                value={forwardingProvider}
+                disabled={inputsDisabled}
+                onValueChange={chooseForwardingProvider}
+              />
+              <div className="grid grid-cols-2 gap-3 border-t pt-4 sm:grid-cols-4">
                 <div className="grid gap-2">
                   <Label>状态</Label>
                   <Select

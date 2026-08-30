@@ -1,5 +1,5 @@
 // 本文件装配 4100 调度控制台，管理渠道、模型策略和实时路由状态。
-import { api, clearToken, getToken, setToken } from "./api.js?v=5";
+import { api, clearToken, getToken, setToken } from "./api.js?v=6";
 import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=5";
 import { createRoutingWorkbench } from "./routing.js?v=5";
 
@@ -8,9 +8,10 @@ const state = {
   models: [],
   stats: null,
   status: null,
-  manifests: [],
+  upstreamProviders: [],
   selectedModels: [],
-  validation: null,
+  discoveredModels: [],
+  discovery: null,
   editingChannel: null,
   activeView: "overview",
 };
@@ -58,8 +59,8 @@ const setView = (view) => {
 };
 
 const loadDashboard = async () => {
-  const [channelList, overview, models, stats, status, manifests] = await Promise.all([
-    api.channels(), api.overview(), api.models(), api.stats(), api.litellmStatus(), api.providerServices(),
+  const [channelList, overview, models, stats, status, upstreamProviders] = await Promise.all([
+    api.channels(), api.overview(), api.models(), api.stats(), api.litellmStatus(), api.upstreamProviders(),
   ]);
   const runtimeByChannel = new Map(overview.channels.map((channel) => [channel.channel_id, channel.runtime]));
   const channels = channelList.channels.map((channel) => ({
@@ -67,7 +68,7 @@ const loadDashboard = async () => {
     id: channel.channel_id,
     runtime: runtimeByChannel.get(channel.channel_id) ?? null,
   }));
-  Object.assign(state, { channels, models, stats, status, manifests });
+  Object.assign(state, { channels, models, stats, status, upstreamProviders });
   await routing.sync(models);
   render();
 };
@@ -138,7 +139,7 @@ const renderChannels = (selector, interactive) => {
       <td>${formatNumber(channel.runtime?.quota?.total)}</td>
       ${interactive ? `<td><div class="action-row"><button class="button ghost" data-edit-channel="${escapeHtml(channel.channel_id)}">编辑</button><button class="button ghost" data-delete-channel="${escapeHtml(channel.channel_id)}">删除</button></div></td>` : ""}
     </tr>`).join("");
-  $(selector).innerHTML = `<table><thead><tr><th>渠道</th><th>供应商</th><th>模型</th><th>状态</th><th>并发</th><th>优先级</th><th>权重</th><th>剩余额度</th>${interactive ? "<th>操作</th>" : ""}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="${interactive ? 9 : 8}">暂无渠道，请先添加上游渠道</td></tr>`}</tbody></table>`;
+  $(selector).innerHTML = `<table><thead><tr><th>渠道</th><th>转发协议</th><th>模型</th><th>状态</th><th>并发</th><th>优先级</th><th>权重</th><th>剩余额度</th>${interactive ? "<th>操作</th>" : ""}</tr></thead><tbody>${rows || `<tr><td class="empty" colspan="${interactive ? 9 : 8}">暂无渠道，请先添加上游渠道</td></tr>`}</tbody></table>`;
 };
 
 const selectModel = async (model) => {
@@ -150,21 +151,26 @@ const resetChannelForm = () => {
   channelForm.reset();
   state.editingChannel = null;
   state.selectedModels = [];
-  state.validation = null;
+  state.discoveredModels = [];
+  state.discovery = null;
   $("#form-mode").value = "create";
   $("#account-id").disabled = false;
+  $("#provider-id").disabled = false;
+  $("#forwarding-provider").disabled = false;
+  $("#forwarding-provider").value = "openai";
+  $("#advanced-settings").open = false;
   $("#api-key").required = true;
-  $("#validation-actions").hidden = false;
+  $("#discovery-actions").hidden = false;
   $("#channel-dialog-title").textContent = "添加上游渠道";
-  $("#validation-message").textContent = "";
+  $("#discovery-message").textContent = "";
   populateProviders();
   renderSelectedModels();
 };
 
 const populateProviders = () => {
   const select = $("#provider-id");
-  select.innerHTML = state.manifests.map((item) => `<option value="${escapeHtml(item.provider_id)}">${escapeHtml(item.display_name)}</option>`).join("");
-  const manifest = state.manifests.find((item) => item.provider_id === select.value) ?? state.manifests[0];
+  select.innerHTML = state.upstreamProviders.map((item) => `<option value="${escapeHtml(item.provider_id)}">${escapeHtml(item.display_name)}</option>`).join("");
+  const manifest = state.upstreamProviders.find((item) => item.provider_id === select.value) ?? state.upstreamProviders[0];
   if (manifest) $("#api-base").value = manifest.default_api_base;
 };
 
@@ -174,12 +180,21 @@ const openCreateDialog = () => {
 };
 
 const priorityValue = (value) => value >= 400 ? "400" : value >= 300 ? "300" : value >= 200 ? "200" : "100";
+const normalizeForwardingProvider = (value) => ({
+  openai_compatible: "openai",
+  new_api: "openai",
+  glm_official: "zai",
+  lmu_static_metadata: "openai",
+}[value] ?? value);
 
 const openEditDialog = async (channelId) => {
   const channel = await api.channel(channelId);
   resetChannelForm();
   state.editingChannel = channel;
   state.selectedModels = channel.bindings.filter((item) => item.enabled).map((item) => item.public_model);
+  state.discoveredModels = channel.bindings
+    .filter((item) => item.enabled && item.provider_model)
+    .map((item) => item.public_model);
   $("#form-mode").value = "edit";
   $("#channel-dialog-title").textContent = "编辑渠道调度参数";
   $("#account-id").value = channel.channel_id;
@@ -188,8 +203,19 @@ const openEditDialog = async (channelId) => {
   $("#group").value = channel.group ?? "";
   $("#api-base").value = channel.base_url_display;
   $("#api-key").required = false;
-  $("#provider-id").innerHTML = `<option value="${escapeHtml(channel.provider)}">${escapeHtml(channel.provider)}</option>`;
-  $("#provider-id").disabled = true;
+  const discoveryProvider = channel.model_discovery_provider_id ?? "openai_compatible";
+  if ([...$("#provider-id").options].some((option) => option.value === discoveryProvider)) {
+    $("#provider-id").value = discoveryProvider;
+  }
+  const forwardingProvider = normalizeForwardingProvider(channel.provider);
+  if (![...$("#forwarding-provider").options].some((option) => option.value === forwardingProvider)) {
+    $("#forwarding-provider").insertAdjacentHTML(
+      "beforeend",
+      `<option value="${escapeHtml(forwardingProvider)}">${escapeHtml(forwardingProvider)}</option>`,
+    );
+  }
+  $("#forwarding-provider").value = forwardingProvider;
+  $("#advanced-settings").open = true;
   $("#priority").value = priorityValue(channel.priority);
   $("#weight").value = channel.weight;
   $("#max-concurrency").value = channel.max_concurrency;
@@ -197,7 +223,7 @@ const openEditDialog = async (channelId) => {
   $("#quota-total").value = channel.quotas?.total ?? "";
   $("#quota-five-hour").value = channel.quotas?.five_hour ?? "";
   $("#quota-weekly").value = channel.quotas?.weekly ?? "";
-  $("#validation-actions").hidden = true;
+  $("#discovery-actions").hidden = false;
   renderSelectedModels();
   channelDialog.showModal();
 };
@@ -219,31 +245,31 @@ const renderSelectedModels = () => {
   $("#selected-models").innerHTML = state.selectedModels.map((model) => `<span class="chip">${escapeHtml(model)}<button type="button" data-remove-model="${escapeHtml(model)}" aria-label="移除 ${escapeHtml(model)}">×</button></span>`).join("");
 };
 
-const validateChannel = async () => {
+const discoverModels = async () => {
   const apiKey = $("#api-key").value.trim();
   const apiBase = $("#api-base").value.trim();
   if (!apiKey || !apiBase) {
     showNotice("请填写 API Base URL 和 API Key", true);
     return;
   }
-  const button = $("#validate-channel-button");
+  const button = $("#discover-models-button");
   button.disabled = true;
-  button.textContent = "正在校验";
+  button.textContent = "正在获取";
   try {
-    const result = await api.validateProvider({
+    const result = await api.discoverUpstreamModels({
       provider_id: $("#provider-id").value,
       api_base: apiBase,
       api_key: apiKey,
-      group: $("#group").value.trim() || null,
     });
-    state.validation = result;
-    $("#validation-message").textContent = result.message;
+    state.discovery = result;
+    $("#discovery-message").textContent = result.message;
     if (!result.ok) {
       showNotice(result.message, true);
       return;
     }
     $("#api-base").value = result.normalized_api_base;
-    const discovered = result.models.map((item) => item.model);
+    state.discoveredModels = result.models;
+    const discovered = result.models;
     state.selectedModels = [...new Set([...state.selectedModels, ...discovered])];
     $("#model-options").innerHTML = discovered.map((model) => `<option value="${escapeHtml(model)}"></option>`).join("");
     renderSelectedModels();
@@ -252,15 +278,15 @@ const validateChannel = async () => {
     showNotice(error.message, true);
   } finally {
     button.disabled = false;
-    button.textContent = "校验并获取模型";
+    button.textContent = "从资源侧获取模型";
   }
 };
 
 const channelPayload = () => {
   const editing = state.editingChannel;
-  const manifest = state.manifests.find((item) => item.provider_id === $("#provider-id").value);
-  const prefix = manifest?.litellm_provider_prefix ?? editing?.provider ?? $("#provider-id").value;
+  const provider = $("#forwarding-provider").value;
   const existing = new Map((editing?.bindings ?? []).map((item) => [item.public_model, item]));
+  const discoveredBindings = new Map(state.discoveredModels.map((model) => [model, `${provider}/${model}`]));
   const bindings = state.selectedModels.map((model) => {
     const current = existing.get(model);
     return current ? {
@@ -273,7 +299,7 @@ const channelPayload = () => {
     } : {
       binding_id: null,
       public_model: model,
-      provider_model: `${prefix}/${model}`,
+      provider_model: discoveredBindings.get(model) ?? `${provider}/${model}`,
       litellm_deployment_id: null,
       ownership: "pool_managed",
       enabled: true,
@@ -283,7 +309,8 @@ const channelPayload = () => {
   return {
     ...(!editing ? { legacy_account_id: $("#account-id").value.trim() } : {}),
     display_name: $("#display-name").value.trim(),
-    provider: prefix,
+    provider,
+    model_discovery_provider_id: $("#provider-id").value,
     group: $("#group").value.trim() || null,
     base_url_display: $("#api-base").value.trim(),
     administrative_state: $("#enabled").checked ? "enabled" : "disabled",
@@ -313,8 +340,8 @@ const saveChannel = async (event) => {
     showNotice("请至少选择或输入一个模型", true);
     return;
   }
-  if (!state.editingChannel && !state.validation?.ok) {
-    showNotice("请先校验上游渠道", true);
+  if (!state.editingChannel && !state.discovery?.ok) {
+    showNotice("请先从资源侧获取模型", true);
     return;
   }
   const button = $("#save-channel-button");
@@ -388,15 +415,18 @@ $("#login-form").addEventListener("submit", async (event) => {
 $("#logout-button").addEventListener("click", () => showLogin());
 $("#refresh-button").addEventListener("click", () => refresh());
 $("#add-channel-button").addEventListener("click", openCreateDialog);
-$("#validate-channel-button").addEventListener("click", validateChannel);
+$("#discover-models-button").addEventListener("click", discoverModels);
 $("#add-model-button").addEventListener("click", () => addModel());
 $("#model-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter") { event.preventDefault(); addModel(); }
 });
 $("#provider-id").addEventListener("change", (event) => {
-  const manifest = state.manifests.find((item) => item.provider_id === event.target.value);
+  const manifest = state.upstreamProviders.find((item) => item.provider_id === event.target.value);
   if (manifest) $("#api-base").value = manifest.default_api_base;
-  state.validation = null;
+  state.discovery = null;
+  state.discoveredModels = [];
+  state.selectedModels = [];
+  renderSelectedModels();
 });
 channelForm.addEventListener("submit", saveChannel);
 $("#confirm-delete").addEventListener("click", confirmDelete);

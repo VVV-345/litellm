@@ -38,10 +38,13 @@ export const api = {
   models: () => request("/models"),
   stats: () => request("/stats"),
   litellmStatus: () => request("/litellm/status"),
-  providerServices: () => request("/provider-services"),
+  upstreamProviders: () => request("/upstream-providers"),
   routingTable: (model) => request(`/models/${encodeURIComponent(model)}/routing-table`),
   routingPolicy: (model) => request(`/models/${encodeURIComponent(model)}/routing-policy`),
-  validateProvider: (body) => request("/provider-services/validate", { method: "POST", body: JSON.stringify(body) }),
+  discoverUpstreamModels: (body) => request("/upstream-providers/discover-models", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
   createChannel: (body) => request("/channels", {
     method: "POST",
     headers: { "idempotency-key": crypto.randomUUID() },

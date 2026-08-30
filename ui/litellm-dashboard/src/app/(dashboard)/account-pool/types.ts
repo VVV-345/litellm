@@ -17,6 +17,8 @@ export interface ChannelSummary {
   channel_id: string;
   display_name: string;
   provider: string;
+  model_discovery_provider_id?: string | null;
+  parser_provider_id?: string | null;
   group: string | null;
   base_url_display: string;
   administrative_state: "enabled" | "paused" | "disabled" | "pending_delete";
@@ -59,6 +61,7 @@ export interface ChannelBindingInput {
 export interface ChannelMutationRequest {
   display_name: string;
   provider: string;
+  model_discovery_provider_id: string | null;
   group: string | null;
   base_url_display: string;
   administrative_state: AdministrativeState;
@@ -72,6 +75,7 @@ export interface ChannelMutationRequest {
 
 export interface ChannelDetail extends Omit<ChannelMutationRequest, "api_key"> {
   channel_id: string;
+  parser_provider_id?: string | null;
   key_mask: string | null;
 }
 
@@ -248,6 +252,27 @@ export interface ProviderServiceManifest {
   default_api_base: string;
   litellm_provider_prefix: string;
   capabilities: ProviderCapability[];
+}
+
+export interface UpstreamProviderManifest {
+  provider_id: string;
+  display_name: string;
+  default_api_base: string;
+}
+
+export interface UpstreamModelDiscoveryRequest {
+  provider_id: string;
+  upstream_url: string;
+  api_key: string;
+}
+
+export interface UpstreamModelDiscoveryResult {
+  ok: boolean;
+  provider_id: string;
+  normalized_api_base: string;
+  message: string;
+  failure_code: string | null;
+  models: string[];
 }
 
 export interface ProviderValidationRequest {

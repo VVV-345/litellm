@@ -45,7 +45,8 @@ _SCHEMA_PATTERN: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CATALOG_LOCK_KEY: Final = 4_186_343_189_064_001_901
 
 _SELECT_CHANNELS: Final = """
-SELECT channel_id, legacy_account_id, account_order, display_name, provider,
+SELECT channel_id, legacy_account_id, account_order, display_name, provider, model_discovery_provider_id,
+       parser_provider_id,
        channel_group, base_url_display, administrative_state, max_concurrency,
        priority, weight, quota_unit, quota_total, quota_five_hour, quota_weekly,
        credential_ref, key_mask, key_fingerprint, created_at, updated_at
@@ -71,10 +72,11 @@ ORDER BY model, manual_order NULLS LAST, binding_id
 _INSERT_CHANNEL: Final = """
 INSERT INTO "LiteLLM_AccountPoolChannel" (
     channel_id, legacy_account_id, account_order, display_name, provider,
-    channel_group, base_url_display, administrative_state, max_concurrency,
+    model_discovery_provider_id, parser_provider_id, channel_group, base_url_display, administrative_state,
+    max_concurrency,
     priority, weight, quota_unit, quota_total, quota_five_hour, quota_weekly,
     credential_ref, key_mask, key_fingerprint, created_at, updated_at
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 _INSERT_BINDING: Final = """
 INSERT INTO "LiteLLM_AccountPoolBinding" (
@@ -90,7 +92,8 @@ INSERT INTO "LiteLLM_AccountPoolModelPolicy" (
 _UPDATE_CHANNEL: Final = """
 UPDATE "LiteLLM_AccountPoolChannel"
 SET legacy_account_id = %s, account_order = %s, display_name = %s, provider = %s,
-    channel_group = %s, base_url_display = %s, administrative_state = %s,
+    model_discovery_provider_id = %s, parser_provider_id = %s, channel_group = %s, base_url_display = %s,
+    administrative_state = %s,
     max_concurrency = %s, priority = %s, weight = %s, quota_unit = %s,
     quota_total = %s, quota_five_hour = %s, quota_weekly = %s,
     credential_ref = %s, key_mask = %s, key_fingerprint = %s, updated_at = %s
@@ -113,6 +116,8 @@ class _ChannelRow(FrozenModel):
     account_order: int
     display_name: str
     provider: str
+    model_discovery_provider_id: str | None
+    parser_provider_id: str | None
     channel_group: str | None
     base_url_display: str
     administrative_state: AdministrativeState
@@ -325,6 +330,8 @@ def _decode_channel(value: object) -> ChannelRecord:
         account_order=row.account_order,
         display_name=row.display_name,
         provider=row.provider,
+        model_discovery_provider_id=row.model_discovery_provider_id,
+        parser_provider_id=row.parser_provider_id,
         group=row.channel_group,
         base_url_display=row.base_url_display,
         administrative_state=row.administrative_state,
@@ -449,6 +456,8 @@ def _same_channel_business_fields(left: ChannelRecord, right: ChannelRecord) -> 
         and left.account_order == right.account_order
         and left.display_name == right.display_name
         and left.provider == right.provider
+        and left.model_discovery_provider_id == right.model_discovery_provider_id
+        and left.parser_provider_id == right.parser_provider_id
         and left.group == right.group
         and left.base_url_display == right.base_url_display
         and left.administrative_state == right.administrative_state
@@ -519,6 +528,8 @@ def _channel_parameters(record: ChannelRecord) -> tuple[object, ...]:
         record.account_order,
         record.display_name,
         record.provider,
+        record.model_discovery_provider_id,
+        record.parser_provider_id,
         record.group,
         record.base_url_display,
         record.administrative_state.value,
@@ -665,7 +676,7 @@ async def _update_channel(
 
 def _channel_update_parameters(record: ChannelRecord) -> tuple[object, ...]:
     values: Final = _channel_parameters(record)
-    return (*values[1:18], record.updated_at, str(record.channel_id))
+    return (*values[1:20], record.updated_at, str(record.channel_id))
 
 
 def _command_channel_id(command: CatalogLifecycleCommand) -> UUID:

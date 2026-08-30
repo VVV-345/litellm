@@ -85,13 +85,13 @@
     <dialog id="channel-dialog" class="modal">
       <form id="channel-form" method="dialog">
         <div class="modal-header">
-          <div><h2 id="channel-dialog-title">添加上游渠道</h2><p>校验官方接口后同步为 LiteLLM Deployment</p></div>
+          <div><h2 id="channel-dialog-title">添加上游渠道</h2><p>上游厂商只决定模型列表请求，LiteLLM 转发和账号解析器保持独立</p></div>
           <button class="icon-button" type="button" data-close-dialog aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
           <input id="form-mode" type="hidden" value="create" />
           <div class="form-grid">
-            <label>渠道服务<select id="provider-id" required></select></label>
+            <label>上游厂商<select id="provider-id" required></select></label>
             <label>分组<input id="group" placeholder="例如：生产、研发或主账号" /></label>
             <label>渠道 ID<input id="account-id" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" required /></label>
             <label>显示名称<input id="display-name" required /></label>
@@ -110,13 +110,22 @@
             <label>每周额度<input id="quota-weekly" type="number" min="0" step="any" placeholder="不限制" /></label>
           </div>
 
-          <div id="validation-actions" class="validation-row">
-            <button id="validate-channel-button" class="button secondary" type="button">校验并获取模型</button>
-            <span id="validation-message" class="muted"></span>
+          <details id="advanced-settings" class="advanced-settings">
+            <summary>高级设置</summary>
+            <label>LiteLLM 转发协议
+              <select id="forwarding-provider" required>
+                <option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="azure">Azure OpenAI</option><option value="ollama">Ollama</option><option value="zai">智谱 GLM</option><option value="dashscope">阿里云百炼</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="volcengine">火山方舟</option>
+              </select>
+            </label>
+          </details>
+
+          <div id="discovery-actions" class="validation-row">
+            <button id="discover-models-button" class="button secondary" type="button">从资源侧获取模型</button>
+            <span id="discovery-message" class="muted"></span>
           </div>
 
           <section class="model-picker">
-            <div class="field-heading"><label for="model-input">对外模型</label><span>可选择发现结果，也可输入模型名后回车</span></div>
+            <div class="field-heading"><label for="model-input">对外模型</label><span>从资源侧发现后选择；转发协议和账号解析器不会自动联动</span></div>
             <div class="model-input-row">
               <input id="model-input" list="model-options" placeholder="输入模型名称" />
               <datalist id="model-options"></datalist>
@@ -161,6 +170,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="/ui/app.js?v=5"></script>
+    <script type="module" src="/ui/app.js?v=6"></script>
   </body>
 </html>

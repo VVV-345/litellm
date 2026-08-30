@@ -351,6 +351,7 @@ def _create_request(
     return ChannelMutation(
         display_name="Primary",
         provider="openai_compatible",
+        model_discovery_provider_id="openai_compatible",
         base_url_display="https://provider.example/v1",
         api_key=SecretStr("provider-secret"),
         bindings=(
@@ -387,6 +388,10 @@ async def test_create_persists_before_litellm_then_applies_projects_and_audits()
     ]
     assert synchronizer.created_keys == ("provider-secret",)
     assert len(catalog.commands) == 1
+    create_command: Final = catalog.commands[0]
+    assert isinstance(create_command, ApplyChannelCreate)
+    assert create_command.channel.model_discovery_provider_id == "openai_compatible"
+    assert create_command.channel.parser_provider_id is None
     assert audit.records[0].audit.actor_action == ActorAction.CHANNEL_CREATE
     serialized: Final = result.model_dump_json()
     assert "provider-secret" not in serialized
@@ -478,6 +483,7 @@ async def test_update_syncs_active_bindings_by_ownership_and_deletes_only_retire
     request: Final = ChannelMutation(
         display_name="Updated",
         provider="openai_compatible",
+        model_discovery_provider_id="gemini",
         base_url_display="https://provider.example/v1",
         api_key=SecretStr("replacement-secret"),
         bindings=(
@@ -512,6 +518,7 @@ async def test_update_syncs_active_bindings_by_ownership_and_deletes_only_retire
     assert isinstance(updated, ChannelOperationView)
     update_command: Final = catalog.commands[-1]
     assert isinstance(update_command, ApplyChannelUpdate)
+    assert update_command.channel.model_discovery_provider_id == "gemini"
     assert tuple(binding.public_model for binding in update_command.bindings) == (
         "public-model",
         "new-model",

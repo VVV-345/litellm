@@ -9,6 +9,7 @@ import {
   deleteChannel,
   deleteExternalDeployment,
   detachChannel,
+  discoverUpstreamModels,
   getChannelHealth,
   getChannelAggregate,
   getEvents,
@@ -43,6 +44,7 @@ const mockedDelete = vi.mocked(apiClient.delete);
 const request: ChannelMutationRequest = {
   display_name: "主渠道",
   provider: "openai_compatible",
+  model_discovery_provider_id: "openai_compatible",
   group: null,
   base_url_display: "https://gateway.example.com/v1",
   administrative_state: "enabled",
@@ -151,6 +153,21 @@ describe("channel lifecycle API", () => {
     expect(mockedPost).toHaveBeenCalledWith("/account_pool/provider-services/validate", {
       accessToken: "token",
       body: validationRequest,
+    });
+  });
+
+  it("sends discovery URLs through the dedicated upstream field", async () => {
+    const discoveryRequest = {
+      provider_id: "openai",
+      upstream_url: "https://gateway.example/v1",
+      api_key: "sk-once",
+    };
+
+    await discoverUpstreamModels("token", discoveryRequest);
+
+    expect(mockedPost).toHaveBeenCalledWith("/account_pool/upstream-providers/discover-models", {
+      accessToken: "token",
+      body: discoveryRequest,
     });
   });
 

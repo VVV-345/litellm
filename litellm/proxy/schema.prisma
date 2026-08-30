@@ -1572,6 +1572,8 @@ model LiteLLM_AccountPoolChannel {
   account_order         Int      @unique
   display_name          String
   provider              String
+  model_discovery_provider_id String?
+  parser_provider_id    String?
   channel_group         String?
   base_url_display      String
   administrative_state String

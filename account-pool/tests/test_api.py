@@ -131,6 +131,7 @@ from account_pool.sync.service import (
     ExternalDeploymentDeleteRequest,
     ReconcilePassResult,
 )
+from account_pool.upstream_providers.models import UpstreamModelDiscoveryResult, UpstreamProviderManifest
 from pydantic import TypeAdapter
 
 _MODEL_SUMMARIES_ADAPTER: Final = TypeAdapter(tuple[ModelSummary, ...])
@@ -138,6 +139,7 @@ _ROUTE_ENTRIES_ADAPTER: Final = TypeAdapter(tuple[RouteEntry, ...])
 _ACCOUNT_VIEWS_ADAPTER: Final = TypeAdapter(tuple[AccountView, ...])
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[ProviderServiceManifest, ...])
+_UPSTREAM_PROVIDER_MANIFESTS_ADAPTER: Final = TypeAdapter(tuple[UpstreamProviderManifest, ...])
 _SNAPSHOT_DOCUMENT_ADAPTER: Final = TypeAdapter(dict[UUID, ParserSnapshot])
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _PARSER_RUN_ID: Final = UUID("20000000-0000-0000-0000-000000000002")
@@ -810,6 +812,19 @@ async def test_management_api_requires_configured_internal_token() -> None:
             valid: Final = await client.get(
                 "/api/provider-services", headers={"x-account-pool-token": "service-secret"}
             )
+            upstream_missing: Final = await client.get("/api/upstream-providers")
+            upstream: Final = await client.get(
+                "/api/upstream-providers", headers={"x-account-pool-token": "service-secret"}
+            )
+            unknown_upstream: Final = await client.post(
+                "/api/upstream-providers/discover-models",
+                headers={"x-account-pool-token": "service-secret"},
+                json={
+                    "provider_id": "missing",
+                    "api_base": "https://models.example/v1",
+                    "api_key": "one-time-key",
+                },
+            )
             health: Final = await client.get("/healthz")
             metrics: Final = await client.get("/metrics")
             workers_missing: Final = await client.get("/api/workers")
@@ -826,6 +841,14 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert manifest_ids == ("glm_official", "lmu_static_metadata", "openai_compatible", "new_api")
     manifests_by_id: Final = {manifest.provider_id: manifest for manifest in manifests}
     assert manifests_by_id["openai_compatible"].default_api_base == "https://api.openai.com/v1"
+    assert upstream_missing.status_code == 401
+    assert upstream.status_code == 200
+    upstream_manifests: Final = _UPSTREAM_PROVIDER_MANIFESTS_ADAPTER.validate_json(upstream.content)
+    assert "openai" in tuple(manifest.provider_id for manifest in upstream_manifests)
+    upstream_failure: Final = UpstreamModelDiscoveryResult.model_validate_json(unknown_upstream.content)
+    assert not upstream_failure.ok
+    assert upstream_failure.failure_code == "unsupported_provider"
+    assert "one-time-key" not in unknown_upstream.text
     assert health.status_code == 200
     assert metrics.status_code == 200
     assert metrics.headers["content-type"].startswith("text/plain; version=0.0.4")
@@ -1564,17 +1587,35 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
                 invalid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer invalid"})
                 viewer: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer viewer-secret"})
                 valid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer admin-secret"})
+                upstream: Final = await client.get(
+                    "/ui-api/upstream-providers", headers={"authorization": "Bearer admin-secret"}
+                )
+                unsupported_discovery: Final = await client.post(
+                    "/ui-api/upstream-providers/discover-models",
+                    headers={"authorization": "Bearer admin-secret"},
+                    json={
+                        "provider_id": "not-a-parser",
+                        "api_base": "https://models.example/v1",
+                        "api_key": "one-time-key",
+                    },
+                )
 
     assert root.status_code == 307
     assert root.headers["location"] == "/ui/"
     assert ui.status_code == 200
     assert "号池调度器" in ui.text
     assert 'request("/channels")' in ui_api.text
+    assert 'request("/upstream-providers")' in ui_api.text
+    assert "provider-services" not in ui_api.text
     assert 'request("/accounts")' not in ui_api.text
     assert missing.status_code == 401
     assert invalid.status_code == 401
     assert viewer.status_code == 401
     assert valid.status_code == 200
+    assert upstream.status_code == 200
+    assert any(item["provider_id"] == "openai" for item in upstream.json())
+    assert unsupported_discovery.status_code == 200
+    assert unsupported_discovery.json()["failure_code"] == "unsupported_provider"
 
 
 @pytest.mark.asyncio

@@ -52,14 +52,21 @@ _API_BASE: Final = "https://metadata.example.test/v1"
 
 
 class FakeCatalog:
-    def __init__(self, state: AdministrativeState = AdministrativeState.ENABLED) -> None:
+    def __init__(
+        self,
+        state: AdministrativeState = AdministrativeState.ENABLED,
+        provider: str = "upstream_fixture",
+        parser_provider_id: str | None = "public_fixture",
+    ) -> None:
         self._state: Final = state
+        self._provider: Final = provider
+        self._parser_provider_id: Final = parser_provider_id
 
     async def list_channels(self) -> ChannelList:
-        return ChannelList(channels=(_channel(self._state),))
+        return ChannelList(channels=(_channel(self._state, self._provider, self._parser_provider_id),))
 
     async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
-        channel: Final = _channel(self._state)
+        channel: Final = _channel(self._state, self._provider, self._parser_provider_id)
         return channel if channel.channel_id == channel_id else None
 
 
@@ -219,11 +226,16 @@ class FixedIds:
         return value
 
 
-def _channel(state: AdministrativeState) -> ChannelSummary:
+def _channel(
+    state: AdministrativeState,
+    provider: str,
+    parser_provider_id: str | None,
+) -> ChannelSummary:
     return ChannelSummary(
         channel_id=_CHANNEL_ID,
         display_name="公开元数据渠道",
-        provider="public_fixture",
+        provider=provider,
+        parser_provider_id=parser_provider_id,
         group="default",
         base_url_display=_API_BASE,
         administrative_state=state,
@@ -285,12 +297,14 @@ def _loop(
     operations: FakeOperations,
     validation: ProviderValidationResult,
     state: AdministrativeState = AdministrativeState.ENABLED,
+    provider: str = "upstream_fixture",
+    parser_provider_id: str | None = "public_fixture",
     ids: tuple[UUID, ...] = (_TASK_ID, _RUN_ID, _RETRY_RUN_ID),
     max_attempts: int = 3,
 ) -> PublicMetadataTaskLoop:
     sources, _ = _source(validation)
     return PublicMetadataTaskLoop(
-        catalog=FakeCatalog(state),
+        catalog=FakeCatalog(state, provider, parser_provider_id),
         sources=sources,
         repository=repository,
         worker=worker,
@@ -394,6 +408,22 @@ async def test_disabled_channel_is_not_scheduled() -> None:
         operations=FakeOperations(),
         validation=_validation(),
         state=AdministrativeState.DISABLED,
+    )
+
+    await loop.run_once()
+
+    assert repository.records == ()
+
+
+async def test_upstream_provider_does_not_select_a_public_metadata_parser() -> None:
+    repository: Final = FakeRepository()
+    loop: Final = _loop(
+        repository=repository,
+        worker=FakeWorker(),
+        operations=FakeOperations(),
+        validation=_validation(),
+        provider="public_fixture",
+        parser_provider_id=None,
     )
 
     await loop.run_once()

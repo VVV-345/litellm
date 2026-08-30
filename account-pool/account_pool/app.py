@@ -194,6 +194,12 @@ from account_pool.sync.service import (
     ChannelReconcileRequest,
     ExternalDeploymentDeleteRequest,
 )
+from account_pool.upstream_providers import UpstreamProviderRegistry, build_upstream_provider_registry
+from account_pool.upstream_providers.models import (
+    UpstreamModelDiscoveryRequest,
+    UpstreamModelDiscoveryResult,
+    UpstreamProviderManifest,
+)
 
 _SNAPSHOT_DOCUMENT: Final[TypeAdapter[dict[UUID, ParserSnapshot]]] = TypeAdapter(dict[UUID, ParserSnapshot])
 _LOGGER: Final = logging.getLogger(__name__)
@@ -207,6 +213,7 @@ class Runtime:
     manager: PoolManager
     admin: LiteLLMAdminClient
     provider_services: ProviderServiceRegistry
+    upstream_providers: UpstreamProviderRegistry
     parser_registry: ParserRegistry
     catalog: ChannelCatalogReader | None
     channel_management: ChannelManager | None
@@ -304,6 +311,7 @@ def create_app(
             NewApiProviderService(client),
         )
     )
+    upstream_providers: Final = build_upstream_provider_registry(client)
     parser_registry: Final = build_parser_registry()
     resolved_public_metadata_sources: Final = public_metadata_sources or PublicMetadataSourceRegistry(())
     resolved_retention: Final = retention if retention is not None else _build_retention(resolved_settings)
@@ -438,6 +446,7 @@ def create_app(
         manager=manager,
         admin=admin,
         provider_services=provider_services,
+        upstream_providers=upstream_providers,
         parser_registry=parser_registry,
         catalog=resolved_catalog,
         channel_management=resolved_channel_management,
@@ -691,6 +700,9 @@ def create_app(
     async def provider_service_manifests() -> tuple[ProviderServiceManifest, ...]:
         return provider_services.manifests()
 
+    async def upstream_provider_manifests() -> tuple[UpstreamProviderManifest, ...]:
+        return upstream_providers.manifests()
+
     async def channels() -> ChannelList:
         if resolved_catalog is None:
             raise HTTPException(status_code=503, detail="Account-pool database is not configured")
@@ -889,6 +901,9 @@ def create_app(
 
     async def validate_provider(body: ProviderValidationRequest) -> ProviderValidationResult:
         return await provider_services.validate(body)
+
+    async def discover_upstream_models(body: UpstreamModelDiscoveryRequest) -> UpstreamModelDiscoveryResult:
+        return await upstream_providers.discover(body)
 
     async def parser_runs(channel_id: UUID, limit: int = 25) -> ParserRunHistory:
         if resolved_parser_data is None:
@@ -1341,6 +1356,15 @@ def create_app(
     application.add_api_route(
         "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
     )
+    application.add_api_route(
+        "/api/upstream-providers", upstream_provider_manifests, methods=["GET"], dependencies=management_dependency
+    )
+    application.add_api_route(
+        "/api/upstream-providers/discover-models",
+        discover_upstream_models,
+        methods=["POST"],
+        dependencies=management_dependency,
+    )
     application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/overview", overview_data, methods=["GET"], dependencies=management_dependency)
     application.add_api_route("/api/events", event_log_data, methods=["GET"], dependencies=management_dependency)
@@ -1525,6 +1549,15 @@ def create_app(
     )
     application.add_api_route(
         "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/upstream-providers", upstream_provider_manifests, methods=["GET"], dependencies=ui_dependency
+    )
+    application.add_api_route(
+        "/ui-api/upstream-providers/discover-models",
+        discover_upstream_models,
+        methods=["POST"],
+        dependencies=ui_dependency,
     )
     application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
     application.add_api_route("/ui-api/channels", create_ui_channel, methods=["POST"])

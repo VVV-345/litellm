@@ -32,6 +32,9 @@ import type {
   RoutingPolicyMutation,
   RoutingPolicyState,
   RoutingTableEntry,
+  UpstreamModelDiscoveryRequest,
+  UpstreamModelDiscoveryResult,
+  UpstreamProviderManifest,
 } from "./types";
 
 export const accountPoolKeys = {
@@ -46,6 +49,7 @@ export const accountPoolKeys = {
   effective: (channelId: string) => ["account-pool", "channels", channelId, "effective"] as const,
   history: (channelId: string) => ["account-pool", "channels", channelId, "history"] as const,
   providers: () => ["account-pool", "providers"] as const,
+  upstreamProviders: () => ["account-pool", "upstream-providers"] as const,
   snapshot: (channelId: string) => ["account-pool", "channels", channelId, "snapshot"] as const,
   task: (channelId: string, taskId: string) => ["account-pool", "channels", channelId, "tasks", taskId] as const,
   routingModels: () => ["account-pool", "routing", "models"] as const,
@@ -131,6 +135,15 @@ export const getParserHistory = (accessToken: string, channelId: string): Promis
 
 export const getProviderServices = (accessToken: string): Promise<ProviderServiceManifest[]> =>
   apiClient.get("/account_pool/provider-services", { accessToken });
+
+export const getUpstreamProviders = (accessToken: string): Promise<UpstreamProviderManifest[]> =>
+  apiClient.get("/account_pool/upstream-providers", { accessToken });
+
+export const discoverUpstreamModels = (
+  accessToken: string,
+  request: UpstreamModelDiscoveryRequest,
+): Promise<UpstreamModelDiscoveryResult> =>
+  apiClient.post("/account_pool/upstream-providers/discover-models", { accessToken, body: request });
 
 export const validateProviderService = (
   accessToken: string,

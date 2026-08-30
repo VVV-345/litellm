@@ -116,6 +116,10 @@ input:focus, select:focus { border-color: #0284c7; box-shadow: 0 0 0 3px rgba(2,
 .toggle-control { height: 36px; display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .toggle-control input { width: 16px; height: 16px; accent-color: #18181b; box-shadow: none; }
 .span-2 { grid-column: span 2; }
+.advanced-settings { margin-top: 18px; border-top: 1px solid #eeeeef; padding-top: 14px; }
+.advanced-settings summary { cursor: pointer; color: #3f3f46; font-size: 12px; font-weight: 600; }
+.advanced-settings label { display: grid; gap: 6px; margin-top: 12px; color: #3f3f46; font-size: 12px; font-weight: 600; }
+.advanced-settings select { width: 100%; }
 .validation-row { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
 .model-picker { margin-top: 18px; border-top: 1px solid #eeeeef; padding-top: 18px; }
 .field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

@@ -45,7 +45,7 @@ export default function ParserTaskDialog({
   onCompleted,
 }: ParserTaskDialogProps) {
   const initialProvider =
-    providers.find((provider) => provider.provider_id === channel.provider)?.provider_id ??
+    providers.find((provider) => provider.provider_id === channel.parser_provider_id)?.provider_id ??
     providers.find((provider) => provider.provider_id === "openai_compatible")?.provider_id ??
     providers[0]?.provider_id ??
     "openai_compatible";
@@ -118,7 +118,7 @@ export default function ParserTaskDialog({
               providers={providers}
               value={providerId}
               onValueChange={selectProvider}
-              description="连接协议仅处理鉴权和资源侧接口；解析器按渠道数据选择相应解析规则"
+              description="解析服务独立于添加渠道时选择的上游厂商"
             />
             <div className="grid gap-2">
               <Label htmlFor="parser-api-base">上游 URL</Label>

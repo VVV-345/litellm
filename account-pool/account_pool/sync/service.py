@@ -120,6 +120,7 @@ class ChannelMutation(FrozenModel):
     legacy_account_id: AccountId | None = None
     display_name: str = Field(min_length=1)
     provider: str = Field(min_length=1)
+    model_discovery_provider_id: str | None = Field(default=None, min_length=1)
     group: str | None = None
     base_url_display: str = Field(min_length=1)
     administrative_state: AdministrativeState = AdministrativeState.ENABLED
@@ -154,6 +155,8 @@ class ChannelDetail(FrozenModel):
     channel_id: UUID
     display_name: str
     provider: str
+    model_discovery_provider_id: str | None = None
+    parser_provider_id: str | None = None
     group: str | None
     base_url_display: str
     administrative_state: AdministrativeState
@@ -316,6 +319,8 @@ class ChannelManagementService:
             channel_id=channel.channel_id,
             display_name=channel.display_name,
             provider=channel.provider,
+            model_discovery_provider_id=channel.model_discovery_provider_id,
+            parser_provider_id=channel.parser_provider_id,
             group=channel.group,
             base_url_display=channel.base_url_display,
             administrative_state=channel.administrative_state,
@@ -915,6 +920,12 @@ def _desired_state(
         account_order=account_order,
         display_name=request.display_name,
         provider=request.provider,
+        model_discovery_provider_id=(
+            request.model_discovery_provider_id
+            if request.model_discovery_provider_id is not None
+            else (None if existing is None else existing.model_discovery_provider_id)
+        ),
+        parser_provider_id=None if existing is None else existing.parser_provider_id,
         group=request.group,
         base_url_display=request.base_url_display,
         administrative_state=request.administrative_state,
@@ -959,6 +970,8 @@ def _desired_from_snapshot(snapshot: CatalogSnapshot, channel_id: UUID) -> Chann
         account_order=channel.account_order,
         display_name=channel.display_name,
         provider=channel.provider,
+        model_discovery_provider_id=channel.model_discovery_provider_id,
+        parser_provider_id=channel.parser_provider_id,
         group=channel.group,
         base_url_display=channel.base_url_display,
         administrative_state=channel.administrative_state,
@@ -1015,6 +1028,8 @@ def _catalog_command(
         account_order=desired.account_order,
         display_name=desired.display_name,
         provider=desired.provider,
+        model_discovery_provider_id=desired.model_discovery_provider_id,
+        parser_provider_id=desired.parser_provider_id,
         group=desired.group,
         base_url_display=desired.base_url_display,
         administrative_state=desired.administrative_state,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from typing import Final, Literal
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.management_endpoints import account_pool_endpoints
 from litellm.proxy.management_endpoints.account_pool_actor import ActorEnvelope
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
+    UpstreamModelDiscoveryProxyRequest,
     _forward_with_client,  # pyright: ignore[reportPrivateUsage]  # 测试内部转发安全边界
     _require_proxy_admin,  # pyright: ignore[reportPrivateUsage]  # 测试管理员权限边界
     authorize_account_pool,
@@ -25,6 +27,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     delete_external_channel_deployment,
     delete_model_routing_candidate,
     detach_catalog_channel,
+    discover_upstream_models,
     get_account_pool_overview,
     get_catalog_channel,
     get_catalog_channel_aggregate,
@@ -35,6 +38,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     import_catalog_channel,
     list_account_pool_events,
     list_pool_models,
+    list_upstream_providers,
     probe_catalog_channel_health,
     reconcile_catalog_channel,
     router,
@@ -92,7 +96,9 @@ def test_account_pool_router_exposes_channel_lifecycle_and_operation_lookup() ->
         ("GET", "/account_pool/channels"),
         ("GET", "/account_pool/overview"),
         ("GET", "/account_pool/events"),
+        ("GET", "/account_pool/upstream-providers"),
         ("POST", "/account_pool/provider-services/validate"),
+        ("POST", "/account_pool/upstream-providers/discover-models"),
         ("POST", "/account_pool/channels"),
         ("GET", "/account_pool/channels/{channel_id}"),
         ("GET", "/account_pool/channels/{channel_id}/aggregate"),
@@ -138,6 +144,49 @@ async def test_validate_provider_service_requires_proxy_admin_and_forwards_to_in
     assert forwarded == [("POST", "/api/provider-services/validate")]
     with pytest.raises(HTTPException) as error:
         await validate_provider_service(request, viewer)
+
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_upstream_provider_endpoints_are_admin_only_and_forward_without_parser_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[tuple[_Method, str, bytes | None]] = []
+
+    async def forward(
+        request: Request,
+        method: _Method,
+        path: str,
+        content: bytes | None = None,
+    ) -> Response:
+        forwarded.append((method, path, content))
+        return Response(status_code=200)
+
+    monkeypatch.setattr(account_pool_endpoints, "_forward", forward)
+    request: Final = Request({"type": "http", "method": "POST", "path": "/account_pool/upstream-providers"})
+    admin: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN)
+    viewer: Final = UserAPIKeyAuth(api_key="hashed", user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY)
+
+    listed: Final = await list_upstream_providers(request, admin)
+    discovery_request: Final = UpstreamModelDiscoveryProxyRequest(
+        provider_id="openai",
+        upstream_url="https://models.example/v1",
+        api_key="one-time-key",
+    )
+    discovered: Final = await discover_upstream_models(request, discovery_request, admin)
+
+    assert listed.status_code == 200
+    assert discovered.status_code == 200
+    assert forwarded[0] == ("GET", "/api/upstream-providers", None)
+    assert forwarded[1][:2] == ("POST", "/api/upstream-providers/discover-models")
+    assert json.loads(forwarded[1][2] or b"{}") == {
+        "provider_id": "openai",
+        "api_base": "https://models.example/v1",
+        "api_key": "one-time-key",
+    }
+    with pytest.raises(HTTPException) as error:
+        await discover_upstream_models(request, discovery_request, viewer)
 
     assert error.value.status_code == 403
 

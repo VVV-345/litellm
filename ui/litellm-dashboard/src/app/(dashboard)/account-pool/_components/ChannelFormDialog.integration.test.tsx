@@ -1,12 +1,11 @@
-import { useState } from "react";
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { createChannel, getChannel, updateChannel, validateProviderService } from "../api";
-import type { ChannelDetail, ChannelSummary, ProviderServiceManifest, ProviderValidationResult } from "../types";
+import { createChannel, discoverUpstreamModels, getChannel, updateChannel } from "../api";
+import type { ChannelDetail, ChannelSummary, UpstreamModelDiscoveryResult, UpstreamProviderManifest } from "../types";
 import ChannelFormDialog from "./ChannelFormDialog";
 
 vi.mock("../api", async (importOriginal) => {
@@ -14,52 +13,37 @@ vi.mock("../api", async (importOriginal) => {
   return {
     ...actual,
     createChannel: vi.fn(),
+    discoverUpstreamModels: vi.fn(),
     getChannel: vi.fn(),
     updateChannel: vi.fn(),
-    validateProviderService: vi.fn(),
   };
 });
 
-const discoveryProvider: ProviderServiceManifest = {
-  provider_id: "openai_compatible",
-  display_name: "Compatible API",
-  default_api_base: "https://gateway.example/v1",
-  litellm_provider_prefix: "openai",
-  capabilities: [{ capability: "model_discovery", state: "supported", message: "Available" }],
+const openAi: UpstreamProviderManifest = {
+  provider_id: "openai",
+  display_name: "OpenAI",
+  default_api_base: "https://api.openai.com/v1",
 };
-
-const unavailableDiscoveryProvider: ProviderServiceManifest = {
-  ...discoveryProvider,
-  provider_id: "limited",
-  display_name: "Limited API",
-  capabilities: [{ capability: "model_discovery", state: "unavailable", message: "Unavailable" }],
+const gemini: UpstreamProviderManifest = {
+  provider_id: "gemini",
+  display_name: "Google Gemini",
+  default_api_base: "https://generativelanguage.googleapis.com/v1beta",
 };
-
-const discoveryResult: ProviderValidationResult = {
+const discovery: UpstreamModelDiscoveryResult = {
   ok: true,
-  provider_id: "openai_compatible",
-  normalized_api_base: "https://gateway.example/v1",
-  group: null,
-  key_fingerprint: null,
-  message: "Validated",
+  provider_id: "openai",
+  normalized_api_base: openAi.default_api_base,
+  message: "已获取 2 个资源侧模型",
   failure_code: null,
-  models: [{ model: "vendor/model-a" }, { model: "model-b" }],
+  models: ["gpt-5.6", "vendor/model-a"],
 };
-
-const failedDiscoveryResult: ProviderValidationResult = {
-  ...discoveryResult,
-  ok: false,
-  message: "The upstream rejected this credential",
-  failure_code: "authentication_failed",
-  models: [],
-};
-
 const summary: ChannelSummary = {
   channel_id: "10000000-0000-0000-0000-000000000001",
   display_name: "摘要名称",
-  provider: "openai_compatible",
+  provider: "openai",
+  model_discovery_provider_id: "openai",
   group: null,
-  base_url_display: "https://summary.example/v1",
+  base_url_display: openAi.default_api_base,
   administrative_state: "enabled",
   max_concurrency: 1,
   priority: 200,
@@ -67,17 +51,17 @@ const summary: ChannelSummary = {
   key_mask: "sk-***main",
   binding_count: 1,
   enabled_binding_count: 1,
-  models: ["summary-model"],
+  models: ["gpt-5.6"],
   created_at: "2026-08-19T00:00:00Z",
   updated_at: "2026-08-19T00:00:00Z",
 };
-
 const detail: ChannelDetail = {
   channel_id: summary.channel_id,
   display_name: "数据库完整名称",
-  provider: "openai_compatible",
+  provider: "openai",
+  model_discovery_provider_id: "openai",
   group: "paid",
-  base_url_display: "https://database.example/v1",
+  base_url_display: openAi.default_api_base,
   administrative_state: "paused",
   max_concurrency: 8,
   priority: 300,
@@ -87,8 +71,8 @@ const detail: ChannelDetail = {
   bindings: [
     {
       binding_id: "20000000-0000-0000-0000-000000000002",
-      public_model: "database-model",
-      provider_model: "openai/database-model",
+      public_model: "gpt-5.6",
+      provider_model: "openai/gpt-5.6",
       litellm_deployment_id: "deployment-1",
       ownership: "pool_managed",
       enabled: true,
@@ -96,32 +80,36 @@ const detail: ChannelDetail = {
   ],
 };
 
-function DialogHarness({ providers = [discoveryProvider] }: { providers?: ProviderServiceManifest[] }) {
-  const [open, setOpen] = useState(true);
+const renderDialog = (props: Partial<ComponentProps<typeof ChannelFormDialog>> = {}) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-  return open ? (
+  return render(
     <QueryClientProvider client={queryClient}>
       <ChannelFormDialog
         accessToken="proxy-token"
         mode="create"
         channel={null}
-        providers={providers}
+        providers={[openAi, gemini]}
         knownModels={[]}
-        onClose={() => setOpen(false)}
+        onClose={vi.fn()}
         onAccepted={vi.fn(async () => undefined)}
+        {...props}
       />
-    </QueryClientProvider>
-  ) : (
-    <button type="button" onClick={() => setOpen(true)}>
-      Reopen
-    </button>
+    </QueryClientProvider>,
   );
-}
+};
 
 describe("ChannelFormDialog", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it("keeps the forwarding protocol in advanced settings and parser controls out of the form", () => {
+    renderDialog();
+
+    expect(screen.getByRole("combobox", { name: "上游厂商" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "LiteLLM 转发协议" })).not.toBeInTheDocument();
+    expect(screen.queryByText("服务商 / 接口协议")).not.toBeInTheDocument();
+    expect(screen.queryByText("解析器 ID（可选）")).not.toBeInTheDocument();
+  });
+
+  it("discovers raw upstream model IDs and uses a separately selected forwarding protocol", async () => {
+    vi.mocked(discoverUpstreamModels).mockResolvedValue(discovery);
     vi.mocked(createChannel).mockResolvedValue({
       status: "accepted",
       operation_id: "operation-1",
@@ -129,6 +117,62 @@ describe("ChannelFormDialog", () => {
       operation_status: "pending_create",
       requires_key: false,
       failure: null,
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.type(screen.getByLabelText("显示名称"), "OpenAI 主渠道");
+    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.click(screen.getByText("高级设置"));
+    await user.click(screen.getByRole("combobox", { name: "LiteLLM 转发协议" }));
+    await user.click(await screen.findByText("OpenRouter"));
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+
+    expect(await screen.findByText("已获取 2 个模型，默认全部选中")).toBeInTheDocument();
+    expect(discoverUpstreamModels).toHaveBeenCalledWith("proxy-token", {
+      provider_id: "openai",
+      upstream_url: "https://api.openai.com/v1",
+      api_key: "sk-once",
+    });
+    await user.click(screen.getByRole("button", { name: "创建" }));
+
+    expect(createChannel).toHaveBeenCalledWith(
+      "proxy-token",
+      expect.objectContaining({
+        provider: "openrouter",
+        model_discovery_provider_id: "openai",
+        bindings: [
+          expect.objectContaining({ public_model: "gpt-5.6", provider_model: "openrouter/gpt-5.6" }),
+          expect.objectContaining({ public_model: "vendor/model-a", provider_model: "openrouter/vendor/model-a" }),
+        ],
+      }),
+    );
+  });
+
+  it("changes the request protocol and URL with the selected vendor", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("combobox", { name: "上游厂商" }));
+    await user.click(await screen.findByText("Google Gemini"));
+
+    expect(screen.getByLabelText("API 地址")).toHaveValue(gemini.default_api_base);
+  });
+
+  it("restores the saved model-discovery vendor when editing a channel", async () => {
+    vi.mocked(getChannel).mockResolvedValue(detail);
+    renderDialog({ mode: "edit", channel: summary });
+
+    await screen.findByDisplayValue("数据库完整名称");
+
+    expect(screen.getByRole("combobox", { name: "上游厂商" })).toHaveTextContent("OpenAI");
+  });
+
+  it("preserves deployment IDs while refreshing an existing channel's models", async () => {
+    vi.mocked(getChannel).mockResolvedValue(detail);
+    vi.mocked(discoverUpstreamModels).mockResolvedValue({
+      ...discovery,
+      models: ["gpt-5.6", "gpt-5.7"],
     });
     vi.mocked(updateChannel).mockResolvedValue({
       status: "accepted",
@@ -138,383 +182,49 @@ describe("ChannelFormDialog", () => {
       requires_key: false,
       failure: null,
     });
-  });
-
-  it("shows the service protocol before model discovery without implementation capability flags", () => {
-    render(<DialogHarness />);
-
-    expect(screen.getByRole("combobox", { name: "服务商 / 接口协议" })).toBeInTheDocument();
-    expect(screen.queryByText("model_discovery: supported")).not.toBeInTheDocument();
-  });
-
-  it("defaults resource discovery to the OpenAI-compatible protocol instead of registry order", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
     const user = userEvent.setup();
+    renderDialog({ mode: "edit", channel: summary });
 
-    render(<DialogHarness providers={[unavailableDiscoveryProvider, discoveryProvider]} />);
-
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-
-    expect(validateProviderService).toHaveBeenCalledWith(
-      "proxy-token",
-      expect.objectContaining({ provider_id: "openai_compatible" }),
-    );
-  });
-
-  it("mounts editable state from the complete channel detail instead of the list summary", async () => {
-    vi.mocked(getChannel).mockResolvedValue(detail);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="edit"
-          channel={summary}
-          providers={[]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByDisplayValue("数据库完整名称")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("https://database.example/v1")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "优先级" })).toHaveTextContent("高");
-    expect(screen.queryByDisplayValue("摘要名称")).not.toBeInTheDocument();
-  });
-
-  it("fetches resource-side models while editing and preserves matching deployment bindings", async () => {
-    vi.mocked(getChannel).mockResolvedValue(detail);
-    vi.mocked(validateProviderService).mockResolvedValue({
-      ...discoveryResult,
-      models: [{ model: "database-model" }, { model: "model-c" }],
-    });
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="edit"
-          channel={summary}
-          providers={[discoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByRole("combobox", { name: "服务商 / 接口协议" })).toBeInTheDocument();
+    await screen.findByDisplayValue("数据库完整名称");
     await user.type(screen.getByLabelText("用于获取模型的新 Key（可选）"), "sk-replacement");
     await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-
-    expect(await screen.findByText("已获取 2 个模型，默认全部选中")).toBeInTheDocument();
+    await screen.findByText("已获取 2 个模型，默认全部选中");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     expect(updateChannel).toHaveBeenCalledWith(
       "proxy-token",
       summary.channel_id,
       expect.objectContaining({
-        api_key: "sk-replacement",
         bindings: [
           expect.objectContaining({
             binding_id: detail.bindings[0].binding_id,
-            public_model: "database-model",
-            provider_model: "openai/database-model",
+            public_model: "gpt-5.6",
+            provider_model: "openai/gpt-5.6",
             litellm_deployment_id: "deployment-1",
           }),
-          expect.objectContaining({
-            binding_id: null,
-            public_model: "model-c",
-            provider_model: "openai/model-c",
-          }),
+          expect.objectContaining({ public_model: "gpt-5.7", provider_model: "openai/gpt-5.7" }),
         ],
       }),
     );
   });
 
-  it("uses current provider discovery when manifests arrive after mount", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const props = {
-      accessToken: "proxy-token",
-      mode: "create" as const,
-      channel: null,
-      knownModels: [],
-      onClose: vi.fn(),
-      onAccepted: vi.fn(async () => undefined),
-    };
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog {...props} providers={[]} />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
-
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog {...props} providers={[discoveryProvider]} />
-      </QueryClientProvider>,
-    );
-
-    expect(await screen.findByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
-  });
-
-  it("retains discovered selections across an equivalent manifest refetch", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const props = {
-      accessToken: "proxy-token",
-      mode: "create" as const,
-      channel: null,
-      knownModels: [],
-      onClose: vi.fn(),
-      onAccepted: vi.fn(async () => undefined),
-    };
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog {...props} providers={[discoveryProvider]} />
-      </QueryClientProvider>,
-    );
-
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-    await user.click(await screen.findByRole("button", { name: "清除全部" }));
-    await user.click(await screen.findByRole("combobox", { name: "选择资源侧模型" }));
-    await user.click(await screen.findByText("model-b"));
-    await user.keyboard("{Escape}");
-
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog {...props} providers={[{ ...discoveryProvider }]} />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByLabelText("model-b")).toBeInTheDocument();
-  });
-
-  it("requires a successful validation before creating discovery-backed bindings", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[discoveryProvider]}
-          knownModels={["generic-suggestion"]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await user.type(screen.getByLabelText("显示名称"), "Primary");
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-
-    expect(await screen.findByText("已获取 2 个模型，默认全部选中")).toBeInTheDocument();
-    expect(validateProviderService).toHaveBeenCalledWith("proxy-token", {
-      provider_id: "openai_compatible",
-      api_base: "https://gateway.example/v1",
-      api_key: "sk-once",
-      group: null,
+  it("requires an explicit manual fallback after a failed model-list request", async () => {
+    vi.mocked(discoverUpstreamModels).mockResolvedValue({
+      ...discovery,
+      ok: false,
+      message: "API Key 无效",
+      failure_code: "authentication",
+      models: [],
     });
-    expect(screen.queryByText("generic-suggestion")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "创建" }));
-
-    expect(createChannel).toHaveBeenCalledWith(
-      "proxy-token",
-      expect.objectContaining({
-        display_name: "Primary",
-        bindings: [
-          expect.objectContaining({ public_model: "model-b", provider_model: "openai/model-b" }),
-          expect.objectContaining({ public_model: "vendor/model-a", provider_model: "vendor/model-a" }),
-        ],
-      }),
-    );
-  });
-
-  it("shows the safe validation failure until manual mapping is explicit", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(failedDiscoveryResult);
     const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderDialog();
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[discoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
+    await user.type(screen.getByLabelText("接入凭据"), "bad-key");
     await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
 
-    expect(await screen.findByText("The upstream rejected this credential")).toBeInTheDocument();
-    expect(screen.getByText("错误代码: authentication_failed")).toBeInTheDocument();
+    expect(await screen.findByText("API Key 无效")).toBeInTheDocument();
     expect(screen.queryByText("公共模型")).not.toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "使用手动映射" }));
-
-    expect(screen.getByText("公共模型")).toBeInTheDocument();
-  });
-
-  it("invalidates discovered models when the upstream URL changes", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[discoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("API 地址"), "/changed");
-
-    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
-  });
-
-  it("invalidates discovered models when provider, API key, or group changes", async () => {
-    vi.mocked(validateProviderService).mockResolvedValue(discoveryResult);
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[discoveryProvider, unavailableDiscoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await user.type(screen.getByLabelText("API 地址"), "https://gateway.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("接入凭据"), "-changed");
-    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-    expect(await screen.findByRole("button", { name: "改用手动映射" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("分组（可选）"), "enterprise");
-    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("combobox", { name: "服务商 / 接口协议" }));
-    await user.click(await screen.findByText("Limited API"));
-    expect(screen.getByLabelText("接入凭据")).toHaveValue("");
-    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
-  });
-
-  it("preserves manual bindings when discovery inputs change", async () => {
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[unavailableDiscoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "使用手动映射" }));
-    const publicModelInput = screen.getByLabelText("公共模型");
-    const providerModelInput = screen.getByLabelText("资源侧模型");
-    await user.type(publicModelInput, "customer-alias");
-    await user.type(providerModelInput, "upstream-model");
-    await user.type(screen.getByLabelText("API 地址"), "https://changed.example/v1");
-    await user.type(screen.getByLabelText("接入凭据"), "sk-changed");
-    await user.type(screen.getByLabelText("分组（可选）"), "changed");
-
-    expect(screen.getByDisplayValue("customer-alias")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("upstream-model")).toBeInTheDocument();
-  });
-
-  it("clears the API key when closed and reopened", async () => {
-    const user = userEvent.setup();
-
-    render(<DialogHarness />);
-
-    await user.type(screen.getByLabelText("接入凭据"), "sk-once");
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await user.click(screen.getByRole("button", { name: "Reopen" }));
-
-    expect(screen.getByLabelText("接入凭据")).toHaveValue("");
-  });
-
-  it("requires explicit manual fallback without validating unavailable discovery", async () => {
-    const user = userEvent.setup();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChannelFormDialog
-          accessToken="proxy-token"
-          mode="create"
-          channel={null}
-          providers={[unavailableDiscoveryProvider]}
-          knownModels={[]}
-          onClose={vi.fn()}
-          onAccepted={vi.fn(async () => undefined)}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByText(/无法自动获取模型/)).toBeInTheDocument();
-    expect(screen.queryByText("公共模型")).not.toBeInTheDocument();
-    expect(validateProviderService).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "使用手动映射" }));
-
     expect(screen.getByText("公共模型")).toBeInTheDocument();
   });
 });

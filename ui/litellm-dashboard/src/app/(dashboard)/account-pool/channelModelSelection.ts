@@ -1,4 +1,4 @@
-import type { ChannelBindingInput, ProviderServiceManifest, ProviderValidationResult } from "./types";
+import type { ChannelBindingInput, UpstreamModelDiscoveryResult, UpstreamProviderManifest } from "./types";
 import { providerModelForSelectedModel } from "./_components/providerModel";
 
 export type CreateModelSelection =
@@ -12,19 +12,12 @@ export type CreateModelSelection =
     }
   | { kind: "manual" };
 
-const modelDiscoveryCapability = (provider: ProviderServiceManifest) =>
-  provider.capabilities.find((capability) => capability.capability === "model_discovery");
-
-export const initialModelSelection = (provider: ProviderServiceManifest | undefined): CreateModelSelection => {
-  const capability = provider && modelDiscoveryCapability(provider);
-  if (!capability) return { kind: "manual-required", reason: "missing" };
-  if (capability.state === "supported") return { kind: "ready-to-validate" };
-  return { kind: "manual-required", reason: capability.state };
-};
+export const initialModelSelection = (upstreamProvider: UpstreamProviderManifest | undefined): CreateModelSelection =>
+  upstreamProvider ? { kind: "ready-to-validate" } : { kind: "manual-required", reason: "missing" };
 
 export const validateDiscoveryResult = (
   selection: CreateModelSelection,
-  result: ProviderValidationResult,
+  result: UpstreamModelDiscoveryResult,
 ): CreateModelSelection => {
   if (selection.kind === "manual") return selection;
   if (!result.ok) {
@@ -35,20 +28,18 @@ export const validateDiscoveryResult = (
       failureCode: result.failure_code ?? undefined,
     };
   }
-  const models = Array.from(new Set(result.models.map((model) => model.model))).sort((left, right) =>
-    left.localeCompare(right),
-  );
+  const models = Array.from(new Set(result.models)).sort((left, right) => left.localeCompare(right));
   return models.length > 0 ? { kind: "discovered", models } : { kind: "manual-required", reason: "empty-models" };
 };
 
 export const selectManualMapping = (selection: CreateModelSelection): CreateModelSelection =>
   selection.kind === "manual-required" || selection.kind === "discovered" ? { kind: "manual" } : selection;
 
-export const buildDiscoveredBindings = (models: string[], providerPrefix: string): ChannelBindingInput[] =>
+export const buildDiscoveredBindings = (models: string[], forwardingProvider: string): ChannelBindingInput[] =>
   models.map((model) => ({
     binding_id: null,
     public_model: model,
-    provider_model: providerModelForSelectedModel(model, providerPrefix),
+    provider_model: providerModelForSelectedModel(model, forwardingProvider),
     litellm_deployment_id: null,
     ownership: "pool_managed",
     enabled: true,
@@ -57,9 +48,21 @@ export const buildDiscoveredBindings = (models: string[], providerPrefix: string
 const bindingIsValid = (binding: ChannelBindingInput): boolean =>
   Boolean(binding.public_model.trim() && (binding.provider_model?.trim() || binding.litellm_deployment_id));
 
-export const canSubmitCreateSelection = (selection: CreateModelSelection, bindings: ChannelBindingInput[]): boolean => {
+export const canSubmitCreateSelection = (
+  selection: CreateModelSelection,
+  bindings: ChannelBindingInput[],
+  forwardingProvider: string,
+): boolean => {
   if (selection.kind === "manual") return bindings.length > 0 && bindings.every(bindingIsValid);
   if (selection.kind !== "discovered") return false;
   const discoveredModels = new Set(selection.models);
-  return bindings.length > 0 && bindings.every((binding) => discoveredModels.has(binding.public_model));
+  return (
+    bindings.length > 0 &&
+    bindings.every(
+      (binding) =>
+        discoveredModels.has(binding.public_model) &&
+        binding.provider_model === providerModelForSelectedModel(binding.public_model, forwardingProvider) &&
+        binding.public_model.trim().length > 0,
+    )
+  );
 };
