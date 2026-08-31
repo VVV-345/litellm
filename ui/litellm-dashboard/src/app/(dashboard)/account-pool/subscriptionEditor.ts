@@ -1,6 +1,7 @@
 // 本文件校验套餐人工录入草稿，并生成可保存的统一套餐覆盖数据。
 
-import type { JsonDecimal, JsonValue } from "./types";
+import { asJsonObject, decimalText, parseRequiredNonNegativeDecimal } from "./parserOverrideEditor";
+import type { JsonValue } from "./types";
 
 export interface SubscriptionDraft {
   planName: string;
@@ -18,17 +19,11 @@ interface SubscriptionValue {
   channel_concurrency?: JsonValue;
 }
 
-const asObject = (value: JsonValue): Record<string, JsonValue> | null =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-
-const decimalText = (value: JsonValue | undefined, fallback = ""): string =>
-  typeof value === "string" || typeof value === "number" ? String(value) : fallback;
-
 const selectedProviderModelIds = (value: JsonValue | undefined, allowedModels: readonly string[]): string[] => {
   if (!Array.isArray(value)) return [...allowedModels];
   const allowed = new Set(allowedModels);
   const selected = value.flatMap((item) => {
-    const model = asObject(item);
+    const model = asJsonObject(item);
     const providerModelId = model?.provider_model_id;
     return typeof providerModelId === "string" && allowed.has(providerModelId) ? [providerModelId] : [];
   });
@@ -36,7 +31,7 @@ const selectedProviderModelIds = (value: JsonValue | undefined, allowedModels: r
 };
 
 export const buildSubscriptionDraft = (value: JsonValue, allowedModels: readonly string[]): SubscriptionDraft => {
-  const subscription = asObject(value) as SubscriptionValue | null;
+  const subscription = asJsonObject(value) as SubscriptionValue | null;
   return {
     planName: typeof subscription?.plan_name === "string" ? subscription.plan_name : "",
     selectedModels: selectedProviderModelIds(subscription?.models, allowedModels),
@@ -44,12 +39,6 @@ export const buildSubscriptionDraft = (value: JsonValue, allowedModels: readonly
     usageUnit: typeof subscription?.currency === "string" ? subscription.currency : "次",
     channelConcurrency: decimalText(subscription?.channel_concurrency, "10"),
   };
-};
-
-const parseRemainingUsage = (value: string): JsonDecimal => {
-  const trimmed = value.trim();
-  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) throw new Error("剩余用量必须是非负十进制数");
-  return trimmed;
 };
 
 const parseChannelConcurrency = (value: string): number => {
@@ -80,7 +69,7 @@ export const buildSubscriptionOverrideValue = (
       litellm_model_name: null,
       public_model_name: null,
     })),
-    balance: parseRemainingUsage(draft.remainingUsage),
+    balance: parseRequiredNonNegativeDecimal(draft.remainingUsage, "剩余用量"),
     currency: usageUnit,
     channel_concurrency: parseChannelConcurrency(draft.channelConcurrency),
     model_concurrency: [],

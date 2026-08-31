@@ -27,6 +27,19 @@ import {
   healthPresentation,
 } from "../accountPoolPresentation";
 import { reasonLabel } from "../reasonLabels";
+import {
+  buildRouteOrderScope,
+  draftForScope,
+  emptyRoutingOrderDraft,
+  endDraftDrag,
+  isSameRouteOrder,
+  moveDraftRoute,
+  orderRoutes,
+  routeDraftId,
+  startDraftDrag,
+  type RoutingDraftMove,
+  type RoutingOrderDraft,
+} from "../routingOrderDraft";
 import CapacityMeter from "./CapacityMeter";
 import { AccountPoolPanel, AccountPoolQueryState } from "./AccountPoolPanel";
 import { AutoRankingPreviewDialog, CandidateDialog } from "./RoutingDialogs";
@@ -74,7 +87,6 @@ const packageQuotaUnitLabels: Record<string, string> = {
 
 const emptyModels: RoutingModelSummary[] = [];
 const emptyRoutes: RoutingTableEntry[] = [];
-const emptyRouteIds: string[] = [];
 
 const selectActiveModel = (models: RoutingModelSummary[], selectedModel: string | null): string | null => {
   const selected = selectedModel === null ? undefined : models.find((item) => item.model === selectedModel);
@@ -91,22 +103,6 @@ const costText = (route: RoutingTableEntry): string => {
 const sortReasonText = (route: RoutingTableEntry): string =>
   route.sort_reason_codes.map((code) => sortReasonLabels[code] ?? code).join(" / ") || "稳定顺序";
 
-const routeDraftId = (route: RoutingTableEntry): string =>
-  route.binding_id ?? `${route.account_id}\u0000${route.deployment_id}\u0000${route.billing_route_id ?? ""}`;
-
-const orderRoutes = (routes: RoutingTableEntry[], order: string[]): RoutingTableEntry[] => {
-  const byId = new Map(routes.map((route) => [routeDraftId(route), route]));
-  const ordered = order.flatMap((routeId) => {
-    const route = byId.get(routeId);
-    return route ? [route] : [];
-  });
-  const orderedIds = new Set(order);
-  return [...ordered, ...routes.filter((route) => !orderedIds.has(routeDraftId(route)))];
-};
-
-const isSameOrder = (left: string[], right: string[]): boolean =>
-  left.length === right.length && left.every((routeId, index) => routeId === right[index]);
-
 const packageQuotaText = (route: RoutingTableEntry): string | null => {
   if (route.billing_mode !== "subscription") return null;
   if (route.remaining_quota !== null && Number(route.remaining_quota) <= 0) return "套餐额度已用尽";
@@ -120,44 +116,6 @@ const packageQuotaText = (route: RoutingTableEntry): string | null => {
 interface RoutingPanelProps {
   accessToken: string;
 }
-
-interface RoutingOrderDraft {
-  scope: string;
-  routeIds: string[];
-  draggingRouteId: string | null;
-}
-
-interface RoutingDraftMove {
-  scope: string;
-  sourceRouteIds: string[];
-  sourceRouteId: string;
-  targetRouteId: string;
-}
-
-const draftForScope = (draft: RoutingOrderDraft, scope: string): RoutingOrderDraft =>
-  draft.scope === scope ? draft : { scope, routeIds: emptyRouteIds, draggingRouteId: null };
-
-const moveDraftRoute = (draft: RoutingOrderDraft, move: RoutingDraftMove): RoutingOrderDraft => {
-  const current = draft.scope === move.scope && draft.routeIds.length > 0 ? draft.routeIds : move.sourceRouteIds;
-  if (!current.includes(move.sourceRouteId) || !current.includes(move.targetRouteId)) return draft;
-  const withoutSource = current.filter((routeId) => routeId !== move.sourceRouteId);
-  const targetIndex = withoutSource.indexOf(move.targetRouteId);
-  if (targetIndex === -1) return draft;
-  return {
-    scope: move.scope,
-    routeIds: [...withoutSource.slice(0, targetIndex), move.sourceRouteId, ...withoutSource.slice(targetIndex)],
-    draggingRouteId: null,
-  };
-};
-
-const startDraftDrag = (draft: RoutingOrderDraft, scope: string, routeId: string): RoutingOrderDraft => ({
-  scope,
-  routeIds: draft.scope === scope ? draft.routeIds : emptyRouteIds,
-  draggingRouteId: routeId,
-});
-
-const endDraftDrag = (draft: RoutingOrderDraft, scope: string): RoutingOrderDraft =>
-  draft.scope === scope ? { ...draft, draggingRouteId: null } : draft;
 
 function RoutingPanelState({ loading, error }: { loading: boolean; error: boolean }) {
   if (loading) {
@@ -438,11 +396,7 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [editingRoute, setEditingRoute] = useState<RoutingTableEntry | null>(null);
   const [autoPreviewOpen, setAutoPreviewOpen] = useState(false);
-  const [routingDraft, setRoutingDraft] = useState<RoutingOrderDraft>({
-    scope: "",
-    routeIds: emptyRouteIds,
-    draggingRouteId: null,
-  });
+  const [routingDraft, setRoutingDraft] = useState<RoutingOrderDraft>(emptyRoutingOrderDraft);
   const modelsQuery = useQuery({
     queryKey: accountPoolKeys.routingModels(),
     queryFn: () => getRoutingModels(accessToken),
@@ -461,13 +415,12 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
   });
   const routes = routesQuery.data ?? emptyRoutes;
   const sourceRouteIds = routes.map(routeDraftId);
-  const sourceRouteSignature = sourceRouteIds.join("\u0001");
-  const routeScope = `${activeModel ?? ""}\u0001${sourceRouteSignature}`;
+  const routeScope = buildRouteOrderScope(activeModel, sourceRouteIds);
   const scopedDraft = draftForScope(routingDraft, routeScope);
   const draftOrder = scopedDraft.routeIds;
   const draggingRouteId = scopedDraft.draggingRouteId;
   const draftRoutes = draftOrder.length === 0 ? routes : orderRoutes(routes, draftOrder);
-  const orderDirty = draftOrder.length > 0 && !isSameOrder(draftOrder, sourceRouteIds);
+  const orderDirty = draftOrder.length > 0 && !isSameRouteOrder(draftOrder, sourceRouteIds);
   const refreshRouting = async () => {
     await queryClient.invalidateQueries({ queryKey: ["account-pool", "routing"] });
   };
@@ -506,7 +459,7 @@ export default function RoutingPanel({ accessToken }: RoutingPanelProps) {
         binding_ids: draftRoutes.map((route) => route.binding_id!),
       }),
     onSuccess: async () => {
-      setRoutingDraft({ scope: routeScope, routeIds: emptyRouteIds, draggingRouteId: null });
+      setRoutingDraft(emptyRoutingOrderDraft(routeScope));
       NotificationsManager.success("路由顺序已保存");
       await refreshRouting();
     },

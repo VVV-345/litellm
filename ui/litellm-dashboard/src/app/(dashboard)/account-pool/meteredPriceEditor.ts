@@ -1,5 +1,12 @@
 // 本文件将已发现模型的人工价格草稿校验并转换为解析覆盖数据。
 
+import {
+  asJsonObject,
+  asString,
+  decimalText,
+  parseOptionalNonNegativeDecimal,
+  parseRequiredNonNegativeDecimal,
+} from "./parserOverrideEditor";
 import type { JsonDecimal, JsonValue } from "./types";
 
 export interface MeteredPriceDraft {
@@ -34,17 +41,8 @@ interface MeteredGroupValue {
   models?: JsonValue;
 }
 
-const asObject = (value: JsonValue | undefined): Record<string, JsonValue> | null =>
-  value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-
-const asString = (value: JsonValue | undefined, fallback = ""): string =>
-  typeof value === "string" ? value : fallback;
-
-const decimalText = (value: JsonValue | undefined, fallback = ""): string =>
-  typeof value === "string" || typeof value === "number" ? String(value) : fallback;
-
 const priceDraft = (value: JsonValue, group: MeteredGroupValue): MeteredPriceDraft | null => {
-  const price = asObject(value) as MeteredPriceValue | null;
+  const price = asJsonObject(value) as MeteredPriceValue | null;
   if (!price || typeof price.provider_model_id !== "string") return null;
   return {
     providerModelId: price.provider_model_id,
@@ -74,12 +72,12 @@ const emptyDraft = (providerModelId: string): MeteredPriceDraft => ({
 });
 
 export const buildMeteredPriceDrafts = (value: JsonValue | undefined, models: string[] = []): MeteredPriceDraft[] => {
-  const metered = asObject(value);
+  const metered = asJsonObject(value);
   const parsed =
     !metered || !Array.isArray(metered.groups)
       ? []
       : metered.groups.flatMap((value) => {
-          const group = asObject(value) as MeteredGroupValue | null;
+          const group = asJsonObject(value) as MeteredGroupValue | null;
           if (!group || !Array.isArray(group.models)) return [];
           return group.models
             .map((price) => priceDraft(price, group))
@@ -90,25 +88,18 @@ export const buildMeteredPriceDrafts = (value: JsonValue | undefined, models: st
   return discoveredModels.map((providerModelId) => parsedByModel.get(providerModelId) ?? emptyDraft(providerModelId));
 };
 
-const parseDecimal = (value: string, field: string, allowEmpty: boolean): JsonDecimal | null => {
-  const trimmed = value.trim();
-  if (!trimmed && allowEmpty) return null;
-  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) throw new Error(`${field} 必须是非负十进制数`);
-  return trimmed;
-};
-
 const effectivePrice = (source: JsonDecimal | null, multiplier: JsonDecimal): JsonDecimal | null => {
   if (source === null) return null;
   return String(Number(source) * Number(multiplier));
 };
 
 const priceValue = (draft: MeteredPriceDraft): JsonValue => {
-  const multiplier = parseDecimal(draft.groupMultiplier, "分组倍率", false);
-  if (multiplier === null || Number(multiplier) <= 0) throw new Error("分组倍率必须大于零");
-  const inputPrice = parseDecimal(draft.inputPrice, "输入价格", false);
-  const outputPrice = parseDecimal(draft.outputPrice, "输出价格", false);
-  const cacheReadPrice = parseDecimal(draft.cacheReadPrice, "缓存读取价格", true);
-  const cacheWritePrice = parseDecimal(draft.cacheWritePrice, "缓存写入价格", true);
+  const multiplier = parseRequiredNonNegativeDecimal(draft.groupMultiplier, "分组倍率");
+  if (Number(multiplier) <= 0) throw new Error("分组倍率必须大于零");
+  const inputPrice = parseRequiredNonNegativeDecimal(draft.inputPrice, "输入价格");
+  const outputPrice = parseRequiredNonNegativeDecimal(draft.outputPrice, "输出价格");
+  const cacheReadPrice = parseOptionalNonNegativeDecimal(draft.cacheReadPrice, "缓存读取价格");
+  const cacheWritePrice = parseOptionalNonNegativeDecimal(draft.cacheWritePrice, "缓存写入价格");
   return {
     provider_model_id: draft.providerModelId.trim(),
     currency: draft.currency.trim() || "USD",
