@@ -11,7 +11,7 @@ from account_pool.health.service import ChannelHealthDetail
 from account_pool.models import FrozenModel, RouteEntry
 from account_pool.overview.models import ChannelOverview
 from account_pool.parsing.service import EffectiveParserData
-from account_pool.sync.service import ChannelDetail
+from account_pool.sync.contracts import ChannelDetail
 
 SectionValue = TypeVar("SectionValue")
 

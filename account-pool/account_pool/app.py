@@ -19,6 +19,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import SecretStr, TypeAdapter
 
+from account_pool.api_routes import AccountPoolRouteHandlers, register_account_pool_routes
 from account_pool.audit.postgres import PostgresManagementAuditRepository
 from account_pool.auth.actor import (
     ActorAction,
@@ -176,22 +177,22 @@ from account_pool.runtime_contract import RuntimeConfigSnapshot, build_runtime_c
 from account_pool.runtime_projection import RuntimeProjector
 from account_pool.scheduler import Scheduler
 from account_pool.store import MemoryStateStore, RedisStateStore, StateStore
-from account_pool.sync.litellm import LiteLLMDeploymentSyncAdapter
-from account_pool.sync.models import DeleteMode
-from account_pool.sync.postgres import PostgresSyncOperationRepository
-from account_pool.sync.service import (
+from account_pool.sync.contracts import (
     ChannelBindingMutation,
     ChannelDeleteRequest,
     ChannelDetail,
     ChannelManagementFailure,
     ChannelManagementResult,
-    ChannelManagementService,
     ChannelManager,
     ChannelMutation,
     ChannelOperationView,
     ChannelReconcileRequest,
     ExternalDeploymentDeleteRequest,
 )
+from account_pool.sync.litellm import LiteLLMDeploymentSyncAdapter
+from account_pool.sync.models import DeleteMode
+from account_pool.sync.postgres import PostgresSyncOperationRepository
+from account_pool.sync.service import ChannelManagementService
 from account_pool.upstream_providers import UpstreamProviderRegistry, build_upstream_provider_registry
 from account_pool.upstream_providers.models import (
     UpstreamModelDiscoveryRequest,
@@ -301,11 +302,7 @@ def create_app(
         admin=admin,
         config_path=resolved_settings.config_path,
     )
-    provider_services: Final = ProviderServiceRegistry(
-        (
-            GenericProviderService(client),
-        )
-    )
+    provider_services: Final = ProviderServiceRegistry((GenericProviderService(client),))
     upstream_providers: Final = build_upstream_provider_registry(client)
     parser_registry: Final = build_parser_registry()
     resolved_public_metadata_sources: Final = public_metadata_sources or PublicMetadataSourceRegistry(())
@@ -1323,316 +1320,74 @@ def create_app(
     internal_dependency: Final = [Depends(require_internal_token)]
     # 管理接口和调度接口共用服务令牌，防止绕过 LiteLLM Admin 代理直连 4100 端口。
     management_dependency: Final = [Depends(require_internal_token)]
-    application.add_api_route("/healthz", healthz, methods=["GET"])
-    application.add_api_route(
-        "/internal/runtime-config",
-        runtime_config,
-        methods=["GET"],
-        dependencies=internal_dependency,
-        include_in_schema=False,
-    )
-    application.add_api_route("/metrics", metrics, methods=["GET"], include_in_schema=False)
-    application.add_api_route("/api/workers", worker_states, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/api/accounts", accounts, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/api/accounts", create_account, methods=["POST"], dependencies=management_dependency)
-    application.add_api_route(
-        "/api/accounts/{account_id}", update_account, methods=["PUT"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/accounts/{account_id}", delete_account, methods=["DELETE"], dependencies=management_dependency
-    )
-    application.add_api_route("/api/models", models, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route(
-        "/api/models/{model:path}/routing-table", routing_table, methods=["GET"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/policy", update_policy, methods=["PUT"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/routing-policy",
-        routing_policy,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/routing-policy",
-        update_routing_policy,
-        methods=["PUT"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/routing-candidates/{binding_id}",
-        update_routing_candidate,
-        methods=["PUT"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/routing-order",
-        update_routing_order,
-        methods=["PUT"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/models/{model:path}/routing-candidates/{binding_id}",
-        delete_routing_candidate,
-        methods=["DELETE"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/litellm/status", litellm_status, methods=["GET"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/provider-services", provider_service_manifests, methods=["GET"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/provider-services/validate", validate_provider, methods=["POST"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/upstream-providers", upstream_provider_manifests, methods=["GET"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/upstream-providers/discover-models",
-        discover_upstream_models,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route("/api/channels", channels, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/api/overview", overview_data, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/api/events", event_log_data, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/api/channels", create_channel, methods=["POST"], dependencies=management_dependency)
-    application.add_api_route(
-        "/api/channels/import", import_channel, methods=["POST"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}", channel_detail, methods=["GET"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/aggregate",
-        channel_aggregate_detail,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}", update_channel, methods=["PUT"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/detach", detach_channel, methods=["POST"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}", delete_channel, methods=["DELETE"], dependencies=management_dependency
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/bindings/{binding_id}/delete-external-deployment",
-        delete_external_deployment,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/reconcile",
-        reconcile_channel,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/health-probe",
-        probe_channel_health,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/health",
-        channel_health_detail,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/accounts/{account_id}/health-probe",
-        probe_account_health,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/operations/{operation_id}",
-        channel_operation,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/parse",
-        start_parser_task,
-        methods=["POST"],
-        status_code=202,
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/parser-tasks/{task_id}",
-        parser_task,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/parser-runs",
-        parser_runs,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/effective-data",
-        effective_parser_data,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/snapshot",
-        parser_snapshot,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/export",
-        export_parser_snapshot,
-        methods=["GET"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/import",
-        import_parser_snapshot,
-        methods=["POST"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/overrides",
-        set_parser_override,
-        methods=["PUT"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route(
-        "/api/channels/{channel_id}/overrides/{field_path:path}",
-        revoke_parser_override,
-        methods=["DELETE"],
-        dependencies=management_dependency,
-    )
-    application.add_api_route("/api/stats", stats, methods=["GET"], dependencies=management_dependency)
-    application.add_api_route("/internal/acquire", acquire, methods=["POST"], dependencies=internal_dependency)
-    application.add_api_route("/internal/settle", settle, methods=["POST"], dependencies=internal_dependency)
-    application.add_api_route(
-        "/internal/request-activity",
-        record_request_activity,
-        methods=["POST"],
-        dependencies=internal_dependency,
-    )
-    application.add_api_route(
-        "/internal/settlement-event",
-        record_settlement_event,
-        methods=["POST"],
-        dependencies=internal_dependency,
-    )
-    application.add_api_route("/internal/release", release, methods=["POST"], dependencies=internal_dependency)
-    application.add_api_route("/internal/heartbeat", heartbeat, methods=["POST"], dependencies=internal_dependency)
-
     ui_dependency: Final = [Depends(require_litellm_admin)]
-    application.add_api_route("/ui-api/accounts", accounts, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route("/ui-api/accounts", create_account, methods=["POST"], dependencies=ui_dependency)
-    application.add_api_route(
-        "/ui-api/accounts/{account_id}", update_account, methods=["PUT"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/accounts/{account_id}", delete_account, methods=["DELETE"], dependencies=ui_dependency
-    )
-    application.add_api_route("/ui-api/models", models, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-table", routing_table, methods=["GET"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/policy", update_policy, methods=["PUT"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-policy",
-        routing_policy,
-        methods=["GET"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-policy",
-        update_ui_routing_policy,
-        methods=["PUT"],
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-candidates/{binding_id}",
-        update_ui_routing_candidate,
-        methods=["PUT"],
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-order",
-        update_ui_routing_order,
-        methods=["PUT"],
-    )
-    application.add_api_route(
-        "/ui-api/models/{model:path}/routing-candidates/{binding_id}",
-        delete_ui_routing_candidate,
-        methods=["DELETE"],
-    )
-    application.add_api_route("/ui-api/stats", stats, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route("/ui-api/litellm/status", litellm_status, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route(
-        "/ui-api/provider-services", provider_service_manifests, methods=["GET"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/accounts/{account_id}/health-probe",
-        probe_account_health,
-        methods=["POST"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/provider-services/validate", validate_provider, methods=["POST"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/upstream-providers", upstream_provider_manifests, methods=["GET"], dependencies=ui_dependency
-    )
-    application.add_api_route(
-        "/ui-api/upstream-providers/discover-models",
-        discover_upstream_models,
-        methods=["POST"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route("/ui-api/channels", channels, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route("/ui-api/channels", create_ui_channel, methods=["POST"])
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}", channel_detail, methods=["GET"], dependencies=ui_dependency
-    )
-    application.add_api_route("/ui-api/channels/{channel_id}", update_ui_channel, methods=["PUT"])
-    application.add_api_route("/ui-api/channels/{channel_id}", delete_ui_channel, methods=["DELETE"])
-    application.add_api_route("/ui-api/overview", overview_data, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route("/ui-api/events", event_log_data, methods=["GET"], dependencies=ui_dependency)
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}/aggregate",
-        channel_aggregate_detail,
-        methods=["GET"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}/parser-runs",
-        parser_runs,
-        methods=["GET"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}/effective-data",
-        effective_parser_data,
-        methods=["GET"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}/snapshot",
-        parser_snapshot,
-        methods=["GET"],
-        dependencies=ui_dependency,
-    )
-    application.add_api_route(
-        "/ui-api/channels/{channel_id}/export",
-        export_parser_snapshot,
-        methods=["GET"],
-        dependencies=ui_dependency,
+    register_account_pool_routes(
+        application,
+        AccountPoolRouteHandlers(
+            healthz=healthz,
+            runtime_config=runtime_config,
+            metrics=metrics,
+            worker_states=worker_states,
+            accounts=accounts,
+            create_account=create_account,
+            update_account=update_account,
+            delete_account=delete_account,
+            models=models,
+            routing_table=routing_table,
+            update_policy=update_policy,
+            routing_policy=routing_policy,
+            update_routing_policy=update_routing_policy,
+            update_routing_candidate=update_routing_candidate,
+            update_routing_order=update_routing_order,
+            delete_routing_candidate=delete_routing_candidate,
+            litellm_status=litellm_status,
+            provider_service_manifests=provider_service_manifests,
+            validate_provider=validate_provider,
+            upstream_provider_manifests=upstream_provider_manifests,
+            discover_upstream_models=discover_upstream_models,
+            channels=channels,
+            overview_data=overview_data,
+            event_log_data=event_log_data,
+            create_channel=create_channel,
+            import_channel=import_channel,
+            channel_detail=channel_detail,
+            channel_aggregate_detail=channel_aggregate_detail,
+            update_channel=update_channel,
+            detach_channel=detach_channel,
+            delete_channel=delete_channel,
+            delete_external_deployment=delete_external_deployment,
+            reconcile_channel=reconcile_channel,
+            probe_channel_health=probe_channel_health,
+            channel_health_detail=channel_health_detail,
+            probe_account_health=probe_account_health,
+            channel_operation=channel_operation,
+            start_parser_task=start_parser_task,
+            parser_task=parser_task,
+            parser_runs=parser_runs,
+            effective_parser_data=effective_parser_data,
+            parser_snapshot=parser_snapshot,
+            export_parser_snapshot=export_parser_snapshot,
+            import_parser_snapshot=import_parser_snapshot,
+            set_parser_override=set_parser_override,
+            revoke_parser_override=revoke_parser_override,
+            stats=stats,
+            acquire=acquire,
+            settle=settle,
+            record_request_activity=record_request_activity,
+            record_settlement_event=record_settlement_event,
+            release=release,
+            heartbeat=heartbeat,
+            update_ui_routing_policy=update_ui_routing_policy,
+            update_ui_routing_candidate=update_ui_routing_candidate,
+            update_ui_routing_order=update_ui_routing_order,
+            delete_ui_routing_candidate=delete_ui_routing_candidate,
+            create_ui_channel=create_ui_channel,
+            update_ui_channel=update_ui_channel,
+            delete_ui_channel=delete_ui_channel,
+        ),
+        internal_dependencies=internal_dependency,
+        management_dependencies=management_dependency,
+        ui_dependencies=ui_dependency,
     )
 
     async def ui_redirect() -> RedirectResponse:
@@ -2061,7 +1816,7 @@ def _build_parser_runtime(
         ),
         public_metadata_tasks=(
             None
-            if not build_public_metadata_tasks or catalog is None or not public_metadata_sources.provider_ids
+            if not build_public_metadata_tasks or not public_metadata_sources.provider_ids
             else PublicMetadataTaskLoop(
                 catalog=catalog,
                 sources=public_metadata_sources,

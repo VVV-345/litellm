@@ -29,6 +29,15 @@ from account_pool.models import AccountSnapshot, Health, PoolConfig, QuotaSnapsh
 from account_pool.operational.models import OperationalEventRecord
 from account_pool.operational.repository import OperationalWriteResult, OperationalWriteSuccess
 from account_pool.runtime_projection import RuntimeProjector
+from account_pool.sync.contracts import (
+    ChannelBindingMutation,
+    ChannelDeleteRequest,
+    ChannelManagementFailure,
+    ChannelMutation,
+    ChannelOperationView,
+    ExternalDeploymentDeleteRequest,
+    ReconcilePassResult,
+)
 from account_pool.sync.litellm import (
     LiteLLMSyncAction,
     LiteLLMSyncFailure,
@@ -49,16 +58,7 @@ from account_pool.sync.repository import (
     SyncOperationLoadSuccess,
     SyncOperationWriteSuccess,
 )
-from account_pool.sync.service import (
-    ChannelBindingMutation,
-    ChannelDeleteRequest,
-    ChannelManagementFailure,
-    ChannelManagementService,
-    ChannelMutation,
-    ChannelOperationView,
-    ExternalDeploymentDeleteRequest,
-    ReconcilePassResult,
-)
+from account_pool.sync.service import ChannelManagementService
 from pydantic import SecretStr
 
 _NOW: Final = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
@@ -658,6 +658,36 @@ async def test_delete_stays_pending_until_inflight_requests_are_released() -> No
     assert reconciled.items[0].status == "applied"
     assert synchronizer.managed_deletes == (create_command.bindings[0].litellm_deployment_id,)
     assert isinstance(catalog.commands[-1], ApplyChannelDelete)
+    assert catalog.snapshot.channels == ()
+
+
+async def test_detach_only_deletion_removes_catalog_without_deleting_managed_deployment() -> None:
+    service, _, _, catalog, synchronizer, _, _ = _service()
+    created: Final = await service.create(
+        _create_request(),
+        "create-before-detach-only-delete",
+        _actor(ActorAction.CHANNEL_CREATE),
+    )
+    assert isinstance(created, ChannelOperationView)
+    create_command: Final = catalog.commands[0]
+    assert isinstance(create_command, ApplyChannelCreate)
+    catalog.snapshot = CatalogSnapshot(
+        channels=(create_command.channel,),
+        bindings=create_command.bindings,
+    )
+
+    deleted: Final = await service.delete(
+        created.channel_id,
+        ChannelDeleteRequest(delete_mode=DeleteMode.DETACH_ONLY),
+        "detach-only-delete",
+        _actor(ActorAction.CHANNEL_DELETE),
+    )
+
+    assert isinstance(deleted, ChannelOperationView)
+    delete_command: Final = catalog.commands[-1]
+    assert isinstance(delete_command, ApplyChannelDelete)
+    assert delete_command.mode.value == DeleteMode.DETACH_ONLY.value
+    assert synchronizer.managed_deletes == ()
     assert catalog.snapshot.channels == ()
 
 

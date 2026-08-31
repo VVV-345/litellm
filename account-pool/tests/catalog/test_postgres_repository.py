@@ -15,7 +15,14 @@ import psycopg
 import pytest
 import pytest_asyncio
 from account_pool.catalog.importer import catalog_import_from_pool_config
-from account_pool.catalog.lifecycle import ApplyChannelDelete, CatalogApplySuccess, DeleteMode
+from account_pool.catalog.lifecycle import (
+    ApplyChannelCreate,
+    ApplyChannelDelete,
+    CatalogApplyFailure,
+    CatalogApplyFailureCode,
+    CatalogApplySuccess,
+    DeleteMode,
+)
 from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportResult
 from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.models import Strategy
@@ -234,6 +241,57 @@ async def test_channel_delete_cascades_parser_task(repository_fixture: Repositor
     assert result == CatalogApplySuccess(operation_id=operation_id)
     assert parser_task_count == (0,)
     assert (await repository_fixture.repository.load_snapshot()).channels == ()
+
+
+async def test_lifecycle_binding_constraint_conflict_is_not_reported_as_database_unavailable(
+    repository_fixture: RepositoryFixture,
+) -> None:
+    original: Final = _command()
+    await repository_fixture.repository.import_once(original)
+    operation_id: Final = uuid4()
+    channel: Final = original.channels[0].model_copy(
+        update={
+            "channel_id": uuid4(),
+            "legacy_account_id": f"conflict-{operation_id.hex}",
+            "account_order": len(original.channels),
+            "display_name": "Constraint conflict",
+        }
+    )
+    conflicting_binding: Final = original.bindings[0].model_copy(
+        update={
+            "binding_id": uuid4(),
+            "channel_id": channel.channel_id,
+        }
+    )
+    async with await psycopg.AsyncConnection.connect(repository_fixture.database_url, autocommit=True) as connection:
+        await connection.execute("SELECT set_config('search_path', %s, false)", (repository_fixture.schema,))
+        await connection.execute(
+            """
+            INSERT INTO "LiteLLM_AccountPoolSyncOperation" (
+                operation_id, idempotency_key, channel_id, action, status, desired_payload, updated_at
+            ) VALUES (%s, %s, %s, 'create_channel', 'pending_create', %s, NOW())
+            """,
+            (str(operation_id), f"conflict-{operation_id}", str(channel.channel_id), Jsonb({})),
+        )
+
+    result: Final = await repository_fixture.repository.apply_lifecycle(
+        ApplyChannelCreate(
+            operation_id=operation_id,
+            channel=channel,
+            bindings=(conflicting_binding,),
+        )
+    )
+
+    assert result == CatalogApplyFailure(
+        operation_id=operation_id,
+        code=CatalogApplyFailureCode.STATE_CONFLICT,
+        retryable=False,
+    )
+    assert await repository_fixture.repository.load_snapshot() == CatalogSnapshot(
+        channels=original.channels,
+        bindings=original.bindings,
+        policies=original.policies,
+    )
 
 
 @pytest.mark.parametrize("alternate_identity", ["channel_id", "legacy_account_id"])

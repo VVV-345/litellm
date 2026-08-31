@@ -120,8 +120,7 @@ from account_pool.quota.durable import DurableQuotaStateStore
 from account_pool.routing.latency_store import DurableLatencyStateStore
 from account_pool.runtime_contract import RuntimeConfigSnapshot
 from account_pool.store import MemoryStateStore
-from account_pool.sync.models import SyncStatus
-from account_pool.sync.service import (
+from account_pool.sync.contracts import (
     ChannelDeleteRequest,
     ChannelDetail,
     ChannelManagementFailure,
@@ -131,6 +130,7 @@ from account_pool.sync.service import (
     ExternalDeploymentDeleteRequest,
     ReconcilePassResult,
 )
+from account_pool.sync.models import SyncStatus
 from account_pool.upstream_providers.models import UpstreamModelDiscoveryResult, UpstreamProviderManifest
 from pydantic import TypeAdapter
 
@@ -1581,6 +1581,8 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
                 root: Final = await client.get("/")
                 ui: Final = await client.get("/ui/")
                 ui_api: Final = await client.get("/ui/api.js")
+                ui_app: Final = await client.get("/ui/app.js")
+                channel_editor: Final = await client.get("/ui/channel-editor.js")
                 missing: Final = await client.get("/ui-api/stats")
                 invalid: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer invalid"})
                 viewer: Final = await client.get("/ui-api/stats", headers={"authorization": "Bearer viewer-secret"})
@@ -1604,6 +1606,10 @@ async def test_standalone_ui_uses_litellm_admin_authentication() -> None:
     assert "号池调度器" in ui.text
     assert 'request("/channels")' in ui_api.text
     assert 'request("/upstream-providers")' in ui_api.text
+    assert ui_app.status_code == 200
+    assert 'createChannelEditor' in ui_app.text
+    assert channel_editor.status_code == 200
+    assert 'export const createChannelEditor' in channel_editor.text
     assert "provider-services" not in ui_api.text
     assert 'request("/accounts")' not in ui_api.text
     assert missing.status_code == 401

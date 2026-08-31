@@ -27,7 +27,7 @@ from account_pool.models import RouteEntry
 from account_pool.overview.models import AccountPoolOverview, AccountPoolOverviewFailure, ChannelOverview
 from account_pool.overview.service import AccountPoolOverviewReader
 from account_pool.parsing.service import EffectiveParserData, ParserDataFailure
-from account_pool.sync.service import ChannelDetail, ChannelManagementFailure
+from account_pool.sync.contracts import ChannelDetail, ChannelManagementFailure
 
 SectionValue = TypeVar("SectionValue")
 RECENT_EVENT_LIMIT: Final = 8

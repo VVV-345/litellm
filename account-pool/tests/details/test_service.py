@@ -26,7 +26,7 @@ from account_pool.overview import (
     ParserOverviewState,
 )
 from account_pool.parsing.service import ParserDataFailure, ParserDataFailureCode
-from account_pool.sync.service import ChannelBindingMutation, ChannelDetail
+from account_pool.sync.contracts import ChannelBindingMutation, ChannelDetail
 
 _CHANNEL_ID: Final = UUID("10000000-0000-0000-0000-000000000001")
 _NOW: Final = datetime(2026, 8, 22, tzinfo=UTC)

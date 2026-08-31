@@ -33,6 +33,12 @@ export const formatPercent = (value) => value == null ? "未知" : `${new Intl.N
 
 export const formatTime = (value) => value == null ? "-" : new Date(value * 1000).toLocaleString("zh-CN", { hour12: false });
 
+export const formatChannelOperationMessage = (operation, action) => {
+  if (operation.failure?.message) return operation.failure.message;
+  if (operation.requires_key) return `${action}需要重新提供 API Key`;
+  return `${action}已提交，状态：${operation.operation_status}`;
+};
+
 export const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;")

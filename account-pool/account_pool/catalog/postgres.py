@@ -235,6 +235,12 @@ class PostgresCatalogRepository:
                     (str(command.operation_id),),
                 )
                 return CatalogApplySuccess(operation_id=command.operation_id)
+        except psycopg.IntegrityError:
+            return CatalogApplyFailure(
+                operation_id=command.operation_id,
+                code=CatalogApplyFailureCode.STATE_CONFLICT,
+                retryable=False,
+            )
         except psycopg.Error:
             return CatalogApplyFailure(
                 operation_id=command.operation_id,
@@ -287,6 +293,12 @@ class PostgresCatalogRepository:
                         retryable=False,
                     )
                 return CatalogPendingDeleteSuccess(operation_id=operation_id)
+        except psycopg.IntegrityError:
+            return CatalogApplyFailure(
+                operation_id=operation_id,
+                code=CatalogApplyFailureCode.STATE_CONFLICT,
+                retryable=False,
+            )
         except psycopg.Error:
             return CatalogApplyFailure(
                 operation_id=operation_id,
@@ -409,8 +421,7 @@ def _matching_bindings(
     return tuple(
         existing
         for existing in snapshot.bindings
-        if existing.binding_id == record.binding_id
-        or existing.litellm_deployment_id == record.litellm_deployment_id
+        if existing.binding_id == record.binding_id or existing.litellm_deployment_id == record.litellm_deployment_id
     )
 
 
