@@ -48,6 +48,11 @@ export const LOG_FILTER_LABELS: Record<string, string> = {
   [LOG_FILTER_IDS.PUBLIC_MODEL_OR_SEARCH_TOOL]: "Public model / search tool",
 };
 
+type UiTranslate = (key: string) => string;
+
+export const getLogFilterLabels = (t: UiTranslate): Record<string, string> =>
+  Object.fromEntries(Object.entries(LOG_FILTER_LABELS).map(([filterId, label]) => [filterId, t(`ui.${label}`)]));
+
 export interface LogsWindow {
   start_date: string;
   end_date: string;

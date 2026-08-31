@@ -1,6 +1,8 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Copy, Link2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -17,6 +19,7 @@ import { cn } from "@/lib/cva.config";
 import { getProxyBaseUrl } from "@/components/networking";
 import { MCPToolset } from "@/components/mcp_tools/types";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { translateUiText } from "@/utils/i18nText";
 
 // Display-only. Toolsets persist {server_id, bare tool_name}; the gateway serves
 // each tool prefixed as "{server-prefix}-{tool}". Render that qualified form so
@@ -41,10 +44,11 @@ interface ToolsetRowActionsProps {
 }
 
 function ToolsetRowActions({ toolset, isAdmin, onEditClick, onDeleteClick }: ToolsetRowActionsProps) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open toolset actions"
+        aria-label={t("ui.Open toolset actions")}
         data-testid={`toolset-actions-${toolset.toolset_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -53,24 +57,24 @@ function ToolsetRowActions({ toolset, isAdmin, onEditClick, onDeleteClick }: Too
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem
           data-testid="toolset-action-copy-url"
-          onClick={() => void copyToClipboard(toolsetEndpointUrl(toolset.toolset_name), "Endpoint URL copied")}
+          onClick={() => void copyToClipboard(toolsetEndpointUrl(toolset.toolset_name), t("ui.Endpoint URL copied"))}
         >
           <Link2 />
-          Copy endpoint URL
+          {t("ui.Copy endpoint URL")}
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid="toolset-action-copy-id"
-          onClick={() => void copyToClipboard(toolset.toolset_id, "Toolset ID copied")}
+          onClick={() => void copyToClipboard(toolset.toolset_id, t("ui.Toolset ID copied"))}
         >
           <Copy />
-          Copy toolset ID
+          {t("ui.Copy toolset ID")}
         </DropdownMenuItem>
         {isAdmin && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem data-testid="toolset-action-edit" onClick={() => onEditClick(toolset)}>
               <Pencil />
-              Edit
+              {t("ui.Edit")}
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
@@ -78,7 +82,7 @@ function ToolsetRowActions({ toolset, isAdmin, onEditClick, onDeleteClick }: Too
               onClick={() => onDeleteClick(toolset.toolset_id)}
             >
               <Trash2 />
-              Delete
+              {t("ui.Delete")}
             </DropdownMenuItem>
           </>
         )}
@@ -92,6 +96,7 @@ interface MCPToolsetTableColumnsDeps {
   serverPrefixById: Map<string, string>;
   onEditClick: (toolset: MCPToolset) => void;
   onDeleteClick: (toolsetId: string) => void;
+  t?: TFunction;
 }
 
 export const getMCPToolsetTableColumns = ({
@@ -99,12 +104,13 @@ export const getMCPToolsetTableColumns = ({
   serverPrefixById,
   onEditClick,
   onDeleteClick,
+  t,
 }: MCPToolsetTableColumnsDeps): ColumnDef<MCPToolset>[] => [
   {
     id: "toolset_id",
     accessorKey: "toolset_id",
-    meta: { title: "Toolset ID" },
-    header: "Toolset ID",
+    meta: { title: t ? translateUiText(t, "Toolset ID") : "Toolset ID" },
+    header: t ? translateUiText(t, "Toolset ID") : "Toolset ID",
     size: 140,
     enableSorting: false,
     cell: ({ row }) => <IdCell value={row.original.toolset_id} />,
@@ -112,8 +118,10 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "toolset_name",
     accessorKey: "toolset_name",
-    meta: { title: "Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Name" />,
+    meta: { title: t ? translateUiText(t, "Name") : "Name" },
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t ? translateUiText(t, "Name") : "Name"} />
+    ),
     size: 260,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -129,8 +137,8 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "description",
     accessorKey: "description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: t ? translateUiText(t, "Description") : undefined },
+    header: t ? translateUiText(t, "Description") : undefined,
     size: 200,
     enableSorting: false,
     cell: ({ row }) => (
@@ -141,8 +149,8 @@ export const getMCPToolsetTableColumns = ({
   },
   {
     id: "tools",
-    meta: { title: "Tools", skeleton: "chips" },
-    header: "Tools",
+    meta: { title: t ? translateUiText(t, "Tools") : "Tools", skeleton: "chips" },
+    header: t ? translateUiText(t, "Tools") : "Tools",
     size: 260,
     enableSorting: false,
     cell: ({ row }) => {
@@ -158,7 +166,9 @@ export const getMCPToolsetTableColumns = ({
             </span>
           ))}
           {tools.length > 4 && (
-            <span className="self-center text-xs text-muted-foreground">+{tools.length - 4} more</span>
+            <span className="self-center text-xs text-muted-foreground">
+              +{tools.length - 4} {t ? translateUiText(t, "more") : "more"}
+            </span>
           )}
         </div>
       );
@@ -167,8 +177,10 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "created_at",
     accessorKey: "created_at",
-    meta: { title: "Created" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created" />,
+    meta: { title: t ? translateUiText(t, "Created") : "Created" },
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t ? translateUiText(t, "Created") : "Created"} />
+    ),
     size: 120,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} precision="date" />,
@@ -176,7 +188,7 @@ export const getMCPToolsetTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{t ? translateUiText(t, "Actions") : undefined}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

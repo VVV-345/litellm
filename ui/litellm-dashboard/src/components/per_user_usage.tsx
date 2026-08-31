@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import type { ColumnDef } from "@tanstack/react-table";
 import { BarChart } from "@/components/shared/charts";
 import { DataTable } from "@/components/shared/DataTable";
@@ -32,6 +33,7 @@ interface PerUserUsageProps {
 }
 
 const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, formatAbbreviatedNumber }) => {
+  const { t } = useTranslation();
   // Maximum number of user agent categories to show in charts to prevent color palette overflow
   const MAX_USER_AGENTS = 8;
   const [perUserData, setPerUserData] = useState<PerUserAnalyticsResponse>({
@@ -99,7 +101,7 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
       cell: ({ row }) => formatAbbreviatedNumber(row.original.successful_requests),
     },
     {
-      header: "Total Tokens",
+      header: t("ui.Total Tokens"),
       accessorKey: "total_tokens",
       meta: { numeric: true },
       cell: ({ row }) => formatAbbreviatedNumber(row.original.total_tokens),

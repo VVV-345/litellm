@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Trash2 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/shared/DataTable";
@@ -6,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ACTION_ITEMS, SEVERITY_ITEMS } from "./action_options";
+import { translateUiText } from "@/utils/i18nText";
 
 interface ContentCategory {
   id: string;
@@ -30,9 +32,11 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
   onRemove,
   readOnly = false,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const columns: ColumnDef<ContentCategory>[] = [
     {
-      header: "Category",
+      header: ui("Category"),
       accessorKey: "display_name",
       cell: ({ row }) => {
         const { category, display_name: displayName } = row.original;
@@ -45,7 +49,7 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
       },
     },
     {
-      header: "Severity Threshold",
+      header: ui("Severity Threshold"),
       accessorKey: "severity_threshold",
       size: 180,
       cell: ({ row }) => {
@@ -61,13 +65,13 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
               value && onSeverityChange?.(id, value as "high" | "medium" | "low")
             }
           >
-            <SelectTrigger size="sm" className="w-[150px]" aria-label="Severity Threshold">
+            <SelectTrigger size="sm" className="w-[150px]" aria-label={ui("Severity Threshold")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {SEVERITY_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {ui(item.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -76,7 +80,7 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
       },
     },
     {
-      header: "Action",
+      header: ui("Action"),
       accessorKey: "action",
       size: 150,
       cell: ({ row }) => {
@@ -90,13 +94,13 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
             value={action}
             onValueChange={(value: string | null) => value && onActionChange?.(id, value as "BLOCK" | "MASK")}
           >
-            <SelectTrigger size="sm" className="w-[120px]" aria-label="Action">
+            <SelectTrigger size="sm" className="w-[120px]" aria-label={ui("Action")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {ACTION_ITEMS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {ui(item.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -114,14 +118,14 @@ const CategoryTable: React.FC<CategoryTableProps> = ({
       cell: ({ row }) => (
         <Button variant="ghost" size="sm" onClick={() => onRemove?.(row.original.id)}>
           <Trash2 />
-          Delete
+          {ui("Delete")}
         </Button>
       ),
     });
   }
 
   if (categories.length === 0) {
-    return <div className="py-10 text-center text-muted-foreground">No categories configured.</div>;
+    return <div className="py-10 text-center text-muted-foreground">{ui("No categories configured.")}</div>;
   }
 
   return <DataTable data={categories} columns={columns} getRowId={(row) => row.id} size="compact" />;

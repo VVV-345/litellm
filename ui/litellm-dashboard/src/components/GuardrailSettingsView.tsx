@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Globe2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,7 @@ export function GuardrailSettingsView({
   variant = "card",
   className = "",
 }: GuardrailSettingsViewProps) {
+  const { t } = useTranslation();
   const optedOutSet = new Set(optedOutGlobalGuardrails);
   const globalsRunning = Array.from(globalGuardrailNames).filter((n) => !optedOutSet.has(n));
   const nonGlobalOptIns = teamGuardrails.filter((n) => !globalGuardrailNames.has(n));
@@ -28,16 +30,16 @@ export function GuardrailSettingsView({
   const isEmpty = !killSwitchOn && globalsRunning.length === 0 && nonGlobalOptIns.length === 0;
 
   const content = isEmpty ? (
-    <span className="block text-muted-foreground">No guardrails configured</span>
+    <span className="block text-muted-foreground">{t("ui.No guardrails configured")}</span>
   ) : (
     <div className="flex flex-col gap-4">
       <div>
         <span className="mb-2 flex items-center gap-1 text-sm font-medium text-foreground">
-          <Globe2 className="size-4" aria-label="Global guardrail" />
-          Global
+          <Globe2 className="size-4" aria-label={t("ui.Global guardrail")} />
+          {t("ui.Global")}
         </span>
         {killSwitchOn ? (
-          <Badge variant="outline">Bypassed for this team</Badge>
+          <Badge variant="outline">{t("ui.Bypassed for this team")}</Badge>
         ) : globalsRunning.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {globalsRunning.map((name) => (
@@ -45,11 +47,11 @@ export function GuardrailSettingsView({
             ))}
           </div>
         ) : (
-          <span className="block text-sm text-muted-foreground">None configured</span>
+          <span className="block text-sm text-muted-foreground">{t("ui.None configured")}</span>
         )}
       </div>
       <div>
-        <span className="mb-2 block text-sm font-medium text-foreground">Team-specific</span>
+        <span className="mb-2 block text-sm font-medium text-foreground">{t("ui.Team-specific")}</span>
         {nonGlobalOptIns.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {nonGlobalOptIns.map((name) => (
@@ -57,7 +59,7 @@ export function GuardrailSettingsView({
             ))}
           </div>
         ) : (
-          <span className="block text-sm text-muted-foreground">None configured</span>
+          <span className="block text-sm text-muted-foreground">{t("ui.None configured")}</span>
         )}
       </div>
     </div>
@@ -67,8 +69,8 @@ export function GuardrailSettingsView({
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle>Guardrails Settings</CardTitle>
-          <CardDescription>Global and team-specific guardrails applied to this team</CardDescription>
+          <CardTitle>{t("ui.Guardrails Settings")}</CardTitle>
+          <CardDescription>{t("ui.Global and team-specific guardrails applied to this team")}</CardDescription>
         </CardHeader>
         <CardContent>{content}</CardContent>
       </Card>
@@ -77,7 +79,7 @@ export function GuardrailSettingsView({
 
   return (
     <div className={cn(className)}>
-      <span className="mb-3 block font-medium text-foreground">Guardrails Settings</span>
+      <span className="mb-3 block font-medium text-foreground">{t("ui.Guardrails Settings")}</span>
       {content}
     </div>
   );

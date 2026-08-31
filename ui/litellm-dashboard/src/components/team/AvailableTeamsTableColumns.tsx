@@ -1,8 +1,10 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { MoreHorizontal, UserPlus } from "lucide-react";
 
+import { translateUiText } from "@/utils/i18nText";
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { IdentityCell, ModelsCell } from "@/components/shared/table_cells";
 import { buttonVariants } from "@/components/ui/button";
@@ -44,11 +46,15 @@ function AvailableTeamRowActions({ team, onJoinTeam }: { team: AvailableTeam; on
 
 interface AvailableTeamsTableColumnsDeps {
   onJoinTeam: (teamId: string) => void;
+  t?: TFunction;
 }
 
 export const getAvailableTeamsTableColumns = ({
   onJoinTeam,
-}: AvailableTeamsTableColumnsDeps): ColumnDef<AvailableTeam>[] => [
+  t,
+}: AvailableTeamsTableColumnsDeps): ColumnDef<AvailableTeam>[] => {
+  const ui = (value: string) => (t ? translateUiText(t, value) : value);
+  return [
   {
     id: "team_alias",
     accessorKey: "team_alias",
@@ -63,8 +69,8 @@ export const getAvailableTeamsTableColumns = ({
   {
     id: "description",
     accessorKey: "description",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: ui("Description") },
+    header: ui("Description"),
     size: 280,
     enableSorting: false,
     cell: ({ row }) => {
@@ -98,7 +104,7 @@ export const getAvailableTeamsTableColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{ui("Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,
@@ -109,3 +115,4 @@ export const getAvailableTeamsTableColumns = ({
     ),
   },
 ];
+};

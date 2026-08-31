@@ -37,13 +37,17 @@ const capitalize = (value: string): string => (value ? value.charAt(0).toUpperCa
 
 interface AuditLogsTableColumnsDeps {
   onViewLog: (log: AuditLogEntry) => void;
+  t?: (key: string) => string;
 }
 
-export const getAuditLogsTableColumns = ({ onViewLog }: AuditLogsTableColumnsDeps): ColumnDef<AuditLogEntry>[] => [
+export const getAuditLogsTableColumns = ({
+  onViewLog,
+  t = (key: string) => key.replace(/^ui\./, ""),
+}: AuditLogsTableColumnsDeps): ColumnDef<AuditLogEntry>[] => [
   {
     id: "updated_at",
     accessorKey: "updated_at",
-    header: "Timestamp",
+    header: t("ui.Timestamp"),
     size: 200,
     enableSorting: false,
     cell: ({ row }) => <DateCell value={row.original.updated_at} />,
@@ -51,7 +55,7 @@ export const getAuditLogsTableColumns = ({ onViewLog }: AuditLogsTableColumnsDep
   {
     id: "action",
     accessorKey: "action",
-    header: "Action",
+    header: t("ui.Action"),
     size: 110,
     enableSorting: false,
     cell: ({ row }) => (
@@ -61,17 +65,18 @@ export const getAuditLogsTableColumns = ({ onViewLog }: AuditLogsTableColumnsDep
   {
     id: "table_name",
     accessorKey: "table_name",
-    header: "Table",
+    header: t("ui.Table"),
     size: 130,
     enableSorting: false,
-    cell: ({ row }) => (
-      <span className="text-sm">{AUDIT_TABLE_NAME_DISPLAY[row.original.table_name] ?? row.original.table_name}</span>
-    ),
+    cell: ({ row }) => {
+      const display = AUDIT_TABLE_NAME_DISPLAY[row.original.table_name];
+      return <span className="text-sm">{display ? t(display) : row.original.table_name}</span>;
+    },
   },
   {
     id: "object_id",
     accessorKey: "object_id",
-    header: "Object ID",
+    header: t("ui.Object ID"),
     minSize: 220,
     enableSorting: false,
     cell: ({ row }) => (
@@ -86,7 +91,7 @@ export const getAuditLogsTableColumns = ({ onViewLog }: AuditLogsTableColumnsDep
   {
     id: "changed_by",
     accessorKey: "changed_by",
-    header: "Changed By",
+    header: t("ui.Changed By"),
     size: 200,
     enableSorting: false,
     cell: ({ row }) => <DefaultProxyAdminTag userId={row.original.changed_by} />,
@@ -94,7 +99,7 @@ export const getAuditLogsTableColumns = ({ onViewLog }: AuditLogsTableColumnsDep
   {
     id: "changed_by_api_key",
     accessorKey: "changed_by_api_key",
-    header: "API Key (Hash)",
+    header: t("ui.API Key (Hash)"),
     size: 160,
     enableSorting: false,
     cell: ({ row }) => <IdCell value={row.original.changed_by_api_key} variant="plain" />,

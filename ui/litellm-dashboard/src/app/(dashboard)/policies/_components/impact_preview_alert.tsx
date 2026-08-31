@@ -2,6 +2,7 @@ import React from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shared/Alert";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Info } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface ImpactResult {
   affected_keys_count: number;
@@ -33,12 +34,13 @@ const SampleList: React.FC<SampleListProps> = ({ label, samples, totalCount }) =
 );
 
 const ImpactPreviewAlert: React.FC<ImpactPreviewAlertProps> = ({ impactResult }) => {
+  const { t } = useTranslation();
   const isGlobal = impactResult.affected_keys_count === -1;
 
   return (
     <Alert className="mb-4">
       {isGlobal ? <AlertTriangle /> : <Info />}
-      <AlertTitle>Impact Preview</AlertTitle>
+      <AlertTitle>{t("ui.Impact Preview", { defaultValue: "Impact Preview" })}</AlertTitle>
       <AlertDescription>
         {isGlobal ? (
           <span>
@@ -59,14 +61,14 @@ const ImpactPreviewAlert: React.FC<ImpactPreviewAlertProps> = ({ impactResult })
             </span>
             {impactResult.sample_keys.length > 0 && (
               <SampleList
-                label="Keys"
+                label={t("ui.Keys", { defaultValue: "Keys" })}
                 samples={impactResult.sample_keys}
                 totalCount={impactResult.affected_keys_count}
               />
             )}
             {impactResult.sample_teams.length > 0 && (
               <SampleList
-                label="Teams"
+                label={t("ui.Teams", { defaultValue: "Teams" })}
                 samples={impactResult.sample_teams}
                 totalCount={impactResult.affected_teams_count}
               />

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ToolTestPanel } from "./ToolTestPanel";
 import { resolveLogoSrc } from "@/lib/assetPaths";
@@ -39,6 +40,7 @@ const MCPToolsViewer = ({
   serverAlias,
   extraHeaders,
 }: MCPToolsViewerProps) => {
+  const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<MCPTool | null>(null);
   const [toolResult, setToolResult] = useState<MCPContent[] | null>(null);
   const [toolError, setToolError] = useState<Error | null>(null);
@@ -294,7 +296,7 @@ const MCPToolsViewer = ({
         <div className="grid h-auto w-full grid-cols-4 gap-4">
           {/* Left Sidebar with Controls */}
           <div className="col-span-1 flex flex-col bg-muted p-4">
-            <h2 className="mt-2 mb-6 text-xl font-semibold">MCP Tools</h2>
+            <h2 className="mt-2 mb-6 text-xl font-semibold">{t("ui.MCP Tools")}</h2>
 
             <div className="flex flex-col flex-1">
               {/* Extra Headers Input Section */}
@@ -303,16 +305,16 @@ const MCPToolsViewer = ({
                   <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center">
                       <Key className="mr-2 size-4 text-muted-foreground" />
-                      <p className="text-sm font-medium">Additional Headers</p>
+                      <p className="text-sm font-medium">{t("ui.Additional Headers")}</p>
                     </div>
                     <Button variant="link" size="sm" onClick={() => setShowHeaderInput(!showHeaderInput)}>
-                      {showHeaderInput ? "Hide" : "Configure"}
+                      {showHeaderInput ? t("ui.Hide") : t("ui.Configure")}
                     </Button>
                   </div>
 
                   {!showHeaderInput && Object.keys(passthroughHeaders).length === 0 && (
                     <p className="text-xs text-muted-foreground">
-                      This server requires additional headers. Click &quot;Configure&quot; to provide values.
+                      {t('ui.This server requires additional headers. Click "Configure" to provide values.')}
                     </p>
                   )}
 
@@ -347,7 +349,7 @@ const MCPToolsViewer = ({
                         disabled={Object.values(passthroughHeaders).every((v) => !v || !v.trim())}
                         className="mt-2 w-full"
                       >
-                        Load Tools
+                        {t("ui.Load Tools")}
                       </Button>
                     </div>
                   )}
@@ -366,7 +368,7 @@ const MCPToolsViewer = ({
               {/* Tool Selection - Show tools first */}
               <div className="flex flex-col flex-1 min-h-0">
                 <p className="mb-3 flex items-center text-sm font-medium">
-                  <Wrench className="mr-2 size-4" /> Available Tools
+                  <Wrench className="mr-2 size-4" /> {t("ui.Available Tools")}
                   {toolsData.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
                       {toolsData.length}
@@ -378,14 +380,14 @@ const MCPToolsViewer = ({
                 {usesBrowserHeldToken && !oauthToken && (
                   <div className="rounded-lg border border-border bg-card p-4 text-center">
                     <Lock className="mx-auto mb-2 size-6 text-muted-foreground" />
-                    <p className="mb-1 text-xs font-medium">Authentication required</p>
-                    <p className="mb-3 text-xs text-muted-foreground">Authenticate to view available tools</p>
+                    <p className="mb-1 text-xs font-medium">{t("ui.Authentication required")}</p>
+                    <p className="mb-3 text-xs text-muted-foreground">{t("ui.Authenticate to view available tools")}</p>
                     <Button
                       size="sm"
                       onClick={startOAuthFlow}
                       disabled={!accessToken || oauthStatus === "authorizing" || oauthStatus === "exchanging"}
                     >
-                      Authorize
+                      {t("ui.Authorize")}
                     </Button>
                     {oauthError && <p className="mt-2 text-xs text-destructive">{oauthError}</p>}
                   </div>
@@ -399,16 +401,16 @@ const MCPToolsViewer = ({
                 {(authorizationCodeNeedsAuth || authorizationCodeTokenRejected) && (
                   <div className="rounded-lg border border-border bg-card p-4 text-center">
                     <Lock className="mx-auto mb-2 size-6 text-muted-foreground" />
-                    <p className="mb-1 text-xs font-medium">Authentication required</p>
+                    <p className="mb-1 text-xs font-medium">{t("ui.Authentication required")}</p>
                     <p className="mb-3 text-xs text-muted-foreground">
-                      Authenticate with the upstream provider to view available tools
+                      {t("ui.Authenticate with the upstream provider to view available tools")}
                     </p>
                     <Button
                       size="sm"
                       onClick={startAuthorizationCodeAuthorize}
                       disabled={!accessToken || dbOAuthStatus === "authorizing" || dbOAuthStatus === "exchanging"}
                     >
-                      Authorize
+                      {t("ui.Authorize")}
                     </Button>
                     {dbOAuthError && <p className="mt-2 text-xs text-destructive">{dbOAuthError}</p>}
                   </div>
@@ -424,7 +426,7 @@ const MCPToolsViewer = ({
                             <Search className="size-4 text-muted-foreground" />
                           </InputGroupAddon>
                           <InputGroupInput
-                            placeholder="Search tools..."
+                            placeholder={t("ui.Search tools...")}
                             value={toolSearchTerm}
                             onChange={(e) => setToolSearchTerm(e.target.value)}
                           />
@@ -436,7 +438,7 @@ const MCPToolsViewer = ({
                     {toolsAreaLoading && (
                       <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card py-8">
                         <UiLoadingSpinner className="mb-3 size-6 text-muted-foreground" />
-                        <p className="text-xs font-medium">Loading tools...</p>
+                        <p className="text-xs font-medium">{t("ui.Loading tools...")}</p>
                       </div>
                     )}
 
@@ -470,8 +472,8 @@ const MCPToolsViewer = ({
                               />
                             </svg>
                           </div>
-                          <p className="mb-1 text-xs font-medium">No tools available</p>
-                          <p className="text-xs text-muted-foreground">No tools found for this server</p>
+                          <p className="mb-1 text-xs font-medium">{t("ui.No tools available")}</p>
+                          <p className="text-xs text-muted-foreground">{t("ui.No tools found for this server")}</p>
                         </div>
                       )}
 
@@ -481,8 +483,10 @@ const MCPToolsViewer = ({
                         {filteredTools.length === 0 ? (
                           <div className="rounded-lg border border-border bg-card p-4 text-center">
                             <Search className="mx-auto mb-2 size-6 text-muted-foreground" />
-                            <p className="mb-1 text-xs font-medium">No tools found</p>
-                            <p className="text-xs text-muted-foreground">No tools match &quot;{toolSearchTerm}&quot;</p>
+                            <p className="mb-1 text-xs font-medium">{t("ui.No tools found")}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {t('ui.No tools match "')}{toolSearchTerm}{t('ui."')}
+                            </p>
                           </div>
                         ) : (
                           <div className="mcp-tools-scrollable max-h-100 min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -529,7 +533,7 @@ const MCPToolsViewer = ({
                                           clipRule="evenodd"
                                         />
                                       </svg>
-                                      Selected
+                                      {t("ui.Selected")}
                                     </div>
                                   </div>
                                 )}
@@ -548,7 +552,7 @@ const MCPToolsViewer = ({
           {/* Main Testing Area */}
           <div className="col-span-3 flex flex-col">
             <div className="flex items-center justify-between border-b border-border p-4">
-              <h2 className="mb-0 text-xl font-semibold">Tool Testing Playground</h2>
+              <h2 className="mb-0 text-xl font-semibold">{t("ui.Tool Testing Playground")}</h2>
             </div>
 
             <div className="flex-1 overflow-auto p-4">
@@ -556,9 +560,9 @@ const MCPToolsViewer = ({
                 /* Empty State */
                 <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
                   <Bot className="mb-4 size-12" />
-                  <p className="mb-2 text-lg font-medium">Select a Tool to Test</p>
+                  <p className="mb-2 text-lg font-medium">{t("ui.Select a Tool to Test")}</p>
                   <p className="max-w-md text-center text-sm">
-                    Choose a tool from the left sidebar to start testing its functionality with custom inputs.
+                    {t("ui.Choose a tool from the left sidebar to start testing its functionality with custom inputs.")}
                   </p>
                 </div>
               ) : (

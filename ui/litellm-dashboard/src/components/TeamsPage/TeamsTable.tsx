@@ -17,6 +17,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 import { ColumnFiltersState, OnChangeFn, PaginationState, SortingState } from "@tanstack/react-table";
 import { Download } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Team } from "../key_team_helpers/key_list";
 import { getTeamTableColumns, TEAM_TABLE_HIDDEN_COLUMNS } from "./teamTableColumns";
@@ -45,6 +46,7 @@ const FILTER_LABELS: Record<string, string> = {
 };
 
 export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDeleteTeam }: TeamsTableProps) {
+  const { t } = useTranslation();
   const { data: fetchedOrganizations } = useOrganizations();
   const organizations = useMemo(() => fetchedOrganizations ?? [], [fetchedOrganizations]);
 
@@ -162,8 +164,8 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
       enableColumnResizing
       columnResizeMode="onChange"
       isLoading={isLoading}
-      loadingMessage="Loading teams..."
-      noDataMessage="No teams found"
+      loadingMessage={t("ui.Loading teams...")}
+      noDataMessage={t("ui.No teams found")}
       maxBodyHeight="calc(75vh - 210px)"
       size="compact"
       toolbar={(table) => (
@@ -172,7 +174,7 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
             table={table}
             searchValue={searchInput}
             onSearchChange={handleSearchChange}
-            searchPlaceholder="Search teams by name or ID…"
+            searchPlaceholder={t("ui.Search teams by name or ID…")}
             onRefresh={() => refetch?.()}
             isRefreshing={isFetching}
             onOpenFilters={() => setFiltersOpen(true)}
@@ -194,8 +196,8 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
             table={table}
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
-            title="Filters"
-            description="Narrow down your teams"
+            title={t("ui.Filters")}
+            description={t("ui.Narrow down your teams")}
           >
             {({ get, set }) => (
               <>
@@ -204,22 +206,22 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
                     options={orgOptions}
                     value={(get("org_id") as string) || undefined}
                     onValueChange={(value) => set("org_id", value)}
-                    placeholder="Select an organization…"
-                    emptyText="No organizations found"
+                    placeholder={t("ui.Select an organization…")}
+                    emptyText={t("ui.No organizations found")}
                   />
                 </DataTableFilterField>
                 <DataTableFilterField label="Team alias">
                   <Input
                     value={(get("alias") as string) ?? ""}
                     onChange={(event) => set("alias", event.target.value)}
-                    placeholder="Enter team alias…"
+                    placeholder={t("ui.Enter team alias…")}
                   />
                 </DataTableFilterField>
                 <DataTableFilterField label="Team ID">
                   <Input
                     value={(get("team_id") as string) ?? ""}
                     onChange={(event) => set("team_id", event.target.value)}
-                    placeholder="Enter team ID…"
+                    placeholder={t("ui.Enter team ID…")}
                   />
                 </DataTableFilterField>
               </>

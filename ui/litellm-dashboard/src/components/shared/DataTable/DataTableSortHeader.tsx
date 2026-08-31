@@ -6,6 +6,8 @@ import { Check, ChevronDown, ChevronsUpDown, ChevronUp, X } from "lucide-react";
 import type * as React from "react";
 
 import { cn } from "@/lib/cva.config";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 export type DataTableSortVariant = "header-cycle" | "dropdown-tristate";
 
@@ -35,16 +37,18 @@ export function DataTableSortHeader<TData, TValue>({
   variant = "header-cycle",
   className,
 }: DataTableSortHeaderProps<TData, TValue>) {
+  const { t } = useTranslation();
+  const translatedTitle = typeof title === "string" ? translateUiText(t, title) : title;
   const sorted = column.getIsSorted();
 
   if (!column.getCanSort()) {
-    return <span className={cn("font-medium", className)}>{title}</span>;
+    return <span className={cn("font-medium", className)}>{translatedTitle}</span>;
   }
 
   if (variant === "dropdown-tristate") {
     return (
       <div className={cn("flex items-center gap-1", className)}>
-        <span className="font-medium">{title}</span>
+        <span className="font-medium">{translatedTitle}</span>
         <Menu.Root>
           <Menu.Trigger
             render={
@@ -66,13 +70,13 @@ export function DataTableSortHeader<TData, TValue>({
             <Menu.Positioner side="bottom" align="start" sideOffset={4} className="isolate z-popup">
               <Menu.Popup className="min-w-[9rem] rounded-md bg-popover p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden">
                 <Menu.Item className={MENU_ITEM_CLASS} onClick={() => column.toggleSorting(false)}>
-                  <ChevronUp className="size-3.5" /> Ascending
+                  <ChevronUp className="size-3.5" /> {translateUiText(t, "Ascending")}
                 </Menu.Item>
                 <Menu.Item className={MENU_ITEM_CLASS} onClick={() => column.toggleSorting(true)}>
-                  <ChevronDown className="size-3.5" /> Descending
+                  <ChevronDown className="size-3.5" /> {translateUiText(t, "Descending")}
                 </Menu.Item>
                 <Menu.Item className={MENU_ITEM_CLASS} onClick={() => column.clearSorting()}>
-                  <X className="size-3.5" /> Reset
+                  <X className="size-3.5" /> {translateUiText(t, "Reset")}
                 </Menu.Item>
               </Menu.Popup>
             </Menu.Positioner>
@@ -89,7 +93,7 @@ export function DataTableSortHeader<TData, TValue>({
       onClick={column.getToggleSortingHandler()}
       className={cn("flex items-center gap-1 font-medium select-none hover:text-foreground", className)}
     >
-      <span>{title}</span>
+      <span>{translatedTitle}</span>
       <SortIndicator sorted={sorted} />
     </button>
   );

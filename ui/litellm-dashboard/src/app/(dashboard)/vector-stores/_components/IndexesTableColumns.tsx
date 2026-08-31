@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
 import { DateCell, IdentityCell } from "@/components/shared/table_cells";
@@ -11,17 +12,19 @@ import type { VectorStoreIndex } from "./IndexesTab";
 interface IndexesTableColumnsDeps {
   resolveVectorStoreId: (name: string) => string | undefined;
   onViewVectorStore: (vectorStoreId: string) => void;
+  t: TFunction;
 }
 
 export const getIndexesTableColumns = ({
   resolveVectorStoreId,
   onViewVectorStore,
+  t,
 }: IndexesTableColumnsDeps): ColumnDef<VectorStoreIndex>[] => [
   {
     id: "index_name",
     accessorKey: "index_name",
-    meta: { title: "Index Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Index Name" />,
+    meta: { title: t("ui.Index Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Index Name")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => (
@@ -33,8 +36,8 @@ export const getIndexesTableColumns = ({
   {
     id: "vector_store_name",
     accessorFn: (row) => row.litellm_params.vector_store_name,
-    meta: { title: "Vector Store" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Vector Store" />,
+    meta: { title: t("ui.Vector Store") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Vector Store")} />,
     size: 200,
     enableSorting: true,
     cell: ({ row }) => {
@@ -60,8 +63,8 @@ export const getIndexesTableColumns = ({
   {
     id: "vector_store_index",
     accessorFn: (row) => row.litellm_params.vector_store_index,
-    meta: { title: "Provider Index" },
-    header: "Provider Index",
+    meta: { title: t("ui.Provider Index") },
+    header: t("ui.Provider Index"),
     size: 220,
     enableSorting: false,
     cell: ({ row }) => (
@@ -76,8 +79,8 @@ export const getIndexesTableColumns = ({
   {
     id: "created_by",
     accessorKey: "created_by",
-    meta: { title: "Created By" },
-    header: "Created By",
+    meta: { title: t("ui.Created By") },
+    header: t("ui.Created By"),
     size: 160,
     enableSorting: false,
     cell: ({ row }) => {
@@ -99,8 +102,8 @@ export const getIndexesTableColumns = ({
     id: "created_at",
     accessorKey: "created_at",
     sortingFn: "datetime",
-    meta: { title: "Created At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created At" />,
+    meta: { title: t("ui.Created At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Created At")} />,
     size: 150,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} precision="date" />,

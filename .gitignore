@@ -147,3 +147,6 @@ crash.*.log
 
 ui/litellm-dashboard/out/
 litellm.log
+
+# Local Docker Compose override builds the currently checked-out branch.
+docker-compose.override.yml

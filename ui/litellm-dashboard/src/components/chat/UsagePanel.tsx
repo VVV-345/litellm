@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { userDailyActivityAggregatedCall } from "../networking";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "react-i18next";
 
 const USAGE_QUERY_KEY = "chat-user-usage";
 
@@ -90,6 +91,7 @@ const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
 ];
 
 const UsagePanel: React.FC<Props> = ({ accessToken, userId }) => {
+  const { t } = useTranslation();
   const [timeRange, setTimeRange] = useState<TimeRange>("30d");
   const { start, end } = getDateRange(timeRange);
 
@@ -109,7 +111,7 @@ const UsagePanel: React.FC<Props> = ({ accessToken, userId }) => {
 
   const statCards: Array<{ label: string; value: string; sub?: string; subVariant?: "error" }> = meta
     ? [
-        { label: "Total Spend", value: `$${meta.total_spend.toFixed(2)}` },
+        { label: t("ui.Total Spend"), value: `$${meta.total_spend.toFixed(2)}` },
         { label: "API Requests", value: formatNumber(meta.total_api_requests) },
         {
           label: "Tokens Used",

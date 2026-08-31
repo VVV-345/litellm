@@ -2,6 +2,7 @@
 import { clearTokenCookies, getCookie } from "@/utils/cookieUtils";
 import { jwtDecode } from "jwt-decode";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchTeams } from "./common_components/fetch_teams";
 import { KeyResponse, Team } from "./key_team_helpers/key_list";
 import { effectiveSessionRole } from "@/utils/roles";
@@ -58,6 +59,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   autoOpenCreate,
   prefillData,
 }) => {
+  const { t } = useTranslation();
   const [userSpendData, setUserSpendData] = useState<UserInfo | null>(null);
   const [currentOrg] = useState<Organization | null>(null);
 
@@ -203,7 +205,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   }
 
   if (userID == null) {
-    return <h1>User ID is not set</h1>;
+    return <h1>{t("ui.User ID is not set")}</h1>;
   }
 
   if (userRole == null) {

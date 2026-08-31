@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Crown, Info, User, UserPlus } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import TableIconActionButton from "./IconActionButton/TableIconActionButtons/TableIconActionButton";
 
 export interface MemberTableColumn {
@@ -46,6 +47,7 @@ export default function MemberTable({
   showDeleteForMember,
   emptyText,
 }: MemberTableProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex w-full flex-col gap-2">
       <span className="inline-flex text-sm text-foreground">
@@ -71,7 +73,7 @@ export default function MemberTable({
             {extraColumns.map((column) => (
               <TableHead key={column.key}>{column.title}</TableHead>
             ))}
-            <TableHead className={STICKY_ACTIONS_CLASS}>Actions</TableHead>
+            <TableHead className={STICKY_ACTIONS_CLASS}>{t("ui.Actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

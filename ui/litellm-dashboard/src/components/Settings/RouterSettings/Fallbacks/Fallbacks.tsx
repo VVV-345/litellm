@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import openai from "openai";
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import DeleteResourceModal from "../../../common_components/DeleteResourceModal";
 import { ProviderLogo } from "../../../molecules/models/ProviderLogo";
 import { toast } from "@/lib/toast";
@@ -125,6 +126,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
   const [fallbackToDelete, setFallbackToDelete] = useState<FallbackEntry | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [fallbackToEdit, setFallbackToEdit] = useState<FallbackEntry | null>(null);
+  const { t } = useTranslation();
 
   const { data: modelCostMapData } = useModelCostMap();
   const getProviderFromModel = (model: string): string => {
@@ -270,9 +272,9 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Model Name</TableHead>
+              <TableHead>{t("ui.Model Name")}</TableHead>
               <TableHead>Fallbacks</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead>{t("ui.Actions")}</TableHead>
             </TableRow>
           </TableHeader>
 
@@ -362,7 +364,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
         resourceInformationTitle="Fallback Information"
         resourceInformation={[
           {
-            label: "Model Name",
+            label: t("ui.Model Name"),
             value: fallbackToDelete ? Object.keys(fallbackToDelete)[0] : "",
             code: true,
           },

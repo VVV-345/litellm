@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, Info, MoreHorizontal } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -15,6 +16,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { translateUiText } from "@/utils/i18nText";
+import { useTranslation } from "react-i18next";
 
 export interface MCPServerData {
   server_id: string;
@@ -58,10 +61,12 @@ interface MCPHubRowActionsProps {
 }
 
 function MCPHubRowActions({ server, onServerClick }: MCPHubRowActionsProps) {
+  const { t } = useTranslation();
+  const ui = (value: string) => translateUiText(t, value);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open MCP server actions"
+        aria-label={ui("Open MCP server actions")}
         data-testid={`mcp-hub-actions-${server.server_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -70,14 +75,14 @@ function MCPHubRowActions({ server, onServerClick }: MCPHubRowActionsProps) {
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem data-testid="mcp-hub-action-details" onClick={() => onServerClick(server)}>
           <Info />
-          View details
+          {ui("View details")}
         </DropdownMenuItem>
         <DropdownMenuItem
           data-testid="mcp-hub-action-copy"
-          onClick={() => void copyToClipboard(server.server_name, "Server name copied")}
+          onClick={() => void copyToClipboard(server.server_name, ui("Server name copied"))}
         >
           <Copy />
-          Copy server name
+          {ui("Copy server name")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -86,14 +91,20 @@ function MCPHubRowActions({ server, onServerClick }: MCPHubRowActionsProps) {
 
 interface MCPHubTableColumnsDeps {
   onServerClick: (server: MCPServerData) => void;
+  t?: TFunction;
 }
 
-export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps): ColumnDef<MCPServerData>[] => [
+export const getMCPHubTableColumns = ({
+  onServerClick,
+  t,
+}: MCPHubTableColumnsDeps): ColumnDef<MCPServerData>[] => {
+  const ui = (value: string) => (t ? translateUiText(t, value) : value);
+  return [
   {
     id: "server_name",
     accessorKey: "server_name",
-    meta: { title: "Server Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Server Name" />,
+    meta: { title: ui("Server Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Server Name")} />,
     size: 200,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -104,8 +115,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "description",
     accessorKey: "description",
-    meta: { title: "Description", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Description" />,
+    meta: { title: ui("Description"), className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Description")} />,
     size: 240,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -118,8 +129,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "transport",
     accessorKey: "transport",
-    meta: { title: "Transport", skeleton: "badge", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Transport" />,
+    meta: { title: ui("Transport"), skeleton: "badge", className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Transport")} />,
     size: 110,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -132,8 +143,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "auth_type",
     accessorKey: "auth_type",
-    meta: { title: "Auth Type", skeleton: "badge", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Auth Type" />,
+    meta: { title: ui("Auth Type"), skeleton: "badge", className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Auth Type")} />,
     size: 110,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -144,8 +155,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "status",
     accessorKey: "status",
-    meta: { title: "Status", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Status" />,
+    meta: { title: ui("Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Status")} />,
     size: 110,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -155,8 +166,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   },
   {
     id: "allowed_tools",
-    meta: { title: "Tools", skeleton: "chips", className: "hidden lg:table-cell" },
-    header: "Tools",
+    meta: { title: ui("Tools"), skeleton: "chips", className: "hidden lg:table-cell" },
+    header: ui("Tools"),
     size: 180,
     enableSorting: false,
     cell: ({ row }) => {
@@ -164,7 +175,7 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
       return (
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium">
-            {tools.length > 0 ? `${tools.length} tool${tools.length !== 1 ? "s" : ""}` : "All tools"}
+            {tools.length > 0 ? `${tools.length} tool${tools.length !== 1 ? "s" : ""}` : ui("All tools")}
           </span>
           {tools.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -183,8 +194,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "created_by",
     accessorKey: "created_by",
-    meta: { title: "Created By", className: "hidden xl:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created By" />,
+    meta: { title: ui("Created By"), className: "hidden xl:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Created By")} />,
     size: 140,
     enableSorting: true,
     sortingFn: "alphanumeric",
@@ -197,8 +208,8 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
   {
     id: "is_public",
     accessorFn: (row) => row.mcp_info?.is_public === true,
-    meta: { title: "Public", skeleton: "badge", className: "hidden md:table-cell" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Public" />,
+    meta: { title: ui("Public"), skeleton: "badge", className: "hidden md:table-cell" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Public")} />,
     size: 100,
     enableSorting: true,
     sortingFn: (rowA, rowB) => {
@@ -208,13 +219,13 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
     },
     cell: ({ row }) => {
       const isPublic = row.original.mcp_info?.is_public === true;
-      return <StatusBadge tone={isPublic ? "success" : "neutral"} label={isPublic ? "Yes" : "No"} />;
+      return <StatusBadge tone={isPublic ? "success" : "neutral"} label={isPublic ? ui("Yes") : ui("No")} />;
     },
   },
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{ui("Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,
@@ -225,3 +236,4 @@ export const getMCPHubTableColumns = ({ onServerClick }: MCPHubTableColumnsDeps)
     ),
   },
 ];
+};

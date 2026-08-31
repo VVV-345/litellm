@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Settings, Shield, TriangleAlert } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 import { getGuardrailsUsageDetail, getGuardrailsUsageLogs } from "@/components/networking";
 import { StatusBadge, type StatusTone } from "@/components/shared/table_cells/status_badge";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +29,7 @@ const STATUS_TONE: Record<string, StatusTone> = {
 };
 
 export function GuardrailDetail({ guardrailId, onBack, accessToken = null, startDate, endDate }: GuardrailDetailProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("overview");
   const [evaluationModalOpen, setEvaluationModalOpen] = useState(false);
   const [logsPage] = useState(1);
@@ -94,7 +97,7 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
 
   if (detailLoading && !detailData) {
     return (
-      <div role="status" aria-busy="true" aria-label="Loading" className="flex items-center justify-center py-12">
+      <div role="status" aria-busy="true" aria-label={translateUiText(t, "Loading")} className="flex items-center justify-center py-12">
         <UiLoadingSpinner className="size-8 text-primary" />
       </div>
     );
@@ -104,9 +107,9 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
       <div>
         <Button variant="link" onClick={onBack} className="mb-4 pl-0">
           <ArrowLeft className="size-4" />
-          Back to Overview
+          {translateUiText(t, "Back to Overview")}
         </Button>
-        <p className="text-destructive">Failed to load guardrail details.</p>
+        <p className="text-destructive">{translateUiText(t, "Failed to load guardrail details.")}</p>
       </div>
     );
   }
@@ -129,7 +132,7 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
       <div className="mb-6">
         <Button variant="link" onClick={onBack} className="mb-4 pl-0">
           <ArrowLeft className="size-4" />
-          Back to Overview
+          {translateUiText(t, "Back to Overview")}
         </Button>
 
         <div className="flex items-start justify-between">
@@ -150,7 +153,7 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
               variant="outline"
               size="icon"
               onClick={() => setEvaluationModalOpen(true)}
-              title="Evaluation settings"
+              title={translateUiText(t, "Evaluation settings")}
             >
               <Settings className="size-4" />
             </Button>
@@ -161,25 +164,25 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as string)}>
         <TabsList variant="line">
           <TabsTrigger value="overview" className="flex-none">
-            Overview
+            {translateUiText(t, "Overview")}
           </TabsTrigger>
           <TabsTrigger value="logs" className="flex-none">
-            Logs
+            {translateUiText(t, "Logs")}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-            <MetricCard label="Requests Evaluated" value={data.requestsEvaluated.toLocaleString()} />
+            <MetricCard label={translateUiText(t, "Requests Evaluated")} value={data.requestsEvaluated.toLocaleString()} />
             <MetricCard
-              label="Fail Rate"
+              label={translateUiText(t, "Fail Rate")}
               value={`${data.failRate}%`}
               valueColor={data.failRate > 15 ? "text-destructive" : data.failRate > 5 ? "text-warning" : "text-success"}
               subtitle={`${Math.round((data.requestsEvaluated * data.failRate) / 100).toLocaleString()} blocked`}
               icon={data.failRate > 15 ? <TriangleAlert className="size-4 text-destructive" /> : undefined}
             />
             <MetricCard
-              label="Avg. latency added"
+              label={translateUiText(t, "Avg. latency added")}
               value={data.avgLatency != null ? `${Math.round(data.avgLatency)}ms` : "—"}
               valueColor={
                 data.avgLatency != null
@@ -190,7 +193,7 @@ export function GuardrailDetail({ guardrailId, onBack, accessToken = null, start
                       : "text-success"
                   : "text-muted-foreground"
               }
-              subtitle={data.avgLatency != null ? "Per request (avg)" : "No data"}
+              subtitle={data.avgLatency != null ? translateUiText(t, "Per request (avg)") : translateUiText(t, "No data")}
             />
           </div>
 

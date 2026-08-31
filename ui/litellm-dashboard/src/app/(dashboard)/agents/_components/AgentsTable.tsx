@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { Bot, CircleCheck } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Agent } from "@/components/agents/types";
 import { DataTable } from "@/components/shared/DataTable";
@@ -25,13 +26,14 @@ interface AgentsTableProps {
 const DEFAULT_SORTING: SortingState = [{ id: "created_at", desc: true }];
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <Bot className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No agents yet</div>
-      <div className="text-sm text-muted-foreground">Add an agent to make it available in your organization.</div>
+      <div className="text-sm font-medium text-foreground">{t("ui.No agents yet")}</div>
+      <div className="text-sm text-muted-foreground">{t("ui.Add an agent to make it available in your organization.")}</div>
     </div>
   );
 }
@@ -46,11 +48,12 @@ const AgentsTable: React.FC<AgentsTableProps> = ({
   onAgentClick,
   onDeleteClick,
 }) => {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
   const columns = useMemo(
-    () => getAgentsTableColumns({ isAdmin, onAgentClick, onDeleteClick }),
-    [isAdmin, onAgentClick, onDeleteClick],
+    () => getAgentsTableColumns({ isAdmin, onAgentClick, onDeleteClick, t }),
+    [isAdmin, onAgentClick, onDeleteClick, t],
   );
 
   return (
@@ -62,7 +65,7 @@ const AgentsTable: React.FC<AgentsTableProps> = ({
       sorting={sorting}
       onSortingChange={setSorting}
       isLoading={isLoading}
-      loadingMessage="Loading agents…"
+      loadingMessage={t("ui.Loading agents…")}
       noDataMessage={<EmptyState />}
       size="compact"
       toolbar={() => (
@@ -75,7 +78,7 @@ const AgentsTable: React.FC<AgentsTableProps> = ({
                     <CircleCheck
                       className={healthCheckEnabled ? "size-4 text-success" : "size-4 text-muted-foreground"}
                     />
-                    <span className="text-sm text-muted-foreground">Health Check</span>
+                    <span className="text-sm text-muted-foreground">{t("ui.Health Check")}</span>
                     <Switch
                       size="sm"
                       checked={healthCheckEnabled}
@@ -85,7 +88,7 @@ const AgentsTable: React.FC<AgentsTableProps> = ({
                   </div>
                 }
               />
-              <TooltipContent>When enabled, only agents with reachable URLs are shown</TooltipContent>
+              <TooltipContent>{t("ui.When enabled, only agents with reachable URLs are shown")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>

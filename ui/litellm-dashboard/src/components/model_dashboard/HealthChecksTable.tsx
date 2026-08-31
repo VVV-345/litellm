@@ -3,6 +3,7 @@
 import { OnChangeFn, PaginationState, RowSelectionState, SortingState } from "@tanstack/react-table";
 import { HeartPulse } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Team } from "@/components/key_team_helpers/key_list";
 import { DataTable } from "@/components/shared/DataTable";
@@ -27,13 +28,16 @@ interface HealthChecksTableProps {
 }
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <HeartPulse className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No models found</div>
-      <div className="text-sm text-muted-foreground">Models added to this proxy will show their health here.</div>
+      <div className="text-sm font-medium text-foreground">{t("ui.No models found")}</div>
+      <div className="text-sm text-muted-foreground">
+        {t("ui.Models added to this proxy will show their health here.")}
+      </div>
     </div>
   );
 }
@@ -54,6 +58,7 @@ export function HealthChecksTable({
   onSelectModel,
   teams,
 }: HealthChecksTableProps) {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const columns = useMemo(() => {
@@ -84,7 +89,7 @@ export function HealthChecksTable({
       rowSelection={rowSelection}
       onRowSelectionChange={onRowSelectionChange}
       isLoading={isLoading}
-      loadingMessage="Loading models…"
+      loadingMessage={t("ui.Loading models…")}
       noDataMessage={<EmptyState />}
       size="compact"
     />

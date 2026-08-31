@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 
 # Base image for building
 ARG LITELLM_BUILD_IMAGE=cgr.dev/chainguard/wolfi-base@sha256:a31344ab2cb8618db84f535eec56f76f6178b142cb92cb2e48676cc2dcebea72

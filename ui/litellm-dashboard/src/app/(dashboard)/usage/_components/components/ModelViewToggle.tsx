@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
+
 export type ModelViewType = "groups" | "individual";
 
 const MODEL_VIEW_OPTIONS: readonly { value: ModelViewType; label: string }[] = [
@@ -11,6 +14,7 @@ interface ModelViewToggleProps {
 }
 
 export default function ModelViewToggle({ value, onChange }: ModelViewToggleProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex bg-muted rounded-lg p-1">
       {MODEL_VIEW_OPTIONS.map((option) => (
@@ -21,7 +25,7 @@ export default function ModelViewToggle({ value, onChange }: ModelViewToggleProp
           }`}
           onClick={() => onChange(option.value)}
         >
-          {option.label}
+          {translateUiText(t, option.label)}
         </button>
       ))}
     </div>

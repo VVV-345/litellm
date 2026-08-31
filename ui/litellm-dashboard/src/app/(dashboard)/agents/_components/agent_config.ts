@@ -3,6 +3,10 @@
  * Used across create, view, and update operations
  */
 
+type UiTranslate = (key: string) => string;
+
+const identity: UiTranslate = (key) => key.replace(/^ui\./, "");
+
 export interface FieldConfig {
   name: string;
   label: string;
@@ -24,7 +28,7 @@ export interface SectionConfig {
   defaultExpanded?: boolean;
 }
 
-export const AGENT_FORM_CONFIG: {
+export const getAgentFormConfig = (t: UiTranslate = identity): {
   basic: SectionConfig;
   skills: SectionConfig;
   capabilities: SectionConfig;
@@ -32,62 +36,64 @@ export const AGENT_FORM_CONFIG: {
   litellm: SectionConfig;
   cost: SectionConfig;
   tracing: SectionConfig;
-} = {
+} => ({
   basic: {
     key: "basic",
-    title: "Basic Information",
+    title: t("ui.Basic Information"),
     defaultExpanded: true,
     fields: [
       {
         name: "name",
-        label: "Display Name",
+        label: t("ui.Display Name"),
         type: "text",
         required: true,
-        placeholder: "e.g., Customer Support Agent",
+        placeholder: t("ui.e.g., Customer Support Agent"),
       },
       {
         name: "description",
-        label: "Description",
+        label: t("ui.Description"),
         type: "textarea",
         required: true,
-        placeholder: "Describe what this agent does...",
+        placeholder: t("ui.Describe what this agent does..."),
         rows: 3,
       },
       {
         name: "url",
-        label: "URL",
+        label: t("ui.URL"),
         type: "url",
         required: false,
         placeholder: "http://localhost:9999/",
-        tooltip: "Base URL where the agent is hosted (optional)",
+        tooltip: t("ui.Base URL where the agent is hosted (optional)"),
       },
       {
         name: "version",
-        label: "Version",
+        label: t("ui.Version"),
         type: "text",
         placeholder: "1.0.0",
         defaultValue: "1.0.0",
       },
       {
         name: "protocolVersion",
-        label: "Protocol Version",
+        label: t("ui.Protocol Version"),
         type: "select",
         options: ["1.0", "0.3"],
         defaultValue: "1.0",
-        tooltip:
-          "The A2A protocol version LiteLLM serves to clients for this agent. LiteLLM converts the upstream agent's responses to this version, so clients always see the version you pick here regardless of the original agent's version.",
-        helpText:
-          "LiteLLM serves this version to clients and converts the upstream agent's responses to match it, regardless of the original agent's version.",
+        tooltip: t(
+          "ui.The A2A protocol version LiteLLM serves to clients for this agent. LiteLLM converts the upstream agent's responses to this version, so clients always see the version you pick here regardless of the original agent's version.",
+        ),
+        helpText: t(
+          "ui.LiteLLM serves this version to clients and converts the upstream agent's responses to match it, regardless of the original agent's version.",
+        ),
       },
     ],
   },
   skills: {
     key: "skills",
-    title: "Skills",
+    title: t("ui.Skills"),
     fields: [
       {
         name: "skills",
-        label: "Skills",
+        label: t("ui.Skills"),
         type: "list",
         defaultValue: [],
       },
@@ -95,139 +101,142 @@ export const AGENT_FORM_CONFIG: {
   },
   capabilities: {
     key: "capabilities",
-    title: "Capabilities",
+    title: t("ui.Capabilities"),
     fields: [
       {
         name: "streaming",
-        label: "Streaming",
+        label: t("ui.Streaming"),
         type: "switch",
         defaultValue: false,
       },
       {
         name: "pushNotifications",
-        label: "Push Notifications",
+        label: t("ui.Push Notifications"),
         type: "switch",
       },
       {
         name: "stateTransitionHistory",
-        label: "State Transition History",
+        label: t("ui.State Transition History"),
         type: "switch",
       },
     ],
   },
   optional: {
     key: "optional",
-    title: "Optional Settings",
+    title: t("ui.Optional Settings"),
     fields: [
       {
         name: "iconUrl",
-        label: "Icon URL",
+        label: t("ui.Icon URL"),
         type: "url",
         placeholder: "https://example.com/icon.png",
       },
       {
         name: "documentationUrl",
-        label: "Documentation URL",
+        label: t("ui.Documentation URL"),
         type: "url",
         placeholder: "https://docs.example.com",
       },
       {
         name: "supportsAuthenticatedExtendedCard",
-        label: "Supports Authenticated Extended Card",
+        label: t("ui.Supports Authenticated Extended Card"),
         type: "switch",
       },
     ],
   },
   litellm: {
     key: "litellm",
-    title: "LiteLLM Parameters",
+    title: t("ui.LiteLLM Parameters"),
     fields: [
       {
         name: "model",
-        label: "Model (Optional)",
+        label: t("ui.Model (Optional)"),
         type: "text",
       },
       {
         name: "make_public",
-        label: "Make Public",
+        label: t("ui.Make Public"),
         type: "switch",
       },
     ],
   },
   cost: {
     key: "cost",
-    title: "Cost Configuration",
+    title: t("ui.Cost Configuration"),
     fields: [
       {
         name: "cost_per_query",
-        label: "Cost Per Query ($)",
+        label: t("ui.Cost Per Query ($)"),
         type: "text",
         placeholder: "0.0",
-        tooltip: "Fixed cost per query",
+        tooltip: t("ui.Fixed cost per query"),
       },
       {
         name: "input_cost_per_token",
-        label: "Input Cost Per Token ($)",
+        label: t("ui.Input Cost Per Token ($)"),
         type: "text",
         placeholder: "0.000001",
-        tooltip: "Cost per input token",
+        tooltip: t("ui.Cost per input token"),
       },
       {
         name: "output_cost_per_token",
-        label: "Output Cost Per Token ($)",
+        label: t("ui.Output Cost Per Token ($)"),
         type: "text",
         placeholder: "0.000002",
-        tooltip: "Cost per output token",
+        tooltip: t("ui.Cost per output token"),
       },
     ],
   },
   tracing: {
     key: "tracing",
-    title: "Tracing",
+    title: t("ui.Tracing"),
     fields: [
       {
         name: "enable_tracing",
-        label: "Enable Tracing",
+        label: t("ui.Enable Tracing"),
         type: "switch",
         defaultValue: false,
-        tooltip: "Enable request tracing for this agent",
+        tooltip: t("ui.Enable request tracing for this agent"),
       },
     ],
   },
-};
+});
 
-export const SKILL_FIELD_CONFIG = {
+export const getSkillFieldConfig = (t: UiTranslate = identity) => ({
   id: {
     name: "id",
-    label: "Skill ID",
+    label: t("ui.Skill ID"),
     required: true,
-    placeholder: "e.g., hello_world",
+    placeholder: t("ui.e.g., hello_world"),
   },
   name: {
     name: "name",
-    label: "Skill Name",
+    label: t("ui.Skill Name"),
     required: true,
-    placeholder: "e.g., Returns hello world",
+    placeholder: t("ui.e.g., Returns hello world"),
   },
   description: {
     name: "description",
-    label: "Description",
+    label: t("ui.Description"),
     required: true,
-    placeholder: "What this skill does",
+    placeholder: t("ui.What this skill does"),
     rows: 2,
   },
   tags: {
     name: "tags",
-    label: "Tags",
+    label: t("ui.Tags"),
     required: true,
-    placeholder: "Type a tag and press Enter",
+    placeholder: t("ui.Type a tag and press Enter"),
   },
   examples: {
     name: "examples",
-    label: "Examples",
-    placeholder: "Type an example and press Enter",
+    label: t("ui.Examples"),
+    placeholder: t("ui.Type an example and press Enter"),
   },
-};
+});
+
+export const AGENT_FORM_CONFIG = getAgentFormConfig();
+export const SKILL_FIELD_CONFIG = getSkillFieldConfig();
 
 /**
  * Get default form values from configuration
@@ -238,7 +247,7 @@ export const getDefaultFormValues = () => {
     defaultOutputModes: ["text"],
   };
 
-  Object.values(AGENT_FORM_CONFIG).forEach((section) => {
+  Object.values(getAgentFormConfig()).forEach((section) => {
     section.fields.forEach((field) => {
       if (field.defaultValue !== undefined) {
         defaults[field.name] = field.defaultValue;

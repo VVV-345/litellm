@@ -39,6 +39,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/cva.config";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 
 import "./columnMeta";
 import { DataTablePagination, DEFAULT_PAGE_SIZE_OPTIONS } from "./DataTablePagination";
@@ -170,6 +172,7 @@ interface HeadCellProps<TData> {
 }
 
 function DataTableHeadCell<TData>({ header, size, stickyHeader, enableColumnResizing }: HeadCellProps<TData>) {
+  const { t } = useTranslation();
   const { column } = header;
   const meta = column.columnDef.meta;
   const sticky = computeStickyStyle(column, true, stickyHeader);
@@ -190,7 +193,9 @@ function DataTableHeadCell<TData>({ header, size, stickyHeader, enableColumnResi
     >
       {header.isPlaceholder ? null : (
         <div className={cn("flex items-center gap-1", meta?.numeric ? "justify-end" : "")}>
-          {flexRender(column.columnDef.header, header.getContext())}
+          {typeof column.columnDef.header === "string"
+            ? translateUiText(t, column.columnDef.header)
+            : flexRender(column.columnDef.header, header.getContext())}
         </div>
       )}
       {canResize && (
@@ -316,12 +321,13 @@ function MessageRow({ colSpan, children }: { colSpan: number; children: React.Re
 }
 
 function DefaultEmptyState() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <SearchX className="size-5 text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No results</div>
+      <div className="text-sm font-medium text-foreground">{translateUiText(t, "No results")}</div>
       <div className="text-sm text-muted-foreground">No rows match your search or filters.</div>
     </div>
   );
@@ -506,11 +512,12 @@ function useDataTableInstance<TData extends RowData, TValue>(
 }
 
 export function DataTable<TData extends RowData, TValue>(props: DataTableProps<TData, TValue>) {
+  const { t } = useTranslation();
   const resolved: DataTableResolvedProps<TData, TValue> = props;
 
   const {
     isLoading = false,
-    loadingMessage = "Loading…",
+    loadingMessage,
     skeletonRowCount = 8,
     noDataMessage,
     paginationMode = "none",
@@ -565,7 +572,7 @@ export function DataTable<TData extends RowData, TValue>(props: DataTableProps<T
           rowCount={skeletonRowCount}
           columns={table.getVisibleLeafColumns()}
           size={size}
-          message={loadingMessage}
+          message={loadingMessage ?? translateUiText(t, "Loading…")}
         />
       );
     }

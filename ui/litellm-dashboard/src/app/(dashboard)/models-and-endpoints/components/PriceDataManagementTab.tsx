@@ -1,9 +1,11 @@
 import PriceDataReload from "@/components/price_data_reload";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { useModelCostMap } from "../../hooks/models/useModelCostMap";
 
 const PriceDataManagementTab = () => {
+  const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const { refetch: refetchModelCostMap } = useModelCostMap();
 
@@ -11,9 +13,9 @@ const PriceDataManagementTab = () => {
     <div>
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-lg font-semibold">Price Data Management</h2>
+          <h2 className="text-lg font-semibold">{t("ui.Price Data Management")}</h2>
           <p className="text-sm text-muted-foreground">
-            Manage model pricing data and configure automatic reload schedules
+            {t("ui.Manage model pricing data and configure automatic reload schedules")}
           </p>
         </div>
         <PriceDataReload
@@ -21,7 +23,7 @@ const PriceDataManagementTab = () => {
           onReloadSuccess={() => {
             refetchModelCostMap();
           }}
-          buttonText="Reload Price Data"
+          buttonText={t("ui.Reload Price Data")}
           size="middle"
           type="primary"
           className="w-full"

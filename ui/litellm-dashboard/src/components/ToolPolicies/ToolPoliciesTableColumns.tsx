@@ -15,6 +15,7 @@ interface ToolPoliciesTableColumnsDeps {
   savingOutput: ReadonlySet<string>;
   onInputPolicyChange: (toolName: string, policy: string) => void;
   onOutputPolicyChange: (toolName: string, policy: string) => void;
+  t?: (key: string) => string;
 }
 
 function TruncatedText({ value, className }: { value: string | undefined; className?: string }) {
@@ -35,11 +36,12 @@ export const getToolPoliciesTableColumns = ({
   savingOutput,
   onInputPolicyChange,
   onOutputPolicyChange,
+  t = (key: string) => key,
 }: ToolPoliciesTableColumnsDeps): ColumnDef<ToolRow>[] => [
   {
     id: "created_at",
     accessorFn: (row) => row.created_at ?? "",
-    header: ({ column }) => <DataTableSortHeader column={column} title="Discovered" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Discovered")} />,
     size: 170,
     enableGlobalFilter: false,
     cell: ({ row }) => <DateCell value={row.original.created_at} />,
@@ -47,7 +49,7 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "tool_name",
     accessorFn: (row) => row.tool_name,
-    header: ({ column }) => <DataTableSortHeader column={column} title="Tool Name" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Tool Name")} />,
     minSize: 200,
     cell: ({ row }) => (
       <IdentityCell
@@ -61,10 +63,10 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "input_policy",
     accessorFn: (row) => row.input_policy,
-    header: ({ column }) => <DataTableSortHeader column={column} title="Input Policy" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Input Policy")} />,
     size: 140,
     filterFn: "equalsString",
-    meta: { title: "Input Policy", skeleton: "badge" },
+    meta: { title: t("ui.Input Policy"), skeleton: "badge" },
     cell: ({ row }) => (
       <PolicySelect
         value={row.original.input_policy}
@@ -78,10 +80,10 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "output_policy",
     accessorFn: (row) => row.output_policy,
-    header: ({ column }) => <DataTableSortHeader column={column} title="Output Policy" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Output Policy")} />,
     size: 140,
     filterFn: "equalsString",
-    meta: { title: "Output Policy", skeleton: "badge" },
+    meta: { title: t("ui.Output Policy"), skeleton: "badge" },
     cell: ({ row }) => (
       <PolicySelect
         value={row.original.output_policy}
@@ -95,7 +97,7 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "call_count",
     accessorFn: (row) => row.call_count ?? 0,
-    header: ({ column }) => <DataTableSortHeader column={column} title="# Calls" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.# Calls")} />,
     size: 100,
     enableGlobalFilter: false,
     meta: { numeric: true },
@@ -104,16 +106,16 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "team_id",
     accessorFn: (row) => row.team_id ?? "",
-    header: ({ column }) => <DataTableSortHeader column={column} title="Team Name" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Team Name")} />,
     size: 160,
     filterFn: "equalsString",
-    meta: { title: "Team Name" },
+    meta: { title: t("ui.Team Name") },
     cell: ({ row }) => <IdCell value={row.original.team_id} variant="plain" />,
   },
   {
     id: "key_hash",
     accessorFn: (row) => row.key_hash ?? "",
-    header: "Key Hash",
+    header: t("ui.Key Hash"),
     size: 150,
     enableSorting: false,
     cell: ({ row }) => <IdCell value={row.original.key_hash} />,
@@ -121,16 +123,16 @@ export const getToolPoliciesTableColumns = ({
   {
     id: "key_alias",
     accessorFn: (row) => row.key_alias ?? "",
-    header: ({ column }) => <DataTableSortHeader column={column} title="Key Name" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Key Name")} />,
     size: 150,
     filterFn: "equalsString",
-    meta: { title: "Key Name" },
+    meta: { title: t("ui.Key Name") },
     cell: ({ row }) => <TruncatedText value={row.original.key_alias} className="block max-w-32 truncate" />,
   },
   {
     id: "user_agent",
     accessorFn: (row) => row.user_agent ?? "",
-    header: "User Agent",
+    header: t("ui.User Agent"),
     size: 180,
     enableSorting: false,
     enableGlobalFilter: false,

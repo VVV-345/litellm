@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { Users } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 
@@ -40,8 +41,9 @@ function EmptyState() {
 
 const AvailableTeamsTable: React.FC<AvailableTeamsTableProps> = ({ teams, isLoading, onJoinTeam }) => {
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
+  const { t } = useTranslation();
 
-  const columns = useMemo(() => getAvailableTeamsTableColumns({ onJoinTeam }), [onJoinTeam]);
+  const columns = useMemo(() => getAvailableTeamsTableColumns({ onJoinTeam, t }), [onJoinTeam, t]);
 
   return (
     <DataTable

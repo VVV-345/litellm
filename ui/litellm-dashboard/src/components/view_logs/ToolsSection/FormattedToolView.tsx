@@ -3,6 +3,7 @@
  */
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useTranslation } from "react-i18next";
 import { ParsedTool, ParameterRow } from "./types";
 
 interface FormattedToolViewProps {
@@ -10,6 +11,7 @@ interface FormattedToolViewProps {
 }
 
 export function FormattedToolView({ tool }: FormattedToolViewProps) {
+  const { t } = useTranslation();
   // Parse parameters for table display
   const parameterRows: ParameterRow[] = Object.entries(tool.parameters?.properties || {}).map(
     ([name, schema]: [string, any]) => ({
@@ -55,7 +57,7 @@ export function FormattedToolView({ tool }: FormattedToolViewProps) {
               <TableRow>
                 <TableHead>Parameter</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Description</TableHead>
+                <TableHead>{t("ui.Description")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -15,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
+import { translateUiText } from "@/utils/i18nText";
 
 export interface PolicyRow {
   policy_name: string;
@@ -45,15 +47,16 @@ interface PolicyRowActionsProps {
   policy: Policy;
   onEditClick: (policy: Policy) => void;
   onDeleteClick: (policyId: string, policyName: string) => void;
+  t: TFunction;
 }
 
-function PolicyRowActions({ policy, onEditClick, onDeleteClick }: PolicyRowActionsProps) {
+function PolicyRowActions({ policy, onEditClick, onDeleteClick, t }: PolicyRowActionsProps) {
   const isConfigPolicy = policy.definition_location === "config";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open policy actions"
+        aria-label={translateUiText(t, "Open policy actions")}
         data-testid={`policy-actions-${policy.policy_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -67,7 +70,7 @@ function PolicyRowActions({ policy, onEditClick, onDeleteClick }: PolicyRowActio
           onClick={() => onEditClick(policy)}
         >
           <Pencil />
-          Edit policy
+          {translateUiText(t, "Edit policy")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -78,7 +81,7 @@ function PolicyRowActions({ policy, onEditClick, onDeleteClick }: PolicyRowActio
           onClick={() => onDeleteClick(policy.policy_id, policy.policy_name || "Unnamed Policy")}
         >
           <Trash2 />
-          Delete policy
+          {translateUiText(t, "Delete policy")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -90,6 +93,7 @@ interface PolicyTableColumnsDeps {
   onViewClick: (policyId: string) => void;
   onEditClick: (policy: Policy) => void;
   onDeleteClick: (policyId: string, policyName: string) => void;
+  t: TFunction;
 }
 
 export const getPolicyTableColumns = ({
@@ -97,12 +101,13 @@ export const getPolicyTableColumns = ({
   onViewClick,
   onEditClick,
   onDeleteClick,
+  t,
 }: PolicyTableColumnsDeps): ColumnDef<PolicyRow>[] => [
   {
     id: "policy_name",
     accessorKey: "policy_name",
-    meta: { title: "Name", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Name" />,
+    meta: { title: translateUiText(t, "Name"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={translateUiText(t, "Name")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => {
@@ -116,7 +121,7 @@ export const getPolicyTableColumns = ({
           title={row.original.policy_name}
           titleClassName="max-w-60"
           badge={
-            isConfigPolicy ? <StatusBadge tone="neutral" label="Config" tooltip={CONFIG_POLICY_HINT} /> : versionBadge
+            isConfigPolicy ? <StatusBadge tone="neutral" label={translateUiText(t, "Config")} tooltip={CONFIG_POLICY_HINT} /> : versionBadge
           }
           onClick={isConfigPolicy ? undefined : () => onViewClick(row.original.primaryPolicy.policy_id)}
         />
@@ -126,8 +131,8 @@ export const getPolicyTableColumns = ({
   {
     id: "description",
     accessorFn: (row) => row.primaryPolicy.description ?? "",
-    meta: { title: "Description" },
-    header: "Description",
+    meta: { title: translateUiText(t, "Description") },
+    header: translateUiText(t, "Description"),
     size: 220,
     enableSorting: false,
     cell: ({ row }) => {
@@ -145,8 +150,8 @@ export const getPolicyTableColumns = ({
   {
     id: "inherit",
     accessorFn: (row) => row.primaryPolicy.inherit ?? "",
-    meta: { title: "Inherits From", skeleton: "badge" },
-    header: "Inherits From",
+    meta: { title: translateUiText(t, "Inherits From"), skeleton: "badge" },
+    header: translateUiText(t, "Inherits From"),
     size: 150,
     enableSorting: false,
     cell: ({ row }) => {
@@ -159,24 +164,24 @@ export const getPolicyTableColumns = ({
   },
   {
     id: "guardrails_add",
-    meta: { title: "Guardrails (Add)", skeleton: "chips" },
-    header: "Guardrails (Add)",
+    meta: { title: translateUiText(t, "Guardrails (Add)"), skeleton: "chips" },
+    header: translateUiText(t, "Guardrails (Add)"),
     size: 180,
     enableSorting: false,
     cell: ({ row }) => <GuardrailChips guardrails={row.original.primaryPolicy.guardrails_add ?? []} tone="success" />,
   },
   {
     id: "guardrails_remove",
-    meta: { title: "Guardrails (Remove)", skeleton: "chips" },
-    header: "Guardrails (Remove)",
+    meta: { title: translateUiText(t, "Guardrails (Remove)"), skeleton: "chips" },
+    header: translateUiText(t, "Guardrails (Remove)"),
     size: 180,
     enableSorting: false,
     cell: ({ row }) => <GuardrailChips guardrails={row.original.primaryPolicy.guardrails_remove ?? []} tone="error" />,
   },
   {
     id: "model_condition",
-    meta: { title: "Model Condition" },
-    header: "Model Condition",
+    meta: { title: translateUiText(t, "Model Condition") },
+    header: translateUiText(t, "Model Condition"),
     size: 160,
     enableSorting: false,
     cell: ({ row }) => {
@@ -194,8 +199,8 @@ export const getPolicyTableColumns = ({
   {
     id: "created_at",
     accessorFn: (row) => row.primaryPolicy.created_at ?? "",
-    meta: { title: "Created At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created At" />,
+    meta: { title: translateUiText(t, "Created At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={translateUiText(t, "Created At")} />,
     size: 150,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.primaryPolicy.created_at} />,
@@ -205,7 +210,7 @@ export const getPolicyTableColumns = ({
         {
           id: "actions",
           meta: { className: "text-right", headerClassName: "text-right" },
-          header: () => <span className="sr-only">Actions</span>,
+          header: () => <span className="sr-only">{translateUiText(t, "Actions")}</span>,
           size: 64,
           enableSorting: false,
           enableHiding: false,
@@ -215,6 +220,7 @@ export const getPolicyTableColumns = ({
                 policy={row.original.primaryPolicy}
                 onEditClick={onEditClick}
                 onDeleteClick={onDeleteClick}
+                t={t}
               />
             </div>
           ),

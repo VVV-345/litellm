@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/lib/toast";
 import { deleteMCPOAuthUserCredential, listMCPUserCredentials, MCPUserCredentialListItem } from "../networking";
+import { useTranslation } from "react-i18next";
 
 const MCP_CREDENTIALS_QUERY_KEY = "mcp-user-credentials";
 
@@ -66,6 +67,7 @@ function expiryLabel(isoString: string | null | undefined): {
 }
 
 const MCPCredentialsTab: React.FC<Props> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [revoking, setRevoking] = useState<Set<string>>(new Set());
 
@@ -117,7 +119,7 @@ const MCPCredentialsTab: React.FC<Props> = ({ accessToken }) => {
                   Status
                 </TableHead>
                 <TableHead className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground text-right">
-                  Actions
+                  {t("ui.Actions")}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -165,7 +167,7 @@ const MCPCredentialsTab: React.FC<Props> = ({ accessToken }) => {
                   Status
                 </TableHead>
                 <TableHead className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground text-right">
-                  Actions
+                  {t("ui.Actions")}
                 </TableHead>
               </TableRow>
             </TableHeader>

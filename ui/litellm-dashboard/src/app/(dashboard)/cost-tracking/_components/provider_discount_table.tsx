@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, SquarePen, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +7,7 @@ import { SimpleTable } from "@/components/common_components/simple_table";
 import { DiscountConfig } from "./types";
 import { getProviderLogoAndName } from "@/components/provider_info_helpers";
 import { Logo } from "@/components/molecules/logo/Logo";
+import { translateUiText } from "@/utils/i18nText";
 
 interface ProviderDiscountTableProps {
   discountConfig: DiscountConfig;
@@ -23,6 +25,8 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
   onDiscountChange,
   onRemoveProvider,
 }) => {
+  const { t } = useTranslation();
+  const ui = (text: string) => translateUiText(t, text);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>("");
 
@@ -67,7 +71,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
       data={data}
       columns={[
         {
-          header: "Provider",
+          header: ui("Provider"),
           cell: (row) => {
             const { displayName } = getProviderLogoAndName(row.provider);
             return (
@@ -79,7 +83,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
           },
         },
         {
-          header: "Discount Percentage",
+          header: ui("Discount Percentage"),
           cell: (row) => {
             const { displayName } = getProviderLogoAndName(row.provider);
             return (
@@ -98,7 +102,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Save discount for ${displayName}`}
+                      aria-label={`${ui("Save discount for")} ${displayName}`}
                       onClick={() => handleSaveEdit(row.provider)}
                       className="cursor-pointer text-success hover:text-success/80"
                     >
@@ -107,7 +111,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Cancel editing discount for ${displayName}`}
+                      aria-label={`${ui("Cancel editing discount for")} ${displayName}`}
                       onClick={handleCancelEdit}
                       className="cursor-pointer text-muted-foreground hover:text-foreground"
                     >
@@ -120,7 +124,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Edit discount for ${displayName}`}
+                      aria-label={`${ui("Edit discount for")} ${displayName}`}
                       onClick={() => handleStartEdit(row.provider, row.discount)}
                       className="cursor-pointer text-info hover:text-info/80"
                     >
@@ -134,14 +138,14 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
           width: "250px",
         },
         {
-          header: "Actions",
+          header: ui("Actions"),
           cell: (row) => {
             const { displayName } = getProviderLogoAndName(row.provider);
             return (
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Remove discount for ${displayName}`}
+                aria-label={`${ui("Remove discount for")} ${displayName}`}
                 onClick={() => onRemoveProvider(row.provider, displayName)}
                 className="cursor-pointer hover:text-destructive"
               >
@@ -153,7 +157,7 @@ const ProviderDiscountTable: React.FC<ProviderDiscountTableProps> = ({
         },
       ]}
       getRowKey={(row) => row.provider}
-      emptyMessage="No provider discounts configured"
+      emptyMessage={ui("No provider discounts configured")}
     />
   );
 };

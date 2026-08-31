@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { LoaderCircle, Pencil } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchAvailableModels } from "@/components/llm_calls/fetch_models";
 import { toast } from "@/lib/toast";
 import { AddFallbacksModal } from "./AddFallbacksModal";
@@ -44,6 +45,7 @@ export default function EditFallbacks({
 }: EditFallbacksProps) {
   const [group, setGroup] = useState<FallbackGroup>(() => toGroup(fallbackEntry));
   const [isSaving, setIsSaving] = useState(false);
+  const { t } = useTranslation();
 
   const { data: modelGroups = [] } = useQuery({
     queryKey: ["availableModels", "fallbacks"],
@@ -93,7 +95,7 @@ export default function EditFallbacks({
         </Button>
         <Button onClick={handleSave} disabled={isSaving || group.fallbackModels.length === 0}>
           {isSaving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
-          {isSaving ? "Saving Changes..." : "Save Changes"}
+          {isSaving ? "Saving Changes..." : t("ui.Save Changes")}
         </Button>
       </div>
     </AddFallbacksModal>

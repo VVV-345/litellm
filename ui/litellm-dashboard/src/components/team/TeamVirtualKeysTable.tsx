@@ -19,6 +19,7 @@ import { ColumnDef, ColumnFiltersState, OnChangeFn, PaginationState, SortingStat
 import { ChevronDown, ChevronRight } from "lucide-react";
 import DefaultProxyAdminTag from "../common_components/DefaultProxyAdminTag";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getModelDisplayName } from "../key_team_helpers/fetch_available_models_team_key";
 import { deriveKeyModelScope } from "../key_scope";
 import { KeyResponse, Team } from "../key_team_helpers/key_list";
@@ -38,6 +39,7 @@ interface TeamVirtualKeysTableProps {
 const DEFAULT_SORTING: SortingState = [{ id: "created_at", desc: true }];
 
 export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVirtualKeysTableProps) {
+  const { t } = useTranslation();
   const [selectedKey, setSelectedKey] = useState<KeyResponse | null>(null);
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
   const [tablePagination, setTablePagination] = useState<PaginationState>({
@@ -276,33 +278,33 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
       {
         id: "updated_at",
         accessorKey: "updated_at",
-        meta: { title: "Updated At" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" variant="header-cycle" />,
+        meta: { title: t("ui.Updated At") },
+        header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Updated At")} variant="header-cycle" />,
         size: 120,
         enableSorting: true,
-        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Never" />,
+        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Never")} />,
       },
       {
         id: "last_active",
         accessorKey: "last_active",
-        header: "Last Active",
+        header: t("ui.Last Active"),
         size: 130,
         enableSorting: false,
-        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Unknown" />,
+        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Unknown")} />,
       },
       {
         id: "expires",
         accessorKey: "expires",
-        header: "Expires",
+        header: t("ui.Expires"),
         size: 120,
         enableSorting: false,
-        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Never" />,
+        cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Never")} />,
       },
       {
         id: "spend",
         accessorKey: "spend",
-        meta: { title: "Spend (USD)" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Spend (USD)" variant="header-cycle" />,
+        meta: { title: t("ui.Spend (USD)") },
+        header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Spend (USD)")} variant="header-cycle" />,
         size: 100,
         enableSorting: true,
         cell: (info) => <MoneyCell value={info.getValue() as number | null} decimals={4} />,
