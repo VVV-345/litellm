@@ -1,4 +1,4 @@
-// 本文件定义 LiteLLM Proxy 的数据库模型，并包含 Account Pool 持久化数据结构。
+// 本文件定义 LiteLLM 的主数据库模型，并包含 Account Pool 持久化数据结构。
 datasource client {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -6,6 +6,7 @@ datasource client {
 
 generator client {
   provider = "prisma-client-py"
+  enable_experimental_decimal = "true"
   binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
 }
 
@@ -1590,7 +1591,10 @@ model LiteLLM_AccountPoolChannel {
   created_at            DateTime @default(now()) @client.Timestamptz(6)
   updated_at            DateTime @updatedAt @client.Timestamptz(6)
   bindings              LiteLLM_AccountPoolBinding[]
+  parser_runs           LiteLLM_AccountPoolParserRun[]
+  parser_tasks          LiteLLM_AccountPoolParserTask[]
   public_metadata_tasks LiteLLM_AccountPoolPublicMetadataTask[]
+  field_override_events LiteLLM_AccountPoolFieldOverride[]
 }
 
 model LiteLLM_AccountPoolBinding {
@@ -1648,6 +1652,190 @@ model LiteLLM_AccountPoolLatencyMetric {
   binding      LiteLLM_AccountPoolBinding @relation(fields: [binding_id], references: [binding_id], onDelete: Cascade)
 
   @@index([observed_at])
+}
+
+model LiteLLM_AccountPoolParserRun {
+  parser_run_id           String   @id
+  channel_id              String
+  parser_id               String
+  parser_version          String
+  parsed_at               DateTime @client.Timestamptz(6)
+  status                  String
+  content_hash            String
+  discovered_models       Json     @default("[]")
+  capabilities            Json     @default("[]")
+  unresolved_fields       Json     @default("[]")
+  evidence                Json     @default("[]")
+  warnings                Json     @default("[]")
+  issues                  Json     @default("[]")
+  has_metered             Boolean  @default(false)
+  export_status           String   @default("pending")
+  export_attempt_count    Int      @default(0)
+  export_last_attempt_at  DateTime? @client.Timestamptz(6)
+  exported_at             DateTime? @client.Timestamptz(6)
+  export_failure_code     String?
+  export_failure_retryable Boolean?
+  created_at              DateTime @default(now()) @client.Timestamptz(6)
+  updated_at              DateTime @updatedAt @client.Timestamptz(6)
+  channel                 LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+  subscription            LiteLLM_AccountPoolSubscriptionSnapshot?
+  quota_limits            LiteLLM_AccountPoolQuotaLimit[]
+  metered_groups          LiteLLM_AccountPoolMeteredGroup[]
+  billing_routes          LiteLLM_AccountPoolBillingRoute[]
+  source_override_events  LiteLLM_AccountPoolFieldOverride[]
+
+  @@index([channel_id, parsed_at])
+  @@index([export_status, parsed_at])
+}
+
+model LiteLLM_AccountPoolSubscriptionSnapshot {
+  subscription_snapshot_id String   @id
+  parser_run_id             String   @unique
+  plan_id                   String?
+  plan_name                 String?
+  status                    String
+  starts_at                 DateTime? @client.Timestamptz(6)
+  expires_at                DateTime? @client.Timestamptz(6)
+  models                    Json     @default("[]")
+  balance                   Decimal?
+  currency                  String?
+  channel_concurrency       Int?
+  model_concurrency         Json     @default("[]")
+  parser_run                LiteLLM_AccountPoolParserRun @relation(fields: [parser_run_id], references: [parser_run_id], onDelete: Cascade)
+}
+
+model LiteLLM_AccountPoolQuotaLimit {
+  quota_limit_id   String   @id
+  parser_run_id    String
+  limit_order      Int
+  scope            String
+  subject_id       String?
+  kind             String
+  window_type      String?
+  duration_seconds BigInt?
+  limit_value      Decimal?
+  used_value       Decimal?
+  remaining_value  Decimal?
+  reset_at         DateTime? @client.Timestamptz(6)
+  source           String
+  observed_at      DateTime @client.Timestamptz(6)
+  parser_run       LiteLLM_AccountPoolParserRun @relation(fields: [parser_run_id], references: [parser_run_id], onDelete: Cascade)
+
+  @@unique([parser_run_id, limit_order])
+  @@index([parser_run_id])
+}
+
+model LiteLLM_AccountPoolMeteredGroup {
+  metered_group_row_id String   @id
+  parser_run_id        String
+  group_order          Int
+  group_id             String?
+  group_name           String?
+  concurrency          Int?
+  parser_run           LiteLLM_AccountPoolParserRun @relation(fields: [parser_run_id], references: [parser_run_id], onDelete: Cascade)
+  prices               LiteLLM_AccountPoolMeteredPrice[]
+
+  @@unique([parser_run_id, group_order])
+  @@index([parser_run_id])
+}
+
+model LiteLLM_AccountPoolMeteredPrice {
+  metered_price_id             String   @id
+  metered_group_row_id         String
+  price_order                  Int
+  provider_model_id            String
+  litellm_model_name           String?
+  public_model_name            String?
+  currency                     String
+  unit                         String
+  input_price                  Decimal?
+  output_price                 Decimal?
+  cache_read_price             Decimal?
+  cache_write_price            Decimal?
+  group_multiplier             Decimal
+  price_calculation            String
+  conversion_note              String?
+  effective_input_price        Decimal?
+  effective_output_price       Decimal?
+  effective_cache_read_price   Decimal?
+  effective_cache_write_price  Decimal?
+  normalized_input_price       Decimal?
+  normalized_output_price      Decimal?
+  normalized_cache_read_price  Decimal?
+  normalized_cache_write_price Decimal?
+  has_normalized_prices        Boolean  @default(false)
+  concurrency                  Int?
+  metered_group                LiteLLM_AccountPoolMeteredGroup @relation(fields: [metered_group_row_id], references: [metered_group_row_id], onDelete: Cascade)
+
+  @@unique([metered_group_row_id, price_order])
+  @@index([metered_group_row_id])
+}
+
+model LiteLLM_AccountPoolBillingRoute {
+  billing_route_row_id  String   @id
+  parser_run_id         String
+  route_order           Int
+  route_id              String
+  deployment_binding_id String
+  mode                  String
+  provider_group_id     String?
+  request_parameter_ref String?
+  parser_run            LiteLLM_AccountPoolParserRun @relation(fields: [parser_run_id], references: [parser_run_id], onDelete: Cascade)
+
+  @@unique([parser_run_id, route_order])
+  @@unique([parser_run_id, route_id])
+  @@index([parser_run_id])
+}
+
+model LiteLLM_AccountPoolFieldOverride {
+  override_id             String   @id
+  channel_id              String
+  source_parser_run_id    String
+  field_path              String
+  target_kind             String
+  target                  Json
+  action                  String
+  value                   Json
+  had_previous_override   Boolean  @default(false)
+  previous_value          Json
+  supersedes_override_id  String?  @unique
+  actor_id                String
+  actor_role              String?
+  request_id              String?
+  reason                  String
+  occurred_at             DateTime @client.Timestamptz(6)
+  content_hash            String
+  created_at              DateTime @default(now()) @client.Timestamptz(6)
+  channel                 LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+  source_parser_run       LiteLLM_AccountPoolParserRun @relation(fields: [source_parser_run_id], references: [parser_run_id], onDelete: Restrict)
+  supersedes              LiteLLM_AccountPoolFieldOverride? @relation("AccountPoolOverrideChain", fields: [supersedes_override_id], references: [override_id], onDelete: Restrict)
+  superseded_by           LiteLLM_AccountPoolFieldOverride? @relation("AccountPoolOverrideChain")
+
+  @@index([channel_id, field_path, occurred_at])
+  @@index([source_parser_run_id])
+  @@index([request_id, occurred_at])
+}
+
+model LiteLLM_AccountPoolParserTask {
+  task_id             String   @id
+  channel_id          String
+  parser_run_id       String   @unique
+  provider_id         String
+  explicit_parser_id  String?
+  openai_compatible   Boolean  @default(false)
+  status              String
+  owner_instance_id   String
+  actor_id            String
+  actor_role          String
+  request_id          String
+  created_at          DateTime @client.Timestamptz(6)
+  heartbeat_at        DateTime @client.Timestamptz(6)
+  completed_at        DateTime? @client.Timestamptz(6)
+  failure_code        String?
+  channel             LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+
+  @@index([channel_id, created_at])
+  @@index([status, heartbeat_at])
 }
 
 model LiteLLM_AccountPoolSyncOperation {

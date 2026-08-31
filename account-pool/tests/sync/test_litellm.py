@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from account_pool.catalog.models import AdministrativeState, BindingOwnership
-from account_pool.models import QuotaConfig
+from account_pool.models import ChannelPriority, QuotaConfig
 from account_pool.sync.litellm import (
     LiteLLMDeploymentSyncAdapter,
     LiteLLMSyncAction,
@@ -52,7 +52,7 @@ def _operation(
         base_url_display="https://provider.example/v1",
         administrative_state=AdministrativeState.ENABLED,
         max_concurrency=2,
-        priority=200,
+        priority=ChannelPriority.MEDIUM,
         weight=1,
         quotas=QuotaConfig(),
         bindings=(binding,),
@@ -188,6 +188,84 @@ async def test_managed_delete_rejects_external_binding_and_deletes_managed_bindi
 
 
 @pytest.mark.asyncio
+async def test_managed_delete_treats_known_missing_deployment_as_success() -> None:
+    _, binding = _operation()
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {"message": f"{{'error': 'Model with id={binding.litellm_deployment_id} not found in db'}}"}
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        adapter: Final = LiteLLMDeploymentSyncAdapter(
+            client=client,
+            admin_endpoint="https://litellm.example",
+            admin_key=SecretStr(_ADMIN_KEY),
+        )
+        result: Final = await adapter.delete_managed_deployment(binding)
+
+    assert result == LiteLLMSyncSuccess(
+        action=LiteLLMSyncAction.DELETE,
+        litellm_deployment_id=binding.litellm_deployment_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_external_delete_treats_known_missing_deployment_as_success() -> None:
+    deletion: Final = ExternalDeploymentDelete(
+        channel_id=uuid4(),
+        binding_id=uuid4(),
+        litellm_deployment_id="external-deployment-id",
+        ownership=BindingOwnership.EXTERNALLY_MANAGED,
+        confirmed=True,
+    )
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {"message": f"{{'error': 'Model with id={deletion.litellm_deployment_id} not found in db'}}"}
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        adapter: Final = LiteLLMDeploymentSyncAdapter(
+            client=client,
+            admin_endpoint="https://litellm.example",
+            admin_key=SecretStr(_ADMIN_KEY),
+        )
+        result: Final = await adapter.delete_external_deployment(deletion)
+
+    assert result == LiteLLMSyncSuccess(
+        action=LiteLLMSyncAction.DELETE_EXTERNAL,
+        litellm_deployment_id=deletion.litellm_deployment_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_managed_delete_keeps_unrelated_bad_request_as_failure() -> None:
+    _, binding = _operation()
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"message": "invalid request"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        adapter: Final = LiteLLMDeploymentSyncAdapter(
+            client=client,
+            admin_endpoint="https://litellm.example",
+            admin_key=SecretStr(_ADMIN_KEY),
+        )
+        result: Final = await adapter.delete_managed_deployment(binding)
+
+    assert isinstance(result, LiteLLMSyncFailure)
+    assert result.failure.code == "upstream_status"
+    assert result.retryable is False
+
+
+@pytest.mark.asyncio
 async def test_external_delete_is_separate_and_requires_confirmed_external_request() -> None:
     channel_id: Final = uuid4()
     binding_id: Final = uuid4()
@@ -263,7 +341,7 @@ async def test_adapter_rejects_redirects_and_oversized_success_responses() -> No
     operation, binding = _operation()
     responses: Final = (
         httpx.Response(307, headers={"location": "https://other.example/model/new"}),
-        httpx.Response(200, content=b'{' + b'"model_id":"' + b"x" * 256 + b'"}'),
+        httpx.Response(200, content=b"{" + b'"model_id":"' + b"x" * 256 + b'"}'),
     )
     request_count: list[int] = []
 

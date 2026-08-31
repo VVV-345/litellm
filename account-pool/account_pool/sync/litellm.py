@@ -107,6 +107,14 @@ class _DeleteResponse(_ResponseModel):
     message: str = Field(min_length=1)
 
 
+class _LiteLLMError(_ResponseModel):
+    message: str = Field(min_length=1)
+
+
+class _LiteLLMErrorResponse(_ResponseModel):
+    error: _LiteLLMError
+
+
 class _ManagedModelInfo(_ResponseModel):
     id: str = Field(min_length=1)
     managed_by: str | None = None
@@ -126,6 +134,11 @@ class _ModelInfoResponse(_ResponseModel):
 @dataclass(frozen=True, slots=True)
 class _ResponseContent:
     content: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _MissingDeployment:
+    pass
 
 
 class LiteLLMDeploymentSyncAdapter:
@@ -168,6 +181,8 @@ class LiteLLMDeploymentSyncAdapter:
         response: Final = await self._request(action=action, method="POST", path="/model/new", payload=payload)
         if isinstance(response, LiteLLMSyncFailure):
             return response
+        if isinstance(response, _MissingDeployment):
+            return _invalid_response(action)
         try:
             parsed: Final = _CreateResponse.model_validate_json(response.content)
         except ValidationError:
@@ -214,6 +229,8 @@ class LiteLLMDeploymentSyncAdapter:
         )
         if isinstance(response, LiteLLMSyncFailure):
             return response
+        if isinstance(response, _MissingDeployment):
+            return _invalid_response(action)
         try:
             parsed: Final = _UpdateResponse.model_validate_json(response.content)
         except ValidationError:
@@ -244,6 +261,8 @@ class LiteLLMDeploymentSyncAdapter:
         response: Final = await self._request(action=action, method="GET", path="/model/info", payload=None)
         if isinstance(response, LiteLLMSyncFailure):
             return response
+        if isinstance(response, _MissingDeployment):
+            return _invalid_response(action)
         try:
             parsed: Final = _ModelInfoResponse.model_validate_json(response.content)
         except ValidationError:
@@ -266,9 +285,17 @@ class LiteLLMDeploymentSyncAdapter:
 
     async def _delete(self, action: LiteLLMSyncAction, deployment_id: str) -> LiteLLMSyncResult:
         payload: Final[_DeletePayload] = {"id": deployment_id}
-        response: Final = await self._request(action=action, method="POST", path="/model/delete", payload=payload)
+        response: Final = await self._request(
+            action=action,
+            method="POST",
+            path="/model/delete",
+            payload=payload,
+            missing_deployment_id=deployment_id,
+        )
         if isinstance(response, LiteLLMSyncFailure):
             return response
+        if isinstance(response, _MissingDeployment):
+            return LiteLLMSyncSuccess(action=action, litellm_deployment_id=deployment_id)
         try:
             _DeleteResponse.model_validate_json(response.content)
         except ValidationError:
@@ -281,7 +308,8 @@ class LiteLLMDeploymentSyncAdapter:
         method: str,
         path: str,
         payload: _DeploymentPayload | _DeletePayload | None,
-    ) -> _ResponseContent | LiteLLMSyncFailure:
+        missing_deployment_id: str | None = None,
+    ) -> _ResponseContent | _MissingDeployment | LiteLLMSyncFailure:
         try:
             async with self._client.stream(
                 method=method,
@@ -294,18 +322,35 @@ class LiteLLMDeploymentSyncAdapter:
                 if 300 <= status_code < 400:
                     return _failure(action, "redirect_rejected", "LiteLLM redirect was rejected", retryable=False)
                 if status_code >= 400:
+                    if status_code == 400 and missing_deployment_id is not None:
+                        missing_response_content: Final = await read_limited_response(
+                            response, self._max_response_bytes
+                        )
+                        if missing_response_content is not None and _is_missing_deployment_response(
+                            missing_response_content, missing_deployment_id
+                        ):
+                            return _MissingDeployment()
                     return _failure(
                         action,
                         "upstream_status",
                         f"LiteLLM management request returned HTTP {status_code}",
                         retryable=status_code in {408, 409, 429} or status_code >= 500,
                     )
-                content: Final = await read_limited_response(response, self._max_response_bytes)
+                response_content: Final = await read_limited_response(response, self._max_response_bytes)
         except httpx.HTTPError:
             return _failure(action, "transport_failed", "LiteLLM management request failed", retryable=True)
-        if content is None:
+        if response_content is None:
             return _failure(action, "response_too_large", "LiteLLM response exceeded the size limit", retryable=False)
-        return _ResponseContent(content=content)
+        return _ResponseContent(content=response_content)
+
+
+def _is_missing_deployment_response(content: bytes, deployment_id: str) -> bool:
+    try:
+        response: Final = _LiteLLMErrorResponse.model_validate_json(content)
+    except ValidationError:
+        return False
+    expected_message: Final = f"{{'error': 'Model with id={deployment_id} not found in db'}}"
+    return response.error.message == expected_message
 
 
 def _deployment_payload(

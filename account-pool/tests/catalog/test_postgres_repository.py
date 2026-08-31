@@ -15,6 +15,7 @@ import psycopg
 import pytest
 import pytest_asyncio
 from account_pool.catalog.importer import catalog_import_from_pool_config
+from account_pool.catalog.lifecycle import ApplyChannelDelete, CatalogApplySuccess, DeleteMode
 from account_pool.catalog.models import CatalogImport, CatalogSnapshot, ImportResult
 from account_pool.catalog.postgres import PostgresCatalogRepository
 from account_pool.models import Strategy
@@ -32,9 +33,7 @@ class RepositoryFixture:
 
 def _migration_sql(pattern: str) -> str:
     repository_root: Final = Path(__file__).resolve().parents[3]
-    migrations_root: Final = (
-        repository_root / "litellm-proxy-extras" / "litellm_proxy_extras" / "migrations"
-    )
+    migrations_root: Final = repository_root / "litellm-proxy-extras" / "litellm_proxy_extras" / "migrations"
     matches: Final = tuple(migrations_root.glob(f"*_{pattern}/migration.sql"))
     assert len(matches) == 1
     return matches[0].read_text(encoding="utf-8")
@@ -52,13 +51,14 @@ async def repository_fixture() -> AsyncIterator[RepositoryFixture]:
         try:
             await connection.execute("SELECT set_config('search_path', %s, false)", (schema,))
             await connection.execute(_migration_sql("add_account_pool_catalog").encode("utf-8"))
+            await connection.execute(_migration_sql("add_account_pool_parser_tasks").encode("utf-8"))
+            await connection.execute(_migration_sql("add_account_pool_sync_and_audit").encode("utf-8"))
             await connection.execute(
                 _migration_sql("decouple_account_pool_upstream_and_parser_provider").encode("utf-8")
             )
-            await connection.execute(
-                _migration_sql("persist_account_pool_model_discovery_provider").encode("utf-8")
-            )
+            await connection.execute(_migration_sql("persist_account_pool_model_discovery_provider").encode("utf-8"))
             await connection.execute(_migration_sql("add_account_pool_routing_policy").encode("utf-8"))
+            await connection.execute(_migration_sql("cascade_account_pool_parser_task_delete").encode("utf-8"))
             yield RepositoryFixture(
                 database_url=database_url,
                 schema=schema,
@@ -105,7 +105,6 @@ async def test_priority_migration_normalizes_rows_and_rejects_new_arbitrary_valu
 ) -> None:
     async with await psycopg.AsyncConnection.connect(repository_fixture.database_url, autocommit=True) as connection:
         await connection.execute("SELECT set_config('search_path', %s, false)", (repository_fixture.schema,))
-        await connection.execute(_migration_sql("add_account_pool_sync_and_audit").encode("utf-8"))
         for index, priority in enumerate((450, 350, 250, 150)):
             await connection.execute(
                 """
@@ -134,9 +133,7 @@ async def test_priority_migration_normalizes_rows_and_rejects_new_arbitrary_valu
 
         await connection.execute(_migration_sql("constrain_account_pool_channel_priority").encode("utf-8"))
         channel_rows: Final = await (
-            await connection.execute(
-                'SELECT "priority" FROM "LiteLLM_AccountPoolChannel" ORDER BY "account_order"'
-            )
+            await connection.execute('SELECT "priority" FROM "LiteLLM_AccountPoolChannel" ORDER BY "account_order"')
         ).fetchall()
         operation_rows: Final = await (
             await connection.execute(
@@ -192,6 +189,53 @@ async def test_model_discovery_provider_id_round_trips_through_postgres(
     assert (await repository_fixture.repository.load_snapshot()).channels == (channel,)
 
 
+async def test_channel_delete_cascades_parser_task(repository_fixture: RepositoryFixture) -> None:
+    imported: Final = _command()
+    channel: Final = imported.channels[0]
+    bindings: Final = tuple(binding for binding in imported.bindings if binding.channel_id == channel.channel_id)
+    operation_id: Final = uuid4()
+    await repository_fixture.repository.import_once(CatalogImport(channels=(channel,), bindings=bindings, policies=()))
+    async with await psycopg.AsyncConnection.connect(repository_fixture.database_url, autocommit=True) as connection:
+        await connection.execute("SELECT set_config('search_path', %s, false)", (repository_fixture.schema,))
+        await connection.execute(
+            """
+            INSERT INTO "LiteLLM_AccountPoolSyncOperation" (
+                operation_id, idempotency_key, channel_id, action, status, delete_mode,
+                desired_payload, updated_at
+            ) VALUES (%s, %s, %s, 'delete_channel', 'pending_delete', 'delete_managed_deployment', %s, NOW())
+            """,
+            (str(operation_id), f"delete-{operation_id}", str(channel.channel_id), Jsonb({})),
+        )
+        await connection.execute(
+            """
+            INSERT INTO "LiteLLM_AccountPoolParserTask" (
+                task_id, channel_id, parser_run_id, provider_id, status, owner_instance_id,
+                actor_id, actor_role, request_id, created_at, heartbeat_at
+            ) VALUES (%s, %s, %s, 'openai', 'pending', 'instance', 'actor', 'admin', 'request', NOW(), NOW())
+            """,
+            ("parser-task", str(channel.channel_id), "parser-run"),
+        )
+
+    result: Final = await repository_fixture.repository.apply_lifecycle(
+        ApplyChannelDelete(
+            operation_id=operation_id,
+            channel_id=channel.channel_id,
+            mode=DeleteMode.DELETE_MANAGED_DEPLOYMENT,
+            bindings=bindings,
+        )
+    )
+
+    async with await psycopg.AsyncConnection.connect(repository_fixture.database_url, autocommit=True) as connection:
+        await connection.execute("SELECT set_config('search_path', %s, false)", (repository_fixture.schema,))
+        parser_task_count: Final = await (
+            await connection.execute('SELECT COUNT(*) FROM "LiteLLM_AccountPoolParserTask"')
+        ).fetchone()
+
+    assert result == CatalogApplySuccess(operation_id=operation_id)
+    assert parser_task_count == (0,)
+    assert (await repository_fixture.repository.load_snapshot()).channels == ()
+
+
 @pytest.mark.parametrize("alternate_identity", ["channel_id", "legacy_account_id"])
 async def test_channel_identity_conflict_leaves_catalog_unchanged(
     repository_fixture: RepositoryFixture,
@@ -234,9 +278,7 @@ async def test_binding_identity_conflict_leaves_catalog_unchanged(
         update={
             "binding_id": uuid4() if alternate_identity == "litellm_deployment_id" else first.binding_id,
             "litellm_deployment_id": (
-                "different-deployment-id"
-                if alternate_identity == "binding_id"
-                else first.litellm_deployment_id
+                "different-deployment-id" if alternate_identity == "binding_id" else first.litellm_deployment_id
             ),
             "provider_model": "conflicting/provider-model",
         }
@@ -350,12 +392,8 @@ async def test_concurrent_conflicting_imports_return_created_and_conflict(
     first_ready: Final = asyncio.Event()
     second_ready: Final = asyncio.Event()
     start: Final = asyncio.Event()
-    first_task: Final = asyncio.create_task(
-        _release_together(first_repository, first_command, first_ready, start)
-    )
-    second_task: Final = asyncio.create_task(
-        _release_together(second_repository, second_command, second_ready, start)
-    )
+    first_task: Final = asyncio.create_task(_release_together(first_repository, first_command, first_ready, start))
+    second_task: Final = asyncio.create_task(_release_together(second_repository, second_command, second_ready, start))
     await first_ready.wait()
     await second_ready.wait()
     start.set()

@@ -1,4 +1,4 @@
-// 本文件定义 Proxy Extras 发布包的数据库模型，并同步 Account Pool 持久化结构。
+// 本文件定义 LiteLLM 的主数据库模型，并包含 Account Pool 持久化数据结构。
 datasource client {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -6,6 +6,7 @@ datasource client {
 
 generator client {
   provider = "prisma-client-py"
+  enable_experimental_decimal = "true"
   binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
 }
 
@@ -1824,38 +1825,17 @@ model LiteLLM_AccountPoolParserTask {
   openai_compatible   Boolean  @default(false)
   status              String
   owner_instance_id   String
-  actor_id             String
-  actor_role           String
-  request_id           String
-  created_at           DateTime @client.Timestamptz(6)
-  heartbeat_at         DateTime @client.Timestamptz(6)
-  completed_at         DateTime? @client.Timestamptz(6)
-  failure_code         String?
-  channel              LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Restrict)
+  actor_id            String
+  actor_role          String
+  request_id          String
+  created_at          DateTime @client.Timestamptz(6)
+  heartbeat_at        DateTime @client.Timestamptz(6)
+  completed_at        DateTime? @client.Timestamptz(6)
+  failure_code        String?
+  channel             LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
 
   @@index([channel_id, created_at])
   @@index([status, heartbeat_at])
-}
-
-model LiteLLM_AccountPoolPublicMetadataTask {
-  task_id           String   @id
-  channel_id        String
-  parser_run_id     String   @unique
-  provider_id       String
-  status            String
-  attempt_count     Int      @default(0)
-  max_attempts      Int      @default(3)
-  owner_instance_id String?
-  next_attempt_at   DateTime @client.Timestamptz(6)
-  created_at        DateTime @default(now()) @client.Timestamptz(6)
-  updated_at        DateTime @updatedAt @client.Timestamptz(6)
-  started_at        DateTime? @client.Timestamptz(6)
-  completed_at      DateTime? @client.Timestamptz(6)
-  failure_code      String?
-  channel           LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
-
-  @@index([channel_id, updated_at])
-  @@index([status, next_attempt_at, created_at])
 }
 
 model LiteLLM_AccountPoolSyncOperation {
@@ -1944,6 +1924,27 @@ model LiteLLM_AccountPoolOperationalEvent {
 
   @@index([operation_id])
   @@index([source, outcome])
+}
+
+model LiteLLM_AccountPoolPublicMetadataTask {
+  task_id           String   @id
+  channel_id        String
+  parser_run_id     String   @unique
+  provider_id       String
+  status            String
+  attempt_count     Int      @default(0)
+  max_attempts      Int      @default(3)
+  owner_instance_id String?
+  next_attempt_at   DateTime @client.Timestamptz(6)
+  created_at        DateTime @default(now()) @client.Timestamptz(6)
+  updated_at        DateTime @updatedAt @client.Timestamptz(6)
+  started_at        DateTime? @client.Timestamptz(6)
+  completed_at      DateTime? @client.Timestamptz(6)
+  failure_code      String?
+  channel           LiteLLM_AccountPoolChannel @relation(fields: [channel_id], references: [channel_id], onDelete: Cascade)
+
+  @@index([channel_id, updated_at])
+  @@index([status, next_attempt_at, created_at])
 }
 
 model LiteLLM_AccountPoolHealthActivity {
