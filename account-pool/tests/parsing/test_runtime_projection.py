@@ -50,6 +50,7 @@ class CountingParserData:
 async def test_combined_projection_reads_once_and_enriches_quota_and_cost() -> None:
     parsed: Final = ParsedChannelData(
         subscription=SubscriptionData(
+            channel_concurrency=10,
             limits=(
                 QuotaLimit(
                     scope=QuotaScope.CHANNEL,
@@ -120,6 +121,7 @@ async def test_combined_projection_reads_once_and_enriches_quota_and_cost() -> N
     enriched: Final = await ParserRuntimeConfigEnricher(parser_data).enrich(PoolConfig(accounts=(account,)))
 
     assert parser_data.calls == 1
+    assert enriched.accounts[0].max_concurrency == 10
     assert enriched.accounts[0].quota_windows[0].remaining == Decimal("80")
     assert enriched.accounts[0].deployments[0].cost_evidence is not None
     assert enriched.accounts[0].deployments[0].cost_evidence.effective_cost == Decimal("10")

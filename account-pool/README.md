@@ -36,7 +36,7 @@ LiteLLM `/model/new` 的 Deployment 管理链路。LiteLLM 与号池必须使用
 
 ## 渠道模块
 
-每个供应商位于独立目录：
+当前仅保留一个通用解析器：
 
 ```text
 account_pool/provider_services/
@@ -44,63 +44,30 @@ account_pool/provider_services/
 ├── registry.py           # 模块注册和按 provider_id 分发
 ├── parser_registry.py    # 组装无凭证解析器选择注册表
 ├── http_response.py      # 共用响应体大小限制
-├── glm/
-    ├── manifest.py       # 渠道标识、默认 URL 和能力声明
-    ├── schemas.py        # 上游响应模型
-    ├── client.py         # 官方 HTTP 请求和 URL 安全限制
-    ├── service.py        # 转换为渠道校验结果
+└── generic/
+    ├── manifest.py       # 通用解析器的能力声明
+    ├── schemas.py        # 兼容模型和价格接口的响应模型
+    ├── client.py         # HTTPS 请求、登录重试和地址安全限制
+    ├── service.py        # 模型发现与价格读取结果转换
     └── parser.py         # 转换为统一 ParserRun
-└── openai_compatible/
-    ├── manifest.py       # 通用 OpenAI 兼容能力声明
-    ├── schemas.py        # GET /models 响应模型
-    ├── client.py         # 自定义 HTTPS URL 与 SSRF 基础防护
-    ├── service.py        # 模型发现与渠道校验结果转换
-    └── parser.py         # 转换为套餐、按量和问题报告统一结构
 ```
 
-新增渠道时复制同一职责边界，并在 `app.py` 的 `ProviderServiceRegistry` 注册。公共管理层不按渠道名写分支，
-各模块可以并行开发，也不会把某个供应商的余额、套餐或价格规则带到其他供应商
+渠道厂商只负责资源侧模型发现，解析器独立负责读取模型价格、套餐和额度。当前通用解析器支持兼容 `GET /models`，
+并尝试读取兼容 `GET /api/pricing`；价格接口不可用时仍保留发现到的模型，供管理员人工补充按量价格或套餐余量
 
-解析器选择使用独立 `ParserRegistry`，固定顺序为显式 parser、Provider 与标准化 origin 精确匹配、已声明的
-OpenAI 兼容通用 parser、人工模板。选择请求的 schema 不包含 Key，并拒绝额外凭证字段，因此选择过程不会把 Key
+解析器选择使用独立 `ParserRegistry`。选择请求的 schema 不包含 Key，并拒绝额外凭证字段，因此选择过程不会把 Key
 依次发送给多个厂商试探。未知的显式 parser 不会静默降级到其他自动 parser，而是进入人工修正
 
 解析框架按职责拆分：`models.py` 定义统一结果，`registry.py` 只做无凭证选择，`persistence.py` 定义持久化与
 导出状态，`postgres/` 分离 SQL、行编解码和事务编排，`worker.py` 编排解析、提交和快照。新增厂商解析器不需要
 修改 PostgreSQL 仓储或 Worker 中的渠道分支
 
-## GLM 官方国内平台
+## 通用解析器
 
-首个模块使用智谱官方国内开发平台：`https://open.bigmodel.cn/api/paas/v4`
-
-| 能力 | 当前状态 | 实现 |
-| --- | --- | --- |
-| URL 与 Key 校验 | 支持 | `GET /models`，Bearer Key |
-| 当前 Key 可见模型 | 支持 | 解析并去重官方模型列表 |
-| 自定义模型名 | 支持 | UI 可输入列表外模型并回车 |
-| 账户下 Key 列表 | 不支持 | 官方推理 API 无公开管理接口 |
-| 余额、套餐、周/月限额 | 不支持 | 官方推理 API 无稳定公开查询接口 |
-| 账户实际价格 | 不支持 | 模型接口不返回分组折扣、资源包或成交价 |
-
-GLM 模块只允许 HTTPS、`open.bigmodel.cn` 和固定 `/api/paas/v4` 路径，且禁止重定向，避免把 Key
-发送到用户输入的任意地址；模型列表响应限制为 1 MiB。校验结果只返回 Key 的 SHA-256 指纹前缀。统一解析结果
-保留可见模型并返回 `partial`，套餐、按量和计费路由保持为空，等待人工补充可验证的账户数据
-
-LiteLLM 的 provider 名称仍为 `zai`，但创建 Deployment 时会显式保存国内 API Base，因此不会使用
-LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
-
-## OpenAI 兼容接口
-
-`openai_compatible` 模块支持自定义 HTTPS API Base，并使用 `GET {api_base}/models` 校验 Key 和发现模型。
-它会拒绝 URL 用户信息、查询参数、片段、重定向、私网解析结果和超过 1 MiB 的响应。当前通用协议不能可靠
-获取余额、套餐、周期额度、分组倍率或账户实际价格，因此这些字段明确保持不支持，不从公开价格或模型名称猜测
-
-模型发现成功后，解析器返回 `partial`：保留排序去重后的模型，套餐、按量和可执行计费路由为空，并生成结构化
-未解析字段与人工补充建议。统一解析模型使用 `Decimal` 保存金额和倍率，支持套餐额度窗口、分组价格、并发限制及
-脱敏问题报告，为后续厂商专用解析器复用；解析结果不包含 API Base、Key、Key 指纹或上游原始响应
-
-自定义域名目前在请求前检查 DNS 结果，但底层 HTTP transport 没有固定已验证 IP；严格对抗 DNS rebinding 的
-生产部署应在受控出口代理执行同等地址策略，或后续接入支持固定目标 IP 且保留原 TLS SNI 的 transport
+通用解析器只允许 HTTPS，拒绝 URL 用户信息、查询参数、片段、重定向、私网解析结果和超出大小限制的响应。
+它先使用 Key 获取 `/models`，然后尝试从 API Base 去除 `/v1` 后请求 `/api/pricing`。如价格接口要求管理员身份，
+填写的管理员账号和密码会用于登录后重试一次。接口仍不可用时，模型发现结果不会丢失，用户可以在解析数据中补充价格
+或套餐。套餐必须显式勾选覆盖的模型，余量为零时只停用对应模型；套餐内模型以零边际成本参与成本排序
 
 ## 公开元数据后台队列
 
@@ -109,8 +76,8 @@ LiteLLM 的国际默认地址 `https://api.z.ai/api/paas/v4`
 不会写入任务或运行事件。传输失败采用有上限的指数退避，worker 失联任务会恢复为等待重试或永久失败，每次重试使用
 新的 parser run ID，避免不同结果复用同一幂等键
 
-Provider 只有显式注册无凭证公开来源后才会进入该队列。GLM 官方开发平台和 OpenAI 兼容协议目前都没有稳定的
-无凭证账户元数据接口，因此默认不注册，后台队列不会请求它们，也不会从公开页面猜测余额、套餐或实际价格。新增来源
+Provider 只有显式注册无凭证公开来源后才会进入该队列。通用解析器没有无凭证账户元数据接口，因此默认不注册，
+后台队列不会请求它，也不会从公开页面猜测余额、套餐或实际价格。新增来源
 需在对应 `provider_services/{provider_id}/public_metadata.py` 内实现，具体安全和字段契约见 `PARSER_TEMPLATE.md`
 
 可通过以下环境变量调整队列：

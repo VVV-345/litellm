@@ -5,23 +5,26 @@ import { buildMeteredOverrideValue, buildMeteredPriceDrafts } from "./meteredPri
 describe("metered price editor", () => {
   it("prepopulates an editable draft from parsed multiplier pricing", () => {
     expect(
-      buildMeteredPriceDrafts({
-        groups: [
-          {
-            group_id: "premium",
-            models: [
-              {
-                provider_model_id: "model-a",
-                currency: "RATIO",
-                unit: "multiplier",
-                input_price: "2",
-                output_price: "3",
-                group_multiplier: "1.5",
-              },
-            ],
-          },
-        ],
-      }),
+      buildMeteredPriceDrafts(
+        {
+          groups: [
+            {
+              group_id: "premium",
+              models: [
+                {
+                  provider_model_id: "model-a",
+                  currency: "RATIO",
+                  unit: "multiplier",
+                  input_price: "2",
+                  output_price: "3",
+                  group_multiplier: "1.5",
+                },
+              ],
+            },
+          ],
+        },
+        ["model-a"],
+      ),
     ).toEqual([
       {
         providerModelId: "model-a",
@@ -44,8 +47,8 @@ describe("metered price editor", () => {
         providerModelId: "model-a",
         groupId: "manual",
         groupName: "manual",
-        currency: "RATIO",
-        unit: "multiplier",
+        currency: "USD",
+        unit: "million_tokens",
         inputPrice: "",
         outputPrice: "",
         cacheReadPrice: "",

@@ -838,9 +838,7 @@ async def test_management_api_requires_configured_internal_token() -> None:
     assert valid.status_code == 200
     manifests: Final = _PROVIDER_MANIFESTS_ADAPTER.validate_json(valid.content)
     manifest_ids: Final = tuple(manifest.provider_id for manifest in manifests)
-    assert manifest_ids == ("glm_official", "lmu_static_metadata", "openai_compatible", "new_api")
-    manifests_by_id: Final = {manifest.provider_id: manifest for manifest in manifests}
-    assert manifests_by_id["openai_compatible"].default_api_base == "https://api.openai.com/v1"
+    assert manifest_ids == ("generic",)
     assert upstream_missing.status_code == 401
     assert upstream.status_code == 200
     upstream_manifests: Final = _UPSTREAM_PROVIDER_MANIFESTS_ADAPTER.validate_json(upstream.content)
@@ -1643,25 +1641,31 @@ async def test_standalone_ui_forwards_routing_writes_through_litellm() -> None:
                 )
                 candidate: Final = await client.put(
                     f"/ui-api/models/openai%2Fgpt-4o/routing-candidates/{binding_id}",
-                    json={"expected_version": 4, "manual_order": 0, "weight": 5, "paused": False},
+                    json={"expected_version": 4, "weight": 5, "paused": False},
+                )
+                order: Final = await client.put(
+                    "/ui-api/models/openai%2Fgpt-4o/routing-order",
+                    json={"expected_version": 5, "binding_ids": [str(binding_id)]},
                 )
                 reset: Final = await client.request(
                     "DELETE",
                     f"/ui-api/models/openai%2Fgpt-4o/routing-candidates/{binding_id}",
-                    json={"expected_version": 5},
+                    json={"expected_version": 6},
                 )
 
-    assert (response.status_code, candidate.status_code, reset.status_code) == (200, 200, 200)
+    assert (response.status_code, candidate.status_code, order.status_code, reset.status_code) == (200, 200, 200, 200)
     forwarded_requests: Final = tuple(request for request in requests if request.url.path != "/account_pool/authorize")
-    policy_request, candidate_request, reset_request = forwarded_requests
+    policy_request, candidate_request, order_request, reset_request = forwarded_requests
     assert policy_request.method == "PUT"
     assert policy_request.url.raw_path == b"/account_pool/models/openai%2Fgpt-4o/routing-policy"
     assert candidate_request.url.raw_path == (
         f"/account_pool/models/openai%2Fgpt-4o/routing-candidates/{binding_id}".encode()
     )
+    assert order_request.url.raw_path == b"/account_pool/models/openai%2Fgpt-4o/routing-order"
     assert reset_request.method == "DELETE"
     assert all(request.headers["authorization"] == "Bearer admin-secret" for request in forwarded_requests)
     assert json.loads(policy_request.content) == {"expected_version": 3, "strategy": "lowest_latency"}
+    assert json.loads(order_request.content) == {"expected_version": 5, "binding_ids": [str(binding_id)]}
 
 
 @pytest.mark.asyncio

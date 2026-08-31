@@ -29,6 +29,7 @@ import type {
   ProviderValidationResult,
   RoutingCandidateMutation,
   RoutingModelSummary,
+  RoutingOrderMutation,
   RoutingPolicyMutation,
   RoutingPolicyState,
   RoutingTableEntry,
@@ -209,6 +210,13 @@ export const updateRoutingPolicy = (
   request: RoutingPolicyMutation,
 ): Promise<RoutingPolicyState> =>
   apiClient.put(`/account_pool/models/${routingModelPath(model)}/routing-policy`, { accessToken, body: request });
+
+export const updateRoutingOrder = (
+  accessToken: string,
+  model: string,
+  request: RoutingOrderMutation,
+): Promise<RoutingPolicyState> =>
+  apiClient.put(`/account_pool/models/${routingModelPath(model)}/routing-order`, { accessToken, body: request });
 
 export const updateRoutingCandidate = (
   accessToken: string,

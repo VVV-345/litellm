@@ -12,6 +12,7 @@ from uuid import UUID, uuid5
 
 from account_pool.eligibility import EligibilityExclusion, EligibilitySource
 from account_pool.models import AccountConfig, AccountSnapshot, Lease, ReserveResult, SettleRequest
+from account_pool.quota.backend import QuotaBackendState
 from account_pool.operational.models import (
     OperationalEventFact,
     OperationalEventOutcome,
@@ -78,6 +79,9 @@ class RestrictionEventStateStore:
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         return await self._backend.eligibility_exclusions()
+
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
+        return await self._backend.quota_backend_state(account_id)
 
     async def reserve(
         self,

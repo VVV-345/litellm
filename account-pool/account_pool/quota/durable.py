@@ -20,7 +20,7 @@ from account_pool.models import (
     ReserveSuccess,
     SettleRequest,
 )
-from account_pool.quota.backend import QuotaBackendWindowState, QuotaRuntimeBackend
+from account_pool.quota.backend import QuotaBackendState, QuotaBackendWindowState, QuotaRuntimeBackend
 from account_pool.quota.persistence_models import (
     QuotaGenerationStatus,
     QuotaRecoveryState,
@@ -87,6 +87,9 @@ class DurableQuotaStateStore:
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         return await self._backend.eligibility_exclusions()
+
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
+        return await self._backend.quota_backend_state(account_id)
 
     async def reserve(
         self,

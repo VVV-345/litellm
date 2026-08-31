@@ -21,6 +21,7 @@ import {
   reconcileChannel,
   resetRoutingCandidate,
   updateRoutingCandidate,
+  updateRoutingOrder,
   updateRoutingPolicy,
   updateChannel,
   validateProviderService,
@@ -218,11 +219,14 @@ describe("channel lifecycle API", () => {
     await updateRoutingPolicy("token", "openai/gpt-5.6", { expected_version: 2, strategy: "lowest_latency" });
     await updateRoutingCandidate("token", "openai/gpt-5.6", "binding-1", {
       expected_version: 3,
-      manual_order: 0,
       weight: 8,
       paused: true,
     });
-    await resetRoutingCandidate("token", "openai/gpt-5.6", "binding-1", 4);
+    await updateRoutingOrder("token", "openai/gpt-5.6", {
+      expected_version: 4,
+      binding_ids: ["binding-2", "binding-1"],
+    });
+    await resetRoutingCandidate("token", "openai/gpt-5.6", "binding-1", 5);
 
     expect(mockedPut).toHaveBeenNthCalledWith(1, "/account_pool/models/openai%2Fgpt-5.6/routing-policy", {
       accessToken: "token",
@@ -230,11 +234,15 @@ describe("channel lifecycle API", () => {
     });
     expect(mockedPut).toHaveBeenNthCalledWith(2, "/account_pool/models/openai%2Fgpt-5.6/routing-candidates/binding-1", {
       accessToken: "token",
-      body: { expected_version: 3, manual_order: 0, weight: 8, paused: true },
+      body: { expected_version: 3, weight: 8, paused: true },
+    });
+    expect(mockedPut).toHaveBeenNthCalledWith(3, "/account_pool/models/openai%2Fgpt-5.6/routing-order", {
+      accessToken: "token",
+      body: { expected_version: 4, binding_ids: ["binding-2", "binding-1"] },
     });
     expect(mockedDelete).toHaveBeenCalledWith("/account_pool/models/openai%2Fgpt-5.6/routing-candidates/binding-1", {
       accessToken: "token",
-      body: { expected_version: 4 },
+      body: { expected_version: 5 },
     });
   });
 });

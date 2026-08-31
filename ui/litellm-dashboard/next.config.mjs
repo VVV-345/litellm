@@ -1,3 +1,4 @@
+// 本文件配置 Dashboard 本地开发和静态导出行为。
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -7,6 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const nextConfig = {
   output: "export",
+  allowedDevOrigins: ["127.0.0.1"],
   compiler: {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },

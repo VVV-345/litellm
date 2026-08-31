@@ -17,6 +17,7 @@ from account_pool.models import (
     ReserveResult,
     SettleRequest,
 )
+from account_pool.quota.backend import QuotaBackendState
 from account_pool.operational.models import (
     OperationalEventRecord,
     build_lease_expired_record,
@@ -148,6 +149,9 @@ class RequestEventStateStore:
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         return await self._backend.eligibility_exclusions()
+
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
+        return await self._backend.quota_backend_state(account_id)
 
     async def reserve(
         self,

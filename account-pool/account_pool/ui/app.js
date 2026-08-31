@@ -1,7 +1,7 @@
 // 本文件装配 4100 调度控制台，管理渠道、模型策略和实时路由状态。
-import { api, clearToken, getToken, setToken } from "./api.js?v=6";
-import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=5";
-import { createRoutingWorkbench } from "./routing.js?v=5";
+import { api, clearToken, getToken, setToken } from "./api.js?v=7";
+import { escapeHtml, formatNumber, priorityName, statusBadge, strategyNames } from "./format.js?v=6";
+import { createRoutingWorkbench } from "./routing.js?v=8";
 
 const state = {
   channels: [],

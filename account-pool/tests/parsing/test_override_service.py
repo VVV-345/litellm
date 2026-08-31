@@ -117,6 +117,21 @@ class FakeAuditRepository:
         raise AssertionError(f"override service must not load audit events: {event_id}")
 
 
+class FakeProjector:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def project(self) -> object:
+        self.calls += 1
+        return object()
+
+
+class FailingProjector(FakeProjector):
+    async def project(self) -> object:
+        self.calls += 1
+        raise RuntimeError("runtime projection failed")
+
+
 def _clock() -> datetime:
     return _NOW
 
@@ -218,6 +233,58 @@ async def test_same_business_request_is_idempotent_without_new_event() -> None:
     assert repeated.status == "unchanged"
     assert len(overrides.events) == 1
     assert overrides.append_count == 1
+
+
+async def test_successful_overrides_refresh_runtime_projection_before_returning_success() -> None:
+    overrides: Final = FakeOverrideRepository()
+    projector: Final = FakeProjector()
+    service: Final = ParserOverrideService(
+        FakeParserRunRepository(),
+        overrides,
+        FakeAuditRepository(),
+        projector=projector,
+        clock=_clock,
+    )
+    created: Final = await service.set_override(
+        _CHANNEL_ID,
+        _set_request(),
+        _actor(ActorAction.OVERRIDE_SET),
+    )
+    revoked: Final = await service.revoke_override(
+        _CHANNEL_ID,
+        "/subscription/balance",
+        OverrideRevokeRequest(
+            override_id=UUID("30000000-0000-0000-0000-000000000008"),
+            expected_override_id=_FIRST_OVERRIDE_ID,
+            reason="恢复自动解析",
+        ),
+        _actor(ActorAction.OVERRIDE_REVOKE),
+    )
+
+    assert isinstance(created, OverrideMutationSuccess)
+    assert isinstance(revoked, OverrideMutationSuccess)
+    assert projector.calls == 2
+
+
+async def test_projection_failure_is_reported_after_persisting_override() -> None:
+    overrides: Final = FakeOverrideRepository()
+    service: Final = ParserOverrideService(
+        FakeParserRunRepository(),
+        overrides,
+        FakeAuditRepository(),
+        projector=FailingProjector(),
+        clock=_clock,
+    )
+
+    result: Final = await service.set_override(
+        _CHANNEL_ID,
+        _set_request(),
+        _actor(ActorAction.OVERRIDE_SET),
+    )
+
+    assert isinstance(result, OverrideMutationFailure)
+    assert result.code == OverrideMutationFailureCode.RUNTIME_PROJECTION_FAILED
+    assert len(overrides.events) == 1
 
 
 async def test_stale_predecessor_and_wrong_actor_action_are_rejected() -> None:

@@ -10,6 +10,7 @@ from account_pool.audit.models import (
     ManagementAuditDetails,
     RoutingCandidateDeleteDetails,
     RoutingCandidateUpdateDetails,
+    RoutingOrderUpdateDetails,
     RoutingPolicyUpdateDetails,
     SafeAuditOutcome,
     build_management_audit_record,
@@ -20,6 +21,7 @@ from account_pool.routing.models import (
     RoutingCandidateMutation,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyMutation,
     RoutingPolicyResult,
     RoutingVersionMutation,
@@ -91,6 +93,27 @@ class RoutingPolicyService:
             details=lambda outcome, version: RoutingCandidateUpdateDetails(
                 outcome=outcome,
                 binding_id=binding_id,
+                expected_version=mutation.expected_version,
+                resulting_version=version,
+            ),
+        )
+
+    async def update_order(
+        self,
+        model: str,
+        mutation: RoutingOrderMutation,
+        actor: ActorContext,
+    ) -> RoutingPolicyResult:
+        if actor.action != ActorAction.ROUTING_ORDER_UPDATE:
+            return _failure(RoutingFailureCode.INVALID_ACTOR, retryable=False)
+        result: Final = await self._repository.update_order(model, mutation)
+        return await self._complete(
+            model=model,
+            actor=actor,
+            result=result,
+            details=lambda outcome, version: RoutingOrderUpdateDetails(
+                outcome=outcome,
+                binding_count=len(mutation.binding_ids),
                 expected_version=mutation.expected_version,
                 resulting_version=version,
             ),

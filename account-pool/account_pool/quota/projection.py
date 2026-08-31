@@ -19,11 +19,13 @@ from account_pool.parsing.models import (
     ParsedChannelData,
     QuotaLimit,
     QuotaScope,
+    SubscriptionData,
 )
 from account_pool.parsing.models import (
     QuotaWindowType as ParsedQuotaWindowType,
 )
 from account_pool.parsing.service import ParserDataFailure, ParserDataFailureCode, ParserDataReader
+from account_pool.parsing.subscription import subscription_includes_model
 
 
 class QuotaProjectionError(RuntimeError):
@@ -58,15 +60,60 @@ def project_quota_windows(
     subscription: Final = parsed.subscription
     if subscription is None or account.channel_id is None:
         return ()
-    windows: Final = tuple(
+    limit_windows: Final = tuple(
         window
         for limit in subscription.limits
         for window in _project_limit(account=account, parsed=parsed, limit=limit)
     )
+    balance_windows: Final = _project_subscription_balance(account=account, subscription=subscription)
+    windows: Final = (*limit_windows, *balance_windows)
     window_ids: Final = tuple(window.window_id for window in windows)
     if len(window_ids) != len(set(window_ids)):
         raise QuotaProjectionError("quota projection contains duplicate semantic windows")
     return windows
+
+
+def _project_subscription_balance(
+    account: AccountConfig,
+    subscription: SubscriptionData,
+) -> tuple[QuotaWindowConfig, ...]:
+    if subscription.balance is None:
+        return ()
+    models: Final = tuple(
+        dict.fromkeys(
+            deployment.public_model
+            for deployment in account.deployments
+            if subscription_includes_model(
+                subscription,
+                public_model=deployment.public_model,
+                provider_model=deployment.provider_model,
+            )
+        )
+    )
+    return tuple(
+        _subscription_balance_window(account=account, subscription=subscription, public_model=public_model)
+        for public_model in models
+    )
+
+
+def _subscription_balance_window(
+    account: AccountConfig,
+    subscription: SubscriptionData,
+    public_model: str,
+) -> QuotaWindowConfig:
+    channel_id: Final = _required_channel_id(account)
+    identity: Final = json.dumps(("subscription_balance", public_model, subscription.plan_id), separators=(",", ":"))
+    return QuotaWindowConfig(
+        window_id=str(uuid5(channel_id, identity)),
+        scope=RuntimeQuotaScope.MODEL,
+        subject_id=public_model,
+        kind=RuntimeQuotaKind.PROVIDER_UNITS,
+        window_type=RuntimeQuotaWindowType.LIFETIME,
+        remaining=subscription.balance,
+        observed_at=0,
+        source="subscription_balance",
+        reason_code="subscription_balance_exhausted",
+    )
 
 
 def _project_limit(

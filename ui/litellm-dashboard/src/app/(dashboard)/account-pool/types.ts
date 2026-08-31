@@ -333,10 +333,10 @@ export interface ParserTaskRequest {
   password: string | null;
 }
 
-export interface OverrideTarget {
-  kind: "root_field" | "subscription_field";
-  field: string;
-}
+export type OverrideTarget =
+  | { kind: "root_field"; field: string }
+  | { kind: "subscription_field"; field: string }
+  | { kind: "subscription_model"; provider_model_id: string };
 
 export interface OverrideSetRequest {
   override_id: string;
@@ -421,6 +421,8 @@ export interface RoutingTableEntry {
   dynamic_order: boolean;
   sort_reason_codes: string[];
   remaining_quota_ratio: number | null;
+  remaining_quota: JsonDecimal | null;
+  remaining_quota_unit: string | null;
   latency_ewma_ms: number | null;
   effective_cost: JsonDecimal | null;
   cost_evidence: RoutingCostEvidence | null;
@@ -449,9 +451,13 @@ export interface RoutingPolicyMutation {
   strategy: RoutingStrategy;
 }
 
+export interface RoutingOrderMutation {
+  expected_version: number;
+  binding_ids: string[];
+}
+
 export interface RoutingCandidateMutation {
   expected_version: number;
-  manual_order: number | null;
   weight: number | null;
   paused: boolean;
 }

@@ -1,13 +1,12 @@
 // 本文件收集一次性上游 Key、启动解析任务并轮询展示任务状态。
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Play, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import NotificationsManager from "@/components/molecules/notifications_manager";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,13 +19,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { accountPoolKeys, getParserTask, startParserTask } from "../api";
-import type { ChannelSummary, ProviderServiceManifest } from "../types";
-import { EphemeralCredentialField, ProviderProtocolSelect } from "./AccountPoolFormFields";
+import type { ChannelSummary, ParserTaskView } from "../types";
+import { EphemeralCredentialField } from "./AccountPoolFormFields";
 
 interface ParserTaskDialogProps {
   accessToken: string;
   channel: ChannelSummary;
-  providers: ProviderServiceManifest[];
   onClose: () => void;
   onCompleted: () => Promise<void>;
 }
@@ -37,45 +35,34 @@ const TaskStatusIcon = ({ status, loading }: { status: string | undefined; loadi
   return <TriangleAlert className="size-8 text-destructive" />;
 };
 
-export default function ParserTaskDialog({
-  accessToken,
-  channel,
-  providers,
-  onClose,
-  onCompleted,
-}: ParserTaskDialogProps) {
-  const initialProvider =
-    providers.find((provider) => provider.provider_id === channel.parser_provider_id)?.provider_id ??
-    providers.find((provider) => provider.provider_id === "openai_compatible")?.provider_id ??
-    providers[0]?.provider_id ??
-    "openai_compatible";
-  const [providerId, setProviderId] = useState(initialProvider);
+export default function ParserTaskDialog({ accessToken, channel, onClose, onCompleted }: ParserTaskDialogProps) {
   const [apiKey, setApiKey] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [group, setGroup] = useState(channel.group ?? "");
-  const [explicitParserId, setExplicitParserId] = useState("");
-  const [openAICompatible, setOpenAICompatible] = useState(initialProvider === "openai_compatible");
   const [taskId, setTaskId] = useState<string | null>(null);
 
-  const taskQuery = useQuery({
+  const taskQueryOptions: UseQueryOptions<ParserTaskView> = {
     queryKey: accountPoolKeys.task(channel.channel_id, taskId ?? "pending"),
     queryFn: () => getParserTask(accessToken, channel.channel_id, taskId!),
     enabled: taskId !== null,
     refetchInterval: (query) => (query.state.data?.task.status === "running" ? 1000 : false),
-  });
+  };
+  const taskQuery = useQuery(taskQueryOptions);
 
   const startMutation = useMutation({
-    mutationFn: () =>
-      startParserTask(accessToken, channel.channel_id, {
-        provider_id: providerId,
+    mutationFn: () => {
+      const request = {
+        provider_id: "generic",
         api_key: apiKey,
         group: group.trim() || null,
-        explicit_parser_id: explicitParserId.trim() || null,
-        openai_compatible: openAICompatible,
+        explicit_parser_id: null,
+        openai_compatible: false,
         username: username.trim() || null,
         password: password || null,
-      }),
+      };
+      return startParserTask(accessToken, channel.channel_id, request);
+    },
     onSuccess: (accepted) => {
       setApiKey("");
       setUsername("");
@@ -95,14 +82,9 @@ export default function ParserTaskDialog({
     onClose();
   };
 
-  const selectProvider = (value: string) => {
-    setProviderId(value);
-    setOpenAICompatible(value === "openai_compatible");
-  };
-
   const hasCompleteAdminCredentials = Boolean(username.trim() && password);
   const hasPartialAdminCredentials = Boolean(username.trim()) !== Boolean(password);
-  const canStart = !startMutation.isPending && Boolean(apiKey && providerId) && !hasPartialAdminCredentials;
+  const canStart = !startMutation.isPending && Boolean(apiKey) && !hasPartialAdminCredentials;
 
   return (
     <Dialog open onOpenChange={(open) => !open && void close()}>
@@ -114,12 +96,6 @@ export default function ParserTaskDialog({
 
         {taskId === null ? (
           <div className="grid gap-4">
-            <ProviderProtocolSelect
-              providers={providers}
-              value={providerId}
-              onValueChange={selectProvider}
-              description="解析服务独立于添加渠道时选择的上游厂商"
-            />
             <div className="grid gap-2">
               <Label htmlFor="parser-api-base">上游 URL</Label>
               <Input id="parser-api-base" value={channel.base_url_display} readOnly />
@@ -127,7 +103,7 @@ export default function ParserTaskDialog({
             <EphemeralCredentialField id="parser-api-key" label="一次性 Key" value={apiKey} onValueChange={setApiKey} />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor="parser-username">New API 管理员账号（可选）</Label>
+                <Label htmlFor="parser-username">管理员账号（可选）</Label>
                 <Input
                   id="parser-username"
                   value={username}
@@ -136,7 +112,7 @@ export default function ParserTaskDialog({
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="parser-password">New API 管理员密码（可选）</Label>
+                <Label htmlFor="parser-password">管理员密码（可选）</Label>
                 <Input
                   id="parser-password"
                   type="password"
@@ -147,27 +123,10 @@ export default function ParserTaskDialog({
               </div>
             </div>
             {hasPartialAdminCredentials && <p className="text-sm text-destructive">管理员账号与密码必须同时提供</p>}
-            {hasCompleteAdminCredentials && (
-              <p className="text-sm text-muted-foreground">管理员凭证仅用于本次解析后获取倍率价格，不会被保存</p>
-            )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="parser-group">分组（可选）</Label>
-                <Input id="parser-group" value={group} onChange={(event) => setGroup(event.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="parser-id">解析器 ID（可选）</Label>
-                <Input
-                  id="parser-id"
-                  value={explicitParserId}
-                  onChange={(event) => setExplicitParserId(event.target.value)}
-                />
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="parser-group">分组（可选）</Label>
+              <Input id="parser-group" value={group} onChange={(event) => setGroup(event.target.value)} />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={openAICompatible} onCheckedChange={(checked) => setOpenAICompatible(checked)} />
-              使用 OpenAI 兼容协议
-            </label>
           </div>
         ) : (
           <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center">

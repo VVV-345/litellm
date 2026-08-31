@@ -95,13 +95,13 @@
     }
   ],
   "expected": {
-    "priority": ["efficient", "manual", "priority", "included", "unavailable"],
+    "priority": ["priority", "efficient", "included", "manual", "unavailable"],
     "random": ["efficient", "included", "priority", "manual", "unavailable"],
     "lowest_latency": ["efficient", "priority", "included", "manual", "unavailable"],
     "highest_remaining_quota": ["efficient", "priority", "included", "manual", "unavailable"],
     "lowest_effective_cost": ["included", "efficient", "priority", "manual", "unavailable"],
     "least_inflight": ["efficient", "priority", "included", "manual", "unavailable"],
-    "weighted_round_robin": ["efficient", "included", "manual", "priority", "unavailable"],
+    "weighted_round_robin": ["manual", "priority", "included", "efficient", "unavailable"],
     "quota_aware_least_inflight": ["efficient", "priority", "included", "manual", "unavailable"]
   }
 }

@@ -1,6 +1,6 @@
 // 本文件集中处理号池状态、额度和调度策略的界面文本。
 export const strategyNames = {
-  priority: "手动优先级",
+  priority: "渠道优先级",
   random: "随机",
   lowest_latency: "延迟优先",
   highest_remaining_quota: "剩余额度优先",

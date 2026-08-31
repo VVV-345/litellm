@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>号池调度器</title>
-    <link rel="stylesheet" href="/ui/styles.css?v=5" />
+    <link rel="stylesheet" href="/ui/styles.css?v=6" />
   </head>
   <body>
     <main id="login-view" class="login-shell">
@@ -157,7 +157,6 @@
         <h2 id="route-dialog-title">调整候选</h2>
         <p id="route-dialog-description"></p>
         <div class="route-form-grid">
-          <label>人工顺序<input id="route-manual-order" type="number" min="0" placeholder="自动" /></label>
           <label>模型权重<input id="route-weight" type="number" min="1" max="100" placeholder="继承渠道" /></label>
           <label class="toggle-control"><input id="route-paused" type="checkbox" />暂停此模型绑定</label>
         </div>
@@ -170,6 +169,6 @@
       </form>
     </dialog>
 
-    <script type="module" src="/ui/app.js?v=6"></script>
+    <script type="module" src="/ui/app.js?v=8"></script>
   </body>
 </html>

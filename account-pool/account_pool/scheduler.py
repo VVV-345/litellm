@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Final
 
 from account_pool.eligibility import (
@@ -34,8 +36,18 @@ from account_pool.models import (
     Strategy,
 )
 from account_pool.operational.request_lifecycle import RequestEventRecorder
+from account_pool.quota.backend import QuotaBackendState
+from account_pool.quota.runtime import RuntimeQuotaWindow
 from account_pool.routing import RoutingCandidate, RoutingOrder, order_candidates
 from account_pool.store import StateStore
+
+
+@dataclass(frozen=True, slots=True)
+class _RouteQuota:
+    remaining_ratio: float | None
+    remaining: Decimal | None
+    unit: str | None
+    unavailable_reason: str | None
 
 
 class Scheduler:
@@ -79,6 +91,7 @@ class Scheduler:
         snapshots: Final = await self._snapshot_map()
         latency: Final = await self._latency_map()
         exclusions: Final = await self._store.eligibility_exclusions()
+        quota_state: Final = await self._store.quota_backend_state()
         now: Final = time.time()
         policy: Final = self._policies.get(request.model, ModelPolicy(model=request.model))
         ordered: Final = await self._ordered_candidates(
@@ -87,6 +100,7 @@ class Scheduler:
             candidates=candidates,
             snapshots=snapshots,
             exclusions=exclusions,
+            quota_state=quota_state,
             latency=latency,
             now=now,
             request_id=request.request_id,
@@ -149,6 +163,7 @@ class Scheduler:
         snapshots: Final = await self._snapshot_map()
         latency: Final = await self._latency_map()
         exclusions: Final = await self._store.eligibility_exclusions()
+        quota_state: Final = await self._store.quota_backend_state()
         now: Final = time.time()
         policy: Final = self.policy(model)
         candidates: Final = self._candidates(model)
@@ -158,6 +173,7 @@ class Scheduler:
                 deployment=deployment,
                 snapshot=snapshots[account.id],
                 exclusions=exclusions,
+                quota_state=quota_state,
                 now=now,
                 latency_ewma_ms=latency.get(deployment.litellm_model_id),
             )
@@ -226,6 +242,7 @@ class Scheduler:
         candidates: tuple[tuple[AccountConfig, DeploymentConfig], ...],
         snapshots: dict[str, AccountSnapshot],
         exclusions: tuple[EligibilityExclusion, ...],
+        quota_state: QuotaBackendState | None,
         latency: dict[str, float],
         now: float,
         request_id: str,
@@ -236,6 +253,7 @@ class Scheduler:
                 deployment=deployment,
                 snapshot=snapshots[account.id],
                 exclusions=exclusions,
+                quota_state=quota_state,
                 now=now,
                 latency_ewma_ms=latency.get(deployment.litellm_model_id),
             )
@@ -286,7 +304,8 @@ class Scheduler:
             if not deployment.enabled
             else "manual_pause"
             if deployment.routing_paused
-            else _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
+            else order.candidate.quota_unavailable_reason
+            or _unavailable_reason(snapshot=snapshot, exclusion=active_exclusion)
         )
         return RouteEntry(
             account_id=account.id,
@@ -318,6 +337,8 @@ class Scheduler:
             dynamic_order=order.dynamic,
             sort_reason_codes=order.reason_codes,
             remaining_quota_ratio=order.candidate.remaining_quota_ratio,
+            remaining_quota=order.candidate.remaining_quota,
+            remaining_quota_unit=order.candidate.remaining_quota_unit,
             latency_ewma_ms=order.candidate.latency_ewma_ms,
             effective_cost=order.candidate.effective_cost,
             cost_evidence=deployment.cost_evidence,
@@ -337,14 +358,99 @@ def _quota_ratio(account: AccountConfig, snapshot: AccountSnapshot) -> float | N
     return min(ratios) if ratios else None
 
 
+def _route_quota(
+    account: AccountConfig,
+    deployment: DeploymentConfig,
+    snapshot: AccountSnapshot,
+    quota_state: QuotaBackendState | None,
+) -> _RouteQuota:
+    matching: Final = (
+        ()
+        if quota_state is None
+        else tuple(
+            state.window
+            for state in quota_state.windows
+            if state.account_id == account.id and _quota_window_matches(state.window, deployment)
+        )
+    )
+    if not matching:
+        return _RouteQuota(
+            remaining_ratio=_quota_ratio(account=account, snapshot=snapshot),
+            remaining=None,
+            unit=None,
+            unavailable_reason=None,
+        )
+    quantified: Final = tuple(
+        (window, _available_quota_units(window))
+        for window in matching
+        if _available_quota_units(window) is not None
+    )
+    exhausted: Final = next(
+        (window.config.reason_code for window, remaining in quantified if remaining is not None and remaining <= 0),
+        None,
+    )
+    ratios: Final = tuple(
+        (window, remaining / window.config.limit)
+        for window, remaining in quantified
+        if remaining is not None and window.config.limit is not None and window.config.limit > 0
+    )
+    if ratios:
+        selected, ratio = min(ratios, key=lambda item: item[1])
+        remaining: Final = next(
+            current for window, current in quantified if window.config.window_id == selected.config.window_id
+        )
+        return _RouteQuota(
+            remaining_ratio=float(ratio),
+            remaining=remaining,
+            unit=selected.config.kind.value,
+            unavailable_reason=exhausted,
+        )
+    if quantified:
+        selected, remaining = quantified[0]
+        return _RouteQuota(
+            remaining_ratio=None,
+            remaining=remaining,
+            unit=selected.config.kind.value,
+            unavailable_reason=exhausted,
+        )
+    return _RouteQuota(
+        remaining_ratio=None,
+        remaining=None,
+        unit=None,
+        unavailable_reason=None,
+    )
+
+
+def _quota_window_matches(window: RuntimeQuotaWindow, deployment: DeploymentConfig) -> bool:
+    scope: Final = window.config.scope
+    return (
+        scope == RuntimeQuotaScope.CHANNEL
+        or (scope == RuntimeQuotaScope.MODEL and window.config.subject_id == deployment.public_model)
+        or (scope == RuntimeQuotaScope.BILLING_ROUTE and window.config.subject_id == deployment.billing_route_id)
+    )
+
+
+def _available_quota_units(window: RuntimeQuotaWindow) -> Decimal | None:
+    if window.remaining is None:
+        return None
+    return max(Decimal("0"), window.remaining - window.config.safety_reserve - window.reserved)
+
+
 def _routing_candidate(
     account: AccountConfig,
     deployment: DeploymentConfig,
     snapshot: AccountSnapshot,
     exclusions: tuple[EligibilityExclusion, ...],
+    quota_state: QuotaBackendState | None,
     now: float,
     latency_ewma_ms: float | None,
 ) -> RoutingCandidate:
+    quota: Final = _route_quota(
+        account=account,
+        deployment=deployment,
+        snapshot=snapshot,
+        quota_state=quota_state,
+    )
     exclusion: Final = candidate_exclusion(
         exclusions=exclusions,
         account_id=account.id,
@@ -360,6 +466,7 @@ def _routing_candidate(
         available=(
             deployment.enabled
             and not deployment.routing_paused
+            and quota.unavailable_reason is None
             and _unavailable_reason(snapshot=snapshot, exclusion=exclusion) is None
         ),
         priority=account.priority,
@@ -367,7 +474,10 @@ def _routing_candidate(
         manual_order=deployment.manual_order,
         inflight=snapshot.inflight,
         max_concurrency=snapshot.max_concurrency,
-        remaining_quota_ratio=_quota_ratio(account=account, snapshot=snapshot),
+        remaining_quota_ratio=quota.remaining_ratio,
+        remaining_quota=quota.remaining,
+        remaining_quota_unit=quota.unit,
+        quota_unavailable_reason=quota.unavailable_reason,
         latency_ewma_ms=latency_ewma_ms,
         effective_cost=None if deployment.cost_evidence is None else deployment.cost_evidence.effective_cost,
         cost_currency=None if deployment.cost_evidence is None else deployment.cost_evidence.currency,

@@ -6,6 +6,7 @@ import asyncio
 from typing import Final
 
 from account_pool.models import AccountConfig, PoolConfig
+from account_pool.parsing.models import ParsedChannelData
 from account_pool.parsing.service import ParserDataFailure, ParserDataFailureCode, ParserDataReader
 from account_pool.quota.projection import QuotaProjectionError, project_quota_windows
 from account_pool.routing.projection import project_routing_deployments
@@ -31,7 +32,15 @@ class ParserRuntimeConfigEnricher:
         parsed: Final = loaded.effective_result
         return account.model_copy(
             update={
+                "max_concurrency": _channel_max_concurrency(account=account, parsed=parsed),
                 "quota_windows": project_quota_windows(account=account, parsed=parsed),
                 "deployments": project_routing_deployments(account=account, parsed=parsed),
             }
         )
+
+
+def _channel_max_concurrency(account: AccountConfig, parsed: ParsedChannelData) -> int:
+    subscription: Final = parsed.subscription
+    if subscription is None or subscription.channel_concurrency is None:
+        return account.max_concurrency
+    return subscription.channel_concurrency

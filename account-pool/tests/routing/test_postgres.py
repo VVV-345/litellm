@@ -20,6 +20,7 @@ from account_pool.routing.models import (
     RoutingCandidateMutation,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyState,
 )
 from account_pool.routing.postgres import PostgresRoutingPolicyRepository
@@ -30,6 +31,8 @@ from tests.catalog.test_importer import legacy_config
 @dataclass(frozen=True, slots=True)
 class RoutingRepositoryFixture:
     repository: PostgresRoutingPolicyRepository
+    database_url: str
+    schema: str
     model: str
     binding_ids: tuple[UUID, UUID]
 
@@ -65,6 +68,8 @@ async def routing_repository_fixture() -> AsyncIterator[RoutingRepositoryFixture
             assert len(matching) >= 2
             yield RoutingRepositoryFixture(
                 repository=PostgresRoutingPolicyRepository(database_url, schema=schema),
+                database_url=database_url,
+                schema=schema,
                 model=model,
                 binding_ids=(matching[0], matching[1]),
             )
@@ -84,43 +89,60 @@ async def test_policy_and_candidate_updates_increment_version(
     candidate: Final = await fixture.repository.update_candidate(
         fixture.model,
         fixture.binding_ids[0],
-        RoutingCandidateMutation(expected_version=policy.version, manual_order=0, weight=9, paused=True),
+        RoutingCandidateMutation(expected_version=policy.version, weight=9, paused=True),
     )
 
     assert isinstance(candidate, RoutingPolicyState)
     assert candidate.version == policy.version + 1
     assert candidate.overrides[0].binding_id == fixture.binding_ids[0]
-    assert (candidate.overrides[0].manual_order, candidate.overrides[0].weight, candidate.overrides[0].paused) == (
-        0,
-        9,
-        True,
-    )
+    assert (candidate.overrides[0].manual_order, candidate.overrides[0].weight, candidate.overrides[0].paused) == (None, 9, True)
 
 
-async def test_stale_version_and_duplicate_manual_order_are_rejected(
+async def test_stale_version_and_incomplete_drag_order_are_rejected(
     routing_repository_fixture: RoutingRepositoryFixture,
 ) -> None:
     fixture: Final = routing_repository_fixture
     initial: Final = await fixture.repository.load(fixture.model)
     assert isinstance(initial, RoutingPolicyState)
-    first: Final = await fixture.repository.update_candidate(
+    first: Final = await fixture.repository.update_order(
         fixture.model,
-        fixture.binding_ids[0],
-        RoutingCandidateMutation(expected_version=initial.version, manual_order=0),
+        RoutingOrderMutation(expected_version=initial.version, binding_ids=fixture.binding_ids),
     )
     assert isinstance(first, RoutingPolicyState)
+    assert tuple(override.manual_order for override in first.overrides) == (0, 1)
 
     stale: Final = await fixture.repository.update_policy(fixture.model, Strategy.RANDOM, initial.version)
-    duplicate: Final = await fixture.repository.update_candidate(
+    incomplete: Final = await fixture.repository.update_order(
         fixture.model,
-        fixture.binding_ids[1],
-        RoutingCandidateMutation(expected_version=first.version, manual_order=0),
+        RoutingOrderMutation(expected_version=first.version, binding_ids=(fixture.binding_ids[0],)),
     )
 
     assert isinstance(stale, RoutingFailure)
     assert (stale.code, stale.current_version) == (RoutingFailureCode.VERSION_CONFLICT, first.version)
-    assert isinstance(duplicate, RoutingFailure)
-    assert duplicate.code == RoutingFailureCode.CANDIDATE_CONFLICT
+    assert isinstance(incomplete, RoutingFailure)
+    assert incomplete.code == RoutingFailureCode.CANDIDATE_CONFLICT
+
+
+async def test_drag_order_accepts_disabled_bindings(
+    routing_repository_fixture: RoutingRepositoryFixture,
+) -> None:
+    fixture: Final = routing_repository_fixture
+    async with await psycopg.AsyncConnection.connect(fixture.database_url) as connection:
+        await connection.execute("SELECT set_config('search_path', %s, false)", (fixture.schema,))
+        await connection.execute(
+            'UPDATE "LiteLLM_AccountPoolBinding" SET enabled = FALSE WHERE binding_id = %s',
+            (str(fixture.binding_ids[1]),),
+        )
+    initial: Final = await fixture.repository.load(fixture.model)
+    assert isinstance(initial, RoutingPolicyState)
+
+    ordered: Final = await fixture.repository.update_order(
+        fixture.model,
+        RoutingOrderMutation(expected_version=initial.version, binding_ids=tuple(reversed(fixture.binding_ids))),
+    )
+
+    assert isinstance(ordered, RoutingPolicyState)
+    assert tuple(override.binding_id for override in ordered.overrides) == tuple(reversed(fixture.binding_ids))
 
 
 async def test_candidate_delete_and_wrong_binding_are_safe(

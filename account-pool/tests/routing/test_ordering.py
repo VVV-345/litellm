@@ -44,7 +44,7 @@ def ids(ordered: tuple[RoutingOrder, ...]) -> tuple[str, ...]:
     return tuple(item.candidate.account_id for item in ordered)
 
 
-def test_priority_prefers_explicit_manual_order_then_channel_priority() -> None:
+def test_priority_prefers_channel_priority_before_saved_drag_order() -> None:
     ordered: Final = order_candidates(
         candidates=(
             candidate("high", priority=400),
@@ -55,8 +55,8 @@ def test_priority_prefers_explicit_manual_order_then_channel_priority() -> None:
         model="model-a",
     )
 
-    assert ids(ordered) == ("manual-first", "manual-second", "high")
-    assert ordered[0].reason_codes == ("manual_order",)
+    assert ids(ordered) == ("high", "manual-first", "manual-second")
+    assert ordered[0].reason_codes == ("channel_priority",)
 
 
 def test_random_is_stable_for_request_and_changes_between_requests() -> None:
@@ -129,6 +129,23 @@ def test_unavailable_candidate_stays_last_for_every_strategy() -> None:
     )
 
     assert all(ids(result)[-1] == "unavailable" for result in results)
+
+
+def test_available_subscription_is_first_for_lowest_cost_but_exhausted_subscription_is_last() -> None:
+    included: Final = candidate("subscription").model_copy(
+        update={"effective_cost": Decimal("0"), "cost_currency": None, "cost_unit": None, "cost_included": True}
+    )
+    metered: Final = candidate("metered", cost="2")
+    exhausted: Final = included.model_copy(update={"account_id": "exhausted", "available": False})
+
+    ordered: Final = order_candidates(
+        (metered, exhausted, included),
+        Strategy.LOWEST_EFFECTIVE_COST,
+        "model-a",
+    )
+
+    assert ids(ordered) == ("subscription", "metered", "exhausted")
+    assert ordered[0].reason_codes == ("subscription_included",)
 
 
 def test_weighted_round_robin_preview_uses_sequence_without_dropping_fallbacks() -> None:

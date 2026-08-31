@@ -27,6 +27,9 @@ class RoutingCandidate(RoutingModel):
     inflight: int = Field(ge=0)
     max_concurrency: int = Field(ge=1)
     remaining_quota_ratio: float | None = Field(default=None, ge=0)
+    remaining_quota: Decimal | None = Field(default=None, ge=0)
+    remaining_quota_unit: str | None = Field(default=None, min_length=1)
+    quota_unavailable_reason: str | None = Field(default=None, min_length=1)
     latency_ewma_ms: float | None = Field(default=None, ge=0)
     effective_cost: Decimal | None = Field(default=None, ge=0)
     cost_currency: str | None = Field(default=None, min_length=1)
@@ -36,6 +39,8 @@ class RoutingCandidate(RoutingModel):
 
     @model_validator(mode="after")
     def validate_cost_basis(self) -> RoutingCandidate:
+        if (self.remaining_quota is None) != (self.remaining_quota_unit is None):
+            raise ValueError("remaining quota requires a unit")
         has_basis = self.cost_currency is not None and self.cost_unit is not None
         if self.cost_included:
             if self.effective_cost != 0 or has_basis:
@@ -79,9 +84,19 @@ class RoutingPolicyMutation(RoutingModel):
 
 class RoutingCandidateMutation(RoutingModel):
     expected_version: int = Field(ge=0)
-    manual_order: int | None = Field(default=None, ge=0)
     weight: int | None = Field(default=None, ge=1, le=100)
     paused: bool = False
+
+
+class RoutingOrderMutation(RoutingModel):
+    expected_version: int = Field(ge=0)
+    binding_ids: tuple[UUID, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_bindings(self) -> RoutingOrderMutation:
+        if len(self.binding_ids) != len(frozenset(self.binding_ids)):
+            raise ValueError("binding_ids must not contain duplicates")
+        return self
 
 
 class RoutingVersionMutation(RoutingModel):

@@ -798,6 +798,42 @@ async def test_model_window_does_not_block_sibling_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exhausted_package_balance_only_blocks_selected_model_and_recovers_after_refresh() -> None:
+    package_balance: Final = QuotaWindowConfig(
+        window_id="subscription-balance",
+        scope=RuntimeQuotaScope.MODEL,
+        subject_id="model-a",
+        kind=RuntimeQuotaKind.PROVIDER_UNITS,
+        window_type=RuntimeQuotaWindowType.LIFETIME,
+        remaining=Decimal("0"),
+        observed_at=time.time(),
+        source="subscription_balance",
+        reason_code="subscription_balance_exhausted",
+    )
+    configured: Final = account("shared", max_concurrency=2, models=("model-a", "model-b")).model_copy(
+        update={"quota_windows": (package_balance,)}
+    )
+    scheduler, _ = await initialized_scheduler(PoolConfig(accounts=(configured,)))
+
+    blocked: Final = await scheduler.acquire(AcquireRequest(request_id="request-a", model="model-a"))
+    available: Final = await scheduler.acquire(AcquireRequest(request_id="request-b", model="model-b"))
+    routes: Final = await scheduler.route_table("model-a")
+
+    assert isinstance(blocked, AcquireUnavailable)
+    assert blocked.reasons == ("shared:subscription_balance_exhausted",)
+    assert routes[0].available is False
+    assert routes[0].remaining_quota == Decimal("0")
+    assert routes[0].remaining_quota_unit == "provider_units"
+    assert isinstance(available, AcquireSuccess)
+
+    refreshed: Final = package_balance.model_copy(update={"remaining": Decimal("5"), "observed_at": time.time()})
+    await scheduler.reconfigure(PoolConfig(accounts=(configured.model_copy(update={"quota_windows": (refreshed,)}),)))
+    recovered: Final = await scheduler.acquire(AcquireRequest(request_id="request-a-recovered", model="model-a"))
+
+    assert isinstance(recovered, AcquireSuccess)
+
+
+@pytest.mark.asyncio
 async def test_billing_route_window_falls_back_to_sibling_route() -> None:
     configured: Final = account("shared", max_concurrency=2).model_copy(
         update={

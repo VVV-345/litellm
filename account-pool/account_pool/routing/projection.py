@@ -19,8 +19,8 @@ from account_pool.parsing.models import (
     MeteredGroup,
     MeteredModelPrice,
     ParsedChannelData,
-    SubscriptionStatus,
 )
+from account_pool.parsing.subscription import subscription_includes_model
 
 
 def project_routing_deployments(
@@ -33,16 +33,21 @@ def project_routing_deployments(
 def _project_deployment(deployment: DeploymentConfig, parsed: ParsedChannelData) -> DeploymentConfig:
     route: Final = _direct_route(deployment=deployment, routes=parsed.billing_routes)
     billing_mode: Final = _billing_mode(route)
-    if route is not None and route.mode == BillingMode.SUBSCRIPTION and _subscription_includes(deployment, parsed):
+    included: Final = subscription_includes_model(
+        parsed.subscription,
+        public_model=deployment.public_model,
+        provider_model=deployment.provider_model,
+    )
+    if included and (route is None or route.mode == BillingMode.SUBSCRIPTION):
         return deployment.model_copy(
             update={
-                "billing_route_id": str(route.route_id),
-                "billing_mode": billing_mode,
+                "billing_route_id": None if route is None else str(route.route_id),
+                "billing_mode": RuntimeBillingMode.SUBSCRIPTION,
                 "cost_evidence": DeploymentCostEvidence(
                     kind=CostEvidenceKind.SUBSCRIPTION_INCLUDED,
                     effective_cost=Decimal("0"),
-                    provider_group_id=route.provider_group_id,
-                    billing_mode=billing_mode,
+                    provider_group_id=None if route is None else route.provider_group_id,
+                    billing_mode=RuntimeBillingMode.SUBSCRIPTION,
                 ),
             }
         )
@@ -55,24 +60,6 @@ def _project_deployment(deployment: DeploymentConfig, parsed: ParsedChannelData)
             "billing_mode": billing_mode,
             "cost_evidence": evidence,
         }
-    )
-
-
-def _subscription_includes(deployment: DeploymentConfig, parsed: ParsedChannelData) -> bool:
-    subscription: Final = parsed.subscription
-    if subscription is None or subscription.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL):
-        return False
-    return any(
-        (
-            identity.public_model_name == deployment.public_model
-            if identity.public_model_name is not None
-            else (
-                identity.litellm_model_name == deployment.public_model
-                if identity.litellm_model_name is not None
-                else identity.provider_model_id in (deployment.provider_model, deployment.public_model)
-            )
-        )
-        for identity in subscription.models
     )
 
 

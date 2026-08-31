@@ -1,3 +1,5 @@
+// 本文件将已发现模型的人工价格草稿校验并转换为解析覆盖数据。
+
 import type { JsonDecimal, JsonValue } from "./types";
 
 export interface MeteredPriceDraft {
@@ -35,7 +37,8 @@ interface MeteredGroupValue {
 const asObject = (value: JsonValue | undefined): Record<string, JsonValue> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 
-const asString = (value: JsonValue | undefined, fallback = ""): string => (typeof value === "string" ? value : fallback);
+const asString = (value: JsonValue | undefined, fallback = ""): string =>
+  typeof value === "string" ? value : fallback;
 
 const decimalText = (value: JsonValue | undefined, fallback = ""): string =>
   typeof value === "string" || typeof value === "number" ? String(value) : fallback;
@@ -57,29 +60,34 @@ const priceDraft = (value: JsonValue, group: MeteredGroupValue): MeteredPriceDra
   };
 };
 
+const emptyDraft = (providerModelId: string): MeteredPriceDraft => ({
+  providerModelId,
+  groupId: "manual",
+  groupName: "manual",
+  currency: "USD",
+  unit: "million_tokens",
+  inputPrice: "",
+  outputPrice: "",
+  cacheReadPrice: "",
+  cacheWritePrice: "",
+  groupMultiplier: "1",
+});
+
 export const buildMeteredPriceDrafts = (value: JsonValue | undefined, models: string[] = []): MeteredPriceDraft[] => {
   const metered = asObject(value);
-  const parsed = !metered || !Array.isArray(metered.groups)
-    ? []
-    : metered.groups.flatMap((value) => {
-        const group = asObject(value) as MeteredGroupValue | null;
-        if (!group || !Array.isArray(group.models)) return [];
-        return group.models.map((price) => priceDraft(price, group)).filter((draft): draft is MeteredPriceDraft => draft !== null);
-      });
-  return parsed.length
-    ? parsed
-    : models.map((providerModelId) => ({
-        providerModelId,
-        groupId: "manual",
-        groupName: "manual",
-        currency: "RATIO",
-        unit: "multiplier",
-        inputPrice: "",
-        outputPrice: "",
-        cacheReadPrice: "",
-        cacheWritePrice: "",
-        groupMultiplier: "1",
-      }));
+  const parsed =
+    !metered || !Array.isArray(metered.groups)
+      ? []
+      : metered.groups.flatMap((value) => {
+          const group = asObject(value) as MeteredGroupValue | null;
+          if (!group || !Array.isArray(group.models)) return [];
+          return group.models
+            .map((price) => priceDraft(price, group))
+            .filter((draft): draft is MeteredPriceDraft => draft !== null);
+        });
+  const parsedByModel = new Map(parsed.map((draft) => [draft.providerModelId, draft]));
+  const discoveredModels = Array.from(new Set(models.map((model) => model.trim()).filter(Boolean)));
+  return discoveredModels.map((providerModelId) => parsedByModel.get(providerModelId) ?? emptyDraft(providerModelId));
 };
 
 const parseDecimal = (value: string, field: string, allowEmpty: boolean): JsonDecimal | null => {
@@ -97,14 +105,14 @@ const effectivePrice = (source: JsonDecimal | null, multiplier: JsonDecimal): Js
 const priceValue = (draft: MeteredPriceDraft): JsonValue => {
   const multiplier = parseDecimal(draft.groupMultiplier, "分组倍率", false);
   if (multiplier === null || Number(multiplier) <= 0) throw new Error("分组倍率必须大于零");
-  const inputPrice = parseDecimal(draft.inputPrice, "输入价格", true);
-  const outputPrice = parseDecimal(draft.outputPrice, "输出价格", true);
+  const inputPrice = parseDecimal(draft.inputPrice, "输入价格", false);
+  const outputPrice = parseDecimal(draft.outputPrice, "输出价格", false);
   const cacheReadPrice = parseDecimal(draft.cacheReadPrice, "缓存读取价格", true);
   const cacheWritePrice = parseDecimal(draft.cacheWritePrice, "缓存写入价格", true);
   return {
-    provider_model_id: draft.providerModelId,
-    currency: draft.currency.trim() || "RATIO",
-    unit: draft.unit.trim() || "multiplier",
+    provider_model_id: draft.providerModelId.trim(),
+    currency: draft.currency.trim() || "USD",
+    unit: draft.unit.trim() || "million_tokens",
     input_price: inputPrice,
     output_price: outputPrice,
     cache_read_price: cacheReadPrice,
@@ -121,21 +129,30 @@ const priceValue = (draft: MeteredPriceDraft): JsonValue => {
     conversion_note: null,
     litellm_model_name: null,
     public_model_name: null,
-    concurrency: null,
   };
 };
 
-export const buildMeteredOverrideValue = (drafts: MeteredPriceDraft[]): JsonValue => {
-  if (!drafts.length) throw new Error("至少填写一个模型价格");
-  const groupIds = [...new Set(drafts.map((draft) => draft.groupId ?? "manual"))];
+export const buildMeteredOverrideValue = (
+  drafts: MeteredPriceDraft[],
+  allowedModels?: readonly string[],
+): JsonValue => {
+  const pricedDrafts = drafts.filter((draft) => draft.inputPrice.trim() || draft.outputPrice.trim());
+  if (!pricedDrafts.length) throw new Error("至少填写一个模型价格");
+  const permittedModels = allowedModels === undefined ? null : new Set(allowedModels.map((model) => model.trim()));
+  const modelIds = pricedDrafts.map((draft) => draft.providerModelId.trim());
+  if (modelIds.some((modelId) => !modelId)) throw new Error("模型名称不能为空");
+  if (new Set(modelIds).size !== modelIds.length) throw new Error("模型名称不能重复");
+  if (permittedModels !== null && modelIds.some((modelId) => !permittedModels.has(modelId))) {
+    throw new Error("只能补充本次解析发现的模型");
+  }
+  const groupIds = [...new Set(pricedDrafts.map((draft) => draft.groupId ?? "manual"))];
   return {
     groups: groupIds.map((groupId) => {
-      const groupDrafts = drafts.filter((draft) => (draft.groupId ?? "manual") === groupId);
+      const groupDrafts = pricedDrafts.filter((draft) => (draft.groupId ?? "manual") === groupId);
       return {
         group_id: groupId,
         group_name: groupDrafts[0]?.groupName ?? groupId,
         models: groupDrafts.map(priceValue),
-        concurrency: null,
       };
     }),
   };

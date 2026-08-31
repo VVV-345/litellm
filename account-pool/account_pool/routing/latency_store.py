@@ -8,6 +8,7 @@ from uuid import UUID
 
 from account_pool.eligibility import EligibilityExclusion
 from account_pool.models import AccountConfig, AccountSnapshot, Lease, ReserveResult, SettleRequest
+from account_pool.quota.backend import QuotaBackendState
 from account_pool.routing.latency import (
     DeploymentLatencyMetric,
     LatencyLoadSuccess,
@@ -59,6 +60,9 @@ class DurableLatencyStateStore:
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]:
         return await self._backend.eligibility_exclusions()
+
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None:
+        return await self._backend.quota_backend_state(account_id)
 
     async def reserve(
         self,

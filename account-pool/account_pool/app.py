@@ -144,10 +144,7 @@ from account_pool.parsing.tasks.models import (
 from account_pool.parsing.tasks.postgres import PostgresParserTaskRepository
 from account_pool.parsing.tasks.service import ParserTaskManager, ParserTaskService
 from account_pool.parsing.worker import ParserWorker
-from account_pool.provider_services.glm import GlmOfficialProviderService
-from account_pool.provider_services.lmu_static_metadata import LmuStaticMetadataProviderService
-from account_pool.provider_services.new_api import NewApiProviderService
-from account_pool.provider_services.openai_compatible import OpenAICompatibleProviderService
+from account_pool.provider_services.generic import GenericProviderService
 from account_pool.provider_services.parser_registry import build_parser_registry
 from account_pool.provider_services.registry import ProviderServiceRegistry
 from account_pool.quota.durable import DurableQuotaStateStore
@@ -167,6 +164,7 @@ from account_pool.routing.models import (
     RoutingCandidateMutation,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyMutation,
     RoutingPolicyResult,
     RoutingPolicyState,
@@ -305,10 +303,7 @@ def create_app(
     )
     provider_services: Final = ProviderServiceRegistry(
         (
-            GlmOfficialProviderService(client),
-            LmuStaticMetadataProviderService(),
-            OpenAICompatibleProviderService(client),
-            NewApiProviderService(client),
+            GenericProviderService(client),
         )
     )
     upstream_providers: Final = build_upstream_provider_registry(client)
@@ -337,7 +332,9 @@ def create_app(
         )
     )
     resolved_parser_overrides: Final = (
-        parser_overrides if parser_overrides is not None else _build_parser_overrides(resolved_settings)
+        parser_overrides
+        if parser_overrides is not None
+        else _build_parser_overrides(resolved_settings, scheduler, resolved_parser_data)
     )
     build_public_metadata_tasks: Final = (
         public_metadata_tasks is None
@@ -1132,6 +1129,21 @@ def create_app(
         )
         return _routing_result(await service.update_candidate(model, binding_id, body, actor))
 
+    async def update_routing_order(
+        model: str,
+        body: RoutingOrderMutation,
+        x_account_pool_actor: str | None = Header(default=None),
+        x_account_pool_request_id: str | None = Header(default=None),
+    ) -> RoutingPolicyState:
+        service: Final = _require_routing_policies(resolved_routing_policies)
+        actor: Final = _verified_actor(
+            token=x_account_pool_actor,
+            request_id=x_account_pool_request_id,
+            expected_action=ActorAction.ROUTING_ORDER_UPDATE,
+            secret=resolved_settings.actor_secret,
+        )
+        return _routing_result(await service.update_order(model, body, actor))
+
     async def delete_routing_candidate(
         model: str,
         binding_id: UUID,
@@ -1172,6 +1184,19 @@ def create_app(
             request=request,
             method="PUT",
             path=f"/models/{encoded_model}/routing-candidates/{binding_id}",
+            access_token=access_token,
+        )
+
+    async def update_ui_routing_order(
+        model: str,
+        request: Request,
+        access_token: str = Depends(require_litellm_admin),
+    ) -> Response:
+        encoded_model: Final = quote(model, safe="")
+        return await forward_ui_management_request(
+            request=request,
+            method="PUT",
+            path=f"/models/{encoded_model}/routing-order",
             access_token=access_token,
         )
 
@@ -1338,6 +1363,12 @@ def create_app(
     application.add_api_route(
         "/api/models/{model:path}/routing-candidates/{binding_id}",
         update_routing_candidate,
+        methods=["PUT"],
+        dependencies=management_dependency,
+    )
+    application.add_api_route(
+        "/api/models/{model:path}/routing-order",
+        update_routing_order,
         methods=["PUT"],
         dependencies=management_dependency,
     )
@@ -1529,6 +1560,11 @@ def create_app(
     application.add_api_route(
         "/ui-api/models/{model:path}/routing-candidates/{binding_id}",
         update_ui_routing_candidate,
+        methods=["PUT"],
+    )
+    application.add_api_route(
+        "/ui-api/models/{model:path}/routing-order",
+        update_ui_routing_order,
         methods=["PUT"],
     )
     application.add_api_route(
@@ -1945,13 +1981,26 @@ def _parser_runtime_enricher(parser_data: ParserDataReader | None) -> ParserRunt
     return None if parser_data is None else ParserRuntimeConfigEnricher(parser_data)
 
 
-def _build_parser_overrides(settings: Settings) -> ParserOverrideWriter | None:
+def _build_parser_overrides(
+    settings: Settings,
+    scheduler: Scheduler,
+    parser_data: ParserDataReader | None,
+) -> ParserOverrideWriter | None:
     if settings.database_url is None:
         return None
+    catalog_repository: Final = PostgresCatalogRepository(
+        settings.database_url,
+        schema=settings.database_schema,
+    )
     return ParserOverrideService(
         parser_runs=PostgresParserRunRepository(settings.database_url, schema=settings.database_schema),
         overrides=PostgresOverrideEventRepository(settings.database_url, schema=settings.database_schema),
         audit=PostgresManagementAuditRepository(settings.database_url, schema=settings.database_schema),
+        projector=RuntimeProjector(
+            CatalogService(catalog_repository),
+            scheduler,
+            enricher=_parser_runtime_enricher(parser_data),
+        ),
     )
 
 
@@ -2212,6 +2261,7 @@ def _override_mutation_http_error(failure: OverrideMutationFailure) -> HTTPExcep
         return HTTPException(status_code=422, detail=detail)
     if failure.code in (
         OverrideMutationFailureCode.DATABASE_UNAVAILABLE,
+        OverrideMutationFailureCode.RUNTIME_PROJECTION_FAILED,
         OverrideMutationFailureCode.AUDIT_UNAVAILABLE,
     ):
         return HTTPException(status_code=503, detail=detail)

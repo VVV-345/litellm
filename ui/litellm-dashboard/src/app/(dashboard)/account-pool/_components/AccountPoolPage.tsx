@@ -23,7 +23,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { isProxyAdminRole } from "@/utils/roles";
 import { useModelCostMap } from "@/app/(dashboard)/hooks/models/useModelCostMap";
 
-import { accountPoolKeys, getChannels, getProviderServices, getUpstreamProviders, probeChannelHealth } from "../api";
+import { accountPoolKeys, getChannels, getUpstreamProviders, probeChannelHealth } from "../api";
 import {
   AccountPoolModuleHeader,
   AccountPoolModuleNavigation,
@@ -66,12 +66,6 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
     queryKey: accountPoolKeys.channels(),
     queryFn: () => getChannels(accessToken!),
     enabled: Boolean(accessToken && authorized),
-  });
-  const parserProvidersQuery = useQuery({
-    queryKey: accountPoolKeys.providers(),
-    queryFn: () => getProviderServices(accessToken!),
-    enabled: Boolean(accessToken && authorized),
-    staleTime: 5 * 60 * 1000,
   });
   const upstreamProvidersQuery = useQuery({
     queryKey: accountPoolKeys.upstreamProviders(),
@@ -266,7 +260,6 @@ export default function AccountPoolPage({ accessToken, userRole }: AccountPoolPa
         <ParserTaskDialog
           accessToken={accessToken!}
           channel={selectedChannel}
-          providers={parserProvidersQuery.data ?? []}
           onClose={() => setParserDialogOpen(false)}
           onCompleted={refreshSelected}
         />

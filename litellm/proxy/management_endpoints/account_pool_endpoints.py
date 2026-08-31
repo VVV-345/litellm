@@ -472,6 +472,22 @@ async def update_model_routing_candidate(
     )
 
 
+@router.put("/models/{model:path}/routing-order")
+async def update_model_routing_order(
+    model: str,
+    request: Request,
+    user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+) -> Response:
+    encoded_model: Final = quote(model, safe="")
+    return await _forward_channel_mutation(
+        request=request,
+        user_api_key_dict=user_api_key_dict,
+        method="PUT",
+        path=f"/api/models/{encoded_model}/routing-order",
+        action=AccountPoolActorAction.ROUTING_ORDER_UPDATE,
+    )
+
+
 @router.delete("/models/{model:path}/routing-candidates/{binding_id}")
 async def delete_model_routing_candidate(
     model: str,

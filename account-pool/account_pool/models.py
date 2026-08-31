@@ -395,6 +395,8 @@ class RouteEntry(FrozenModel):
     dynamic_order: bool = False
     sort_reason_codes: tuple[str, ...] = ()
     remaining_quota_ratio: float | None = Field(default=None, ge=0)
+    remaining_quota: Decimal | None = Field(default=None, ge=0)
+    remaining_quota_unit: str | None = Field(default=None, min_length=1)
     latency_ewma_ms: float | None = Field(default=None, ge=0)
     effective_cost: Decimal | None = Field(default=None, ge=0)
     cost_evidence: DeploymentCostEvidence | None = None

@@ -50,7 +50,6 @@ impl AccountPoolCandidate {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccountPoolOrderReason {
-    ManualOrder,
     ChannelPriority,
     RequestRandom,
     LatencyEwma,
@@ -120,40 +119,43 @@ fn compare_candidates(
 ) -> Ordering {
     availability_cmp(left, right)
         .then_with(|| match strategy {
-            AccountPoolStrategy::Priority => option_cmp(left.manual_order, right.manual_order)
-                .then_with(|| {
-                    left.manual_order
-                        .unwrap_or_default()
-                        .cmp(&right.manual_order.unwrap_or_default())
-                }),
-            AccountPoolStrategy::Random => {
-                random_rank(model, request_id, left).cmp(&random_rank(model, request_id, right))
-            }
+            AccountPoolStrategy::Priority => right
+                .priority
+                .cmp(&left.priority)
+                .then_with(|| manual_order_cmp(left, right)),
+            AccountPoolStrategy::Random => random_rank(model, request_id, left)
+                .cmp(&random_rank(model, request_id, right))
+                .then_with(|| manual_order_cmp(left, right)),
             AccountPoolStrategy::LowestLatency => {
                 option_f64_cmp(left.latency_ewma_ms, right.latency_ewma_ms, false)
+                    .then_with(|| manual_order_cmp(left, right))
             }
             AccountPoolStrategy::HighestRemainingQuota => option_f64_cmp(
                 left.remaining_quota_ratio,
                 right.remaining_quota_ratio,
                 true,
             )
-            .then_with(|| inflight_cmp(left, right)),
+            .then_with(|| inflight_cmp(left, right))
+            .then_with(|| manual_order_cmp(left, right)),
             AccountPoolStrategy::LowestEffectiveCost => option_f64_cmp(
                 comparable_cost(left, cost_basis),
                 comparable_cost(right, cost_basis),
                 false,
-            ),
-            AccountPoolStrategy::LeastInflight => inflight_cmp(left, right),
-            AccountPoolStrategy::QuotaAwareLeastInflight => {
-                inflight_cmp(left, right).then_with(|| {
+            )
+            .then_with(|| manual_order_cmp(left, right)),
+            AccountPoolStrategy::LeastInflight => {
+                inflight_cmp(left, right).then_with(|| manual_order_cmp(left, right))
+            }
+            AccountPoolStrategy::QuotaAwareLeastInflight => inflight_cmp(left, right)
+                .then_with(|| {
                     option_f64_cmp(
                         left.remaining_quota_ratio,
                         right.remaining_quota_ratio,
                         true,
                     )
                 })
-            }
-            AccountPoolStrategy::WeightedRoundRobin => Ordering::Equal,
+                .then_with(|| manual_order_cmp(left, right)),
+            AccountPoolStrategy::WeightedRoundRobin => manual_order_cmp(left, right),
         })
         .then_with(|| right.priority.cmp(&left.priority))
         .then_with(|| stable_cmp(left, right))
@@ -177,6 +179,14 @@ fn option_cmp<T: Ord>(left: Option<T>, right: Option<T>) -> Ordering {
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
     }
+}
+
+fn manual_order_cmp(left: &AccountPoolCandidate, right: &AccountPoolCandidate) -> Ordering {
+    option_cmp(left.manual_order, right.manual_order).then_with(|| {
+        left.manual_order
+            .unwrap_or_default()
+            .cmp(&right.manual_order.unwrap_or_default())
+    })
 }
 
 fn option_f64_cmp(left: Option<f64>, right: Option<f64>, descending: bool) -> Ordering {
@@ -278,11 +288,7 @@ fn order_reasons(
     cost_basis: Option<&(String, String)>,
 ) -> Vec<AccountPoolOrderReason> {
     match strategy {
-        AccountPoolStrategy::Priority => vec![if candidate.manual_order.is_some() {
-            AccountPoolOrderReason::ManualOrder
-        } else {
-            AccountPoolOrderReason::ChannelPriority
-        }],
+        AccountPoolStrategy::Priority => vec![AccountPoolOrderReason::ChannelPriority],
         AccountPoolStrategy::Random => vec![AccountPoolOrderReason::RequestRandom],
         AccountPoolStrategy::LowestLatency => vec![if candidate.latency_ewma_ms.is_some() {
             AccountPoolOrderReason::LatencyEwma
@@ -370,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn priority_prefers_manual_order_then_channel_priority() {
+    fn priority_prefers_channel_priority_before_saved_drag_order() {
         let candidates = [
             AccountPoolCandidate {
                 priority: 400,
@@ -396,10 +402,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(ids(&ordered), ["manual-first", "manual-second", "high"]);
+        assert_eq!(ids(&ordered), ["high", "manual-first", "manual-second"]);
         assert_eq!(
             ordered[0].reason_codes,
-            [AccountPoolOrderReason::ManualOrder]
+            [AccountPoolOrderReason::ChannelPriority]
         );
     }
 

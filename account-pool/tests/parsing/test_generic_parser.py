@@ -1,4 +1,4 @@
-"""验证 New API 倍率价格到统一按量分组的转换，及分组倍率的有效价格计算。"""
+"""验证 通用解析器 倍率价格到统一按量分组的转换，及分组倍率的有效价格计算。"""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -12,8 +12,8 @@ from account_pool.domain.provider_source import (
     ProviderValidationResult,
 )
 from account_pool.parsing.models import ParserRunStatus
-from account_pool.provider_services.new_api.manifest import NEW_API_MANIFEST
-from account_pool.provider_services.new_api.parser import parse_new_api_result
+from account_pool.provider_services.generic.manifest import GENERIC_MANIFEST
+from account_pool.provider_services.generic.parser import parse_generic_result
 
 
 def _validation(
@@ -23,20 +23,20 @@ def _validation(
 ) -> ProviderValidationResult:
     return ProviderValidationResult(
         ok=True,
-        provider_id="new_api",
+        provider_id="generic",
         normalized_api_base="https://gateway.example.com/v1",
         group="premium",
         key_fingerprint="fingerprint",
         message="不会复制到解析结果的渠道校验文案",
         pricing_failure_code=pricing_failure_code,
-        capabilities=NEW_API_MANIFEST.capabilities,
+        capabilities=GENERIC_MANIFEST.capabilities,
         models=models,
         pricing=pricing,
     )
 
 
-def test_new_api_parser_applies_group_multiplier_to_effective_prices() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_applies_group_multiplier_to_effective_prices() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -56,7 +56,7 @@ def test_new_api_parser_applies_group_multiplier_to_effective_prices() -> None:
         ),
     )
 
-    assert run.parser_id == "new-api"
+    assert run.parser_id == "generic"
     assert run.status == ParserRunStatus.PARTIAL
     assert run.discovered_models == ("claude-3.5-sonnet", "gpt-4o")
     assert run.result.metered is not None
@@ -78,8 +78,8 @@ def test_new_api_parser_applies_group_multiplier_to_effective_prices() -> None:
     assert "渠道校验文案" not in serialized
 
 
-def test_new_api_parser_omits_unpriced_visible_models() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_omits_unpriced_visible_models() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -104,8 +104,8 @@ def test_new_api_parser_omits_unpriced_visible_models() -> None:
     assert run.discovered_models == ("priced-model", "unpriced-model")
 
 
-def test_new_api_parser_without_pricing_keeps_metered_unresolved() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_without_pricing_keeps_metered_unresolved() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -115,12 +115,12 @@ def test_new_api_parser_without_pricing_keeps_metered_unresolved() -> None:
     assert run.status == ParserRunStatus.PARTIAL
     assert run.result.metered is None
     assert tuple(field.path for field in run.result.unresolved_fields) == ("subscription", "metered")
-    assert run.result.warnings == ("已完成模型发现，未获取到倍率价格",)
-    assert "账号" in run.issues[0].next_action
+    assert run.result.warnings == ("已完成模型发现，价格需要人工补充",)
+    assert run.issues[0].next_action == "在管理界面为已发现模型填写价格，或提供管理员凭证后重新解析"
 
 
-def test_new_api_parser_marks_authentication_pricing_failure_with_targeted_remediation() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_marks_authentication_pricing_failure_with_targeted_remediation() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -131,12 +131,12 @@ def test_new_api_parser_marks_authentication_pricing_failure_with_targeted_remed
         ),
     )
 
-    assert run.result.warnings == ("已完成模型发现，管理员认证未通过，未获取到倍率价格",)
-    assert run.issues[0].next_action == "检查 New API 管理员账号与密码后重新解析，或在管理界面手动补充分组倍率与价格"
+    assert run.result.warnings == ("已完成模型发现，价格需要人工补充",)
+    assert not run.issues[0].retryable
 
 
-def test_new_api_parser_marks_invalid_pricing_response_with_targeted_remediation() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_marks_invalid_pricing_response_with_targeted_remediation() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -147,12 +147,12 @@ def test_new_api_parser_marks_invalid_pricing_response_with_targeted_remediation
         ),
     )
 
-    assert run.result.warnings == ("已完成模型发现，倍率价格接口响应无效",)
-    assert run.issues[0].next_action == "确认 New API 倍率价格接口及响应格式后重新解析"
+    assert run.result.warnings == ("已完成模型发现，价格需要人工补充",)
+    assert not run.issues[0].retryable
 
 
-def test_new_api_parser_marks_transient_pricing_failure_retryable() -> None:
-    run: Final = parse_new_api_result(
+def test_generic_parser_marks_transient_pricing_failure_retryable() -> None:
+    run: Final = parse_generic_result(
         channel_id=uuid4(),
         parser_run_id=uuid4(),
         parsed_at=datetime(2026, 8, 22, 8, 0, tzinfo=UTC),
@@ -163,7 +163,7 @@ def test_new_api_parser_marks_transient_pricing_failure_retryable() -> None:
         ),
     )
 
-    assert run.result.warnings == ("已完成模型发现，倍率价格接口暂时不可用",)
+    assert run.result.warnings == ("已完成模型发现，价格需要人工补充",)
     assert run.result.unresolved_fields[1].retryable
     assert run.issues[0].retryable
-    assert run.issues[0].next_action == "等待上游倍率价格接口恢复后重新解析"
+    assert run.issues[0].next_action == "在管理界面为已发现模型填写价格，或提供管理员凭证后重新解析"

@@ -26,6 +26,7 @@ QUOTA_WINDOW_REASON_CODES: Final = frozenset(
         "weekly_exhausted",
         "monthly_exhausted",
         "quota_window_exhausted",
+        "subscription_balance_exhausted",
     }
 )
 

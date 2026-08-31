@@ -41,6 +41,7 @@ class ActorAction(StrEnum):
     OVERRIDE_REVOKE = "parser_override:revoke"
     ROUTING_POLICY_UPDATE = "routing_policy:update"
     ROUTING_CANDIDATE_UPDATE = "routing_candidate:update"
+    ROUTING_ORDER_UPDATE = "routing_order:update"
     ROUTING_CANDIDATE_DELETE = "routing_candidate:delete"
 
 

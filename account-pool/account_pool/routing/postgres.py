@@ -17,6 +17,7 @@ from account_pool.routing.models import (
     RoutingCandidateOverride,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyResult,
     RoutingPolicyState,
 )
@@ -36,14 +37,33 @@ FROM "LiteLLM_AccountPoolModelCandidateOverride"
 WHERE model = %s
 ORDER BY manual_order NULLS LAST, binding_id
 """
+_SELECT_BINDINGS_FOR_UPDATE: Final = """
+SELECT binding_id
+FROM "LiteLLM_AccountPoolBinding"
+WHERE public_model = %s
+ORDER BY binding_id
+FOR UPDATE
+"""
 _UPSERT_OVERRIDE: Final = """
 INSERT INTO "LiteLLM_AccountPoolModelCandidateOverride" (
     model, binding_id, manual_order, weight, paused, created_at, updated_at
-) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+) VALUES (%s, %s, NULL, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT (model, binding_id) DO UPDATE SET
-    manual_order = EXCLUDED.manual_order,
     weight = EXCLUDED.weight,
     paused = EXCLUDED.paused,
+    updated_at = CURRENT_TIMESTAMP
+"""
+_CLEAR_MANUAL_ORDER: Final = """
+UPDATE "LiteLLM_AccountPoolModelCandidateOverride"
+SET manual_order = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE model = %s
+"""
+_UPSERT_ORDER: Final = """
+INSERT INTO "LiteLLM_AccountPoolModelCandidateOverride" (
+    model, binding_id, manual_order, weight, paused, created_at, updated_at
+) VALUES (%s, %s, %s, NULL, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (model, binding_id) DO UPDATE SET
+    manual_order = EXCLUDED.manual_order,
     updated_at = CURRENT_TIMESTAMP
 """
 
@@ -136,13 +156,48 @@ class PostgresRoutingPolicyRepository:
                     (
                         model,
                         str(binding_id),
-                        mutation.manual_order,
                         mutation.weight,
                         mutation.paused,
                     ),
                 )
                 if current is not None:
                     await _update_version(connection, model, next_version)
+                return await _load_state(connection, model)
+        except (psycopg.errors.UniqueViolation, psycopg.errors.CheckViolation):
+            return _failure(RoutingFailureCode.CANDIDATE_CONFLICT, retryable=False)
+        except psycopg.Error:
+            return _failure(RoutingFailureCode.DATABASE_UNAVAILABLE, retryable=True)
+
+    async def update_order(
+        self,
+        model: str,
+        mutation: RoutingOrderMutation,
+    ) -> RoutingPolicyResult:
+        try:
+            async with await self._connect() as connection, connection.transaction():
+                await self._set_search_path(connection)
+                current: Final = await _locked_policy(connection, model)
+                binding_ids: Final = await _binding_ids(connection, model)
+                if not binding_ids:
+                    return _failure(RoutingFailureCode.MODEL_NOT_FOUND, retryable=False)
+                if frozenset(binding_ids) != frozenset(mutation.binding_ids):
+                    return _failure(RoutingFailureCode.CANDIDATE_CONFLICT, retryable=False)
+                conflict: Final = _version_conflict(current=current, expected=mutation.expected_version)
+                if conflict is not None:
+                    return conflict
+                next_version: Final = mutation.expected_version + 1
+                if current is None:
+                    await _insert_policy(
+                        connection,
+                        model,
+                        Strategy.QUOTA_AWARE_LEAST_INFLIGHT,
+                        next_version,
+                    )
+                else:
+                    await _update_version(connection, model, next_version)
+                await connection.execute(_CLEAR_MANUAL_ORDER, (model,))
+                for manual_order, binding_id in enumerate(mutation.binding_ids):
+                    await connection.execute(_UPSERT_ORDER, (model, str(binding_id), manual_order))
                 return await _load_state(connection, model)
         except (psycopg.errors.UniqueViolation, psycopg.errors.CheckViolation):
             return _failure(RoutingFailureCode.CANDIDATE_CONFLICT, retryable=False)
@@ -244,6 +299,15 @@ async def _binding_exists(
         (model, str(binding_id)),
     )
     return await cursor.fetchone() is not None
+
+
+async def _binding_ids(
+    connection: AsyncConnection[Mapping[str, object]],
+    model: str,
+) -> tuple[UUID, ...]:
+    cursor: Final = await connection.execute(_SELECT_BINDINGS_FOR_UPDATE, (model,))
+    values: Final = await cursor.fetchall()
+    return tuple(UUID(str(row["binding_id"])) for row in values)
 
 
 async def _insert_policy(

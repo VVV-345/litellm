@@ -18,6 +18,7 @@ from account_pool.routing.models import (
     RoutingCandidateMutation,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyMutation,
     RoutingPolicyResult,
     RoutingPolicyState,
@@ -46,6 +47,13 @@ class FakeRepository:
         model: str,
         binding_id: UUID,
         mutation: RoutingCandidateMutation,
+    ) -> RoutingPolicyResult:
+        return self.result
+
+    async def update_order(
+        self,
+        model: str,
+        mutation: RoutingOrderMutation,
     ) -> RoutingPolicyResult:
         return self.result
 
@@ -123,21 +131,27 @@ async def test_successful_mutations_refresh_runtime_projection() -> None:
     candidate: Final = await service.update_candidate(
         "model-a",
         binding_id,
-        RoutingCandidateMutation(expected_version=4, manual_order=0, weight=10),
+        RoutingCandidateMutation(expected_version=4, weight=10),
         _actor(ActorAction.ROUTING_CANDIDATE_UPDATE),
+    )
+    ordered: Final = await service.update_order(
+        "model-a",
+        RoutingOrderMutation(expected_version=5, binding_ids=(binding_id,)),
+        _actor(ActorAction.ROUTING_ORDER_UPDATE),
     )
     deleted: Final = await service.delete_candidate(
         "model-a",
         binding_id,
-        RoutingVersionMutation(expected_version=5),
+        RoutingVersionMutation(expected_version=6),
         _actor(ActorAction.ROUTING_CANDIDATE_DELETE),
     )
 
-    assert (policy, candidate, deleted) == (state, state, state)
-    assert projector.calls == 3
+    assert (policy, candidate, ordered, deleted) == (state, state, state, state)
+    assert projector.calls == 4
     assert tuple(record.event.event_type.value for record in audit.records) == (
         "routing_policy_update",
         "routing_candidate_update",
+        "routing_order_update",
         "routing_candidate_delete",
     )
     assert all(record.event.model_id == "model-a" for record in audit.records)

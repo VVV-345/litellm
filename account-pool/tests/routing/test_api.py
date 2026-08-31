@@ -21,6 +21,7 @@ from account_pool.routing.models import (
     RoutingCandidateOverride,
     RoutingFailure,
     RoutingFailureCode,
+    RoutingOrderMutation,
     RoutingPolicyResult,
     RoutingPolicyState,
 )
@@ -68,10 +69,25 @@ class FakeRoutingRepository:
             overrides=(
                 RoutingCandidateOverride(
                     binding_id=binding_id,
-                    manual_order=mutation.manual_order,
+                    manual_order=None,
                     weight=mutation.weight,
                     paused=mutation.paused,
                 ),
+            ),
+        )
+
+    async def update_order(
+        self,
+        model: str,
+        mutation: RoutingOrderMutation,
+    ) -> RoutingPolicyResult:
+        return RoutingPolicyState(
+            model=model,
+            strategy=Strategy.PRIORITY,
+            version=mutation.expected_version + 1,
+            overrides=tuple(
+                RoutingCandidateOverride(binding_id=binding_id, manual_order=index)
+                for index, binding_id in enumerate(mutation.binding_ids)
             ),
         )
 
@@ -129,24 +145,34 @@ async def test_routing_policy_and_candidate_apis_return_versions() -> None:
             )
             candidate: Final = await client.put(
                 f"/api/models/openai%2Fgpt-4o/routing-candidates/{_BINDING_ID}",
-                json={"expected_version": 3, "manual_order": 0, "weight": 9, "paused": True},
+                json={"expected_version": 3, "weight": 9, "paused": True},
                 headers={
                     **headers,
                     "x-account-pool-request-id": "routing-candidate-update",
                     "x-account-pool-actor": _actor_token(ActorAction.ROUTING_CANDIDATE_UPDATE, "routing-candidate-update"),
                 },
             )
+            ordered: Final = await client.put(
+                "/api/models/openai%2Fgpt-4o/routing-order",
+                json={"expected_version": 4, "binding_ids": [str(_BINDING_ID)]},
+                headers={
+                    **headers,
+                    "x-account-pool-request-id": "routing-order-update",
+                    "x-account-pool-actor": _actor_token(ActorAction.ROUTING_ORDER_UPDATE, "routing-order-update"),
+                },
+            )
             deleted: Final = await client.request(
                 "DELETE",
                 f"/api/models/gpt-4o/routing-candidates/{_BINDING_ID}",
-                json={"expected_version": 4},
+                json={"expected_version": 5},
                 headers={
                     **headers,
                     "x-account-pool-request-id": "routing-candidate-delete",
                     "x-account-pool-actor": _actor_token(ActorAction.ROUTING_CANDIDATE_DELETE, "routing-candidate-delete"),
                 },
             )
-    assert (loaded.status_code, updated.status_code, candidate.status_code, deleted.status_code) == (
+    assert (loaded.status_code, updated.status_code, candidate.status_code, ordered.status_code, deleted.status_code) == (
+        200,
         200,
         200,
         200,
@@ -157,11 +183,13 @@ async def test_routing_policy_and_candidate_apis_return_versions() -> None:
     assert (updated.json()["strategy"], updated.json()["version"]) == ("random", 3)
     assert candidate.json()["overrides"][0] == {
         "binding_id": str(_BINDING_ID),
-        "manual_order": 0,
+        "manual_order": None,
         "weight": 9,
         "paused": True,
     }
     assert candidate.json()["model"] == "openai/gpt-4o"
+    assert ordered.json()["overrides"][0]["manual_order"] == 0
+    assert ordered.json()["version"] == 5
     assert deleted.json()["overrides"] == []
 
 

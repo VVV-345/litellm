@@ -36,36 +36,46 @@ def _sort_key(
         availability: Final = 0 if candidate.available else 1
         stable: Final = candidate.stable_id()
         priority: Final = -candidate.priority
+        manual_order: Final = (_missing(candidate.manual_order), candidate.manual_order or 0)
         if strategy == Strategy.PRIORITY:
-            return (availability, _missing(candidate.manual_order), candidate.manual_order or 0, priority, stable)
+            return (availability, priority, *manual_order, stable)
         if strategy == Strategy.RANDOM:
-            return (availability, _random_rank(model, request_id, stable), priority, stable)
+            return (availability, _random_rank(model, request_id, stable), *manual_order, priority, stable)
         if strategy == Strategy.LOWEST_LATENCY:
-            return (availability, _missing(candidate.latency_ewma_ms), candidate.latency_ewma_ms or 0, priority, stable)
+            return (
+                availability,
+                _missing(candidate.latency_ewma_ms),
+                candidate.latency_ewma_ms or 0,
+                *manual_order,
+                priority,
+                stable,
+            )
         if strategy == Strategy.HIGHEST_REMAINING_QUOTA:
             return (
                 availability,
                 _missing(candidate.remaining_quota_ratio),
                 -(candidate.remaining_quota_ratio or 0),
                 _inflight_ratio(candidate),
+                *manual_order,
                 priority,
                 stable,
             )
         if strategy == Strategy.LOWEST_EFFECTIVE_COST:
             cost: Final = _comparable_cost(candidate, cost_basis)
-            return (availability, _missing(cost), cost or 0, priority, stable)
+            return (availability, _missing(cost), cost or 0, *manual_order, priority, stable)
         if strategy == Strategy.LEAST_INFLIGHT:
-            return (availability, _inflight_ratio(candidate), priority, stable)
+            return (availability, _inflight_ratio(candidate), *manual_order, priority, stable)
         if strategy == Strategy.QUOTA_AWARE_LEAST_INFLIGHT:
             return (
                 availability,
                 _inflight_ratio(candidate),
                 _missing(candidate.remaining_quota_ratio),
                 -(candidate.remaining_quota_ratio or 0),
+                *manual_order,
                 priority,
                 stable,
             )
-        return (availability, priority, stable)
+        return (availability, *manual_order, priority, stable)
 
     return key
 
@@ -92,7 +102,7 @@ def _result(
     cost_basis: tuple[str, str] | None,
 ) -> RoutingOrder:
     evidence: Final = {
-        Strategy.PRIORITY: ("manual_order" if candidate.manual_order is not None else "channel_priority",),
+        Strategy.PRIORITY: ("channel_priority",),
         Strategy.RANDOM: ("request_random",),
         Strategy.LOWEST_LATENCY: ("latency_ewma" if candidate.latency_ewma_ms is not None else "latency_unknown",),
         Strategy.HIGHEST_REMAINING_QUOTA: (

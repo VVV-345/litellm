@@ -35,6 +35,8 @@ const route = (overrides: Partial<RoutingTableEntry>): RoutingTableEntry => ({
   dynamic_order: false,
   sort_reason_codes: [],
   remaining_quota_ratio: null,
+  remaining_quota: overrides.remaining_quota ?? null,
+  remaining_quota_unit: overrides.remaining_quota_unit ?? null,
   latency_ewma_ms: null,
   effective_cost: null,
   cost_evidence: null,

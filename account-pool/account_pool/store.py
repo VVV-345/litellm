@@ -115,6 +115,8 @@ class StateStore(Protocol):
 
     async def eligibility_exclusions(self) -> tuple[EligibilityExclusion, ...]: ...
 
+    async def quota_backend_state(self, account_id: str | None = None) -> QuotaBackendState | None: ...
+
     async def reserve(
         self,
         account: AccountConfig,

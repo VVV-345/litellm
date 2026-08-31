@@ -1,5 +1,5 @@
 // 本文件实现 4100 调度工作台的模型选择、策略版本和候选人工覆盖交互。
-import { api } from "./api.js?v=4";
+import { api } from "./api.js?v=7";
 import {
   escapeHtml,
   formatNumber,
@@ -9,7 +9,7 @@ import {
   priorityName,
   strategyNames,
   strategyOptions,
-} from "./format.js?v=4";
+} from "./format.js?v=7";
 
 const reasonNames = {
   available: "当前可调度",
@@ -21,6 +21,7 @@ const reasonNames = {
   model_not_found: "上游模型不存在",
   rate_limited: "上游限流",
   rate_limit_unknown: "限流恢复时间未知",
+  subscription_balance_exhausted: "套餐额度已用尽",
   unhealthy: "健康检查未通过",
   upstream_unavailable: "上游暂不可用",
 };
@@ -40,9 +41,16 @@ const billingModeNames = {
   provider_decided: "厂商决定",
 };
 
+const quotaUnitNames = {
+  requests: "次",
+  tokens: "tokens",
+  credits: "积分",
+  currency: "货币",
+  provider_units: "用量",
+};
+
 const sortReasonNames = {
-  manual_order: "人工顺序",
-  priority: "渠道优先级",
+  channel_priority: "渠道优先级",
   random: "请求级随机",
   latency: "延迟",
   remaining_quota_ratio: "剩余额度",
@@ -52,14 +60,22 @@ const sortReasonNames = {
   stable_id: "稳定 ID",
 };
 
-const optionalInteger = (value) => value.trim() === "" ? null : Number(value);
-
 const costText = (route) => {
   const evidence = route.cost_evidence;
   if (!evidence) return "未知";
   if (evidence.kind === "subscription_included") return "套餐内包含";
   const suffix = evidence.partial ? "（部分价格）" : "";
   return `${formatNumber(evidence.effective_cost)} ${escapeHtml(evidence.currency)}/${escapeHtml(evidence.unit)}${suffix}`;
+};
+
+const packageQuotaText = (route) => {
+  if (route.billing_mode !== "subscription") return null;
+  if (route.remaining_quota !== null && Number(route.remaining_quota) <= 0) return "套餐额度已用尽";
+  if (route.remaining_quota !== null && route.remaining_quota_unit !== null) {
+    const unit = quotaUnitNames[route.remaining_quota_unit] ?? route.remaining_quota_unit;
+    return `套餐余量 ${formatNumber(route.remaining_quota)} ${unit}`;
+  }
+  return null;
 };
 
 const availabilityText = (route) => {
@@ -73,9 +89,9 @@ const sortReasonText = (route) => (route.sort_reason_codes ?? [])
   .map((reason) => sortReasonNames[reason] ?? reason)
   .join(" / ") || "稳定顺序";
 
-const candidateControls = (route, policyAvailable) => route.binding_id && policyAvailable
+const candidateControls = (route, policyAvailable, orderDirty) => route.binding_id && policyAvailable && !orderDirty
   ? `<button class="button ghost" type="button" data-edit-route="${escapeHtml(route.binding_id)}">调整</button>`
-  : `<span class="muted">${route.binding_id ? "只读" : "无绑定 ID"}</span>`;
+  : `<span class="muted">${orderDirty ? "请先保存顺序" : route.binding_id ? "只读" : "无绑定 ID"}</span>`;
 
 export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
   let models = [];
@@ -84,6 +100,8 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
   let policy = null;
   let policyAvailable = true;
   let editingBindingId = null;
+  let draftOrder = [];
+  let draggingBindingId = null;
 
   const routeDialog = document.querySelector("#route-dialog");
   const routeForm = document.querySelector("#route-form");
@@ -104,11 +122,36 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
     routes = loadedRoutes;
     policy = loadedPolicy;
     policyAvailable = loadedPolicy !== null;
+    draftOrder = [];
+    draggingBindingId = null;
   };
 
+  const sourceOrder = () => routes.flatMap((route) => route.binding_id ? [route.binding_id] : []);
+
+  const hasCompleteBindingOrder = () => routes.length > 0 && sourceOrder().length === routes.length;
+
+  const orderedRoutes = () => {
+    if (draftOrder.length === 0) return routes;
+    const byBindingId = new Map(routes.map((route) => [route.binding_id, route]));
+    const fromDraft = draftOrder.flatMap((bindingId) => {
+      const route = byBindingId.get(bindingId);
+      return route ? [route] : [];
+    });
+    const known = new Set(draftOrder);
+    return [...fromDraft, ...routes.filter((route) => !known.has(route.binding_id))];
+  };
+
+  const orderDirty = () => {
+    const source = sourceOrder();
+    return draftOrder.length > 0 && (draftOrder.length !== source.length || draftOrder.some((bindingId, index) => bindingId !== source[index]));
+  };
+
+  const canSaveOrder = () => Boolean(policy && policyAvailable && hasCompleteBindingOrder() && orderDirty());
+
   const renderModelList = () => {
+    const dirty = orderDirty();
     document.querySelector("#model-list").innerHTML = models.map((model) => `
-      <button class="model-item ${model.model === selectedModel ? "active" : ""}" data-select-model="${escapeHtml(model.model)}">
+      <button class="model-item ${model.model === selectedModel ? "active" : ""}" data-select-model="${escapeHtml(model.model)}" ${dirty ? "disabled title=\"请先保存拖拽顺序\"" : ""}>
         <strong>${escapeHtml(model.model)}</strong>
         <span>${escapeHtml(strategyNames[model.strategy] ?? model.strategy)} · ${model.available_accounts}/${model.accounts} 可用</span>
       </button>`).join("") || '<div class="empty">尚未配置模型</div>';
@@ -123,25 +166,32 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
       return;
     }
     const activeStrategy = policy?.strategy ?? model.strategy;
+    const dirty = orderDirty();
+    const canReorder = Boolean(policy && policyAvailable && hasCompleteBindingOrder());
     const options = strategyOptions.map(([value, label]) => `<option value="${value}" ${activeStrategy === value ? "selected" : ""}>${label}</option>`).join("");
     const version = policy?.version ?? model.version ?? 0;
     const dynamic = routes.some((route) => route.dynamic_order);
     document.querySelector("#route-header").innerHTML = `
       <div><h2>${escapeHtml(model.model)}</h2><p>版本 ${version}${dynamic ? " · 动态策略预览不推进真实调度序列" : ""}</p></div>
-      <div class="route-controls"><label class="muted" for="strategy-select">调度策略</label><select id="strategy-select" ${policyAvailable ? "" : "disabled"}>${options}</select></div>`;
-    const rows = routes.map((route, index) => `
-      <tr>
-        <td><strong>${route.position ?? index + 1}</strong><div class="muted">${escapeHtml(sortReasonText(route))}</div></td>
+      <div class="route-controls">${dirty ? '<button id="save-route-order" class="button primary" type="button" ' + (canSaveOrder() ? "" : "disabled") + ">保存顺序</button>" : ""}<label class="muted" for="strategy-select">调度策略</label><select id="strategy-select" ${policyAvailable && !dirty ? "" : "disabled"}>${options}</select></div>`;
+    const rows = orderedRoutes().map((route, index) => {
+      const canDrag = canReorder && route.binding_id;
+      const packageQuota = packageQuotaText(route);
+      return `
+      <tr class="${draggingBindingId === route.binding_id ? "routing-dragging" : ""}" data-route-drop="${canDrag ? escapeHtml(route.binding_id) : ""}">
+        <td>${canDrag ? `<button class="drag-handle" type="button" draggable="true" data-drag-route="${escapeHtml(route.binding_id)}" title="拖拽调整顺序，保存后生效" aria-label="拖拽调整顺序，保存后生效">&#x2261;</button>` : ""}<strong>${index + 1}</strong><div class="muted">${escapeHtml(sortReasonText(route))}</div></td>
         <td><strong>${escapeHtml(route.display_name)}</strong><div class="muted route-detail">${escapeHtml(route.account_id)}</div><div class="muted route-detail">${escapeHtml(route.deployment_id)}</div></td>
         <td><span class="badge health-${escapeHtml(route.health)}">${escapeHtml(healthNames[route.health] ?? route.health)}</span><div class="muted route-detail">${escapeHtml(billingModeNames[route.billing_mode] ?? route.billing_mode)}</div></td>
-        <td>${route.inflight} / ${route.max_concurrency}<div class="muted route-detail">额度 ${formatPercent(route.remaining_quota_ratio)}</div></td>
+        <td>${route.inflight} / ${route.max_concurrency}<div class="muted route-detail">额度 ${formatPercent(route.remaining_quota_ratio)}</div>${packageQuota ? `<div class="muted route-detail">${escapeHtml(packageQuota)}</div>` : ""}</td>
         <td>${route.latency_ewma_ms == null ? "未知" : `${formatNumber(route.latency_ewma_ms)} ms`}<div class="muted route-detail">${costText(route)}</div></td>
-        <td>${priorityName(route.priority)}<div class="muted route-detail">顺序 ${route.manual_order ?? "自动"} · 权重 ${route.effective_weight}</div></td>
+        <td>${priorityName(route.priority)}<div class="muted route-detail">权重 ${route.effective_weight}</div></td>
         <td>${availabilityText(route)}</td>
-        <td>${candidateControls(route, policyAvailable)}</td>
-      </tr>`).join("");
+        <td>${candidateControls(route, policyAvailable, dirty)}</td>
+      </tr>`;
+    }).join("");
     document.querySelector("#route-table").innerHTML = `<table><thead><tr><th>顺序与依据</th><th>渠道与绑定</th><th>状态与计费</th><th>并发与额度</th><th>延迟与成本</th><th>人工设置</th><th>资格</th><th>操作</th></tr></thead><tbody>${rows || '<tr><td class="empty" colspan="8">此模型暂无路由</td></tr>'}</tbody></table>`;
     document.querySelector("#strategy-select")?.addEventListener("change", updateStrategy);
+    bindRouteDragAndDrop();
     if (!policyAvailable) {
       document.querySelector("#route-policy-warning").hidden = false;
     } else {
@@ -162,13 +212,17 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
   };
 
   const select = async (model) => {
+    if (orderDirty()) {
+      showNotice("请先保存拖拽顺序", true);
+      return;
+    }
     selectedModel = model;
     await loadSelected();
     render();
   };
 
   async function updateStrategy(event) {
-    if (!policy || !selectedModel) return;
+    if (!policy || !selectedModel || orderDirty()) return;
     try {
       policy = await api.updateRoutingPolicy(selectedModel, {
         expected_version: policy.version,
@@ -183,12 +237,15 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
   }
 
   const openCandidate = (bindingId) => {
+    if (orderDirty()) {
+      showNotice("请先保存拖拽顺序", true);
+      return;
+    }
     const route = routes.find((item) => item.binding_id === bindingId);
     if (!route || !policy) return;
     editingBindingId = bindingId;
     document.querySelector("#route-dialog-title").textContent = route.display_name;
     document.querySelector("#route-dialog-description").textContent = `${route.account_id} · ${route.deployment_id}`;
-    document.querySelector("#route-manual-order").value = route.manual_order ?? "";
     document.querySelector("#route-weight").value = policy.overrides.find((item) => item.binding_id === bindingId)?.weight ?? "";
     document.querySelector("#route-paused").checked = route.routing_paused;
     routeDialog.showModal();
@@ -200,8 +257,7 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
     try {
       policy = await api.updateRoutingCandidate(selectedModel, editingBindingId, {
         expected_version: policy.version,
-        manual_order: optionalInteger(document.querySelector("#route-manual-order").value),
-        weight: optionalInteger(document.querySelector("#route-weight").value),
+        weight: document.querySelector("#route-weight").value.trim() === "" ? null : Number(document.querySelector("#route-weight").value),
         paused: document.querySelector("#route-paused").checked,
       });
       routeDialog.close();
@@ -226,9 +282,65 @@ export const createRoutingWorkbench = ({ showNotice, refreshDashboard }) => {
     }
   };
 
+  const moveRoute = (sourceBindingId, targetBindingId) => {
+    const current = draftOrder.length === 0 ? sourceOrder() : draftOrder;
+    if (!current.includes(sourceBindingId) || !current.includes(targetBindingId)) return;
+    const withoutSource = current.filter((bindingId) => bindingId !== sourceBindingId);
+    const targetIndex = withoutSource.indexOf(targetBindingId);
+    if (targetIndex === -1) return;
+    draftOrder = [...withoutSource.slice(0, targetIndex), sourceBindingId, ...withoutSource.slice(targetIndex)];
+    draggingBindingId = null;
+    render();
+  };
+
+  const bindRouteDragAndDrop = () => {
+    for (const handle of document.querySelectorAll("[data-drag-route]")) {
+      handle.addEventListener("dragstart", (event) => {
+        draggingBindingId = handle.dataset.dragRoute;
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", draggingBindingId);
+      });
+      handle.addEventListener("dragend", () => {
+        draggingBindingId = null;
+        render();
+      });
+    }
+    for (const target of document.querySelectorAll("[data-route-drop]")) {
+      target.addEventListener("dragover", (event) => {
+        if (draggingBindingId) event.preventDefault();
+      });
+      target.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const sourceBindingId = event.dataTransfer.getData("text/plain") || draggingBindingId;
+        const targetBindingId = target.dataset.routeDrop;
+        if (sourceBindingId && targetBindingId && sourceBindingId !== targetBindingId) {
+          moveRoute(sourceBindingId, targetBindingId);
+        }
+        draggingBindingId = null;
+      });
+    }
+  };
+
+  const saveOrder = async () => {
+    if (!selectedModel || !policy || !canSaveOrder()) return;
+    try {
+      policy = await api.updateRoutingOrder(selectedModel, {
+        expected_version: policy.version,
+        binding_ids: orderedRoutes().map((route) => route.binding_id),
+      });
+      draftOrder = [];
+      await refreshDashboard(true);
+      showNotice("路由顺序已保存");
+    } catch (error) {
+      showNotice(error.message === "version_conflict" ? "路由顺序已被其他管理员修改，请刷新后重试" : error.message, true);
+      await sync(models, selectedModel);
+    }
+  };
+
   document.addEventListener("click", (event) => {
     const target = event.target.closest("button");
     if (target?.dataset.editRoute) openCandidate(target.dataset.editRoute);
+    if (target?.id === "save-route-order") void saveOrder();
     if (target?.hasAttribute("data-close-route-dialog")) routeDialog.close();
   });
   routeForm.addEventListener("submit", saveCandidate);

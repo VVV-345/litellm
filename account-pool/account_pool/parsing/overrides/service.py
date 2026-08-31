@@ -67,6 +67,10 @@ class ParserOverrideWriter(Protocol):
     ) -> OverrideMutationResult: ...
 
 
+class ParserRuntimeProjector(Protocol):
+    async def project(self) -> object: ...
+
+
 def utc_now() -> AwareDatetime:
     return datetime.now(UTC)
 
@@ -77,11 +81,13 @@ class ParserOverrideService:
         parser_runs: ParserRunRepository,
         overrides: OverrideEventRepository,
         audit: ManagementAuditRepository,
+        projector: ParserRuntimeProjector | None = None,
         clock: Clock = utc_now,
     ) -> None:
         self._parser_runs: Final = parser_runs
         self._overrides: Final = overrides
         self._audit: Final = audit
+        self._projector: Final = projector
         self._clock: Final = clock
 
     async def set_override(
@@ -93,11 +99,12 @@ class ParserOverrideService:
         if actor.action != ActorAction.OVERRIDE_SET:
             return _failure(OverrideMutationFailureCode.INVALID_REQUEST)
         result: Final = await self._set_override(channel_id, request, actor)
+        projected: Final = await self._project(result)
         return await self._audited(
             channel_id=channel_id,
             actor=actor,
             override_id=request.override_id,
-            result=result,
+            result=projected,
         )
 
     async def _set_override(
@@ -175,11 +182,12 @@ class ParserOverrideService:
         if actor.action != ActorAction.OVERRIDE_REVOKE or not field_path.startswith("/"):
             return _failure(OverrideMutationFailureCode.INVALID_REQUEST)
         result: Final = await self._revoke_override(channel_id, field_path, request, actor)
+        projected: Final = await self._project(result)
         return await self._audited(
             channel_id=channel_id,
             actor=actor,
             override_id=request.override_id,
-            result=result,
+            result=projected,
         )
 
     async def _revoke_override(
@@ -297,6 +305,18 @@ class ParserOverrideService:
         if isinstance(loaded_events, OverridePersistenceFailure):
             return _from_override_failure(loaded_events)
         return _LoadedState(record=record, events=loaded_events.events)
+
+    async def _project(self, result: OverrideMutationResult) -> OverrideMutationResult:
+        if isinstance(result, OverrideMutationFailure) or self._projector is None:
+            return result
+        try:
+            await self._projector.project()
+        except Exception:
+            return OverrideMutationFailure(
+                code=OverrideMutationFailureCode.RUNTIME_PROJECTION_FAILED,
+                retryable=True,
+            )
+        return result
 
 
 def _success(

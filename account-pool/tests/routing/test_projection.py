@@ -155,6 +155,32 @@ def test_bound_subscription_route_has_zero_marginal_cost() -> None:
     assert deployment.cost_evidence.effective_cost == 0
 
 
+def test_subscription_zero_cost_only_applies_to_selected_models() -> None:
+    first: Final = _account().deployments[0]
+    second: Final = first.model_copy(
+        update={
+            "public_model": "public-b",
+            "provider_model": "provider-b",
+            "litellm_model_id": "deployment-b",
+            "binding_id": UUID("10000000-0000-0000-0000-000000000002"),
+        }
+    )
+    account: Final = _account().model_copy(update={"deployments": (first, second)})
+    parsed: Final = ParsedChannelData(
+        subscription=SubscriptionData(
+            status=SubscriptionStatus.ACTIVE,
+            models=(ModelIdentity(provider_model_id="provider-a"),),
+            balance=Decimal("20"),
+        )
+    )
+
+    deployments: Final = project_routing_deployments(account, parsed)
+
+    assert deployments[0].cost_evidence is not None
+    assert deployments[0].cost_evidence.kind == CostEvidenceKind.SUBSCRIPTION_INCLUDED
+    assert deployments[1].cost_evidence is None
+
+
 def test_expired_or_unmapped_subscription_does_not_claim_zero_cost() -> None:
     route: Final = BillingRoute(
         route_id=_ROUTE_ID,

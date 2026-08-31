@@ -36,6 +36,7 @@ class OverrideMutationFailureCode(StrEnum):
     INVALID_VALUE = "invalid_value"
     INVALID_DATA = "invalid_data"
     DATABASE_UNAVAILABLE = "database_unavailable"
+    RUNTIME_PROJECTION_FAILED = "runtime_projection_failed"
     AUDIT_UNAVAILABLE = "audit_unavailable"
 
 

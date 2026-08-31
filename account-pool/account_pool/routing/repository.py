@@ -4,7 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from account_pool.models import Strategy
-from account_pool.routing.models import RoutingCandidateMutation, RoutingPolicyResult
+from account_pool.routing.models import RoutingCandidateMutation, RoutingOrderMutation, RoutingPolicyResult
 
 
 class RoutingPolicyRepository(Protocol):
@@ -22,6 +22,12 @@ class RoutingPolicyRepository(Protocol):
         model: str,
         binding_id: UUID,
         mutation: RoutingCandidateMutation,
+    ) -> RoutingPolicyResult: ...
+
+    async def update_order(
+        self,
+        model: str,
+        mutation: RoutingOrderMutation,
     ) -> RoutingPolicyResult: ...
 
     async def delete_candidate(

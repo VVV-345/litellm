@@ -116,6 +116,14 @@ class RoutingCandidateUpdateDetails(FrozenModel):
     resulting_version: int | None = Field(default=None, ge=0)
 
 
+class RoutingOrderUpdateDetails(FrozenModel):
+    kind: Literal["routing_order_update"] = "routing_order_update"
+    outcome: SafeAuditOutcome
+    binding_count: int = Field(ge=1)
+    expected_version: int = Field(ge=0)
+    resulting_version: int | None = Field(default=None, ge=0)
+
+
 class RoutingCandidateDeleteDetails(FrozenModel):
     kind: Literal["routing_candidate_delete"] = "routing_candidate_delete"
     outcome: SafeAuditOutcome
@@ -138,6 +146,7 @@ ManagementAuditDetails = Annotated[
     | ParserOverrideRevokeDetails
     | RoutingPolicyUpdateDetails
     | RoutingCandidateUpdateDetails
+    | RoutingOrderUpdateDetails
     | RoutingCandidateDeleteDetails,
     Field(discriminator="kind"),
 ]
@@ -157,6 +166,7 @@ class ManagementEventType(StrEnum):
     PARSER_OVERRIDE_REVOKE = "parser_override_revoke"
     ROUTING_POLICY_UPDATE = "routing_policy_update"
     ROUTING_CANDIDATE_UPDATE = "routing_candidate_update"
+    ROUTING_ORDER_UPDATE = "routing_order_update"
     ROUTING_CANDIDATE_DELETE = "routing_candidate_delete"
 
 
@@ -181,6 +191,7 @@ class PoolEvent(FrozenModel):
         is_routing_event: Final = self.event_type in {
             ManagementEventType.ROUTING_POLICY_UPDATE,
             ManagementEventType.ROUTING_CANDIDATE_UPDATE,
+            ManagementEventType.ROUTING_ORDER_UPDATE,
             ManagementEventType.ROUTING_CANDIDATE_DELETE,
         }
         if is_routing_event and (self.model_id is None or self.channel_id is not None):
@@ -230,6 +241,7 @@ _EVENT_TYPE_BY_ACTION: Final = {
     ActorAction.OVERRIDE_REVOKE: ManagementEventType.PARSER_OVERRIDE_REVOKE,
     ActorAction.ROUTING_POLICY_UPDATE: ManagementEventType.ROUTING_POLICY_UPDATE,
     ActorAction.ROUTING_CANDIDATE_UPDATE: ManagementEventType.ROUTING_CANDIDATE_UPDATE,
+    ActorAction.ROUTING_ORDER_UPDATE: ManagementEventType.ROUTING_ORDER_UPDATE,
     ActorAction.ROUTING_CANDIDATE_DELETE: ManagementEventType.ROUTING_CANDIDATE_DELETE,
 }
 

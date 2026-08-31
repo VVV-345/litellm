@@ -44,8 +44,9 @@ const sharedCostBasis = (routes: RoutingTableEntry[]): string | null => {
 
 const routeCost = (route: RoutingTableEntry, basis: string | null): number | null => {
   const evidence = route.cost_evidence;
-  if (!basis || !evidence) return null;
-  if (evidence.kind === "subscription_included") return null;
+  if (!evidence) return null;
+  if (evidence.kind === "subscription_included") return 0;
+  if (!basis) return null;
   if (!evidence.currency || !evidence.unit) return null;
   const routeBasis = `${evidence.currency.toLowerCase()}\u0000${evidence.unit.toLowerCase()}`;
   return routeBasis === basis ? finiteNumber(route.effective_cost) : null;

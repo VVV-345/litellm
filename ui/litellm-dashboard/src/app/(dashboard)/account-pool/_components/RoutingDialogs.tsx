@@ -1,3 +1,4 @@
+// 本文件提供路由候选的权重、暂停设置和只读自动排序预览弹窗。
 "use client";
 
 import { Loader2, RotateCcw } from "lucide-react";
@@ -48,7 +49,7 @@ export function AutoRankingPreviewDialog({
         <DialogHeader>
           <DialogTitle>自动排序建议</DialogTitle>
           <DialogDescription>
-            {model} 的建议基于当前健康状态、延迟、余额和可比较价格生成，不会修改正式调度策略或人工顺序
+            {model} 的建议基于当前健康状态、延迟、余额和可比较价格生成，不会修改正式调度策略或已保存的拖拽顺序
           </DialogDescription>
         </DialogHeader>
         <div className="overflow-hidden rounded-md border">
@@ -119,15 +120,15 @@ interface CandidateDialogProps {
   policy: RoutingPolicyState;
   pending: boolean;
   onClose: () => void;
-  onSave: (manualOrder: number | null, weight: number | null, paused: boolean) => void;
+  onSave: (weight: number | null, paused: boolean) => void;
   onReset: () => void;
 }
 
 export function CandidateDialog({ route, policy, pending, onClose, onSave, onReset }: CandidateDialogProps) {
   const existing = policy.overrides.find((override) => override.binding_id === route.binding_id);
-  const [manualOrder, setManualOrder] = useState(route.manual_order?.toString() ?? "");
   const [weight, setWeight] = useState(existing?.weight?.toString() ?? "");
   const [paused, setPaused] = useState(route.routing_paused);
+  const hasCandidateOverride = existing?.weight !== null || route.routing_paused;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -139,17 +140,6 @@ export function CandidateDialog({ route, policy, pending, onClose, onSave, onRes
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="routing-manual-order">人工顺序</Label>
-            <Input
-              id="routing-manual-order"
-              type="number"
-              min={0}
-              placeholder="自动"
-              value={manualOrder}
-              onChange={(event) => setManualOrder(event.target.value)}
-            />
-          </div>
           <div className="grid gap-2">
             <Label htmlFor="routing-weight">模型权重</Label>
             <Input
@@ -168,7 +158,7 @@ export function CandidateDialog({ route, policy, pending, onClose, onSave, onRes
           </div>
         </div>
         <DialogFooter className="sm:justify-between">
-          <Button variant="ghost" onClick={onReset} disabled={pending || !existing}>
+          <Button variant="ghost" onClick={onReset} disabled={pending || !hasCandidateOverride}>
             <RotateCcw />
             恢复自动
           </Button>
@@ -176,10 +166,7 @@ export function CandidateDialog({ route, policy, pending, onClose, onSave, onRes
             <Button variant="outline" onClick={onClose} disabled={pending}>
               取消
             </Button>
-            <Button
-              onClick={() => onSave(parseOptionalNumber(manualOrder), parseOptionalNumber(weight), paused)}
-              disabled={pending}
-            >
+            <Button onClick={() => onSave(parseOptionalNumber(weight), paused)} disabled={pending}>
               {pending && <Loader2 className="animate-spin" />}
               保存
             </Button>

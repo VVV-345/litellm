@@ -64,6 +64,10 @@ export const api = {
     method: "PUT",
     body: JSON.stringify(body),
   }),
+  updateRoutingOrder: (model, body) => request(`/models/${encodeURIComponent(model)}/routing-order`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  }),
   updateRoutingCandidate: (model, bindingId, body) => request(
     `/models/${encodeURIComponent(model)}/routing-candidates/${encodeURIComponent(bindingId)}`,
     { method: "PUT", body: JSON.stringify(body) },

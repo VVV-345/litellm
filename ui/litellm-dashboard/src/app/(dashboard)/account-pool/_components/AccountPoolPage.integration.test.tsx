@@ -117,6 +117,7 @@ const aggregateFixture: ChannelAggregateDetail = {
     channel_id: channelFixture.channel_id,
     display_name: channelFixture.display_name,
     provider: channelFixture.provider,
+    model_discovery_provider_id: "openai_compatible",
     group: channelFixture.group,
     base_url_display: channelFixture.base_url_display,
     administrative_state: channelFixture.administrative_state,

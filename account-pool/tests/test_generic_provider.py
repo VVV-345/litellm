@@ -1,4 +1,4 @@
-"""验证 New API 网关的模型发现、倍率价格提取和密钥安全边界。"""
+"""验证 通用解析器 网关的模型发现、倍率价格提取和密钥安全边界。"""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from account_pool.domain.provider_source import (
     ProviderCapability,
     ProviderValidationRequest,
 )
-from account_pool.provider_services.new_api import NewApiProviderService
-from account_pool.provider_services.new_api.client import _ResolvedAddressTransport
+from account_pool.provider_services.generic import GenericProviderService
+from account_pool.provider_services.generic.client import _ResolvedAddressTransport
 from pydantic import SecretStr, ValidationError
 
 HostResolver = Callable[[str], Awaitable[tuple[str, ...]]]
@@ -35,7 +35,7 @@ async def private_resolver(_: str) -> tuple[str, ...]:
     return ("127.0.0.1", "10.0.0.8")
 
 
-async def test_new_api_discovers_models_and_pricing_without_leaking_key() -> None:
+async def test_generic_discovers_models_and_pricing_without_leaking_key() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -59,9 +59,9 @@ async def test_new_api_discovers_models_and_pricing_without_leaking_key() -> Non
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://gateway.example.com/v1/",
                 api_key=SecretStr("provider-secret"),
                 group="premium",
@@ -85,7 +85,7 @@ async def test_new_api_discovers_models_and_pricing_without_leaking_key() -> Non
     assert gpt.group_name == "premium"
 
 
-async def test_new_api_preserves_multiplier_semantics_when_model_price_is_positive() -> None:
+async def test_generic_uses_multiplier_pricing_when_fixed_model_price_is_also_present() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(status_code=200, json={"data": [{"id": "ratio-model"}]})
@@ -107,9 +107,9 @@ async def test_new_api_preserves_multiplier_semantics_when_model_price_is_positi
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -121,7 +121,55 @@ async def test_new_api_preserves_multiplier_semantics_when_model_price_is_positi
     assert result.pricing[0].group_multiplier == Decimal("1.5")
 
 
-async def test_new_api_pricing_only_contains_models_visible_to_the_key() -> None:
+async def test_generic_reads_new_api_array_pricing_and_ignores_non_token_fixed_prices() -> None:
+    def upstream(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(status_code=200, json={"data": [{"id": "text-model"}, {"id": "image-model"}]})
+        if request.url.path == "/api/pricing":
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "success": True,
+                    "group_ratio": {"premium": 1.5},
+                    "data": [
+                        {
+                            "model_name": "text-model",
+                            "quota_type": 0,
+                            "model_ratio": 2.0,
+                            "completion_ratio": 3.0,
+                            "cache_ratio": 0.5,
+                            "create_cache_ratio": 1.25,
+                            "owner_by": "platform",
+                        },
+                        {"model_name": "image-model", "quota_type": 1, "model_price": 0.02},
+                    ],
+                },
+            )
+        return httpx.Response(status_code=404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+            ProviderValidationRequest(
+                provider_id="generic",
+                api_base="https://gateway.example.com/v1",
+                api_key=SecretStr("k"),
+                group="premium",
+            )
+        )
+
+    assert result.ok
+    assert tuple(offer.provider_model_id for offer in result.pricing) == ("text-model",)
+    offer: Final = result.pricing[0]
+    assert (offer.input_price, offer.output_price, offer.cache_read_price, offer.cache_write_price) == (
+        Decimal("2.0"),
+        Decimal("3.0"),
+        Decimal("0.5"),
+        Decimal("1.25"),
+    )
+    assert offer.group_multiplier == Decimal("1.5")
+
+
+async def test_generic_pricing_only_contains_models_visible_to_the_key() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(status_code=200, json={"data": [{"id": "visible-model"}]})
@@ -139,9 +187,9 @@ async def test_new_api_pricing_only_contains_models_visible_to_the_key() -> None
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -149,7 +197,7 @@ async def test_new_api_pricing_only_contains_models_visible_to_the_key() -> None
     assert tuple(offer.provider_model_id for offer in result.pricing) == ("visible-model",)
 
 
-async def test_new_api_client_uses_validated_address_without_changing_tls_hostname() -> None:
+async def test_generic_client_uses_validated_address_without_changing_tls_hostname() -> None:
     seen_hosts: list[str] = []
 
     class CapturingBackend:
@@ -170,10 +218,10 @@ async def test_new_api_client_uses_validated_address_without_changing_tls_hostna
             timeout: float | None = None,
             socket_options: tuple[tuple[int, int, int], ...] | None = None,
         ) -> httpcore.AsyncNetworkStream:
-            raise AssertionError("New API discovery must not use Unix sockets")
+            raise AssertionError("通用解析器 discovery must not use Unix sockets")
 
         async def sleep(self, seconds: float) -> None:
-            raise AssertionError("New API discovery must not sleep")
+            raise AssertionError("通用解析器 discovery must not sleep")
 
     backend: Final = CapturingBackend()
     transport: Final = _ResolvedAddressTransport(("93.184.216.34",), backend)
@@ -188,7 +236,7 @@ async def test_new_api_client_uses_validated_address_without_changing_tls_hostna
     assert seen_hosts == ["93.184.216.34"]
 
 
-async def test_new_api_uses_validated_address_for_each_request() -> None:
+async def test_generic_uses_validated_address_for_each_request() -> None:
     requests: list[httpx.Request] = []
     requested_addresses: list[tuple[str, ...]] = []
 
@@ -205,9 +253,9 @@ async def test_new_api_uses_validated_address_for_each_request() -> None:
         return httpx.AsyncClient(transport=httpx.MockTransport(upstream))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, discovery_client).validate(
+        result: Final = await GenericProviderService(client, public_resolver, discovery_client).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -216,7 +264,7 @@ async def test_new_api_uses_validated_address_for_each_request() -> None:
     assert [request.url.path for request in requests] == ["/v1/models", "/api/pricing"]
 
 
-async def test_new_api_rejects_private_resolution_before_sending_key() -> None:
+async def test_generic_rejects_private_resolution_before_sending_key() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -224,9 +272,9 @@ async def test_new_api_rejects_private_resolution_before_sending_key() -> None:
         return httpx.Response(status_code=200, json={"data": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, private_resolver).validate(
+        result: Final = await GenericProviderService(client, private_resolver).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("must-not-leak")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("must-not-leak")
             )
         )
 
@@ -235,7 +283,7 @@ async def test_new_api_rejects_private_resolution_before_sending_key() -> None:
     assert requests == []
 
 
-async def test_new_api_rejects_unsafe_url_before_sending_key() -> None:
+async def test_generic_rejects_unsafe_url_before_sending_key() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -243,9 +291,9 @@ async def test_new_api_rejects_unsafe_url_before_sending_key() -> None:
         return httpx.Response(status_code=200, json={"data": []})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://user@gateway.example.com/v1",
                 api_key=SecretStr("must-not-leak"),
             )
@@ -255,7 +303,7 @@ async def test_new_api_rejects_unsafe_url_before_sending_key() -> None:
     assert requests == []
 
 
-async def test_new_api_degrades_to_models_only_when_pricing_shape_is_unreadable() -> None:
+async def test_generic_degrades_to_models_only_when_pricing_shape_is_unreadable() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(status_code=200, json={"data": [{"id": "model-a"}]})
@@ -264,9 +312,9 @@ async def test_new_api_degrades_to_models_only_when_pricing_shape_is_unreadable(
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -276,7 +324,7 @@ async def test_new_api_degrades_to_models_only_when_pricing_shape_is_unreadable(
     assert result.pricing_failure_code is not None
 
 
-async def test_new_api_degrades_to_models_only_when_pricing_unauthorized() -> None:
+async def test_generic_degrades_to_models_only_when_pricing_unauthorized() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(status_code=200, json={"data": [{"id": "model-a"}]})
@@ -285,9 +333,9 @@ async def test_new_api_degrades_to_models_only_when_pricing_unauthorized() -> No
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -297,7 +345,7 @@ async def test_new_api_degrades_to_models_only_when_pricing_unauthorized() -> No
     assert result.pricing_failure_code is not None
 
 
-async def test_new_api_degrades_to_models_only_but_never_follows_pricing_redirect() -> None:
+async def test_generic_degrades_to_models_only_but_never_follows_pricing_redirect() -> None:
     requested_urls: list[str] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -309,9 +357,9 @@ async def test_new_api_degrades_to_models_only_but_never_follows_pricing_redirec
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -320,7 +368,7 @@ async def test_new_api_degrades_to_models_only_but_never_follows_pricing_redirec
     assert requested_urls == ["https://gateway.example.com/v1/models", "https://gateway.example.com/api/pricing"]
 
 
-async def test_new_api_marks_pricing_service_unavailable_as_transient() -> None:
+async def test_generic_marks_pricing_service_unavailable_as_transient() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/models":
             return httpx.Response(status_code=200, json={"data": [{"id": "model-a"}]})
@@ -329,9 +377,9 @@ async def test_new_api_marks_pricing_service_unavailable_as_transient() -> None:
         return httpx.Response(status_code=404)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        result: Final = await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
+                provider_id="generic", api_base="https://gateway.example.com/v1", api_key=SecretStr("k")
             )
         )
 
@@ -341,7 +389,7 @@ async def test_new_api_marks_pricing_service_unavailable_as_transient() -> None:
     assert result.pricing_failure_code == PricingDiscoveryFailureCode.TRANSPORT
 
 
-async def test_new_api_fetches_pricing_via_admin_login_when_credentials_provided() -> None:
+async def test_generic_fetches_pricing_via_admin_login_when_credentials_provided() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -367,9 +415,9 @@ async def test_new_api_fetches_pricing_via_admin_login_when_credentials_provided
         return httpx.AsyncClient(transport=httpx.MockTransport(upstream))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, discovery_client).validate(
+        result: Final = await GenericProviderService(client, public_resolver, discovery_client).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://gateway.example.com/v1",
                 api_key=SecretStr("k"),
                 username=SecretStr("admin"),
@@ -379,7 +427,7 @@ async def test_new_api_fetches_pricing_via_admin_login_when_credentials_provided
 
     assert result.ok
     assert tuple(offer.provider_model_id for offer in result.pricing) == ("model-a",)
-    assert [request.url.path for request in requests] == ["/v1/models", "/api/user/login", "/api/pricing"]
+    assert [request.url.path for request in requests] == ["/v1/models", "/api/pricing", "/api/user/login", "/api/pricing"]
     login_request: Final = next(request for request in requests if request.url.path == "/api/user/login")
     assert b"admin-pass" in login_request.content
     dumped: Final = result.model_dump_json()
@@ -387,7 +435,7 @@ async def test_new_api_fetches_pricing_via_admin_login_when_credentials_provided
     assert "admin-pass" not in dumped
 
 
-async def test_new_api_degrades_to_models_only_when_login_fails() -> None:
+async def test_generic_degrades_to_models_only_when_login_fails() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -397,16 +445,16 @@ async def test_new_api_degrades_to_models_only_when_login_fails() -> None:
         if request.url.path == "/api/user/login":
             return httpx.Response(status_code=200, json={"success": False, "message": "bad"})
         if request.url.path == "/api/pricing":
-            return httpx.Response(status_code=200, json={"success": True, "data": {"model-a": {"model_ratio": 2.0}}})
+            return httpx.Response(status_code=401)
         return httpx.Response(status_code=404)
 
     def discovery_client(_: tuple[str, ...]) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(upstream))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        result: Final = await NewApiProviderService(client, public_resolver, discovery_client).validate(
+        result: Final = await GenericProviderService(client, public_resolver, discovery_client).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://gateway.example.com/v1",
                 api_key=SecretStr("k"),
                 username=SecretStr("admin"),
@@ -418,10 +466,10 @@ async def test_new_api_degrades_to_models_only_when_login_fails() -> None:
     assert tuple(offer.model for offer in result.models) == ("model-a",)
     assert result.pricing == ()
     assert result.pricing_failure_code is not None
-    assert [request.url.path for request in requests] == ["/v1/models", "/api/user/login"]
+    assert [request.url.path for request in requests] == ["/v1/models", "/api/pricing", "/api/user/login"]
 
 
-async def test_new_api_login_cookie_does_not_leak_through_shared_client() -> None:
+async def test_generic_login_cookie_does_not_leak_through_shared_client() -> None:
     requests: list[httpx.Request] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -441,18 +489,18 @@ async def test_new_api_login_cookie_does_not_leak_through_shared_client() -> Non
         return httpx.AsyncClient(transport=httpx.MockTransport(upstream))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
-        await NewApiProviderService(client, public_resolver, discovery_client).validate(
+        await GenericProviderService(client, public_resolver, discovery_client).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://gateway.example.com/v1",
                 api_key=SecretStr("first-key"),
                 username=SecretStr("admin"),
                 password=SecretStr("admin-pass"),
             )
         )
-        await NewApiProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
+        await GenericProviderService(client, public_resolver, mocked_client_factory(upstream)).validate(
             ProviderValidationRequest(
-                provider_id="new_api",
+                provider_id="generic",
                 api_base="https://gateway.example.com/v1",
                 api_key=SecretStr("second-key"),
             )
@@ -466,10 +514,10 @@ async def test_new_api_login_cookie_does_not_leak_through_shared_client() -> Non
     assert "session=leaked" not in second_models_request.headers.get("cookie", "")
 
 
-async def test_new_api_rejects_partial_admin_credentials() -> None:
+async def test_generic_rejects_partial_admin_credentials() -> None:
     try:
         ProviderValidationRequest(
-            provider_id="new_api",
+            provider_id="generic",
             api_base="https://gateway.example.com/v1",
             api_key=SecretStr("k"),
             username=SecretStr("admin"),
@@ -480,15 +528,17 @@ async def test_new_api_rejects_partial_admin_credentials() -> None:
     raise AssertionError("partial administrator credentials must be rejected")
 
 
-def test_new_api_manifest_declares_pricing_supported() -> None:
+def test_generic_manifest_declares_pricing_supported() -> None:
     states: Final = {
         item.capability: item.state
-        for item in NewApiProviderService(httpx.AsyncClient(), public_resolver).manifest.capabilities
+        for item in GenericProviderService(httpx.AsyncClient(), public_resolver).manifest.capabilities
     }
 
     assert states[ProviderCapability.CONNECTION] == CapabilityState.SUPPORTED
     assert states[ProviderCapability.MODEL_DISCOVERY] == CapabilityState.SUPPORTED
     assert states[ProviderCapability.MODEL_PRICING] == CapabilityState.SUPPORTED
-    assert states[ProviderCapability.ACCOUNT_BALANCE] == CapabilityState.UNSUPPORTED
-    assert states[ProviderCapability.SUBSCRIPTIONS] == CapabilityState.UNSUPPORTED
-    assert states[ProviderCapability.PERIODIC_LIMITS] == CapabilityState.UNSUPPORTED
+    assert set(states) == {
+        ProviderCapability.CONNECTION,
+        ProviderCapability.MODEL_DISCOVERY,
+        ProviderCapability.MODEL_PRICING,
+    }
