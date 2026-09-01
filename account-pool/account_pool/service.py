@@ -175,6 +175,7 @@ class EnvironmentService:
         try:
             await self._runtime.provision(record)
             provider_state, callback_state, callback_url = await self._start_authorization(record)
+            validated_authorization_url: Final = _HTTP_URL_ADAPTER.validate_python(callback_url)
         except Exception as error:
             failed: Final = record.model_copy(
                 update={
@@ -208,7 +209,7 @@ class EnvironmentService:
         return Success(
             AuthorizationView(
                 environment=to_view(awaiting),
-                authorization_url=_HTTP_URL_ADAPTER.validate_python(callback_url),
+                authorization_url=validated_authorization_url,
                 ssh_command=command,
                 expires_at=expires_at,
             )
@@ -239,6 +240,7 @@ class EnvironmentService:
             try:
                 await self._runtime.ensure_control_plane_connections(record.id)
                 provider_state, callback_state, callback_url = await self._start_authorization(record)
+                _HTTP_URL_ADAPTER.validate_python(callback_url)
             except Exception as error:
                 failed: Final = record.model_copy(
                     update={
@@ -478,9 +480,9 @@ class EnvironmentService:
         if isinstance(reconciled, Failure):
             return reconciled
         persisted: Final = await self._repository.get(claimed.id)
-        if persisted is None or (
-            persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable
-        ):
+        if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
+            raise _AuthorizationConflict
+        if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
             raise _AuthorizationConflict
         return Success(persisted)
 

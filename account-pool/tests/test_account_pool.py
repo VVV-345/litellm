@@ -202,6 +202,34 @@ class FailingOnceRuntime(FakeRuntime):
         await super().remove(record)
 
 
+class FinalAuthorizationStatusRaceRepository(MemoryRepository):
+    def __init__(self, record: EnvironmentRecord, raced_status: EnvironmentStatus) -> None:
+        super().__init__(record)
+        self.raced_status = raced_status
+        self.raced = False
+
+    async def get(self, environment_id):
+        current = await super().get(environment_id)
+        if (
+            current is not None
+            and not self.raced
+            and current.status is EnvironmentStatus.READY
+            and not current.configuration_pending
+        ):
+            self.raced = True
+            raced = current.model_copy(
+                update={
+                    "version": current.version + 1,
+                    "status": self.raced_status,
+                    "desired_state": self.raced_status,
+                    "updated_at": utc_now(),
+                }
+            )
+            await self.save(raced)
+            return raced
+        return current
+
+
 class FakeCLIProxy:
     def __init__(
         self,
@@ -262,6 +290,15 @@ class FakeCLIProxy:
 
     async def set_concurrency_limit(self, record: EnvironmentRecord, concurrency_limit: int) -> None:
         self.concurrency_calls.append(concurrency_limit)
+
+
+class InvalidAuthorizationURLCLI(FakeCLIProxy):
+    def __init__(self, authorization_url: str) -> None:
+        super().__init__()
+        self.authorization_url = authorization_url
+
+    async def start_openai_authorization(self, record: EnvironmentRecord) -> tuple[str, str]:
+        return self.authorization_url, "state-for-test-1234"
 
 
 class EmptyProfiles:
@@ -1409,3 +1446,100 @@ async def test_releasing_manual_cooldown_keeps_environment_cooling_when_unhealth
     assert resumed_result.value.status == EnvironmentStatus.COOLING_DOWN
     assert cli.status_calls == [False, False]
     assert cli.health_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raced_status",
+    (
+        EnvironmentStatus.ERROR,
+        EnvironmentStatus.DELETING,
+        EnvironmentStatus.AWAITING_AUTHORIZATION,
+        EnvironmentStatus.VALIDATING,
+    ),
+)
+async def test_oauth_callback_rejects_non_completion_status_after_final_reload(
+    tmp_path: Path,
+    raced_status: EnvironmentStatus,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = bootstrap._callback_state(record)
+    signed: Final = record.model_copy(
+        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
+    )
+    repository: Final = FinalAuthorizationStatusRaceRepository(signed, raced_status)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+    durable: Final = await repository.get(record.id)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.CONFLICT
+    assert durable is not None
+    assert durable.status is raced_status
+    assert cli.submit_calls != []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorization_url", ("not-a-url", "/relative", "example.com/oauth"))
+async def test_create_rejects_invalid_upstream_authorization_url_without_pending_record(
+    tmp_path: Path,
+    authorization_url: str,
+) -> None:
+    cli: Final = InvalidAuthorizationURLCLI(authorization_url)
+    repository: Final = MemoryRepository(_record(status=EnvironmentStatus.READY))
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="New environment"))
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.UPSTREAM
+    assert all(item.status is not EnvironmentStatus.AWAITING_AUTHORIZATION for item in await repository.list())
+
+
+@pytest.mark.asyncio
+async def test_reauthorize_rejects_invalid_upstream_authorization_url_without_pending_record(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR)
+    repository: Final = MemoryRepository(record)
+    cli: Final = InvalidAuthorizationURLCLI("/relative")
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.authorize_environment(record.id)
+    durable: Final = await repository.get(record.id)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.UPSTREAM
+    assert durable is not None
+    assert durable.status is EnvironmentStatus.ERROR
+    assert durable.oauth_authorization_url is None
+    assert durable.oauth_state is None
