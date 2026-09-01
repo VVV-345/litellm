@@ -92,6 +92,13 @@ class PostgresEnvironmentRepository:
             )
         return record
 
+    async def delete(self, environment_id: UUID) -> None:
+        async with _connection(self._database_url) as connection:
+            await connection.execute(
+                "DELETE FROM account_pool_environments WHERE id = %s",
+                (environment_id,),
+            )
+
     async def save_if_version(
         self,
         record: EnvironmentRecord,

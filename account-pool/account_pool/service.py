@@ -269,6 +269,34 @@ class EnvironmentService:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             return Success(to_view(saved))
 
+    async def delete_environment(self, environment_id: UUID) -> Result[None]:
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Success(None)
+            deleting: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "status": EnvironmentStatus.DELETING,
+                    "enabled": False,
+                    "updated_at": utc_now(),
+                }
+            )
+            claimed: Final = await self._repository.save_if_version(deleting, record.version)
+            if claimed is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            try:
+                await self._runtime.remove(claimed)
+            except Exception as error:
+                failed: Final = claimed.model_copy(
+                    update={"last_error": _safe_error(error), "updated_at": utc_now()}
+                )
+                await self._repository.save_if_version(failed, claimed.version)
+                return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
+            await self._repository.delete(environment_id)
+            return Success(None)
+
     async def _automatic_cooldown_before_update(
         self,
         record: EnvironmentRecord,

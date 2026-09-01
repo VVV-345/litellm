@@ -21,6 +21,8 @@ class EnvironmentRepository(Protocol):
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
 
+    async def delete(self, environment_id: UUID) -> None: ...
+
     async def save_if_version(
         self,
         record: EnvironmentRecord,
