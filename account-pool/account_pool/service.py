@@ -445,7 +445,14 @@ class EnvironmentService:
             }
         )
         if completed.status is not EnvironmentStatus.READY:
-            saved_completed: Final = await self._repository.save_if_version(completed, record.version)
+            normalized: Final = completed.model_copy(
+                update={
+                    "configuration_pending": False,
+                    "observed_configuration_version": completed.desired_configuration_version,
+                    "configuration_last_error": None,
+                }
+            )
+            saved_completed: Final = await self._repository.save_if_version(normalized, record.version)
             if saved_completed is None:
                 raise _AuthorizationConflict
             return Success(saved_completed)
@@ -851,7 +858,11 @@ class EnvironmentService:
             completion: Final = await self._complete_authorization(claimed)
         except _AuthorizationConflict:
             return await self._repository.get(record.id) or record
-        return record if isinstance(completion, Failure) else completion.value
+        if isinstance(completion, Failure):
+            if completion.code is FailureCode.CONFLICT:
+                return await self._repository.get(claimed.id) or record
+            return record
+        return completion.value
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:
         if request.proxy_mode == ProxyMode.DEFAULT_GATEWAY:

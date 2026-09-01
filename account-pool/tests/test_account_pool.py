@@ -142,6 +142,27 @@ class AuthorizationRecoveryRepository(MemoryRepository):
         return await super().save_if_version(record, expected_version)
 
 
+class FinalConfigurationSaveConflictRepository(MemoryRepository):
+    def __init__(self, record: EnvironmentRecord) -> None:
+        super().__init__(record)
+        self.conflicted = False
+
+    async def save_if_version(
+        self,
+        record: EnvironmentRecord,
+        expected_version: int,
+    ) -> EnvironmentRecord | None:
+        is_final_configuration_save = not record.configuration_pending and record.status is EnvironmentStatus.READY
+        if is_final_configuration_save and not self.conflicted:
+            self.conflicted = True
+            current = await self.get(record.id)
+            assert current is not None
+            concurrent = current.model_copy(update={"version": current.version + 1, "updated_at": utc_now()})
+            await self.save(concurrent)
+            return None
+        return await super().save_if_version(record, expected_version)
+
+
 class FakeRuntime:
     def __init__(self) -> None:
         self.provisioned: list[EnvironmentRecord] = []
@@ -814,7 +835,7 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
     refreshed: Final = await service._refresh_authorization(awaiting)
 
     assert refreshed.status is (
-        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.AWAITING_AUTHORIZATION
+        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY
     )
     persisted: Final = await repository.get(record.id)
     assert persisted is not None
@@ -912,23 +933,8 @@ async def test_refresh_authorization_recovers_configuration_claim_conflict_befor
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("observed_status", "enabled", "manual_cooldown"),
-    (
-        (EnvironmentStatus.DISABLED, False, False),
-        (EnvironmentStatus.COOLING_DOWN, True, True),
-        (EnvironmentStatus.COOLING_DOWN, True, False),
-    ),
-)
-async def test_non_ready_authorization_skips_configuration_reconciliation(
-    tmp_path: Path,
-    observed_status: EnvironmentStatus,
-    enabled: bool,
-    manual_cooldown: bool,
-) -> None:
-    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
-        update={"enabled": enabled, "manual_cooldown": manual_cooldown}
-    )
+async def test_refresh_authorization_reloads_durable_record_after_final_configuration_save_conflict(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
@@ -941,8 +947,8 @@ async def test_non_ready_authorization_skips_configuration_reconciliation(
     awaiting: Final = record.model_copy(
         update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
     )
-    repository: Final = MemoryRepository(awaiting)
-    cli: Final = FakeCLIProxy(observed_status=observed_status)
+    repository: Final = FinalConfigurationSaveConflictRepository(awaiting)
+    cli: Final = FakeCLIProxy(authorization_status="ok")
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
@@ -952,19 +958,79 @@ async def test_non_ready_authorization_skips_configuration_reconciliation(
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
 
+    refreshed: Final = await service._refresh_authorization(awaiting)
+    durable: Final = await repository.get(record.id)
+    gateway: Final = await service.list_gateway_environments()
+
+    assert durable is not None
+    assert refreshed == durable
+    assert durable.configuration_pending is True
+    assert service._gateway_environment(durable).routable is False
+    assert gateway[0].routable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("observed_status", "enabled", "manual_cooldown"),
+    (
+        (EnvironmentStatus.DISABLED, False, False),
+        (EnvironmentStatus.COOLING_DOWN, True, True),
+        (EnvironmentStatus.COOLING_DOWN, True, False),
+    ),
+)
+async def test_non_ready_reauthorization_clears_stale_configuration_work(
+    tmp_path: Path,
+    observed_status: EnvironmentStatus,
+    enabled: bool,
+    manual_cooldown: bool,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR).model_copy(
+        update={
+            "enabled": enabled,
+            "manual_cooldown": manual_cooldown,
+            "configuration_pending": True,
+            "desired_configuration_version": 2,
+            "observed_configuration_version": 1,
+        }
+    )
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    authorization: Final = await bootstrap.authorize_environment(record.id)
+    assert not isinstance(authorization, Failure)
+    state: Final = (await bootstrap._repository.get(record.id)).oauth_state
+    assert state is not None
+    cli: Final = FakeCLIProxy(observed_status=observed_status)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=bootstrap._repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
-    persisted: Final = await repository.get(record.id)
+    fetched: Final = await service.get_environment(record.id)
+    gateway: Final = await service.list_gateway_environments()
+    persisted: Final = await bootstrap._repository.get(record.id)
 
     assert not isinstance(result, Failure)
+    assert not isinstance(fetched, Failure)
     assert persisted is not None
     assert persisted.status is observed_status
     assert persisted.configuration_pending is False
-    assert persisted.desired_configuration_version == record.desired_configuration_version
-    assert persisted.observed_configuration_version == record.observed_configuration_version
+    assert persisted.desired_configuration_version == persisted.observed_configuration_version
     assert cli.proxy_calls == []
     assert cli.model_calls == []
     assert cli.status_calls == []
     assert cli.concurrency_calls == []
+    assert gateway[0].routable is False
 
 
 @pytest.mark.asyncio
