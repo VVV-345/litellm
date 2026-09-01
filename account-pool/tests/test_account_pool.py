@@ -121,13 +121,25 @@ class MissingConsumedSignatureRepository(MemoryRepository):
         return None if consumed is None else consumed.model_copy(update={"oauth_state_signature": None})
 
 
-class RefreshAuthorizationConflictRepository(AuthorizationConflictRepository):
-    def __init__(self, record: EnvironmentRecord, *, reject_configuration_claim: bool) -> None:
-        super().__init__(
-            record,
-            reject_ready_save=not reject_configuration_claim,
-            reject_configuration_claim=reject_configuration_claim,
-        )
+class AuthorizationRecoveryRepository(MemoryRepository):
+    def __init__(self, record: EnvironmentRecord) -> None:
+        super().__init__(record)
+        self.conflicted = False
+
+    async def save_if_version(
+        self,
+        record: EnvironmentRecord,
+        expected_version: int,
+    ) -> EnvironmentRecord | None:
+        is_initial_configuration_claim = record.status is EnvironmentStatus.READY and record.configuration_pending
+        if is_initial_configuration_claim and not self.conflicted:
+            self.conflicted = True
+            current = await self.get(record.id)
+            assert current is not None
+            concurrent = current.model_copy(update={"version": current.version + 1, "updated_at": utc_now()})
+            await self.save(concurrent)
+            return None
+        return await super().save_if_version(record, expected_version)
 
 
 class FakeRuntime:
@@ -682,7 +694,7 @@ async def test_oauth_callback_consumes_signed_state_once_and_validates_immediate
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("reject_ready_save", "reject_configuration_claim", "expected_ready_attempts", "expected_claim_attempts"),
-    ((True, False, 1, 0), (False, True, 1, 1)),
+    ((False, True, 0, 1),),
 )
 async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
     tmp_path: Path,
@@ -785,8 +797,9 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
     awaiting: Final = record.model_copy(
         update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
     )
-    repository: Final = RefreshAuthorizationConflictRepository(
+    repository: Final = AuthorizationConflictRepository(
         awaiting,
+        reject_ready_save=not reject_configuration_claim,
         reject_configuration_claim=reject_configuration_claim,
     )
     service: Final = EnvironmentService(
@@ -800,13 +813,15 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
 
     refreshed: Final = await service._refresh_authorization(awaiting)
 
-    assert refreshed.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert refreshed.status is (
+        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.AWAITING_AUTHORIZATION
+    )
     persisted: Final = await repository.get(record.id)
     assert persisted is not None
     assert persisted.status is (
-        EnvironmentStatus.READY if reject_configuration_claim else EnvironmentStatus.VALIDATING
+        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY
     )
-    assert persisted.configuration_pending is False
+    assert persisted.configuration_pending is not reject_configuration_claim
 
 
 @pytest.mark.asyncio
@@ -851,6 +866,105 @@ async def test_oauth_callback_persists_legal_non_ready_authorization_state(
     assert persisted is not None
     assert persisted.status is observed_status
     assert persisted.configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_refresh_authorization_recovers_configuration_claim_conflict_before_routing(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = bootstrap._callback_state(record)
+    awaiting: Final = record.model_copy(
+        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
+    )
+    repository: Final = AuthorizationRecoveryRepository(awaiting)
+    cli: Final = FakeCLIProxy(authorization_status="ok")
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    refreshed: Final = await service._refresh_authorization(awaiting)
+    conflicted: Final = await repository.get(record.id)
+    assert conflicted is not None
+    before_recovery: Final = service._gateway_environment(conflicted)
+    recovered: Final = await service.get_environment(record.id)
+    second_gateway: Final = await service.list_gateway_environments()
+
+    assert refreshed.status is EnvironmentStatus.VALIDATING
+    assert before_recovery.routable is False
+    assert not isinstance(recovered, Failure)
+    assert recovered.value.status is EnvironmentStatus.READY
+    assert recovered.value.configuration_pending is False
+    assert recovered.value.observed_configuration_version == recovered.value.desired_configuration_version
+    assert second_gateway[0].routable is True
+    assert cli.proxy_calls == [""]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("observed_status", "enabled", "manual_cooldown"),
+    (
+        (EnvironmentStatus.DISABLED, False, False),
+        (EnvironmentStatus.COOLING_DOWN, True, True),
+        (EnvironmentStatus.COOLING_DOWN, True, False),
+    ),
+)
+async def test_non_ready_authorization_skips_configuration_reconciliation(
+    tmp_path: Path,
+    observed_status: EnvironmentStatus,
+    enabled: bool,
+    manual_cooldown: bool,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"enabled": enabled, "manual_cooldown": manual_cooldown}
+    )
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = bootstrap._callback_state(record)
+    awaiting: Final = record.model_copy(
+        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
+    )
+    repository: Final = MemoryRepository(awaiting)
+    cli: Final = FakeCLIProxy(observed_status=observed_status)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+    persisted: Final = await repository.get(record.id)
+
+    assert not isinstance(result, Failure)
+    assert persisted is not None
+    assert persisted.status is observed_status
+    assert persisted.configuration_pending is False
+    assert persisted.desired_configuration_version == record.desired_configuration_version
+    assert persisted.observed_configuration_version == record.observed_configuration_version
+    assert cli.proxy_calls == []
+    assert cli.model_calls == []
+    assert cli.status_calls == []
+    assert cli.concurrency_calls == []
 
 
 @pytest.mark.asyncio

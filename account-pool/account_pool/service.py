@@ -444,21 +444,21 @@ class EnvironmentService:
                 "updated_at": utc_now(),
             }
         )
-        saved_completed: Final = await self._repository.save_if_version(completed, record.version)
-        if saved_completed is None:
-            raise _AuthorizationConflict
-        desired: Final = saved_completed.desired_configuration or configuration_from_record(saved_completed)
-        pending: Final = saved_completed.model_copy(
+        if completed.status is not EnvironmentStatus.READY:
+            saved_completed: Final = await self._repository.save_if_version(completed, record.version)
+            if saved_completed is None:
+                raise _AuthorizationConflict
+            return Success(saved_completed)
+        desired: Final = completed.desired_configuration or configuration_from_record(completed)
+        pending: Final = completed.model_copy(
             update={
-                "version": saved_completed.version + 1,
                 "configuration_pending": True,
-                "desired_configuration_version": saved_completed.desired_configuration_version + 1,
+                "desired_configuration_version": completed.desired_configuration_version + 1,
                 "desired_configuration": desired,
                 "configuration_last_error": None,
-                "updated_at": utc_now(),
             }
         )
-        claimed: Final = await self._repository.save_if_version(pending, saved_completed.version)
+        claimed: Final = await self._repository.save_if_version(pending, record.version)
         if claimed is None:
             raise _AuthorizationConflict
         reconciled: Final = await self._apply_and_persist_configuration(
@@ -765,6 +765,12 @@ class EnvironmentService:
                 return current if isinstance(reconciliation, Failure) else await self._repository.get(record.id) or current
             if current.status == EnvironmentStatus.AWAITING_AUTHORIZATION:
                 return await self._refresh_authorization(current)
+            if current.status == EnvironmentStatus.VALIDATING:
+                try:
+                    completion: Final = await self._complete_authorization(current)
+                except _AuthorizationConflict:
+                    return await self._repository.get(current.id) or current
+                return current if isinstance(completion, Failure) else completion.value
             if current.auth_file_name is None:
                 return current
             if _cooldown_active(current):
@@ -844,7 +850,7 @@ class EnvironmentService:
         try:
             completion: Final = await self._complete_authorization(claimed)
         except _AuthorizationConflict:
-            return record
+            return await self._repository.get(record.id) or record
         return record if isinstance(completion, Failure) else completion.value
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:
