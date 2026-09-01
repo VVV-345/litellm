@@ -86,19 +86,32 @@ class RejectingVersionRepository(MemoryRepository):
 
 
 class AuthorizationConflictRepository(MemoryRepository):
-    def __init__(self, record: EnvironmentRecord, *, reject_configuration_claim: bool) -> None:
+    def __init__(
+        self,
+        record: EnvironmentRecord,
+        *,
+        reject_ready_save: bool,
+        reject_configuration_claim: bool,
+    ) -> None:
         super().__init__(record)
+        self.reject_ready_save = reject_ready_save
         self.reject_configuration_claim = reject_configuration_claim
+        self.ready_save_attempts = 0
+        self.configuration_claim_attempts = 0
 
     async def save_if_version(
         self,
         record: EnvironmentRecord,
         expected_version: int,
     ) -> EnvironmentRecord | None:
-        rejects_ready = record.status is EnvironmentStatus.READY and not record.configuration_pending
-        rejects_configuration = self.reject_configuration_claim and record.configuration_pending
-        if rejects_ready or rejects_configuration:
-            return None
+        if record.status is EnvironmentStatus.READY and not record.configuration_pending:
+            self.ready_save_attempts += 1
+            if self.reject_ready_save:
+                return None
+        if record.configuration_pending:
+            self.configuration_claim_attempts += 1
+            if self.reject_configuration_claim:
+                return None
         return await super().save_if_version(record, expected_version)
 
 
@@ -652,10 +665,16 @@ async def test_oauth_callback_consumes_signed_state_once_and_validates_immediate
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reject_configuration_claim", (False, True))
+@pytest.mark.parametrize(
+    ("reject_ready_save", "reject_configuration_claim", "expected_ready_attempts", "expected_claim_attempts"),
+    ((True, False, 1, 0), (False, True, 1, 1)),
+)
 async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
     tmp_path: Path,
+    reject_ready_save: bool,
     reject_configuration_claim: bool,
+    expected_ready_attempts: int,
+    expected_claim_attempts: int,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = EnvironmentService(
@@ -672,6 +691,7 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
     )
     repository: Final = AuthorizationConflictRepository(
         signed,
+        reject_ready_save=reject_ready_save,
         reject_configuration_claim=reject_configuration_claim,
     )
     cli: Final = FakeCLIProxy()
@@ -689,6 +709,46 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
     assert isinstance(result, Failure)
     assert result.code == FailureCode.CONFLICT
     assert cli.submit_calls != []
+    assert cli.proxy_calls == []
+    assert repository.ready_save_attempts == expected_ready_attempts
+    assert repository.configuration_claim_attempts == expected_claim_attempts
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_preserves_configuration_failure(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = bootstrap._callback_state(record)
+    signed: Final = record.model_copy(
+        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
+    )
+    repository: Final = MemoryRepository(signed)
+    cli: Final = FakeCLIProxy()
+    cli.fail_proxy_once = True
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+
+    assert isinstance(result, Failure)
+    assert result.code == FailureCode.UPSTREAM
+    persisted: Final = await repository.get(record.id)
+    assert persisted is not None
+    assert persisted.status is EnvironmentStatus.ERROR
+    assert persisted.configuration_pending is True
     assert cli.proxy_calls == []
 
 

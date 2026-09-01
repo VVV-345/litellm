@@ -331,9 +331,12 @@ class EnvironmentService:
         if claimed is None:
             return Failure(FailureCode.CONFLICT, "environment was changed by another request")
         try:
-            validated: Final = await self._validate_authorized(claimed)
+            validation: Final = await self._complete_authorization(claimed)
         except _AuthorizationConflict:
             return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
+        if isinstance(validation, Failure):
+            return validation
+        validated: Final = validation.value
         if not self._gateway_environment(validated).routable:
             return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
         return Success(to_view(validated))
@@ -417,7 +420,13 @@ class EnvironmentService:
                 }
             )
             return await self._repository.save_if_version(failed_health, record.version) or failed_health
-        ready: Final = observed.model_copy(
+        return observed
+
+    async def _complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
+        validated: Final = await self._validate_authorized(record)
+        if validated.status is not EnvironmentStatus.READY:
+            return Failure(FailureCode.UPSTREAM, "environment authorization validation failed")
+        ready: Final = validated.model_copy(
             update={
                 "version": record.version + 1,
                 "status": EnvironmentStatus.READY,
@@ -452,11 +461,11 @@ class EnvironmentService:
             desired.enabled and not desired.manual_cooldown,
         )
         if isinstance(reconciled, Failure):
-            raise _AuthorizationConflict
+            return reconciled
         persisted: Final = await self._repository.get(claimed.id)
         if persisted is None or not self._gateway_environment(persisted).routable:
             raise _AuthorizationConflict
-        return persisted
+        return Success(persisted)
 
     async def _persist_cleanup_progress(
         self,
@@ -822,7 +831,10 @@ class EnvironmentService:
             }
         )
         claimed: Final = await self._repository.save_if_version(validating, record.version)
-        return record if claimed is None else await self._validate_authorized(claimed)
+        if claimed is None:
+            return record
+        completion: Final = await self._complete_authorization(claimed)
+        return record if isinstance(completion, Failure) else completion.value
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:
         if request.proxy_mode == ProxyMode.DEFAULT_GATEWAY:
