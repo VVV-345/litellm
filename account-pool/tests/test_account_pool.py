@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import yaml
+from account_pool.api import create_router
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import render_compose
 from account_pool.config import Settings
@@ -91,6 +92,18 @@ class FakeRuntime:
     async def remove(self, record: EnvironmentRecord) -> None:
         self.removed.append(record)
 
+
+
+class FailingOnceRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempts = 0
+
+    async def remove(self, record: EnvironmentRecord) -> None:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("docker unavailable")
+        await super().remove(record)
 
 
 class FailingOnceRuntime(FakeRuntime):
@@ -596,6 +609,36 @@ async def test_delete_environment_is_idempotent_and_removes_resources(tmp_path: 
     assert runtime.removed[0].id == record.id
     assert runtime.removed[0].status == EnvironmentStatus.DELETING
     assert runtime.removed[0].enabled is False
+
+
+@pytest.mark.asyncio
+async def test_delete_environment_can_retry_after_runtime_failure(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FailingOnceRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    failed: Final = await service.delete_environment(record.id)
+
+    assert isinstance(failed, Failure)
+    assert failed.code == FailureCode.UPSTREAM
+    failed_record: Final = await repository.get(record.id)
+    assert failed_record is not None
+    assert failed_record.status == EnvironmentStatus.DELETING
+
+    retried: Final = await service.delete_environment(record.id)
+
+    assert not isinstance(retried, Failure)
+    assert await repository.get(record.id) is None
+    assert runtime.attempts == 2
+    assert len(runtime.removed) == 1
 
 
 @pytest.mark.asyncio
