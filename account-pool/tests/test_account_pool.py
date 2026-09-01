@@ -14,6 +14,7 @@ from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_q
 from account_pool.compose import render_compose
 from account_pool.config import Settings
 from account_pool.domain import (
+    CreateEnvironmentRequest,
     EnvironmentRecord,
     EnvironmentStatus,
     OAuthCallback,
@@ -28,8 +29,9 @@ from account_pool.service import EnvironmentService, Failure, FailureCode, _safe
 
 
 class MemoryRepository:
-    def __init__(self, record: EnvironmentRecord) -> None:
+    def __init__(self, record: EnvironmentRecord, *, validate_state_before_consume: bool = True) -> None:
         self.records = {record.id: record}
+        self.validate_state_before_consume = validate_state_before_consume
 
     async def initialize(self) -> None:
         return None
@@ -49,6 +51,8 @@ class MemoryRepository:
     async def consume_oauth_state(self, state: str, consumed_at):
         record = await self.find_by_oauth_state(state)
         if record is None or record.oauth_state_consumed_at is not None:
+            return None
+        if self.validate_state_before_consume and record.oauth_expires_at is not None and record.oauth_expires_at <= consumed_at:
             return None
         consumed = record.model_copy(update={"oauth_state_consumed_at": consumed_at})
         return await self.save_if_version(consumed, record.version)
@@ -125,6 +129,7 @@ class FakeCLIProxy:
         self.model_calls: list[tuple[str, ...]] = []
         self.concurrency_calls: list[int] = []
         self.health_calls = 0
+        self.submit_calls: list[OAuthCallback] = []
         self.fail_proxy_once = False
 
     async def close(self) -> None:
@@ -137,7 +142,7 @@ class FakeCLIProxy:
         return self.authorization_status_value
 
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
-        return None
+        self.submit_calls.append(callback)
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         self.read_calls += 1
@@ -591,7 +596,7 @@ async def test_configuration_update_conflict_has_no_cli_proxy_side_effects(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_oauth_callback_is_single_use_and_validates_immediately(tmp_path: Path) -> None:
+async def test_oauth_callback_consumes_signed_state_once_and_validates_immediately(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
@@ -603,9 +608,17 @@ async def test_oauth_callback_is_single_use_and_validates_immediately(tmp_path: 
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
+    state: Final = service._callback_state(record)
+    signed_record: Final = record.model_copy(
+        update={
+            "oauth_state": state,
+            "oauth_state_signature": state.rpartition(".")[2],
+        }
+    )
+    await repository.save(signed_record)
 
-    first: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=record.oauth_state or ""))
-    second: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=record.oauth_state or ""))
+    first: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+    second: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
 
     assert not isinstance(first, Failure)
     assert first.value.status == EnvironmentStatus.READY
@@ -613,6 +626,164 @@ async def test_oauth_callback_is_single_use_and_validates_immediately(tmp_path: 
     assert second.code == FailureCode.CONFLICT
     assert cli.read_calls == 1
     assert (await repository.get(record.id)).oauth_state_consumed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_rejects_expired_mismatched_and_unknown_states_without_forwarding(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = service._callback_state(record)
+    signed_record: Final = record.model_copy(
+        update={
+            "oauth_state": state,
+            "oauth_state_signature": state.rpartition(".")[2],
+            "oauth_expires_at": utc_now() - timedelta(minutes=1),
+        }
+    )
+    await repository.save(signed_record)
+
+    expired: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+    mismatched: Final = await service.submit_oauth_callback(
+        OAuthCallback(code="code", state=state),
+        uuid4(),
+    )
+    unknown: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state="unknown-state-1234"))
+
+    assert isinstance(expired, Failure)
+    assert expired.code == FailureCode.CONFLICT
+    assert isinstance(mismatched, Failure)
+    assert mismatched.code == FailureCode.CONFLICT
+    assert isinstance(unknown, Failure)
+    assert unknown.code == FailureCode.NOT_FOUND
+    assert cli.read_calls == 0
+    assert cli.submit_calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_rejects_signature_mismatch_without_forwarding(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    tampered_state: Final = "tampered-state-1234.invalid-signature"
+    await repository.save(
+        record.model_copy(
+            update={
+                "oauth_state": tampered_state,
+                "oauth_state_signature": "invalid-signature",
+            }
+        )
+    )
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=tampered_state))
+
+    assert isinstance(result, Failure)
+    assert result.code == FailureCode.CONFLICT
+    assert cli.read_calls == 0
+    assert cli.submit_calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_does_not_forward_signature_mismatch_during_atomic_consume(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record, validate_state_before_consume=False)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    tampered_state: Final = "tampered-state-1234.invalid-signature"
+    await repository.save(
+        record.model_copy(
+            update={
+                "oauth_state": tampered_state,
+                "oauth_state_signature": "invalid-signature",
+            }
+        )
+    )
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=tampered_state))
+
+    assert isinstance(result, Failure)
+    assert result.code == FailureCode.CONFLICT
+    assert cli.submit_calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_immediately_reconciles_ready_environment(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    created: Final = await service.create_environment(CreateEnvironmentRequest(name="Test environment"))
+
+    assert not isinstance(created, Failure)
+    state: Final = (await repository.list())[-1].oauth_state
+    assert state is not None
+
+    result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+
+    assert not isinstance(result, Failure)
+    assert result.value.status == EnvironmentStatus.READY
+    assert cli.proxy_calls == [""]
+    assert cli.model_calls == [("gpt-5",)]
+    assert cli.status_calls == [True]
+    assert cli.concurrency_calls == [1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", (EnvironmentStatus.ERROR, EnvironmentStatus.AWAITING_AUTHORIZATION))
+async def test_authorize_environment_refreshes_recoverable_environment_without_provisioning(
+    tmp_path: Path,
+    status: EnvironmentStatus,
+) -> None:
+    record: Final = _record(status=status, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    result: Final = await service.authorize_environment(record.id)
+
+    assert not isinstance(result, Failure)
+    assert result.value.environment.status == EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
+    assert "state-for-test-1234" not in str(result.value.authorization_url)
+    assert result.value.environment.last_error is None
+    assert runtime.provisioned == []
 
 
 @pytest.mark.asyncio

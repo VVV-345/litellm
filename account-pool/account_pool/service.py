@@ -173,7 +173,7 @@ class EnvironmentService:
                 "oauth_state": callback_state,
                 "oauth_expires_at": expires_at,
                 "oauth_state_consumed_at": None,
-                "oauth_state_signature": self._state_signature(record.id, callback_state),
+                "oauth_state_signature": callback_state.rpartition(".")[2],
                 "oauth_provider_state": state,
                 "oauth_authorization_url": public_url,
                 "updated_at": utc_now(),
@@ -241,7 +241,7 @@ class EnvironmentService:
                     "oauth_state": callback_state,
                     "oauth_expires_at": expires_at,
                     "oauth_state_consumed_at": None,
-                    "oauth_state_signature": self._state_signature(record.id, callback_state),
+                    "oauth_state_signature": callback_state.rpartition(".")[2],
                     "oauth_provider_state": provider_state,
                     "oauth_authorization_url": public_url,
                     "last_error": None,
@@ -265,7 +265,7 @@ class EnvironmentService:
             return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
         if record.oauth_state_consumed_at is not None:
             return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
-        if record.oauth_state_signature is not None and not self._valid_state_signature(record, callback.state):
+        if record.oauth_state_signature is None or not self._valid_state_signature(record, callback.state):
             return Failure(FailureCode.CONFLICT, "invalid OAuth state")
         if record.oauth_expires_at is None or record.oauth_expires_at <= utc_now():
             expired: Final = record.model_copy(
@@ -283,6 +283,10 @@ class EnvironmentService:
         consumed: Final = await self._consume_oauth_state(callback.state, consumed_at)
         if consumed is None:
             return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
+        if environment_id is not None and consumed.id != environment_id:
+            return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
+        if consumed.oauth_state_signature is not None and not self._valid_state_signature(consumed, callback.state):
+            return Failure(FailureCode.CONFLICT, "invalid OAuth state")
         provider_state: Final = consumed.oauth_provider_state or callback.state
         provider_callback: Final = callback.model_copy(update={"state": provider_state})
         try:
@@ -333,7 +337,7 @@ class EnvironmentService:
         lock: Final = await self._lock_for(record.id)
         async with lock:
             current: Final = await self._repository.find_by_oauth_state(state)
-            if current is None or current.oauth_state_consumed_at is not None:
+            if current is None or current.oauth_state_consumed_at is not None or not self._valid_state_signature(current, state):
                 return None
             consumed: Final = current.model_copy(update={"oauth_state_consumed_at": consumed_at})
             return await self._repository.save_if_version(consumed, current.version)
@@ -345,8 +349,9 @@ class EnvironmentService:
 
     def _callback_state(self, record: EnvironmentRecord) -> str:
         nonce: Final = token_secrets.token_urlsafe(32)
+        signature: Final = self._state_signature(record.id, nonce)
         # state 本身不携带凭据，只使用随机值和环境绑定签名，防止跨环境转发与重放。
-        return f"{nonce}.{self._state_signature(record.id, nonce)}"
+        return f"{nonce}.{signature}"
 
     def _valid_state_signature(self, record: EnvironmentRecord, state: str) -> bool:
         nonce, separator, signature = state.rpartition(".")
@@ -406,7 +411,31 @@ class EnvironmentService:
                 "updated_at": utc_now(),
             }
         )
-        return await self._repository.save_if_version(ready, record.version) or ready
+        saved_ready: Final = await self._repository.save_if_version(ready, record.version)
+        if saved_ready is None:
+            return ready
+        desired: Final = saved_ready.desired_configuration or configuration_from_record(saved_ready)
+        pending: Final = saved_ready.model_copy(
+            update={
+                "version": saved_ready.version + 1,
+                "configuration_pending": True,
+                "desired_configuration_version": saved_ready.desired_configuration_version + 1,
+                "desired_configuration": desired,
+                "configuration_last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        claimed: Final = await self._repository.save_if_version(pending, saved_ready.version)
+        if claimed is None:
+            return saved_ready
+        reconciled: Final = await self._apply_and_persist_configuration(
+            claimed,
+            desired,
+            desired.enabled and not desired.manual_cooldown,
+        )
+        if isinstance(reconciled, Failure):
+            return await self._repository.get(claimed.id) or claimed
+        return await self._repository.get(claimed.id) or claimed
 
     async def _persist_cleanup_progress(
         self,
