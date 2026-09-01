@@ -366,7 +366,9 @@ class EnvironmentService:
             current: Final = await self._repository.find_by_oauth_state(state)
             if current is None or current.oauth_state_consumed_at is not None or not self._valid_state_signature(current, state):
                 return None
-            consumed: Final = current.model_copy(update={"oauth_state_consumed_at": consumed_at})
+            consumed: Final = current.model_copy(
+                update={"version": current.version + 1, "oauth_state_consumed_at": consumed_at}
+            )
             return await self._repository.save_if_version(consumed, current.version)
 
     def _state_signature(self, environment_id: UUID, state: str) -> str:
@@ -840,9 +842,13 @@ class EnvironmentService:
             return await self._repository.save(failed)
         if status != "ok":
             return record
-        validating: Final = record.model_copy(
+        consumed_at: Final = utc_now()
+        consumed: Final = await self._consume_oauth_state(record.oauth_state, consumed_at)
+        if consumed is None:
+            return await self._repository.get(record.id) or record
+        validating: Final = consumed.model_copy(
             update={
-                "version": record.version + 1,
+                "version": consumed.version + 1,
                 "status": EnvironmentStatus.VALIDATING,
                 "desired_state": EnvironmentStatus.VALIDATING,
                 "oauth_expires_at": None,
@@ -851,7 +857,7 @@ class EnvironmentService:
                 "updated_at": utc_now(),
             }
         )
-        claimed: Final = await self._repository.save_if_version(validating, record.version)
+        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
         if claimed is None:
             return record
         try:

@@ -166,7 +166,12 @@ class PostgresEnvironmentRepository:
                 """
                 UPDATE account_pool_environments
                 SET oauth_state_consumed_at = %s,
-                    payload = jsonb_set(payload, '{oauth_state_consumed_at}', to_jsonb(%s::timestamptz), true),
+                    payload = jsonb_set(
+                        jsonb_set(payload, '{oauth_state_consumed_at}', to_jsonb(%s::timestamptz), true),
+                        '{version}',
+                        to_jsonb(COALESCE((payload->>'version')::integer, 0) + 1),
+                        true
+                    ),
                     updated_at = %s
                 WHERE oauth_state = %s
                   AND oauth_state_consumed_at IS NULL

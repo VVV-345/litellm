@@ -54,7 +54,12 @@ class MemoryRepository:
             return None
         if self.validate_state_before_consume and record.oauth_expires_at is not None and record.oauth_expires_at <= consumed_at:
             return None
-        consumed = record.model_copy(update={"oauth_state_consumed_at": consumed_at})
+        consumed = record.model_copy(
+            update={
+                "version": record.version + 1,
+                "oauth_state_consumed_at": consumed_at,
+            }
+        )
         return await self.save_if_version(consumed, record.version)
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
@@ -642,6 +647,63 @@ async def test_repository_rejects_second_save_from_same_version() -> None:
     assert first_saved == first
     assert second_saved is None
     assert await repository.get(record.id) == first
+
+
+@pytest.mark.asyncio
+async def test_consuming_oauth_state_advances_version_against_stale_snapshot() -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    consumed_at: Final = utc_now()
+
+    consumed: Final = await repository.consume_oauth_state(record.oauth_state, consumed_at)
+    assert consumed is not None
+    stale: Final = record.model_copy(update={"oauth_state_consumed_at": None})
+
+    stale_saved: Final = await repository.save_if_version(stale, record.version)
+    current: Final = await repository.get(record.id)
+
+    assert consumed.version == record.version + 1
+    assert stale_saved is None
+    assert current is not None
+    assert current.oauth_state_consumed_at == consumed_at
+
+
+@pytest.mark.asyncio
+async def test_late_oauth_callback_after_polling_completion_cannot_change_ready_state(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    state: Final = bootstrap._callback_state(record)
+    awaiting: Final = record.model_copy(
+        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
+    )
+    repository: Final = MemoryRepository(awaiting)
+    cli: Final = FakeCLIProxy(authorization_status="ok")
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    polled: Final = await service._refresh_authorization(awaiting)
+    late_callback: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
+    durable: Final = await repository.get(record.id)
+
+    assert polled.status is EnvironmentStatus.READY
+    assert isinstance(late_callback, Failure)
+    assert late_callback.code is FailureCode.CONFLICT
+    assert durable is not None
+    assert durable.status is EnvironmentStatus.READY
+    assert cli.submit_calls == []
 
 
 @pytest.mark.asyncio
