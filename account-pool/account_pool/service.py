@@ -50,6 +50,12 @@ class FailureCode(StrEnum):
     UPSTREAM = "upstream"
 
 
+class _AuthorizationConflict(Exception):
+    """授权回调未能持久化到可路由状态时阻止成功响应。"""
+
+    pass
+
+
 class _AutomaticCooldownState(StrEnum):
     NONE = "none"
     ACTIVE = "active"
@@ -110,6 +116,17 @@ class EnvironmentService:
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         return tuple(self._gateway_environment(record) for record in refreshed)
 
+    async def _start_authorization(
+        self,
+        record: EnvironmentRecord,
+    ) -> tuple[str, str, str]:
+        authorization_url: Final
+        provider_state: Final
+        authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
+        callback_state: Final = self._callback_state(record)
+        callback_url: Final = _replace_state(authorization_url, callback_state)
+        return provider_state, callback_state, callback_url
+
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
         if request.operation_id is not None:
             existing: Final = await self._find_by_operation_id(request.operation_id)
@@ -151,7 +168,7 @@ class EnvironmentService:
         await self._repository.save(record)
         try:
             await self._runtime.provision(record)
-            authorization_url, state = await self._cli_proxy.start_openai_authorization(record)
+            provider_state, callback_state, callback_url = await self._start_authorization(record)
         except Exception as error:
             failed: Final = record.model_copy(
                 update={
@@ -164,8 +181,6 @@ class EnvironmentService:
             await self._repository.save(failed)
             return Failure(FailureCode.UPSTREAM, "environment provisioning failed")
         expires_at: Final = utc_now() + timedelta(minutes=5)
-        callback_state: Final = self._callback_state(record)
-        public_url: Final = _replace_state(authorization_url, callback_state)
         awaiting: Final = record.model_copy(
             update={
                 "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -174,8 +189,8 @@ class EnvironmentService:
                 "oauth_expires_at": expires_at,
                 "oauth_state_consumed_at": None,
                 "oauth_state_signature": callback_state.rpartition(".")[2],
-                "oauth_provider_state": state,
-                "oauth_authorization_url": public_url,
+                "oauth_provider_state": provider_state,
+                "oauth_authorization_url": callback_url,
                 "updated_at": utc_now(),
             }
         )
@@ -187,7 +202,7 @@ class EnvironmentService:
         return Success(
             AuthorizationView(
                 environment=to_view(awaiting),
-                authorization_url=_HTTP_URL_ADAPTER.validate_python(public_url),
+                authorization_url=_HTTP_URL_ADAPTER.validate_python(callback_url),
                 ssh_command=command,
                 expires_at=expires_at,
             )
@@ -217,7 +232,7 @@ class EnvironmentService:
                 return Success(self._authorization_view(record))
             try:
                 await self._runtime.ensure_control_plane_connections(record.id)
-                authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
+                provider_state, callback_state, callback_url = await self._start_authorization(record)
             except Exception as error:
                 failed: Final = record.model_copy(
                     update={
@@ -230,8 +245,6 @@ class EnvironmentService:
                 await self._repository.save_if_version(failed, record.version)
                 return Failure(FailureCode.UPSTREAM, "environment authorization failed")
             expires_at: Final = utc_now() + timedelta(minutes=5)
-            callback_state: Final = self._callback_state(record)
-            public_url: Final = _replace_state(authorization_url, callback_state)
             authorized: Final = record.model_copy(
                 update={
                     "version": record.version + 1,
@@ -243,7 +256,7 @@ class EnvironmentService:
                     "oauth_state_consumed_at": None,
                     "oauth_state_signature": callback_state.rpartition(".")[2],
                     "oauth_provider_state": provider_state,
-                    "oauth_authorization_url": public_url,
+                    "oauth_authorization_url": callback_url,
                     "last_error": None,
                     "updated_at": utc_now(),
                 }
@@ -285,7 +298,7 @@ class EnvironmentService:
             return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
         if environment_id is not None and consumed.id != environment_id:
             return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
-        if consumed.oauth_state_signature is not None and not self._valid_state_signature(consumed, callback.state):
+        if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, callback.state):
             return Failure(FailureCode.CONFLICT, "invalid OAuth state")
         provider_state: Final = consumed.oauth_provider_state or callback.state
         provider_callback: Final = callback.model_copy(update={"state": provider_state})
@@ -317,7 +330,12 @@ class EnvironmentService:
         claimed: Final = await self._repository.save_if_version(validating, consumed.version)
         if claimed is None:
             return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-        validated: Final = await self._validate_authorized(claimed)
+        try:
+            validated: Final = await self._validate_authorized(claimed)
+        except _AuthorizationConflict:
+            return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
+        if not self._gateway_environment(validated).routable:
+            return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
         return Success(to_view(validated))
 
     async def _find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
@@ -413,7 +431,7 @@ class EnvironmentService:
         )
         saved_ready: Final = await self._repository.save_if_version(ready, record.version)
         if saved_ready is None:
-            return ready
+            raise _AuthorizationConflict
         desired: Final = saved_ready.desired_configuration or configuration_from_record(saved_ready)
         pending: Final = saved_ready.model_copy(
             update={
@@ -427,15 +445,18 @@ class EnvironmentService:
         )
         claimed: Final = await self._repository.save_if_version(pending, saved_ready.version)
         if claimed is None:
-            return saved_ready
+            raise _AuthorizationConflict
         reconciled: Final = await self._apply_and_persist_configuration(
             claimed,
             desired,
             desired.enabled and not desired.manual_cooldown,
         )
         if isinstance(reconciled, Failure):
-            return await self._repository.get(claimed.id) or claimed
-        return await self._repository.get(claimed.id) or claimed
+            raise _AuthorizationConflict
+        persisted: Final = await self._repository.get(claimed.id)
+        if persisted is None or not self._gateway_environment(persisted).routable:
+            raise _AuthorizationConflict
+        return persisted
 
     async def _persist_cleanup_progress(
         self,
