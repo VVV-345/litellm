@@ -55,13 +55,53 @@ class ModelQuotaSnapshot(BaseModel):
     quota: QuotaSnapshot
 
 
+class EnvironmentConfiguration(BaseModel):
+    """环境需要收敛到 CLIProxyAPI 的完整配置快照，不包含任何密钥。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: Annotated[str, Field(min_length=1, max_length=80)]
+    concurrency_limit: int = Field(ge=1, le=1000)
+    enabled: bool
+    manual_cooldown: bool
+    proxy_mode: ProxyMode
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    enabled_models: tuple[str, ...] = ()
+    proxy_url: str = ""
+
+    @model_validator(mode="after")
+    def normalize_proxy_mode(self) -> EnvironmentConfiguration:
+        if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
+            return self.model_copy(update={"proxy_profile_id": None, "proxy_url": ""})
+        return self
+
+
+class CleanupProgress(BaseModel):
+    """删除流程的持久化检查点，允许 Manager 重启后从未完成步骤继续。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    routes_removed: bool = False
+    compose_removed: bool = False
+    directory_removed: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return self.routes_removed and self.compose_removed and self.directory_removed
+
+
 class EnvironmentRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
     version: int = Field(default=0, ge=0)
+    desired_state: EnvironmentStatus | None = None
+    operation_id: str | None = Field(default=None, max_length=160)
+    cleanup_progress: CleanupProgress = Field(default_factory=CleanupProgress)
     desired_configuration_version: int = Field(default=0, ge=0)
     observed_configuration_version: int = Field(default=0, ge=0)
+    desired_configuration: EnvironmentConfiguration | None = None
+    configuration_last_error: str | None = None
     name: str
     provider: Provider
     status: EnvironmentStatus
@@ -80,16 +120,24 @@ class EnvironmentRecord(BaseModel):
     cooldown_until: datetime | None
     oauth_state: str | None
     oauth_expires_at: datetime | None
+    oauth_state_consumed_at: datetime | None = None
+    oauth_state_signature: str | None = None
+    oauth_provider_state: str | None = None
+    oauth_authorization_url: str | None = None
     last_error: str | None
     created_at: datetime
     updated_at: datetime
-
 
 class EnvironmentView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
     version: int = Field(ge=0)
+    desired_state: EnvironmentStatus | None = None
+    operation_id: str | None = None
+    cleanup_progress: CleanupProgress = Field(default_factory=CleanupProgress)
+    desired_configuration_version: int = Field(default=0, ge=0)
+    observed_configuration_version: int = Field(default=0, ge=0)
     name: str
     provider: Provider
     status: EnvironmentStatus
@@ -125,6 +173,7 @@ class CreateEnvironmentRequest(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=80)]
     provider: Provider = Provider.OPENAI
+    operation_id: str | None = Field(default=None, max_length=160)
 
     @field_validator("name")
     @classmethod
@@ -139,6 +188,7 @@ class UpdateEnvironmentRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     version: int = Field(ge=0)
+    operation_id: str | None = Field(default=None, max_length=160)
     name: Annotated[str, Field(min_length=1, max_length=80)]
     concurrency_limit: int = Field(ge=1, le=1000)
     enabled: bool
@@ -179,6 +229,20 @@ class AuthorizationView(BaseModel):
     expires_at: datetime
 
 
+def configuration_from_record(record: EnvironmentRecord, proxy_url: str = "") -> EnvironmentConfiguration:
+    """从当前记录生成不含凭据的期望配置快照。"""
+    return EnvironmentConfiguration(
+        name=record.name,
+        concurrency_limit=record.concurrency_limit,
+        enabled=record.enabled,
+        manual_cooldown=record.manual_cooldown,
+        proxy_mode=record.proxy_mode,
+        proxy_profile_id=record.proxy_profile_id,
+        enabled_models=record.enabled_models,
+        proxy_url=proxy_url,
+    )
+
+
 class OAuthCallback(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -206,7 +270,30 @@ def utc_now() -> datetime:
 
 
 def to_view(record: EnvironmentRecord) -> EnvironmentView:
-    public_record: Final = record.model_dump(
-        exclude={"oauth_state", "oauth_expires_at", "auth_file_name", "auth_index"}
+    # 显式构造公开模型，避免未来新增内部字段时意外泄露 state、签名或代理凭据。
+    return EnvironmentView(
+        id=record.id,
+        version=record.version,
+        desired_state=record.desired_state or record.status,
+        operation_id=record.operation_id,
+        cleanup_progress=record.cleanup_progress,
+        desired_configuration_version=record.desired_configuration_version,
+        observed_configuration_version=record.observed_configuration_version,
+        name=record.name,
+        provider=record.provider,
+        status=record.status,
+        configuration_pending=record.configuration_pending,
+        enabled=record.enabled,
+        manual_cooldown=record.manual_cooldown,
+        concurrency_limit=record.concurrency_limit,
+        proxy_mode=record.proxy_mode,
+        proxy_profile_id=record.proxy_profile_id,
+        available_models=record.available_models,
+        enabled_models=record.enabled_models,
+        quota=record.quota,
+        model_quotas=record.model_quotas,
+        cooldown_until=record.cooldown_until,
+        last_error=record.last_error,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
     )
-    return EnvironmentView.model_validate(public_record)

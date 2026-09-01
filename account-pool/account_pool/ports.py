@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-from account_pool.domain import EnvironmentRecord, OAuthCallback, ProxyProfile
+from account_pool.domain import EnvironmentConfiguration, EnvironmentRecord, OAuthCallback, ProxyProfile
 
 
 class EnvironmentRepository(Protocol):
@@ -19,6 +20,10 @@ class EnvironmentRepository(Protocol):
 
     async def find_by_oauth_state(self, state: str) -> EnvironmentRecord | None: ...
 
+    async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None: ...
+
+    async def consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None: ...
+
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
 
     async def delete(self, environment_id: UUID) -> None: ...
@@ -27,6 +32,13 @@ class EnvironmentRepository(Protocol):
         self,
         record: EnvironmentRecord,
         expected_version: int,
+    ) -> EnvironmentRecord | None: ...
+
+    async def update_environment(
+        self,
+        environment_id: UUID,
+        expected_version: int,
+        environment: EnvironmentRecord,
     ) -> EnvironmentRecord | None: ...
 
 
@@ -38,6 +50,10 @@ class EnvironmentRuntime(Protocol):
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None: ...
 
     async def remove(self, record: EnvironmentRecord) -> None: ...
+
+    async def remove_compose(self, record: EnvironmentRecord) -> None: ...
+
+    async def remove_directory(self, environment_id: UUID) -> None: ...
 
     def environment_dir(self, environment_id: UUID) -> Path: ...
 
@@ -60,6 +76,10 @@ class CLIProxyClient(Protocol):
     async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None: ...
 
     async def set_enabled_models(self, record: EnvironmentRecord, enabled_models: Sequence[str]) -> None: ...
+
+    async def set_concurrency_limit(self, record: EnvironmentRecord, concurrency_limit: int) -> None: ...
+
+    async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None: ...
 
 
 class ProxyProfileRepository(Protocol):

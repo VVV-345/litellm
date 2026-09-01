@@ -1,0 +1,106 @@
+# 本文件提供号池 Manager 的最小部署模板，Manager 只在回环地址提供 OAuth 回调。
+services:
+  docker-socket-proxy:
+    container_name: ${ACCOUNT_POOL_SOCKET_PROXY_CONTAINER:-litellm-account-pool-socket-proxy}
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      VOLUMES: "1"
+      INFO: "1"
+      POST: "1"
+      AUTH: "0"
+      BUILD: "0"
+      EXEC: "0"
+      PLUGINS: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SESSION: "0"
+      SWARM: "0"
+      SYSTEM: "0"
+      TASKS: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - litellm-control
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:2375/_ping || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  account-pool:
+    container_name: ${ACCOUNT_POOL_MANAGER_CONTAINER:-litellm-account-pool}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ACCOUNT_POOL_DATABASE_URL: ${ACCOUNT_POOL_DATABASE_URL}
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED}
+      ACCOUNT_POOL_DATA_ROOT: /var/lib/litellm-account-pool/environments
+      ACCOUNT_POOL_MANAGER_CONTAINER: ${ACCOUNT_POOL_MANAGER_CONTAINER:-litellm-account-pool}
+      ACCOUNT_POOL_GATEWAY_CONTAINER: ${ACCOUNT_POOL_GATEWAY_CONTAINER:-litellm}
+      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST}
+      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER}
+      ACCOUNT_POOL_CALLBACK_PORT: ${ACCOUNT_POOL_CALLBACK_PORT:-8091}
+      ACCOUNT_POOL_CALLBACK_BIND_HOST: ${ACCOUNT_POOL_CALLBACK_BIND_HOST:-127.0.0.1}
+      ACCOUNT_POOL_DOCKER_HOST: ${ACCOUNT_POOL_DOCKER_HOST:-tcp://docker-socket-proxy:2375}
+      ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
+      ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
+    ports:
+      - "127.0.0.1:${ACCOUNT_POOL_CALLBACK_PORT:-8091}:8091"
+    volumes:
+      - account_pool_data:/var/lib/litellm-account-pool/environments
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+    networks:
+      litellm-control:
+        aliases:
+          - account-pool
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  db:
+    container_name: ${ACCOUNT_POOL_DB_CONTAINER:-litellm-account-pool-db}
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: account_pool
+      POSTGRES_USER: account_pool
+      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD}
+    volumes:
+      - account_pool_db:/var/lib/postgresql/data
+    networks:
+      - litellm-control
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U account_pool -d account_pool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  litellm-control:
+    external: true
+    name: ${ACCOUNT_POOL_CONTROL_NETWORK:-litellm-control}
+
+volumes:
+  account_pool_data:
+  account_pool_db:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Final
 from uuid import UUID
 
@@ -21,9 +22,12 @@ _CREATE_SCHEMA: Final = (
         id uuid PRIMARY KEY,
         payload jsonb NOT NULL,
         oauth_state text UNIQUE,
+        oauth_state_consumed_at timestamptz,
         updated_at timestamptz NOT NULL
     )
     """,
+    "ALTER TABLE account_pool_environments ADD COLUMN IF NOT EXISTS oauth_state_consumed_at timestamptz",
+    "CREATE INDEX IF NOT EXISTS account_pool_environments_operation_id_idx ON account_pool_environments ((payload->>'operation_id'))",
     """
     CREATE TABLE IF NOT EXISTS account_pool_proxy_profiles (
         id text PRIMARY KEY,
@@ -76,19 +80,37 @@ class PostgresEnvironmentRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
 
+    async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
+        async with _connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT payload FROM account_pool_environments WHERE payload->>'operation_id' = %s LIMIT 1",
+                (operation_id,),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
         payload: Final = record.model_dump(mode="json")
         async with _connection(self._database_url) as connection:
             await connection.execute(
                 """
-                INSERT INTO account_pool_environments (id, payload, oauth_state, updated_at)
-                VALUES (%s, %s::jsonb, %s, %s)
+                INSERT INTO account_pool_environments (
+                    id, payload, oauth_state, oauth_state_consumed_at, updated_at
+                )
+                VALUES (%s, %s::jsonb, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     payload = EXCLUDED.payload,
                     oauth_state = EXCLUDED.oauth_state,
+                    oauth_state_consumed_at = EXCLUDED.oauth_state_consumed_at,
                     updated_at = EXCLUDED.updated_at
                 """,
-                (record.id, psycopg.types.json.Jsonb(payload), record.oauth_state, record.updated_at),
+                (
+                    record.id,
+                    psycopg.types.json.Jsonb(payload),
+                    record.oauth_state,
+                    record.oauth_state_consumed_at,
+                    record.updated_at,
+                ),
             )
         return record
 
@@ -109,18 +131,52 @@ class PostgresEnvironmentRepository:
             cursor: Final = await connection.execute(
                 """
                 UPDATE account_pool_environments
-                SET payload = %s::jsonb, oauth_state = %s, updated_at = %s
+                SET payload = %s::jsonb,
+                    oauth_state = %s,
+                    oauth_state_consumed_at = %s,
+                    updated_at = %s
                 WHERE id = %s AND COALESCE((payload->>'version')::integer, 0) = %s
                 """,
                 (
                     psycopg.types.json.Jsonb(payload),
                     record.oauth_state,
+                    record.oauth_state_consumed_at,
                     record.updated_at,
                     record.id,
                     expected_version,
                 ),
             )
         return record if cursor.rowcount == 1 else None
+
+    async def update_environment(
+        self,
+        environment_id: UUID,
+        expected_version: int,
+        environment: EnvironmentRecord,
+    ) -> EnvironmentRecord | None:
+        """按版本条件保存，供 Service 使用明确的冲突契约。"""
+        if environment.id != environment_id:
+            return None
+        return await self.save_if_version(environment, expected_version)
+
+    async def consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None:
+        """使用单条条件 UPDATE 消费 state，数据库层保证并发 callback 只有一个赢家。"""
+        async with _connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_environments
+                SET oauth_state_consumed_at = %s,
+                    payload = jsonb_set(payload, '{oauth_state_consumed_at}', to_jsonb(%s::timestamptz), true),
+                    updated_at = %s
+                WHERE oauth_state = %s
+                  AND oauth_state_consumed_at IS NULL
+                  AND COALESCE((payload->>'oauth_expires_at')::timestamptz, 'epoch'::timestamptz) > %s
+                RETURNING payload
+                """,
+                (consumed_at, consumed_at, consumed_at, state, consumed_at),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
 
 
 class PostgresProxyProfileRepository:

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import re
+import secrets as token_secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -16,7 +19,9 @@ from pydantic import HttpUrl, TypeAdapter
 from account_pool.config import Settings
 from account_pool.domain import (
     AuthorizationView,
+    CleanupProgress,
     CreateEnvironmentRequest,
+    EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
     EnvironmentView,
@@ -27,6 +32,7 @@ from account_pool.domain import (
     ProxyProfile,
     QuotaSnapshot,
     UpdateEnvironmentRequest,
+    configuration_from_record,
     to_view,
     utc_now,
 )
@@ -105,10 +111,18 @@ class EnvironmentService:
         return tuple(self._gateway_environment(record) for record in refreshed)
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
+        if request.operation_id is not None:
+            existing: Final = await self._find_by_operation_id(request.operation_id)
+            if existing is not None:
+                if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
+                    return Success(self._authorization_view(existing))
+                return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
         now: Final = utc_now()
         record: Final = EnvironmentRecord(
             id=uuid4(),
             version=0,
+            desired_state=EnvironmentStatus.PROVISIONING,
+            operation_id=request.operation_id or str(uuid4()),
             name=request.name,
             provider=Provider.OPENAI,
             status=EnvironmentStatus.PROVISIONING,
@@ -126,6 +140,10 @@ class EnvironmentService:
             cooldown_until=None,
             oauth_state=None,
             oauth_expires_at=None,
+            oauth_state_consumed_at=None,
+            oauth_state_signature=None,
+            oauth_provider_state=None,
+            oauth_authorization_url=None,
             last_error=None,
             created_at=now,
             updated_at=now,
@@ -138,6 +156,7 @@ class EnvironmentService:
             failed: Final = record.model_copy(
                 update={
                     "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
                     "last_error": _safe_error(error),
                     "updated_at": utc_now(),
                 }
@@ -145,11 +164,18 @@ class EnvironmentService:
             await self._repository.save(failed)
             return Failure(FailureCode.UPSTREAM, "environment provisioning failed")
         expires_at: Final = utc_now() + timedelta(minutes=5)
+        callback_state: Final = self._callback_state(record)
+        public_url: Final = _replace_state(authorization_url, callback_state)
         awaiting: Final = record.model_copy(
             update={
                 "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                "oauth_state": state,
+                "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                "oauth_state": callback_state,
                 "oauth_expires_at": expires_at,
+                "oauth_state_consumed_at": None,
+                "oauth_state_signature": self._state_signature(record.id, callback_state),
+                "oauth_provider_state": state,
+                "oauth_authorization_url": public_url,
                 "updated_at": utc_now(),
             }
         )
@@ -161,33 +187,234 @@ class EnvironmentService:
         return Success(
             AuthorizationView(
                 environment=to_view(awaiting),
-                authorization_url=_HTTP_URL_ADAPTER.validate_python(authorization_url),
+                authorization_url=_HTTP_URL_ADAPTER.validate_python(public_url),
                 ssh_command=command,
                 expires_at=expires_at,
             )
         )
 
-    async def submit_oauth_callback(self, callback: OAuthCallback) -> Result[EnvironmentView]:
+    async def authorize_environment(
+        self,
+        environment_id: UUID,
+        operation_id: str | None = None,
+    ) -> Result[AuthorizationView]:
+        """为已有 Compose 环境创建新的、一次性的 OAuth state，不重建可复用资源。"""
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.status is EnvironmentStatus.DELETING:
+                return Failure(FailureCode.CONFLICT, "environment is being deleted")
+            if (
+                operation_id is not None
+                and record.operation_id == operation_id
+                and record.oauth_authorization_url is not None
+                and record.oauth_expires_at is not None
+                and record.oauth_state_consumed_at is None
+                and record.oauth_expires_at > utc_now()
+            ):
+                return Success(self._authorization_view(record))
+            try:
+                await self._runtime.ensure_control_plane_connections(record.id)
+                authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
+            except Exception as error:
+                failed: Final = record.model_copy(
+                    update={
+                        "status": EnvironmentStatus.ERROR,
+                        "desired_state": EnvironmentStatus.ERROR,
+                        "last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
+                )
+                await self._repository.save_if_version(failed, record.version)
+                return Failure(FailureCode.UPSTREAM, "environment authorization failed")
+            expires_at: Final = utc_now() + timedelta(minutes=5)
+            callback_state: Final = self._callback_state(record)
+            public_url: Final = _replace_state(authorization_url, callback_state)
+            authorized: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                    "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                    "operation_id": operation_id or str(uuid4()),
+                    "oauth_state": callback_state,
+                    "oauth_expires_at": expires_at,
+                    "oauth_state_consumed_at": None,
+                    "oauth_state_signature": self._state_signature(record.id, callback_state),
+                    "oauth_provider_state": provider_state,
+                    "oauth_authorization_url": public_url,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            saved: Final = await self._repository.save_if_version(authorized, record.version)
+            if saved is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            return Success(self._authorization_view(saved))
+
+    async def submit_oauth_callback(
+        self,
+        callback: OAuthCallback,
+        environment_id: UUID | None = None,
+    ) -> Result[EnvironmentView]:
         record: Final = await self._repository.find_by_oauth_state(callback.state)
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "unknown or expired OAuth state")
+        if environment_id is not None and record.id != environment_id:
+            return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
+        if record.oauth_state_consumed_at is not None:
+            return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
+        if record.oauth_state_signature is not None and not self._valid_state_signature(record, callback.state):
+            return Failure(FailureCode.CONFLICT, "invalid OAuth state")
         if record.oauth_expires_at is None or record.oauth_expires_at <= utc_now():
             expired: Final = record.model_copy(
                 update={
                     "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
                     "last_error": "OAuth authorization expired",
-                    "oauth_state": None,
                     "oauth_expires_at": None,
                     "updated_at": utc_now(),
                 }
             )
-            await self._repository.save(expired)
+            await self._repository.save_if_version(expired, record.version)
             return Failure(FailureCode.CONFLICT, "OAuth authorization expired")
+        consumed_at: Final = utc_now()
+        consumed: Final = await self._consume_oauth_state(callback.state, consumed_at)
+        if consumed is None:
+            return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
+        provider_state: Final = consumed.oauth_provider_state or callback.state
+        provider_callback: Final = callback.model_copy(update={"state": provider_state})
         try:
-            await self._cli_proxy.submit_callback(record, callback)
+            await self._cli_proxy.submit_callback(consumed, provider_callback)
         except Exception as error:
-            return Failure(FailureCode.UPSTREAM, _safe_error(error))
-        return Success(to_view(record))
+            failed: Final = consumed.model_copy(
+                update={
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
+                    "last_error": _safe_error(error),
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save_if_version(failed, consumed.version)
+            return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
+        validating: Final = consumed.model_copy(
+            update={
+                "version": consumed.version + 1,
+                "status": EnvironmentStatus.VALIDATING,
+                "desired_state": EnvironmentStatus.VALIDATING,
+                "oauth_expires_at": None,
+                "oauth_provider_state": None,
+                "oauth_authorization_url": None,
+                "last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
+        if claimed is None:
+            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+        validated: Final = await self._validate_authorized(claimed)
+        return Success(to_view(validated))
+
+    async def _find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
+        finder = getattr(self._repository, "find_by_operation_id", None)
+        if finder is None:
+            return None
+        return await finder(operation_id)
+
+    async def _consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None:
+        consumer = getattr(self._repository, "consume_oauth_state", None)
+        if consumer is not None:
+            return await consumer(state, consumed_at)
+        # 旧的内存端口没有原子接口，只作为兼容测试替身；生产 PostgreSQL 始终走条件 UPDATE。
+        record: Final = await self._repository.find_by_oauth_state(state)
+        if record is None or record.oauth_state_consumed_at is not None:
+            return None
+        lock: Final = await self._lock_for(record.id)
+        async with lock:
+            current: Final = await self._repository.find_by_oauth_state(state)
+            if current is None or current.oauth_state_consumed_at is not None:
+                return None
+            consumed: Final = current.model_copy(update={"oauth_state_consumed_at": consumed_at})
+            return await self._repository.save_if_version(consumed, current.version)
+
+    def _state_signature(self, environment_id: UUID, state: str) -> str:
+        key: Final = self._secrets.derive(environment_id, SecretPurpose.OAUTH_STATE).encode("ascii")
+        message: Final = f"{environment_id.hex}:{state}".encode()
+        return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+    def _callback_state(self, record: EnvironmentRecord) -> str:
+        nonce: Final = token_secrets.token_urlsafe(32)
+        # state 本身不携带凭据，只使用随机值和环境绑定签名，防止跨环境转发与重放。
+        return f"{nonce}.{self._state_signature(record.id, nonce)}"
+
+    def _valid_state_signature(self, record: EnvironmentRecord, state: str) -> bool:
+        nonce, separator, signature = state.rpartition(".")
+        if not separator or not nonce or not signature:
+            return False
+        expected: Final = self._state_signature(record.id, nonce)
+        return hmac.compare_digest(signature, expected) and (
+            record.oauth_state_signature is None
+            or hmac.compare_digest(record.oauth_state_signature, signature)
+        )
+
+    def _authorization_view(self, record: EnvironmentRecord) -> AuthorizationView:
+        if record.oauth_authorization_url is None or record.oauth_expires_at is None:
+            raise RuntimeError("authorization operation has no active credentials")
+        return AuthorizationView(
+            environment=to_view(record),
+            authorization_url=_HTTP_URL_ADAPTER.validate_python(record.oauth_authorization_url),
+            ssh_command=(
+                f"ssh -N -L 1455:127.0.0.1:{self._settings.callback_port} "
+                f"{self._settings.ssh_user}@{self._settings.ssh_host}"
+            ),
+            expires_at=record.oauth_expires_at,
+        )
+
+    async def _validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        try:
+            observed: Final = await self._cli_proxy.read_account(record)
+        except Exception as error:
+            failed: Final = record.model_copy(
+                update={
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
+                    "last_error": _safe_error(error),
+                    "updated_at": utc_now(),
+                }
+            )
+            return await self._repository.save_if_version(failed, record.version) or failed
+        if not await self._cli_proxy.data_plane_health_check(observed):
+            failed_health: Final = observed.model_copy(
+                update={
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
+                    "last_error": "CLIProxyAPI data plane validation failed",
+                    "updated_at": utc_now(),
+                }
+            )
+            return await self._repository.save_if_version(failed_health, record.version) or failed_health
+        ready: Final = observed.model_copy(
+            update={
+                "version": record.version + 1,
+                "status": EnvironmentStatus.READY,
+                "desired_state": EnvironmentStatus.READY,
+                "oauth_expires_at": None,
+                "oauth_provider_state": None,
+                "oauth_authorization_url": None,
+                "last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        return await self._repository.save_if_version(ready, record.version) or ready
+
+    async def _persist_cleanup_progress(
+        self,
+        record: EnvironmentRecord,
+        progress: CleanupProgress,
+    ) -> EnvironmentRecord | None:
+        updated: Final = record.model_copy(update={"cleanup_progress": progress, "updated_at": utc_now()})
+        return await self._repository.save_if_version(updated, record.version)
 
     async def update_environment(
         self,
@@ -199,11 +426,20 @@ class EnvironmentService:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if request.operation_id is not None and record.operation_id == request.operation_id:
+                if record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version:
+                    desired: Final = record.desired_configuration or configuration_from_record(record)
+                    return await self._apply_and_persist_configuration(
+                        record,
+                        desired,
+                        desired.enabled and not desired.manual_cooldown,
+                    )
+                return Success(to_view(record))
             if record.auth_file_name is None:
                 return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            if record.configuration_pending:
+            if record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version:
                 return Failure(FailureCode.CONFLICT, "environment configuration is still being applied")
             unknown_models: Final = frozenset(request.enabled_models).difference(record.available_models)
             if unknown_models:
@@ -223,11 +459,26 @@ class EnvironmentService:
             )
             status: Final = _status_after_update(record, request, automatic_cooldown)
             cooldown_until: Final = _cooldown_until_after_update(record, request.manual_cooldown, automatic_cooldown)
+            desired_configuration: Final = EnvironmentConfiguration(
+                name=request.name,
+                concurrency_limit=request.concurrency_limit,
+                enabled=request.enabled,
+                manual_cooldown=request.manual_cooldown,
+                proxy_mode=request.proxy_mode,
+                proxy_profile_id=request.proxy_profile_id,
+                enabled_models=request.enabled_models,
+                proxy_url=profile_result.value,
+            )
             updated: Final = record.model_copy(
                 update={
                     "name": request.name,
                     "version": record.version + 1,
                     "configuration_pending": True,
+                    "desired_state": status,
+                    "operation_id": request.operation_id or str(uuid4()),
+                    "desired_configuration_version": record.desired_configuration_version + 1,
+                    "desired_configuration": desired_configuration,
+                    "configuration_last_error": None,
                     "concurrency_limit": request.concurrency_limit,
                     "enabled": request.enabled,
                     "manual_cooldown": request.manual_cooldown,
@@ -243,58 +494,156 @@ class EnvironmentService:
             claimed: Final = await self._repository.save_if_version(updated, record.version)
             if claimed is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                await self._cli_proxy.set_credential_enabled(claimed, credential_enabled)
-                await self._cli_proxy.set_proxy_url(claimed, profile_result.value)
-                await self._cli_proxy.set_enabled_models(claimed, request.enabled_models)
-            except Exception as error:
-                failed: Final = claimed.model_copy(
-                    update={
-                        "configuration_pending": False,
-                        "status": EnvironmentStatus.ERROR,
-                        "last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                await self._repository.save_if_version(failed, claimed.version)
-                return Failure(FailureCode.UPSTREAM, "environment configuration failed")
-            completed: Final = claimed.model_copy(
+            return await self._apply_and_persist_configuration(claimed, desired_configuration, credential_enabled)
+
+    async def reconcile_pending_configurations(self) -> tuple[EnvironmentView, ...]:
+        """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
+        records: Final = await self._repository.list()
+        results: Final = await asyncio.gather(
+            *(
+                self._reconcile_configuration(record)
+                for record in records
+                if record.configuration_pending
+                or record.desired_configuration_version > record.observed_configuration_version
+            )
+        )
+        return tuple(result.value for result in results if isinstance(result, Success))
+
+    async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
+        lock: Final = await self._lock_for(record.id)
+        if lock.locked():
+            current: Final = await self._repository.get(record.id) or record
+            return Success(to_view(current))
+        async with lock:
+            current: Final = await self._repository.get(record.id) or record
+            desired: Final = current.desired_configuration or configuration_from_record(current)
+            credential_enabled: Final = desired.enabled and not desired.manual_cooldown
+            return await self._apply_and_persist_configuration(current, desired, credential_enabled)
+
+    async def _apply_and_persist_configuration(
+        self,
+        record: EnvironmentRecord,
+        desired: EnvironmentConfiguration,
+        credential_enabled: bool,
+    ) -> Result[EnvironmentView]:
+        try:
+            apply_configuration = getattr(self._cli_proxy, "apply_configuration", None)
+            if apply_configuration is not None:
+                await apply_configuration(record, desired)
+            else:
+                # 兼容旧 adapter，同时保持所有写入步骤的固定顺序。
+                await self._cli_proxy.set_proxy_url(record, desired.proxy_url)
+                await self._cli_proxy.set_enabled_models(record, desired.enabled_models)
+                await self._cli_proxy.set_credential_enabled(record, credential_enabled)
+                set_concurrency = getattr(self._cli_proxy, "set_concurrency_limit", None)
+                if set_concurrency is not None:
+                    await set_concurrency(record, desired.concurrency_limit)
+        except Exception as error:
+            failed: Final = record.model_copy(
                 update={
-                    "configuration_pending": False,
+                    "configuration_pending": True,
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": record.desired_state or record.status,
+                    "configuration_last_error": _safe_error(error),
+                    "last_error": _safe_error(error),
                     "updated_at": utc_now(),
                 }
             )
-            saved: Final = await self._repository.save_if_version(completed, claimed.version)
-            if saved is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return Success(to_view(saved))
+            await self._repository.save_if_version(failed, record.version)
+            return Failure(FailureCode.UPSTREAM, "environment configuration failed")
+        completed: Final = record.model_copy(
+            update={
+                "configuration_pending": False,
+                "observed_configuration_version": record.desired_configuration_version,
+                "configuration_last_error": None,
+                "last_error": None,
+                "status": record.desired_state or record.status,
+                "updated_at": utc_now(),
+            }
+        )
+        saved: Final = await self._repository.save_if_version(completed, record.version)
+        if saved is None:
+            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+        return Success(to_view(saved))
 
-    async def delete_environment(self, environment_id: UUID) -> Result[None]:
+    async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
         lock: Final = await self._lock_for(environment_id)
         async with lock:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Success(None)
-            deleting: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.DELETING,
-                    "enabled": False,
-                    "updated_at": utc_now(),
-                }
-            )
-            claimed: Final = await self._repository.save_if_version(deleting, record.version)
-            if claimed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            requested_operation: Final = operation_id or record.operation_id or str(uuid4())
+            if record.status is EnvironmentStatus.DELETING:
+                if operation_id is not None and record.operation_id not in (None, operation_id):
+                    return Failure(FailureCode.CONFLICT, "environment deletion is owned by another operation")
+                claimed: Final = record
+            else:
+                deleting: Final = record.model_copy(
+                    update={
+                        "version": record.version + 1,
+                        "status": EnvironmentStatus.DELETING,
+                        "desired_state": EnvironmentStatus.DELETING,
+                        "enabled": False,
+                        "operation_id": requested_operation,
+                        "cleanup_progress": CleanupProgress(),
+                        "updated_at": utc_now(),
+                    }
+                )
+                claimed = await self._repository.save_if_version(deleting, record.version)
+                if claimed is None:
+                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+
+            progress: Final = claimed.cleanup_progress
+            if not progress.routes_removed:
+                progress = CleanupProgress(
+                    routes_removed=True,
+                    compose_removed=progress.compose_removed,
+                    directory_removed=progress.directory_removed,
+                )
+                claimed = await self._persist_cleanup_progress(claimed, progress)
+                if claimed is None:
+                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             try:
-                await self._runtime.remove(claimed)
+                if not progress.compose_removed:
+                    remove_compose = getattr(self._runtime, "remove_compose", None)
+                    if remove_compose is not None:
+                        await remove_compose(claimed)
+                    else:
+                        await self._runtime.remove(claimed)
+                    progress = CleanupProgress(
+                        routes_removed=True,
+                        compose_removed=True,
+                        directory_removed=progress.directory_removed,
+                    )
+                    claimed = await self._persist_cleanup_progress(claimed, progress)
+                    if claimed is None:
+                        return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+                if not progress.directory_removed:
+                    remove_directory = getattr(self._runtime, "remove_directory", None)
+                    if remove_directory is not None:
+                        await remove_directory(claimed.id)
+                    progress = CleanupProgress(routes_removed=True, compose_removed=True, directory_removed=True)
+                    claimed = await self._persist_cleanup_progress(claimed, progress)
+                    if claimed is None:
+                        return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             except Exception as error:
                 failed: Final = claimed.model_copy(
-                    update={"last_error": _safe_error(error), "updated_at": utc_now()}
+                    update={
+                        "last_error": _safe_error(error),
+                        "configuration_last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
                 )
                 await self._repository.save_if_version(failed, claimed.version)
                 return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
-            await self._repository.delete(environment_id)
+            try:
+                await self._repository.delete(environment_id)
+            except Exception as error:
+                failed_delete: Final = claimed.model_copy(
+                    update={"last_error": _safe_error(error), "updated_at": utc_now()}
+                )
+                await self._repository.save_if_version(failed_delete, claimed.version)
+                return Failure(FailureCode.UPSTREAM, "environment metadata cleanup failed")
             return Success(None)
 
     async def _automatic_cooldown_before_update(
@@ -339,6 +688,14 @@ class EnvironmentService:
             return record
         async with lock:
             current: Final = await self._repository.get(record.id) or record
+            if current.configuration_pending or current.desired_configuration_version > current.observed_configuration_version:
+                desired: Final = current.desired_configuration or configuration_from_record(current)
+                reconciliation: Final = await self._apply_and_persist_configuration(
+                    current,
+                    desired,
+                    desired.enabled and not desired.manual_cooldown,
+                )
+                return current if isinstance(reconciliation, Failure) else await self._repository.get(record.id) or current
             if current.status == EnvironmentStatus.AWAITING_AUTHORIZATION:
                 return await self._refresh_authorization(current)
             if current.auth_file_name is None:
@@ -351,7 +708,19 @@ class EnvironmentService:
                 observed: Final = await self._cli_proxy.read_account(current)
             except Exception:
                 return current
-            refreshed: Final = observed.model_copy(update={"updated_at": utc_now()})
+            refreshed: Final = observed.model_copy(
+                update={
+                    "version": current.version,
+                    "desired_state": current.desired_state,
+                    "operation_id": current.operation_id,
+                    "desired_configuration_version": current.desired_configuration_version,
+                    "observed_configuration_version": current.observed_configuration_version,
+                    "desired_configuration": current.desired_configuration,
+                    "configuration_pending": current.configuration_pending,
+                    "configuration_last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
             return await self._repository.save(refreshed)
 
     async def _refresh_authorization(self, record: EnvironmentRecord) -> EnvironmentRecord:
@@ -369,7 +738,10 @@ class EnvironmentService:
             )
             return await self._repository.save(expired)
         try:
-            status: Final = await self._cli_proxy.authorization_status(record, record.oauth_state)
+            status: Final = await self._cli_proxy.authorization_status(
+                record,
+                record.oauth_provider_state or record.oauth_state,
+            )
         except Exception:
             return record
         if status == "wait":
@@ -378,9 +750,10 @@ class EnvironmentService:
             failed: Final = record.model_copy(
                 update={
                     "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
                     "last_error": status.removeprefix("error:"),
-                    "oauth_state": None,
                     "oauth_expires_at": None,
+                    "oauth_authorization_url": None,
                     "updated_at": utc_now(),
                 }
             )
@@ -389,35 +762,17 @@ class EnvironmentService:
             return record
         validating: Final = record.model_copy(
             update={
+                "version": record.version + 1,
                 "status": EnvironmentStatus.VALIDATING,
-                "oauth_state": None,
+                "desired_state": EnvironmentStatus.VALIDATING,
                 "oauth_expires_at": None,
+                "oauth_authorization_url": None,
+                "oauth_provider_state": None,
                 "updated_at": utc_now(),
             }
         )
-        await self._repository.save(validating)
-        try:
-            observed: Final = await self._cli_proxy.read_account(validating)
-        except Exception as error:
-            validation_failed: Final = validating.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save(validation_failed)
-        if not await self._cli_proxy.data_plane_health_check(observed):
-            health_failed: Final = observed.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "last_error": "CLIProxyAPI data plane validation failed",
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save(health_failed)
-        validated: Final = observed.model_copy(update={"updated_at": utc_now()})
-        return await self._repository.save(validated)
+        claimed: Final = await self._repository.save_if_version(validating, record.version)
+        return record if claimed is None else await self._validate_authorized(claimed)
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:
         if request.proxy_mode == ProxyMode.DEFAULT_GATEWAY:
@@ -435,6 +790,8 @@ class EnvironmentService:
             and record.enabled
             and not record.manual_cooldown
             and record.cooldown_until is None
+            and not record.configuration_pending
+            and record.desired_configuration_version <= record.observed_configuration_version
         )
         return GatewayEnvironment(
             id=record.id,
@@ -464,6 +821,20 @@ def _safe_error(error: Exception) -> str:
         without_urls,
     )
     return without_credentials[:500]
+
+
+def _replace_state(authorization_url: str, state: str) -> str:
+    """只替换 OAuth URL 的 state 参数，保留上游其余参数并避免把 state 拼进日志。"""
+    try:
+        parsed: Final = urlsplit(authorization_url)
+        query: Final = tuple(
+            (key, state if key == "state" else value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        )
+        final_query: Final = query if any(key == "state" for key, _ in query) else (*query, ("state", state))
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(final_query), parsed.fragment))
+    except ValueError:
+        return authorization_url
 
 
 def _redact_urls(message: str) -> str:

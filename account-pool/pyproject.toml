@@ -1,0 +1,36 @@
+# 本文件声明号池管理服务的构建、运行与测试依赖。
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "litellm-account-pool"
+version = "0.1.0"
+description = "Isolated CLIProxyAPI environment manager for LiteLLM"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.136,<1.0",
+  "httpx>=0.28,<1.0",
+  "psycopg[binary]>=3.3,<4.0",
+  "pydantic>=2.10,<3.0",
+  "pydantic-settings>=2.14,<3.0",
+  "PyYAML>=6.0,<7.0",
+  "uvicorn>=0.34,<1.0",
+]
+
+[project.scripts]
+account-pool = "account_pool.app:main"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=9.0,<10.0",
+  "pytest-asyncio>=1.3,<2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["account_pool"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+

@@ -7,7 +7,7 @@ import html
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -45,22 +45,42 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
         return await service.list_environments()
 
     @router.post("/api/environments", dependencies=[Depends(require_manager)], response_model=AuthorizationView)
-    async def create_environment(request: CreateEnvironmentRequest) -> AuthorizationView:
-        return _unwrap(await service.create_environment(request))
+    async def create_environment(
+        request: CreateEnvironmentRequest,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AuthorizationView:
+        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        return _unwrap(await service.create_environment(effective))
 
     @router.get("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
     async def get_environment(environment_id: UUID) -> EnvironmentView:
         return _unwrap(await service.get_environment(environment_id))
 
     @router.put("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
-    async def update_environment(environment_id: UUID, request: UpdateEnvironmentRequest) -> EnvironmentView:
-        return _unwrap(await service.update_environment(environment_id, request))
+    async def update_environment(
+        environment_id: UUID,
+        request: UpdateEnvironmentRequest,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> EnvironmentView:
+        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        return _unwrap(await service.update_environment(environment_id, effective))
+
+    @router.post("/api/environments/{environment_id}/authorize", dependencies=[Depends(require_manager)])
+    async def authorize_environment(
+        environment_id: UUID,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AuthorizationView:
+        return _unwrap(await service.authorize_environment(environment_id, operation_id))
 
     @router.delete("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
-    async def delete_environment(environment_id: UUID) -> None:
-        _unwrap(await service.delete_environment(environment_id))
+    async def delete_environment(
+        environment_id: UUID,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> None:
+        _unwrap(await service.delete_environment(environment_id, operation_id))
 
-
+    @router.get("/api/proxy-profiles", dependencies=[Depends(require_manager)])
+    async def list_proxy_profiles() -> tuple[ProxyProfile, ...]:
         return await service.list_proxy_profiles()
 
     @router.get("/internal/gateway/environments", dependencies=[Depends(require_manager)], include_in_schema=False)
@@ -70,6 +90,7 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
     @router.get("/auth/callback", response_class=HTMLResponse, include_in_schema=False)
     async def oauth_callback(
         state_value: Annotated[str, Query(alias="state", min_length=16, max_length=512)],
+        environment_id: Annotated[UUID | None, Query()] = None,
         code: Annotated[str | None, Query(max_length=8192)] = None,
         error: Annotated[str | None, Query(max_length=512)] = None,
         error_description: Annotated[str | None, Query(max_length=2048)] = None,
@@ -80,7 +101,7 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
             error=error,
             error_description=error_description,
         )
-        result: Final = await service.submit_oauth_callback(callback)
+        result: Final = await service.submit_oauth_callback(callback, environment_id)
         if isinstance(result, Failure):
             return HTMLResponse(_callback_page("授权未完成", result.message), status_code=_status_for(result.code))
         return HTMLResponse(_callback_page("授权已接收", "可以关闭此页面并返回 LiteLLM 号池"))

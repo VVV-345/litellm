@@ -10,7 +10,6 @@ from uuid import uuid4
 import httpx
 import pytest
 import yaml
-from account_pool.api import create_router
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import render_compose
 from account_pool.config import Settings
@@ -43,6 +42,16 @@ class MemoryRepository:
 
     async def find_by_oauth_state(self, state: str):
         return next((record for record in self.records.values() if record.oauth_state == state), None)
+
+    async def find_by_operation_id(self, operation_id: str):
+        return next((record for record in self.records.values() if record.operation_id == operation_id), None)
+
+    async def consume_oauth_state(self, state: str, consumed_at):
+        record = await self.find_by_oauth_state(state)
+        if record is None or record.oauth_state_consumed_at is not None:
+            return None
+        consumed = record.model_copy(update={"oauth_state_consumed_at": consumed_at})
+        return await self.save_if_version(consumed, record.version)
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
         self.records[record.id] = record
@@ -106,18 +115,6 @@ class FailingOnceRuntime(FakeRuntime):
         await super().remove(record)
 
 
-class FailingOnceRuntime(FakeRuntime):
-    def __init__(self) -> None:
-        super().__init__()
-        self.attempts = 0
-
-    async def remove(self, record: EnvironmentRecord) -> None:
-        self.attempts += 1
-        if self.attempts == 1:
-            raise RuntimeError("docker unavailable")
-        await super().remove(record)
-
-
 class FakeCLIProxy:
     def __init__(self, authorization_status: str = "wait", data_plane_healthy: bool = True) -> None:
         self.authorization_status_value = authorization_status
@@ -126,7 +123,9 @@ class FakeCLIProxy:
         self.status_calls: list[bool] = []
         self.proxy_calls: list[str] = []
         self.model_calls: list[tuple[str, ...]] = []
+        self.concurrency_calls: list[int] = []
         self.health_calls = 0
+        self.fail_proxy_once = False
 
     async def close(self) -> None:
         return None
@@ -159,10 +158,16 @@ class FakeCLIProxy:
         self.status_calls.append(enabled)
 
     async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None:
+        if self.fail_proxy_once:
+            self.fail_proxy_once = False
+            raise RuntimeError("proxy update failed")
         self.proxy_calls.append(proxy_url)
 
     async def set_enabled_models(self, record: EnvironmentRecord, enabled_models) -> None:
         self.model_calls.append(tuple(enabled_models))
+
+    async def set_concurrency_limit(self, record: EnvironmentRecord, concurrency_limit: int) -> None:
+        self.concurrency_calls.append(concurrency_limit)
 
 
 class EmptyProfiles:
@@ -583,6 +588,74 @@ async def test_configuration_update_conflict_has_no_cli_proxy_side_effects(tmp_p
     assert cli.status_calls == []
     assert cli.proxy_calls == []
     assert cli.model_calls == []
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_is_single_use_and_validates_immediately(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    first: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=record.oauth_state or ""))
+    second: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=record.oauth_state or ""))
+
+    assert not isinstance(first, Failure)
+    assert first.value.status == EnvironmentStatus.READY
+    assert isinstance(second, Failure)
+    assert second.code == FailureCode.CONFLICT
+    assert cli.read_calls == 1
+    assert (await repository.get(record.id)).oauth_state_consumed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_update_operation_id_is_idempotent_and_pending_configuration_retries(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    cli.fail_proxy_once = True
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    request: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        operation_id="update-1",
+        name="Updated",
+        concurrency_limit=3,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+        enabled_models=("gpt-5",),
+    )
+
+    failed: Final = await service.update_environment(record.id, request)
+    pending: Final = await repository.get(record.id)
+    retried: Final = await service.reconcile_pending_configurations()
+    repeated: Final = await service.update_environment(record.id, request)
+
+    assert isinstance(failed, Failure)
+    assert failed.code == FailureCode.UPSTREAM
+    assert pending is not None
+    assert pending.configuration_pending is True
+    assert pending.status == EnvironmentStatus.ERROR
+    assert len(retried) == 1
+    assert retried[0].configuration_pending is False
+    assert retried[0].observed_configuration_version == retried[0].desired_configuration_version
+    assert not isinstance(repeated, Failure)
+    assert repeated.value.version == retried[0].version
+    assert cli.concurrency_calls == [3]
 
 
 @pytest.mark.asyncio
