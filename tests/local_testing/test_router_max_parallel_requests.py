@@ -103,11 +103,19 @@ def test_setting_mpr_limits_per_model(max_parallel_requests, tpm, rpm, default_m
         assert mpr_client is None
 
 
+_ENVIRONMENT_A = "00000000-0000-4000-8000-000000000001"
+_ENVIRONMENT_B = "00000000-0000-4000-8000-000000000002"
+
+
 def _account_pool_deployment(model_id: str, environment_id: str, concurrency_limit: int) -> dict[str, object]:
     return {
         "model_name": model_id,
         "litellm_params": {"model": f"openai/{model_id}", "max_parallel_requests": concurrency_limit},
-        "model_info": {"id": model_id, "account_pool_environment_id": environment_id},
+        "model_info": {
+            "id": model_id,
+            "managed_by": "account_pool",
+            "account_pool_environment_id": environment_id,
+        },
     }
 
 
@@ -115,17 +123,17 @@ def _account_pool_deployment(model_id: str, environment_id: str, concurrency_lim
 async def test_account_pool_models_share_environment_semaphore_capacity() -> None:
     router = litellm.Router(
         model_list=[
-            _account_pool_deployment("model-a", "environment-a", 2),
-            _account_pool_deployment("model-b", "environment-a", 2),
+            _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+            _account_pool_deployment("model-b", _ENVIRONMENT_A, 2),
         ]
     )
     first: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
     second: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-b", "environment-a", 2),
+        deployment=_account_pool_deployment("model-b", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
@@ -137,8 +145,10 @@ async def test_account_pool_models_share_environment_semaphore_capacity() -> Non
             third_entered.set()
             await release.wait()
 
+    assert first is second
+
     async with first, second:
-        third = asyncio.create_task(acquire(first))
+        third = asyncio.create_task(acquire(second))
         await asyncio.sleep(0)
         assert third_entered.is_set() is False
     await asyncio.wait_for(third_entered.wait(), timeout=0.1)
@@ -148,9 +158,9 @@ async def test_account_pool_models_share_environment_semaphore_capacity() -> Non
 
 @pytest.mark.asyncio
 async def test_account_pool_semaphore_releases_after_exception_timeout_and_cancellation() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 1)])
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
     semaphore: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 1),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
         kwargs={},
         client_type="max_parallel_requests",
     )
@@ -180,14 +190,15 @@ async def test_account_pool_semaphore_releases_after_exception_timeout_and_cance
 
 
 def test_account_pool_limit_change_updates_shared_semaphore() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 2)])
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
     original: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
+    router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
     updated: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-b", "environment-a", 1),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
         kwargs={},
         client_type="max_parallel_requests",
     )
@@ -198,9 +209,9 @@ def test_account_pool_limit_change_updates_shared_semaphore() -> None:
 
 @pytest.mark.asyncio
 async def test_account_pool_limit_reduction_waits_for_old_requests_before_admitting_new_request() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 2)])
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
     semaphore: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
@@ -213,8 +224,9 @@ async def test_account_pool_limit_reduction_waits_for_old_requests_before_admitt
             await release.wait()
 
     async with semaphore, semaphore:
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
         router._get_client(
-            deployment=_account_pool_deployment("model-b", "environment-a", 1),
+            deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
             kwargs={},
             client_type="max_parallel_requests",
         )
@@ -227,10 +239,43 @@ async def test_account_pool_limit_reduction_waits_for_old_requests_before_admitt
 
 
 @pytest.mark.asyncio
-async def test_account_pool_limit_increase_admits_additional_waiting_request() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 1)])
+async def test_account_pool_cancelled_waiter_during_permit_debt_does_not_admit_later_waiter() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
     semaphore: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 1),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+
+    async def acquire() -> None:
+        async with semaphore:
+            entered.set()
+
+    async with semaphore, semaphore:
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+        router._get_client(
+            deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
+        cancelled = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        later = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert entered.is_set() is False
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    await later
+
+
+@pytest.mark.asyncio
+async def test_account_pool_limit_increase_admits_additional_waiting_request() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
         kwargs={},
         client_type="max_parallel_requests",
     )
@@ -246,8 +291,9 @@ async def test_account_pool_limit_increase_admits_additional_waiting_request() -
         waiting = asyncio.create_task(acquire())
         await asyncio.sleep(0)
         assert entered.is_set() is False
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
         router._get_client(
-            deployment=_account_pool_deployment("model-b", "environment-a", 2),
+            deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
             kwargs={},
             client_type="max_parallel_requests",
         )
@@ -256,11 +302,126 @@ async def test_account_pool_limit_increase_admits_additional_waiting_request() -
     await waiting
 
 
+@pytest.mark.asyncio
+async def test_account_pool_repeated_snapshot_resizes_apply_latest_limit() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 3)])
+    router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 3),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
+    updated: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    third_entered = asyncio.Event()
+
+    async def acquire() -> None:
+        async with updated:
+            third_entered.set()
+
+    assert updated is semaphore
+    async with updated, updated:
+        third = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert third_entered.is_set() is False
+    await asyncio.wait_for(third_entered.wait(), timeout=0.1)
+    await third
+
+
+def test_account_pool_shared_limit_is_snapshot_authoritative() -> None:
+    router = litellm.Router(
+        model_list=[
+            _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+            _account_pool_deployment("model-b", _ENVIRONMENT_A, 3),
+        ]
+    )
+    first: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    second: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-b", _ENVIRONMENT_A, 3),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    third: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    assert first is second is third
+    assert first._value == 3
+
+
+def test_unmanaged_or_malformed_account_pool_metadata_keeps_deployment_semaphores_isolated() -> None:
+    environment_id = _ENVIRONMENT_A
+    router = litellm.Router(
+        model_list=[
+            _account_pool_deployment("managed", environment_id, 2),
+            {
+                "model_name": "unmanaged",
+                "litellm_params": {"model": "openai/unmanaged", "max_parallel_requests": 2},
+                "model_info": {"id": "unmanaged", "account_pool_environment_id": environment_id},
+            },
+            {
+                "model_name": "malformed",
+                "litellm_params": {"model": "openai/malformed", "max_parallel_requests": 2},
+                "model_info": {
+                    "id": "malformed",
+                    "managed_by": "account_pool",
+                    "account_pool_environment_id": "not-a-uuid",
+                },
+            },
+        ]
+    )
+    managed: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("managed", environment_id, 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    unmanaged: asyncio.Semaphore = router._get_client(
+        deployment={
+            "model_name": "unmanaged",
+            "litellm_params": {"model": "openai/unmanaged", "max_parallel_requests": 2},
+            "model_info": {"id": "unmanaged", "account_pool_environment_id": environment_id},
+        },
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    malformed: asyncio.Semaphore = router._get_client(
+        deployment={
+            "model_name": "malformed",
+            "litellm_params": {"model": "openai/malformed", "max_parallel_requests": 2},
+            "model_info": {
+                "id": "malformed",
+                "managed_by": "account_pool",
+                "account_pool_environment_id": "not-a-uuid",
+            },
+        },
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    assert managed is not unmanaged
+    assert managed is not malformed
+
+
 def test_semaphore_cache_key_keeps_account_pool_environments_and_standard_deployments_isolated() -> None:
     router = litellm.Router(
         model_list=[
-            _account_pool_deployment("model-a", "environment-a", 2),
-            _account_pool_deployment("model-b", "environment-b", 2),
+            _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+            _account_pool_deployment("model-b", _ENVIRONMENT_B, 2),
             {
                 "model_name": "model-c",
                 "litellm_params": {"model": "openai/model-c", "max_parallel_requests": 2},
@@ -269,12 +430,12 @@ def test_semaphore_cache_key_keeps_account_pool_environments_and_standard_deploy
         ]
     )
     environment_a: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
     environment_b: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-b", "environment-b", 2),
+        deployment=_account_pool_deployment("model-b", _ENVIRONMENT_B, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
