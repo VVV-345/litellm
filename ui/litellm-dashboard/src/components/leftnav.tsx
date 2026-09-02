@@ -40,6 +40,7 @@ import {
   HeartPulse,
   KeyRound,
   LayoutGrid,
+  Layers3,
   Network,
   Palette,
   PanelLeftClose,
@@ -71,6 +72,7 @@ import {
   isAdminRole,
   isUserTeamAdminForAnyTeam,
   rolesAllowedToViewWriteScopedPages,
+  proxyAdminRoles,
   rolesWithWriteAccess,
 } from "../utils/roles";
 import BetaBadge from "./BetaBadge";
@@ -132,6 +134,13 @@ const menuGroups: MenuGroup[] = [
         label: "Models + Endpoints",
         icon: <Network {...ICON} />,
         roles: rolesAllowedToViewWriteScopedPages,
+      },
+      {
+        key: "account-pool",
+        page: "account-pool",
+        label: "号池",
+        icon: <Layers3 {...ICON} />,
+        roles: proxyAdminRoles,
       },
       {
         key: "agentic",
@@ -460,6 +469,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
         // to its own page id, which is not a real route. Drop it instead.
         if (item.children && item.children.length === 0) return false;
         if (item.key === "llm-playground" && isViewOnly) return false;
+        if (item.key === "account-pool" && isViewOnly) return false;
         if (item.key === "organizations" || item.key === "users") {
           const hasRoleAccess = !item.roles || item.roles.includes(userRole) || isOrgAdmin;
           if (!hasRoleAccess) return false;

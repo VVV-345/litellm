@@ -446,6 +446,15 @@ from litellm.proxy.litellm_pre_call_utils import add_litellm_data_to_request
 from litellm.proxy.logging_endpoints.callback_logs_endpoints import (
     rust_control_plane_router,
 )
+from litellm.proxy.management_endpoints.account_pool_endpoints import (
+    router as account_pool_router,
+)
+from litellm.proxy.management_endpoints.account_pool_reconciler import (
+    start_reconciliation_loop as start_account_pool_reconciliation_loop,
+)
+from litellm.proxy.management_endpoints.account_pool_reconciler import (
+    stop_reconciliation_loop as stop_account_pool_reconciliation_loop,
+)
 from litellm.proxy.management_endpoints.auto_router_endpoints import (
     router as auto_router_management_router,
 )
@@ -1294,8 +1303,12 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[None, None]:
     ## Initialize shared aiohttp session for connection reuse
     shared_aiohttp_session = await _initialize_shared_aiohttp_session()
 
+    account_pool_reconciliation_task: Final = start_account_pool_reconciliation_loop()
+
     # End of startup event
     yield
+
+    await stop_account_pool_reconciliation_loop(account_pool_reconciliation_task)
 
     # Shutdown event - drain in-flight requests before tearing down dependencies
     # so SIGTERM (rolling update, scale-down, liveness kill) doesn't drop them.
@@ -17961,6 +17974,7 @@ app.include_router(budget_management_router)
 app.include_router(model_management_router)
 app.include_router(model_access_group_management_router)
 app.include_router(auto_router_management_router)
+app.include_router(account_pool_router)
 app.include_router(tag_management_router)
 app.include_router(workflow_management_router)
 app.include_router(memory_router)
