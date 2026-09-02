@@ -13,7 +13,7 @@ import pytest
 import yaml
 from account_pool.app import _reconcile_pending_configurations_until_cancelled
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
-from account_pool.compose import _communicate_with_timeout, render_compose
+from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     CreateEnvironmentRequest,
@@ -380,6 +380,33 @@ class StaticProfiles:
         return self.proxy_url
 
 
+class CompletedDockerProcess:
+    def __init__(self, returncode: int = 0, stdout: bytes = b"", stderr: bytes = b"") -> None:
+        self._returncode: Final = returncode
+        self._stdout: Final = stdout
+        self._stderr: Final = stderr
+        self.killed = False
+
+    @property
+    def returncode(self) -> int:
+        return self._returncode
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        return self._stdout, self._stderr
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+class RecordingDockerRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[str, ...], dict[str, str]]] = []
+
+    async def __call__(self, arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
+        self.calls.append((arguments, environment))
+        return CompletedDockerProcess()
+
+
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url="postgresql://unused",
@@ -514,6 +541,11 @@ def test_render_compose_hardens_cli_proxy_container(tmp_path: Path) -> None:
         "http://docker-socket-proxy:2375",
         "https://docker-socket-proxy:2375",
         "tcp://127.0.0.1:2375",
+        "tcp://[::ffff:127.0.0.1]:2375",
+        "tcp://[0:0:0:0:0:0:0:1]:2375",
+        "tcp://localhost.:2375",
+        "tcp://unexpected-proxy:2375",
+        "tcp://docker-socket-proxy.:2375",
     ),
 )
 def test_settings_rejects_unsafe_or_unexpected_docker_hosts(tmp_path: Path, docker_host: str) -> None:
@@ -540,7 +572,19 @@ def test_settings_rejects_non_loopback_callback_bind_hosts(tmp_path: Path, bind_
         _settings_with(tmp_path, callback_bind_host=bind_host)
 
 
-@pytest.mark.parametrize("url", ("socks5://proxy.example", "file:///tmp/proxy", "http://user:secret@proxy.example"))
+@pytest.mark.parametrize(
+    "url",
+    (
+        "socks5://proxy.example",
+        "file:///tmp/proxy",
+        "http://user:secret@proxy.example",
+        "http://proxy.example:70000",
+        "https://proxy.example:bad",
+        "https://proxy.example/path",
+        "https://proxy.example?token=secret",
+        "https://proxy.example#fragment",
+    ),
+)
 def test_proxy_profile_url_rejects_unsafe_protocols_and_credentials(url: str) -> None:
     with pytest.raises(ValueError, match="proxy"):
         validate_proxy_profile_url(url)
@@ -562,7 +606,6 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
         "CONTAINERS": "1",
         "IMAGES": "1",
         "NETWORKS": "1",
-        "VOLUMES": "1",
         "INFO": "1",
         "POST": "1",
         "AUTH": "0",
@@ -576,7 +619,9 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
         "SYSTEM": "0",
         "TASKS": "0",
     }
-    assert "/var/run/docker.sock" not in str(manager.get("volumes", ()))
+    assert proxy["networks"] == ["account-pool-socket"]
+    assert manager["networks"] == {"account-pool-socket": None, "litellm-control": {"aliases": ["account-pool"]}}
+    assert manager["depends_on"]["docker-cli-check"]["condition"] == "service_completed_successfully"
     assert manager["user"] == "65532:65532"
     assert manager["read_only"] is True
     assert manager["cap_drop"] == ["ALL"]
@@ -585,6 +630,45 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
     assert manager["cpus"] == "1.0"
     assert manager["pids_limit"] == 256
     assert manager["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}
+
+
+@pytest.mark.asyncio
+async def test_compose_runtime_uses_exact_docker_commands_and_allowlisted_environment(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
+    record: Final = _record(status=EnvironmentStatus.READY)
+    directory: Final = runtime.environment_dir(record.id)
+    directory.mkdir()
+    (directory / "compose.yaml").write_text("name: test\n", encoding="utf-8")
+
+    await runtime._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+    await runtime._connect_control_plane(record.id, settings.manager_container)
+    await runtime._disconnect_control_plane(record.id, settings.gateway_container)
+
+    network: Final = f"account-pool-{record.id.hex}"
+    assert tuple(arguments for arguments, _ in runner.calls) == (
+        (
+            "docker",
+            "compose",
+            "--project-name",
+            network,
+            "--file",
+            str(directory / "compose.yaml"),
+            "up",
+            "-d",
+            "--pull",
+            "always",
+            "--remove-orphans",
+        ),
+        ("docker", "network", "connect", network, settings.manager_container),
+        ("docker", "network", "disconnect", network, settings.gateway_container),
+    )
+    assert tuple(environment for _, environment in runner.calls) == (
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
+    )
 
 
 @pytest.mark.asyncio

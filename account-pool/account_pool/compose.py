@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import shutil
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 from uuid import UUID
 
 import yaml
@@ -15,6 +15,27 @@ import yaml
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+
+
+class DockerProcess(Protocol):
+    @property
+    def returncode(self) -> int | None: ...
+
+    async def communicate(self) -> tuple[bytes, bytes]: ...
+
+    def kill(self) -> None: ...
+
+
+DockerRunner = Callable[[tuple[str, ...], dict[str, str]], Awaitable[DockerProcess]]
+
+
+async def _run_docker(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
+    return await asyncio.create_subprocess_exec(
+        *arguments,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=environment,
+    )
 
 
 def render_cli_proxy_config(management_key: str, gateway_key: str) -> str:
@@ -78,9 +99,16 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
 
 
 class ComposeRuntime:
-    def __init__(self, settings: Settings, secrets: EnvironmentSecretDeriver) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        secrets: EnvironmentSecretDeriver,
+        *,
+        runner: DockerRunner = _run_docker,
+    ) -> None:
         self._settings: Final = settings
         self._secrets: Final = secrets
+        self._runner: Final = runner
 
     def environment_dir(self, environment_id: UUID) -> Path:
         # UUID 是唯一资源身份，显示名称绝不能影响路径或 Compose 资源名。
@@ -142,15 +170,9 @@ class ComposeRuntime:
 
     async def _connect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"
-        process: Final = await asyncio.create_subprocess_exec(
-            "docker",
-            "network",
-            "connect",
-            network,
-            container,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "DOCKER_HOST": self._settings.docker_host},
+        process: Final = await self._runner(
+            ("docker", "network", "connect", network, container),
+            self._docker_environment(),
         )
         stdout, stderr = await _communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         detail: Final = (
@@ -162,15 +184,9 @@ class ComposeRuntime:
 
     async def _disconnect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"
-        process: Final = await asyncio.create_subprocess_exec(
-            "docker",
-            "network",
-            "disconnect",
-            network,
-            container,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "DOCKER_HOST": self._settings.docker_host},
+        process: Final = await self._runner(
+            ("docker", "network", "disconnect", network, container),
+            self._docker_environment(),
         )
         stdout, stderr = await _communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         detail: Final = (
@@ -188,17 +204,17 @@ class ComposeRuntime:
         compose_file: Final = environment_dir / "compose.yaml"
         if not compose_file.exists() and arguments and arguments[0] == "down":
             return
-        process: Final = await asyncio.create_subprocess_exec(
-            "docker",
-            "compose",
-            "--project-name",
-            project_name,
-            "--file",
-            str(compose_file),
-            *arguments,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "DOCKER_HOST": self._settings.docker_host},
+        process: Final = await self._runner(
+            (
+                "docker",
+                "compose",
+                "--project-name",
+                project_name,
+                "--file",
+                str(compose_file),
+                *arguments,
+            ),
+            self._docker_environment(),
         )
         stdout, stderr = await _communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         if process.returncode != 0:
@@ -206,6 +222,10 @@ class ComposeRuntime:
                 stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
             )
             raise RuntimeError(f"docker compose failed: {detail[:500]}")
+
+    def _docker_environment(self) -> dict[str, str]:
+        # 仅传递 Docker endpoint 与无状态 HOME，阻断 context、TLS、配置和宿主秘密继承。
+        return {"DOCKER_HOST": self._settings.docker_host, "HOME": "/tmp"}
 
     async def _disconnect_control_plane_by_network(self, slug: str) -> None:
         if not re.fullmatch(r"[0-9a-f]{32}", slug):
@@ -220,7 +240,7 @@ def _write_private(path: Path, content: str) -> None:
 
 
 async def _communicate_with_timeout(
-    process: asyncio.subprocess.Process,
+    process: DockerProcess,
     timeout_seconds: float,
 ) -> tuple[bytes, bytes]:
     try:

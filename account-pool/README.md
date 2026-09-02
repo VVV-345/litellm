@@ -43,7 +43,7 @@ docker compose up -d litellm
 
 如果 LiteLLM 使用其他部署文件，则先创建同名内部网络：`docker network create --driver bridge --internal litellm-control`
 
-Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载运行 Docker Compose 所需的 Docker CLI、Compose 插件和账号数据卷。Socket Proxy 使用固定版本并只开放当前 Compose 生命周期和网络接入所需的容器、镜像、网络、卷、信息和 POST 类 API。部署时应在目标 Docker Engine 上执行实际的 `docker compose` 生命周期和 `docker network connect` 验证。此限制并不把 Socket Proxy 变成恶意容器创建请求的完整安全边界：这些 Compose API 仍可能被滥用以取得宿主等价权限。生产部署必须把 Manager API、Manager 容器及其控制网络视为高信任控制面，并限制可调用 Manager 的主体、审计 Docker API 使用，以及使用独立受控宿主机
+Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载运行 Docker Compose 所需的 Docker CLI、Compose 插件和账号数据卷。Socket Proxy 使用固定版本并只开放当前 Compose 生命周期和网络接入所需的容器、镜像、网络、信息和 POST 类 API。Socket Proxy 仅加入 `account-pool-socket` 内部网络，LiteLLM 不可达，Manager 同时加入该网络和 `litellm-control`。部署文件在 Manager 启动前运行 `docker-cli-check`，它使用同样的宿主 CLI 和 Compose plugin 挂载执行 `docker compose version`；如果宿主路径、插件或动态库不兼容，Manager 不会启动。该检查不证明真实生命周期 API allowlist 可用，目标 Docker Engine 上仍须执行实际的 `docker compose` 生命周期和 `docker network connect` 验证。此限制并不把 Socket Proxy 变成恶意容器创建请求的完整安全边界：这些 Compose API 仍可能被滥用以取得宿主等价权限。生产部署必须把 Manager API、Manager 容器及其 Socket Proxy 网络视为高信任控制面，并限制可调用 Manager 的主体、审计 Docker API 使用，以及使用独立受控宿主机
 
 然后启动号池 Manager。Manager 通过同一 Compose 文件中的 `docker-socket-proxy` 服务连接 Docker Engine，需要挂载 Docker CLI 和 Compose 插件，但不应再挂载 `/var/run/docker.sock`。`ACCOUNT_POOL_MANAGER_CONTAINER` 和 `ACCOUNT_POOL_GATEWAY_CONTAINER` 必须填写宿主机上的两个真实容器名，便于把每个隔离网络接入控制面。生产环境应由反向代理或防火墙确保 Manager API 只对 LiteLLM 主机可见，并保留 Socket Proxy 的 API allowlist
 

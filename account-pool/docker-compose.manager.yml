@@ -23,7 +23,6 @@ services:
       CONTAINERS: "1"
       IMAGES: "1"
       NETWORKS: "1"
-      VOLUMES: "1"
       INFO: "1"
       POST: "1"
       AUTH: "0"
@@ -39,12 +38,35 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - litellm-control
+      - account-pool-socket
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:2375/_ping || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
+
+  docker-cli-check:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    entrypoint: ["docker", "compose", "version"]
+    environment:
+      DOCKER_HOST: ${ACCOUNT_POOL_DOCKER_HOST:-tcp://docker-socket-proxy:2375}
+      HOME: /tmp
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    volumes:
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+    networks:
+      - account-pool-socket
 
   account-pool:
     container_name: ${ACCOUNT_POOL_MANAGER_CONTAINER:-litellm-account-pool}
@@ -91,10 +113,13 @@ services:
       - /usr/bin/docker:/usr/bin/docker:ro
       - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
     networks:
+      account-pool-socket: null
       litellm-control:
         aliases:
           - account-pool
     depends_on:
+      docker-cli-check:
+        condition: service_completed_successfully
       docker-socket-proxy:
         condition: service_healthy
       db:
@@ -125,6 +150,8 @@ services:
       retries: 10
 
 networks:
+  account-pool-socket:
+    internal: true
   litellm-control:
     external: true
     name: ${ACCOUNT_POOL_CONTROL_NETWORK:-litellm-control}

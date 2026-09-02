@@ -65,14 +65,17 @@ class Settings(BaseSettings):
             raise ValueError("docker_host must use a valid TCP port") from error
         if parsed.scheme != "tcp" or not parsed.hostname or port != 2375:
             raise ValueError("docker_host must be the TCP Docker Socket Proxy endpoint on port 2375")
-        if (
-            parsed.username is not None
-            or parsed.password is not None
-            or parsed.path
-            or parsed.query
-            or parsed.fragment
-            or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
-        ):
+        host: Final = parsed.hostname
+        try:
+            address: Final = ipaddress.ip_address(host)
+        except ValueError:
+            if host != "docker-socket-proxy":
+                raise ValueError("docker_host must use the docker-socket-proxy service name")
+        else:
+            if address.is_loopback:
+                raise ValueError("docker_host must not use a loopback host")
+            raise ValueError("docker_host must use the docker-socket-proxy service name")
+        if parsed.username is not None or parsed.password is not None or parsed.path or parsed.query or parsed.fragment:
             raise ValueError(
                 "docker_host must not include credentials, paths, query strings, fragments, or loopback hosts"
             )
@@ -82,12 +85,20 @@ class Settings(BaseSettings):
 def validate_proxy_profile_url(value: str) -> str:
     normalized: Final = value.strip()
     parsed: Final = urlsplit(normalized)
+    try:
+        port: Final = parsed.port
+    except ValueError as error:
+        raise ValueError("proxy URL must use a valid port") from error
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
         or parsed.fragment
+        or port is not None
+        and not 1 <= port <= 65535
     ):
-        raise ValueError("proxy URL must use HTTP(S), include a host, and omit credentials and fragments")
+        raise ValueError("proxy URL must be a credential-free HTTP(S) origin with a valid port")
     return normalized
