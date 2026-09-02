@@ -190,7 +190,9 @@ class PostgresProxyProfileRepository:
 
     async def list(self) -> tuple[ProxyProfile, ...]:
         async with _connection(self._database_url) as connection:
-            cursor: Final = await connection.execute("SELECT id, name FROM account_pool_proxy_profiles ORDER BY name")
+            cursor: Final = await connection.execute(
+                "SELECT id, name, split_part(proxy_url, ':', 1) AS protocol FROM account_pool_proxy_profiles ORDER BY name"
+            )
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
         return tuple(ProxyProfile.model_validate(row) for row in rows)
 

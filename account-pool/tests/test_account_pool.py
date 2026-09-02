@@ -23,6 +23,7 @@ from account_pool.domain import (
     OAuthCallback,
     Provider,
     ProxyMode,
+    ProxyProfile,
     QuotaSnapshot,
     UpdateEnvironmentRequest,
     utc_now,
@@ -483,6 +484,38 @@ def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> N
     assert len(snapshot.windows) == 1
     assert snapshot.windows[0].name == "Five Hour"
     assert snapshot.windows[0].remaining_percent == 75
+
+
+def test_proxy_profile_keeps_non_sensitive_protocol_metadata() -> None:
+    profile: Final = ProxyProfile(id="office", name="办公代理", protocol="https")
+
+    assert profile.protocol == "https"
+
+
+@pytest.mark.asyncio
+async def test_read_account_persists_automatic_cooldown_marker() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={"files": [{"name": "codex.json", "provider": "codex", "unavailable": True}]},
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gpt-5"}]}, request=request)
+        return httpx.Response(404, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    try:
+        observed: Final = await proxy.read_account(record)
+    finally:
+        await client.aclose()
+
+    assert observed.status is EnvironmentStatus.COOLING_DOWN
+    assert observed.automatic_cooldown is True
 
 
 def test_oauth_callback_accepts_error_description_without_error_code() -> None:
@@ -1021,8 +1054,17 @@ async def test_elapsed_cooldown_requires_data_plane_health_before_refresh(tmp_pa
     assert cli.read_calls == 0
 
 
-@pytest.mark.asyncio
-async def test_configuration_update_cannot_bypass_active_cooldown(tmp_path: Path) -> None:
+async def test_elapsed_automatic_cooldown_requires_health_before_quota_refresh(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(update={"automatic_cooldown": True})
+    cli: Final = FakeCLIProxy(data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service._refresh_if_needed(record)
+
+    assert result.status is EnvironmentStatus.COOLING_DOWN
+    assert cli.health_calls == 1
+    assert cli.read_calls == 0
+
     record: Final = _record(
         status=EnvironmentStatus.COOLING_DOWN,
         cooldown_until=utc_now() + timedelta(minutes=5),

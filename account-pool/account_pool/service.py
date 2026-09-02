@@ -586,6 +586,11 @@ class EnvironmentService:
                     "enabled_models": request.enabled_models,
                     "status": status,
                     "cooldown_until": cooldown_until,
+                    "automatic_cooldown": automatic_cooldown
+                    in (
+                        _AutomaticCooldownState.ACTIVE,
+                        _AutomaticCooldownState.BLOCKED,
+                    ),
                     "last_error": None,
                     "updated_at": utc_now(),
                 }
@@ -798,6 +803,8 @@ class EnvironmentService:
                     return await self._repository.get(current.id) or current
                 return current if isinstance(completion, Failure) else completion.value
             if current.auth_file_name is None:
+                return current
+            if current.automatic_cooldown and not await self._cli_proxy.data_plane_health_check(current):
                 return current
             if _cooldown_active(current):
                 return current

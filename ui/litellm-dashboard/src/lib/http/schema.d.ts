@@ -700,6 +700,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Environments */
+        get: operations["list_environments_account_pool_environments_get"];
+        put?: never;
+        /** Create Environment */
+        post: operations["create_environment_account_pool_environments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Environment */
+        get: operations["get_environment_account_pool_environments__environment_id__get"];
+        /** Update Environment */
+        put: operations["update_environment_account_pool_environments__environment_id__put"];
+        post?: never;
+        /** Delete Environment */
+        delete: operations["delete_environment_account_pool_environments__environment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authorize Environment */
+        post: operations["authorize_environment_account_pool_environments__environment_id__authorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Proxy Profiles */
+        get: operations["list_proxy_profiles_account_pool_proxy_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/active/callbacks": {
         parameters: {
             query?: never;
@@ -22476,6 +22547,159 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** AccountPoolAuthorization */
+        AccountPoolAuthorization: {
+            /**
+             * Authorization Url
+             * Format: uri
+             */
+            authorization_url: string;
+            environment: components["schemas"]["AccountPoolEnvironment"];
+            /** Expires At */
+            expires_at: string;
+            /** Ssh Command */
+            ssh_command: string;
+        };
+        /** AccountPoolCreateRequest */
+        AccountPoolCreateRequest: {
+            /** Name */
+            name: string;
+            /**
+             * Provider
+             * @default openai
+             * @constant
+             */
+            provider: "openai";
+        };
+        /** AccountPoolEnvironment */
+        AccountPoolEnvironment: {
+            /** Available Models */
+            available_models: string[];
+            /** Concurrency Limit */
+            concurrency_limit: number;
+            /** Cooldown Until */
+            cooldown_until: string | null;
+            /** Created At */
+            created_at: string;
+            /**
+             * Desired Configuration Version
+             * @default 0
+             */
+            desired_configuration_version: number;
+            /** Desired State */
+            desired_state?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled Models */
+            enabled_models: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Error */
+            last_error: string | null;
+            /** Manual Cooldown */
+            manual_cooldown: boolean;
+            /**
+             * Model Quotas
+             * @default []
+             */
+            model_quotas: components["schemas"]["AccountPoolModelQuotaSnapshot"][];
+            /** Name */
+            name: string;
+            /**
+             * Observed Configuration Version
+             * @default 0
+             */
+            observed_configuration_version: number;
+            /** Operation Id */
+            operation_id?: string | null;
+            /**
+             * Provider
+             * @constant
+             */
+            provider: "openai";
+            /**
+             * Proxy Mode
+             * @enum {string}
+             */
+            proxy_mode: "default_gateway" | "profile";
+            /** Proxy Profile Id */
+            proxy_profile_id: string | null;
+            quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting";
+            /** Updated At */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolModelQuotaSnapshot */
+        AccountPoolModelQuotaSnapshot: {
+            /** Model */
+            model: string;
+            quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolProxyProfile */
+        AccountPoolProxyProfile: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** AccountPoolQuotaSnapshot */
+        AccountPoolQuotaSnapshot: {
+            /** Observed At */
+            observed_at?: string | null;
+            /** Plan Type */
+            plan_type?: string | null;
+            /**
+             * Windows
+             * @default []
+             */
+            windows: components["schemas"]["AccountPoolQuotaWindow"][];
+        };
+        /** AccountPoolQuotaWindow */
+        AccountPoolQuotaWindow: {
+            /** Name */
+            name: string;
+            /** Remaining Percent */
+            remaining_percent: number;
+            /** Resets At */
+            resets_at?: string | null;
+            /** Used Percent */
+            used_percent: number;
+            /** Window Minutes */
+            window_minutes: number;
+        };
+        /** AccountPoolUpdateRequest */
+        AccountPoolUpdateRequest: {
+            /** Concurrency Limit */
+            concurrency_limit: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled Models */
+            enabled_models: string[];
+            /** Manual Cooldown */
+            manual_cooldown: boolean;
+            /** Name */
+            name: string;
+            /** Operation Id */
+            operation_id?: string | null;
+            /**
+             * Proxy Mode
+             * @enum {string}
+             */
+            proxy_mode: "default_gateway" | "profile";
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
+            /** Version */
+            version: number;
+        };
         /**
          * ActiveUsersAnalyticsResponse
          * @description Response for active users analytics
@@ -39556,6 +39780,213 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_environments_account_pool_environments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"][];
+                };
+            };
+        };
+    };
+    create_environment_account_pool_environments_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_environment_account_pool_environments__environment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_environment_account_pool_environments__environment_id__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_environment_account_pool_environments__environment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorize_environment_account_pool_environments__environment_id__authorize_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_proxy_profiles_account_pool_proxy_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyProfile"][];
                 };
             };
         };

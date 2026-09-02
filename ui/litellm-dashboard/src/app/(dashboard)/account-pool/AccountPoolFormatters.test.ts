@@ -6,6 +6,8 @@ import {
   canDeleteEnvironment,
   canToggleEnvironment,
   concurrencyLimitLabel,
+  formatQuota,
+  mostConstrainedWindow,
   validateAccountPoolUpdate,
   validateProxyProfileSelection,
 } from "./AccountPoolFormatters";
@@ -77,5 +79,35 @@ describe("account pool lifecycle controls", () => {
 
   it("labels concurrency as an environment-wide limit", () => {
     expect(concurrencyLimitLabel()).toBe("环境总并发");
+  });
+
+  it("labels the most constrained quota window", () => {
+    const current = environment("cooling_down");
+    const withQuota = {
+      ...current,
+      quota: {
+        observed_at: "2026-01-01T00:00:00Z",
+        plan_type: "pro",
+        windows: [
+          {
+            name: "Weekly",
+            used_percent: 80,
+            remaining_percent: 20,
+            window_minutes: 10080,
+            resets_at: "2026-01-08T00:00:00Z",
+          },
+          {
+            name: "Monthly",
+            used_percent: 95,
+            remaining_percent: 5,
+            window_minutes: 43200,
+            resets_at: "2026-02-01T00:00:00Z",
+          },
+        ],
+      },
+    };
+
+    expect(mostConstrainedWindow(withQuota)?.name).toBe("Monthly");
+    expect(formatQuota(mostConstrainedWindow(withQuota))).toBe("5%");
   });
 });

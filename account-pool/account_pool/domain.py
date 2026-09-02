@@ -119,6 +119,7 @@ class EnvironmentRecord(BaseModel):
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     cooldown_until: datetime | None
+    automatic_cooldown: bool = False
     oauth_state: str | None
     oauth_expires_at: datetime | None
     oauth_state_consumed_at: datetime | None = None
@@ -154,6 +155,7 @@ class EnvironmentView(BaseModel):
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     cooldown_until: datetime | None
+    automatic_cooldown: bool = False
     last_error: str | None
     created_at: datetime
     updated_at: datetime
@@ -270,6 +272,7 @@ class ProxyProfile(BaseModel):
 
     id: str = Field(pattern=r"^[a-zA-Z0-9_.-]+$", max_length=120)
     name: str = Field(min_length=1, max_length=120)
+    protocol: str | None = None
 
 
 def utc_now() -> datetime:
@@ -300,6 +303,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         quota=record.quota,
         model_quotas=record.model_quotas,
         cooldown_until=record.cooldown_until,
+        automatic_cooldown=record.automatic_cooldown,
         last_error=record.last_error,
         created_at=record.created_at,
         updated_at=record.updated_at,
