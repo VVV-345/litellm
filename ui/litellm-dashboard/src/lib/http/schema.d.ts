@@ -22573,6 +22573,11 @@ export interface components {
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
+            /**
+             * Automatic Cooldown
+             * @default false
+             */
+            automatic_cooldown: boolean;
             /** Available Models */
             available_models: string[];
             /** Concurrency Limit */
@@ -22650,6 +22655,8 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /** Protocol */
+            protocol?: string | null;
         };
         /** AccountPoolQuotaSnapshot */
         AccountPoolQuotaSnapshot: {

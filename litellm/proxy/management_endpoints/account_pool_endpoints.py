@@ -76,6 +76,7 @@ class AccountPoolEnvironment(BaseModel):
     quota: AccountPoolQuotaSnapshot
     model_quotas: tuple[AccountPoolModelQuotaSnapshot, ...] = ()
     cooldown_until: str | None
+    automatic_cooldown: bool = False
     last_error: str | None
     created_at: str
     updated_at: str
@@ -116,6 +117,7 @@ class AccountPoolProxyProfile(BaseModel):
 
     id: str
     name: str
+    protocol: str | None = None
 
 
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
