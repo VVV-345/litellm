@@ -1,6 +1,7 @@
 """本模块初始化 Router 缓存客户端，并按号池环境共享总并发信号量。"""
 
 import asyncio
+import threading
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
@@ -18,6 +19,17 @@ class AccountPoolSemaphore(asyncio.Semaphore):
     def __init__(self, value: int) -> None:
         super().__init__(value)
         self._account_pool_limit = value
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
+        self._owner_lock = threading.Lock()
+
+    async def acquire(self) -> bool:
+        loop: Final = asyncio.get_running_loop()
+        with self._owner_lock:
+            if self._owner_loop is None:
+                self._owner_loop = loop
+            elif self._owner_loop is not loop:
+                raise RuntimeError("Account Pool concurrency limiter is owned by another event loop")
+        return await super().acquire()
 
     def update_limit(self, value: int) -> None:
         if value == self._account_pool_limit:
@@ -56,7 +68,7 @@ def account_pool_environment_limits(model_list: object) -> dict[str, int]:
     if not isinstance(model_list, list):
         return {}
     return {
-        environment_id: max(limits)
+        environment_id: min(limits)
         for environment_id, limits in _account_pool_environment_limit_entries(model_list).items()
     }
 
@@ -77,6 +89,33 @@ def _account_pool_environment_limit_entries(model_list: list[object]) -> dict[st
     return entries
 
 
+class AccountPoolConcurrencyRegistry:
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._semaphores: dict[str, AccountPoolSemaphore] = {}
+        self._snapshot_limits: dict[str, int] = {}
+
+    def update_snapshot(self, model_list: object) -> None:
+        snapshot_limits: Final = account_pool_environment_limits(model_list)
+        with self._lock:
+            self._snapshot_limits = snapshot_limits  # rebind-ok: Router model snapshot replaced atomically
+            for environment_id, semaphore in self._semaphores.items():
+                limit: Final = snapshot_limits.get(environment_id)
+                if limit is not None:
+                    semaphore.update_limit(limit)
+
+    def get_or_create(self, environment_id: str, fallback_limit: int) -> AccountPoolSemaphore:
+        with self._lock:
+            effective_limit: Final = self._snapshot_limits.get(environment_id, fallback_limit)
+            existing: Final = self._semaphores.get(environment_id)
+            if existing is not None:
+                existing.update_limit(effective_limit)
+                return existing
+            semaphore: Final = AccountPoolSemaphore(effective_limit)
+            self._semaphores[environment_id] = semaphore
+            return semaphore
+
+
 class InitalizeCachedClient:
     @staticmethod
     def set_max_parallel_requests_client(litellm_router_instance: LitellmRouter, model: dict):
@@ -84,7 +123,6 @@ class InitalizeCachedClient:
         model_id: Final = model["model_info"]["id"]
         model_info: Final = model.get("model_info", {})
         environment_id: Final = account_pool_environment_id(model_info)
-        environment_limits: Final = account_pool_environment_limits(litellm_router_instance.model_list)
         rpm: Final = litellm_params.get("rpm", None)
         tpm: Final = litellm_params.get("tpm", None)
         max_parallel_requests: Final = litellm_params.get("max_parallel_requests", None)
@@ -95,24 +133,19 @@ class InitalizeCachedClient:
             default_max_parallel_requests=litellm_router_instance.default_max_parallel_requests,
         )
         if calculated_max_parallel_requests:
-            effective_limit: Final = (
-                environment_limits.get(environment_id, calculated_max_parallel_requests)
-                if environment_id is not None
-                else calculated_max_parallel_requests
-            )
+            effective_limit: Final = calculated_max_parallel_requests
             cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
-            existing: Final = litellm_router_instance.cache.get_cache(key=cache_key, local_only=True)
-            if isinstance(existing, AccountPoolSemaphore):
-                existing.update_limit(effective_limit)
+            if environment_id is not None:
+                semaphore: Final = litellm_router_instance._account_pool_concurrency_registry.get_or_create(
+                    environment_id,
+                    effective_limit,
+                )
+                litellm_router_instance.cache.set_cache(key=cache_key, value=semaphore, local_only=True)
                 return
+            existing: Final = litellm_router_instance.cache.get_cache(key=cache_key, local_only=True)
             if existing is not None:
                 return
-            # 普通部署按 ID 隔离，号池部署用环境共享且可原地调整额度
-            semaphore: Final = (
-                AccountPoolSemaphore(effective_limit)
-                if environment_id is not None
-                else asyncio.Semaphore(effective_limit)
-            )
+            semaphore: Final = asyncio.Semaphore(effective_limit)
             litellm_router_instance.cache.set_cache(
                 key=cache_key,
                 value=semaphore,

@@ -1,6 +1,8 @@
 """本文件验证 Router 的最大并发请求限制与账号池环境共享额度。"""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -239,6 +241,34 @@ async def test_account_pool_limit_reduction_waits_for_old_requests_before_admitt
 
 
 @pytest.mark.asyncio
+async def test_account_pool_rejects_admission_from_another_event_loop() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    async with semaphore:
+        pass
+
+    def acquire_from_other_loop() -> str:
+        async def acquire() -> None:
+            async with semaphore:
+                pass
+
+        try:
+            asyncio.run(acquire())
+        except RuntimeError as error:
+            return str(error)
+        raise AssertionError("expected a cross-loop ownership error")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        message = executor.submit(acquire_from_other_loop).result()
+
+    assert "another event loop" in message
+
+
+@pytest.mark.asyncio
 async def test_account_pool_cancelled_waiter_during_permit_debt_does_not_admit_later_waiter() -> None:
     router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
     semaphore: asyncio.Semaphore = router._get_client(
@@ -302,6 +332,41 @@ async def test_account_pool_limit_increase_admits_additional_waiting_request() -
     await waiting
 
 
+def test_account_pool_reload_updates_existing_semaphore_before_next_lookup() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 3)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 3),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    router.set_model_list([_account_pool_deployment("model-b", _ENVIRONMENT_A, 1)])
+
+    assert semaphore._value == 1
+
+
+def test_account_pool_concurrent_cold_lookup_returns_one_semaphore() -> None:
+    router = litellm.Router(
+        model_list=[
+            _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+            _account_pool_deployment("model-b", _ENVIRONMENT_A, 2),
+        ]
+    )
+    barrier = Barrier(2)
+
+    def get_semaphore(model_id: str) -> asyncio.Semaphore:
+        barrier.wait()
+        return router._get_client(
+            deployment=_account_pool_deployment(model_id, _ENVIRONMENT_A, 2),
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = tuple(executor.map(get_semaphore, ("model-a", "model-b")))
+
+    assert first is second
+
+
 @pytest.mark.asyncio
 async def test_account_pool_repeated_snapshot_resizes_apply_latest_limit() -> None:
     router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
@@ -361,7 +426,7 @@ def test_account_pool_shared_limit_is_snapshot_authoritative() -> None:
     )
 
     assert first is second is third
-    assert first._value == 3
+    assert first._value == 2
 
 
 def test_unmanaged_or_malformed_account_pool_metadata_keeps_deployment_semaphores_isolated() -> None:
