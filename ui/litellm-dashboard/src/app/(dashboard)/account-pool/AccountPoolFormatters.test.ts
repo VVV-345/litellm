@@ -5,6 +5,7 @@ import {
   canConfigureEnvironment,
   canDeleteEnvironment,
   canToggleEnvironment,
+  concurrencyLimitLabel,
   validateAccountPoolUpdate,
   validateProxyProfileSelection,
 } from "./AccountPoolFormatters";
@@ -72,5 +73,9 @@ describe("account pool lifecycle controls", () => {
         profiles,
       ),
     ).toBe("请选择代理 Profile");
+  });
+
+  it("labels concurrency as an environment-wide limit", () => {
+    expect(concurrencyLimitLabel()).toBe("环境总并发");
   });
 });

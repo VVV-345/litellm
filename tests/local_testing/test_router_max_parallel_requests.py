@@ -1,14 +1,8 @@
-# What is this?
-## Unit tests for the max_parallel_requests feature on Router
+"""本文件验证 Router 的最大并发请求限制与账号池环境共享额度。"""
+
 import asyncio
-import inspect
-import time
-import traceback
-from datetime import datetime
 
 import pytest
-
-from typing import Optional
 
 import litellm
 from litellm.utils import calculate_max_parallel_requests
@@ -54,9 +48,6 @@ def test_scenario(max_parallel_requests, tpm, rpm, default_max_parallel_requests
         calculated_rpm = int(tpm / 1000 * 6)
         if calculated_rpm == 0:
             calculated_rpm = 1
-        print(
-            f"test calculated_rpm: {calculated_rpm}, calculated_max_parallel_requests={calculated_max_parallel_requests}"
-        )
         assert calculated_rpm == calculated_max_parallel_requests
     elif default_max_parallel_requests is not None:
         assert calculated_max_parallel_requests == default_max_parallel_requests
@@ -74,9 +65,7 @@ def test_scenario(max_parallel_requests, tpm, rpm, default_max_parallel_requests
         for dmp in default_max_parallel_requests
     ],
 )
-def test_setting_mpr_limits_per_model(
-    max_parallel_requests, tpm, rpm, default_max_parallel_requests
-):
+def test_setting_mpr_limits_per_model(max_parallel_requests, tpm, rpm, default_max_parallel_requests):
     deployment = {
         "model_name": "gpt-3.5-turbo",
         "litellm_params": {
@@ -93,7 +82,7 @@ def test_setting_mpr_limits_per_model(
         default_max_parallel_requests=default_max_parallel_requests,
     )
 
-    mpr_client: Optional[asyncio.Semaphore] = router._get_client(
+    mpr_client: asyncio.Semaphore | None = router._get_client(
         deployment=deployment,
         kwargs={},
         client_type="max_parallel_requests",
@@ -107,16 +96,200 @@ def test_setting_mpr_limits_per_model(
         calculated_rpm = int(tpm / 1000 * 6)
         if calculated_rpm == 0:
             calculated_rpm = 1
-        print(
-            f"test calculated_rpm: {calculated_rpm}, calculated_max_parallel_requests={mpr_client._value}"
-        )
         assert calculated_rpm == mpr_client._value
     elif default_max_parallel_requests is not None:
         assert mpr_client._value == default_max_parallel_requests
     else:
         assert mpr_client is None
 
-    # raise Exception("it worked!")
+
+def _account_pool_deployment(model_id: str, environment_id: str, concurrency_limit: int) -> dict[str, object]:
+    return {
+        "model_name": model_id,
+        "litellm_params": {"model": f"openai/{model_id}", "max_parallel_requests": concurrency_limit},
+        "model_info": {"id": model_id, "account_pool_environment_id": environment_id},
+    }
+
+
+@pytest.mark.asyncio
+async def test_account_pool_models_share_environment_semaphore_capacity() -> None:
+    router = litellm.Router(
+        model_list=[
+            _account_pool_deployment("model-a", "environment-a", 2),
+            _account_pool_deployment("model-b", "environment-a", 2),
+        ]
+    )
+    first: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    second: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-b", "environment-a", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    third_entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def acquire(semaphore: asyncio.Semaphore) -> None:
+        async with semaphore:
+            third_entered.set()
+            await release.wait()
+
+    async with first, second:
+        third = asyncio.create_task(acquire(first))
+        await asyncio.sleep(0)
+        assert third_entered.is_set() is False
+    await asyncio.wait_for(third_entered.wait(), timeout=0.1)
+    release.set()
+    await third
+
+
+@pytest.mark.asyncio
+async def test_account_pool_semaphore_releases_after_exception_timeout_and_cancellation() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    with pytest.raises(RuntimeError):
+        async with semaphore:
+            raise RuntimeError("request failed")
+    async with semaphore:
+        pass
+
+    async def wait_forever() -> None:
+        async with semaphore:
+            await asyncio.Event().wait()
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(wait_forever(), timeout=0.01)
+    async with semaphore:
+        pass
+
+    cancelled = asyncio.create_task(wait_forever())
+    await asyncio.sleep(0)
+    cancelled.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    async with semaphore:
+        pass
+
+
+def test_account_pool_limit_change_updates_shared_semaphore() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 2)])
+    original: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    updated: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-b", "environment-a", 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    assert updated is original
+    assert updated._value == 1
+
+
+@pytest.mark.asyncio
+async def test_account_pool_limit_reduction_waits_for_old_requests_before_admitting_new_request() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 2)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def acquire() -> None:
+        async with semaphore:
+            entered.set()
+            await release.wait()
+
+    async with semaphore, semaphore:
+        router._get_client(
+            deployment=_account_pool_deployment("model-b", "environment-a", 1),
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
+        waiting = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert entered.is_set() is False
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    release.set()
+    await waiting
+
+
+@pytest.mark.asyncio
+async def test_account_pool_limit_increase_admits_additional_waiting_request() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", "environment-a", 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def acquire() -> None:
+        async with semaphore:
+            entered.set()
+            await release.wait()
+
+    async with semaphore:
+        waiting = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert entered.is_set() is False
+        router._get_client(
+            deployment=_account_pool_deployment("model-b", "environment-a", 2),
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
+        await asyncio.wait_for(entered.wait(), timeout=0.1)
+    release.set()
+    await waiting
+
+
+def test_semaphore_cache_key_keeps_account_pool_environments_and_standard_deployments_isolated() -> None:
+    router = litellm.Router(
+        model_list=[
+            _account_pool_deployment("model-a", "environment-a", 2),
+            _account_pool_deployment("model-b", "environment-b", 2),
+            {
+                "model_name": "model-c",
+                "litellm_params": {"model": "openai/model-c", "max_parallel_requests": 2},
+                "model_info": {"id": "model-c"},
+            },
+        ]
+    )
+    environment_a: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", "environment-a", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    environment_b: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-b", "environment-b", 2),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    standard: asyncio.Semaphore = router._get_client(
+        deployment={
+            "model_name": "model-c",
+            "litellm_params": {"model": "openai/model-c", "max_parallel_requests": 2},
+            "model_info": {"id": "model-c"},
+        },
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    assert environment_a is not environment_b
+    assert environment_a is not standard
 
 
 async def _handle_router_calls(router):
@@ -150,7 +323,6 @@ async def _handle_router_calls(router):
 
     async for chunk in completion:
         pass
-    print("done", chunk)
 
 
 @pytest.mark.asyncio
@@ -183,7 +355,7 @@ async def test_max_parallel_requests_tpm_rate_limiting_base_case():
     """
     - check error raised if defined tpm limit crossed.
     """
-    from litellm import Router, token_counter
+    from litellm import Router
 
     _messages = [{"role": "user", "content": "Hey, how's it going?"}]
     router = Router(

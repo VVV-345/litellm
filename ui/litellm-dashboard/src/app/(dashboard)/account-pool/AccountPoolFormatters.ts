@@ -9,6 +9,8 @@ import type {
   AccountPoolUpdateRequest,
 } from "./AccountPoolTypes";
 
+export const concurrencyLimitLabel = (): string => "环境总并发";
+
 const STATUS_LABELS: Record<AccountPoolStatus, string> = {
   provisioning: "创建中",
   awaiting_authorization: "等待授权",

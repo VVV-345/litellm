@@ -29,6 +29,7 @@ import {
   formatDateTime,
   formatQuota,
   canConfigureEnvironment,
+  concurrencyLimitLabel,
   mostConstrainedWindow,
   quotaRows,
   validateProxyProfileSelection,
@@ -159,7 +160,7 @@ export const AccountPoolConfigDialog = ({
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor="account-pool-concurrency">并发数</Label>
+                <Label htmlFor="account-pool-concurrency">{concurrencyLimitLabel()}</Label>
                 <Input
                   id="account-pool-concurrency"
                   type="number"

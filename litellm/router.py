@@ -1,3 +1,5 @@
+"""本模块提供 Router 调度，并为账号池环境复用总并发限制。"""
+
 # +-----------------------------------------------+
 # |                                               |
 # |           Give Feedback / Get Help            |
@@ -11225,9 +11227,15 @@ class Router:
         model_id: Final = deployment["model_info"]["id"]
         parent_otel_span: Final[Span | None] = _get_parent_otel_span_from_kwargs(kwargs)
         if client_type == "max_parallel_requests":
-            cache_key = f"{model_id}_max_parallel_requests_client"
+            from litellm.router_utils.client_initalization_utils import max_parallel_requests_cache_key
+
+            cache_key: Final = max_parallel_requests_cache_key(
+                model_id=model_id,
+                environment_id=deployment.get("model_info", {}).get("account_pool_environment_id"),
+            )
             client = self.cache.get_cache(key=cache_key, local_only=True, parent_otel_span=parent_otel_span)
-            if client is None:
+            account_pool_environment_id: Final = deployment.get("model_info", {}).get("account_pool_environment_id")
+            if client is None or isinstance(account_pool_environment_id, str):
                 InitalizeCachedClient.set_max_parallel_requests_client(litellm_router_instance=self, model=deployment)
                 client = self.cache.get_cache(key=cache_key, local_only=True, parent_otel_span=parent_otel_span)
             return client

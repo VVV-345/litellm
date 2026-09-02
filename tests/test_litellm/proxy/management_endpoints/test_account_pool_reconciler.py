@@ -82,6 +82,10 @@ async def test_reconcile_only_exposes_routable_models_and_removes_stale_deployme
     assert store.deleted == ("stale",)
     assert store.reload_count == 1
     assert all(deployment.max_parallel_requests == 4 for deployment in store.upserted)
+    assert {deployment.model_info["account_pool_environment_id"] for deployment in store.upserted} == {
+        str(environment.id)
+    }
+    assert {deployment.litellm_params["max_parallel_requests"] for deployment in store.upserted} == {4}
 
 
 @pytest.mark.asyncio
