@@ -168,13 +168,7 @@ class HttpCLIProxyClient:
         automatically_cooling: Final = (
             auth_file.disabled or auth_file.unavailable or (cooldown_until is not None and cooldown_until > now)
         )
-        effective_cooldown_until: Final = (
-            cooldown_until
-            if cooldown_until is not None
-            else now + timedelta(minutes=5)
-            if auth_file.disabled or auth_file.unavailable
-            else None
-        )
+        effective_cooldown_until: Final = cooldown_until
         status: Final = (
             EnvironmentStatus.DISABLED
             if not record.enabled
