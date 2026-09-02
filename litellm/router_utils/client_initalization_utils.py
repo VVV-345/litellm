@@ -32,6 +32,36 @@ class AccountPoolSemaphore(asyncio.Semaphore):
         return await super().acquire()
 
     def update_limit(self, value: int) -> None:
+        with self._owner_lock:
+            owner_loop: Final = self._owner_loop
+        if owner_loop is None:
+            self._apply_limit(value)
+            return
+        try:
+            if asyncio.get_running_loop() is owner_loop:
+                self._apply_limit(value)
+                return
+        except RuntimeError:
+            pass
+        if not owner_loop.is_running():
+            raise RuntimeError("Account Pool concurrency limiter owner event loop is not running")
+        completed = threading.Event()
+        errors: list[BaseException] = []
+
+        def apply_limit() -> None:
+            try:
+                self._apply_limit(value)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                completed.set()
+
+        owner_loop.call_soon_threadsafe(apply_limit)
+        completed.wait()
+        if errors:
+            raise errors[0]
+
+    def _apply_limit(self, value: int) -> None:
         if value == self._account_pool_limit:
             return
         # 通过 permit debt 收缩额度，已进入的请求完成前不会给新请求额外槽位
@@ -67,10 +97,15 @@ def account_pool_environment_id(model_info: object) -> str | None:
 def account_pool_environment_limits(model_list: object) -> dict[str, int]:
     if not isinstance(model_list, list):
         return {}
-    return {
-        environment_id: min(limits)
-        for environment_id, limits in _account_pool_environment_limit_entries(model_list).items()
-    }
+    entries: Final = _account_pool_environment_limit_entries(model_list)
+    inconsistent_environment_ids: Final = tuple(
+        environment_id for environment_id, limits in entries.items() if len(frozenset(limits)) > 1
+    )
+    if inconsistent_environment_ids:
+        raise ValueError(
+            f"Account Pool environment has inconsistent concurrency limits: {', '.join(sorted(inconsistent_environment_ids))}"
+        )
+    return {environment_id: limits[0] for environment_id, limits in entries.items()}
 
 
 def _account_pool_environment_limit_entries(model_list: list[object]) -> dict[str, tuple[int, ...]]:

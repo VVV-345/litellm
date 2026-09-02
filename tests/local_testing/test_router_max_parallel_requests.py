@@ -332,16 +332,62 @@ async def test_account_pool_limit_increase_admits_additional_waiting_request() -
     await waiting
 
 
-def test_account_pool_reload_updates_existing_semaphore_before_next_lookup() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 3)])
+@pytest.mark.asyncio
+async def test_account_pool_reload_reduces_capacity_before_next_lookup() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
     semaphore: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 3),
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
         kwargs={},
         client_type="max_parallel_requests",
     )
-    router.set_model_list([_account_pool_deployment("model-b", _ENVIRONMENT_A, 1)])
+    entered = asyncio.Event()
 
-    assert semaphore._value == 1
+    async def acquire() -> None:
+        async with semaphore:
+            entered.set()
+
+    await semaphore.acquire()
+    await semaphore.acquire()
+    router.set_model_list([_account_pool_deployment("model-b", _ENVIRONMENT_A, 1)])
+    waiting = asyncio.create_task(acquire())
+    await asyncio.sleep(0)
+    assert entered.is_set() is False
+    semaphore.release()
+    await asyncio.sleep(0)
+    assert entered.is_set() is False
+    semaphore.release()
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    await waiting
+
+
+@pytest.mark.asyncio
+async def test_account_pool_foreign_thread_reload_wakes_owner_loop_waiter() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def acquire() -> None:
+        async with semaphore:
+            entered.set()
+            await release.wait()
+
+    async with semaphore:
+        waiting = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            reload_result = executor.submit(
+                router.set_model_list,
+                [_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)],
+            )
+            await asyncio.to_thread(reload_result.result)
+        await asyncio.wait_for(entered.wait(), timeout=0.1)
+    release.set()
+    await waiting
 
 
 def test_account_pool_concurrent_cold_lookup_returns_one_semaphore() -> None:
@@ -402,31 +448,14 @@ async def test_account_pool_repeated_snapshot_resizes_apply_latest_limit() -> No
     await third
 
 
-def test_account_pool_shared_limit_is_snapshot_authoritative() -> None:
-    router = litellm.Router(
-        model_list=[
-            _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
-            _account_pool_deployment("model-b", _ENVIRONMENT_A, 3),
-        ]
-    )
-    first: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
-        kwargs={},
-        client_type="max_parallel_requests",
-    )
-    second: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-b", _ENVIRONMENT_A, 3),
-        kwargs={},
-        client_type="max_parallel_requests",
-    )
-    third: asyncio.Semaphore = router._get_client(
-        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
-        kwargs={},
-        client_type="max_parallel_requests",
-    )
-
-    assert first is second is third
-    assert first._value == 2
+def test_account_pool_rejects_divergent_environment_limits() -> None:
+    with pytest.raises(ValueError, match="inconsistent concurrency limits"):
+        litellm.Router(
+            model_list=[
+                _account_pool_deployment("model-a", _ENVIRONMENT_A, 2),
+                _account_pool_deployment("model-b", _ENVIRONMENT_A, 3),
+            ]
+        )
 
 
 def test_unmanaged_or_malformed_account_pool_metadata_keeps_deployment_semaphores_isolated() -> None:
