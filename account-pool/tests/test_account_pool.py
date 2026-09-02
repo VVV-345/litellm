@@ -13,8 +13,8 @@ import pytest
 import yaml
 from account_pool.app import _reconcile_pending_configurations_until_cancelled
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
-from account_pool.compose import render_compose
-from account_pool.config import Settings
+from account_pool.compose import _communicate_with_timeout, render_compose
+from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
@@ -369,6 +369,17 @@ class EmptyProfiles:
         return None
 
 
+class StaticProfiles:
+    def __init__(self, proxy_url: str) -> None:
+        self.proxy_url: Final = proxy_url
+
+    async def list(self):
+        return ()
+
+    async def get_url(self, profile_id: str):
+        return self.proxy_url
+
+
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url="postgresql://unused",
@@ -378,6 +389,10 @@ def _settings(tmp_path: Path) -> Settings:
         ssh_host="example.com",
         ssh_user="operator",
     )
+
+
+def _settings_with(tmp_path: Path, **updates: object) -> Settings:
+    return Settings.model_validate({**_settings(tmp_path).model_dump(), **updates})
 
 
 def _record(
@@ -450,16 +465,173 @@ def test_oauth_callback_accepts_error_description_without_error_code() -> None:
     assert callback.error_description == "access denied"
 
 
-def test_render_compose_has_no_host_ports_and_uses_an_environment_network(tmp_path: Path) -> None:
+def test_render_compose_uses_uuid_identity_and_retains_upstream_egress(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None)
+    renamed: Final = record.model_copy(update={"name": "A display name that must not identify Docker resources"})
     settings: Final = _settings(tmp_path)
 
     rendered: Final = yaml.safe_load(render_compose(record, settings))
+    rerendered: Final = yaml.safe_load(render_compose(renamed, settings))
     service: Final = rendered["services"]["cli-proxy-api"]
 
     assert "ports" not in service
-    assert rendered["networks"]["environment"]["name"] == f"account-pool-{record.id.hex}"
-    assert service["networks"]["environment"]["aliases"] == [f"cliproxy-{record.id.hex}"]
+    assert rendered == rerendered
+    assert rendered["name"] == f"account-pool-{record.id.hex}"
+    assert rendered["networks"]["environment"] == {
+        "name": f"account-pool-{record.id.hex}",
+        "driver": "bridge",
+        "internal": False,
+    }
+    assert service["networks"] == {"environment": {"aliases": [f"cliproxy-{record.id.hex}"]}}
+
+
+def test_render_compose_hardens_cli_proxy_container(tmp_path: Path) -> None:
+    rendered: Final = yaml.safe_load(
+        render_compose(_record(status=EnvironmentStatus.PROVISIONING), _settings(tmp_path))
+    )
+    service: Final = rendered["services"]["cli-proxy-api"]
+
+    assert service["user"] == "65532:65532"
+    assert service["read_only"] is True
+    assert service["cap_drop"] == ["ALL"]
+    assert service["security_opt"] == ["no-new-privileges:true"]
+    assert service["mem_limit"] == "512m"
+    assert service["cpus"] == "1.0"
+    assert service["pids_limit"] == 256
+    assert service["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}
+
+
+@pytest.mark.parametrize(
+    "docker_host",
+    (
+        "unix:///var/run/docker.sock",
+        "npipe:////./pipe/docker_engine",
+        "tcp://user:password@docker-socket-proxy:2375",
+        "tcp://docker-socket-proxy:2375/v1.47",
+        "tcp://docker-socket-proxy:2375?debug=true",
+        "tcp://docker-socket-proxy:2375#fragment",
+        "tcp://docker-socket-proxy:not-a-port",
+        "http://docker-socket-proxy:2375",
+        "https://docker-socket-proxy:2375",
+        "tcp://127.0.0.1:2375",
+    ),
+)
+def test_settings_rejects_unsafe_or_unexpected_docker_hosts(tmp_path: Path, docker_host: str) -> None:
+    with pytest.raises(ValueError, match="docker_host"):
+        _settings_with(tmp_path, docker_host=docker_host)
+
+
+@pytest.mark.parametrize("ssh_host", ("ssh://host", "host/path", "host?query", "host#fragment", "user@host"))
+def test_settings_rejects_invalid_ssh_hosts(tmp_path: Path, ssh_host: str) -> None:
+    with pytest.raises(ValueError, match="ssh_host"):
+        Settings(
+            database_url="postgresql://unused",
+            data_root=tmp_path,
+            manager_token="m" * 32,
+            secret_seed="s" * 32,
+            ssh_host=ssh_host,
+            ssh_user="operator",
+        )
+
+
+@pytest.mark.parametrize("bind_host", ("0.0.0.0", "192.168.1.10", "example.com"))
+def test_settings_rejects_non_loopback_callback_bind_hosts(tmp_path: Path, bind_host: str) -> None:
+    with pytest.raises(ValueError, match="callback_bind_host"):
+        _settings_with(tmp_path, callback_bind_host=bind_host)
+
+
+@pytest.mark.parametrize("url", ("socks5://proxy.example", "file:///tmp/proxy", "http://user:secret@proxy.example"))
+def test_proxy_profile_url_rejects_unsafe_protocols_and_credentials(url: str) -> None:
+    with pytest.raises(ValueError, match="proxy"):
+        validate_proxy_profile_url(url)
+
+
+def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
+    compose_path: Final = Path(__file__).parents[1] / "docker-compose.manager.yml"
+    manager_compose: Final = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    proxy: Final = manager_compose["services"]["docker-socket-proxy"]
+    manager: Final = manager_compose["services"]["account-pool"]
+
+    dockerfile: Final = (Path(__file__).parents[1] / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "mkdir -p /var/lib/litellm-account-pool/environments" in dockerfile
+    assert "chown -R 65532:65532 /var/lib/litellm-account-pool" in dockerfile
+    assert "USER 65532:65532" in dockerfile
+    assert proxy["image"] == "tecnativa/docker-socket-proxy:0.3.0"
+    assert proxy["environment"] == {
+        "CONTAINERS": "1",
+        "IMAGES": "1",
+        "NETWORKS": "1",
+        "VOLUMES": "1",
+        "INFO": "1",
+        "POST": "1",
+        "AUTH": "0",
+        "BUILD": "0",
+        "EXEC": "0",
+        "PLUGINS": "0",
+        "SECRETS": "0",
+        "SERVICES": "0",
+        "SESSION": "0",
+        "SWARM": "0",
+        "SYSTEM": "0",
+        "TASKS": "0",
+    }
+    assert "/var/run/docker.sock" not in str(manager.get("volumes", ()))
+    assert manager["user"] == "65532:65532"
+    assert manager["read_only"] is True
+    assert manager["cap_drop"] == ["ALL"]
+    assert manager["security_opt"] == ["no-new-privileges:true"]
+    assert manager["mem_limit"] == "512m"
+    assert manager["cpus"] == "1.0"
+    assert manager["pids_limit"] == 256
+    assert manager["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}
+
+
+@pytest.mark.asyncio
+async def test_docker_command_timeout_kills_and_reaps_process() -> None:
+    process: Final = await asyncio.create_subprocess_exec(
+        "python",
+        "-c",
+        "import time; time.sleep(30)",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await _communicate_with_timeout(process, 0.01)
+
+    assert process.returncode is not None
+
+
+@pytest.mark.asyncio
+async def test_unsafe_proxy_profile_url_is_rejected_before_cli_proxy_update(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=StaticProfiles("http://user:secret@proxy.example"),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    request: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        name=record.name,
+        concurrency_limit=record.concurrency_limit,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=ProxyMode.PROFILE,
+        proxy_profile_id="proxy-profile",
+        enabled_models=record.enabled_models,
+    )
+
+    result: Final = await service.update_environment(record.id, request)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.INVALID
+    assert "secret" not in result.message
+    assert cli.proxy_calls == []
 
 
 def test_safe_error_redacts_urls_and_credentials() -> None:

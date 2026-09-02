@@ -5,8 +5,20 @@ services:
     image: tecnativa/docker-socket-proxy:0.3.0
     restart: unless-stopped
     read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    mem_limit: 128m
+    cpus: "0.50"
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     environment:
       CONTAINERS: "1"
       IMAGES: "1"
@@ -56,6 +68,22 @@ services:
       ACCOUNT_POOL_DOCKER_HOST: ${ACCOUNT_POOL_DOCKER_HOST:-tcp://docker-socket-proxy:2375}
       ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
       ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     ports:
       - "127.0.0.1:${ACCOUNT_POOL_CALLBACK_PORT:-8091}:8091"
     volumes:

@@ -1,3 +1,4 @@
+# 本文件部署 LiteLLM 与共享控制网络，账号出站网络由 Account Pool 单独创建。
 services:
   litellm:
     image: docker.litellm.ai/berriai/litellm:main-stable
@@ -30,6 +31,9 @@ services:
       timeout: 10s   # Health check command times out after 10 seconds
       retries: 3     # Retry up to 3 times if health check fails
       start_period: 40s  # Wait 40 seconds after container start before beginning health checks
+    networks:
+      - default
+      - litellm-control
 
   db:
     image: postgres:16
@@ -67,3 +71,8 @@ volumes:
     driver: local
   postgres_data:
     name: litellm_postgres_data # Named volume for Postgres data persistence
+
+networks:
+  litellm-control:
+    name: litellm-control
+    internal: true

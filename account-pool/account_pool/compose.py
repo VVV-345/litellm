@@ -70,7 +70,8 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
             }
         },
         "networks": {
-            "environment": {"name": network_name, "driver": "bridge"},
+            # 账号网络必须保留上游出站访问，不能设为 internal。
+            "environment": {"name": network_name, "driver": "bridge", "internal": False},
         },
     }
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=False)
@@ -82,6 +83,7 @@ class ComposeRuntime:
         self._secrets: Final = secrets
 
     def environment_dir(self, environment_id: UUID) -> Path:
+        # UUID 是唯一资源身份，显示名称绝不能影响路径或 Compose 资源名。
         return self._settings.data_root / environment_id.hex
 
     async def provision(self, record: EnvironmentRecord) -> None:
@@ -224,12 +226,14 @@ async def _communicate_with_timeout(
     try:
         return await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
     except TimeoutError as error:
+        # Docker CLI 超时必须终止并回收子进程，避免控制面长期耗尽进程资源。
         process.kill()
         await process.communicate()
         raise RuntimeError("Docker command timed out") from error
 
 
 def _remove_environment_directory(environment_dir: Path, data_root: Path) -> None:
+    # 只删除 data_root 下 UUID 直系目录，解析路径后阻断符号链接和路径逃逸。
     root: Final = data_root.resolve()
     target: Final = environment_dir.resolve()
     if target.parent != root or target.name == "":

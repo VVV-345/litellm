@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 
 from pydantic import HttpUrl, TypeAdapter
 
-from account_pool.config import Settings
+from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationView,
     CleanupProgress,
@@ -889,7 +889,11 @@ class EnvironmentService:
         profile_url: Final = await self._proxy_profiles.get_url(request.proxy_profile_id)
         if profile_url is None:
             return Failure(FailureCode.INVALID, "proxy profile is unavailable")
-        return Success(profile_url)
+        try:
+            validated_url: Final = validate_proxy_profile_url(profile_url)
+        except ValueError:
+            return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
+        return Success(validated_url)
 
     def _gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
         routable: Final = (

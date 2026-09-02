@@ -14,7 +14,9 @@ An environment is complete only after the user finishes authorization, the requi
 - Keep UI, API transport, application orchestration, domain state, Docker operations, credential storage, quota collection, and gateway routing in separate modules
 - LiteLLM owns authentication, authorization, metadata, configuration APIs, and dashboard integration
 - A narrowly scoped environment manager owns Compose lifecycle operations. Do not expose the Docker socket to the public LiteLLM process
+- Use only the configured, strictly validated TCP Docker Socket Proxy endpoint. The Socket Proxy is a control-plane reduction, not a complete boundary against malicious Compose requests
 - CLIProxyAPI stays inside each isolated environment and must not publish host ports
+- Each account network must retain expected upstream egress. Do not set it to `internal`; keep it separate from the internal shared control network
 - The gateway enforces environment availability, enabled models, concurrency, cooldown, and routing before forwarding requests
 - Model discovery and quota parsing are provider adapters. Do not mix provider-specific parsing with environment lifecycle logic
 - Treat request ingress routing and outbound proxy selection as different concepts and configuration fields

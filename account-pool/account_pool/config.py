@@ -4,6 +4,7 @@ import ipaddress
 import re
 from pathlib import Path
 from typing import Final
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -57,8 +58,36 @@ class Settings(BaseSettings):
     @classmethod
     def validate_docker_host(cls, value: str) -> str:
         normalized: Final = value.strip()
-        if not normalized.startswith(("tcp://", "http://", "https://")):
-            raise ValueError("docker_host must use a TCP or HTTP Docker Socket Proxy endpoint")
-        if "/var/run/docker.sock" in normalized or "@" in normalized:
-            raise ValueError("docker_host must not point to a raw Docker socket or include credentials")
+        parsed: Final = urlsplit(normalized)
+        try:
+            port: Final = parsed.port
+        except ValueError as error:
+            raise ValueError("docker_host must use a valid TCP port") from error
+        if parsed.scheme != "tcp" or not parsed.hostname or port != 2375:
+            raise ValueError("docker_host must be the TCP Docker Socket Proxy endpoint on port 2375")
+        if (
+            parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        ):
+            raise ValueError(
+                "docker_host must not include credentials, paths, query strings, fragments, or loopback hosts"
+            )
         return normalized
+
+
+def validate_proxy_profile_url(value: str) -> str:
+    normalized: Final = value.strip()
+    parsed: Final = urlsplit(normalized)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError("proxy URL must use HTTP(S), include a host, and omit credentials and fragments")
+    return normalized
