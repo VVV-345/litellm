@@ -489,11 +489,7 @@ class EnvironmentService:
         claimed: Final = await self._repository.save_if_version(pending, record.version)
         if claimed is None:
             raise _AuthorizationConflict
-        reconciled: Final = await self._apply_and_persist_configuration(
-            claimed,
-            desired,
-            desired.enabled and not desired.manual_cooldown,
-        )
+        reconciled: Final = await self._apply_and_persist_configuration(claimed, desired)
         if isinstance(reconciled, Failure):
             return reconciled
         persisted: Final = await self._repository.get(claimed.id)
@@ -524,11 +520,7 @@ class EnvironmentService:
             if request.operation_id is not None and record.operation_id == request.operation_id:
                 if record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version:
                     desired: Final = record.desired_configuration or configuration_from_record(record)
-                    return await self._apply_and_persist_configuration(
-                        record,
-                        desired,
-                        desired.enabled and not desired.manual_cooldown,
-                    )
+                    return await self._apply_and_persist_configuration(record, desired)
                 return Success(to_view(record))
             if record.auth_file_name is None:
                 return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
@@ -563,6 +555,7 @@ class EnvironmentService:
                 proxy_profile_id=request.proxy_profile_id,
                 enabled_models=request.enabled_models,
                 proxy_url=profile_result.value,
+                credential_enabled=credential_enabled,
             )
             updated: Final = record.model_copy(
                 update={
@@ -589,7 +582,7 @@ class EnvironmentService:
             claimed: Final = await self._repository.save_if_version(updated, record.version)
             if claimed is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return await self._apply_and_persist_configuration(claimed, desired_configuration, credential_enabled)
+            return await self._apply_and_persist_configuration(claimed, desired_configuration)
 
     async def reconcile_pending_configurations(self) -> tuple[EnvironmentView, ...]:
         """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
@@ -601,33 +594,23 @@ class EnvironmentService:
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(record.id)
-        if lock.locked():
-            current: Final = await self._repository.get(record.id) or record
-            return Success(to_view(current))
         async with lock:
-            current: Final = await self._repository.get(record.id) or record
+            # 锁等待期间记录可能已删除、完成或进入删除态，重新读取后禁止执行陈旧副作用。
+            current: Final = await self._repository.get(record.id)
+            if current is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if current.status is EnvironmentStatus.DELETING or not _configuration_requires_reconciliation(current):
+                return Success(to_view(current))
             desired: Final = current.desired_configuration or configuration_from_record(current)
-            credential_enabled: Final = desired.enabled and not desired.manual_cooldown
-            return await self._apply_and_persist_configuration(current, desired, credential_enabled)
+            return await self._apply_and_persist_configuration(current, desired)
 
     async def _apply_and_persist_configuration(
         self,
         record: EnvironmentRecord,
         desired: EnvironmentConfiguration,
-        credential_enabled: bool,
     ) -> Result[EnvironmentView]:
         try:
-            apply_configuration = getattr(self._cli_proxy, "apply_configuration", None)
-            if apply_configuration is not None:
-                await apply_configuration(record, desired)
-            else:
-                # 兼容旧 adapter，同时保持所有写入步骤的固定顺序。
-                await self._cli_proxy.set_proxy_url(record, desired.proxy_url)
-                await self._cli_proxy.set_enabled_models(record, desired.enabled_models)
-                await self._cli_proxy.set_credential_enabled(record, credential_enabled)
-                set_concurrency = getattr(self._cli_proxy, "set_concurrency_limit", None)
-                if set_concurrency is not None:
-                    await set_concurrency(record, desired.concurrency_limit)
+            await self._cli_proxy.apply_configuration(record, desired)
         except Exception as error:
             # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
             failed: Final = record.model_copy(
@@ -784,11 +767,7 @@ class EnvironmentService:
             current: Final = await self._repository.get(record.id) or record
             if current.configuration_pending or current.desired_configuration_version > current.observed_configuration_version:
                 desired: Final = current.desired_configuration or configuration_from_record(current)
-                await self._apply_and_persist_configuration(
-                    current,
-                    desired,
-                    desired.enabled and not desired.manual_cooldown,
-                )
+                await self._apply_and_persist_configuration(current, desired)
                 # 配置写入失败后必须重新读取条件持久化结果，避免旧 ready 快照掩盖不可路由状态。
                 durable: Final = await self._repository.get(record.id)
                 return durable or current

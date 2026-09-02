@@ -227,7 +227,7 @@ class HttpCLIProxyClient:
         """按固定顺序应用完整快照，重复执行每一步都保持幂等。"""
         await self.set_proxy_url(record, configuration.proxy_url)
         await self.set_enabled_models(record, configuration.enabled_models)
-        await self.set_credential_enabled(record, configuration.enabled and not configuration.manual_cooldown)
+        await self.set_credential_enabled(record, configuration.credential_enabled)
         await self.set_concurrency_limit(record, configuration.concurrency_limit)
 
     async def _request(

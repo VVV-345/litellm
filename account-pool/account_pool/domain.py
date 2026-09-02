@@ -68,6 +68,7 @@ class EnvironmentConfiguration(BaseModel):
     proxy_profile_id: str | None = Field(default=None, max_length=120)
     enabled_models: tuple[str, ...] = ()
     proxy_url: str = ""
+    credential_enabled: bool = True
 
     @model_validator(mode="after")
     def normalize_proxy_mode(self) -> EnvironmentConfiguration:
@@ -240,6 +241,7 @@ def configuration_from_record(record: EnvironmentRecord, proxy_url: str = "") ->
         proxy_profile_id=record.proxy_profile_id,
         enabled_models=record.enabled_models,
         proxy_url=proxy_url,
+        credential_enabled=record.enabled and not record.manual_cooldown,
     )
 
 
