@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
+from pydantic import ValidationError
 
 import litellm
 from litellm.utils import calculate_max_parallel_requests
@@ -554,12 +555,20 @@ async def test_account_pool_cache_hit_reconciles_snapshot_limit() -> None:
     assert updated is semaphore
 
 
-def test_account_pool_snapshot_publishes_multiple_environments_atomically() -> None:
-    router = litellm.Router(
-        model_list=[
-            _account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
-            _account_pool_deployment("model-b", _ENVIRONMENT_B, 2),
-        ]
+@pytest.mark.asyncio
+async def test_account_pool_snapshot_publishes_multiple_environments_atomically() -> None:
+    first_previous = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    second_previous = _account_pool_deployment("model-b", _ENVIRONMENT_B, 2)
+    router = litellm.Router(model_list=[first_previous, second_previous])
+    first: asyncio.Semaphore = router._get_client(
+        deployment=first_previous,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    second: asyncio.Semaphore = router._get_client(
+        deployment=second_previous,
+        kwargs={},
+        client_type="max_parallel_requests",
     )
     router.set_model_list(
         [
@@ -567,13 +576,81 @@ def test_account_pool_snapshot_publishes_multiple_environments_atomically() -> N
             _account_pool_deployment("model-b", _ENVIRONMENT_B, 4),
         ]
     )
+    first_updated: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 3),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    second_updated: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-b", _ENVIRONMENT_B, 4),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
 
-    registry = router._account_pool_concurrency_registry
-    assert dict(registry._snapshot_limits) == {_ENVIRONMENT_A: 3, _ENVIRONMENT_B: 4}
+    assert first_updated is first
+    assert second_updated is second
+
+    first_entered = tuple(asyncio.Event() for _ in range(3))
+    second_entered = tuple(asyncio.Event() for _ in range(4))
+    release = asyncio.Event()
+
+    async def acquire(semaphore: asyncio.Semaphore, entered: asyncio.Event) -> None:
+        async with semaphore:
+            entered.set()
+            await release.wait()
+
+    tasks = tuple(asyncio.create_task(acquire(first_updated, entered)) for entered in first_entered) + tuple(
+        asyncio.create_task(acquire(second_updated, entered)) for entered in second_entered
+    )
+    await asyncio.gather(*(entered.wait() for entered in (*first_entered, *second_entered)))
+    release.set()
+    await asyncio.gather(*tasks)
 
 
-def test_account_pool_divergent_reload_preserves_previous_snapshot() -> None:
-    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+@pytest.mark.asyncio
+async def test_account_pool_failed_router_rebuild_preserves_active_limit() -> None:
+    previous_deployment = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    router = litellm.Router(model_list=[previous_deployment])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=previous_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    invalid_deployment = _account_pool_deployment("model-b", _ENVIRONMENT_A, 2)
+    invalid_deployment["litellm_params"] = {"max_parallel_requests": 2}
+
+    with pytest.raises(ValidationError, match="Field required"):
+        router.set_model_list([invalid_deployment])
+
+    retained: asyncio.Semaphore = router._get_client(
+        deployment=previous_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+
+    async def acquire() -> None:
+        async with retained:
+            entered.set()
+
+    assert retained is semaphore
+    async with retained:
+        waiting = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert entered.is_set() is False
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    await waiting
+
+
+@pytest.mark.asyncio
+async def test_account_pool_divergent_reload_preserves_previous_limit() -> None:
+    previous_deployment = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    router = litellm.Router(model_list=[previous_deployment])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=previous_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
 
     with pytest.raises(ValueError, match="inconsistent concurrency limits"):
         router.set_model_list(
@@ -583,7 +660,66 @@ def test_account_pool_divergent_reload_preserves_previous_snapshot() -> None:
             ]
         )
 
-    assert dict(router._account_pool_concurrency_registry._snapshot_limits) == {_ENVIRONMENT_A: 1}
+    retained: asyncio.Semaphore = router._get_client(
+        deployment=previous_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    entered = asyncio.Event()
+
+    async def acquire() -> None:
+        async with retained:
+            entered.set()
+
+    assert retained is semaphore
+    async with retained:
+        waiting = asyncio.create_task(acquire())
+        await asyncio.sleep(0)
+        assert entered.is_set() is False
+    await asyncio.wait_for(entered.wait(), timeout=0.1)
+    await waiting
+
+
+def test_account_pool_removed_environment_rejects_stale_deployment() -> None:
+    stale_deployment = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    router = litellm.Router(model_list=[stale_deployment])
+    router._get_client(
+        deployment=stale_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    router.set_model_list([])
+    stale_without_limit = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    stale_without_limit["litellm_params"] = {"model": "openai/model-a"}
+
+    with pytest.raises(ValueError, match="No deployments available"):
+        router._get_client(
+            deployment=stale_without_limit,
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
+
+
+@pytest.mark.asyncio
+async def test_account_pool_ignored_invalid_deployment_is_absent_from_published_snapshot() -> None:
+    stale_deployment = _account_pool_deployment("model-a", _ENVIRONMENT_A, 1)
+    router = litellm.Router(model_list=[stale_deployment], ignore_invalid_deployments=True)
+    router._get_client(
+        deployment=stale_deployment,
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    invalid_deployment = _account_pool_deployment("model-b", _ENVIRONMENT_A, 2)
+    invalid_deployment["litellm_params"] = {"max_parallel_requests": 2}
+
+    router.set_model_list([invalid_deployment])
+
+    with pytest.raises(ValueError, match="No deployments available"):
+        router._get_client(
+            deployment=stale_deployment,
+            kwargs={},
+            client_type="max_parallel_requests",
+        )
 
 
 def test_account_pool_rejects_divergent_environment_limits() -> None:

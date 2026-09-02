@@ -122,6 +122,7 @@ from litellm.router_utils.batch_utils import (
 from litellm.router_utils.client_initalization_utils import (
     AccountPoolConcurrencyRegistry,
     InitalizeCachedClient,
+    account_pool_environment_limits,
 )
 from litellm.router_utils.clientside_credential_handler import (
     get_dynamic_litellm_params,
@@ -8723,7 +8724,7 @@ class Router:
 
     def set_model_list(self, model_list: list):
         original_model_list: Final = copy.deepcopy(model_list)
-        self._account_pool_concurrency_registry.update_snapshot(original_model_list)
+        account_pool_environment_limits(original_model_list)
         self.model_list = []
         self.model_id_to_deployment_index_map = {}  # Reset the index
         self.model_name_to_deployment_indices = {}  # Reset the model_name index
@@ -8811,6 +8812,8 @@ class Router:
         # Deferred: build the AdaptiveRouter strategy now that all underlying
         # deployments have been registered.
         self._finalize_adaptive_router_if_configured()
+        published_account_pool_limits: Final = account_pool_environment_limits(self.model_list)
+        self._account_pool_concurrency_registry.update_snapshot(published_account_pool_limits)
 
     def _add_deployment(self, deployment: Deployment) -> Deployment:
         import os

@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
+from litellm.types.router import RouterRateLimitErrorBasic
 from litellm.utils import calculate_max_parallel_requests
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ class AccountPoolSemaphore(asyncio.Semaphore):
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._owner_lock = threading.Lock()
 
-    async def acquire(self) -> bool:
+    async def acquire(self):
         loop: Final = asyncio.get_running_loop()
         with self._owner_lock:
             if self._owner_loop is None:
@@ -112,27 +113,42 @@ class AccountPoolConcurrencyRegistry:
         self._lock = threading.RLock()
         self._semaphores: dict[str, AccountPoolSemaphore] = {}
         self._snapshot_limits: MappingProxyType[str, int] = MappingProxyType({})
+        self._snapshot_generation = 0
 
-    def update_snapshot(self, model_list: object) -> None:
-        snapshot_limits: Final = account_pool_environment_limits(model_list)
+    def update_snapshot(self, snapshot_limits: dict[str, int]) -> None:
         with self._lock:
             self._snapshot_limits = MappingProxyType(
                 snapshot_limits
             )  # rebind-ok: Router publishes a new immutable snapshot
+            self._snapshot_generation += 1
 
-    def get_or_create(self, environment_id: str, fallback_limit: int) -> AccountPoolSemaphore:
-        with self._lock:
-            effective_limit: Final = self._snapshot_limits.get(environment_id, fallback_limit)
-            existing: Final = self._semaphores.get(environment_id)
-            if existing is not None:
-                semaphore: Final = existing
-            else:
-                semaphore = AccountPoolSemaphore(effective_limit)
-                self._semaphores[environment_id] = semaphore
-                return semaphore
+    def get_or_create(self, environment_id: str) -> AccountPoolSemaphore:
+        return self._get_or_create_at_current_snapshot(environment_id)
+
+    def _get_or_create_at_current_snapshot(self, environment_id: str) -> AccountPoolSemaphore:
+        snapshot: Final = self._snapshot_entry(environment_id)
+        if isinstance(snapshot, AccountPoolSemaphore):
+            return snapshot
+        effective_limit, generation, semaphore = snapshot
         if semaphore.needs_limit_update(effective_limit):
             semaphore.update_limit(effective_limit)
-        return semaphore
+        with self._lock:
+            generation_is_current: Final = generation == self._snapshot_generation
+        if generation_is_current:
+            return semaphore
+        return self._get_or_create_at_current_snapshot(environment_id)
+
+    def _snapshot_entry(self, environment_id: str) -> AccountPoolSemaphore | tuple[int, int, AccountPoolSemaphore]:
+        with self._lock:
+            effective_limit: Final = self._snapshot_limits.get(environment_id)
+            if effective_limit is None:
+                raise RouterRateLimitErrorBasic(model=environment_id)
+            existing: Final = self._semaphores.get(environment_id)
+            if existing is not None:
+                return effective_limit, self._snapshot_generation, existing
+            semaphore: Final = AccountPoolSemaphore(effective_limit)
+            self._semaphores[environment_id] = semaphore
+            return semaphore
 
 
 class InitalizeCachedClient:
@@ -151,23 +167,28 @@ class InitalizeCachedClient:
             tpm=tpm,
             default_max_parallel_requests=litellm_router_instance.default_max_parallel_requests,
         )
+        if environment_id is not None:
+            account_pool_semaphore: Final = litellm_router_instance._account_pool_concurrency_registry.get_or_create(
+                environment_id
+            )
+            if calculated_max_parallel_requests:
+                account_pool_cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
+                litellm_router_instance.cache.set_cache(
+                    key=account_pool_cache_key,
+                    value=account_pool_semaphore,
+                    local_only=True,
+                )
+            return
         if calculated_max_parallel_requests:
             effective_limit: Final = calculated_max_parallel_requests
-            cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
-            if environment_id is not None:
-                semaphore: Final = litellm_router_instance._account_pool_concurrency_registry.get_or_create(
-                    environment_id,
-                    effective_limit,
-                )
-                litellm_router_instance.cache.set_cache(key=cache_key, value=semaphore, local_only=True)
-                return
-            existing: Final = litellm_router_instance.cache.get_cache(key=cache_key, local_only=True)
+            deployment_cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
+            existing: Final = litellm_router_instance.cache.get_cache(key=deployment_cache_key, local_only=True)
             if existing is not None:
                 return
-            semaphore: Final = asyncio.Semaphore(effective_limit)
+            deployment_semaphore: Final = asyncio.Semaphore(effective_limit)
             litellm_router_instance.cache.set_cache(
-                key=cache_key,
-                value=semaphore,
+                key=deployment_cache_key,
+                value=deployment_semaphore,
                 local_only=True,
             )
 
