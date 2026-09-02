@@ -55,7 +55,11 @@ class MemoryRepository:
         record = await self.find_by_oauth_state(state)
         if record is None or record.oauth_state_consumed_at is not None:
             return None
-        if self.validate_state_before_consume and record.oauth_expires_at is not None and record.oauth_expires_at <= consumed_at:
+        if (
+            self.validate_state_before_consume
+            and record.oauth_expires_at is not None
+            and record.oauth_expires_at <= consumed_at
+        ):
             return None
         consumed = record.model_copy(
             update={
@@ -224,7 +228,6 @@ class FakeRuntime:
 
     async def remove(self, record: EnvironmentRecord) -> None:
         self.removed.append(record)
-
 
 
 class FailingOnceRuntime(FakeRuntime):
@@ -480,9 +483,7 @@ async def test_unknown_authorization_status_does_not_complete_oauth(tmp_path: Pa
     cli: Final = FakeCLIProxy(authorization_status="unexpected")
     service: Final = _service(record, cli, tmp_path)
     state: Final = service._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
 
     result: Final = await service._refresh_authorization(signed)
 
@@ -503,9 +504,7 @@ async def test_refresh_authorization_resumes_after_state_consumed_before_validat
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
     state: Final = service._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     await repository.save(signed)
     consumed: Final = await repository.consume_oauth_state(state, utc_now())
 
@@ -573,9 +572,7 @@ async def test_refresh_authorization_redacts_upstream_error(tmp_path: Path) -> N
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy(
         authorization_status="error:https://user:password@example.com/oauth?code=secret-code&state=secret-state Bearer secret-token"
@@ -606,9 +603,7 @@ async def test_refresh_authorization_rejects_invalid_persisted_state_signature(t
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": "invalid-signature"}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": "invalid-signature"})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy(authorization_status="ok")
     service: Final = EnvironmentService(
@@ -635,9 +630,7 @@ async def test_refresh_authorization_rejects_missing_signature_after_atomic_cons
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MissingConsumedSignatureRepository(signed)
     cli: Final = FakeCLIProxy(authorization_status="ok")
     service: Final = EnvironmentService(
@@ -664,9 +657,7 @@ async def test_oauth_callback_error_marks_authorization_failed_without_forwardin
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
@@ -1104,9 +1095,7 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = AuthorizationConflictRepository(
         signed,
         reject_ready_save=reject_ready_save,
@@ -1144,9 +1133,7 @@ async def test_oauth_callback_preserves_configuration_failure(tmp_path: Path) ->
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy()
     cli.fail_proxy_once = True
@@ -1204,14 +1191,10 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
 
     refreshed: Final = await service._refresh_authorization(awaiting)
 
-    assert refreshed.status is (
-        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY
-    )
+    assert refreshed.status is (EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY)
     persisted: Final = await repository.get(record.id)
     assert persisted is not None
-    assert persisted.status is (
-        EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY
-    )
+    assert persisted.status is (EnvironmentStatus.VALIDATING if reject_configuration_claim else EnvironmentStatus.READY)
     assert persisted.configuration_pending is not reject_configuration_claim
 
 
@@ -1303,7 +1286,9 @@ async def test_refresh_authorization_recovers_configuration_claim_conflict_befor
 
 
 @pytest.mark.asyncio
-async def test_refresh_authorization_reloads_durable_record_after_final_configuration_save_conflict(tmp_path: Path) -> None:
+async def test_refresh_authorization_reloads_durable_record_after_final_configuration_save_conflict(
+    tmp_path: Path,
+) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
@@ -1415,9 +1400,7 @@ async def test_oauth_callback_rejects_missing_signature_after_atomic_consumption
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
@@ -1594,9 +1577,7 @@ async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path)
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = BlockingCallbackCLI()
     service: Final = EnvironmentService(
@@ -1608,9 +1589,7 @@ async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path)
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
 
-    callback_task: Final = asyncio.create_task(
-        service.submit_oauth_callback(OAuthCallback(code="code", state=state))
-    )
+    callback_task: Final = asyncio.create_task(service.submit_oauth_callback(OAuthCallback(code="code", state=state)))
     await cli.callback_started.wait()
     reauthorize_task: Final = asyncio.create_task(service.authorize_environment(record.id))
     await asyncio.sleep(0)
@@ -1805,9 +1784,7 @@ async def test_oauth_callback_rejects_non_completion_status_after_final_reload(
         secrets=EnvironmentSecretDeriver("s" * 32),
     )
     state: Final = bootstrap._callback_state(record)
-    signed: Final = record.model_copy(
-        update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
-    )
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = FinalAuthorizationStatusRaceRepository(signed, raced_status)
     cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
@@ -2149,9 +2126,7 @@ async def test_reconciliation_skips_completed_record_after_waiting_for_lock(tmp_
         reconciled_task: Final = asyncio.create_task(service._reconcile_configuration(record))
         await asyncio.sleep(0)
         await repository.save(
-            record.model_copy(
-                update={"configuration_pending": False, "observed_configuration_version": 1}
-            )
+            record.model_copy(update={"configuration_pending": False, "observed_configuration_version": 1})
         )
 
     result: Final = await reconciled_task

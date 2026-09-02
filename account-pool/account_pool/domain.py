@@ -129,6 +129,7 @@ class EnvironmentRecord(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+
 class EnvironmentView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -257,8 +258,7 @@ class OAuthCallback(BaseModel):
     def require_result(self) -> OAuthCallback:
         has_code: Final = self.code is not None and bool(self.code.strip())
         has_error: Final = any(
-            value is not None and bool(value.strip())
-            for value in (self.error, self.error_description)
+            value is not None and bool(value.strip()) for value in (self.error, self.error_description)
         )
         if has_code == has_error:
             raise ValueError("exactly one non-empty code or error is required")

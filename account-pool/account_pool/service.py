@@ -308,7 +308,9 @@ class EnvironmentService:
         if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, callback.state):
             return Failure(FailureCode.CONFLICT, "invalid OAuth state")
         if callback.code is None or not callback.code.strip():
-            failure_reason: Final = callback.error or callback.error_description or "OAuth authorization was not completed"
+            failure_reason: Final = (
+                callback.error or callback.error_description or "OAuth authorization was not completed"
+            )
             await self._persist_authorization_failure(consumed, failure_reason)
             return Failure(FailureCode.CONFLICT, "OAuth authorization was not completed")
         provider_state: Final = consumed.oauth_provider_state or callback.state
@@ -361,7 +363,11 @@ class EnvironmentService:
         lock: Final = await self._lock_for(record.id)
         async with lock:
             current: Final = await self._repository.find_by_oauth_state(state)
-            if current is None or current.oauth_state_consumed_at is not None or not self._valid_state_signature(current, state):
+            if (
+                current is None
+                or current.oauth_state_consumed_at is not None
+                or not self._valid_state_signature(current, state)
+            ):
                 return None
             consumed: Final = current.model_copy(
                 update={"version": current.version + 1, "oauth_state_consumed_at": consumed_at}
@@ -407,8 +413,7 @@ class EnvironmentService:
             return False
         expected: Final = self._state_signature(record.id, nonce)
         return hmac.compare_digest(signature, expected) and (
-            record.oauth_state_signature is None
-            or hmac.compare_digest(record.oauth_state_signature, signature)
+            record.oauth_state_signature is None or hmac.compare_digest(record.oauth_state_signature, signature)
         )
 
     def _authorization_view(self, record: EnvironmentRecord) -> AuthorizationView:
@@ -518,7 +523,10 @@ class EnvironmentService:
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
             if request.operation_id is not None and record.operation_id == request.operation_id:
-                if record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version:
+                if (
+                    record.configuration_pending
+                    or record.desired_configuration_version > record.observed_configuration_version
+                ):
                     desired: Final = record.desired_configuration or configuration_from_record(record)
                     return await self._apply_and_persist_configuration(record, desired)
                 return Success(to_view(record))
@@ -526,7 +534,10 @@ class EnvironmentService:
                 return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            if record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version:
+            if (
+                record.configuration_pending
+                or record.desired_configuration_version > record.observed_configuration_version
+            ):
                 return Failure(FailureCode.CONFLICT, "environment configuration is still being applied")
             unknown_models: Final = frozenset(request.enabled_models).difference(record.available_models)
             if unknown_models:
@@ -588,7 +599,11 @@ class EnvironmentService:
         """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
         records: Final = await self._repository.list()
         results: Final = await asyncio.gather(
-            *(self._reconcile_configuration(record) for record in records if _configuration_requires_reconciliation(record))
+            *(
+                self._reconcile_configuration(record)
+                for record in records
+                if _configuration_requires_reconciliation(record)
+            )
         )
         return tuple(result.value for result in results if isinstance(result, Success))
 
@@ -765,7 +780,10 @@ class EnvironmentService:
             return record
         async with lock:
             current: Final = await self._repository.get(record.id) or record
-            if current.configuration_pending or current.desired_configuration_version > current.observed_configuration_version:
+            if (
+                current.configuration_pending
+                or current.desired_configuration_version > current.observed_configuration_version
+            ):
                 desired: Final = current.desired_configuration or configuration_from_record(current)
                 await self._apply_and_persist_configuration(current, desired)
                 # 配置写入失败后必须重新读取条件持久化结果，避免旧 ready 快照掩盖不可路由状态。
@@ -922,8 +940,7 @@ def _replace_state(authorization_url: str, state: str) -> str:
     try:
         parsed: Final = urlsplit(authorization_url)
         query: Final = tuple(
-            (key, state if key == "state" else value)
-            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            (key, state if key == "state" else value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
         )
         final_query: Final = query if any(key == "state" for key, _ in query) else (*query, ("state", state))
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(final_query), parsed.fragment))

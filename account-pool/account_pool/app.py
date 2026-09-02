@@ -47,7 +47,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _restore_control_plane_connections(runtime, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
-        retry_task: Final = asyncio.create_task(_reconcile_pending_configurations_until_cancelled(service, retry_stopped))
+        retry_task: Final = asyncio.create_task(
+            _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
+        )
         try:
             yield
         finally:
