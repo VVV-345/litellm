@@ -86,7 +86,7 @@ export const canAuthorizeEnvironment = (environment: AccountPoolEnvironment): bo
   !isConfigurationPending(environment) &&
   (environment.status === "awaiting_authorization" || environment.status === "error");
 
-const SAFE_PROXY_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:", "socks5:", "socks5h:"]);
+const SAFE_PROXY_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
 
 const normalizeProtocol = (value: string): string => {
   const normalized = value.trim().toLowerCase();
