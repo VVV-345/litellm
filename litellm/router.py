@@ -8723,6 +8723,7 @@ class Router:
 
     def set_model_list(self, model_list: list):
         original_model_list: Final = copy.deepcopy(model_list)
+        self._account_pool_concurrency_registry.update_snapshot(original_model_list)
         self.model_list = []
         self.model_id_to_deployment_index_map = {}  # Reset the index
         self.model_name_to_deployment_indices = {}  # Reset the model_name index
@@ -8810,7 +8811,6 @@ class Router:
         # Deferred: build the AdaptiveRouter strategy now that all underlying
         # deployments have been registered.
         self._finalize_adaptive_router_if_configured()
-        self._account_pool_concurrency_registry.update_snapshot(self.model_list)
 
     def _add_deployment(self, deployment: Deployment) -> Deployment:
         import os
