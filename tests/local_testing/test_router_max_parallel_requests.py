@@ -1,8 +1,9 @@
 """本文件验证 Router 的最大并发请求限制与账号池环境共享额度。"""
 
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event, Thread
 
 import pytest
 
@@ -330,6 +331,117 @@ async def test_account_pool_limit_increase_admits_additional_waiting_request() -
         await asyncio.wait_for(entered.wait(), timeout=0.1)
     release.set()
     await waiting
+
+
+def test_account_pool_reload_fails_when_owner_loop_is_not_running() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    async def own_limiter() -> None:
+        async with semaphore:
+            pass
+
+    asyncio.run(own_limiter())
+
+    with pytest.raises(RuntimeError, match="owner event loop is not running"):
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
+
+
+def test_account_pool_reload_fails_when_owner_loop_is_closed() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+
+    async def own_limiter() -> None:
+        async with semaphore:
+            pass
+
+    asyncio.run(own_limiter())
+
+    with pytest.raises(RuntimeError, match="owner event loop is not running"):
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
+
+
+@pytest.mark.asyncio
+async def test_account_pool_foreign_event_loop_reload_fails_without_waiting() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    async with semaphore:
+        pass
+
+    foreign_result = await asyncio.to_thread(
+        lambda: asyncio.run(
+            _reload_from_foreign_event_loop(router, [_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)])
+        )
+    )
+
+    assert "foreign event loop" in foreign_result
+
+
+async def _reload_from_foreign_event_loop(router: litellm.Router, model_list: list[dict[str, object]]) -> str:
+    try:
+        router.set_model_list(model_list)
+    except RuntimeError as error:
+        return str(error)
+    raise AssertionError("expected foreign event loop reload error")
+
+
+@pytest.mark.asyncio
+async def test_account_pool_pending_foreign_resize_fails_closed_without_blocking_registry() -> None:
+    router = litellm.Router(model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+    semaphore: asyncio.Semaphore = router._get_client(
+        deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+        kwargs={},
+        client_type="max_parallel_requests",
+    )
+    owner_loop = asyncio.new_event_loop()
+    owner_ready = Event()
+    blocker_started = Event()
+
+    def run_owner_loop() -> None:
+        asyncio.set_event_loop(owner_loop)
+        owner_ready.set()
+        owner_loop.run_forever()
+        owner_loop.close()
+
+    owner_thread = Thread(target=run_owner_loop)
+    owner_thread.start()
+    await asyncio.to_thread(owner_ready.wait)
+
+    async def own_limiter() -> None:
+        await semaphore.acquire()
+
+    asyncio.run_coroutine_threadsafe(own_limiter(), owner_loop).result()
+    owner_loop.call_soon_threadsafe(lambda: (blocker_started.set(), time.sleep(0.3), owner_loop.stop()))
+    await asyncio.to_thread(blocker_started.wait)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        reload_result = executor.submit(
+            router.set_model_list,
+            [_account_pool_deployment("model-a", _ENVIRONMENT_A, 2)],
+        )
+        await asyncio.sleep(0)
+        with pytest.raises(RuntimeError, match="update is pending"):
+            router._get_client(
+                deployment=_account_pool_deployment("model-a", _ENVIRONMENT_A, 1),
+                kwargs={},
+                client_type="max_parallel_requests",
+            )
+        with pytest.raises(RuntimeError, match="did not apply update"):
+            await asyncio.to_thread(reload_result.result)
+
+    await asyncio.to_thread(owner_thread.join)
 
 
 @pytest.mark.asyncio

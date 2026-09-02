@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     LitellmRouter = _Router
 else:
     LitellmRouter = Any
+_OWNER_LOOP_UPDATE_TIMEOUT_SECONDS: Final = 0.1
 
 
 class AccountPoolSemaphore(asyncio.Semaphore):
@@ -38,26 +39,43 @@ class AccountPoolSemaphore(asyncio.Semaphore):
             self._apply_limit(value)
             return
         try:
-            if asyncio.get_running_loop() is owner_loop:
-                self._apply_limit(value)
-                return
+            current_loop: Final = asyncio.get_running_loop()
         except RuntimeError:
-            pass
-        if not owner_loop.is_running():
+            current_loop = None  # rebind-ok: no event loop is running in this thread
+        if current_loop is owner_loop:
+            self._apply_limit(value)
+            return
+        if current_loop is not None:
+            raise RuntimeError("Account Pool concurrency limiter cannot reload from a foreign event loop")
+        if owner_loop.is_closed() or not owner_loop.is_running():
             raise RuntimeError("Account Pool concurrency limiter owner event loop is not running")
         completed = threading.Event()
+        completion_lock = threading.Lock()
+        cancelled = False
         errors: list[BaseException] = []
 
         def apply_limit() -> None:
-            try:
-                self._apply_limit(value)
-            except BaseException as error:
-                errors.append(error)
-            finally:
-                completed.set()
+            nonlocal cancelled
+            with completion_lock:
+                if cancelled:
+                    completed.set()
+                    return
+                try:
+                    self._apply_limit(value)
+                except BaseException as error:
+                    errors.append(error)
+                finally:
+                    completed.set()
 
-        owner_loop.call_soon_threadsafe(apply_limit)
-        completed.wait()
+        try:
+            owner_loop.call_soon_threadsafe(apply_limit)
+        except RuntimeError as error:
+            raise RuntimeError("Account Pool concurrency limiter owner event loop is unavailable") from error
+        if not completed.wait(_OWNER_LOOP_UPDATE_TIMEOUT_SECONDS):
+            with completion_lock:
+                if not completed.is_set():
+                    cancelled = True
+                    raise RuntimeError("Account Pool concurrency limiter owner event loop did not apply update")
         if errors:
             raise errors[0]
 
@@ -129,22 +147,37 @@ class AccountPoolConcurrencyRegistry:
         self._lock = threading.RLock()
         self._semaphores: dict[str, AccountPoolSemaphore] = {}
         self._snapshot_limits: dict[str, int] = {}
+        self._pending_snapshot_limits: dict[str, int] | None = None
 
     def update_snapshot(self, model_list: object) -> None:
         snapshot_limits: Final = account_pool_environment_limits(model_list)
         with self._lock:
+            if self._pending_snapshot_limits is not None:
+                raise RuntimeError("Account Pool concurrency limiter update is pending")
+            semaphores: Final = tuple(
+                (environment_id, semaphore)
+                for environment_id, semaphore in self._semaphores.items()
+                if environment_id in snapshot_limits
+            )
+            self._pending_snapshot_limits = snapshot_limits  # rebind-ok: publication is pending owner-loop updates
+        try:
+            for environment_id, semaphore in semaphores:
+                semaphore.update_limit(snapshot_limits[environment_id])
+        except BaseException:
+            with self._lock:
+                self._pending_snapshot_limits = None  # rebind-ok: failed publication retains previous snapshot
+            raise
+        with self._lock:
             self._snapshot_limits = snapshot_limits  # rebind-ok: Router model snapshot replaced atomically
-            for environment_id, semaphore in self._semaphores.items():
-                limit: Final = snapshot_limits.get(environment_id)
-                if limit is not None:
-                    semaphore.update_limit(limit)
+            self._pending_snapshot_limits = None  # rebind-ok: publication completed
 
     def get_or_create(self, environment_id: str, fallback_limit: int) -> AccountPoolSemaphore:
         with self._lock:
+            if self._pending_snapshot_limits is not None:
+                raise RuntimeError("Account Pool concurrency limiter update is pending")
             effective_limit: Final = self._snapshot_limits.get(environment_id, fallback_limit)
             existing: Final = self._semaphores.get(environment_id)
             if existing is not None:
-                existing.update_limit(effective_limit)
                 return existing
             semaphore: Final = AccountPoolSemaphore(effective_limit)
             self._semaphores[environment_id] = semaphore
