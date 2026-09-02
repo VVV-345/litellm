@@ -25,7 +25,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
-import { isProxyAdminRole } from "@/utils/roles";
 
 import {
   authorizeAccountPoolEnvironment,
@@ -36,7 +35,12 @@ import {
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
-import { canAuthorizeEnvironment, canDeleteEnvironment, canToggleEnvironment } from "./AccountPoolFormatters";
+import {
+  canAuthorizeEnvironment,
+  canDeleteEnvironment,
+  canManageAccountPool,
+  canToggleEnvironment,
+} from "./AccountPoolFormatters";
 import { toUpdateRequest } from "./AccountPoolTypes";
 import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
 
@@ -78,7 +82,7 @@ export default function AccountPoolPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
-  const canManage = isProxyAdminRole(userRole ?? "") && !isViewOnly;
+  const canManage = canManageAccountPool(userRole, isViewOnly);
 
   const environmentsQuery = useQuery({
     queryKey: ENVIRONMENTS_QUERY_KEY,

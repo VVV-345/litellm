@@ -279,6 +279,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         )
         _raise_for_upstream_error(response)
         await _reconcile_after_saved_change()
+
     @router.get("/proxy-profiles", response_model=tuple[AccountPoolProxyProfile, ...])
     async def list_proxy_profiles(
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],

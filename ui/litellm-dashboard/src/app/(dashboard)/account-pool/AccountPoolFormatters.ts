@@ -9,6 +9,9 @@ import type {
   AccountPoolUpdateRequest,
 } from "./AccountPoolTypes";
 
+export const canManageAccountPool = (userRole: string | null | undefined, isViewOnly: boolean): boolean =>
+  (userRole === "Admin" || userRole === "proxy_admin") && !isViewOnly;
+
 export const concurrencyLimitLabel = (): string => "环境总并发";
 
 const STATUS_LABELS: Record<AccountPoolStatus, string> = {

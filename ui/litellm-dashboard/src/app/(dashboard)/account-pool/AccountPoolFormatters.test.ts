@@ -5,6 +5,7 @@ import {
   canConfigureEnvironment,
   canDeleteEnvironment,
   canToggleEnvironment,
+  canManageAccountPool,
   concurrencyLimitLabel,
   formatQuota,
   mostConstrainedWindow,
@@ -41,6 +42,12 @@ const profiles: readonly AccountPoolProxyProfile[] = [
 ];
 
 describe("account pool lifecycle controls", () => {
+  it("blocks account pool management for view-only roles", () => {
+    expect(canManageAccountPool("proxy_admin", false)).toBe(true);
+    expect(canManageAccountPool("proxy_admin_viewer", true)).toBe(false);
+    expect(canManageAccountPool("Admin Viewer", true)).toBe(false);
+  });
+
   it("blocks mutations while an environment is transitioning", () => {
     const pending = environment("validating");
     const deleting = environment("deleting");
