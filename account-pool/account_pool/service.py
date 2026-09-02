@@ -53,8 +53,6 @@ class FailureCode(StrEnum):
 class _AuthorizationConflict(Exception):
     """授权回调未能持久化到可路由状态时阻止成功响应。"""
 
-    pass
-
 
 class _AutomaticCooldownState(StrEnum):
     NONE = "none"
@@ -242,15 +240,7 @@ class EnvironmentService:
                 provider_state, callback_state, callback_url = await self._start_authorization(record)
                 _HTTP_URL_ADAPTER.validate_python(callback_url)
             except Exception as error:
-                failed: Final = record.model_copy(
-                    update={
-                        "status": EnvironmentStatus.ERROR,
-                        "desired_state": EnvironmentStatus.ERROR,
-                        "last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                await self._repository.save_if_version(failed, record.version)
+                await self._persist_authorization_failure(record, str(error))
                 return Failure(FailureCode.UPSTREAM, "environment authorization failed")
             expires_at: Final = utc_now() + timedelta(minutes=5)
             authorized: Final = record.model_copy(
@@ -279,26 +269,35 @@ class EnvironmentService:
         callback: OAuthCallback,
         environment_id: UUID | None = None,
     ) -> Result[EnvironmentView]:
-        record: Final = await self._repository.find_by_oauth_state(callback.state)
-        if record is None:
+        located: Final = await self._repository.find_by_oauth_state(callback.state)
+        if located is None:
             return Failure(FailureCode.NOT_FOUND, "unknown or expired OAuth state")
+        # 与重新授权共用环境锁，避免旧 callback 在新 state 写入后产生上游副作用。
+        lock: Final = await self._lock_for(located.id)
+        async with lock:
+            current: Final = await self._repository.find_by_oauth_state(callback.state)
+            if current is None:
+                return Failure(FailureCode.NOT_FOUND, "unknown or expired OAuth state")
+            return await self._submit_oauth_callback_locked(callback, environment_id, current)
+
+    async def _submit_oauth_callback_locked(
+        self,
+        callback: OAuthCallback,
+        environment_id: UUID | None,
+        record: EnvironmentRecord,
+    ) -> Result[EnvironmentView]:
         if environment_id is not None and record.id != environment_id:
             return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
+        if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION:
+            return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
         if record.oauth_state_consumed_at is not None:
             return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
         if record.oauth_state_signature is None or not self._valid_state_signature(record, callback.state):
             return Failure(FailureCode.CONFLICT, "invalid OAuth state")
-        if record.oauth_expires_at is None or record.oauth_expires_at <= utc_now():
-            expired: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": "OAuth authorization expired",
-                    "oauth_expires_at": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save_if_version(expired, record.version)
+        if record.oauth_state_consumed_at is None and (
+            record.oauth_expires_at is None or record.oauth_expires_at <= utc_now()
+        ):
+            await self._persist_authorization_failure(record, "OAuth authorization expired")
             return Failure(FailureCode.CONFLICT, "OAuth authorization expired")
         consumed_at: Final = utc_now()
         consumed: Final = await self._consume_oauth_state(callback.state, consumed_at)
@@ -308,20 +307,16 @@ class EnvironmentService:
             return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
         if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, callback.state):
             return Failure(FailureCode.CONFLICT, "invalid OAuth state")
+        if callback.code is None or not callback.code.strip():
+            failure_reason: Final = callback.error or callback.error_description or "OAuth authorization was not completed"
+            await self._persist_authorization_failure(consumed, failure_reason)
+            return Failure(FailureCode.CONFLICT, "OAuth authorization was not completed")
         provider_state: Final = consumed.oauth_provider_state or callback.state
         provider_callback: Final = callback.model_copy(update={"state": provider_state})
         try:
             await self._cli_proxy.submit_callback(consumed, provider_callback)
         except Exception as error:
-            failed: Final = consumed.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save_if_version(failed, consumed.version)
+            await self._persist_authorization_failure(consumed, str(error))
             return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
         validating: Final = consumed.model_copy(
             update={
@@ -372,6 +367,28 @@ class EnvironmentService:
                 update={"version": current.version + 1, "oauth_state_consumed_at": consumed_at}
             )
             return await self._repository.save_if_version(consumed, current.version)
+
+    async def _persist_authorization_failure(
+        self,
+        record: EnvironmentRecord,
+        message: str,
+    ) -> EnvironmentRecord:
+        failed: Final = record.model_copy(
+            update={
+                "version": record.version + 1,
+                "status": EnvironmentStatus.ERROR,
+                "desired_state": EnvironmentStatus.ERROR,
+                "last_error": _safe_error(RuntimeError(message)),
+                "oauth_state": None,
+                "oauth_expires_at": None,
+                "oauth_state_signature": None,
+                "oauth_provider_state": None,
+                "oauth_authorization_url": None,
+                "updated_at": utc_now(),
+            }
+        )
+        saved: Final = await self._repository.save_if_version(failed, record.version)
+        return saved or await self._repository.get(record.id) or record
 
     def _state_signature(self, environment_id: UUID, state: str) -> str:
         key: Final = self._secrets.derive(environment_id, SecretPurpose.OAUTH_STATE).encode("ascii")
@@ -811,16 +828,9 @@ class EnvironmentService:
         if record.oauth_state is None or record.oauth_expires_at is None:
             return record
         if record.oauth_expires_at <= utc_now():
-            expired: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "last_error": "OAuth authorization expired",
-                    "oauth_state": None,
-                    "oauth_expires_at": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save(expired)
+            return await self._persist_authorization_failure(record, "OAuth authorization expired")
+        if record.oauth_state_signature is None or not self._valid_state_signature(record, record.oauth_state):
+            return await self._persist_authorization_failure(record, "invalid OAuth state")
         try:
             status: Final = await self._cli_proxy.authorization_status(
                 record,
@@ -831,23 +841,24 @@ class EnvironmentService:
         if status == "wait":
             return record
         if status.startswith("error:"):
-            failed: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": status.removeprefix("error:"),
-                    "oauth_expires_at": None,
-                    "oauth_authorization_url": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save(failed)
+            return await self._persist_authorization_failure(record, status.removeprefix("error:"))
         if status != "ok":
             return record
         consumed_at: Final = utc_now()
-        consumed: Final = await self._consume_oauth_state(record.oauth_state, consumed_at)
-        if consumed is None:
-            return await self._repository.get(record.id) or record
+        consumed_result: Final = await self._consume_oauth_state(record.oauth_state, consumed_at)
+        if consumed_result is None:
+            durable: Final = await self._repository.get(record.id) or record
+            if not (
+                durable.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+                and durable.oauth_state == record.oauth_state
+                and durable.oauth_state_consumed_at is not None
+            ):
+                return durable
+            consumed: Final = durable
+        else:
+            consumed: Final = consumed_result
+        if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, record.oauth_state):
+            return await self._persist_authorization_failure(consumed, "invalid OAuth state")
         validating: Final = consumed.model_copy(
             update={
                 "version": consumed.version + 1,
@@ -861,7 +872,7 @@ class EnvironmentService:
         )
         claimed: Final = await self._repository.save_if_version(validating, consumed.version)
         if claimed is None:
-            return record
+            return await self._repository.get(record.id) or record
         try:
             completion: Final = await self._complete_authorization(claimed)
         except _AuthorizationConflict:

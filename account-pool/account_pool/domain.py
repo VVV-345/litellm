@@ -253,8 +253,13 @@ class OAuthCallback(BaseModel):
 
     @model_validator(mode="after")
     def require_result(self) -> OAuthCallback:
-        if self.code is None and self.error is None and self.error_description is None:
-            raise ValueError("code or error is required")
+        has_code: Final = self.code is not None and bool(self.code.strip())
+        has_error: Final = any(
+            value is not None and bool(value.strip())
+            for value in (self.error, self.error_description)
+        )
+        if has_code == has_error:
+            raise ValueError("exactly one non-empty code or error is required")
         return self
 
 
