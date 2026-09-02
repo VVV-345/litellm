@@ -595,12 +595,7 @@ class EnvironmentService:
         """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
         records: Final = await self._repository.list()
         results: Final = await asyncio.gather(
-            *(
-                self._reconcile_configuration(record)
-                for record in records
-                if record.configuration_pending
-                or record.desired_configuration_version > record.observed_configuration_version
-            )
+            *(self._reconcile_configuration(record) for record in records if _configuration_requires_reconciliation(record))
         )
         return tuple(result.value for result in results if isinstance(result, Success))
 
@@ -634,8 +629,10 @@ class EnvironmentService:
                 if set_concurrency is not None:
                     await set_concurrency(record, desired.concurrency_limit)
         except Exception as error:
+            # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
             failed: Final = record.model_copy(
                 update={
+                    "version": record.version + 1,
                     "configuration_pending": True,
                     "status": EnvironmentStatus.ERROR,
                     "desired_state": record.desired_state or record.status,
@@ -644,7 +641,9 @@ class EnvironmentService:
                     "updated_at": utc_now(),
                 }
             )
-            await self._repository.save_if_version(failed, record.version)
+            saved_failed: Final = await self._repository.save_if_version(failed, record.version)
+            if saved_failed is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             return Failure(FailureCode.UPSTREAM, "environment configuration failed")
         completed: Final = record.model_copy(
             update={
@@ -785,12 +784,14 @@ class EnvironmentService:
             current: Final = await self._repository.get(record.id) or record
             if current.configuration_pending or current.desired_configuration_version > current.observed_configuration_version:
                 desired: Final = current.desired_configuration or configuration_from_record(current)
-                reconciliation: Final = await self._apply_and_persist_configuration(
+                await self._apply_and_persist_configuration(
                     current,
                     desired,
                     desired.enabled and not desired.manual_cooldown,
                 )
-                return current if isinstance(reconciliation, Failure) else await self._repository.get(record.id) or current
+                # 配置写入失败后必须重新读取条件持久化结果，避免旧 ready 快照掩盖不可路由状态。
+                durable: Final = await self._repository.get(record.id)
+                return durable or current
             if current.status == EnvironmentStatus.AWAITING_AUTHORIZATION:
                 return await self._refresh_authorization(current)
             if current.status == EnvironmentStatus.VALIDATING:
@@ -919,6 +920,11 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
+
+
+def _configuration_requires_reconciliation(record: EnvironmentRecord) -> bool:
+    # ERROR 只代表最近一次尝试失败，期望版本未观测时仍须继续补偿。
+    return record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version
 
 
 def _safe_error(error: Exception) -> str:

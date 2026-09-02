@@ -45,13 +45,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await environments.initialize()
         records: Final = await environments.list()
         await _restore_control_plane_connections(runtime, records)
-        try:
-            await service.reconcile_pending_configurations()
-        except Exception as error:
-            _LOGGER.warning("Failed to reconcile pending account pool configuration: %s", error.__class__.__name__)
+        # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
+        retry_stopped: Final = asyncio.Event()
+        retry_task: Final = asyncio.create_task(_reconcile_pending_configurations_until_cancelled(service, retry_stopped))
         try:
             yield
         finally:
+            retry_stopped.set()
+            retry_task.cancel()
+            try:
+                await retry_task
+            except asyncio.CancelledError:
+                pass
             await cli_proxy.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
@@ -61,6 +66,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 def main() -> None:
     uvicorn.run(create_app(), host="0.0.0.0", port=8091)
+
+
+async def _reconcile_pending_configurations_until_cancelled(
+    service: EnvironmentService,
+    stopped: asyncio.Event,
+    retry_seconds: float = 5.0,
+) -> None:
+    while not stopped.is_set():
+        try:
+            await service.reconcile_pending_configurations()
+        except Exception as error:
+            _LOGGER.warning("Account pool configuration reconcile failed: %s", error.__class__.__name__)
+        try:
+            await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
+        except TimeoutError:
+            continue
 
 
 async def _restore_control_plane_connections(

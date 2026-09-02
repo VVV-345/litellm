@@ -11,6 +11,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import yaml
+from account_pool.app import _reconcile_pending_configurations_until_cancelled
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import render_compose
 from account_pool.config import Settings
@@ -169,6 +170,22 @@ class FinalConfigurationSaveConflictRepository(MemoryRepository):
         return await super().save_if_version(record, expected_version)
 
 
+class FailFinalConfigurationSaveOnceRepository(MemoryRepository):
+    def __init__(self, record: EnvironmentRecord) -> None:
+        super().__init__(record)
+        self.failed = False
+
+    async def save_if_version(
+        self,
+        record: EnvironmentRecord,
+        expected_version: int,
+    ) -> EnvironmentRecord | None:
+        if not self.failed and not record.configuration_pending:
+            self.failed = True
+            return None
+        return await super().save_if_version(record, expected_version)
+
+
 class AuthorizationFailureRaceRepository(MemoryRepository):
     def __init__(self, record: EnvironmentRecord, replacement: EnvironmentRecord) -> None:
         super().__init__(record)
@@ -265,6 +282,7 @@ class FakeCLIProxy:
         self.model_calls: list[tuple[str, ...]] = []
         self.concurrency_calls: list[int] = []
         self.health_calls = 0
+        self.configuration_completed = asyncio.Event()
         self.submit_calls: list[OAuthCallback] = []
         self.fail_proxy_once = False
 
@@ -309,6 +327,7 @@ class FakeCLIProxy:
 
     async def set_concurrency_limit(self, record: EnvironmentRecord, concurrency_limit: int) -> None:
         self.concurrency_calls.append(concurrency_limit)
+        self.configuration_completed.set()
 
 
 class InvalidAuthorizationURLCLI(FakeCLIProxy):
@@ -1920,3 +1939,200 @@ async def test_oauth_callback_rejects_state_not_in_authorization_status(tmp_path
     assert isinstance(result, Failure)
     assert result.code is FailureCode.CONFLICT
     assert cli.submit_calls == []
+
+
+class OrderedFailingCLI(FakeCLIProxy):
+    def __init__(self, failing_step: str | None = None) -> None:
+        super().__init__()
+        self.failing_step = failing_step
+        self.events: list[str] = []
+
+    async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None:
+        self.events.append("proxy")
+        if self.failing_step == "proxy":
+            self.failing_step = None
+            raise RuntimeError("proxy_url=https://user:password@example.com/ token=secret-token")
+        await super().set_proxy_url(record, proxy_url)
+
+    async def set_enabled_models(self, record: EnvironmentRecord, enabled_models) -> None:
+        self.events.append("models")
+        if self.failing_step == "models":
+            self.failing_step = None
+            raise RuntimeError("model configuration failed")
+        await super().set_enabled_models(record, enabled_models)
+
+    async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None:
+        self.events.append("credential")
+        if self.failing_step == "credential":
+            self.failing_step = None
+            raise RuntimeError("credential configuration failed")
+        await super().set_credential_enabled(record, enabled)
+
+    async def set_concurrency_limit(self, record: EnvironmentRecord, concurrency_limit: int) -> None:
+        self.events.append("concurrency")
+        if self.failing_step == "concurrency":
+            self.failing_step = None
+            raise RuntimeError("concurrency configuration failed")
+        await super().set_concurrency_limit(record, concurrency_limit)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_retries_entire_configuration_in_fixed_order_after_middle_failure(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    cli: Final = OrderedFailingCLI(failing_step="models")
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    request: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        operation_id="configuration-order-1",
+        name="Updated",
+        concurrency_limit=3,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+        enabled_models=("gpt-5",),
+    )
+
+    failed: Final = await service.update_environment(record.id, request)
+    pending: Final = await repository.get(record.id)
+    reconciled: Final = await service.reconcile_pending_configurations()
+
+    assert isinstance(failed, Failure)
+    assert pending is not None
+    assert pending.status is EnvironmentStatus.ERROR
+    assert pending.configuration_pending is True
+    assert pending.configuration_last_error is not None
+    assert "password" not in pending.configuration_last_error
+    assert "secret-token" not in pending.configuration_last_error
+    assert cli.events == ["proxy", "models", "proxy", "models", "credential", "concurrency"]
+    assert reconciled[0].status is EnvironmentStatus.READY
+    assert reconciled[0].configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_restarted_service_recovers_pending_configuration_from_repository(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR).model_copy(
+        update={
+            "configuration_pending": True,
+            "desired_configuration_version": 2,
+            "observed_configuration_version": 1,
+        }
+    )
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    restarted: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    reconciled: Final = await restarted.reconcile_pending_configurations()
+    durable: Final = await repository.get(record.id)
+
+    assert reconciled[0].status is EnvironmentStatus.ERROR
+    assert durable is not None
+    assert durable.configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_recovers_after_final_database_save_conflict(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR).model_copy(
+        update={
+            "configuration_pending": True,
+            "desired_configuration_version": 1,
+        }
+    )
+    repository: Final = FailFinalConfigurationSaveOnceRepository(record)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+
+    first: Final = await service.reconcile_pending_configurations()
+    durable_after_first: Final = await repository.get(record.id)
+    second: Final = await service.reconcile_pending_configurations()
+
+    assert first == ()
+    assert durable_after_first is not None
+    assert durable_after_first.configuration_pending is True
+    assert second[0].configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_background_reconciliation_retries_after_startup_failure(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "configuration_pending": True,
+            "desired_state": EnvironmentStatus.READY,
+            "desired_configuration_version": 1,
+        }
+    )
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    cli.fail_proxy_once = True
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    stopped: Final = asyncio.Event()
+    task: Final = asyncio.create_task(
+        _reconcile_pending_configurations_until_cancelled(service, stopped, retry_seconds=0.1)
+    )
+    await cli.configuration_completed.wait()
+    stopped.set()
+    await task
+    durable: Final = await repository.get(record.id)
+
+    assert durable is not None
+    assert durable.configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_repeated_operation_id_does_not_create_a_second_configuration_version(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=FakeRuntime(),
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+    )
+    request: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        operation_id="same-operation",
+        name="Updated",
+        concurrency_limit=3,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+        enabled_models=("gpt-5",),
+    )
+
+    first: Final = await service.update_environment(record.id, request)
+    second: Final = await service.update_environment(record.id, request)
+
+    assert not isinstance(first, Failure)
+    assert not isinstance(second, Failure)
+    assert first.value.desired_configuration_version == 1
+    assert second.value.desired_configuration_version == 1
