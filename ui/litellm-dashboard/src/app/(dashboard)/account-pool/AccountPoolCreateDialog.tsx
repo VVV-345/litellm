@@ -2,6 +2,7 @@
 
 import { ExternalLink, Plus } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ export const AccountPoolCreateDialog = ({
   onOpenChange,
   onCreated,
 }: AccountPoolCreateDialogProps) => {
+  const { t, i18n } = useTranslation();
   const [name, setName] = useState("");
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
@@ -43,7 +45,7 @@ export const AccountPoolCreateDialog = ({
   const handleCreate = async () => {
     const trimmedName = name.trim();
     if (!accessToken || !trimmedName) {
-      toast.error("请输入环境名称");
+      toast.error(t("accountPool.create.environmentNameRequired"));
       return;
     }
     setSaving(true);
@@ -51,7 +53,7 @@ export const AccountPoolCreateDialog = ({
       const result = await createAccountPoolEnvironment(accessToken, trimmedName);
       setAuthorization(result);
       onCreated();
-      toast.success("环境已创建，请完成授权");
+      toast.success(t("accountPool.create.created"));
     } catch (error) {
       toast.fromError(error);
     } finally {
@@ -72,24 +74,24 @@ export const AccountPoolCreateDialog = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{authorization ? "完成 OpenAI 授权" : "创建号池环境"}</DialogTitle>
+          <DialogTitle>
+            {authorization ? t("accountPool.create.authorizationTitle") : t("accountPool.create.title")}
+          </DialogTitle>
           <DialogDescription>
-            {authorization
-              ? "先执行 SSH 隧道，再打开授权链接。授权完成后页面会自动刷新环境状态。"
-              : "每个环境使用独立的 CLIProxyAPI Compose 网络。"}
+            {authorization ? t("accountPool.create.authorizationDescription") : t("accountPool.create.description")}
           </DialogDescription>
         </DialogHeader>
         {authorization ? (
           <div className="grid gap-5">
             <div className="grid gap-2">
-              <Label htmlFor="account-pool-ssh">SSH 隧道命令</Label>
+              <Label htmlFor="account-pool-ssh">{t("accountPool.create.sshTunnelCommand")}</Label>
               <div className="flex items-center gap-2">
                 <Input id="account-pool-ssh" value={authorization.ssh_command} readOnly className="font-mono text-xs" />
-                <CopyButton value={authorization.ssh_command} label="复制 SSH 命令" />
+                <CopyButton value={authorization.ssh_command} label={t("accountPool.create.copySshTunnelCommand")} />
               </div>
             </div>
             <div className="rounded-md border border-border bg-muted/30 p-4">
-              <p className="text-sm font-medium">授权链接</p>
+              <p className="text-sm font-medium">{t("accountPool.create.authorizationLink")}</p>
               <p className="mt-1 break-all text-xs text-muted-foreground">{authorization.authorization_url}</p>
               <Button
                 type="button"
@@ -98,34 +100,38 @@ export const AccountPoolCreateDialog = ({
                 render={<a href={authorization.authorization_url} target="_blank" rel="noreferrer" />}
               >
                 <ExternalLink />
-                打开授权页面
+                {t("accountPool.create.openAuthorization")}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">授权窗口有效期至 {formatDateTime(authorization.expires_at)}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("accountPool.create.authorizationExpires", {
+                time: formatDateTime(authorization.expires_at, i18n.language),
+              })}
+            </p>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                关闭
+                {t("common.close")}
               </Button>
             </DialogFooter>
           </div>
         ) : (
           <div className="grid gap-2">
-            <Label htmlFor="account-pool-name">环境名称</Label>
+            <Label htmlFor="account-pool-name">{t("accountPool.create.environmentName")}</Label>
             <Input
               id="account-pool-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={80}
-              placeholder="例如：OpenAI 主账号"
+              placeholder={t("accountPool.create.environmentNamePlaceholder")}
               autoFocus
             />
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-                取消
+                {t("accountPool.cancel")}
               </Button>
               <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
                 <Plus />
-                {saving ? "创建中..." : "创建环境"}
+                {saving ? t("accountPool.create.creating") : t("accountPool.createEnvironment")}
               </Button>
             </DialogFooter>
           </div>

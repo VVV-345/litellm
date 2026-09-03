@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import i18next from "@/i18n";
 import { DashboardHeader } from "./DashboardHeader";
 import { NAV_PRODUCT_LINK_CLASS } from "@/components/Navbar/navProductLinkClass";
 
@@ -29,7 +30,8 @@ vi.mock("@/components/Navbar/NotificationsBell/NotificationsBell", () => ({ Noti
 vi.mock("@/components/Navbar/WorkerDropdown/WorkerDropdown", () => ({ default: () => null }));
 
 describe("DashboardHeader breadcrumb", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await i18next.changeLanguage("en");
     state.plugins = [];
     state.enableChatUI = false;
   });
@@ -54,6 +56,15 @@ describe("DashboardHeader breadcrumb", () => {
     expect(screen.getByRole("button", { name: /AI Gateway/i })).toBeInTheDocument();
     expect(screen.getByText("Logs")).toBeInTheDocument();
     expect(screen.queryByText("Observability")).not.toBeInTheDocument();
+  });
+
+  it("loads the breadcrumb and product links from the Chinese locale", async () => {
+    await i18next.changeLanguage("zh-CN");
+    render(<DashboardHeader page="logs" />);
+
+    expect(screen.getByText("日志")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 网关" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "文档" })).toBeInTheDocument();
   });
 
   it("styles Docs with the shared product-link class instead of a muted toolbar button", () => {

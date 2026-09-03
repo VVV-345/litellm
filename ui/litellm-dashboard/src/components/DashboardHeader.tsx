@@ -21,6 +21,7 @@ import { useWorker } from "@/hooks/useWorker";
 import { useDisableShowPrompts } from "@/app/(dashboard)/hooks/useDisableShowPrompts";
 import { clearTokenCookies } from "@/utils/cookieUtils";
 import { clearStoredReturnUrl, getLoginUrl } from "@/utils/returnUrlUtils";
+import { useTranslation } from "react-i18next";
 
 interface DashboardHeaderProps {
   page: string;
@@ -29,6 +30,7 @@ interface DashboardHeaderProps {
 // Top bar for the dashboard shell. Sits only over the content column (the brand
 // lives in the sidebar header); mirrors the design's breadcrumb-left / tools-right layout.
 export function DashboardHeader({ page }: DashboardHeaderProps) {
+  const { t } = useTranslation();
   const { title } = getBreadcrumb(page);
   const { isControlPlane, selectedWorker } = useWorker();
   const showWorkerSwitch = isControlPlane && selectedWorker !== null;
@@ -51,7 +53,7 @@ export function DashboardHeader({ page }: DashboardHeaderProps) {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem className="min-w-0">
-            <BreadcrumbPage className="truncate">{title}</BreadcrumbPage>
+            <BreadcrumbPage className="truncate">{t(`nav.${page}`, { defaultValue: title })}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>

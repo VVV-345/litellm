@@ -6,21 +6,11 @@ import type {
   AccountPoolQuotaWindow,
   AccountPoolStatus,
 } from "./AccountPoolTypes";
+import type { TFunction } from "i18next";
 
-export const concurrencyLimitLabel = (): string => "环境总并发";
+export const concurrencyLimitLabel = (t: TFunction): string => t("accountPool.config.concurrencyLimit");
 
-const STATUS_LABELS: Record<AccountPoolStatus, string> = {
-  provisioning: "创建中",
-  awaiting_authorization: "等待授权",
-  validating: "校验中",
-  ready: "可用",
-  cooling_down: "冷却中",
-  disabled: "已停用",
-  error: "异常",
-  deleting: "删除中",
-};
-
-export const statusLabel = (status: AccountPoolStatus): string => STATUS_LABELS[status];
+export const statusLabel = (t: TFunction, status: AccountPoolStatus): string => t(`accountPool.status.${status}`);
 
 export const statusVariant = (status: AccountPoolStatus): "default" | "secondary" | "destructive" | "outline" => {
   if (status === "ready") return "default";
@@ -35,14 +25,16 @@ export const mostConstrainedWindow = (environment: AccountPoolEnvironment): Acco
   return windows.reduce((lowest, window) => (window.remaining_percent < lowest.remaining_percent ? window : lowest));
 };
 
-export const formatQuota = (window: AccountPoolQuotaWindow | null): string =>
-  window === null ? "尚未观测" : `${window.remaining_percent.toFixed(window.remaining_percent % 1 ? 1 : 0)}%`;
+export const formatQuota = (t: TFunction, window: AccountPoolQuotaWindow | null): string =>
+  window === null
+    ? t("accountPool.config.notObserved")
+    : `${window.remaining_percent.toFixed(window.remaining_percent % 1 ? 1 : 0)}%`;
 
-export const formatDateTime = (value: string | null | undefined): string => {
+export const formatDateTime = (value: string | null | undefined, locale: string): string => {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -51,8 +43,9 @@ export const formatDateTime = (value: string | null | undefined): string => {
 };
 
 export const quotaRows = (
+  t: TFunction,
   environment: AccountPoolEnvironment,
 ): Array<{ key: string; label: string; quota: AccountPoolQuotaSnapshot }> => [
-  { key: "account", label: "账号", quota: environment.quota },
+  { key: "account", label: t("accountPool.config.account"), quota: environment.quota },
   ...environment.model_quotas.map((item) => ({ key: item.model, label: item.model, quota: item.quota })),
 ];

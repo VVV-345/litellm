@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import i18next from "@/i18n";
 
 import {
   canAuthorizeEnvironment,
@@ -7,7 +8,7 @@ import {
   canManageAccountPool,
   canToggleEnvironment,
 } from "./AccountPoolPermissions";
-import { concurrencyLimitLabel, formatQuota, mostConstrainedWindow } from "./AccountPoolFormatters";
+import { concurrencyLimitLabel, formatQuota, mostConstrainedWindow, statusLabel } from "./AccountPoolFormatters";
 import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
 import { toUpdateRequest } from "./AccountPoolTypes";
 import type { AccountPoolEnvironment, AccountPoolProxyProfile } from "./AccountPoolTypes";
@@ -37,6 +38,8 @@ const environment = (status: AccountPoolEnvironment["status"]): AccountPoolEnvir
 const profiles: readonly AccountPoolProxyProfile[] = [
   { id: "office", name: "办公代理", proxy_url: "https://proxy.example.test:8443" },
 ];
+const english = i18next.getFixedT("en");
+const chinese = i18next.getFixedT("zh-CN");
 
 describe("account pool lifecycle controls", () => {
   it("blocks account pool management for view-only roles", () => {
@@ -57,13 +60,13 @@ describe("account pool lifecycle controls", () => {
   });
 
   it("rejects missing, removed, and unsafe proxy profiles before saving", () => {
-    expect(validateProxyProfileSelection("profile", null, profiles)).toBe("请选择代理 Profile");
-    expect(validateProxyProfileSelection("profile", "missing", profiles)).toContain("已删除");
+    expect(validateProxyProfileSelection(chinese, "profile", null, profiles)).toBe("请选择代理 Profile");
+    expect(validateProxyProfileSelection(chinese, "profile", "missing", profiles)).toContain("已删除");
     expect(
-      validateProxyProfileSelection("profile", "office", [
+      validateProxyProfileSelection(chinese, "profile", "office", [
         { id: "office", name: "办公代理", proxy_url: "ftp://proxy.example.test" },
       ]),
-    ).toContain("协议不安全");
+    ).toContain("仅支持 HTTP 或 HTTPS");
   });
 
   it("requires the current environment version in a valid update", () => {
@@ -71,9 +74,10 @@ describe("account pool lifecycle controls", () => {
     const request = toUpdateRequest(current);
 
     expect(request.version).toBe(4);
-    expect(validateAccountPoolUpdate(request, current, profiles)).toBeNull();
+    expect(validateAccountPoolUpdate(chinese, request, current, profiles)).toBeNull();
     expect(
       validateAccountPoolUpdate(
+        chinese,
         { ...request, version: 3, proxy_mode: "profile", proxy_profile_id: null },
         current,
         profiles,
@@ -82,7 +86,7 @@ describe("account pool lifecycle controls", () => {
   });
 
   it("labels concurrency as an environment-wide limit", () => {
-    expect(concurrencyLimitLabel()).toBe("环境总并发");
+    expect(concurrencyLimitLabel(chinese)).toBe("环境总并发");
   });
 
   it("labels the most constrained quota window", () => {
@@ -112,6 +116,13 @@ describe("account pool lifecycle controls", () => {
     };
 
     expect(mostConstrainedWindow(withQuota)?.name).toBe("Monthly");
-    expect(formatQuota(mostConstrainedWindow(withQuota))).toBe("5%");
+    expect(formatQuota(chinese, mostConstrainedWindow(withQuota))).toBe("5%");
+  });
+
+  it("loads account pool labels from the active locale", () => {
+    expect(statusLabel(english, "ready")).toBe("Ready");
+    expect(statusLabel(chinese, "ready")).toBe("可用");
+    expect(formatQuota(english, null)).toBe("Not observed yet");
+    expect(formatQuota(chinese, null)).toBe("尚未观测");
   });
 });

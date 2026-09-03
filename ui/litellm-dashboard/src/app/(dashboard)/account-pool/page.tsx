@@ -4,6 +4,7 @@
 
 import { Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -33,19 +34,20 @@ import { useAccountPoolMutations } from "./useAccountPoolMutations";
 import { useAccountPoolQuery } from "./useAccountPoolQuery";
 
 const PAGE_SIZE = 24;
-const STATUS_FILTERS: ReadonlyArray<{ value: "all" | AccountPoolStatus; label: string }> = [
-  { value: "all", label: "全部状态" },
-  { value: "provisioning", label: "创建中" },
-  { value: "awaiting_authorization", label: "等待授权" },
-  { value: "validating", label: "校验中" },
-  { value: "ready", label: "可用" },
-  { value: "cooling_down", label: "冷却中" },
-  { value: "disabled", label: "已停用" },
-  { value: "error", label: "异常" },
-  { value: "deleting", label: "删除中" },
+const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
+  "all",
+  "provisioning",
+  "awaiting_authorization",
+  "validating",
+  "ready",
+  "cooling_down",
+  "disabled",
+  "error",
+  "deleting",
 ];
 
 export default function AccountPoolPage() {
+  const { t } = useTranslation();
   const { accessToken, userRole, isViewOnly } = useAuthorized();
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
@@ -77,7 +79,7 @@ export default function AccountPoolPage() {
   const awaitingCount = environments.filter((environment) => environment.status === "awaiting_authorization").length;
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
 
-  if (!canManage) return <AdminOnlyNotice pageTitle="号池" />;
+  if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
 
   const openCreateDialog = () => {
     setAuthorization(null);
@@ -95,10 +97,15 @@ export default function AccountPoolPage() {
       );
     }
     if (environmentsQuery.isError) {
+      const managerNotConfigured = environmentsQuery.error.message === "Account Pool Manager is not configured";
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-6">
-          <p className="font-medium text-destructive">号池数据加载失败</p>
-          <p className="mt-1 text-sm text-muted-foreground">{environmentsQuery.error.message}</p>
+          <p className="font-medium text-destructive">
+            {managerNotConfigured ? t("accountPool.managerNotConfigured") : t("accountPool.loadFailed")}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {managerNotConfigured ? t("accountPool.managerNotConfiguredDescription") : environmentsQuery.error.message}
+          </p>
           <Button
             type="button"
             variant="outline"
@@ -106,7 +113,7 @@ export default function AccountPoolPage() {
             className="mt-4"
             onClick={() => void environmentsQuery.refetch()}
           >
-            重试
+            {t("accountPool.retry")}
           </Button>
         </div>
       );
@@ -114,11 +121,11 @@ export default function AccountPoolPage() {
     if (environments.length === 0) {
       return (
         <div className="rounded-md border border-dashed border-border p-12 text-center">
-          <p className="font-medium">还没有号池环境</p>
-          <p className="mt-1 text-sm text-muted-foreground">创建第一个环境并完成 OpenAI 授权后即可接入网关。</p>
+          <p className="font-medium">{t("accountPool.noEnvironments")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noEnvironmentsDescription")}</p>
           <Button type="button" className="mt-4" onClick={openCreateDialog}>
             <Plus />
-            创建环境
+            {t("accountPool.createEnvironment")}
           </Button>
         </div>
       );
@@ -140,15 +147,18 @@ export default function AccountPoolPage() {
         </div>
         {filteredEnvironments.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-12 text-center">
-            <p className="font-medium">没有匹配的环境</p>
-            <p className="mt-1 text-sm text-muted-foreground">请调整搜索关键词或状态筛选。</p>
+            <p className="font-medium">{t("accountPool.noMatchingEnvironments")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noMatchingEnvironmentsDescription")}</p>
           </div>
         )}
         {pageCount > 1 && (
-          <div className="mt-4 flex items-center justify-between gap-3" aria-label="号池分页">
+          <div className="mt-4 flex items-center justify-between gap-3" aria-label={t("accountPool.pagination")}>
             <p className="text-sm text-muted-foreground">
-              显示 {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filteredEnvironments.length)}{" "}
-              / {filteredEnvironments.length}
+              {t("accountPool.showing", {
+                from: (currentPage - 1) * PAGE_SIZE + 1,
+                to: Math.min(currentPage * PAGE_SIZE, filteredEnvironments.length),
+                count: filteredEnvironments.length,
+              })}
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -158,10 +168,10 @@ export default function AccountPoolPage() {
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
                 disabled={currentPage === 1}
               >
-                上一页
+                {t("accountPool.previousPage")}
               </Button>
               <span className="text-sm text-muted-foreground">
-                第 {currentPage} / {pageCount} 页
+                {t("accountPool.page", { current: currentPage, total: pageCount })}
               </span>
               <Button
                 type="button"
@@ -170,7 +180,7 @@ export default function AccountPoolPage() {
                 onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                 disabled={currentPage === pageCount}
               >
-                下一页
+                {t("accountPool.nextPage")}
               </Button>
             </div>
           </div>
@@ -184,12 +194,16 @@ export default function AccountPoolPage() {
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">号池</h1>
-            <p className="mt-1 text-sm text-muted-foreground">管理隔离的 OpenAI Codex 环境和网关路由。</p>
+            <h1 className="text-2xl font-semibold text-foreground">{t("accountPool.title")}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.description")}</p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge variant="outline">共 {environments.length} 个环境</Badge>
-              <Badge variant="outline">可用 {readyCount}</Badge>
-              {awaitingCount > 0 && <Badge variant="secondary">待授权 {awaitingCount}</Badge>}
+              <Badge variant="outline">{t("accountPool.totalEnvironments", { count: environments.length })}</Badge>
+              <Badge variant="outline">{t("accountPool.readyEnvironments", { count: readyCount })}</Badge>
+              {awaitingCount > 0 && (
+                <Badge variant="secondary">
+                  {t("accountPool.awaitingAuthorizationEnvironments", { count: awaitingCount })}
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -199,14 +213,14 @@ export default function AccountPoolPage() {
               size="icon-sm"
               onClick={() => void environmentsQuery.refetch()}
               disabled={environmentsQuery.isFetching}
-              aria-label="刷新号池"
-              title="刷新"
+              aria-label={t("accountPool.refresh")}
+              title={t("accountPool.refresh")}
             >
               <RefreshCw className={environmentsQuery.isFetching ? "animate-spin" : undefined} />
             </Button>
             <Button type="button" onClick={openCreateDialog} disabled={busy}>
               <Plus />
-              创建环境
+              {t("accountPool.createEnvironment")}
             </Button>
           </div>
         </div>
@@ -219,25 +233,25 @@ export default function AccountPoolPage() {
                 setSearch(event.target.value);
                 setPage(1);
               }}
-              placeholder="搜索环境名称或 ID"
-              aria-label="搜索号池环境"
+              placeholder={t("accountPool.search")}
+              aria-label={t("accountPool.search")}
             />
             <Select
               value={statusFilter}
               onValueChange={(value) => {
-                if (STATUS_FILTERS.some((filter) => filter.value === value)) {
+                if (STATUS_FILTERS.some((filter) => filter === value)) {
                   setStatusFilter(value as "all" | AccountPoolStatus);
                   setPage(1);
                 }
               }}
             >
-              <SelectTrigger aria-label="按状态筛选号池环境" className="w-full">
-                <SelectValue placeholder="全部状态" />
+              <SelectTrigger aria-label={t("accountPool.filterByStatus")} className="w-full">
+                <SelectValue placeholder={t("accountPool.status.all")} />
               </SelectTrigger>
               <SelectContent>
                 {STATUS_FILTERS.map((filter) => (
-                  <SelectItem key={filter.value} value={filter.value}>
-                    {filter.label}
+                  <SelectItem key={filter} value={filter}>
+                    {t(`accountPool.status.${filter}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -279,15 +293,15 @@ export default function AccountPoolPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除号池环境</AlertDialogTitle>
+            <AlertDialogTitle>{t("accountPool.confirmDeleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteEnvironment
-                ? `确认删除“${deleteEnvironment.name}”吗？删除会清理容器、网络、认证目录和网关路由，且无法恢复。`
-                : "删除此号池环境后将无法恢复。"}
+                ? t("accountPool.confirmDeleteDescription", { name: deleteEnvironment.name })
+                : t("accountPool.confirmDeleteUnavailable")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>{t("accountPool.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               disabled={deleteMutation.isPending || deleteEnvironment === null}
@@ -295,7 +309,7 @@ export default function AccountPoolPage() {
                 if (deleteEnvironment) deleteMutation.mutate(deleteEnvironment);
               }}
             >
-              {deleteMutation.isPending ? "删除中..." : "确认删除"}
+              {deleteMutation.isPending ? t("accountPool.deleting") : t("accountPool.confirmDelete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

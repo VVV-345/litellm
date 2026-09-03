@@ -1,6 +1,7 @@
 /** 本文件集中定义号池表单与代理 Profile 的边界校验。 */
 
 import type { AccountPoolEnvironment, AccountPoolProxyProfile, AccountPoolUpdateRequest } from "./AccountPoolTypes";
+import type { TFunction } from "i18next";
 
 const SAFE_PROXY_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
 
@@ -22,33 +23,35 @@ const profileProtocol = (profile: AccountPoolProxyProfile): string | null => {
 };
 
 export const validateProxyProfileSelection = (
+  t: TFunction,
   proxyMode: AccountPoolUpdateRequest["proxy_mode"],
   proxyProfileId: string | null,
   profiles: readonly AccountPoolProxyProfile[],
 ): string | null => {
   if (proxyMode === "default_gateway") return null;
-  if (!proxyProfileId) return "请选择代理 Profile";
-  if (profiles.length === 0) return "暂无可用代理 Profile，请先配置 Profile";
+  if (!proxyProfileId) return t("accountPool.validation.proxyProfileRequired");
+  if (profiles.length === 0) return t("accountPool.validation.noProxyProfiles");
   const selectedProfile = profiles.find((profile) => profile.id === proxyProfileId);
-  if (!selectedProfile) return "所选代理 Profile 已删除，请重新选择";
+  if (!selectedProfile) return t("accountPool.validation.proxyProfileRemoved");
   const protocol = profileProtocol(selectedProfile);
-  if (protocol === "invalid:") return "代理 Profile URL 无效";
+  if (protocol === "invalid:") return t("accountPool.validation.proxyProfileInvalid");
   if (protocol !== null && !SAFE_PROXY_PROTOCOLS.has(protocol)) {
-    return "代理 Profile URL 协议不安全，仅支持 HTTP、HTTPS 或 SOCKS5";
+    return t("accountPool.validation.proxyProfileProtocol");
   }
   return null;
 };
 
 export const validateAccountPoolUpdate = (
+  t: TFunction,
   form: AccountPoolUpdateRequest,
   environment: AccountPoolEnvironment,
   profiles: readonly AccountPoolProxyProfile[],
 ): string | null => {
-  if (!form.name.trim()) return "请输入环境名称";
+  if (!form.name.trim()) return t("accountPool.validation.nameRequired");
   if (!Number.isInteger(form.concurrency_limit) || form.concurrency_limit < 1 || form.concurrency_limit > 1000) {
-    return "并发数必须是 1 到 1000 之间的整数";
+    return t("accountPool.validation.concurrencyRange");
   }
   const unsupportedModel = form.enabled_models.find((model) => !environment.available_models.includes(model));
-  if (unsupportedModel) return `模型 ${unsupportedModel} 当前不可用`;
-  return validateProxyProfileSelection(form.proxy_mode, form.proxy_profile_id, profiles);
+  if (unsupportedModel) return t("accountPool.validation.modelUnavailable", { model: unsupportedModel });
+  return validateProxyProfileSelection(t, form.proxy_mode, form.proxy_profile_id, profiles);
 };

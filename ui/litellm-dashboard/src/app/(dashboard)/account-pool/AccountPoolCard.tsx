@@ -1,6 +1,7 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
 import { KeyRound, Trash2, Settings2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,10 @@ export const AccountPoolCard = ({
   onDelete,
   disabled = false,
 }: AccountPoolCardProps) => {
+  const { t, i18n } = useTranslation();
   const quotaWindow = mostConstrainedWindow(environment);
+  const authorizationAction =
+    environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
 
   return (
     <Card data-testid={`account-pool-card-${environment.id}`}>
@@ -47,23 +51,23 @@ export const AccountPoolCard = ({
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="truncate text-base">{environment.name}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">OpenAI Codex</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.provider")}</p>
             {environment.configuration_pending && (
               <p className="mt-1 text-xs text-muted-foreground" role="status">
-                配置同步中
+                {t("accountPool.configurationSyncing")}
               </p>
             )}
           </div>
-          <Badge variant={statusVariant(environment.status)}>{statusLabel(environment.status)}</Badge>
+          <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
         </div>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>启用</span>
+            <span>{t("accountPool.enabled")}</span>
             <Switch
               checked={environment.enabled}
               onCheckedChange={(checked) => onEnabledChange(environment, checked === true)}
               disabled={disabled || !canToggleEnvironment(environment)}
-              aria-label={`启用 ${environment.name}`}
+              aria-label={t("accountPool.enableEnvironment", { name: environment.name })}
             />
           </div>
           <div className="flex items-center gap-1">
@@ -73,8 +77,8 @@ export const AccountPoolCard = ({
               size="icon-sm"
               onClick={() => onConfigure(environment)}
               disabled={disabled || !canConfigureEnvironment(environment)}
-              aria-label={`配置 ${environment.name}`}
-              title="配置环境"
+              aria-label={t("accountPool.configureEnvironment", { name: environment.name })}
+              title={t("accountPool.configure")}
             >
               <Settings2 />
             </Button>
@@ -85,8 +89,11 @@ export const AccountPoolCard = ({
                 size="icon-sm"
                 onClick={() => onAuthorize(environment)}
                 disabled={disabled}
-                aria-label={`${environment.status === "error" ? "重新授权" : "继续授权"} ${environment.name}`}
-                title={environment.status === "error" ? "重新授权" : "继续授权"}
+                aria-label={t("accountPool.continueAuthorizationFor", {
+                  action: authorizationAction,
+                  name: environment.name,
+                })}
+                title={authorizationAction}
               >
                 <KeyRound />
               </Button>
@@ -97,8 +104,8 @@ export const AccountPoolCard = ({
               size="icon-sm"
               onClick={() => onDelete(environment)}
               disabled={disabled || !canDeleteEnvironment(environment)}
-              aria-label={`删除 ${environment.name}`}
-              title="删除环境"
+              aria-label={t("accountPool.deleteEnvironment", { name: environment.name })}
+              title={t("accountPool.delete")}
             >
               <Trash2 />
             </Button>
@@ -108,16 +115,16 @@ export const AccountPoolCard = ({
       <CardContent className="grid gap-4 text-sm">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="text-xs text-muted-foreground">剩余额度</p>
-            <p className="mt-1 font-medium">{formatQuota(quotaWindow)}</p>
+            <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
+            <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">下次重置</p>
-            <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at)}</p>
+            <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
+            <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
           </div>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground">支持模型</p>
+          <p className="text-xs text-muted-foreground">{t("accountPool.availableModels")}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {environment.enabled_models.length > 0 ? (
               environment.enabled_models.map((model) => (
@@ -126,7 +133,7 @@ export const AccountPoolCard = ({
                 </Badge>
               ))
             ) : (
-              <span className="text-muted-foreground">未启用模型</span>
+              <span className="text-muted-foreground">{t("accountPool.noEnabledModels")}</span>
             )}
           </div>
         </div>

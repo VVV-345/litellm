@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { renderWithProviders } from "../../tests/test-utils";
 import Sidebar, { menuGroups, getBreadcrumb } from "./leftnav";
 
@@ -12,6 +13,7 @@ vi.mock("../utils/roles", async (importOriginal) => {
     internalUserRoles: ["internal"],
     rolesWithWriteAccess: ["admin", "internal"],
     rolesAllowedToViewWriteScopedPages: ["admin", "internal", "admin_viewer"],
+    proxyAdminRoles: ["admin"],
     isAdminRole: (role: string) => role === "admin" || role === "admin_viewer",
     isUserTeamAdminForAnyTeam: () => false,
   };
@@ -103,7 +105,8 @@ describe("Sidebar (leftnav)", () => {
     collapsed: false,
   };
 
-  afterEach(() => {
+  afterEach(async () => {
+    await i18next.changeLanguage("en");
     mockUseAuthorized.mockReset();
     mockUseOrganizations.mockReset();
     mockUseThemeImpl = unbrandedTheme;
@@ -177,6 +180,7 @@ describe("Sidebar (leftnav)", () => {
       "Virtual Keys",
       "Playground",
       "Models + Endpoints",
+      "Account Pool",
       "Agentic",
       "MCP Servers",
       "Guardrails",
@@ -200,6 +204,17 @@ describe("Sidebar (leftnav)", () => {
     topLevelLabels.forEach((label) => {
       expect(screen.getByText(label)).toBeInTheDocument();
     });
+  });
+
+  it("loads navigation labels and group headings from the Chinese locale", async () => {
+    await i18next.changeLanguage("zh-CN");
+    renderWithProviders(<Sidebar {...defaultProps} />);
+
+    expect(screen.getByText("AI 网关")).toBeInTheDocument();
+    expect(screen.getByText("虚拟密钥")).toBeInTheDocument();
+    expect(screen.getByText("模型和端点")).toBeInTheDocument();
+    expect(screen.getByText("号池")).toBeInTheDocument();
+    expect(screen.getByText("可观测性")).toBeInTheDocument();
   });
 
   it("expands a nested tab to reveal its children (Tools > Search Tools)", async () => {

@@ -1,6 +1,7 @@
 /** 本文件集中号池环境的更新、授权和删除 mutation 编排。 */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 
 import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
@@ -27,21 +28,25 @@ export const useAccountPoolMutations = (
   onAuthorized: (authorization: AccountPoolAuthorization) => void,
   onDeleted: () => void,
 ) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY });
   const updateMutation = useMutation({
     mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) => {
       if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canToggleEnvironment(environment)) throw new Error("当前状态不支持切换环境开关");
+      if (!canManage || !canToggleEnvironment(environment))
+        throw new Error(t("accountPool.mutation.toggleUnavailable"));
       return updateAccountPoolEnvironment(accessToken, environment.id, toUpdateRequest(environment, { enabled }));
     },
     onSuccess: () => {
-      toast.success("环境开关已更新");
+      toast.success(t("accountPool.mutation.updated"));
       invalidate();
     },
     onError: (error: Error) => {
       if (isSavedWithPendingReconcile(error)) {
-        toast.warning("配置已保存，网关同步待完成", { description: "后台会继续重试同步，请稍后刷新状态" });
+        toast.warning(t("accountPool.config.savedPendingSync"), {
+          description: t("accountPool.config.savedPendingSyncDescription"),
+        });
       } else {
         toast.fromError(error);
       }
@@ -51,25 +56,28 @@ export const useAccountPoolMutations = (
   const authorizeMutation = useMutation({
     mutationFn: (environment: AccountPoolEnvironment) => {
       if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canAuthorizeEnvironment(environment)) throw new Error("当前状态不支持重新授权");
+      if (!canManage || !canAuthorizeEnvironment(environment)) {
+        throw new Error(t("accountPool.mutation.reauthorizeUnavailable"));
+      }
       return authorizeAccountPoolEnvironment(accessToken, environment.id);
     },
     onSuccess: (result) => {
       onAuthorized(result);
       invalidate();
-      toast.success("已生成新的授权信息");
+      toast.success(t("accountPool.mutation.authorizationGenerated"));
     },
     onError: (error: Error) => toast.fromError(error),
   });
   const deleteMutation = useMutation({
     mutationFn: (environment: AccountPoolEnvironment) => {
       if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canDeleteEnvironment(environment)) throw new Error("当前状态不支持删除");
+      if (!canManage || !canDeleteEnvironment(environment))
+        throw new Error(t("accountPool.mutation.deleteUnavailable"));
       return deleteAccountPoolEnvironment(accessToken, environment.id);
     },
     onSuccess: () => {
       onDeleted();
-      toast.success("环境删除请求已完成");
+      toast.success(t("accountPool.mutation.deleteRequested"));
       invalidate();
     },
     onError: (error: Error) => {

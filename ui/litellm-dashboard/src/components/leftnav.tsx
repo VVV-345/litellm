@@ -64,6 +64,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cva.config";
 import { rolesWithCapability } from "../utils/capabilities";
 import {
@@ -138,7 +139,7 @@ const menuGroups: MenuGroup[] = [
       {
         key: "account-pool",
         page: "account-pool",
-        label: "号池",
+        label: "Account Pool",
         icon: <Layers3 {...ICON} />,
         roles: proxyAdminRoles,
       },
@@ -403,6 +404,14 @@ const prettify = (key: string): string =>
 
 const labelText = (item: MenuItem): string => (typeof item.label === "string" ? item.label : prettify(item.key));
 
+const groupTranslationKeys: Record<string, string> = {
+  "AI GATEWAY": "nav.groups.aiGateway",
+  OBSERVABILITY: "nav.groups.observability",
+  "ACCESS CONTROL": "nav.groups.accessControl",
+  "DEVELOPER TOOLS": "nav.groups.developerTools",
+  SETTINGS: "nav.groups.settings",
+};
+
 // Breadcrumb ("Section" / "Page") for the top bar, derived from the same nav config.
 export const getBreadcrumb = (page: string): { section: string | null; title: string } => {
   for (const group of menuGroups) {
@@ -429,6 +438,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   disableVectorStoresForInternalUsers,
   allowVectorStoresForTeamAdmins,
 }) => {
+  const { t } = useTranslation();
   const { userId, accessToken, userRole, isViewOnly } = useAuthorized();
   const isOrgAdmin = useIsOrgAdmin();
   const { data: teams } = useTeams();
@@ -529,10 +539,28 @@ const Sidebar_: React.FC<SidebarProps> = ({
     setPage(item.page);
   };
 
+  const translatedLabel = (item: MenuItem): string =>
+    t(item.key === "4" ? "nav.usage" : `nav.${item.key}`, { defaultValue: labelText(item) });
+  const translatedGroupLabel = (groupLabel: string): string =>
+    t(groupTranslationKeys[groupLabel] ?? groupLabel, { defaultValue: SECTION_DISPLAY[groupLabel] ?? groupLabel });
+  const renderLabel = (item: MenuItem): React.ReactNode => {
+    const label = translatedLabel(item);
+    if (item.key === "cost-optimization" || item.key === "projects") {
+      return (
+        <span className="flex items-center gap-2">
+          {label} <BetaBadge />
+        </span>
+      );
+    }
+    return label;
+  };
+
   const renderLeaf = (item: MenuItem, isChild: boolean) => {
     const active = selectedKey === item.key;
     const size = isChild ? "sub" : "default";
-    const label = <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{item.label}</span>;
+    const label = (
+      <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{renderLabel(item)}</span>
+    );
 
     if (item.external_url) {
       return (
@@ -541,7 +569,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
           href={item.external_url}
           target="_blank"
           rel="noopener noreferrer"
-          title={collapsed ? labelText(item) : undefined}
+          title={collapsed ? translatedLabel(item) : undefined}
           data-active={active || undefined}
           className={cn(sidebarMenuButtonVariants({ isActive: active, size }))}
         >
@@ -558,7 +586,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
         key={item.key}
         href={href}
         onClick={(e) => handleLeafClick(e, item)}
-        title={collapsed ? labelText(item) : undefined}
+        title={collapsed ? translatedLabel(item) : undefined}
         data-active={active || undefined}
         className={cn(sidebarMenuButtonVariants({ isActive: active, size }))}
       >
@@ -581,10 +609,10 @@ const Sidebar_: React.FC<SidebarProps> = ({
         <SidebarMenuButton
           isActive={active}
           onClick={() => toggleGroup(item.key)}
-          title={collapsed ? labelText(item) : undefined}
+          title={collapsed ? translatedLabel(item) : undefined}
         >
           {item.icon}
-          <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{item.label}</span>
+          <span className="flex-1 truncate group-data-[collapsed=true]/sidebar:hidden">{renderLabel(item)}</span>
           <ChevronRight
             className={cn(
               "size-4 shrink-0 transition-transform group-data-[collapsed=true]/sidebar:hidden",
@@ -612,7 +640,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
       <SidebarHeader className="h-14 border-b border-border group-data-[collapsed=true]/sidebar:h-auto">
         <div className="flex items-center justify-between gap-2 group-data-[collapsed=true]/sidebar:flex-col">
           <div className="flex min-w-0 items-center gap-2">
-            <Link href={migratedHref("")} className="flex min-w-0 items-center" aria-label="LiteLLM home">
+            <Link href={migratedHref("")} className="flex min-w-0 items-center" aria-label={t("nav.litellmHome")}>
               <img src={logoSrc} alt="LiteLLM" className={cn(LOGO_CLASS_NAME, "dark:hidden")} />
               <img
                 src={darkLogoSrc}
@@ -637,7 +665,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
               variant="ghost"
               size="icon-sm"
               onClick={onToggleCollapsed}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
               className="flex-none text-muted-foreground"
             >
               {collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
@@ -651,7 +679,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
           {visibleGroups.map((group, gi) => (
             <SidebarGroup key={group.groupLabel}>
               {gi > 0 && <SidebarSeparator className="hidden group-data-[collapsed=true]/sidebar:block" />}
-              <SidebarGroupLabel>{group.groupLabel}</SidebarGroupLabel>
+              <SidebarGroupLabel>{translatedGroupLabel(group.groupLabel)}</SidebarGroupLabel>
               <SidebarMenu>{group.items.map((item) => renderItem(item))}</SidebarMenu>
             </SidebarGroup>
           ))}
