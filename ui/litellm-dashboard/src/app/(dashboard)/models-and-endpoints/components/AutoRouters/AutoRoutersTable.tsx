@@ -2,6 +2,7 @@
 
 import { SortingState } from "@tanstack/react-table";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 import { AutoRouterIcon } from "@/components/shared/table_cells";
@@ -47,9 +48,10 @@ export function AutoRoutersTable({
   onRouterClick,
   onDeleteClick,
 }: AutoRoutersTableProps) {
+  const { t } = useTranslation();
   const columns = useMemo(
-    () => getAutoRoutersTableColumns({ canModify, onRouterClick, onDeleteClick }),
-    [canModify, onRouterClick, onDeleteClick],
+    () => getAutoRoutersTableColumns({ canModify, onRouterClick, onDeleteClick, t }),
+    [canModify, onRouterClick, onDeleteClick, t],
   );
 
   return (

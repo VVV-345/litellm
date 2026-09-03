@@ -8,12 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 
 import {
-  formatDateTime,
-  formatQuota,
   canAuthorizeEnvironment,
   canConfigureEnvironment,
   canDeleteEnvironment,
   canToggleEnvironment,
+} from "./AccountPoolPermissions";
+import {
+  formatDateTime,
+  formatQuota,
   mostConstrainedWindow,
   statusLabel,
   statusVariant,

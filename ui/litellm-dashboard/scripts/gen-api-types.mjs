@@ -54,7 +54,8 @@ try {
     stdio: "inherit",
   });
 
-  execFileSync(join(dashboardDir, "node_modules", ".bin", "openapi-typescript"), [specPath, "-o", outPath], {
+  const openapiTypescript = join(dashboardDir, "node_modules", "openapi-typescript", "bin", "cli.js");
+  execFileSync(process.execPath, [openapiTypescript, specPath, "-o", outPath], {
     cwd: dashboardDir,
     stdio: "inherit",
   });

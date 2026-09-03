@@ -11,15 +11,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from account_pool.domain import (
-    AuthorizationView,
-    CreateEnvironmentRequest,
-    EnvironmentView,
-    GatewayEnvironment,
-    OAuthCallback,
-    ProxyProfile,
-    UpdateEnvironmentRequest,
-)
+from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
+from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
 _BEARER: Final = HTTPBearer(auto_error=False)

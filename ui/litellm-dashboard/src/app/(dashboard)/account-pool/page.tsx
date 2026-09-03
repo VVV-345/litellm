@@ -2,7 +2,6 @@
 
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -23,28 +22,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError } from "@/lib/http/client";
-import { toast } from "@/lib/toast";
 
-import {
-  authorizeAccountPoolEnvironment,
-  deleteAccountPoolEnvironment,
-  listAccountPoolEnvironments,
-  updateAccountPoolEnvironment,
-} from "./AccountPoolApi";
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
-import {
-  canAuthorizeEnvironment,
-  canDeleteEnvironment,
-  canManageAccountPool,
-  canToggleEnvironment,
-} from "./AccountPoolFormatters";
-import { toUpdateRequest } from "./AccountPoolTypes";
+import { canManageAccountPool } from "./AccountPoolPermissions";
 import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
+import { filterAccountPoolEnvironments, paginateAccountPoolEnvironments } from "./accountPoolSelectors";
+import { useAccountPoolMutations } from "./useAccountPoolMutations";
+import { useAccountPoolQuery } from "./useAccountPoolQuery";
 
-const ENVIRONMENTS_QUERY_KEY = ["account-pool", "environments"] as const;
 const PAGE_SIZE = 24;
 const STATUS_FILTERS: ReadonlyArray<{ value: "all" | AccountPoolStatus; label: string }> = [
   { value: "all", label: "全部状态" },
@@ -58,23 +45,8 @@ const STATUS_FILTERS: ReadonlyArray<{ value: "all" | AccountPoolStatus; label: s
   { value: "deleting", label: "删除中" },
 ];
 
-const isSavedWithPendingReconcile = (error: unknown): boolean =>
-  error instanceof ApiError &&
-  error.status === 503 &&
-  /saved|保存/i.test(error.message) &&
-  /gateway|网关|synchron|同步/i.test(error.message);
-
-const sortEnvironments = (environments: readonly AccountPoolEnvironment[]): AccountPoolEnvironment[] =>
-  [...environments].sort((left, right) => {
-    const updatedDifference = Date.parse(right.updated_at) - Date.parse(left.updated_at);
-    if (Number.isFinite(updatedDifference) && updatedDifference !== 0) return updatedDifference;
-    const nameDifference = left.name.localeCompare(right.name, "zh-CN");
-    return nameDifference !== 0 ? nameDifference : left.id.localeCompare(right.id);
-  });
-
 export default function AccountPoolPage() {
   const { accessToken, userRole, isViewOnly } = useAuthorized();
-  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -83,88 +55,24 @@ export default function AccountPoolPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
   const canManage = canManageAccountPool(userRole, isViewOnly);
-
-  const environmentsQuery = useQuery({
-    queryKey: ENVIRONMENTS_QUERY_KEY,
-    queryFn: () => {
-      if (!accessToken) throw new Error("Access token required");
-      return listAccountPoolEnvironments(accessToken);
-    },
-    enabled: canManage && accessToken !== null,
-    refetchInterval: (query) =>
-      query.state.data?.some((environment) => environment.status === "awaiting_authorization") ? 5000 : 15000,
-  });
-
-  const environments = environmentsQuery.data ?? [];
-  const filteredEnvironments = useMemo(() => {
-    const normalizedSearch = search.trim().toLocaleLowerCase();
-    return sortEnvironments(
-      environments.filter((environment) => {
-        const matchesStatus = statusFilter === "all" || environment.status === statusFilter;
-        const matchesSearch =
-          normalizedSearch.length === 0 ||
-          environment.name.toLocaleLowerCase().includes(normalizedSearch) ||
-          environment.id.toLocaleLowerCase().includes(normalizedSearch);
-        return matchesStatus && matchesSearch;
-      }),
-    );
-  }, [environments, search, statusFilter]);
-  const pageCount = Math.max(1, Math.ceil(filteredEnvironments.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const visibleEnvironments = filteredEnvironments.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const updateMutation = useMutation({
-    mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) => {
-      if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canToggleEnvironment(environment)) throw new Error("当前状态不支持切换环境开关");
-      return updateAccountPoolEnvironment(accessToken, environment.id, toUpdateRequest(environment, { enabled }));
-    },
-    onSuccess: () => {
-      toast.success("环境开关已更新");
-      void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-    },
-    onError: (error: Error) => {
-      if (isSavedWithPendingReconcile(error)) {
-        toast.warning("配置已保存，网关同步待完成", { description: "后台会继续重试同步，请稍后刷新状态" });
-      } else {
-        toast.fromError(error);
-      }
-      void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-    },
-  });
-
-  const authorizeMutation = useMutation({
-    mutationFn: (environment: AccountPoolEnvironment) => {
-      if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canAuthorizeEnvironment(environment)) throw new Error("当前状态不支持重新授权");
-      return authorizeAccountPoolEnvironment(accessToken, environment.id);
-    },
-    onSuccess: (result) => {
+  const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
+  const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
+    accessToken,
+    canManage,
+    (result) => {
       setAuthorization(result);
       setCreateOpen(true);
-      void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-      toast.success("已生成新的授权信息");
     },
-    onError: (error: Error) => toast.fromError(error),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (environment: AccountPoolEnvironment) => {
-      if (!accessToken) throw new Error("Access token required");
-      if (!canManage || !canDeleteEnvironment(environment)) throw new Error("当前状态不支持删除");
-      return deleteAccountPoolEnvironment(accessToken, environment.id);
-    },
-    onSuccess: () => {
-      setDeleteEnvironment(null);
-      toast.success("环境删除请求已完成");
-      void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-    },
-    onError: (error: Error) => {
-      toast.fromError(error);
-      void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-    },
-  });
-
+    () => setDeleteEnvironment(null),
+  );
+  const environments = environmentsQuery.data ?? [];
+  const filteredEnvironments = useMemo(
+    () => filterAccountPoolEnvironments(environments, search, statusFilter),
+    [environments, search, statusFilter],
+  );
+  const pageCount = Math.max(1, Math.ceil(filteredEnvironments.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visibleEnvironments = paginateAccountPoolEnvironments(filteredEnvironments, currentPage, PAGE_SIZE);
   const readyCount = environments.filter((environment) => environment.status === "ready" && environment.enabled).length;
   const awaitingCount = environments.filter((environment) => environment.status === "awaiting_authorization").length;
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
@@ -349,7 +257,7 @@ export default function AccountPoolPage() {
             setCreateOpen(open);
             if (!open) setAuthorization(null);
           }}
-          onCreated={() => void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY })}
+          onCreated={() => void environmentsQuery.refetch()}
         />
       )}
       {configEnvironment && (
@@ -359,11 +267,8 @@ export default function AccountPoolPage() {
           environment={configEnvironment}
           open
           onOpenChange={(open) => !open && setConfigEnvironment(null)}
-          onRefresh={() => void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY })}
-          onSaved={() => {
-            setConfigEnvironment(null);
-            void queryClient.invalidateQueries({ queryKey: ENVIRONMENTS_QUERY_KEY });
-          }}
+          onRefresh={() => void environmentsQuery.refetch()}
+          onSaved={() => setConfigEnvironment(null)}
         />
       )}
       <AlertDialog

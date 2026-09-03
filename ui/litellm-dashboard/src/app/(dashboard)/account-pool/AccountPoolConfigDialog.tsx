@@ -25,16 +25,15 @@ import {
   listAccountPoolProxyProfiles,
   updateAccountPoolEnvironment,
 } from "./AccountPoolApi";
+import { canConfigureEnvironment } from "./AccountPoolPermissions";
 import {
+  concurrencyLimitLabel,
   formatDateTime,
   formatQuota,
-  canConfigureEnvironment,
-  concurrencyLimitLabel,
   mostConstrainedWindow,
   quotaRows,
-  validateProxyProfileSelection,
-  validateAccountPoolUpdate,
 } from "./AccountPoolFormatters";
+import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
 import { toUpdateRequest } from "./AccountPoolTypes";
 import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "./AccountPoolTypes";
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Final
 
 import httpx
@@ -16,10 +16,14 @@ from account_pool.domain import (
     ModelQuotaSnapshot,
     OAuthCallback,
     QuotaSnapshot,
-    QuotaWindow,
     utc_now,
 )
+from account_pool.quota import QuotaObservation
+from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
+from account_pool.quota import parse_quota as parse_quota_snapshot
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+
+_QuotaObservation = QuotaObservation
 
 
 class _AuthorizationResponse(BaseModel):
@@ -50,13 +54,6 @@ class _ModelsResponse(BaseModel):
     data: tuple[_ModelResponse, ...] = ()
 
 
-class _QuotaObservation(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    observed_at: datetime | None = None
-    signals: Mapping[str, str] = Field(default_factory=dict)
-
-
 class _AuthFile(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -67,8 +64,8 @@ class _AuthFile(BaseModel):
     disabled: bool = False
     unavailable: bool = False
     next_retry_after: datetime | None = None
-    quota: _QuotaObservation = _QuotaObservation()
-    model_quotas: Mapping[str, _QuotaObservation] = Field(default_factory=dict)
+    quota: QuotaObservation = QuotaObservation()
+    model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
 
 
 class _AuthFilesResponse(BaseModel):
@@ -158,17 +155,16 @@ class HttpCLIProxyClient:
             if not record.available_models
             else tuple(model for model in record.enabled_models if model in available_models)
         )
-        quota: Final = parse_quota(auth_file.quota)
+        quota: Final = parse_quota_snapshot(auth_file.quota)
         model_quotas: Final = tuple(
-            ModelQuotaSnapshot(model=model, quota=parse_quota(observation))
+            ModelQuotaSnapshot(model=model, quota=parse_quota_snapshot(observation))
             for model, observation in sorted(auth_file.model_quotas.items())
         )
         now: Final = utc_now()
-        cooldown_until: Final = _effective_cooldown_until(record, auth_file.next_retry_after, now)
+        cooldown_until: Final = effective_cooldown_until_value(record, auth_file.next_retry_after, now)
         automatically_cooling: Final = (
             auth_file.disabled or auth_file.unavailable or (cooldown_until is not None and cooldown_until > now)
         )
-        effective_cooldown_until: Final = cooldown_until
         status: Final = (
             EnvironmentStatus.DISABLED
             if not record.enabled
@@ -184,7 +180,7 @@ class HttpCLIProxyClient:
                 "enabled_models": enabled_models,
                 "quota": quota,
                 "model_quotas": model_quotas,
-                "cooldown_until": effective_cooldown_until,
+                "cooldown_until": cooldown_until,
                 "automatic_cooldown": automatically_cooling,
                 "status": status,
                 "last_error": None,
@@ -262,78 +258,5 @@ class HttpCLIProxyClient:
         return response
 
 
-def parse_quota(observation: _QuotaObservation) -> QuotaSnapshot:
-    signals: Final = {key.lower(): value for key, value in observation.signals.items()}
-    plan_type: Final = signals.get("x-codex-plan-type")
-    namespaces: Final = tuple(
-        dict.fromkeys(
-            key.removesuffix("-used-percent")
-            for key in signals
-            if key.startswith("x-codex-") and key.endswith("-used-percent")
-        )
-    )
-    windows: Final = tuple(
-        window
-        for namespace in namespaces
-        if (window := _quota_window(namespace, signals, observation.observed_at)) is not None
-    )
-    return QuotaSnapshot(observed_at=observation.observed_at, plan_type=plan_type, windows=windows)
-
-
-def _effective_cooldown_until(
-    record: EnvironmentRecord,
-    upstream_cooldown_until: datetime | None,
-    now: datetime,
-) -> datetime | None:
-    if upstream_cooldown_until is not None and upstream_cooldown_until > now:
-        return upstream_cooldown_until
-    if record.cooldown_until is not None and (record.manual_cooldown or not record.enabled):
-        return record.cooldown_until
-    return None
-
-
-def _quota_window(
-    namespace: str,
-    signals: Mapping[str, str],
-    observed_at: datetime | None,
-) -> QuotaWindow | None:
-    used_raw: Final = signals.get(f"{namespace}-used-percent")
-    minutes_raw: Final = signals.get(f"{namespace}-window-minutes")
-    if used_raw is None or minutes_raw is None:
-        return None
-    try:
-        used: Final = float(used_raw)
-        minutes: Final = int(minutes_raw)
-    except ValueError:
-        return None
-    if used < 0 or used > 100 or minutes <= 0:
-        return None
-    resets_at: Final = _reset_at(namespace, signals, observed_at)
-    name: Final = namespace.removeprefix("x-codex-").replace("-", " ").title()
-    return QuotaWindow(
-        name=name,
-        used_percent=used,
-        remaining_percent=100 - used,
-        window_minutes=minutes,
-        resets_at=resets_at,
-    )
-
-
-def _reset_at(
-    namespace: str,
-    signals: Mapping[str, str],
-    observed_at: datetime | None,
-) -> datetime | None:
-    reset_epoch: Final = signals.get(f"{namespace}-reset-at")
-    if reset_epoch is not None:
-        try:
-            return datetime.fromtimestamp(int(reset_epoch), tz=timezone.utc)
-        except (ValueError, OSError):
-            return None
-    reset_after: Final = signals.get(f"{namespace}-reset-after-seconds")
-    if reset_after is None or observed_at is None:
-        return None
-    try:
-        return observed_at + timedelta(seconds=int(reset_after))
-    except ValueError:
-        return None
+def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
+    return parse_quota_snapshot(observation)

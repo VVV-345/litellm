@@ -5,17 +5,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-import re
 import secrets as token_secrets
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Final, Generic, TypeVar
+from typing import Final, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 from pydantic import HttpUrl, TypeAdapter
 
+from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationView,
@@ -36,18 +35,13 @@ from account_pool.domain import (
     to_view,
     utc_now,
 )
+from account_pool.error_safety import safe_error
 from account_pool.ports import CLIProxyClient, EnvironmentRepository, EnvironmentRuntime, ProxyProfileRepository
+from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
-
-
-class FailureCode(StrEnum):
-    NOT_FOUND = "not_found"
-    CONFLICT = "conflict"
-    INVALID = "invalid"
-    UPSTREAM = "upstream"
 
 
 class _AuthorizationConflict(Exception):
@@ -59,20 +53,6 @@ class _AutomaticCooldownState(StrEnum):
     ACTIVE = "active"
     RECOVERED = "recovered"
     BLOCKED = "blocked"
-
-
-@dataclass(frozen=True, slots=True)
-class Success(Generic[T]):
-    value: T
-
-
-@dataclass(frozen=True, slots=True)
-class Failure:
-    code: FailureCode
-    message: str
-
-
-Result = Success[T] | Failure
 
 
 # 授权完成后允许保留用户主动停用或冷却状态，不能把有效凭据误判为验证失败。
@@ -124,8 +104,6 @@ class EnvironmentService:
         self,
         record: EnvironmentRecord,
     ) -> tuple[str, str, str]:
-        authorization_url: Final
-        provider_state: Final
         authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
         callback_state: Final = self._callback_state(record)
         callback_url: Final = _replace_state(authorization_url, callback_state)
@@ -347,32 +325,10 @@ class EnvironmentService:
         return Success(to_view(validated))
 
     async def _find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
-        finder = getattr(self._repository, "find_by_operation_id", None)
-        if finder is None:
-            return None
-        return await finder(operation_id)
+        return await self._repository.find_by_operation_id(operation_id)
 
     async def _consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None:
-        consumer = getattr(self._repository, "consume_oauth_state", None)
-        if consumer is not None:
-            return await consumer(state, consumed_at)
-        # 旧的内存端口没有原子接口，只作为兼容测试替身；生产 PostgreSQL 始终走条件 UPDATE。
-        record: Final = await self._repository.find_by_oauth_state(state)
-        if record is None or record.oauth_state_consumed_at is not None:
-            return None
-        lock: Final = await self._lock_for(record.id)
-        async with lock:
-            current: Final = await self._repository.find_by_oauth_state(state)
-            if (
-                current is None
-                or current.oauth_state_consumed_at is not None
-                or not self._valid_state_signature(current, state)
-            ):
-                return None
-            consumed: Final = current.model_copy(
-                update={"version": current.version + 1, "oauth_state_consumed_at": consumed_at}
-            )
-            return await self._repository.save_if_version(consumed, current.version)
+        return await self._repository.consume_oauth_state(state, consumed_at)
 
     async def _persist_authorization_failure(
         self,
@@ -670,78 +626,94 @@ class EnvironmentService:
             if record is None:
                 return Success(None)
             requested_operation: Final = operation_id or record.operation_id or str(uuid4())
-            if record.status is EnvironmentStatus.DELETING:
-                if operation_id is not None and record.operation_id not in (None, operation_id):
+            if record.status is EnvironmentStatus.DELETING and operation_id is not None:
+                if record.operation_id not in (None, operation_id):
                     return Failure(FailureCode.CONFLICT, "environment deletion is owned by another operation")
-                claimed: Final = record
-            else:
-                deleting: Final = record.model_copy(
-                    update={
-                        "version": record.version + 1,
-                        "status": EnvironmentStatus.DELETING,
-                        "desired_state": EnvironmentStatus.DELETING,
-                        "enabled": False,
-                        "operation_id": requested_operation,
-                        "cleanup_progress": CleanupProgress(),
-                        "updated_at": utc_now(),
-                    }
+            deleting: EnvironmentRecord | None = (
+                record
+                if record.status is EnvironmentStatus.DELETING
+                else await self._repository.save_if_version(
+                    record.model_copy(
+                        update={
+                            "version": record.version + 1,
+                            "status": EnvironmentStatus.DELETING,
+                            "desired_state": EnvironmentStatus.DELETING,
+                            "enabled": False,
+                            "operation_id": requested_operation,
+                            "cleanup_progress": CleanupProgress(),
+                            "updated_at": utc_now(),
+                        }
+                    ),
+                    record.version,
                 )
-                claimed = await self._repository.save_if_version(deleting, record.version)
-                if claimed is None:
-                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            )
+            if deleting is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
 
-            progress: Final = claimed.cleanup_progress
-            if not progress.routes_removed:
-                progress = CleanupProgress(
-                    routes_removed=True,
-                    compose_removed=progress.compose_removed,
-                    directory_removed=progress.directory_removed,
+            progress: CleanupProgress = deleting.cleanup_progress
+            deleting_with_routes: Final = (
+                deleting
+                if progress.routes_removed
+                else await self._persist_cleanup_progress(
+                    deleting,
+                    routes_removed(progress),
                 )
-                claimed = await self._persist_cleanup_progress(claimed, progress)
-                if claimed is None:
-                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            )
+            if deleting_with_routes is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             try:
-                if not progress.compose_removed:
-                    remove_compose = getattr(self._runtime, "remove_compose", None)
-                    if remove_compose is not None:
-                        await remove_compose(claimed)
-                    else:
-                        await self._runtime.remove(claimed)
-                    progress = CleanupProgress(
-                        routes_removed=True,
-                        compose_removed=True,
-                        directory_removed=progress.directory_removed,
-                    )
-                    claimed = await self._persist_cleanup_progress(claimed, progress)
-                    if claimed is None:
-                        return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-                if not progress.directory_removed:
-                    remove_directory = getattr(self._runtime, "remove_directory", None)
-                    if remove_directory is not None:
-                        await remove_directory(claimed.id)
-                    progress = CleanupProgress(routes_removed=True, compose_removed=True, directory_removed=True)
-                    claimed = await self._persist_cleanup_progress(claimed, progress)
-                    if claimed is None:
-                        return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+                deleting_with_compose: Final = await self._remove_compose_step(deleting_with_routes)
             except Exception as error:
-                failed: Final = claimed.model_copy(
+                failed_compose: Final = deleting_with_routes.model_copy(
                     update={
                         "last_error": _safe_error(error),
                         "configuration_last_error": _safe_error(error),
                         "updated_at": utc_now(),
                     }
                 )
-                await self._repository.save_if_version(failed, claimed.version)
+                await self._repository.save_if_version(failed_compose, deleting_with_routes.version)
                 return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
+            if deleting_with_compose is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            try:
+                deleting_with_directory: Final = await self._remove_directory_step(deleting_with_compose)
+            except Exception as error:
+                failed_directory: Final = deleting_with_compose.model_copy(
+                    update={
+                        "last_error": _safe_error(error),
+                        "configuration_last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
+                )
+                await self._repository.save_if_version(failed_directory, deleting_with_compose.version)
+                return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
+            if deleting_with_directory is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             try:
                 await self._repository.delete(environment_id)
             except Exception as error:
-                failed_delete: Final = claimed.model_copy(
+                failed_delete: Final = deleting_with_directory.model_copy(
                     update={"last_error": _safe_error(error), "updated_at": utc_now()}
                 )
-                await self._repository.save_if_version(failed_delete, claimed.version)
+                await self._repository.save_if_version(failed_delete, deleting_with_directory.version)
                 return Failure(FailureCode.UPSTREAM, "environment metadata cleanup failed")
             return Success(None)
+
+    async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
+        if record.cleanup_progress.compose_removed:
+            return record
+        if hasattr(self._runtime, "remove_compose"):
+            await self._runtime.remove_compose(record)
+        else:
+            await self._runtime.remove(record)
+        return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
+
+    async def _remove_directory_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
+        if record.cleanup_progress.directory_removed:
+            return record
+        if hasattr(self._runtime, "remove_directory"):
+            await self._runtime.remove_directory(record.id)
+        return await self._persist_cleanup_progress(record, directory_removed())
 
     async def _automatic_cooldown_before_update(
         self,
@@ -829,6 +801,20 @@ class EnvironmentService:
             )
             return await self._repository.save(refreshed)
 
+    async def _reloaded_consumed_state(
+        self,
+        record: EnvironmentRecord,
+        state: str,
+    ) -> EnvironmentRecord | None:
+        durable: Final = await self._repository.get(record.id) or record
+        return (
+            durable
+            if durable.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+            and durable.oauth_state == state
+            and durable.oauth_state_consumed_at is not None
+            else None
+        )
+
     async def _refresh_authorization(self, record: EnvironmentRecord) -> EnvironmentRecord:
         if record.oauth_state is None or record.oauth_expires_at is None:
             return record
@@ -851,17 +837,13 @@ class EnvironmentService:
             return record
         consumed_at: Final = utc_now()
         consumed_result: Final = await self._consume_oauth_state(record.oauth_state, consumed_at)
-        if consumed_result is None:
-            durable: Final = await self._repository.get(record.id) or record
-            if not (
-                durable.status is EnvironmentStatus.AWAITING_AUTHORIZATION
-                and durable.oauth_state == record.oauth_state
-                and durable.oauth_state_consumed_at is not None
-            ):
-                return durable
-            consumed: Final = durable
-        else:
-            consumed: Final = consumed_result
+        consumed: Final = (
+            consumed_result
+            if consumed_result is not None
+            else await self._reloaded_consumed_state(record, record.oauth_state)
+        )
+        if consumed is None:
+            return await self._repository.get(record.id) or record
         if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, record.oauth_state):
             return await self._persist_authorization_failure(consumed, "invalid OAuth state")
         validating: Final = consumed.model_copy(
@@ -936,14 +918,7 @@ def _configuration_requires_reconciliation(record: EnvironmentRecord) -> bool:
 
 
 def _safe_error(error: Exception) -> str:
-    message: Final = str(error).strip() or error.__class__.__name__
-    without_urls: Final = _redact_urls(message)
-    without_credentials: Final = re.sub(
-        r"(?i)(bearer\s+|basic\s+|(?:access|refresh|id)?[_-]?token\s*[:=]\s*|(?:api[_-]?key|secret(?:[-_]?key)?|client[_-]?secret|password|code|state|proxy[_-]?url)\s*[:=]\s*)[^\s,;]+",
-        r"\1[redacted]",
-        without_urls,
-    )
-    return without_credentials[:500]
+    return safe_error(error)
 
 
 def _replace_state(authorization_url: str, state: str) -> str:
@@ -957,24 +932,6 @@ def _replace_state(authorization_url: str, state: str) -> str:
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(final_query), parsed.fragment))
     except ValueError:
         return authorization_url
-
-
-def _redact_urls(message: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        raw_url: Final = match.group(0)
-        try:
-            parsed: Final = urlsplit(raw_url)
-            safe_query: Final = urlencode(
-                tuple((key, "[redacted]") for key, _ in parse_qsl(parsed.query, keep_blank_values=True))
-            )
-            safe_netloc: Final = parsed.hostname or ""
-            if parsed.port is not None:
-                safe_netloc = f"{safe_netloc}:{parsed.port}"
-            return urlunsplit((parsed.scheme, safe_netloc, parsed.path, safe_query, ""))
-        except ValueError:
-            return "[redacted-url]"
-
-    return re.sub(r"https?://[^\s\]\[)>,;]+", replace, message)
 
 
 def _cooldown_elapsed(record: EnvironmentRecord) -> bool:
