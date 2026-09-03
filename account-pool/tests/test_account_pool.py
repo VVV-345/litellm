@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Final
@@ -646,6 +647,7 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
         "NETWORKS": "1",
         "INFO": "1",
         "POST": "1",
+        "VOLUMES": "1",
         "AUTH": "0",
         "BUILD": "0",
         "EXEC": "0",
@@ -703,10 +705,29 @@ async def test_compose_runtime_uses_exact_docker_commands_and_allowlisted_enviro
         ("docker", "network", "disconnect", network, settings.gateway_container),
     )
     assert tuple(environment for _, environment in runner.calls) == (
-        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
-        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
-        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp"},
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp", "PATH": os.environ["PATH"]},
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp", "PATH": os.environ["PATH"]},
+        {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp", "PATH": os.environ["PATH"]},
     )
+
+
+@pytest.mark.asyncio
+async def test_disconnect_treats_missing_network_as_absent(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+
+    async def missing_network_runner(
+        arguments: tuple[str, ...], environment: dict[str, str]
+    ) -> CompletedDockerProcess:
+        return CompletedDockerProcess(
+            returncode=1,
+            stderr=b"Error response from daemon: network account-pool-x not found",
+        )
+
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=missing_network_runner)
+    record: Final = _record(status=EnvironmentStatus.READY)
+
+    await runtime._disconnect_control_plane(record.id, settings.manager_container)
+    await runtime._disconnect_control_plane(record.id, settings.gateway_container)
 
 
 @pytest.mark.asyncio

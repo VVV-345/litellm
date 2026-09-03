@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import shutil
 from collections.abc import Awaitable, Callable
@@ -110,7 +111,11 @@ class ComposeRuntime:
         process: Final = await self._runner(("docker", "network", "disconnect", network, container), self._docker_environment())
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
-        absent: Final = "is not connected" in detail.lower() or "no such container" in detail.lower()
+        absent: Final = (
+            "is not connected" in detail.lower()
+            or "no such container" in detail.lower()
+            or re.search(r"network \S+ not found", detail, re.IGNORECASE) is not None
+        )
         if process.returncode != 0 and not absent:
             raise RuntimeError(f"failed to detach {container} from {network}: {detail[:500]}")
 
@@ -132,7 +137,11 @@ class ComposeRuntime:
             raise RuntimeError(f"docker compose failed: {detail[:500]}")
 
     def _docker_environment(self) -> dict[str, str]:
-        return {"DOCKER_HOST": self._settings.docker_host, "HOME": "/tmp"}
+        # 子进程环境不能省略 PATH，否则 exec 找不到内嵌的 docker CLI。
+        path: str | None = os.environ.get("PATH")
+        if path is None:
+            return {"DOCKER_HOST": self._settings.docker_host, "HOME": "/tmp"}
+        return {"DOCKER_HOST": self._settings.docker_host, "HOME": "/tmp", "PATH": path}
 
     async def _disconnect_control_plane_by_network(self, slug: str) -> None:
         if not re.fullmatch(r"[0-9a-f]{32}", slug):

@@ -26,6 +26,7 @@ services:
       NETWORKS: "1"
       INFO: "1"
       POST: "1"
+      VOLUMES: "1"
       AUTH: "0"
       BUILD: "0"
       EXEC: "0"
