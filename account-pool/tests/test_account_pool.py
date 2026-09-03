@@ -634,7 +634,12 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
     assert "mkdir -p /var/lib/litellm-account-pool/environments" in dockerfile
     assert "chown -R 65532:65532 /var/lib/litellm-account-pool" in dockerfile
     assert "USER 65532:65532" in dockerfile
-    assert proxy["image"] == "tecnativa/docker-socket-proxy:0.3.0"
+    assert "FROM docker:29-cli@sha256:" in dockerfile
+    assert "COPY --from=docker-cli /usr/local/bin/docker" in dockerfile
+    assert "COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose" in dockerfile
+    assert proxy["image"].startswith("tecnativa/docker-socket-proxy@sha256:")
+    assert proxy["read_only"] is True
+    assert any(entry.startswith("/run:rw,noexec,nosuid") for entry in proxy["tmpfs"])
     assert proxy["environment"] == {
         "CONTAINERS": "1",
         "IMAGES": "1",
