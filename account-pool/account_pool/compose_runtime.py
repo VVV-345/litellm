@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Final, Protocol
 from uuid import UUID
 
-from account_pool.compose_renderer import render_cli_proxy_config, render_compose
+from account_pool.compose_renderer import data_volume_name, render_cli_proxy_config, render_compose
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
@@ -27,6 +28,9 @@ class DockerProcess(Protocol):
 
 
 DockerRunner = Callable[[tuple[str, ...], dict[str, str]], Awaitable[DockerProcess]]
+
+# 仅用于 chown 数据卷的固定 alpine 版本，digest 与 cli_proxy_image 同等锁定。
+_CHOWN_IMAGE: Final = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
 
 
 async def run_docker(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
@@ -55,17 +59,74 @@ class ComposeRuntime:
 
     async def provision(self, record: EnvironmentRecord) -> None:
         environment_dir: Final = self.environment_dir(record.id)
-        config_dir: Final = environment_dir / "config"
-        auth_dir: Final = environment_dir / "auths"
         environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        auth_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         management_key: Final = self._secrets.derive(record.id, SecretPurpose.MANAGEMENT)
         gateway_key: Final = self._secrets.derive(record.id, SecretPurpose.GATEWAY)
-        _write_private(config_dir / "config.yaml", render_cli_proxy_config(management_key, gateway_key))
+        config: Final = render_cli_proxy_config(management_key, gateway_key)
         _write_private(environment_dir / "compose.yaml", render_compose(record, self._settings))
+        await self._create_data_volume(record.id)
+        await self._write_data_volume(record.id, config)
         await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
+
+    async def _create_data_volume(self, environment_id: UUID) -> None:
+        volume: Final = data_volume_name(environment_id)
+        # 卷必须先于 compose up 存在，否则 compose 会把外部卷当成本项目资源，down 时一并删除。
+        # 新卷根目录归 root，先用一次性 root 容器把所有权交给运行账号容器 UID，再由它写入配置。
+        create: Final = await self._runner(
+            ("docker", "volume", "create", "--label", f"account-pool-environment={environment_id.hex}", volume),
+            self._docker_environment(),
+        )
+        stdout, stderr = await communicate_with_timeout(create, self._settings.docker_command_timeout_seconds)
+        if create.returncode != 0:
+            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"failed to create {volume}: {detail[:500]}")
+        chown: Final = await self._runner(
+            (
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "-v",
+                f"{volume}:/data:rw",
+                _CHOWN_IMAGE,
+                "chown",
+                self._settings.cli_proxy_user,
+                "/data",
+            ),
+            self._docker_environment(),
+        )
+        chown_stdout, chown_stderr = await communicate_with_timeout(chown, self._settings.docker_command_timeout_seconds)
+        if chown.returncode != 0:
+            detail: Final = chown_stderr.decode("utf-8", errors="replace").strip() or chown_stdout.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"failed to chown {volume}: {detail[:500]}")
+
+    async def _write_data_volume(self, environment_id: UUID, config: str) -> None:
+        volume: Final = data_volume_name(environment_id)
+        # 用一次性容器经受控 Docker API 写入，Manager 自身不挂载宿主机数据路径。
+        arguments: Final = (
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            f"account-pool-{environment_id.hex}-seed",
+            "--network",
+            "none",
+            "--user",
+            self._settings.cli_proxy_user,
+            "-v",
+            f"{volume}:/data:rw",
+            self._settings.cli_proxy_image,
+            "sh",
+            "-c",
+            f"mkdir -p /data/config /data/auths && printf '%s' {shlex.quote(config)} > /data/config/config.yaml && chmod 700 /data/config /data/auths && chmod 600 /data/config/config.yaml",
+        )
+        process: Final = await self._runner(arguments, self._docker_environment())
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        if process.returncode != 0:
+            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"failed to seed {volume}: {detail[:500]}")
 
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
@@ -83,6 +144,19 @@ class ComposeRuntime:
         await self._disconnect_control_plane(record.id, self._settings.manager_container)
         await self._disconnect_control_plane(record.id, self._settings.gateway_container)
         await self._compose(record.id, "down", "--remove-orphans")
+        await self._remove_data_volume(record.id)
+
+    async def _remove_data_volume(self, environment_id: UUID) -> None:
+        volume: Final = data_volume_name(environment_id)
+        process: Final = await self._runner(
+            ("docker", "volume", "rm", "--force", volume),
+            self._docker_environment(),
+        )
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        absent: Final = "no such volume" in detail.lower()
+        if process.returncode != 0 and not absent:
+            raise RuntimeError(f"failed to remove {volume}: {detail[:500]}")
 
     async def remove_legacy(self, project_name: str, directory: Path) -> None:
         _validate_project_directory(project_name, directory, self._settings.data_root)

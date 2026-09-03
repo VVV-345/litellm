@@ -1,6 +1,7 @@
 """本模块只负责生成号池 CLIProxyAPI 配置和 Compose 描述，不执行 Docker 操作。"""
 
 from typing import Final
+from uuid import UUID
 
 import yaml
 
@@ -33,6 +34,7 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
     environment_slug: Final = record.id.hex
     service_name: Final = f"cliproxy-{environment_slug}"
     network_name: Final = f"account-pool-{environment_slug}"
+    volume_name: Final = data_volume_name(record.id)
     compose: Final = {
         "name": f"account-pool-{environment_slug}",
         "services": {
@@ -54,8 +56,7 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=32m"],
                 "volumes": [
-                    "./config:/data/config:rw",
-                    "./auths:/data/auths:rw",
+                    "cliproxy-data:/data:rw",
                 ],
                 "networks": {"environment": {"aliases": [service_name]}},
             }
@@ -63,5 +64,10 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
         "networks": {
             "environment": {"name": network_name, "driver": "bridge", "internal": False},
         },
+        "volumes": {"cliproxy-data": {"name": volume_name}},
     }
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=False)
+
+
+def data_volume_name(environment_id: UUID) -> str:
+    return f"account-pool-{environment_id.hex}-data"

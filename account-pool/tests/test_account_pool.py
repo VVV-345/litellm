@@ -544,6 +544,21 @@ def test_render_compose_uses_uuid_identity_and_retains_upstream_egress(tmp_path:
         "internal": False,
     }
     assert service["networks"] == {"environment": {"aliases": [f"cliproxy-{record.id.hex}"]}}
+    assert rendered["volumes"] == {"cliproxy-data": {"name": f"account-pool-{record.id.hex}-data"}}
+    assert service["volumes"] == ["cliproxy-data:/data:rw"]
+
+
+def test_render_compose_never_binds_host_paths(tmp_path: Path) -> None:
+    rendered: Final = yaml.safe_load(
+        render_compose(_record(status=EnvironmentStatus.PROVISIONING), _settings(tmp_path))
+    )
+    mounts: Final = tuple(
+        volume
+        for volume in rendered["services"]["cli-proxy-api"]["volumes"]
+        if "/" in volume.split(":")[0]
+    )
+
+    assert mounts == ()
 
 
 def test_render_compose_hardens_cli_proxy_container(tmp_path: Path) -> None:
@@ -709,6 +724,44 @@ async def test_compose_runtime_uses_exact_docker_commands_and_allowlisted_enviro
         {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp", "PATH": os.environ["PATH"]},
         {"DOCKER_HOST": "tcp://docker-socket-proxy:2375", "HOME": "/tmp", "PATH": os.environ["PATH"]},
     )
+
+
+@pytest.mark.asyncio
+async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
+    record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None)
+
+    await runtime.provision(record)
+
+    volume: Final = f"account-pool-{record.id.hex}-data"
+    arguments: Final = tuple(arguments for arguments, _ in runner.calls)
+    assert arguments[0] == ("docker", "volume", "create", "--label", f"account-pool-environment={record.id.hex}", volume)
+    chown: Final = arguments[1]
+    assert chown[0] == "docker" and chown[-3:] == ("chown", "65532:65532", "/data")
+    seed: Final = arguments[2]
+    assert seed[0] == "docker" and seed[:4] == ("docker", "run", "--rm", "--name")
+    assert "--user" in seed and seed[seed.index("--user") + 1] == "65532:65532"
+    assert seed[-1].startswith("mkdir -p /data/config /data/auths")
+    assert f"{volume}:/data:rw" in seed
+    assert "config.yaml" in seed[-1]
+    assert arguments[3][:6] == ("docker", "compose", "--project-name", f"account-pool-{record.id.hex}", "--file", str(runtime.environment_dir(record.id) / "compose.yaml"))
+    compose_text: Final = (runtime.environment_dir(record.id) / "compose.yaml").read_text(encoding="utf-8")
+    assert "./" not in yaml.safe_load(compose_text)["services"]["cli-proxy-api"]["volumes"][0]
+
+
+@pytest.mark.asyncio
+async def test_remove_data_volume_treats_missing_volume_as_absent(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+
+    async def missing_volume_runner(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
+        return CompletedDockerProcess(returncode=1, stderr=b"Error: no such volume account-pool-x-data")
+
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=missing_volume_runner)
+    record: Final = _record(status=EnvironmentStatus.READY)
+
+    await runtime._remove_data_volume(record.id)
 
 
 @pytest.mark.asyncio
