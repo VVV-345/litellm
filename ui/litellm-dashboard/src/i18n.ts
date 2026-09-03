@@ -13,7 +13,7 @@ const i18nextConfig = {
     en: { translation: en },
     "zh-CN": { translation: zhCN },
   },
-  lng: ENGLISH_LANGUAGE,
+  lng: CHINESE_LANGUAGE,
   fallbackLng: ENGLISH_LANGUAGE,
   interpolation: { escapeValue: false },
   react: { useSuspense: false },

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import i18next from "@/i18n";
 import { DashboardHeader } from "./DashboardHeader";
@@ -30,6 +30,10 @@ vi.mock("@/components/Navbar/NotificationsBell/NotificationsBell", () => ({ Noti
 vi.mock("@/components/Navbar/WorkerDropdown/WorkerDropdown", () => ({ default: () => null }));
 
 describe("DashboardHeader breadcrumb", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   afterEach(async () => {
     await i18next.changeLanguage("en");
     state.plugins = [];

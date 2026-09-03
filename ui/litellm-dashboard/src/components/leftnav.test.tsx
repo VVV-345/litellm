@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18next from "@/i18n";
 import { renderWithProviders } from "../../tests/test-utils";
 import Sidebar, { menuGroups, getBreadcrumb } from "./leftnav";
@@ -104,6 +104,10 @@ describe("Sidebar (leftnav)", () => {
     defaultSelectedKey: "api-keys",
     collapsed: false,
   };
+
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
 
   afterEach(async () => {
     await i18next.changeLanguage("en");
