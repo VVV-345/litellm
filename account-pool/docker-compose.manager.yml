@@ -2,7 +2,7 @@
 services:
   docker-socket-proxy:
     container_name: ${ACCOUNT_POOL_SOCKET_PROXY_CONTAINER:-litellm-account-pool-socket-proxy}
-    image: tecnativa/docker-socket-proxy:0.3.0
+    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
     read_only: true
     cap_drop:
@@ -11,6 +11,7 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
+      - /run:rw,noexec,nosuid,size=8m
     mem_limit: 128m
     cpus: "0.50"
     pids_limit: 64
@@ -62,9 +63,6 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
-    volumes:
-      - /usr/bin/docker:/usr/bin/docker:ro
-      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
     networks:
       - account-pool-socket
 
@@ -110,8 +108,6 @@ services:
       - "127.0.0.1:${ACCOUNT_POOL_CALLBACK_PORT:-8091}:8091"
     volumes:
       - account_pool_data:/var/lib/litellm-account-pool/environments
-      - /usr/bin/docker:/usr/bin/docker:ro
-      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
     networks:
       account-pool-socket: null
       litellm-control:
