@@ -18,6 +18,7 @@ from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelEr
 from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
+    AuthorizationFlow,
     AuthorizationView,
     CleanupProgress,
     ChannelKind,
@@ -86,7 +87,7 @@ class EnvironmentService:
         self._cli_proxy: Final = cli_proxy
         self._proxy_profiles: Final = proxy_profiles
         self._secrets: Final = secrets
-        self._channels: Final = channels or ChannelRegistry.default()
+        self._channels: Final = channels or ChannelRegistry.default(self._settings, self._secrets)
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
 
@@ -95,16 +96,11 @@ class EnvironmentService:
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         return tuple(to_view(record) for record in refreshed)
 
-    def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel | None:
+    def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel:
         try:
             definition: Final = self._channels.get(record.channel)
             definition.supplier(record.supplier)
-            try:
-                return self._channels.channel(record.channel)
-            except UnsupportedChannelError:
-                if record.channel is ChannelKind.FREEBUFF2API:
-                    raise
-                return None
+            return self._channels.channel(record.channel)
         except (KeyError, UnsupportedChannelError) as error:
             raise UnsupportedChannelError(str(error)) from error
 
@@ -126,20 +122,25 @@ class EnvironmentService:
     async def _start_authorization(
         self,
         record: EnvironmentRecord,
-    ) -> tuple[str, str, str]:
+    ) -> tuple[str, str, str, AuthorizationFlow, str | None, int | None]:
         channel: Final = self._channel(record)
-        if channel is None:
-            authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
-        else:
-            result: Final = await channel.start_authorization(record)
-            authorization_url, provider_state = result.authorization_url, result.provider_state
+        result: Final = await channel.start_authorization(record)
+        supplier: Final = channel.supplier(record.supplier)
         callback_state: Final = self._callback_state(record)
-        callback_url: Final = _replace_state(authorization_url, callback_state)
-        return provider_state, callback_state, callback_url
+        callback_url: Final = _replace_state(result.authorization_url, callback_state)
+        return (
+            result.provider_state,
+            callback_state,
+            callback_url,
+            supplier.authorization_flow,
+            result.user_code,
+            result.expires_in_seconds,
+        )
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
         try:
-            self._channels.get(request.channel).supplier(request.supplier)
+            channel_definition: Final = self._channels.get(request.channel)
+            supplier_definition: Final = channel_definition.supplier(request.supplier)
             if request.channel is ChannelKind.FREEBUFF2API:
                 raise UnsupportedChannelError("FreeBuff2API is not implemented")
         except (KeyError, UnsupportedChannelError) as error:
@@ -160,6 +161,7 @@ class EnvironmentService:
             provider=Provider.OPENAI,
             channel=request.channel,
             supplier=request.supplier,
+            authorization_flow=supplier_definition.authorization_flow,
             status=EnvironmentStatus.PROVISIONING,
             enabled=True,
             manual_cooldown=False,
@@ -185,8 +187,16 @@ class EnvironmentService:
         )
         await self._repository.save(record)
         try:
-            await (self._channel(record) or self._runtime).provision(record)
-            provider_state, callback_state, callback_url = await self._start_authorization(record)
+            channel: Final = self._channel(record)
+            await channel.provision(record)
+            (
+                provider_state,
+                callback_state,
+                callback_url,
+                authorization_flow,
+                authorization_user_code,
+                expires_in_seconds,
+            ) = await self._start_authorization(record)
             validated_authorization_url: Final = _HTTP_URL_ADAPTER.validate_python(callback_url)
         except Exception as error:
             failed: Final = record.model_copy(
@@ -199,7 +209,7 @@ class EnvironmentService:
             )
             await self._repository.save(failed)
             return Failure(FailureCode.UPSTREAM, "environment provisioning failed")
-        expires_at: Final = utc_now() + timedelta(minutes=5)
+        expires_at: Final = _authorization_expires_at(authorization_flow, expires_in_seconds)
         awaiting: Final = record.model_copy(
             update={
                 "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -210,13 +220,19 @@ class EnvironmentService:
                 "oauth_state_signature": callback_state.rpartition(".")[2],
                 "oauth_provider_state": provider_state,
                 "oauth_authorization_url": callback_url,
+                "authorization_flow": authorization_flow,
+                "authorization_user_code": authorization_user_code,
                 "updated_at": utc_now(),
             }
         )
         await self._repository.save(awaiting)
         command: Final = (
-            f"ssh -N -L 1455:127.0.0.1:{self._settings.callback_port} "
-            f"{self._settings.ssh_user}@{self._settings.ssh_host}"
+            (
+                f"ssh -N -L {self._channels.channel(awaiting.channel).supplier(awaiting.supplier).callback_port}:127.0.0.1:"
+                f"{self._settings.callback_port} {self._settings.ssh_user}@{self._settings.ssh_host}"
+            )
+            if awaiting.authorization_flow is AuthorizationFlow.BROWSER_OAUTH
+            else None
         )
         return Success(
             AuthorizationView(
@@ -252,13 +268,15 @@ class EnvironmentService:
             ):
                 return Success(self._authorization_view(record))
             try:
-                await (self._channel(record) or self._runtime).ensure_control_plane_connections(record.id)
-                provider_state, callback_state, callback_url = await self._start_authorization(record)
+                channel: Final = self._channel(record)
+                await channel.ensure_control_plane_connections(record.id)
+                result: Final = await self._start_authorization(record)
+                provider_state, callback_state, callback_url, flow, user_code, expires_in = result
                 _HTTP_URL_ADAPTER.validate_python(callback_url)
             except Exception as error:
                 await self._persist_authorization_failure(record, str(error))
                 return Failure(FailureCode.UPSTREAM, "environment authorization failed")
-            expires_at: Final = utc_now() + timedelta(minutes=5)
+            expires_at: Final = _authorization_expires_at(flow, expires_in)
             authorized: Final = record.model_copy(
                 update={
                     "version": record.version + 1,
@@ -271,6 +289,8 @@ class EnvironmentService:
                     "oauth_state_signature": callback_state.rpartition(".")[2],
                     "oauth_provider_state": provider_state,
                     "oauth_authorization_url": callback_url,
+                    "authorization_flow": flow,
+                    "authorization_user_code": user_code,
                     "last_error": None,
                     "updated_at": utc_now(),
                 }
@@ -333,10 +353,7 @@ class EnvironmentService:
         provider_callback: Final = callback.model_copy(update={"state": provider_state})
         try:
             channel: Final = self._channel(consumed)
-            if channel is None:
-                await self._cli_proxy.submit_callback(consumed, provider_callback)
-            else:
-                await channel.submit_callback(consumed, provider_callback)
+            await channel.submit_callback(consumed, provider_callback)
         except Exception as error:
             await self._persist_authorization_failure(consumed, str(error))
             return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
@@ -417,13 +434,18 @@ class EnvironmentService:
     def _authorization_view(self, record: EnvironmentRecord) -> AuthorizationView:
         if record.oauth_authorization_url is None or record.oauth_expires_at is None:
             raise RuntimeError("authorization operation has no active credentials")
+        supplier: Final = self._channels.get(record.channel).supplier(record.supplier)
         return AuthorizationView(
             environment=to_view(record),
             flow=record.authorization_flow,
             authorization_url=_HTTP_URL_ADAPTER.validate_python(record.oauth_authorization_url),
             ssh_command=(
-                f"ssh -N -L 1455:127.0.0.1:{self._settings.callback_port} "
-                f"{self._settings.ssh_user}@{self._settings.ssh_host}"
+                (
+                    f"ssh -N -L {supplier.callback_port}:127.0.0.1:{self._settings.callback_port} "
+                    f"{self._settings.ssh_user}@{self._settings.ssh_host}"
+                )
+                if record.authorization_flow is AuthorizationFlow.BROWSER_OAUTH and supplier.callback_port is not None
+                else None
             ),
             user_code=record.authorization_user_code,
             expires_at=record.oauth_expires_at,
@@ -432,7 +454,7 @@ class EnvironmentService:
     async def _validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
         try:
             channel: Final = self._channel(record)
-            observed: Final = await (channel.read_account(record) if channel is not None else self._cli_proxy.read_account(record))
+            observed: Final = await channel.read_account(record)
         except Exception as error:
             failed: Final = record.model_copy(
                 update={
@@ -443,8 +465,7 @@ class EnvironmentService:
                 }
             )
             return await self._repository.save_if_version(failed, record.version) or failed
-        channel: Final = self._channel(observed)
-        if not await (channel.data_plane_health_check(observed) if channel is not None else self._cli_proxy.data_plane_health_check(observed)):
+        if not await channel.data_plane_health_check(observed):
             failed_health: Final = observed.model_copy(
                 update={
                     "status": EnvironmentStatus.ERROR,
@@ -633,10 +654,7 @@ class EnvironmentService:
     ) -> Result[EnvironmentView]:
         try:
             channel: Final = self._channel(record)
-            if channel is None:
-                await self._cli_proxy.apply_configuration(record, desired)
-            else:
-                await channel.apply_configuration(record, desired)
+            await channel.apply_configuration(record, desired)
         except Exception as error:
             # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
             failed: Final = record.model_copy(
@@ -751,25 +769,16 @@ class EnvironmentService:
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
         channel: Final = self._channel(record)
-        runtime: Final = channel or self._runtime
         if record.cleanup_progress.compose_removed:
             return record
-        if channel is not None:
-            await channel.remove_compose(record)
-        elif hasattr(runtime, "remove_compose"):
-            await runtime.remove_compose(record)
-        else:
-            await runtime.remove(record)
+        await channel.remove_compose(record)
         return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
 
     async def _remove_directory_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
+        channel: Final = self._channel(record)
         if record.cleanup_progress.directory_removed:
             return record
-        channel: Final = self._channel(record)
-        if channel is not None:
-            await channel.remove_directory(record.id)
-        elif hasattr(self._runtime, "remove_directory"):
-            await self._runtime.remove_directory(record.id)
+        await channel.remove_directory(record.id)
         return await self._persist_cleanup_progress(record, directory_removed())
 
     async def _automatic_cooldown_before_update(
@@ -785,13 +794,13 @@ class EnvironmentService:
                 return _AutomaticCooldownState.ACTIVE
             return (
                 _AutomaticCooldownState.RECOVERED
-                if await self._cli_proxy.data_plane_health_check(record)
+                if await self._data_plane_health_check(record)
                 else _AutomaticCooldownState.BLOCKED
             )
         if record.manual_cooldown:
             return (
                 _AutomaticCooldownState.RECOVERED
-                if await self._cli_proxy.data_plane_health_check(record)
+                if await self._data_plane_health_check(record)
                 else _AutomaticCooldownState.BLOCKED
             )
         return (
@@ -799,6 +808,10 @@ class EnvironmentService:
             if record.status == EnvironmentStatus.COOLING_DOWN
             else _AutomaticCooldownState.NONE
         )
+
+    async def _data_plane_health_check(self, record: EnvironmentRecord) -> bool:
+        channel: Final = self._channel(record)
+        return await channel.data_plane_health_check(record)
 
     async def _refresh_if_needed(self, record: EnvironmentRecord) -> EnvironmentRecord:
         if record.status not in (
@@ -833,15 +846,15 @@ class EnvironmentService:
                 return current if isinstance(completion, Failure) else completion.value
             if current.auth_file_name is None:
                 return current
-            if current.automatic_cooldown and not await self._cli_proxy.data_plane_health_check(current):
+            channel: Final = self._channel(current)
+            if current.automatic_cooldown and not await channel.data_plane_health_check(current):
                 return current
             if _cooldown_active(current):
                 return current
-            if _cooldown_elapsed(current) and not await self._cli_proxy.data_plane_health_check(current):
+            if _cooldown_elapsed(current) and not await channel.data_plane_health_check(current):
                 return current
-            channel: Final = self._channel(current)
             try:
-                observed: Final = await (channel.read_account(current) if channel is not None else self._cli_proxy.read_account(current))
+                observed: Final = await channel.read_account(current)
             except Exception:
                 return current
             refreshed: Final = observed.model_copy(
@@ -882,7 +895,9 @@ class EnvironmentService:
             return await self._persist_authorization_failure(record, "invalid OAuth state")
         try:
             channel: Final = self._channel(record)
-            status: Final = await (channel.authorization_status(record, record.oauth_provider_state or record.oauth_state) if channel is not None else self._cli_proxy.authorization_status(record, record.oauth_provider_state or record.oauth_state))
+            if channel is None:
+                raise UnsupportedChannelError(f"{record.channel.value} channel is not implemented")
+            status: Final = await channel.authorization_status(record, record.oauth_provider_state or record.oauth_state)
         except Exception:
             return record
         if status == "wait":
@@ -967,6 +982,11 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
+
+
+def _authorization_expires_at(flow: AuthorizationFlow, expires_in_seconds: int | None) -> datetime:
+    duration: Final = expires_in_seconds if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None else 300
+    return utc_now() + timedelta(seconds=min(max(duration, 1), 3600))
 
 
 def _configuration_requires_reconciliation(record: EnvironmentRecord) -> bool:

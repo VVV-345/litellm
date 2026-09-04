@@ -39,7 +39,15 @@ class ChannelRegistry:
             }
         )
         implementations: Final = (
-            MappingProxyType({ChannelKind.CLIPROXYAPI: CLIProxyAPIChannel(settings, secrets)})
+            MappingProxyType(
+                {
+                    ChannelKind.CLIPROXYAPI: CLIProxyAPIChannel(
+                        settings,
+                        secrets,
+                        suppliers=suppliers,
+                    )
+                }
+            )
             if settings is not None and secrets is not None
             else MappingProxyType({})
         )

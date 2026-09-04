@@ -81,6 +81,8 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
         return await service.list_gateway_environments()
 
     @router.get("/auth/callback", response_class=HTMLResponse, include_in_schema=False)
+    @router.get("/callback", response_class=HTMLResponse, include_in_schema=False)
+    @router.get("/oauth-callback", response_class=HTMLResponse, include_in_schema=False)
     async def oauth_callback(
         state_value: Annotated[str, Query(alias="state", min_length=16, max_length=512)],
         environment_id: Annotated[UUID | None, Query()] = None,

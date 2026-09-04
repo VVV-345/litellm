@@ -12,7 +12,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from account_pool.api import create_router
-from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.config import Settings
 from account_pool.domain import ChannelKind, EnvironmentRecord
@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
         records: Final = await environments.list()
-        await _restore_control_plane_connections(runtime, records)
+        await _restore_control_plane_connections(channels, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
         retry_task: Final = asyncio.create_task(
@@ -90,15 +90,19 @@ async def _reconcile_pending_configurations_until_cancelled(
 
 
 async def _restore_control_plane_connections(
-    channel: CLIProxyAPIChannel,
+    channels: ChannelRegistry,
     records: tuple[EnvironmentRecord, ...],
 ) -> None:
-    await asyncio.gather(*(_restore_control_plane_connection(channel, record) for record in records))
+    await asyncio.gather(*(_restore_control_plane_connection(channels, record) for record in records))
 
 
-async def _restore_control_plane_connection(channel: CLIProxyAPIChannel, record: EnvironmentRecord) -> None:
+async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:
+    if record.channel is not ChannelKind.CLIPROXYAPI:
+        return
     try:
-        await channel.ensure_control_plane_connections(record.id)
+        await channels.channel(record.channel).ensure_control_plane_connections(record.id)
+    except UnsupportedChannelError:
+        return
     except Exception as error:
         _LOGGER.warning(
             "Failed to restore account pool network for %s: %s",
