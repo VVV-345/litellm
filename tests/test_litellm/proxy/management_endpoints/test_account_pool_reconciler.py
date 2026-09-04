@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Final
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 
@@ -57,7 +57,33 @@ def _environment(*, routable: bool, models: tuple[str, ...] = ("gpt-5",)) -> Gat
         enabled_models=models,
         api_base="http://cliproxy.example:8317/v1",
         api_key="gateway-secret",
+        custom_llm_provider="openai",
     )
+
+
+def test_desired_deployments_keep_protocol_identity_stable() -> None:
+    environment: Final = _environment(routable=True, models=("gpt-5", "gpt-4.1"))
+
+    deployments: Final = desired_deployments((environment,))
+
+    assert len(deployments) == 2
+    for deployment in deployments:
+        assert deployment.provider_model == f"openai/{deployment.model_name}"
+        assert deployment.litellm_params["custom_llm_provider"] == "openai"
+        assert deployment.id == str(
+            uuid5(NAMESPACE_URL, f"litellm-account-pool:{environment.id.hex}:{deployment.model_name}")
+        )
+        assert deployment.model_info["managed_by"] == "account_pool"
+        assert deployment.model_info["account_pool_environment_id"] == str(environment.id)
+    assert [deployment.model_name for deployment in deployments] == ["gpt-5", "gpt-4.1"]
+
+
+def test_non_routable_snapshots_produce_no_deployments() -> None:
+    blocked: Final = _environment(routable=False, models=("gpt-5", "gpt-4.1"))
+
+    deployments: Final = desired_deployments((blocked,))
+
+    assert deployments == ()
 
 
 @pytest.mark.asyncio

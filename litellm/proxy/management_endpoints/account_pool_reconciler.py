@@ -6,7 +6,7 @@ import asyncio
 import math
 import os
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
@@ -31,6 +31,7 @@ class GatewayEnvironment(BaseModel):
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str = Field(min_length=1)
+    custom_llm_provider: Literal["openai"] = "openai"
 
 
 _GATEWAY_ENVIRONMENTS: Final = TypeAdapter(tuple[GatewayEnvironment, ...])
@@ -45,13 +46,14 @@ class ManagedDeployment:
     api_base: str
     api_key: str
     max_parallel_requests: int
+    custom_llm_provider: Literal["openai"] = "openai"
     blocked: bool = False
 
     @property
     def litellm_params(self) -> dict[str, object]:
         return {
             "model": self.provider_model,
-            "custom_llm_provider": "openai",
+            "custom_llm_provider": self.custom_llm_provider,
             "api_base": self.api_base,
             "api_key": self.api_key,
             "max_parallel_requests": self.max_parallel_requests,
@@ -232,6 +234,7 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         api_base=environment.api_base,
         api_key=environment.api_key,
         max_parallel_requests=environment.concurrency_limit,
+        custom_llm_provider=environment.custom_llm_provider,
     )
 
 
@@ -245,6 +248,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
     api_base: Final = params.get("api_base")
     api_key: Final = params.get("api_key")
     max_parallel_requests: Final = params.get("max_parallel_requests")
+    custom_llm_provider: Final = params.get("custom_llm_provider", "openai")
     blocked: Final = row.blocked
     if not (
         isinstance(environment_id, str)
@@ -252,6 +256,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         and isinstance(api_base, str)
         and isinstance(api_key, str)
         and isinstance(max_parallel_requests, int)
+        and custom_llm_provider == "openai"
         and isinstance(blocked, bool)
     ):
         raise RuntimeError(f"managed account pool deployment {row.model_id} is malformed")

@@ -56,6 +56,15 @@ class AccountPoolEnvironment(BaseModel):
     observed_configuration_version: int = Field(default=0, ge=0)
     name: str
     provider: Literal["openai"]
+    channel: Literal["cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    supplier: Literal[
+        "openai_codex",
+        "anthropic_claude",
+        "google_antigravity",
+        "kimi",
+        "xai",
+    ] = "openai_codex"
+    configuration_pending: bool = False
     status: Literal[
         "provisioning",
         "awaiting_authorization",
@@ -87,6 +96,14 @@ class AccountPoolCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=80)
     provider: Literal["openai"] = "openai"
+    channel: Literal["cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    supplier: Literal[
+        "openai_codex",
+        "anthropic_claude",
+        "google_antigravity",
+        "kimi",
+        "xai",
+    ] = "openai_codex"
 
 
 class AccountPoolUpdateRequest(BaseModel):
