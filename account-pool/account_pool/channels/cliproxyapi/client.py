@@ -185,7 +185,8 @@ class HttpCLIProxyClient:
             (
                 item
                 for item in auth_files.files
-                if (item.provider or item.type or "").lower() == selected_supplier.auth_file_provider_key
+                if (item.provider is not None and item.provider.lower() == selected_supplier.auth_file_provider_key)
+                or (item.type is not None and item.type.lower() == selected_supplier.auth_file_provider_key)
             ),
             None,
         )
