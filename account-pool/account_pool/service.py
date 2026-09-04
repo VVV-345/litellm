@@ -14,11 +14,13 @@ from uuid import UUID, uuid4
 
 from pydantic import HttpUrl, TypeAdapter
 
+from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationView,
     CleanupProgress,
+    ChannelKind,
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
@@ -36,7 +38,13 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_safety import safe_error
-from account_pool.ports import CLIProxyClient, EnvironmentRepository, EnvironmentRuntime, ProxyProfileRepository
+from account_pool.ports import (
+    CLIProxyClient,
+    EnvironmentChannel,
+    EnvironmentRepository,
+    EnvironmentRuntime,
+    ProxyProfileRepository,
+)
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
@@ -70,6 +78,7 @@ class EnvironmentService:
         cli_proxy: CLIProxyClient,
         proxy_profiles: ProxyProfileRepository,
         secrets: EnvironmentSecretDeriver,
+        channels: ChannelRegistry | None = None,
     ) -> None:
         self._settings: Final = settings
         self._repository: Final = repository
@@ -77,6 +86,7 @@ class EnvironmentService:
         self._cli_proxy: Final = cli_proxy
         self._proxy_profiles: Final = proxy_profiles
         self._secrets: Final = secrets
+        self._channels: Final = channels or ChannelRegistry.default()
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
 
@@ -84,6 +94,19 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         return tuple(to_view(record) for record in refreshed)
+
+    def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel | None:
+        try:
+            definition: Final = self._channels.get(record.channel)
+            definition.supplier(record.supplier)
+            try:
+                return self._channels.channel(record.channel)
+            except UnsupportedChannelError:
+                if record.channel is ChannelKind.FREEBUFF2API:
+                    raise
+                return None
+        except (KeyError, UnsupportedChannelError) as error:
+            raise UnsupportedChannelError(str(error)) from error
 
     async def get_environment(self, environment_id: UUID) -> Result[EnvironmentView]:
         record: Final = await self._repository.get(environment_id)
@@ -104,12 +127,23 @@ class EnvironmentService:
         self,
         record: EnvironmentRecord,
     ) -> tuple[str, str, str]:
-        authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
+        channel: Final = self._channel(record)
+        if channel is None:
+            authorization_url, provider_state = await self._cli_proxy.start_openai_authorization(record)
+        else:
+            result: Final = await channel.start_authorization(record)
+            authorization_url, provider_state = result.authorization_url, result.provider_state
         callback_state: Final = self._callback_state(record)
         callback_url: Final = _replace_state(authorization_url, callback_state)
         return provider_state, callback_state, callback_url
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
+        try:
+            self._channels.get(request.channel).supplier(request.supplier)
+            if request.channel is ChannelKind.FREEBUFF2API:
+                raise UnsupportedChannelError("FreeBuff2API is not implemented")
+        except (KeyError, UnsupportedChannelError) as error:
+            return Failure(FailureCode.INVALID, str(error))
         if request.operation_id is not None:
             existing: Final = await self._find_by_operation_id(request.operation_id)
             if existing is not None:
@@ -151,7 +185,7 @@ class EnvironmentService:
         )
         await self._repository.save(record)
         try:
-            await self._runtime.provision(record)
+            await (self._channel(record) or self._runtime).provision(record)
             provider_state, callback_state, callback_url = await self._start_authorization(record)
             validated_authorization_url: Final = _HTTP_URL_ADAPTER.validate_python(callback_url)
         except Exception as error:
@@ -218,7 +252,7 @@ class EnvironmentService:
             ):
                 return Success(self._authorization_view(record))
             try:
-                await self._runtime.ensure_control_plane_connections(record.id)
+                await (self._channel(record) or self._runtime).ensure_control_plane_connections(record.id)
                 provider_state, callback_state, callback_url = await self._start_authorization(record)
                 _HTTP_URL_ADAPTER.validate_python(callback_url)
             except Exception as error:
@@ -298,7 +332,11 @@ class EnvironmentService:
         provider_state: Final = consumed.oauth_provider_state or callback.state
         provider_callback: Final = callback.model_copy(update={"state": provider_state})
         try:
-            await self._cli_proxy.submit_callback(consumed, provider_callback)
+            channel: Final = self._channel(consumed)
+            if channel is None:
+                await self._cli_proxy.submit_callback(consumed, provider_callback)
+            else:
+                await channel.submit_callback(consumed, provider_callback)
         except Exception as error:
             await self._persist_authorization_failure(consumed, str(error))
             return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
@@ -393,7 +431,8 @@ class EnvironmentService:
 
     async def _validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
         try:
-            observed: Final = await self._cli_proxy.read_account(record)
+            channel: Final = self._channel(record)
+            observed: Final = await (channel.read_account(record) if channel is not None else self._cli_proxy.read_account(record))
         except Exception as error:
             failed: Final = record.model_copy(
                 update={
@@ -404,7 +443,8 @@ class EnvironmentService:
                 }
             )
             return await self._repository.save_if_version(failed, record.version) or failed
-        if not await self._cli_proxy.data_plane_health_check(observed):
+        channel: Final = self._channel(observed)
+        if not await (channel.data_plane_health_check(observed) if channel is not None else self._cli_proxy.data_plane_health_check(observed)):
             failed_health: Final = observed.model_copy(
                 update={
                     "status": EnvironmentStatus.ERROR,
@@ -592,7 +632,11 @@ class EnvironmentService:
         desired: EnvironmentConfiguration,
     ) -> Result[EnvironmentView]:
         try:
-            await self._cli_proxy.apply_configuration(record, desired)
+            channel: Final = self._channel(record)
+            if channel is None:
+                await self._cli_proxy.apply_configuration(record, desired)
+            else:
+                await channel.apply_configuration(record, desired)
         except Exception as error:
             # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
             failed: Final = record.model_copy(
@@ -706,18 +750,25 @@ class EnvironmentService:
             return Success(None)
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
+        channel: Final = self._channel(record)
+        runtime: Final = channel or self._runtime
         if record.cleanup_progress.compose_removed:
             return record
-        if hasattr(self._runtime, "remove_compose"):
-            await self._runtime.remove_compose(record)
+        if channel is not None:
+            await channel.remove_compose(record)
+        elif hasattr(runtime, "remove_compose"):
+            await runtime.remove_compose(record)
         else:
-            await self._runtime.remove(record)
+            await runtime.remove(record)
         return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
 
     async def _remove_directory_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
         if record.cleanup_progress.directory_removed:
             return record
-        if hasattr(self._runtime, "remove_directory"):
+        channel: Final = self._channel(record)
+        if channel is not None:
+            await channel.remove_directory(record.id)
+        elif hasattr(self._runtime, "remove_directory"):
             await self._runtime.remove_directory(record.id)
         return await self._persist_cleanup_progress(record, directory_removed())
 
@@ -788,8 +839,9 @@ class EnvironmentService:
                 return current
             if _cooldown_elapsed(current) and not await self._cli_proxy.data_plane_health_check(current):
                 return current
+            channel: Final = self._channel(current)
             try:
-                observed: Final = await self._cli_proxy.read_account(current)
+                observed: Final = await (channel.read_account(current) if channel is not None else self._cli_proxy.read_account(current))
             except Exception:
                 return current
             refreshed: Final = observed.model_copy(
@@ -829,10 +881,8 @@ class EnvironmentService:
         if record.oauth_state_signature is None or not self._valid_state_signature(record, record.oauth_state):
             return await self._persist_authorization_failure(record, "invalid OAuth state")
         try:
-            status: Final = await self._cli_proxy.authorization_status(
-                record,
-                record.oauth_provider_state or record.oauth_state,
-            )
+            channel: Final = self._channel(record)
+            status: Final = await (channel.authorization_status(record, record.oauth_provider_state or record.oauth_state) if channel is not None else self._cli_proxy.authorization_status(record, record.oauth_provider_state or record.oauth_state))
         except Exception:
             return record
         if status == "wait":
@@ -899,7 +949,8 @@ class EnvironmentService:
             and not record.configuration_pending
             and record.desired_configuration_version <= record.observed_configuration_version
         )
-        return GatewayEnvironment(
+        channel: Final = self._channel(record)
+        return channel.gateway(record) if channel is not None else GatewayEnvironment(
             id=record.id,
             routable=routable,
             concurrency_limit=record.concurrency_limit,

@@ -54,6 +54,9 @@ class ComposeRuntime:
         self._secrets: Final = secrets
         self._runner: Final = runner
 
+    def environment_dir(self, environment_id: UUID) -> Path:
+        return self._settings.data_root / environment_id.hex
+
     @property
     def settings(self) -> Settings:
         return self._settings

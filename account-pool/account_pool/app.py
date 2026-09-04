@@ -13,8 +13,9 @@ from fastapi import FastAPI
 
 from account_pool.api import create_router
 from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+from account_pool.channels.registry import ChannelRegistry
 from account_pool.config import Settings
-from account_pool.domain import EnvironmentRecord
+from account_pool.domain import ChannelKind, EnvironmentRecord
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
@@ -27,7 +28,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     environments: Final = PostgresEnvironmentRepository(resolved.database_url)
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
-    channel: Final = CLIProxyAPIChannel(resolved, secrets)
+    channels: Final = ChannelRegistry.default(resolved, secrets)
+    channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
     service: Final = EnvironmentService(
@@ -37,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cli_proxy=cli_proxy,
         proxy_profiles=profiles,
         secrets=secrets,
+        channels=channels,
     )
 
     @asynccontextmanager
@@ -87,15 +90,15 @@ async def _reconcile_pending_configurations_until_cancelled(
 
 
 async def _restore_control_plane_connections(
-    runtime: CLIProxyAPIChannel,
+    channel: CLIProxyAPIChannel,
     records: tuple[EnvironmentRecord, ...],
 ) -> None:
-    await asyncio.gather(*(_restore_control_plane_connection(runtime, record) for record in records))
+    await asyncio.gather(*(_restore_control_plane_connection(channel, record) for record in records))
 
 
-async def _restore_control_plane_connection(runtime: CLIProxyAPIChannel, record: EnvironmentRecord) -> None:
+async def _restore_control_plane_connection(channel: CLIProxyAPIChannel, record: EnvironmentRecord) -> None:
     try:
-        await runtime.ensure_control_plane_connections(record.id)
+        await channel.ensure_control_plane_connections(record.id)
     except Exception as error:
         _LOGGER.warning(
             "Failed to restore account pool network for %s: %s",

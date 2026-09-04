@@ -10,7 +10,15 @@ from uuid import UUID
 
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
-from account_pool.domain import EnvironmentConfiguration, EnvironmentRecord, OAuthCallback, ProxyProfile
+from account_pool.domain import (
+    ChannelKind,
+    EnvironmentConfiguration,
+    EnvironmentRecord,
+    GatewayEnvironment,
+    OAuthCallback,
+    ProxyProfile,
+    SupplierKind,
+)
 
 
 class EnvironmentRepository(Protocol):
@@ -58,6 +66,28 @@ class EnvironmentRuntime(Protocol):
     async def remove_directory(self, environment_id: UUID) -> None: ...
 
     def environment_dir(self, environment_id: UUID) -> Path: ...
+
+
+class EnvironmentChannel(EnvironmentRuntime, Protocol):
+    def supplier(self, kind: SupplierKind) -> SupplierDefinition: ...
+
+    async def close(self) -> None: ...
+
+    async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart: ...
+
+    async def authorization_status(self, record: EnvironmentRecord, state: str) -> str: ...
+
+    async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None: ...
+
+    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
+
+    async def data_plane_health_check(self, record: EnvironmentRecord) -> bool: ...
+
+    async def apply_configuration(
+        self, record: EnvironmentRecord, configuration: EnvironmentConfiguration
+    ) -> None: ...
+
+    def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment: ...
 
 
 class CLIProxyClient(Protocol):

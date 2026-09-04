@@ -13,6 +13,7 @@ import httpx
 import pytest
 import yaml
 from account_pool.app import _reconcile_pending_configurations_until_cancelled
+from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
 from account_pool.config import Settings, validate_proxy_profile_url
@@ -52,6 +53,13 @@ def test_create_environment_request_accepts_all_suppliers_for_cliproxyapi(suppli
 def test_create_environment_request_rejects_unknown_channel_and_supplier_values(field: str, value: str) -> None:
     with pytest.raises(ValueError):
         CreateEnvironmentRequest.model_validate({"name": "Test environment", field: value})
+
+
+def test_channel_registry_rejects_freebuff_before_runtime_creation() -> None:
+    registry: Final = ChannelRegistry.default()
+
+    with pytest.raises(UnsupportedChannelError, match="^FreeBuff2API is not implemented$"):
+        registry.channel(ChannelKind.FREEBUFF2API)
 
 
 def test_update_environment_request_has_no_channel_or_supplier_fields() -> None:
