@@ -1,14 +1,17 @@
 """验证静态渠道和供应商注册表只公开受支持的不可变定义。"""
 
 from dataclasses import FrozenInstanceError
+from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Final
 
 import pytest
 
+from account_pool.channels.base import ChannelDefinition
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
-from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import AuthorizationFlow, ChannelKind, SupplierKind
+from account_pool.quota import QuotaObservation
 
 
 @pytest.mark.parametrize(
@@ -89,26 +92,74 @@ def test_cliproxyapi_supplier_definitions_match_verified_management_contract(
 
     definition: Final = registry.get(kind)
 
-    assert definition == SupplierDefinition(
-        kind=kind,
-        authorization_flow=authorization_flow,
-        authorization_path=authorization_path,
-        callback_provider_key=callback_provider_key,
-        auth_file_provider_key=auth_file_provider_key,
-        excluded_models_key=excluded_models_key,
-        callback_port=callback_port,
-        callback_path=callback_path,
-        quota_parser=definition.quota_parser,
+    assert (
+        definition.kind,
+        definition.authorization_flow,
+        definition.authorization_path,
+        definition.callback_provider_key,
+        definition.auth_file_provider_key,
+        definition.excluded_models_key,
+        definition.callback_port,
+        definition.callback_path,
+    ) == (
+        kind,
+        authorization_flow,
+        authorization_path,
+        callback_provider_key,
+        auth_file_provider_key,
+        excluded_models_key,
+        callback_port,
+        callback_path,
     )
     with pytest.raises(FrozenInstanceError):
         setattr(definition, "authorization_path", "/invalid")
 
 
-def test_cliproxyapi_channel_supports_every_defined_supplier() -> None:
+def test_cliproxyapi_channel_supports_every_registered_supplier() -> None:
     registry: Final = ChannelRegistry.default()
     channel: Final = registry.get(ChannelKind.CLIPROXYAPI)
+    supplier_registry: Final = SupplierRegistry.default()
 
-    assert tuple(channel.suppliers) == tuple(SupplierKind)
+    assert channel.suppliers == tuple(supplier_registry.definitions)
+
+
+def test_cliproxyapi_channel_rejects_a_supplier_missing_from_its_registry() -> None:
+    suppliers: Final = SupplierRegistry.default()
+    channel: Final = ChannelDefinition(
+        kind=ChannelKind.CLIPROXYAPI,
+        suppliers=(SupplierKind.XAI,),
+        supplier_registry=SupplierRegistry(definitions=MappingProxyType({})),
+    )
+
+    with pytest.raises(UnsupportedChannelError, match="^cliproxyapi does not support xai$"):
+        channel.supplier(SupplierKind.XAI)
+
+    assert SupplierKind.XAI in suppliers.definitions
+
+
+@pytest.mark.parametrize("kind", tuple(SupplierKind))
+def test_supplier_quota_parser_preserves_only_unstructured_observation_metadata(kind: SupplierKind) -> None:
+    observation_time: Final = datetime(2026, 9, 4, tzinfo=timezone.utc)
+    observation: Final = QuotaObservation(
+        observed_at=observation_time,
+        signals={
+            "x-codex-plan-type": "pro",
+            "x-codex-five-hour-used-percent": "25",
+            "x-codex-five-hour-window-minutes": "300",
+        },
+    )
+    definition: Final = SupplierRegistry.default().get(kind)
+
+    snapshot: Final = definition.quota_parser(observation)
+
+    if kind is SupplierKind.OPENAI_CODEX:
+        assert snapshot.plan_type == "pro"
+        assert len(snapshot.windows) == 1
+        assert snapshot.windows[0].remaining_percent == 75
+    else:
+        assert snapshot.observed_at == observation_time
+        assert snapshot.plan_type is None
+        assert snapshot.windows == ()
 
 
 def test_freebuff2api_rejects_every_supplier_before_runtime_resolution() -> None:

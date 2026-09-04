@@ -9,7 +9,7 @@ from typing import Final, Mapping
 from account_pool.channels.base import ChannelDefinition, UnsupportedChannelError
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.channels.freebuff2api.placeholder import DEFINITION as FREEBUFF2API
-from account_pool.domain import ChannelKind, SupplierKind
+from account_pool.domain import ChannelKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +21,7 @@ class ChannelRegistry:
         suppliers: Final = SupplierRegistry.default()
         cliproxyapi: Final = ChannelDefinition(
             kind=ChannelKind.CLIPROXYAPI,
-            suppliers=tuple(SupplierKind),
+            suppliers=tuple(suppliers.definitions),
             supplier_registry=suppliers,
         )
         definitions: Final = MappingProxyType(

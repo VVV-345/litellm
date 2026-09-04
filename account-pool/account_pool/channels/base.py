@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from account_pool.domain import ChannelKind, SupplierKind
+
+if TYPE_CHECKING:
+    from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 
 
 class UnsupportedChannelError(ValueError):
@@ -13,7 +16,7 @@ class UnsupportedChannelError(ValueError):
 
 
 class SupplierResolver(Protocol):
-    def get(self, kind: SupplierKind) -> object: ...
+    def get(self, kind: SupplierKind) -> SupplierDefinition: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,9 +26,12 @@ class ChannelDefinition:
     supplier_registry: SupplierResolver | None
     unavailable_reason: str | None = None
 
-    def supplier(self, kind: SupplierKind) -> object:
+    def supplier(self, kind: SupplierKind) -> SupplierDefinition:
         if self.unavailable_reason is not None:
             raise UnsupportedChannelError(self.unavailable_reason)
         if self.supplier_registry is None or kind not in self.suppliers:
             raise UnsupportedChannelError(f"{self.kind.value} does not support {kind.value}")
-        return self.supplier_registry.get(kind)
+        try:
+            return self.supplier_registry.get(kind)
+        except KeyError as error:
+            raise UnsupportedChannelError(f"{self.kind.value} does not support {kind.value}") from error
