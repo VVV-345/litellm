@@ -3,11 +3,12 @@
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Final
+from typing import Final, get_type_hints
 
 import pytest
 
-from account_pool.channels.base import ChannelDefinition
+from account_pool.channels.base import ChannelDefinition, SupplierResolver
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import AuthorizationFlow, ChannelKind, SupplierKind
@@ -162,7 +163,12 @@ def test_supplier_quota_parser_preserves_only_unstructured_observation_metadata(
         assert snapshot.windows == ()
 
 
-def test_freebuff2api_rejects_every_supplier_before_runtime_resolution() -> None:
+def test_channel_supplier_annotations_resolve_to_supplier_definition() -> None:
+    channel_hints: Final = get_type_hints(ChannelDefinition.supplier)
+    resolver_hints: Final = get_type_hints(SupplierResolver.get)
+
+    assert channel_hints["return"] is SupplierDefinition
+    assert resolver_hints["return"] is SupplierDefinition
     registry: Final = ChannelRegistry.default()
     channel: Final = registry.get(ChannelKind.FREEBUFF2API)
 

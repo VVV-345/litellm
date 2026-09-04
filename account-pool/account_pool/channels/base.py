@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import ChannelKind, SupplierKind
-
-if TYPE_CHECKING:
-    from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 
 
 class UnsupportedChannelError(ValueError):
