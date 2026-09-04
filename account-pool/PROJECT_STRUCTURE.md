@@ -102,7 +102,24 @@ litellm/
 │   │   ├── compose_renderer.py               生成账号的 Compose 和 CLIProxyAPI 配置
 │   │   ├── compose_runtime.py                执行 Docker、网络和数据卷操作
 │   │   ├── compose.py                        Compose 功能的统一导出入口
-│   │   ├── cliproxy.py                       调用 CLIProxyAPI 管理接口
+│   │   ├── channels/                         渠道抽象层
+│   │   │   ├── base.py                       渠道定义和拒绝语义
+│   │   │   ├── registry.py                   渠道注册表（CLIProxyAPI 正式、FreeBuff2API 占位）
+│   │   │   ├── cliproxyapi/                  CLIProxyAPI 渠道实现
+│   │   │   │   ├── channel.py                渠道组合根（运行时、客户端、供应商）
+│   │   │   │   ├── client.py                 CLIProxyAPI 管理协议客户端
+│   │   │   │   ├── runtime.py                Docker 渲染与执行封装
+│   │   │   │   └── suppliers/                五个供应商的静态契约
+│   │   │   │       ├── base.py               SupplierDefinition 数据结构
+│   │   │   │       ├── registry.py           供应商注册表
+│   │   │   │       ├── openai_codex.py       Codex（浏览器授权，回调 1455）
+│   │   │   │       ├── anthropic_claude.py   Claude（浏览器授权，回调 54545）
+│   │   │   │       ├── google_antigravity.py Antigravity（浏览器授权，回调 51121）
+│   │   │   │       ├── kimi.py               Kimi（设备码授权）
+│   │   │   │       └── xai.py                xAI（设备码授权）
+│   │   │   └── freebuff2api/                 FreeBuff2API 占位，只注册不实现
+│   │   │       └── placeholder.py            统一返回"未实现"
+│   │   ├── cliproxy.py                       旧调用方的兼容导出层
 │   │   ├── quota.py                          解析额度和冷却时间
 │   │   ├── cleanup.py                        删除环境时记录清理进度
 │   │   ├── error_safety.py                   隐藏敏感错误信息
@@ -173,7 +190,9 @@ litellm/
 | 数据库表和读写 | `account-pool/account_pool/repository.py` |
 | Docker 容器、网络和卷 | `account-pool/account_pool/compose_renderer.py`、`account-pool/account_pool/compose_runtime.py` |
 | CLIProxyAPI 镜像版本 | `account-pool/account_pool/config.py` |
-| OAuth 和模型发现 | `account-pool/account_pool/cliproxy.py` |
+| OAuth 和模型发现 | `account-pool/account_pool/channels/cliproxyapi/client.py` |
+| 渠道注册与拒绝 | `account-pool/account_pool/channels/registry.py`、`account-pool/account_pool/channels/base.py` |
+| 供应商端点和授权流 | `account-pool/account_pool/channels/cliproxyapi/suppliers/` |
 | 额度和冷却规则 | `account-pool/account_pool/quota.py` |
 | LiteLLM 路由同步 | `litellm/proxy/management_endpoints/account_pool_reconciler.py` |
 | 部署参数 | `account-pool/.env`、`docker-compose.manager.yml` |

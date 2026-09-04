@@ -47,6 +47,20 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
 
 然后启动号池 Manager。Manager 通过同一 Compose 文件中的 `docker-socket-proxy` 服务连接 Docker Engine，需要挂载 Docker CLI 和 Compose 插件，但不应再挂载 `/var/run/docker.sock`。`ACCOUNT_POOL_MANAGER_CONTAINER` 和 `ACCOUNT_POOL_GATEWAY_CONTAINER` 必须填写宿主机上的两个真实容器名，便于把每个隔离网络接入控制面。生产环境应由反向代理或防火墙确保 Manager API 只对 LiteLLM 主机可见，并保留 Socket Proxy 的 API allowlist
 
+## 渠道与供应商
+
+号池按两层组织上游账号。渠道是承载账号的反代程序，供应商是渠道内提供模型的订阅来源
+
+- CLIProxyAPI（正式实现）：镜像固定为 `eceasy/cli-proxy-api:v7.2.146`。支持五个供应商，均通过 CLIProxyAPI 的 OpenAI-compatible 数据面对外提供模型：
+  - OpenAI Codex：浏览器 OAuth，回调端口 1455，路径 `/auth/callback`
+  - Anthropic Claude：浏览器 OAuth，回调端口 54545，路径 `/callback`
+  - Google Antigravity：浏览器 OAuth，回调端口 51121，路径 `/oauth-callback`
+  - Kimi：设备码授权，返回用户码，无 SSH 隧道
+  - xAI：设备码授权，返回用户码，无 SSH 隧道
+- FreeBuff2API（占位）：只在注册表中登记，创建、恢复或任何运行时操作都会被拒绝，不构建镜像、不创建 Docker 资源、不产生 LiteLLM 路由
+
+所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，CLIProxyAPI v7.2.146 没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
+
 ## 当前边界
 
-首版只支持 OpenAI Codex OAuth。CLIProxyAPI 的额度来自最近一次上游响应的被动观测，因此账号完成授权但尚未产生请求时，页面会显示“尚未观测”。额度窗口按响应中的分钟数解析，不假设固定周限或月限。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键
+CLIProxyAPI 的额度来自最近一次上游响应的被动观测，因此账号完成授权但尚未产生请求时，页面会显示“尚未观测”。额度窗口按响应中的分钟数解析，不假设固定周限或月限。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键
