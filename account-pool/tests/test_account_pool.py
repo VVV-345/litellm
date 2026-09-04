@@ -6,6 +6,7 @@ import asyncio
 import os
 from datetime import timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 from uuid import uuid4
 
@@ -18,11 +19,13 @@ from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_q
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
+    AuthorizationFlow,
     ChannelKind,
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
+    GatewayEnvironment,
     OAuthCallback,
     Provider,
     ProxyMode,
@@ -32,6 +35,10 @@ from account_pool.domain import (
     UpdateEnvironmentRequest,
     utc_now,
 )
+from account_pool.channels.base import ChannelDefinition
+from account_pool.channels.cliproxyapi.client import AuthorizationStart
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
+from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, _safe_error
 
@@ -257,13 +264,89 @@ class FakeRuntime:
         self.provisioned.append(record)
 
     async def ensure_control_plane_connections(self, environment_id) -> None:
+        _ = environment_id
         return None
 
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
+        _ = running
         return None
 
     async def remove(self, record: EnvironmentRecord) -> None:
         self.removed.append(record)
+
+
+class FakeChannel:
+    """渠道协议的测试替身：runtime 转发给 FakeRuntime，CLIProxy 操作转发给 FakeCLIProxy。"""
+
+    def __init__(self, runtime: FakeRuntime, cli: FakeCLIProxy) -> None:
+        self._runtime: Final = runtime
+        self._cli: Final = cli
+
+    def supplier(self, kind: SupplierKind) -> SupplierDefinition:
+        _ = kind
+        return SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+
+    async def close(self) -> None:
+        return None
+
+    async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
+        return await self._cli.start_authorization(record)
+
+    async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
+        _ = record
+        return await self._cli.authorization_status(record, state)
+
+    async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
+        await self._cli.submit_callback(record, callback)
+
+    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        return await self._cli.read_account(record)
+
+    async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
+        return await self._cli.data_plane_health_check(record)
+
+    async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
+        await self._cli.apply_configuration(record, configuration)
+
+    def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:
+        routable: Final = (
+            record.status == EnvironmentStatus.READY
+            and record.enabled
+            and not record.manual_cooldown
+            and record.cooldown_until is None
+            and not record.configuration_pending
+            and record.desired_configuration_version <= record.observed_configuration_version
+        )
+        return GatewayEnvironment(
+            id=record.id,
+            routable=routable,
+            concurrency_limit=record.concurrency_limit,
+            enabled_models=record.enabled_models,
+            api_base=f"http://cliproxy-{record.id.hex}:8317/v1",
+            api_key="gateway-key-for-test",
+        )
+
+    async def provision(self, record: EnvironmentRecord) -> None:
+        await self._runtime.provision(record)
+
+    async def ensure_control_plane_connections(self, environment_id) -> None:
+        await self._runtime.ensure_control_plane_connections(environment_id)
+
+    async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
+        await self._runtime.set_running(record, running)
+
+    async def remove(self, record: EnvironmentRecord) -> None:
+        await self._runtime.remove(record)
+
+    async def remove_compose(self, record: EnvironmentRecord) -> None:
+        await self._runtime.remove(record)
+
+    async def remove_directory(self, environment_id) -> None:
+        _ = environment_id
+        return None
+
+    def environment_dir(self, environment_id):
+        return self._runtime.environment_dir(environment_id)
 
 
 class FailingOnceRuntime(FakeRuntime):
@@ -329,8 +412,14 @@ class FakeCLIProxy:
     async def close(self) -> None:
         return None
 
-    async def start_openai_authorization(self, record: EnvironmentRecord) -> tuple[str, str]:
-        return "https://example.com/oauth", "state-for-test-1234"
+    async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
+        _ = record
+        return AuthorizationStart(
+            authorization_url="https://example.com/oauth",
+            provider_state="state-for-test-1234",
+            user_code=None,
+            expires_in_seconds=None,
+        )
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
         return self.authorization_status_value
@@ -381,8 +470,14 @@ class InvalidAuthorizationURLCLI(FakeCLIProxy):
         super().__init__()
         self.authorization_url = authorization_url
 
-    async def start_openai_authorization(self, record: EnvironmentRecord) -> tuple[str, str]:
-        return self.authorization_url, "state-for-test-1234"
+    async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
+        _ = record
+        return AuthorizationStart(
+            authorization_url=self.authorization_url,
+            provider_state="state-for-test-1234",
+            user_code=None,
+            expires_in_seconds=None,
+        )
 
 
 class BlockingCallbackCLI(FakeCLIProxy):
@@ -490,14 +585,31 @@ def _record(
     )
 
 
+def _fake_channels(runtime: FakeRuntime, cli: FakeCLIProxy) -> ChannelRegistry:
+    channel: Final = FakeChannel(runtime, cli)
+    return ChannelRegistry(
+        definitions=MappingProxyType({ChannelKind.CLIPROXYAPI: _FAKE_CLIPROXY_DEFINITION}),
+        implementations=MappingProxyType({ChannelKind.CLIPROXYAPI: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
+    )
+
+
+_FAKE_CLIPROXY_DEFINITION: Final = ChannelDefinition(
+    kind=ChannelKind.CLIPROXYAPI,
+    suppliers=tuple(SupplierRegistry.default().definitions),
+    supplier_registry=SupplierRegistry.default(),
+)
+
+
 def _service(record: EnvironmentRecord, cli: FakeCLIProxy, tmp_path: Path) -> EnvironmentService:
+    runtime: Final = FakeRuntime()
     return EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
 
@@ -837,13 +949,15 @@ async def test_docker_command_timeout_kills_and_reaps_process() -> None:
 async def test_unsafe_proxy_profile_url_is_rejected_before_cli_proxy_update(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=StaticProfiles("http://user:secret@proxy.example"),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
@@ -897,13 +1011,16 @@ async def test_unknown_authorization_status_does_not_complete_oauth(tmp_path: Pa
 async def test_refresh_authorization_resumes_after_state_consumed_before_validation(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy(authorization_status="ok")
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(authorization_status="ok"),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = service._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
@@ -953,13 +1070,15 @@ async def test_refresh_authorization_does_not_overwrite_newer_state(
     cli: Final = FakeCLIProxy(
         authorization_status="error:https://user:password@example.com/oauth?code=secret-code&state=secret-state"
     )
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service._refresh_authorization(signed)
@@ -979,13 +1098,15 @@ async def test_refresh_authorization_redacts_upstream_error(tmp_path: Path) -> N
     cli: Final = FakeCLIProxy(
         authorization_status="error:https://user:password@example.com/oauth?code=secret-code&state=secret-state Bearer secret-token"
     )
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service._refresh_authorization(signed)
@@ -1008,13 +1129,15 @@ async def test_refresh_authorization_rejects_invalid_persisted_state_signature(t
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": "invalid-signature"})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy(authorization_status="ok")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     refreshed: Final = await service._refresh_authorization(signed)
@@ -1035,13 +1158,15 @@ async def test_refresh_authorization_rejects_missing_signature_after_atomic_cons
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MissingConsumedSignatureRepository(signed)
     cli: Final = FakeCLIProxy(authorization_status="ok")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     refreshed: Final = await service._refresh_authorization(signed)
@@ -1062,13 +1187,15 @@ async def test_oauth_callback_error_marks_authorization_failed_without_forwardin
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(
@@ -1381,13 +1508,16 @@ async def test_consuming_oauth_state_advances_version_against_stale_snapshot() -
 @pytest.mark.asyncio
 async def test_late_oauth_callback_after_polling_completion_cannot_change_ready_state(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     awaiting: Final = record.model_copy(
@@ -1395,13 +1525,15 @@ async def test_late_oauth_callback_after_polling_completion_cannot_change_ready_
     )
     repository: Final = MemoryRepository(awaiting)
     cli: Final = FakeCLIProxy(authorization_status="ok")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     polled: Final = await service._refresh_authorization(awaiting)
@@ -1421,13 +1553,15 @@ async def test_configuration_update_conflict_has_no_cli_proxy_side_effects(tmp_p
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = RejectingVersionRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
@@ -1456,13 +1590,15 @@ async def test_oauth_callback_consumes_signed_state_once_and_validates_immediate
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = service._callback_state(record)
     signed_record: Final = record.model_copy(
@@ -1497,13 +1633,16 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
     expected_claim_attempts: int,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
@@ -1513,13 +1652,15 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
         reject_configuration_claim=reject_configuration_claim,
     )
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -1535,26 +1676,31 @@ async def test_oauth_callback_fails_when_ready_or_configuration_claim_conflicts(
 @pytest.mark.asyncio
 async def test_oauth_callback_preserves_configuration_failure(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = FakeCLIProxy()
     cli.fail_proxy_once = True
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -1575,13 +1721,16 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
     reject_configuration_claim: bool,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     state: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )._callback_state(record)
     awaiting: Final = record.model_copy(
         update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
@@ -1591,13 +1740,16 @@ async def test_refresh_authorization_handles_reconciliation_conflicts(
         reject_ready_save=not reject_configuration_claim,
         reject_configuration_claim=reject_configuration_claim,
     )
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy(authorization_status="ok")
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(authorization_status="ok"),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     refreshed: Final = await service._refresh_authorization(awaiting)
@@ -1621,26 +1773,32 @@ async def test_oauth_callback_persists_legal_non_ready_authorization_state(
             "manual_cooldown": observed_status is EnvironmentStatus.COOLING_DOWN,
         }
     )
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     awaiting: Final = record.model_copy(
         update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]}
     )
     repository: Final = MemoryRepository(awaiting)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy(observed_status=observed_status)
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(observed_status=observed_status),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -1656,13 +1814,16 @@ async def test_oauth_callback_persists_legal_non_ready_authorization_state(
 @pytest.mark.asyncio
 async def test_refresh_authorization_recovers_configuration_claim_conflict_before_routing(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     awaiting: Final = record.model_copy(
@@ -1670,13 +1831,15 @@ async def test_refresh_authorization_recovers_configuration_claim_conflict_befor
     )
     repository: Final = AuthorizationRecoveryRepository(awaiting)
     cli: Final = FakeCLIProxy(authorization_status="ok")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     refreshed: Final = await service._refresh_authorization(awaiting)
@@ -1701,13 +1864,16 @@ async def test_refresh_authorization_reloads_durable_record_after_final_configur
     tmp_path: Path,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     awaiting: Final = record.model_copy(
@@ -1715,13 +1881,15 @@ async def test_refresh_authorization_reloads_durable_record_after_final_configur
     )
     repository: Final = FinalConfigurationSaveConflictRepository(awaiting)
     cli: Final = FakeCLIProxy(authorization_status="ok")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     refreshed: Final = await service._refresh_authorization(awaiting)
@@ -1759,26 +1927,31 @@ async def test_non_ready_reauthorization_clears_stale_configuration_work(
             "observed_configuration_version": 1,
         }
     )
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     authorization: Final = await bootstrap.authorize_environment(record.id)
     assert not isinstance(authorization, Failure)
     state: Final = (await bootstrap._repository.get(record.id)).oauth_state
     assert state is not None
     cli: Final = FakeCLIProxy(observed_status=observed_status)
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=bootstrap._repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -1802,24 +1975,29 @@ async def test_non_ready_reauthorization_clears_stale_configuration_work(
 @pytest.mark.asyncio
 async def test_oauth_callback_rejects_missing_signature_after_atomic_consumption(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MissingConsumedSignatureRepository(signed),
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -1834,13 +2012,15 @@ async def test_oauth_callback_rejects_expired_mismatched_and_unknown_states_with
     expired_record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     expired_repository: Final = MemoryRepository(expired_record)
     expired_cli: Final = FakeCLIProxy()
+    expired_runtime: Final = FakeRuntime()
     expired_service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=expired_repository,
-        runtime=FakeRuntime(),
+        runtime=expired_runtime,
         cli_proxy=expired_cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(expired_runtime, expired_cli),
     )
     expired_state: Final = expired_service._callback_state(expired_record)
     signed_expired_record: Final = expired_record.model_copy(
@@ -1855,13 +2035,15 @@ async def test_oauth_callback_rejects_expired_mismatched_and_unknown_states_with
     mismatched_record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     mismatched_repository: Final = MemoryRepository(mismatched_record)
     mismatched_cli: Final = FakeCLIProxy()
+    mismatched_runtime: Final = FakeRuntime()
     mismatched_service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=mismatched_repository,
-        runtime=FakeRuntime(),
+        runtime=mismatched_runtime,
         cli_proxy=mismatched_cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(mismatched_runtime, mismatched_cli),
     )
     mismatched_state: Final = mismatched_service._callback_state(mismatched_record)
     signed_mismatched_record: Final = mismatched_record.model_copy(
@@ -1898,13 +2080,15 @@ async def test_oauth_callback_rejects_signature_mismatch_without_forwarding(tmp_
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     tampered_state: Final = "tampered-state-1234.invalid-signature"
     await repository.save(
@@ -1929,13 +2113,15 @@ async def test_oauth_callback_does_not_forward_signature_mismatch_during_atomic_
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record, validate_state_before_consume=False)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     tampered_state: Final = "tampered-state-1234.invalid-signature"
     await repository.save(
@@ -1959,13 +2145,15 @@ async def test_oauth_callback_immediately_reconciles_ready_environment(tmp_path:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     created: Final = await service.create_environment(CreateEnvironmentRequest(name="Test environment"))
 
@@ -1991,13 +2179,15 @@ async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
     cli: Final = BlockingCallbackCLI()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     callback_task: Final = asyncio.create_task(service.submit_oauth_callback(OAuthCallback(code="code", state=state)))
@@ -2027,13 +2217,15 @@ async def test_authorize_environment_refreshes_recoverable_environment_without_p
     record: Final = _record(status=status, auth_file_name=None)
     repository: Final = MemoryRepository(record)
     runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
         runtime=runtime,
-        cli_proxy=FakeCLIProxy(),
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.authorize_environment(record.id)
@@ -2053,13 +2245,15 @@ async def test_update_operation_id_is_idempotent_and_pending_configuration_retri
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
     cli.fail_proxy_once = True
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
@@ -2095,13 +2289,15 @@ async def test_delete_environment_is_idempotent_and_removes_resources(tmp_path: 
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = MemoryRepository(record)
     runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
         runtime=runtime,
-        cli_proxy=FakeCLIProxy(),
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     first_result: Final = await service.delete_environment(record.id)
@@ -2121,13 +2317,15 @@ async def test_delete_environment_can_retry_after_runtime_failure(tmp_path: Path
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = MemoryRepository(record)
     runtime: Final = FailingOnceRuntime()
+    cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
         runtime=runtime,
-        cli_proxy=FakeCLIProxy(),
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     failed: Final = await service.delete_environment(record.id)
@@ -2188,25 +2386,30 @@ async def test_oauth_callback_rejects_non_completion_status_after_final_reload(
     raced_status: EnvironmentStatus,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     bootstrap: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=MemoryRepository(record),
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     state: Final = bootstrap._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = FinalAuthorizationStatusRaceRepository(signed, raced_status)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=state))
@@ -2227,13 +2430,15 @@ async def test_create_rejects_invalid_upstream_authorization_url_without_pending
 ) -> None:
     cli: Final = InvalidAuthorizationURLCLI(authorization_url)
     repository: Final = MemoryRepository(_record(status=EnvironmentStatus.READY))
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.create_environment(CreateEnvironmentRequest(name="New environment"))
@@ -2248,13 +2453,15 @@ async def test_reauthorize_rejects_invalid_upstream_authorization_url_without_pe
     record: Final = _record(status=EnvironmentStatus.ERROR)
     repository: Final = MemoryRepository(record)
     cli: Final = InvalidAuthorizationURLCLI("/relative")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.authorize_environment(record.id)
@@ -2283,13 +2490,15 @@ async def test_reauthorize_failure_invalidates_previous_oauth_state(tmp_path: Pa
     )
     repository: Final = MemoryRepository(pending)
     cli: Final = InvalidAuthorizationURLCLI("/relative")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.authorize_environment(record.id)
@@ -2322,13 +2531,15 @@ async def test_oauth_callback_rejects_state_not_in_authorization_status(tmp_path
     )
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     result: Final = await service.submit_oauth_callback(OAuthCallback(code="code", state=record.oauth_state))
@@ -2378,13 +2589,15 @@ async def test_reconciliation_retries_entire_configuration_in_fixed_order_after_
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = MemoryRepository(record)
     cli: Final = OrderedFailingCLI(failing_step="models")
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
@@ -2421,13 +2634,15 @@ async def test_configuration_snapshot_preserves_automatic_cooldown_credential_di
     )
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
@@ -2471,13 +2686,15 @@ async def test_restarted_service_recovers_pending_configuration_from_repository(
     )
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     restarted: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     reconciled: Final = await restarted.reconcile_pending_configurations()
@@ -2496,13 +2713,15 @@ async def test_reconciliation_skips_deleted_or_completed_record_after_waiting_fo
     )
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     lock: Final = await service._lock_for(record.id)
 
@@ -2525,13 +2744,15 @@ async def test_reconciliation_skips_completed_record_after_waiting_for_lock(tmp_
     )
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     lock: Final = await service._lock_for(record.id)
 
@@ -2557,13 +2778,16 @@ async def test_reconciliation_recovers_after_final_database_save_conflict(tmp_pa
         }
     )
     repository: Final = FailFinalConfigurationSaveOnceRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
-        cli_proxy=FakeCLIProxy(),
+        runtime=runtime,
+        cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
 
     first: Final = await service.reconcile_pending_configurations()
@@ -2588,13 +2812,15 @@ async def test_background_reconciliation_retries_after_startup_failure(tmp_path:
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
     cli.fail_proxy_once = True
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     stopped: Final = asyncio.Event()
     task: Final = asyncio.create_task(
@@ -2614,13 +2840,15 @@ async def test_repeated_operation_id_does_not_create_a_second_configuration_vers
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = MemoryRepository(record)
     cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
         settings=_settings(tmp_path),
         repository=repository,
-        runtime=FakeRuntime(),
+        runtime=runtime,
         cli_proxy=cli,
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
     )
     request: Final = UpdateEnvironmentRequest(
         version=record.version,
