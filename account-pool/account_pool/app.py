@@ -12,8 +12,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from account_pool.api import create_router
-from account_pool.cliproxy import HttpCLIProxyClient
-from account_pool.compose import ComposeRuntime
+from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
@@ -28,8 +27,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     environments: Final = PostgresEnvironmentRepository(resolved.database_url)
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
-    cli_proxy: Final = HttpCLIProxyClient(secrets)
-    runtime: Final = ComposeRuntime(resolved, secrets)
+    channel: Final = CLIProxyAPIChannel(resolved, secrets)
+    cli_proxy: Final = channel
+    runtime: Final = channel
     service: Final = EnvironmentService(
         settings=resolved,
         repository=environments,
@@ -59,7 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await retry_task
             except asyncio.CancelledError:
                 pass
-            await cli_proxy.close()
+            await channel.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(create_router(service, resolved.manager_token))
@@ -87,13 +87,13 @@ async def _reconcile_pending_configurations_until_cancelled(
 
 
 async def _restore_control_plane_connections(
-    runtime: ComposeRuntime,
+    runtime: CLIProxyAPIChannel,
     records: tuple[EnvironmentRecord, ...],
 ) -> None:
     await asyncio.gather(*(_restore_control_plane_connection(runtime, record) for record in records))
 
 
-async def _restore_control_plane_connection(runtime: ComposeRuntime, record: EnvironmentRecord) -> None:
+async def _restore_control_plane_connection(runtime: CLIProxyAPIChannel, record: EnvironmentRecord) -> None:
     try:
         await runtime.ensure_control_plane_connections(record.id)
     except Exception as error:

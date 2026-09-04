@@ -54,18 +54,27 @@ class ComposeRuntime:
         self._secrets: Final = secrets
         self._runner: Final = runner
 
-    def environment_dir(self, environment_id: UUID) -> Path:
-        return self._settings.data_root / environment_id.hex
+    @property
+    def settings(self) -> Settings:
+        return self._settings
 
-    async def provision(self, record: EnvironmentRecord) -> None:
+    async def provision(
+        self,
+        record: EnvironmentRecord,
+        *,
+        compose: str | None = None,
+        config: str | None = None,
+    ) -> None:
         environment_dir: Final = self.environment_dir(record.id)
         environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        management_key: Final = self._secrets.derive(record.id, SecretPurpose.MANAGEMENT)
-        gateway_key: Final = self._secrets.derive(record.id, SecretPurpose.GATEWAY)
-        config: Final = render_cli_proxy_config(management_key, gateway_key)
-        _write_private(environment_dir / "compose.yaml", render_compose(record, self._settings))
+        selected_config: Final = config or render_cli_proxy_config(
+            self._secrets.derive(record.id, SecretPurpose.MANAGEMENT),
+            self._secrets.derive(record.id, SecretPurpose.GATEWAY),
+        )
+        selected_compose: Final = compose or render_compose(record, self._settings)
+        _write_private(environment_dir / "compose.yaml", selected_compose)
         await self._create_data_volume(record.id)
-        await self._write_data_volume(record.id, config)
+        await self._write_data_volume(record.id, selected_config)
         await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
 

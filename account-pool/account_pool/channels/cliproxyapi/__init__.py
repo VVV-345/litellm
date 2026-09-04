@@ -1,1 +1,6 @@
-"""本包包含 CLIProxyAPI 渠道的静态供应商定义。"""
+"""CLIProxyAPI channel implementation."""
+
+from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+from account_pool.channels.cliproxyapi.runtime import CLIProxyAPIRuntime
+
+__all__ = ("CLIProxyAPIChannel", "CLIProxyAPIRuntime")

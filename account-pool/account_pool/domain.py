@@ -194,6 +194,7 @@ class GatewayEnvironment(BaseModel):
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str
+    custom_llm_provider: str = "openai"
 
 
 class CreateEnvironmentRequest(BaseModel):
