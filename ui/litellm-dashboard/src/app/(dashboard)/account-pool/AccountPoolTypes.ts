@@ -27,6 +27,9 @@ export type AccountPoolQuotaSnapshot = components["schemas"]["AccountPoolQuotaSn
 export type AccountPoolQuotaWindow = components["schemas"]["AccountPoolQuotaWindow"];
 
 export type AccountPoolStatus = AccountPoolEnvironment["status"];
+export type AccountPoolChannel = AccountPoolEnvironment["channel"];
+export type AccountPoolSupplier = AccountPoolEnvironment["supplier"];
+export type AccountPoolCreateRequest = components["schemas"]["AccountPoolCreateRequest"];
 
 export const toUpdateRequest = (
   environment: AccountPoolEnvironment,

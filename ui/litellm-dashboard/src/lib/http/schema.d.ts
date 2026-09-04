@@ -22557,11 +22557,24 @@ export interface components {
             environment: components["schemas"]["AccountPoolEnvironment"];
             /** Expires At */
             expires_at: string;
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "browser_oauth" | "device_code";
             /** Ssh Command */
-            ssh_command: string;
+            ssh_command: string | null;
+            /** User Code */
+            user_code: string | null;
         };
         /** AccountPoolCreateRequest */
         AccountPoolCreateRequest: {
+            /**
+             * Channel
+             * @default cliproxyapi
+             * @enum {string}
+             */
+            channel: "cliproxyapi" | "freebuff2api";
             /** Name */
             name: string;
             /**
@@ -22570,6 +22583,12 @@ export interface components {
              * @constant
              */
             provider: "openai";
+            /**
+             * Supplier
+             * @default openai_codex
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
@@ -22580,8 +22599,19 @@ export interface components {
             automatic_cooldown: boolean;
             /** Available Models */
             available_models: string[];
+            /**
+             * Channel
+             * @default cliproxyapi
+             * @enum {string}
+             */
+            channel: "cliproxyapi" | "freebuff2api";
             /** Concurrency Limit */
             concurrency_limit: number;
+            /**
+             * Configuration Pending
+             * @default false
+             */
+            configuration_pending: boolean;
             /** Cooldown Until */
             cooldown_until: string | null;
             /** Created At */
@@ -22638,6 +22668,12 @@ export interface components {
              * @enum {string}
              */
             status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting";
+            /**
+             * Supplier
+             * @default openai_codex
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
             /** Updated At */
             updated_at: string;
             /** Version */

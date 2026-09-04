@@ -4,6 +4,7 @@ import { apiClient } from "@/components/networking";
 
 import type {
   AccountPoolAuthorization,
+  AccountPoolCreateRequest,
   AccountPoolEnvironment,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
@@ -20,10 +21,13 @@ export const getAccountPoolEnvironment = (
     accessToken,
   });
 
-export const createAccountPoolEnvironment = (accessToken: string, name: string): Promise<AccountPoolAuthorization> =>
+export const createAccountPoolEnvironment = (
+  accessToken: string,
+  request: AccountPoolCreateRequest,
+): Promise<AccountPoolAuthorization> =>
   apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
     accessToken,
-    body: { name, provider: "openai" },
+    body: request,
   });
 
 export const updateAccountPoolEnvironment = (
