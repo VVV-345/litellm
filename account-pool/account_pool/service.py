@@ -895,8 +895,6 @@ class EnvironmentService:
             return await self._persist_authorization_failure(record, "invalid OAuth state")
         try:
             channel: Final = self._channel(record)
-            if channel is None:
-                raise UnsupportedChannelError(f"{record.channel.value} channel is not implemented")
             status: Final = await channel.authorization_status(record, record.oauth_provider_state or record.oauth_state)
         except Exception:
             return record
@@ -956,23 +954,7 @@ class EnvironmentService:
         return Success(validated_url)
 
     def _gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
-        routable: Final = (
-            record.status == EnvironmentStatus.READY
-            and record.enabled
-            and not record.manual_cooldown
-            and record.cooldown_until is None
-            and not record.configuration_pending
-            and record.desired_configuration_version <= record.observed_configuration_version
-        )
-        channel: Final = self._channel(record)
-        return channel.gateway(record) if channel is not None else GatewayEnvironment(
-            id=record.id,
-            routable=routable,
-            concurrency_limit=record.concurrency_limit,
-            enabled_models=record.enabled_models,
-            api_base=f"http://cliproxy-{record.id.hex}:8317/v1",
-            api_key=self._secrets.derive(record.id, SecretPurpose.GATEWAY),
-        )
+        return self._channel(record).gateway(record)
 
     async def _lock_for(self, environment_id: UUID) -> asyncio.Lock:
         async with self._locks_guard:
