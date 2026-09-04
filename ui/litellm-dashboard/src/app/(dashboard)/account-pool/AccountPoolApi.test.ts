@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAccountPoolEnvironment } from "./AccountPoolApi";
+import type { AccountPoolCreateRequest } from "./AccountPoolTypes";
 
 const postMock = vi.fn();
 
@@ -17,7 +18,7 @@ describe("createAccountPoolEnvironment", () => {
   });
 
   it("sends the selected channel and supplier with no extra fields", async () => {
-    const requestBody = {
+    const requestBody: AccountPoolCreateRequest = {
       name: "Claude account",
       provider: "openai",
       channel: "cliproxyapi",
