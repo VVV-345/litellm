@@ -17,6 +17,7 @@ from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_q
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
+    ChannelKind,
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
@@ -26,11 +27,36 @@ from account_pool.domain import (
     ProxyMode,
     ProxyProfile,
     QuotaSnapshot,
+    SupplierKind,
     UpdateEnvironmentRequest,
     utc_now,
 )
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, _safe_error
+
+
+@pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
+def test_create_environment_request_accepts_all_suppliers_for_cliproxyapi(supplier: str) -> None:
+    request: Final = CreateEnvironmentRequest.model_validate(
+        {"channel": ChannelKind.CLIPROXYAPI.value, "supplier": supplier, "name": "Test environment"}
+    )
+
+    assert request.channel is ChannelKind.CLIPROXYAPI
+    assert request.supplier.value == supplier
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("channel", "unknown-channel"), ("supplier", "unknown-supplier")),
+)
+def test_create_environment_request_rejects_unknown_channel_and_supplier_values(field: str, value: str) -> None:
+    with pytest.raises(ValueError):
+        CreateEnvironmentRequest.model_validate({"name": "Test environment", field: value})
+
+
+def test_update_environment_request_has_no_channel_or_supplier_fields() -> None:
+    assert "channel" not in UpdateEnvironmentRequest.model_fields
+    assert "supplier" not in UpdateEnvironmentRequest.model_fields
 
 
 class MemoryRepository:
@@ -1980,7 +2006,7 @@ async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path)
 
     assert not isinstance(callback_result, Failure)
     assert not isinstance(reauthorize_result, Failure)
-    assert reauthorize_result.value.environment.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert reauthorize_result.value.flow.value == "browser_oauth"
 
 
 @pytest.mark.asyncio
@@ -2004,10 +2030,9 @@ async def test_authorize_environment_refreshes_recoverable_environment_without_p
     result: Final = await service.authorize_environment(record.id)
 
     assert not isinstance(result, Failure)
-    assert result.value.environment.status == EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert result.value.flow.value == "browser_oauth"
     assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
     assert "state-for-test-1234" not in str(result.value.authorization_url)
-    assert result.value.environment.last_error is None
     assert runtime.provisioned == []
 
 

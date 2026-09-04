@@ -25,6 +25,24 @@ class Provider(StrEnum):
     OPENAI = "openai"
 
 
+class ChannelKind(StrEnum):
+    CLIPROXYAPI = "cliproxyapi"
+    FREEBUFF2API = "freebuff2api"
+
+
+class SupplierKind(StrEnum):
+    OPENAI_CODEX = "openai_codex"
+    ANTHROPIC_CLAUDE = "anthropic_claude"
+    GOOGLE_ANTIGRAVITY = "google_antigravity"
+    KIMI = "kimi"
+    XAI = "xai"
+
+
+class AuthorizationFlow(StrEnum):
+    BROWSER_OAUTH = "browser_oauth"
+    DEVICE_CODE = "device_code"
+
+
 class ProxyMode(StrEnum):
     DEFAULT_GATEWAY = "default_gateway"
     PROFILE = "profile"
@@ -105,6 +123,8 @@ class EnvironmentRecord(BaseModel):
     configuration_last_error: str | None = None
     name: str
     provider: Provider
+    channel: ChannelKind = ChannelKind.CLIPROXYAPI
+    supplier: SupplierKind = SupplierKind.OPENAI_CODEX
     status: EnvironmentStatus
     configuration_pending: bool = False
     enabled: bool
@@ -126,6 +146,8 @@ class EnvironmentRecord(BaseModel):
     oauth_state_signature: str | None = None
     oauth_provider_state: str | None = None
     oauth_authorization_url: str | None = None
+    authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
+    authorization_user_code: str | None = None
     last_error: str | None
     created_at: datetime
     updated_at: datetime
@@ -143,6 +165,8 @@ class EnvironmentView(BaseModel):
     observed_configuration_version: int = Field(default=0, ge=0)
     name: str
     provider: Provider
+    channel: ChannelKind = ChannelKind.CLIPROXYAPI
+    supplier: SupplierKind = SupplierKind.OPENAI_CODEX
     status: EnvironmentStatus
     configuration_pending: bool
     enabled: bool
@@ -177,6 +201,8 @@ class CreateEnvironmentRequest(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=80)]
     provider: Provider = Provider.OPENAI
+    channel: ChannelKind = ChannelKind.CLIPROXYAPI
+    supplier: SupplierKind = SupplierKind.OPENAI_CODEX
     operation_id: str | None = Field(default=None, max_length=160)
 
     @field_validator("name")
@@ -227,9 +253,10 @@ class UpdateEnvironmentRequest(BaseModel):
 class AuthorizationView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    environment: EnvironmentView
+    flow: AuthorizationFlow
     authorization_url: HttpUrl
-    ssh_command: str
+    ssh_command: str | None
+    user_code: str | None
     expires_at: datetime
 
 
@@ -291,6 +318,8 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         observed_configuration_version=record.observed_configuration_version,
         name=record.name,
         provider=record.provider,
+        channel=record.channel,
+        supplier=record.supplier,
         status=record.status,
         configuration_pending=record.configuration_pending,
         enabled=record.enabled,
