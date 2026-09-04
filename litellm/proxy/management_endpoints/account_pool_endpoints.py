@@ -107,8 +107,10 @@ class AccountPoolAuthorization(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     environment: AccountPoolEnvironment
+    flow: Literal["browser_oauth", "device_code"]
     authorization_url: HttpUrl
-    ssh_command: str
+    ssh_command: str | None
+    user_code: str | None
     expires_at: str
 
 

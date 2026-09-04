@@ -186,6 +186,7 @@ class EnvironmentService:
         )
         return Success(
             AuthorizationView(
+                environment=to_view(awaiting),
                 flow=awaiting.authorization_flow,
                 authorization_url=validated_authorization_url,
                 ssh_command=command,
@@ -379,6 +380,7 @@ class EnvironmentService:
         if record.oauth_authorization_url is None or record.oauth_expires_at is None:
             raise RuntimeError("authorization operation has no active credentials")
         return AuthorizationView(
+            environment=to_view(record),
             flow=record.authorization_flow,
             authorization_url=_HTTP_URL_ADAPTER.validate_python(record.oauth_authorization_url),
             ssh_command=(

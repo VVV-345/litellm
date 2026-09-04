@@ -2006,6 +2006,7 @@ async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path)
 
     assert not isinstance(callback_result, Failure)
     assert not isinstance(reauthorize_result, Failure)
+    assert reauthorize_result.value.environment.status is EnvironmentStatus.AWAITING_AUTHORIZATION
     assert reauthorize_result.value.flow.value == "browser_oauth"
 
 
@@ -2030,6 +2031,8 @@ async def test_authorize_environment_refreshes_recoverable_environment_without_p
     result: Final = await service.authorize_environment(record.id)
 
     assert not isinstance(result, Failure)
+    assert result.value.environment.status == EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert result.value.environment.last_error is None
     assert result.value.flow.value == "browser_oauth"
     assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
     assert "state-for-test-1234" not in str(result.value.authorization_url)

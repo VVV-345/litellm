@@ -253,6 +253,7 @@ class UpdateEnvironmentRequest(BaseModel):
 class AuthorizationView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    environment: EnvironmentView
     flow: AuthorizationFlow
     authorization_url: HttpUrl
     ssh_command: str | None
