@@ -51,7 +51,9 @@ export const AccountPoolCard = ({
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <CardTitle className="truncate text-base">{environment.name}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.provider")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
+            </p>
             {environment.configuration_pending && (
               <p className="mt-1 text-xs text-muted-foreground" role="status">
                 {t("accountPool.configurationSyncing")}
