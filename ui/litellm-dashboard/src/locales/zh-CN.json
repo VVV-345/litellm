@@ -5554,6 +5554,7 @@
       "manualCooldown": "人工冷却",
       "manualCooldownDescription": "手动暂停请求，取消后按实际健康状态恢复。",
       "outboundProxy": "出站代理",
+      "proxyIgnoredForFreeBuff": "代理配置对该渠道不生效：FreeBuff 容器内的程序不理会 HTTP(S)_PROXY。免费模型有美国出口 IP 限制，需在宿主机做透明代理，或使用上游支持的自建中继。",
       "selectProxyMode": "选择代理模式",
       "defaultGateway": "默认网关",
       "proxyProfile": "代理层 Profile",

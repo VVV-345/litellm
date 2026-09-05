@@ -207,6 +207,11 @@ export const AccountPoolConfigDialog = ({
             </div>
             <div className="grid gap-2">
               <Label>{t("accountPool.config.outboundProxy")}</Label>
+              {environment.channel === "freebuff2api" && (
+                <p className="text-xs text-muted-foreground" role="note">
+                  {t("accountPool.config.proxyIgnoredForFreeBuff")}
+                </p>
+              )}
               <Select value={form.proxy_mode} onValueChange={handleProxyModeChange}>
                 <SelectTrigger className="w-full" disabled={saving || lifecycleDisabled}>
                   <SelectValue placeholder={t("accountPool.config.selectProxyMode")} />

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Final
 from uuid import uuid4
 
@@ -30,15 +31,15 @@ from account_pool.domain import (
     SupplierKind,
     utc_now,
 )
-from account_pool.secrets import EnvironmentSecretDeriver
+from account_pool.secrets import EnvironmentSecretDeriver, StateCipher
 
 _FINGERPRINT_HASH: Final = "fp-hash-for-test"
 
 
-def _settings(tmp_path: object) -> Settings:
+def _settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url="postgresql://unused",
-        data_root=tmp_path,  # type: ignore[arg-type]  # tests pass a tmp path
+        data_root=tmp_path,
         manager_token="m" * 32,
         secret_seed="s" * 32,
         ssh_host="example.com",
@@ -112,9 +113,11 @@ def test_render_freebuff_compose_pins_entrypoint_and_never_binds_host_ports(tmp_
     assert service["volumes"] == ["freebuff-data:/app/credentials:ro"]
 
 
-def test_authorization_state_round_trip_preserves_operation_fields() -> None:
+def test_authorization_state_round_trip_encrypts_payload() -> None:
     from account_pool.channels.freebuff2api.client import CodeAuthorizationOperation
 
+    environment_id: Final = uuid4()
+    cipher: Final = StateCipher(EnvironmentSecretDeriver("s" * 32))
     operation: Final = CodeAuthorizationOperation(
         authorization_url="https://www.codebuff.com/oauth/login?auth_code=secret",
         fingerprint_id="codebuff-cli-litellm-abc",
@@ -122,17 +125,35 @@ def test_authorization_state_round_trip_preserves_operation_fields() -> None:
         expires_at="2026-09-05T08:00:00Z",
     )
 
-    packed: Final = pack_authorization_state(operation)
-    unpacked: Final = unpack_authorization_state(packed)
+    packed: Final = pack_authorization_state(cipher, environment_id, operation)
+    unpacked: Final = unpack_authorization_state(cipher, environment_id, packed)
 
     assert packed.startswith("freebuff:")
+    # 密文里不能出现明文链接或指纹 hash。
+    assert "auth_code=secret" not in packed
+    assert _FINGERPRINT_HASH not in packed
     assert unpacked == operation
 
 
-def test_authorization_state_rejects_malformed_payload() -> None:
-    for malformed in ("freebuff:", "freebuff:not-json", "freebuff:[]", "freebuff:{\"url\":1}", "other:value"):
+def test_authorization_state_rejects_wrong_environment_or_garbage() -> None:
+    from account_pool.channels.freebuff2api.client import CodeAuthorizationOperation
+
+    environment_id: Final = uuid4()
+    cipher: Final = StateCipher(EnvironmentSecretDeriver("s" * 32))
+    operation: Final = CodeAuthorizationOperation(
+        authorization_url="https://www.codebuff.com/oauth/login",
+        fingerprint_id="fp",
+        fingerprint_hash=_FINGERPRINT_HASH,
+        expires_at="",
+    )
+    packed: Final = pack_authorization_state(cipher, environment_id, operation)
+
+    # 用另一个环境的密钥解不开。
+    with pytest.raises(RuntimeError, match="^FreeBuff2API authorization state is malformed$"):
+        unpack_authorization_state(cipher, uuid4(), packed)
+    for malformed in ("freebuff:", "freebuff:not-json", "freebuff:[]", "other:value"):
         with pytest.raises(RuntimeError, match="^FreeBuff2API authorization state is malformed$"):
-            unpack_authorization_state(malformed)
+            unpack_authorization_state(cipher, environment_id, malformed)
 
 
 @pytest.mark.asyncio
@@ -270,7 +291,7 @@ def test_codebuff_client_returns_none_expiry_for_unparseable_expires_at() -> Non
 
 
 @pytest.mark.asyncio
-async def test_channel_authorization_status_waits_until_user_authorizes() -> None:
+async def test_channel_authorization_status_waits_until_user_authorizes(tmp_path: Path) -> None:
     from account_pool.channels.freebuff2api.client import CodeAuthorizationOperation
 
     class StubCodebuffClient:
@@ -288,13 +309,16 @@ async def test_channel_authorization_status_waits_until_user_authorizes() -> Non
         async def authorization_token(self, operation: CodeAuthorizationOperation) -> str | None:
             return None
 
+    record: Final = _record()
     channel: Final = FreeBuff2APIChannel(
-        _settings("/tmp"),
+        _settings(tmp_path),
         EnvironmentSecretDeriver("s" * 32),
         client=StubCodebuffClient(),  # type: ignore[arg-type]  # stub satisfies the used surface
     )
     try:
-        status: Final = await channel.authorization_status(_record(), pack_authorization_state(
+        status: Final = await channel.authorization_status(record, pack_authorization_state(
+            StateCipher(EnvironmentSecretDeriver("s" * 32)),
+            record.id,
             CodeAuthorizationOperation(
                 authorization_url="https://www.codebuff.com/oauth/login",
                 fingerprint_id="fp",
@@ -309,8 +333,8 @@ async def test_channel_authorization_status_waits_until_user_authorizes() -> Non
 
 
 @pytest.mark.asyncio
-async def test_channel_gateway_exposes_openai_compatible_freebuff_endpoint() -> None:
-    channel: Final = FreeBuff2APIChannel(_settings("/tmp"), EnvironmentSecretDeriver("s" * 32))
+async def test_channel_gateway_exposes_openai_compatible_freebuff_endpoint(tmp_path: Path) -> None:
+    channel: Final = FreeBuff2APIChannel(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32))
     try:
         record: Final = _record().model_copy(
             update={
@@ -342,6 +366,7 @@ async def test_channel_gateway_exposes_openai_compatible_freebuff_endpoint() -> 
     ),
 )
 async def test_health_check_treats_unknown_accounts_as_healthy(
+    tmp_path: Path,
     health: dict[str, object],
     expected: bool,
 ) -> None:
@@ -359,7 +384,7 @@ async def test_health_check_treats_unknown_accounts_as_healthy(
         return httpx.Response(404, request=request)
 
     channel: Final = FreeBuff2APIChannel(
-        _settings("/tmp"),
+        _settings(tmp_path),
         EnvironmentSecretDeriver("s" * 32),
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )

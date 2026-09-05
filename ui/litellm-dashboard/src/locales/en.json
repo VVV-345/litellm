@@ -5554,6 +5554,7 @@
       "manualCooldown": "Manual cooldown",
       "manualCooldownDescription": "Pause requests manually. When cleared, readiness follows the actual health state.",
       "outboundProxy": "Outbound proxy",
+      "proxyIgnoredForFreeBuff": "Proxy settings do not affect this channel: the FreeBuff container ignores HTTP(S)_PROXY. Free models require a US exit (transparent proxy on the host, or an upstream CODEBUFF_API relay).",
       "selectProxyMode": "Select proxy mode",
       "defaultGateway": "Default gateway",
       "proxyProfile": "Proxy profile",

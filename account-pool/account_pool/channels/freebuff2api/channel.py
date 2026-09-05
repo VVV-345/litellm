@@ -28,7 +28,7 @@ from account_pool.domain import (
     OAuthCallback,
     SupplierKind,
 )
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 
 _FREEBUFF_SUPPLIER: Final = SupplierDefinition(
     kind=SupplierKind.FREEBUFF,
@@ -49,32 +49,35 @@ def freebuff_supplier() -> SupplierDefinition:
     return _FREEBUFF_SUPPLIER
 
 
-def pack_authorization_state(operation: CodeAuthorizationOperation) -> str:
-    """把 codebuff 授权操作编码进 provider_state；内容随记录加密存储，不落日志。"""
-    return _STATE_PREFIX + json.dumps(
-        {
-            "url": operation.authorization_url,
-            "fingerprint_id": operation.fingerprint_id,
-            "fingerprint_hash": operation.fingerprint_hash,
-            "expires_at": operation.expires_at,
-            "expires_in_seconds": operation.expires_in_seconds,
-        },
-        separators=(",", ":"),
+def pack_authorization_state(cipher: StateCipher, environment_id: UUID, operation: CodeAuthorizationOperation) -> str:
+    """加密后落库的授权操作凭据：数据库只见环境绑定的密文，不落日志。"""
+    return _STATE_PREFIX + cipher.seal(
+        environment_id,
+        json.dumps(
+            {
+                "url": operation.authorization_url,
+                "fingerprint_id": operation.fingerprint_id,
+                "fingerprint_hash": operation.fingerprint_hash,
+                "expires_at": operation.expires_at,
+                "expires_in_seconds": operation.expires_in_seconds,
+            },
+            separators=(",", ":"),
+        ),
     )
 
 
-def unpack_authorization_state(state: str) -> CodeAuthorizationOperation:
+def unpack_authorization_state(cipher: StateCipher, environment_id: UUID, state: str) -> CodeAuthorizationOperation:
     if not state.startswith(_STATE_PREFIX):
         raise RuntimeError("FreeBuff2API authorization state is malformed")
     try:
-        payload: Final = json.loads(state.removeprefix(_STATE_PREFIX))
+        payload: Final = json.loads(cipher.open(environment_id, state.removeprefix(_STATE_PREFIX)))
         operation: Final = CodeAuthorizationOperation(
             authorization_url=payload["url"],
             fingerprint_id=payload["fingerprint_id"],
             fingerprint_hash=payload["fingerprint_hash"],
             expires_at=payload["expires_at"],
         )
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
+    except (ValueError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise RuntimeError("FreeBuff2API authorization state is malformed") from error
     return operation
 
@@ -91,6 +94,7 @@ class FreeBuff2APIChannel:
     ) -> None:
         self._settings: Final = settings
         self._secrets: Final = secrets
+        self._cipher: Final = StateCipher(secrets)
         self._runtime: Final = FreeBuff2APIRuntime(
             runtime or ComposeRuntime(settings, secrets),
             secrets,
@@ -140,13 +144,13 @@ class FreeBuff2APIChannel:
         operation: Final = await self._client.start_authorization(fingerprint_id)
         return AuthorizationStart(
             authorization_url=operation.authorization_url,
-            provider_state=pack_authorization_state(operation),
+            provider_state=pack_authorization_state(self._cipher, record.id, operation),
             user_code=None,
             expires_in_seconds=operation.expires_in_seconds,
         )
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
-        operation: Final = unpack_authorization_state(state)
+        operation: Final = unpack_authorization_state(self._cipher, record.id, state)
         token: Final = await self._client.authorization_token(operation)
         if token is None:
             return "wait"
