@@ -57,7 +57,7 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
   - Google Antigravity：浏览器 OAuth，回调端口 51121，路径 `/oauth-callback`
   - Kimi：设备码授权，返回用户码，无 SSH 隧道
   - xAI：设备码授权，返回用户码，无 SSH 隧道
-- FreeBuff2API（正式实现）：镜像 digest 固定为 `pingmike/freebuff2api@sha256:52e511ed...`，并用固定 entrypoint 绕过上游启动时自动拉取最新代码的引导器。唯一供应商 FreeBuff（Codebuff）：设备码授权，打开 codebuff.com 登录链接完成 Google/GitHub 授权后，Manager 轮询拿到 authToken 写入数据卷凭据文件并重启容器。数据面为 OpenAI 兼容 `/v1`（容器别名 `freebuff-<UUID>`，端口 8787），免费模型有美国出口 IP 限制，非美区部署需配置出站代理
+- FreeBuff2API（正式实现）：镜像 digest 固定为 `pingmike/freebuff2api@sha256:52e511ed...`，并用固定 entrypoint 绕过上游启动时自动拉取最新代码的引导器。唯一供应商 FreeBuff（Codebuff）：设备码授权，打开 codebuff.com 登录链接完成 Google/GitHub 授权后，Manager 轮询拿到 authToken 写入数据卷凭据文件并重启容器。数据面为 OpenAI 兼容 `/v1`（容器别名 `freebuff-<UUID>`，端口 8787）。注意：免费模型有美国出口 IP 限制；freebuff 容器基于 Node 20，fetch 不读取 HTTP(S)_PROXY 环境变量，因此页面的出站代理配置对 FreeBuff 的容器内上游流量无效，非美区部署需在宿主机做透明代理或使用上游支持的 `CODEBUFF_API` 自建中继（当前界面未暴露该配置）
 
 所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，CLIProxyAPI v7.2.146 没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
 

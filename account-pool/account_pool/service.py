@@ -467,7 +467,7 @@ class EnvironmentService:
                 update={
                     "status": EnvironmentStatus.ERROR,
                     "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": "CLIProxyAPI data plane validation failed",
+                    "last_error": "Account channel data plane validation failed",
                     "updated_at": utc_now(),
                 }
             )

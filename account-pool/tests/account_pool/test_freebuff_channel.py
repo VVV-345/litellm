@@ -129,6 +129,12 @@ def test_authorization_state_round_trip_preserves_operation_fields() -> None:
     assert unpacked == operation
 
 
+def test_authorization_state_rejects_malformed_payload() -> None:
+    for malformed in ("freebuff:", "freebuff:not-json", "freebuff:[]", "freebuff:{\"url\":1}", "other:value"):
+        with pytest.raises(RuntimeError, match="^FreeBuff2API authorization state is malformed$"):
+            unpack_authorization_state(malformed)
+
+
 @pytest.mark.asyncio
 async def test_codebuff_client_starts_authorization_with_official_contract() -> None:
     requests: Final[list[httpx.Request]] = []
@@ -208,6 +214,61 @@ async def test_codebuff_client_extracts_token_from_status_user() -> None:
     assert token == "token-secret"
 
 
+def test_codebuff_client_translates_upstream_expiry_to_remaining_seconds() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "loginUrl": "https://www.codebuff.com/oauth/login",
+                "fingerprintHash": _FINGERPRINT_HASH,
+                "expiresAt": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat(),
+            },
+            request=request,
+        )
+
+    async def run() -> None:
+        client: Final = HttpCodebuffClient(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        try:
+            operation: Final = await client.start_authorization("fp")
+        finally:
+            await client.close()
+        assert operation.expires_in_seconds is not None
+        assert 60 <= operation.expires_in_seconds <= 120
+
+    import asyncio
+
+    asyncio.run(run())
+
+
+def test_codebuff_client_returns_none_expiry_for_unparseable_expires_at() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "loginUrl": "https://www.codebuff.com/oauth/login",
+                "fingerprintHash": _FINGERPRINT_HASH,
+                "expiresAt": "not-a-date",
+            },
+            request=request,
+        )
+
+    async def run() -> None:
+        client: Final = HttpCodebuffClient(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        try:
+            operation: Final = await client.start_authorization("fp")
+        finally:
+            await client.close()
+        assert operation.expires_in_seconds is None
+
+    import asyncio
+
+    asyncio.run(run())
+
+
 @pytest.mark.asyncio
 async def test_channel_authorization_status_waits_until_user_authorizes() -> None:
     from account_pool.channels.freebuff2api.client import CodeAuthorizationOperation
@@ -267,3 +328,44 @@ async def test_channel_gateway_exposes_openai_compatible_freebuff_endpoint() -> 
         assert gateway.enabled_models == ("deepseek/deepseek-v4-flash",)
     finally:
         await channel.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("health", "expected"),
+    (
+        ({"status": "critical", "accounts": 1, "alive_accounts": 0, "unknown_accounts": 1}, True),
+        ({"status": "ok", "accounts": 1, "alive_accounts": 1, "unknown_accounts": 0}, True),
+        ({"status": "degraded", "accounts": 2, "alive_accounts": 1, "unknown_accounts": 1}, True),
+        ({"status": "critical", "accounts": 0, "alive_accounts": 0, "unknown_accounts": 0}, False),
+        ({"status": "critical", "accounts": 1, "alive_accounts": 0, "unknown_accounts": 0}, False),
+    ),
+)
+async def test_health_check_treats_unknown_accounts_as_healthy(
+    health: dict[str, object],
+    expected: bool,
+) -> None:
+    record: Final = _record()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/healthz":
+            return httpx.Response(200, json=health, request=request)
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "deepseek/deepseek-v4-flash"}]},
+                request=request,
+            )
+        return httpx.Response(404, request=request)
+
+    channel: Final = FreeBuff2APIChannel(
+        _settings("/tmp"),
+        EnvironmentSecretDeriver("s" * 32),
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        result: Final = await channel.data_plane_health_check(record)
+    finally:
+        await channel.close()
+
+    assert result is expected

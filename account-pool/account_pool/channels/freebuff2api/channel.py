@@ -57,6 +57,7 @@ def pack_authorization_state(operation: CodeAuthorizationOperation) -> str:
             "fingerprint_id": operation.fingerprint_id,
             "fingerprint_hash": operation.fingerprint_hash,
             "expires_at": operation.expires_at,
+            "expires_in_seconds": operation.expires_in_seconds,
         },
         separators=(",", ":"),
     )
@@ -65,13 +66,17 @@ def pack_authorization_state(operation: CodeAuthorizationOperation) -> str:
 def unpack_authorization_state(state: str) -> CodeAuthorizationOperation:
     if not state.startswith(_STATE_PREFIX):
         raise RuntimeError("FreeBuff2API authorization state is malformed")
-    payload: Final = json.loads(state.removeprefix(_STATE_PREFIX))
-    return CodeAuthorizationOperation(
-        authorization_url=payload["url"],
-        fingerprint_id=payload["fingerprint_id"],
-        fingerprint_hash=payload["fingerprint_hash"],
-        expires_at=payload["expires_at"],
-    )
+    try:
+        payload: Final = json.loads(state.removeprefix(_STATE_PREFIX))
+        operation: Final = CodeAuthorizationOperation(
+            authorization_url=payload["url"],
+            fingerprint_id=payload["fingerprint_id"],
+            fingerprint_hash=payload["fingerprint_hash"],
+            expires_at=payload["expires_at"],
+        )
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise RuntimeError("FreeBuff2API authorization state is malformed") from error
+    return operation
 
 
 class FreeBuff2APIChannel:
@@ -137,7 +142,7 @@ class FreeBuff2APIChannel:
             authorization_url=operation.authorization_url,
             provider_state=pack_authorization_state(operation),
             user_code=None,
-            expires_in_seconds=None,
+            expires_in_seconds=operation.expires_in_seconds,
         )
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
@@ -177,7 +182,9 @@ class FreeBuff2APIChannel:
         return await self._runtime.health_check(record, self._http_client)
 
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
-        # 容器没有管理面：模型启停由 Manager 在读取凭据后通过 enabled_models 快照表达，容器内账号轮换由上游驱动。
+        # 容器上游是 Node v20 的 fetch，不读 HTTP(S)_PROXY 环境变量，HTTP 代理对容器内流量无效；
+        # 非美区部署需在宿主机做透明代理，或用上游支持的 CODEBUFF_API 中继地址（当前不暴露）。
+        # 模型启停由 reconciler 按 enabled_models 快照收敛 LiteLLM Deployment，无需容器操作。
         return None
 
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:

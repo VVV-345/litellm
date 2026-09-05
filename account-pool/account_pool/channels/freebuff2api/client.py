@@ -3,18 +3,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Final
 
 import httpx
 from pydantic import BaseModel, ConfigDict
 
 from account_pool.compose_runtime import ComposeRuntime
+from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _UPSTREAM_BASE_URL: Final = "https://www.codebuff.com"
 _UPSTREAM_USER_AGENT: Final = "ai-sdk/openai-compatible/1.0.25/codebuff"
 _CREDENTIAL_FILE_NAME: Final = "freebuff_credentials.json"
+
+
+def _freebuff_compose(record: EnvironmentRecord, settings: Settings, gateway_key: str) -> str:
+    from account_pool.compose_renderer import render_freebuff_compose
+
+    return render_freebuff_compose(record, settings, gateway_key)
+
+
+def _remaining_seconds(expires_at: str | None) -> int | None:
+    """把上游 ISO 过期时间换算成剩余秒数；解析失败或已过期返回 None。"""
+    if not expires_at:
+        return None
+    try:
+        deadline: Final = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    remaining: Final = (deadline - datetime.now(timezone.utc)).total_seconds()
+    return int(remaining) if remaining > 0 else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +53,7 @@ class CodeAuthorizationOperation:
     fingerprint_id: str
     fingerprint_hash: str
     expires_at: str
+    expires_in_seconds: int | None = None
 
 
 class _CodeStartResponse(BaseModel):
@@ -59,6 +80,9 @@ class _HealthResponse(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     status: str
+    accounts: int = 0
+    alive_accounts: int = 0
+    unknown_accounts: int = 0
 
 
 class _ModelResponse(BaseModel):
@@ -95,6 +119,7 @@ class HttpCodebuffClient:
             fingerprint_id=fingerprint_id,
             fingerprint_hash=payload.fingerprintHash,
             expires_at=payload.expiresAt or "",
+            expires_in_seconds=_remaining_seconds(payload.expiresAt),
         )
 
     async def authorization_token(
@@ -125,12 +150,10 @@ class FreeBuff2APIRuntime:
         self._secrets: Final = secrets
 
     async def provision(self, record: EnvironmentRecord) -> None:
-        from account_pool.compose_renderer import render_freebuff_compose
-
         gateway_key: Final = self._secrets.derive(record.id, SecretPurpose.GATEWAY)
         await self._runtime.provision_freebuff(
             record,
-            compose=render_freebuff_compose(record, self._runtime.settings, gateway_key),
+            compose=_freebuff_compose(record, self._runtime.settings, gateway_key),
         )
 
     async def ensure_control_plane_connections(self, environment_id: str) -> None:
@@ -171,7 +194,12 @@ class FreeBuff2APIRuntime:
             )
             if health.status_code != httpx.codes.OK:
                 return False
-            if _HealthResponse.model_validate(health.json()).status == "critical":
+            # critical 只代表账号池为空或全部失效；刚写入凭据、还没有真实流量的账号
+            # 会以 unknown 计数，属于授权完成后的正常状态，不能据此判死。
+            parsed: Final = _HealthResponse.model_validate(health.json())
+            if parsed.accounts == 0:
+                return False
+            if parsed.accounts != parsed.alive_accounts + parsed.unknown_accounts:
                 return False
             models: Final = await client.get(
                 f"{self._base_url(record.id)}/v1/models",
