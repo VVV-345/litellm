@@ -41,6 +41,8 @@ const CLI_PROXY_SUPPLIERS: readonly AccountPoolSupplier[] = [
   "xai",
 ] as const;
 
+const FREEBUFF_SUPPLIERS: readonly AccountPoolSupplier[] = ["freebuff"] as const;
+
 const CHANNELS: readonly AccountPoolChannel[] = ["cliproxyapi", "freebuff2api"] as const;
 
 interface AccountPoolCreateDialogProps {
@@ -67,9 +69,9 @@ export const AccountPoolCreateDialog = ({
 
   const handleChannelChange = (nextChannel: AccountPoolChannel) => {
     setChannel(nextChannel);
-    if (nextChannel !== "cliproxyapi") return;
-    if (!CLI_PROXY_SUPPLIERS.includes(supplier)) {
-      setSupplier("openai_codex");
+    const allowed = nextChannel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS;
+    if (!allowed.includes(supplier)) {
+      setSupplier(allowed[0]);
     }
   };
 
@@ -77,10 +79,6 @@ export const AccountPoolCreateDialog = ({
     const trimmedName = name.trim();
     if (!accessToken || !trimmedName) {
       toast.error(t("accountPool.create.environmentNameRequired"));
-      return;
-    }
-    if (channel === "freebuff2api") {
-      toast.error(t("accountPool.channel.freebuff2apiNotImplemented"));
       return;
     }
     setSaving(true);
@@ -199,35 +197,28 @@ export const AccountPoolCreateDialog = ({
                 </SelectTrigger>
                 <SelectContent>
                   {CHANNELS.map((option) => (
-                    <SelectItem key={option} value={option} disabled={option === "freebuff2api"}>
+                    <SelectItem key={option} value={option}>
                       {t(`accountPool.channel.${option}`)}
-                      {option === "freebuff2api" && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {t("accountPool.channel.notImplemented")}
-                        </span>
-                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            {channel === "cliproxyapi" && (
-              <div className="grid gap-2">
-                <Label htmlFor="account-pool-supplier">{t("accountPool.supplier.label")}</Label>
-                <Select value={supplier} onValueChange={(value) => setSupplier(value as AccountPoolSupplier)}>
-                  <SelectTrigger id="account-pool-supplier" data-testid="account-pool-supplier-select">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CLI_PROXY_SUPPLIERS.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {t(`accountPool.supplier.${option}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid gap-2">
+              <Label htmlFor="account-pool-supplier">{t("accountPool.supplier.label")}</Label>
+              <Select value={supplier} onValueChange={(value) => setSupplier(value as AccountPoolSupplier)}>
+                <SelectTrigger id="account-pool-supplier" data-testid="account-pool-supplier-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(channel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS).map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {t(`accountPool.supplier.${option}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <DialogFooter className="mt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
                 {t("accountPool.cancel")}

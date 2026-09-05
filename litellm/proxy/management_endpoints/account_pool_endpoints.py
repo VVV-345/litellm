@@ -63,6 +63,7 @@ class AccountPoolEnvironment(BaseModel):
         "google_antigravity",
         "kimi",
         "xai",
+        "freebuff",
     ] = "openai_codex"
     configuration_pending: bool = False
     status: Literal[
@@ -103,6 +104,7 @@ class AccountPoolCreateRequest(BaseModel):
         "google_antigravity",
         "kimi",
         "xai",
+        "freebuff",
     ] = "openai_codex"
 
 

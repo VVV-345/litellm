@@ -62,7 +62,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await retry_task
             except asyncio.CancelledError:
                 pass
-            await channel.close()
+            for kind in (ChannelKind.CLIPROXYAPI, ChannelKind.FREEBUFF2API):
+                try:
+                    await channels.channel(kind).close()
+                except UnsupportedChannelError:
+                    continue
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(create_router(service, resolved.manager_token))
@@ -97,7 +101,9 @@ async def _restore_control_plane_connections(
 
 
 async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:
-    if record.channel is not ChannelKind.CLIPROXYAPI:
+    try:
+        channels.get(record.channel)
+    except UnsupportedChannelError:
         return
     try:
         await channels.channel(record.channel).ensure_control_plane_connections(record.id)

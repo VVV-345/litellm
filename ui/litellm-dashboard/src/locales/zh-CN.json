@@ -5528,8 +5528,8 @@
     "create": {
       "authorizationTitle": "完成账号授权",
       "title": "创建号池环境",
-      "authorizationDescription": "浏览器授权：先运行 SSH 隧道再打开授权链接。设备码：打开链接并输入用户码。授权完成后页面会自动刷新环境状态。",
-      "description": "每个环境使用独立的 CLIProxyAPI Compose 网络。",
+      "authorizationDescription": "浏览器授权：先运行 SSH 隧道再打开授权链接。设备码：打开链接并完成授权。授权完成后页面会自动刷新环境状态。",
+      "description": "每个环境使用其渠道专属的隔离 Compose 网络。",
       "sshTunnelCommand": "SSH 隧道命令",
       "copySshTunnelCommand": "复制 SSH 命令",
       "authorizationLink": "授权链接",
@@ -5596,9 +5596,7 @@
     "channel": {
       "label": "渠道",
       "cliproxyapi": "CLIProxyAPI",
-      "freebuff2api": "FreeBuff2API",
-      "notImplemented": "暂未实现",
-      "freebuff2apiNotImplemented": "FreeBuff2API 暂未实现，无法创建"
+      "freebuff2api": "FreeBuff2API"
     },
     "supplier": {
       "label": "供应商",
@@ -5606,7 +5604,8 @@
       "anthropic_claude": "Anthropic Claude",
       "google_antigravity": "Google Antigravity",
       "kimi": "Kimi",
-      "xai": "xAI"
+      "xai": "xAI",
+      "freebuff": "FreeBuff (Codebuff)"
     }
   },
   "nav": {

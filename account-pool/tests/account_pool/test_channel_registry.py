@@ -149,7 +149,11 @@ def test_supplier_quota_parser_preserves_only_unstructured_observation_metadata(
             "x-codex-five-hour-window-minutes": "300",
         },
     )
-    definition: Final = SupplierRegistry.default().get(kind)
+    definition: Final = (
+        ChannelRegistry.default().get(ChannelKind.FREEBUFF2API).supplier(kind)
+        if kind is SupplierKind.FREEBUFF
+        else SupplierRegistry.default().get(kind)
+    )
 
     snapshot: Final = definition.quota_parser(observation)
 
@@ -170,8 +174,27 @@ def test_channel_supplier_annotations_resolve_to_supplier_definition() -> None:
     assert channel_hints["return"] is SupplierDefinition
     assert resolver_hints["return"] is SupplierDefinition
     registry: Final = ChannelRegistry.default()
-    channel: Final = registry.get(ChannelKind.FREEBUFF2API)
+    cliproxy: Final = registry.get(ChannelKind.CLIPROXYAPI)
+    freebuff: Final = registry.get(ChannelKind.FREEBUFF2API)
 
-    for supplier in SupplierKind:
-        with pytest.raises(UnsupportedChannelError, match="^FreeBuff2API is not implemented$"):
-            channel.supplier(supplier)
+    assert freebuff.suppliers == (SupplierKind.FREEBUFF,)
+    with pytest.raises(UnsupportedChannelError, match="^freebuff2api does not support kimi$"):
+        freebuff.supplier(SupplierKind.KIMI)
+    assert cliproxy.supplier(SupplierKind.OPENAI_CODEX).kind is SupplierKind.OPENAI_CODEX
+
+
+def test_freebuff2api_channel_supports_only_freebuff_supplier() -> None:
+    registry: Final = ChannelRegistry.default()
+
+    freebuff: Final = registry.get(ChannelKind.FREEBUFF2API)
+    definition: Final = freebuff.supplier(SupplierKind.FREEBUFF)
+
+    assert definition.kind is SupplierKind.FREEBUFF
+    assert definition.authorization_flow is AuthorizationFlow.DEVICE_CODE
+    assert definition.authorization_path == "/api/auth/cli/code"
+    assert definition.callback_port is None
+    assert definition.callback_path is None
+    for kind in tuple(SupplierKind):
+        if kind is not SupplierKind.FREEBUFF:
+            with pytest.raises(UnsupportedChannelError):
+                freebuff.supplier(kind)

@@ -5528,8 +5528,8 @@
     "create": {
       "authorizationTitle": "Complete account authorization",
       "title": "Create account pool environment",
-      "authorizationDescription": "Browser OAuth: run the SSH tunnel first, then open the authorization link. Device code: open the link and enter the code. The page refreshes the environment status automatically after authorization completes.",
-      "description": "Each environment uses an isolated CLIProxyAPI Compose network.",
+      "authorizationDescription": "Browser OAuth: run the SSH tunnel first, then open the authorization link. Device code: open the link and authorize. The page refreshes the environment status automatically after authorization completes.",
+      "description": "Each environment uses an isolated Compose network for its channel.",
       "sshTunnelCommand": "SSH tunnel command",
       "copySshTunnelCommand": "Copy SSH tunnel command",
       "authorizationLink": "Authorization link",
@@ -5596,9 +5596,7 @@
     "channel": {
       "label": "Channel",
       "cliproxyapi": "CLIProxyAPI",
-      "freebuff2api": "FreeBuff2API",
-      "notImplemented": "Not implemented yet",
-      "freebuff2apiNotImplemented": "FreeBuff2API is not implemented yet"
+      "freebuff2api": "FreeBuff2API"
     },
     "supplier": {
       "label": "Supplier",
@@ -5606,7 +5604,8 @@
       "anthropic_claude": "Anthropic Claude",
       "google_antigravity": "Google Antigravity",
       "kimi": "Kimi",
-      "xai": "xAI"
+      "xai": "xAI",
+      "freebuff": "FreeBuff (Codebuff)"
     }
   },
   "nav": {

@@ -21,7 +21,6 @@ from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationView,
     CleanupProgress,
-    ChannelKind,
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
@@ -141,8 +140,6 @@ class EnvironmentService:
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
-            if request.channel is ChannelKind.FREEBUFF2API:
-                raise UnsupportedChannelError("FreeBuff2API is not implemented")
         except (KeyError, UnsupportedChannelError) as error:
             return Failure(FailureCode.INVALID, str(error))
         if request.operation_id is not None:

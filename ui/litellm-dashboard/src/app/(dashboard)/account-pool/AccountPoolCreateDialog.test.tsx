@@ -32,6 +32,15 @@ const deviceAuthorization = {
   expires_at: "2026-01-01T00:05:00Z",
 };
 
+const linkOnlyAuthorization = {
+  environment: { id: "env-3", channel: "freebuff2api", supplier: "freebuff" },
+  flow: "device_code",
+  authorization_url: "https://www.codebuff.com/oauth/login?auth_code=one-time",
+  ssh_command: null,
+  user_code: null,
+  expires_at: "2026-01-01T00:05:00Z",
+};
+
 const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[0]> = {}) =>
   render(
     <AccountPoolCreateDialog
@@ -55,7 +64,6 @@ describe("AccountPoolCreateDialog", () => {
 
     await user.click(screen.getByTestId("account-pool-channel-select"));
     expect(screen.getByRole("option", { name: "CLIProxyAPI" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("option", { name: /FreeBuff2API/ })).toHaveAttribute("data-disabled");
     await user.keyboard("{Escape}");
 
     await user.click(screen.getByTestId("account-pool-supplier-select"));
@@ -82,16 +90,33 @@ describe("AccountPoolCreateDialog", () => {
     });
   });
 
-  it("shows FreeBuff2API as a disabled option and never calls the API for it", async () => {
+  it("sends freebuff2api with the freebuff supplier when selected", async () => {
+    createMock.mockResolvedValue(linkOnlyAuthorization);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.type(screen.getByLabelText(/环境名称|Environment name/i), "FreeBuff account");
+    await user.click(screen.getByTestId("account-pool-channel-select"));
+    await user.click(screen.getByRole("option", { name: "FreeBuff2API" }));
+    await user.click(screen.getByRole("button", { name: /创建|Create/i }));
+
+    await waitFor(() => {
+      expect(createMock).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({ channel: "freebuff2api", supplier: "freebuff" }),
+      );
+    });
+  });
+
+  it("shows only the freebuff supplier after switching to FreeBuff2API", async () => {
     const user = userEvent.setup();
     renderDialog();
 
     await user.click(screen.getByTestId("account-pool-channel-select"));
-    const freebuff = screen.getByRole("option", { name: /FreeBuff2API/ });
-    expect(freebuff).toHaveAttribute("data-disabled");
-
-    await user.click(screen.getByRole("button", { name: /创建|Create/i }).closest("form") ?? screen.getByRole("button", { name: /创建|Create/i }));
-    expect(createMock).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("option", { name: "FreeBuff2API" }));
+    await user.click(screen.getByTestId("account-pool-supplier-select"));
+    expect(await screen.findByRole("option", { name: "FreeBuff (Codebuff)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "OpenAI Codex" })).not.toBeInTheDocument();
   });
 
   it("renders the SSH command for browser OAuth results and no device-code field", async () => {
@@ -108,5 +133,16 @@ describe("AccountPoolCreateDialog", () => {
     expect(screen.getByTestId("account-pool-device-code")).toBeInTheDocument();
     expect(screen.getByDisplayValue(deviceAuthorization.user_code)).toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-browser-oauth")).not.toBeInTheDocument();
+  });
+
+  it("renders a link-only authorization panel for FreeBuff device-code results", async () => {
+    renderDialog({ initialAuthorization: linkOnlyAuthorization as never });
+
+    expect(screen.getByTestId("account-pool-authorization-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("account-pool-browser-oauth")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("https://www.codebuff.com/oauth/login?auth_code=one-time"),
+    ).toBeInTheDocument();
   });
 });

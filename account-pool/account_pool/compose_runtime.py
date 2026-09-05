@@ -22,6 +22,9 @@ class DockerProcess(Protocol):
     @property
     def returncode(self) -> int | None: ...
 
+    @property
+    def stdin(self) -> asyncio.StreamWriter | None: ...
+
     async def communicate(self) -> tuple[bytes, bytes]: ...
 
     def kill(self) -> None: ...
@@ -70,16 +73,48 @@ class ComposeRuntime:
     ) -> None:
         environment_dir: Final = self.environment_dir(record.id)
         environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        selected_compose: Final = compose or render_compose(record, self._settings)
         selected_config: Final = config or render_cli_proxy_config(
             self._secrets.derive(record.id, SecretPurpose.MANAGEMENT),
             self._secrets.derive(record.id, SecretPurpose.GATEWAY),
         )
-        selected_compose: Final = compose or render_compose(record, self._settings)
         _write_private(environment_dir / "compose.yaml", selected_compose)
         await self._create_data_volume(record.id)
         await self._write_data_volume(record.id, selected_config)
         await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
+
+    async def provision_freebuff(self, record: EnvironmentRecord, *, compose: str) -> None:
+        environment_dir: Final = self.environment_dir(record.id)
+        environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _write_private(environment_dir / "compose.yaml", compose)
+        await self._create_data_volume(record.id)
+        await self._seed_freebuff_data_volume(record.id)
+        await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+        await self.ensure_control_plane_connections(record.id)
+
+    async def _seed_freebuff_data_volume(self, environment_id: UUID) -> None:
+        volume: Final = data_volume_name(environment_id)
+        chown: Final = await self._runner(
+            (
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "-v",
+                f"{volume}:/data:rw",
+                _CHOWN_IMAGE,
+                "chown",
+                "1000:1000",
+                "/data",
+            ),
+            self._docker_environment(),
+        )
+        chown_stdout, chown_stderr = await communicate_with_timeout(chown, self._settings.docker_command_timeout_seconds)
+        if chown.returncode != 0:
+            detail: Final = chown_stderr.decode("utf-8", errors="replace").strip() or chown_stdout.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"failed to chown {volume}: {detail[:500]}")
 
     async def _create_data_volume(self, environment_id: UUID) -> None:
         volume: Final = data_volume_name(environment_id)
@@ -143,6 +178,65 @@ class ComposeRuntime:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
         await self._connect_control_plane(environment_id, self._settings.gateway_container)
+
+    async def write_volume_files(
+        self,
+        environment_id: UUID,
+        image: str,
+        script: str,
+        stdin_content: str,
+        *,
+        user: str | None = None,
+    ) -> None:
+        """在一次性容器里执行 script，通过 stdin 传入敏感内容，避免拼进命令行参数。"""
+        volume: Final = data_volume_name(environment_id)
+        arguments: Final = (
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            f"account-pool-{environment_id.hex}-seed",
+            "--network",
+            "none",
+            "--user",
+            user or self._settings.cli_proxy_user,
+            "--interactive",
+            "--entrypoint",
+            "sh",
+            "-v",
+            f"{volume}:/data:rw",
+            image,
+            "-c",
+            script,
+        )
+        process: Final = await self._runner(arguments, self._docker_environment())
+        try:
+            await asyncio.wait_for(
+                self._write_stdin(process, stdin_content),
+                timeout=self._settings.docker_command_timeout_seconds,
+            )
+        except (TimeoutError, RuntimeError) as error:
+            process.kill()
+            raise RuntimeError(f"failed to write {volume} seed files: {error}") from error
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        if process.returncode != 0:
+            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"failed to write {volume} seed files: {detail[:500]}")
+
+    async def restart(self, environment_id: UUID) -> None:
+        await self._compose(environment_id, "restart")
+
+    async def _write_stdin(self, process: DockerProcess, stdin_content: str) -> None:
+        stdin = process.stdin
+        if stdin is None:
+            raise RuntimeError("docker process stdin is unavailable")
+        try:
+            stdin.write(stdin_content.encode("utf-8"))
+            await stdin.drain()
+            stdin.close()
+            await stdin.wait_closed()
+        except (BrokenPipeError, ConnectionResetError, OSError) as error:
+            raise RuntimeError("docker process closed stdin early") from error
 
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
         command: Final = ("start",) if running else ("stop",)

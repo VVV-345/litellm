@@ -36,6 +36,7 @@ class SupplierKind(StrEnum):
     GOOGLE_ANTIGRAVITY = "google_antigravity"
     KIMI = "kimi"
     XAI = "xai"
+    FREEBUFF = "freebuff"
 
 
 class AuthorizationFlow(StrEnum):

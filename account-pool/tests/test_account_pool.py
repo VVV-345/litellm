@@ -62,11 +62,13 @@ def test_create_environment_request_rejects_unknown_channel_and_supplier_values(
         CreateEnvironmentRequest.model_validate({"name": "Test environment", field: value})
 
 
-def test_channel_registry_rejects_freebuff_before_runtime_creation() -> None:
+def test_channel_registry_rejects_freebuff_supplier_mismatch() -> None:
     registry: Final = ChannelRegistry.default()
 
-    with pytest.raises(UnsupportedChannelError, match="^FreeBuff2API is not implemented$"):
+    with pytest.raises(UnsupportedChannelError, match="^freebuff2api channel is not configured$"):
         registry.channel(ChannelKind.FREEBUFF2API)
+    with pytest.raises(UnsupportedChannelError, match="^freebuff2api does not support kimi$"):
+        registry.get(ChannelKind.FREEBUFF2API).supplier(SupplierKind.KIMI)
 
 
 def test_update_environment_request_has_no_channel_or_supplier_fields() -> None:
@@ -517,10 +519,15 @@ class CompletedDockerProcess:
         self._stdout: Final = stdout
         self._stderr: Final = stderr
         self.killed = False
+        self._stdin = None
 
     @property
     def returncode(self) -> int:
         return self._returncode
+
+    @property
+    def stdin(self):
+        return self._stdin
 
     async def communicate(self) -> tuple[bytes, bytes]:
         return self._stdout, self._stderr
