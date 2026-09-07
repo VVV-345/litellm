@@ -5608,6 +5608,17 @@
       "kimi": "Kimi",
       "xai": "xAI",
       "freebuff": "FreeBuff (Codebuff)"
+    },
+    "proxyGateways": {
+      "title": "代理网关",
+      "description": "每个 Clash 端口是一个网关，在这里切换它的出口节点，走这个网关的所有账号会立刻跟着切换；多个账号可以共用同一个网关。",
+      "loadFailed": "无法连接 Clash 控制器，请确认 Clash 正在运行且控制器地址已配置。",
+      "nodesUnavailable": "节点列表不可用，Clash 恢复响应前暂停切换。",
+      "empty": "尚未配置代理网关。设置 ACCOUNT_POOL_CLASH_GATEWAY_PORTS 后即可使用。",
+      "currentNode": "当前节点：{{node}}",
+      "currentNodeUnknown": "当前节点未知",
+      "selectNode": "切换 {{name}} 的出口节点",
+      "selectNodePlaceholder": "切换节点"
     }
   },
   "nav": {

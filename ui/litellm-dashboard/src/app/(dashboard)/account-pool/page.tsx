@@ -30,6 +30,7 @@ import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { canManageAccountPool } from "./AccountPoolPermissions";
 import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
 import { filterAccountPoolEnvironments, paginateAccountPoolEnvironments } from "./accountPoolSelectors";
+import { ProxyManagerPanel } from "./ProxyManagerPanel";
 import { useAccountPoolMutations } from "./useAccountPoolMutations";
 import { useAccountPoolQuery } from "./useAccountPoolQuery";
 
@@ -224,6 +225,8 @@ export default function AccountPoolPage() {
             </Button>
           </div>
         </div>
+
+        <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
 
         {!environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0 && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">

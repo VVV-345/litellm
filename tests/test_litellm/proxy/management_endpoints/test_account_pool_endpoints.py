@@ -336,3 +336,86 @@ async def test_manager_client_rejects_missing_or_short_token() -> None:
 
     assert getattr(raised.value, "status_code", None) == 503
     await client.close()
+
+
+def _gateway_factory(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> Callable[[], AccountPoolManagerClient]:
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    return factory
+
+
+def test_proxy_admin_can_list_and_switch_proxy_gateways() -> None:
+    switch_bodies: Final[list[dict[str, object]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/proxy-gateways" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "port": 7891,
+                        "profile_id": "clash-gateway-7891",
+                        "name": "Clash 端口 7891",
+                        "proxy_url": "http://host.docker.internal:7891",
+                        "current_node": "美国01",
+                    }
+                ],
+                request=request,
+            )
+        if request.url.path == "/api/proxy-gateways/7891" and request.method == "PUT":
+            switch_bodies.append(json.loads(request.content))
+            return httpx.Response(
+                200,
+                json={
+                    "port": 7891,
+                    "profile_id": "clash-gateway-7891",
+                    "name": "Clash 端口 7891",
+                    "proxy_url": "http://host.docker.internal:7891",
+                    "current_node": "日本02",
+                },
+                request=request,
+            )
+        return httpx.Response(404, request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+
+    with TestClient(app) as client:
+        listing: Final = client.get("/account_pool/proxy-gateways")
+        switched: Final = client.put("/account_pool/proxy-gateways/7891", json={"node_name": "日本02"})
+
+    assert listing.status_code == 200
+    assert listing.json()[0]["current_node"] == "美国01"
+    assert switched.status_code == 200
+    assert switched.json()["current_node"] == "日本02"
+    assert switch_bodies == [{"node_name": "日本02"}]
+
+
+def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/proxy-gateways/nodes" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json=[{"name": "美国01", "proxy_type": "Shadowsocks"}, {"name": "日本02", "proxy_type": "Vmess"}],
+                request=request,
+            )
+        if request.url.path == "/api/proxy-gateways" and request.method == "GET":
+            return httpx.Response(502, json={"detail": "clash controller returned status 502"})
+        return httpx.Response(404, request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+
+    with TestClient(app) as client:
+        nodes: Final = client.get("/account_pool/proxy-gateways/nodes")
+        broken: Final = client.get("/account_pool/proxy-gateways")
+
+    assert nodes.status_code == 200
+    assert [node["name"] for node in nodes.json()] == ["美国01", "日本02"]
+    assert broken.status_code == 502
+    assert broken.json()["detail"] == "clash controller returned status 502"

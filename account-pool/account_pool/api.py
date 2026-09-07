@@ -10,13 +10,27 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict, Field
 
+from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
+from account_pool.proxy_gateways import GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
 _BEARER: Final = HTTPBearer(auto_error=False)
 T = TypeVar("T")
+
+
+class GatewaySwitchRequest(BaseModel):
+    node_name: str = Field(min_length=1, max_length=256)
+
+
+class ClashNodeView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    proxy_type: str
 
 
 def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
@@ -75,6 +89,31 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
     @router.get("/api/proxy-profiles", dependencies=[Depends(require_manager)])
     async def list_proxy_profiles() -> tuple[ProxyProfile, ...]:
         return await service.list_proxy_profiles()
+
+    @router.get("/api/proxy-gateways", dependencies=[Depends(require_manager)])
+    async def list_proxy_gateways() -> tuple[GatewayView, ...]:
+        try:
+            return await service.list_proxy_gateways()
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+    @router.get("/api/proxy-gateways/nodes", dependencies=[Depends(require_manager)])
+    async def list_clash_nodes() -> tuple[ClashNodeView, ...]:
+        try:
+            nodes: Final = await service.list_clash_nodes()
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+        return tuple(ClashNodeView(name=node.name, proxy_type=node.proxy_type) for node in nodes)
+
+    @router.put("/api/proxy-gateways/{port}", dependencies=[Depends(require_manager)])
+    async def switch_proxy_gateway(
+        port: int,
+        request: GatewaySwitchRequest,
+    ) -> GatewayView:
+        try:
+            return await service.switch_proxy_gateway(port, request.node_name)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
     @router.get("/internal/gateway/environments", dependencies=[Depends(require_manager)], include_in_schema=False)
     async def list_gateway_environments() -> tuple[GatewayEnvironment, ...]:

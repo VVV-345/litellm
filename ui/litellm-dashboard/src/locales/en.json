@@ -5608,6 +5608,17 @@
       "kimi": "Kimi",
       "xai": "xAI",
       "freebuff": "FreeBuff (Codebuff)"
+    },
+    "proxyGateways": {
+      "title": "Proxy gateways",
+      "description": "Each Clash port is one gateway. Switch its exit node here; every environment using that gateway follows immediately. Environments may share a gateway.",
+      "loadFailed": "Unable to reach the Clash controller. Check that Clash is running and the controller address is configured.",
+      "nodesUnavailable": "Node list is unavailable; gateway switching is paused until Clash responds.",
+      "empty": "No proxy gateways are configured. Set ACCOUNT_POOL_CLASH_GATEWAY_PORTS to enable them.",
+      "currentNode": "Current node: {{node}}",
+      "currentNodeUnknown": "Current node unknown",
+      "selectNode": "Switch exit node for {{name}}",
+      "selectNodePlaceholder": "Switch node"
     }
   },
   "nav": {

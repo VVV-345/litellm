@@ -207,3 +207,22 @@ class PostgresProxyProfileRepository:
             return None
         proxy_url: Final = row["proxy_url"]
         return proxy_url if isinstance(proxy_url, str) else None
+
+    async def upsert_gateways(self, gateways: Sequence[tuple[str, str, str]]) -> int:
+        """写入或更新 Clash 网关条目；已存在的手工条目不受影响。"""
+        if not gateways:
+            return 0
+        async with _connection(self._database_url) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.executemany(
+                    """
+                    INSERT INTO account_pool_proxy_profiles (id, name, proxy_url)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE
+                    SET name = EXCLUDED.name, proxy_url = EXCLUDED.proxy_url
+                    WHERE account_pool_proxy_profiles.proxy_url <> EXCLUDED.proxy_url
+                       OR account_pool_proxy_profiles.name <> EXCLUDED.name
+                    """,
+                    gateways,
+                )
+        return len(gateways)

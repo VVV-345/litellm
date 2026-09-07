@@ -25,6 +25,17 @@ export type AccountPoolUpdateRequest = Omit<GeneratedAccountPoolUpdateRequest, "
 };
 export type AccountPoolQuotaSnapshot = components["schemas"]["AccountPoolQuotaSnapshot"];
 export type AccountPoolQuotaWindow = components["schemas"]["AccountPoolQuotaWindow"];
+export type AccountPoolProxyGateway = {
+  port: number;
+  profile_id: string;
+  name: string;
+  proxy_url: string;
+  current_node: string | null;
+};
+export type AccountPoolClashNode = {
+  name: string;
+  proxy_type: string;
+};
 
 export type AccountPoolStatus = AccountPoolEnvironment["status"];
 export type AccountPoolChannel = AccountPoolEnvironment["channel"];

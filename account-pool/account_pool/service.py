@@ -16,6 +16,7 @@ from pydantic import HttpUrl, TypeAdapter
 
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cleanup import compose_removed, directory_removed, routes_removed
+from account_pool.clash import ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
@@ -45,6 +46,7 @@ from account_pool.ports import (
     EnvironmentRuntime,
     ProxyProfileRepository,
 )
+from account_pool.proxy_gateways import GatewayView, ProxyGatewayService
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
@@ -79,6 +81,7 @@ class EnvironmentService:
         proxy_profiles: ProxyProfileRepository,
         secrets: EnvironmentSecretDeriver,
         channels: ChannelRegistry | None = None,
+        proxy_gateways: ProxyGatewayService | None = None,
     ) -> None:
         self._settings: Final = settings
         self._repository: Final = repository
@@ -87,6 +90,9 @@ class EnvironmentService:
         self._proxy_profiles: Final = proxy_profiles
         self._secrets: Final = secrets
         self._channels: Final = channels or ChannelRegistry.default(self._settings, self._secrets)
+        self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(
+            self._settings, proxy_profiles
+        )
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
 
@@ -112,6 +118,17 @@ class EnvironmentService:
 
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
+
+    async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
+        return await self._proxy_gateways.list_gateways()
+
+    async def list_clash_nodes(self) -> tuple[ClashProxyNode, ...]:
+        return await self._proxy_gateways.list_nodes()
+
+    async def switch_proxy_gateway(self, port: int, node_name: str) -> GatewayView:
+        view: Final = await self._proxy_gateways.switch_gateway(port, node_name)
+        await self._proxy_gateways.sync_profiles()
+        return view
 
     async def list_gateway_environments(self) -> tuple[GatewayEnvironment, ...]:
         records: Final = await self._repository.list()

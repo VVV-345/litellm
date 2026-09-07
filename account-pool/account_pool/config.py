@@ -3,11 +3,11 @@
 import ipaddress
 import re
 from pathlib import Path
-from typing import Final
+from typing import Annotated, Final
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_CLI_PROXY_IMAGE: Final = (
     "eceasy/cli-proxy-api:v7.2.146@sha256:238691ac26ce55e4d1c5219d72e3ad74838f81eda26359912eeb415e2820d163"
@@ -15,6 +15,15 @@ DEFAULT_CLI_PROXY_IMAGE: Final = (
 DEFAULT_FREEBUFF2API_IMAGE: Final = (
     "pingmike/freebuff2api@sha256:52e511ed7a64d8198edfb8e4e93c4b1ad1ad581b34b7b1765c7e42ceeed3d779"
 )
+
+
+DEFAULT_PROXY_GATEWAY_HOST: Final = "host.docker.internal"
+
+
+def _validate_hostname(value: str) -> str:
+    if not re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?", value):
+        raise ValueError("must be a hostname or IP address")
+    return value
 
 
 class Settings(BaseSettings):
@@ -35,6 +44,55 @@ class Settings(BaseSettings):
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
     freebuff2api_image: str = DEFAULT_FREEBUFF2API_IMAGE
+    clash_controller_url: str = ""
+    clash_secret: str = ""
+    clash_gateway_ports: Annotated[tuple[int, ...], NoDecode] = ()
+    proxy_gateway_host: str = DEFAULT_PROXY_GATEWAY_HOST
+
+    @field_validator("clash_controller_url")
+    @classmethod
+    def validate_clash_controller_url(cls, value: str) -> str:
+        if not value.strip():
+            return ""
+        parsed: Final = urlsplit(value.strip())
+        try:
+            port: Final = parsed.port
+        except ValueError as error:
+            raise ValueError("clash_controller_url must use a valid port") from error
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or port is None
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError("clash_controller_url must be a credential-free HTTP(S) origin with an explicit port")
+        return value.strip()
+
+    @field_validator("clash_gateway_ports", mode="before")
+    @classmethod
+    def parse_clash_gateway_ports(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(int(part.strip()) for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("clash_gateway_ports")
+    @classmethod
+    def validate_clash_gateway_ports(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("clash_gateway_ports must not repeat")
+        if any(not 1 <= port <= 65535 for port in value):
+            raise ValueError("clash_gateway_ports entries must be within 1-65535")
+        return tuple(sorted(value))
+
+    @field_validator("proxy_gateway_host")
+    @classmethod
+    def validate_proxy_gateway_host(cls, value: str) -> str:
+        return _validate_hostname(value.strip())
 
     @field_validator("ssh_host")
     @classmethod

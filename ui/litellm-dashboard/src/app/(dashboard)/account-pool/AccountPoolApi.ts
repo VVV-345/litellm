@@ -4,8 +4,10 @@ import { apiClient } from "@/components/networking";
 
 import type {
   AccountPoolAuthorization,
+  AccountPoolClashNode,
   AccountPoolCreateRequest,
   AccountPoolEnvironment,
+  AccountPoolProxyGateway,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
 } from "./AccountPoolTypes";
@@ -54,3 +56,19 @@ export const deleteAccountPoolEnvironment = (accessToken: string, environmentId:
 
 export const listAccountPoolProxyProfiles = (accessToken: string): Promise<AccountPoolProxyProfile[]> =>
   apiClient.get<AccountPoolProxyProfile[]>("/account_pool/proxy-profiles", { accessToken });
+
+export const listAccountPoolProxyGateways = (accessToken: string): Promise<AccountPoolProxyGateway[]> =>
+  apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken });
+
+export const listAccountPoolClashNodes = (accessToken: string): Promise<AccountPoolClashNode[]> =>
+  apiClient.get<AccountPoolClashNode[]>("/account_pool/proxy-gateways/nodes", { accessToken });
+
+export const switchAccountPoolProxyGateway = (
+  accessToken: string,
+  port: number,
+  nodeName: string,
+): Promise<AccountPoolProxyGateway> =>
+  apiClient.put<AccountPoolProxyGateway>(`/account_pool/proxy-gateways/${port}`, {
+    accessToken,
+    body: { node_name: nodeName },
+  });

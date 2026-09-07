@@ -14,8 +14,10 @@ from fastapi import FastAPI
 from account_pool.api import create_router
 from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
+from account_pool.clash import ClashController
 from account_pool.config import Settings
 from account_pool.domain import ChannelKind, EnvironmentRecord
+from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
@@ -32,6 +34,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
+    controller: Final = (
+        ClashController(resolved.clash_controller_url, resolved.clash_secret)
+        if resolved.clash_controller_url
+        else None
+    )
+    proxy_gateways: Final = (
+        ProxyGatewayService(resolved, profiles, controller)
+        if controller is not None
+        else ProxyGatewayService.disabled(resolved, profiles)
+    )
     service: Final = EnvironmentService(
         settings=resolved,
         repository=environments,
@@ -40,12 +52,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         proxy_profiles=profiles,
         secrets=secrets,
         channels=channels,
+        proxy_gateways=proxy_gateways,
     )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        if resolved.clash_controller_url and resolved.clash_gateway_ports:
+            await proxy_gateways.sync_profiles()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
@@ -67,6 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     await channels.channel(kind).close()
                 except UnsupportedChannelError:
                     continue
+            if controller is not None:
+                await controller.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(create_router(service, resolved.manager_token))

@@ -141,10 +141,36 @@ class AccountPoolProxyProfile(BaseModel):
     protocol: str | None = None
 
 
+class AccountPoolProxyGateway(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port: int
+    profile_id: str
+    name: str
+    proxy_url: str
+    current_node: str | None = None
+
+
+class AccountPoolClashNode(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    proxy_type: str
+
+
+class AccountPoolGatewaySwitchRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    node_name: str = Field(min_length=1, max_length=256)
+
+
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
+_GATEWAYS: Final = TypeAdapter(tuple[AccountPoolProxyGateway, ...])
+_CLASH_NODES: Final = TypeAdapter(tuple[AccountPoolClashNode, ...])
+_GATEWAY_ADAPTER: Final = TypeAdapter(AccountPoolProxyGateway)
 
 
 class AccountPoolManagerClient:
@@ -308,6 +334,37 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "GET", "/api/proxy-profiles")
         return _validate_response(response, _PROFILES)
+
+    @router.get("/proxy-gateways", response_model=tuple[AccountPoolProxyGateway, ...])
+    async def list_proxy_gateways(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProxyGateway, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways")
+        return _validate_response(response, _GATEWAYS)
+
+    @router.get("/proxy-gateways/nodes", response_model=tuple[AccountPoolClashNode, ...])
+    async def list_clash_nodes(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolClashNode, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways/nodes")
+        return _validate_response(response, _CLASH_NODES)
+
+    @router.put("/proxy-gateways/{port}", response_model=AccountPoolProxyGateway)
+    async def switch_proxy_gateway(
+        port: int,
+        request: AccountPoolGatewaySwitchRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            f"/api/proxy-gateways/{port}",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _GATEWAY_ADAPTER)
 
     return router
 
