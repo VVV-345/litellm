@@ -1,0 +1,184 @@
+# 本文件在单台服务器上部署完整号池栈：LiteLLM、号池 Manager、数据库、Docker Socket Proxy。
+# 镜像全部来自 ghcr.io/vvv-345，tag 统一用部署时的 commit 号，升级只改 TAG。
+# 使用方法见同目录 DEPLOY.md
+
+services:
+  db:
+    container_name: litellm_db
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+      - litellm-control
+
+  litellm:
+    container_name: litellm
+    image: ghcr.io/vvv-345/litellm-cliproxy:${DEPLOY_TAG}
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://llmproxy:${LITELLM_DB_PASSWORD}@db:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+      ACCOUNT_POOL_MANAGER_URL: http://account-pool:8091
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      account-pool:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - default
+      - litellm-control
+
+  docker-socket-proxy:
+    container_name: litellm-account-pool-socket-proxy
+    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /run:rw,noexec,nosuid,size=8m
+    mem_limit: 128m
+    cpus: "0.50"
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    environment:
+      CONTAINERS: "1"
+      IMAGES: "1"
+      NETWORKS: "1"
+      INFO: "1"
+      POST: "1"
+      VOLUMES: "1"
+      AUTH: "0"
+      BUILD: "0"
+      EXEC: "0"
+      PLUGINS: "0"
+      SECRETS: "0"
+      SERVICES: "0"
+      SESSION: "0"
+      SWARM: "0"
+      SYSTEM: "0"
+      TASKS: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - account-pool-socket
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:2375/_ping || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  account-pool:
+    container_name: litellm-account-pool
+    image: ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG}
+    restart: unless-stopped
+    environment:
+      ACCOUNT_POOL_DATABASE_URL: postgresql://account_pool:${ACCOUNT_POOL_DB_PASSWORD}@account-pool-db:5432/account_pool
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED}
+      ACCOUNT_POOL_DATA_ROOT: /var/lib/litellm-account-pool/environments
+      ACCOUNT_POOL_MANAGER_CONTAINER: litellm-account-pool
+      ACCOUNT_POOL_GATEWAY_CONTAINER: litellm
+      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST}
+      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER}
+      ACCOUNT_POOL_CALLBACK_PORT: ${ACCOUNT_POOL_CALLBACK_PORT:-8091}
+      ACCOUNT_POOL_CALLBACK_BIND_HOST: ${ACCOUNT_POOL_CALLBACK_BIND_HOST:-127.0.0.1}
+      ACCOUNT_POOL_DOCKER_HOST: tcp://docker-socket-proxy:2375
+      ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
+      ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    ports:
+      - "127.0.0.1:${ACCOUNT_POOL_CALLBACK_PORT:-8091}:8091"
+    volumes:
+      - account_pool_data:/var/lib/litellm-account-pool/environments
+    networks:
+      - account-pool-socket
+      - litellm-control
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+      account-pool-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  account-pool-db:
+    container_name: litellm-account-pool-db
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: account_pool
+      POSTGRES_USER: account_pool
+      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD}
+    volumes:
+      - account_pool_db:/var/lib/postgresql/data
+    networks:
+      - account-pool-socket
+      - litellm-control
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U account_pool -d account_pool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  litellm-control:
+    name: litellm-control
+    internal: true
+  account-pool-socket:
+    name: account-pool-socket
+    internal: true
+
+volumes:
+  postgres_data:
+    name: litellm_postgres_data
+  account_pool_data:
+  account_pool_db:
