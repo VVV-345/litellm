@@ -16,11 +16,13 @@ const gateways: AccountPoolProxyGateway[] = [
   },
 ];
 
+const getConfiguration = vi.fn().mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
 const listGateways = vi.fn();
 const listNodes = vi.fn();
 const switchGateway = vi.fn();
 
 vi.mock("./AccountPoolApi", () => ({
+  getAccountPoolProxyGatewayConfiguration: (...args: unknown[]) => getConfiguration(...args),
   listAccountPoolProxyGateways: (...args: unknown[]) => listGateways(...args),
   listAccountPoolClashNodes: (...args: unknown[]) => listNodes(...args),
   switchAccountPoolProxyGateway: (...args: unknown[]) => switchGateway(...args),
@@ -52,6 +54,7 @@ describe("ProxyManagerPanel", () => {
     renderPanel();
 
     expect(await screen.findByText("当前节点：美国01")).toBeInTheDocument();
+    expect(await screen.findByText("当前配置文件：/opt/litellm/mihomo/config.yaml")).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: /Clash 端口 7891/ }));
     await user.click(await screen.findByRole("option", { name: "日本02" }));

@@ -5618,7 +5618,14 @@
       "currentNode": "当前节点：{{node}}",
       "currentNodeUnknown": "当前节点未知",
       "selectNode": "切换 {{name}} 的出口节点",
-      "selectNodePlaceholder": "切换节点"
+      "selectNodePlaceholder": "切换节点",
+      "configurationPath": "当前配置文件：{{path}}",
+      "configurationPathUnavailable": "当前未声明配置文件位置",
+      "assignment": "端口 {{port}} · {{node}}"
+    },
+    "tabs": {
+      "accounts": "账号管理",
+      "proxyLayer": "代理层设置"
     }
   },
   "nav": {

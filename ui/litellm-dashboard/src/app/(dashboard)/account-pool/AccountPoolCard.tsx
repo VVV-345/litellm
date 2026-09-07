@@ -44,8 +44,13 @@ export const AccountPoolCard = ({
 }: AccountPoolCardProps) => {
   const { t, i18n } = useTranslation();
   const quotaWindow = mostConstrainedWindow(environment);
-  const proxyLabel = proxyGateway
-    ? `${proxyGateway.name} · ${proxyGateway.current_node ?? t("accountPool.proxyGateways.currentNodeUnknown")}`
+  const configuredPort = environment.proxy_profile_id?.match(/^clash-gateway-(\d+)$/)?.[1];
+  const proxyPort = proxyGateway?.port ?? configuredPort;
+  const proxyLabel = proxyPort
+    ? t("accountPool.proxyGateways.assignment", {
+        port: proxyPort,
+        node: proxyGateway?.current_node ?? t("accountPool.proxyGateways.currentNodeUnknown"),
+      })
     : environment.proxy_profile_id;
   const authorizationAction =
     environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
@@ -128,9 +133,7 @@ export const AccountPoolCard = ({
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
           <p className="mt-1 break-words font-medium">
-            {environment.proxy_mode === "default_gateway"
-              ? t("accountPool.config.defaultGateway")
-              : proxyLabel}
+            {environment.proxy_mode === "default_gateway" ? t("accountPool.config.defaultGateway") : proxyLabel}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">

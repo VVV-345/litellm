@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  getAccountPoolProxyGatewayConfiguration,
   listAccountPoolClashNodes,
   listAccountPoolProxyGateways,
   switchAccountPoolProxyGateway,
@@ -24,6 +25,16 @@ export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolea
 export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
   const queryClient = useQueryClient();
   const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
+  const configurationQuery = useQuery({
+    queryKey: ["account-pool", "proxy-gateway-configuration", accessToken],
+    queryFn: () => {
+      if (!accessToken) throw new Error("Access token required");
+      return getAccountPoolProxyGatewayConfiguration(accessToken);
+    },
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: 60_000,
+  });
   const nodesQuery = useQuery({
     queryKey: ["account-pool", "proxy-gateway-nodes", accessToken],
     queryFn: () => {
@@ -47,6 +58,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     gateways: gatewaysQuery.data ?? [],
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
     gatewaysError: gatewaysQuery.isError ? gatewaysQuery.error.message ?? null : null,
+    configuration: configurationQuery.data ?? null,
     refetchGateways: () => void gatewaysQuery.refetch(),
     nodes: nodesQuery.data ?? [],
     nodesLoading: nodesQuery.isLoading || nodesQuery.isFetching,

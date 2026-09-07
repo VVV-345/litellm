@@ -46,7 +46,7 @@ from account_pool.ports import (
     EnvironmentRuntime,
     ProxyProfileRepository,
 )
-from account_pool.proxy_gateways import GatewayView, ProxyGatewayService
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayView, ProxyGatewayService
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
@@ -121,6 +121,9 @@ class EnvironmentService:
 
     async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
         return await self._proxy_gateways.list_gateways()
+
+    def proxy_gateway_configuration(self) -> GatewayConfigurationView:
+        return self._proxy_gateways.configuration()
 
     async def list_clash_nodes(self) -> tuple[ClashProxyNode, ...]:
         return await self._proxy_gateways.list_nodes()

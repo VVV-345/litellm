@@ -21,6 +21,11 @@ class GatewayView:
     current_node: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayConfigurationView:
+    config_path: str | None
+
+
 class ProxyGatewayService:
     """对外提供代理网关管理；账号侧继续消费既有 ProxyProfileRepository，互不感知。"""
 
@@ -52,6 +57,9 @@ class ProxyGatewayService:
 
     async def list_nodes(self) -> tuple[ClashProxyNode, ...]:
         return await self._controller.list_nodes()
+
+    def configuration(self) -> GatewayConfigurationView:
+        return GatewayConfigurationView(config_path=self._settings.clash_config_path or None)
 
     @staticmethod
     def gateway_profile_id(port: int) -> str:

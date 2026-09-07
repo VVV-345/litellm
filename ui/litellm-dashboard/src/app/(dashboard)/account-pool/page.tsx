@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
@@ -229,43 +230,55 @@ export default function AccountPoolPage() {
           </div>
         </div>
 
-        <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
-
-        {!environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0 && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
-            <Input
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
-              }}
-              placeholder={t("accountPool.search")}
-              aria-label={t("accountPool.search")}
-            />
-            <Select
-              value={statusFilter}
-              onValueChange={(value) => {
-                if (STATUS_FILTERS.some((filter) => filter === value)) {
-                  setStatusFilter(value as "all" | AccountPoolStatus);
-                  setPage(1);
-                }
-              }}
-            >
-              <SelectTrigger aria-label={t("accountPool.filterByStatus")} className="w-full">
-                <SelectValue placeholder={t("accountPool.status.all")} />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_FILTERS.map((filter) => (
-                  <SelectItem key={filter} value={filter}>
-                    {t(`accountPool.status.${filter}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {renderContent()}
+        <Tabs defaultValue="accounts">
+          <TabsList variant="line" className="h-auto w-full justify-start rounded-none border-b p-0">
+            <TabsTrigger value="accounts" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.accounts")}
+            </TabsTrigger>
+            <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.proxyLayer")}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="accounts" className="pt-4">
+            {!environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0 && (
+              <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
+                <Input
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder={t("accountPool.search")}
+                  aria-label={t("accountPool.search")}
+                />
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => {
+                    if (STATUS_FILTERS.some((filter) => filter === value)) {
+                      setStatusFilter(value as "all" | AccountPoolStatus);
+                      setPage(1);
+                    }
+                  }}
+                >
+                  <SelectTrigger aria-label={t("accountPool.filterByStatus")} className="w-full">
+                    <SelectValue placeholder={t("accountPool.status.all")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_FILTERS.map((filter) => (
+                      <SelectItem key={filter} value={filter}>
+                        {t(`accountPool.status.${filter}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {renderContent()}
+          </TabsContent>
+          <TabsContent value="proxy-layer" className="pt-4">
+            <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
+          </TabsContent>
+        </Tabs>
       </div>
       {createOpen && (
         <AccountPoolCreateDialog

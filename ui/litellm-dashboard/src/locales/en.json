@@ -5618,7 +5618,14 @@
       "currentNode": "Current node: {{node}}",
       "currentNodeUnknown": "Current node unknown",
       "selectNode": "Switch exit node for {{name}}",
-      "selectNodePlaceholder": "Switch node"
+      "selectNodePlaceholder": "Switch node",
+      "configurationPath": "Current configuration file: {{path}}",
+      "configurationPathUnavailable": "No configuration file location is declared",
+      "assignment": "Port {{port}} · {{node}}"
+    },
+    "tabs": {
+      "accounts": "Account management",
+      "proxyLayer": "Proxy layer"
     }
   },
   "nav": {

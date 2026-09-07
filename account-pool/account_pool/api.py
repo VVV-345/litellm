@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
-from account_pool.proxy_gateways import GatewayView
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
 _BEARER: Final = HTTPBearer(auto_error=False)
@@ -96,6 +96,10 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
             return await service.list_proxy_gateways()
         except ClashError as error:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+    @router.get("/api/proxy-gateways/configuration", dependencies=[Depends(require_manager)])
+    async def get_proxy_gateway_configuration() -> GatewayConfigurationView:
+        return service.proxy_gateway_configuration()
 
     @router.get("/api/proxy-gateways/nodes", dependencies=[Depends(require_manager)])
     async def list_clash_nodes() -> tuple[ClashNodeView, ...]:

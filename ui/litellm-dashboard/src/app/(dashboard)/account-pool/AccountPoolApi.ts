@@ -7,6 +7,7 @@ import type {
   AccountPoolClashNode,
   AccountPoolCreateRequest,
   AccountPoolEnvironment,
+  AccountPoolProxyGatewayConfiguration,
   AccountPoolProxyGateway,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
@@ -59,6 +60,11 @@ export const listAccountPoolProxyProfiles = (accessToken: string): Promise<Accou
 
 export const listAccountPoolProxyGateways = (accessToken: string): Promise<AccountPoolProxyGateway[]> =>
   apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken });
+
+export const getAccountPoolProxyGatewayConfiguration = (
+  accessToken: string,
+): Promise<AccountPoolProxyGatewayConfiguration> =>
+  apiClient.get<AccountPoolProxyGatewayConfiguration>("/account_pool/proxy-gateways/configuration", { accessToken });
 
 export const listAccountPoolClashNodes = (accessToken: string): Promise<AccountPoolClashNode[]> =>
   apiClient.get<AccountPoolClashNode[]>("/account_pool/proxy-gateways/nodes", { accessToken });

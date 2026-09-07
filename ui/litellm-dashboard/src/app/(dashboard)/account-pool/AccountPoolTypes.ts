@@ -32,6 +32,9 @@ export type AccountPoolProxyGateway = {
   proxy_url: string;
   current_node: string | null;
 };
+export type AccountPoolProxyGatewayConfiguration = {
+  config_path: string | null;
+};
 export type AccountPoolClashNode = {
   name: string;
   proxy_type: string;

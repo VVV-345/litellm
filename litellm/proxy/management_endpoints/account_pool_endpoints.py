@@ -151,6 +151,12 @@ class AccountPoolProxyGateway(BaseModel):
     current_node: str | None = None
 
 
+class AccountPoolProxyGatewayConfiguration(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    config_path: str | None = None
+
+
 class AccountPoolClashNode(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -169,6 +175,7 @@ _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
 _GATEWAYS: Final = TypeAdapter(tuple[AccountPoolProxyGateway, ...])
+_GATEWAY_CONFIGURATION: Final = TypeAdapter(AccountPoolProxyGatewayConfiguration)
 _CLASH_NODES: Final = TypeAdapter(tuple[AccountPoolClashNode, ...])
 _GATEWAY_ADAPTER: Final = TypeAdapter(AccountPoolProxyGateway)
 
@@ -342,6 +349,14 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways")
         return _validate_response(response, _GATEWAYS)
+
+    @router.get("/proxy-gateways/configuration", response_model=AccountPoolProxyGatewayConfiguration)
+    async def get_proxy_gateway_configuration(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGatewayConfiguration:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways/configuration")
+        return _validate_response(response, _GATEWAY_CONFIGURATION)
 
     @router.get("/proxy-gateways/nodes", response_model=tuple[AccountPoolClashNode, ...])
     async def list_clash_nodes(

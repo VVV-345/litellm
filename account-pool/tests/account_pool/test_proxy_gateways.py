@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, cast
 from urllib.parse import urlsplit
 
 import pytest
-
+from account_pool.api import create_router
 from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings
-from account_pool.proxy_gateways import GatewayView, ProxyGatewayService
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayView, ProxyGatewayService
+from account_pool.service import EnvironmentService
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 @dataclass
@@ -143,3 +146,41 @@ def test_gateway_profile_id_and_selector_share_naming() -> None:
     assert ProxyGatewayService.gateway_profile_id(7891) == "clash-gateway-7891"
     parsed: Final = urlsplit(_settings((7891,)).clash_controller_url)
     assert parsed.hostname == "127.0.0.1"
+
+
+def test_gateway_configuration_reports_only_the_declared_config_path() -> None:
+    settings: Final = Settings(
+        database_url="postgresql://test:test@db:5432/test",
+        manager_token="t" * 32,
+        secret_seed="s" * 32,
+        ssh_host="example.test",
+        ssh_user="deploy",
+        clash_config_path="/opt/litellm/mihomo/config.yaml",
+    )
+    service, _ = _service(settings, FakeController())
+
+    assert service.configuration().config_path == "/opt/litellm/mihomo/config.yaml"
+
+
+@dataclass(frozen=True)
+class ConfigurationService:
+    config_path: str | None
+
+    def proxy_gateway_configuration(self) -> GatewayConfigurationView:
+        return GatewayConfigurationView(config_path=self.config_path)
+
+
+def test_manager_api_returns_declared_configuration_path() -> None:
+    app: Final = FastAPI()
+    manager_token: Final = "t" * 32
+    service: Final = cast(EnvironmentService, ConfigurationService("/opt/litellm/mihomo/config.yaml"))
+    app.include_router(create_router(service, manager_token))
+
+    with TestClient(app) as client:
+        response: Final = client.get(
+            "/api/proxy-gateways/configuration",
+            headers={"Authorization": f"Bearer {manager_token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}

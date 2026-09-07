@@ -397,6 +397,21 @@ def test_proxy_admin_can_list_and_switch_proxy_gateways() -> None:
     assert switch_bodies == [{"node_name": "日本02"}]
 
 
+def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/proxy-gateways/configuration" and request.method == "GET":
+            return httpx.Response(200, json={"config_path": "/opt/litellm/mihomo/config.yaml"}, request=request)
+        return httpx.Response(404, request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+
+    with TestClient(app) as client:
+        response: Final = client.get("/account_pool/proxy-gateways/configuration")
+
+    assert response.status_code == 200
+    assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
+
+
 def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/proxy-gateways/nodes" and request.method == "GET":

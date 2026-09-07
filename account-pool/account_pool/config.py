@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     freebuff2api_image: str = DEFAULT_FREEBUFF2API_IMAGE
     clash_controller_url: str = ""
     clash_secret: str = ""
+    clash_config_path: str = Field(default="", max_length=1024)
     clash_gateway_ports: Annotated[tuple[int, ...], NoDecode] = ()
     proxy_gateway_host: str = DEFAULT_PROXY_GATEWAY_HOST
 
@@ -69,6 +70,11 @@ class Settings(BaseSettings):
             or not 1 <= port <= 65535
         ):
             raise ValueError("clash_controller_url must be a credential-free HTTP(S) origin with an explicit port")
+        return value.strip()
+
+    @field_validator("clash_config_path")
+    @classmethod
+    def normalize_clash_config_path(cls, value: str) -> str:
         return value.strip()
 
     @field_validator("clash_gateway_ports", mode="before")

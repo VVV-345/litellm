@@ -66,12 +66,12 @@ describe("AccountPoolCard", () => {
       },
     );
 
-    expect(screen.getByText("Clash 端口 7891 · 美国01")).toBeInTheDocument();
+    expect(screen.getByText("端口 7891 · 美国01")).toBeInTheDocument();
   });
 
-  it("keeps the selected profile visible while gateway details are unavailable", () => {
+  it("shows the selected port when gateway details are unavailable", () => {
     renderCard({ proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" });
-    expect(screen.getByText("clash-gateway-7891")).toBeInTheDocument();
+    expect(screen.getByText("端口 7891 · 当前节点未知")).toBeInTheDocument();
   });
 
   it("shows translated channel and supplier labels instead of a static OpenAI label", () => {

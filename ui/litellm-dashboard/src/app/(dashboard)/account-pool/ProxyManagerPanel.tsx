@@ -15,8 +15,17 @@ interface ProxyManagerPanelProps {
 
 export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelProps) => {
   const { t } = useTranslation();
-  const { gateways, gatewaysLoading, gatewaysError, refetchGateways, nodes, nodesLoading, nodesError, switchMutation } =
-    useProxyGateways(accessToken, enabled);
+  const {
+    gateways,
+    gatewaysLoading,
+    gatewaysError,
+    configuration,
+    refetchGateways,
+    nodes,
+    nodesLoading,
+    nodesError,
+    switchMutation,
+  } = useProxyGateways(accessToken, enabled);
 
   if (!enabled) return null;
 
@@ -28,6 +37,11 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
         <div>
           <p className="text-sm font-medium">{t("accountPool.proxyGateways.title")}</p>
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.description")}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {configuration?.config_path
+              ? t("accountPool.proxyGateways.configurationPath", { path: configuration.config_path })
+              : t("accountPool.proxyGateways.configurationPathUnavailable")}
+          </p>
         </div>
         <Button
           type="button"
