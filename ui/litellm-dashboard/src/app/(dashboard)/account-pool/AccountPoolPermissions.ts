@@ -22,7 +22,7 @@ export const canToggleEnvironment = (environment: AccountPoolEnvironment): boole
 
 export const canConfigureEnvironment = (environment: AccountPoolEnvironment): boolean =>
   !isConfigurationPending(environment) &&
-  !TRANSITIONAL_STATUSES.has(environment.status) &&
+  !(environment.status === "validating" || environment.status === "deleting") &&
   !(environment.status === "error" && environment.available_models.length === 0);
 
 export const canDeleteEnvironment = (environment: AccountPoolEnvironment): boolean =>

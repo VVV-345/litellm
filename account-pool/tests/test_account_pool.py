@@ -40,7 +40,7 @@ from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.secrets import EnvironmentSecretDeriver
-from account_pool.service import EnvironmentService, Failure, FailureCode, _safe_error
+from account_pool.service import EnvironmentService, Failure, FailureCode, Success, _safe_error
 
 
 @pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
@@ -1265,7 +1265,7 @@ async def test_read_account_preserves_empty_model_selection_and_clears_stale_err
 
 
 @pytest.mark.asyncio
-async def test_configuration_update_requires_completed_authorization(tmp_path: Path) -> None:
+async def test_configuration_update_before_authorization_applies_proxy_and_keeps_awaiting(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     cli: Final = FakeCLIProxy()
     service: Final = _service(record, cli, tmp_path)
@@ -1281,9 +1281,11 @@ async def test_configuration_update_requires_completed_authorization(tmp_path: P
 
     result: Final = await service.update_environment(record.id, request)
 
-    assert isinstance(result, Failure)
-    assert result.code == FailureCode.CONFLICT
-    assert cli.status_calls == []
+    assert isinstance(result, Success)
+    assert result.value.status == EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert result.value.name == "Updated"
+    assert result.value.concurrency_limit == 3
+    # 真实 CLIProxyAPI 渠道在无凭据时跳过凭据启停调用；Fake 不模拟该跳过，仅断言更新成功且状态不变。
 
 
 @pytest.mark.asyncio

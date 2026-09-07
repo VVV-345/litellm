@@ -59,6 +59,11 @@ export const AccountPoolCard = ({
                 {t("accountPool.configurationSyncing")}
               </p>
             )}
+            {environment.status === "awaiting_authorization" && (
+              <p className="mt-1 text-xs text-muted-foreground" role="status">
+                {t("accountPool.preAuthorizationProxyHint")}
+              </p>
+            )}
           </div>
           <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
         </div>

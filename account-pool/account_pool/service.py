@@ -550,7 +550,7 @@ class EnvironmentService:
                     desired: Final = record.desired_configuration or configuration_from_record(record)
                     return await self._apply_and_persist_configuration(record, desired)
                 return Success(to_view(record))
-            if record.auth_file_name is None:
+            if record.auth_file_name is None and record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION:
                 return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
@@ -786,6 +786,9 @@ class EnvironmentService:
         # 自动冷却必须先通过真实数据面探活，配置保存不能成为绕过额度保护的入口。
         if manual_cooldown:
             return _AutomaticCooldownState.ACTIVE if record.cooldown_until is not None else _AutomaticCooldownState.NONE
+        if record.status is EnvironmentStatus.AWAITING_AUTHORIZATION:
+            # 授权完成前数据面必然不健康，探活只会误报 BLOCKED，保持等待授权状态即可。
+            return _AutomaticCooldownState.NONE
         if record.cooldown_until is not None:
             if record.cooldown_until > utc_now():
                 return _AutomaticCooldownState.ACTIVE

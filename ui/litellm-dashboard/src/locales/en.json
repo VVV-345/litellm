@@ -5475,6 +5475,7 @@
     "description": "Manage isolated OpenAI Codex environments and gateway routing.",
     "provider": "OpenAI Codex",
     "configurationSyncing": "Configuration is syncing",
+    "preAuthorizationProxyHint": "Tip: set the outbound proxy before authorizing, so authorization and traffic go through the proxy.",
     "status": {
       "all": "All statuses",
       "provisioning": "Provisioning",

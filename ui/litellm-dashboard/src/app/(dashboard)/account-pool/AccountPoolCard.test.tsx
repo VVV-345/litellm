@@ -59,4 +59,15 @@ describe("AccountPoolCard", () => {
 
     expect(screen.getByText(/CLIProxyAPI · Kimi/)).toBeInTheDocument();
   });
+
+  it("keeps the configure button enabled while awaiting authorization and shows the proxy hint", () => {
+    renderCard({
+      status: "awaiting_authorization",
+      available_models: [],
+      enabled_models: [],
+    });
+
+    expect(screen.getByRole("button", { name: /配置|Configure/i })).toBeEnabled();
+    expect(screen.getByText(/先.*代理|proxy before authorizing/i)).toBeInTheDocument();
+  });
 });
