@@ -45,7 +45,10 @@ describe("ProxyManagerPanel", () => {
       { name: "美国01", proxy_type: "Shadowsocks" },
       { name: "日本02", proxy_type: "Vmess" },
     ]);
-    switchGateway.mockResolvedValue({ ...gateways[0], current_node: "日本02" });
+    switchGateway.mockImplementation(async () => {
+      listGateways.mockResolvedValue([{ ...gateways[0], current_node: "日本02" }]);
+      return { ...gateways[0], current_node: "日本02" };
+    });
     renderPanel();
 
     expect(await screen.findByText("当前节点：美国01")).toBeInTheDocument();
@@ -54,6 +57,21 @@ describe("ProxyManagerPanel", () => {
     await user.click(await screen.findByRole("option", { name: "日本02" }));
 
     expect(switchGateway).toHaveBeenCalledWith("token", 7891, "日本02");
+    expect(await screen.findByText("当前节点：日本02")).toBeInTheDocument();
+  });
+
+  it("reports a rejected switch and retains the observed current node", async () => {
+    const user = userEvent.setup();
+    listGateways.mockResolvedValue(gateways);
+    listNodes.mockResolvedValue([{ name: "日本02", proxy_type: "Vmess" }]);
+    switchGateway.mockRejectedValue(new Error("clash rejected the selection"));
+    renderPanel();
+
+    await user.click(await screen.findByRole("combobox", { name: /Clash 端口 7891/ }));
+    await user.click(await screen.findByRole("option", { name: "日本02" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/切换失败|Unable to switch/i);
+    expect(screen.getByText("当前节点：美国01")).toBeInTheDocument();
   });
 
   it("shows the Clash error hint when the manager cannot reach Clash", async () => {

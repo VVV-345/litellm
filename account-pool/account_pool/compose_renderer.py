@@ -9,7 +9,6 @@ import yaml
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 
-
 _FREEBUFF2API_SERVICE: Final = "freebuff2api"
 _FREEBUFF2API_PORT: Final = 8787
 
@@ -74,6 +73,7 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
                 "security_opt": ["no-new-privileges:true"],
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=32m"],
+                "extra_hosts": ["host.docker.internal:host-gateway"],
                 "volumes": [
                     "cliproxy-data:/data:rw",
                 ],
@@ -92,7 +92,12 @@ def data_volume_name(environment_id: UUID) -> str:
     return f"account-pool-{environment_id.hex}-data"
 
 
-def render_freebuff_compose(record: EnvironmentRecord, settings: Settings, gateway_key: str) -> str:
+def render_freebuff_compose(
+    record: EnvironmentRecord,
+    settings: Settings,
+    gateway_key: str,
+    proxy_url: str = "",
+) -> str:
     environment_slug: Final = record.id.hex
     service_name: Final = f"freebuff-{environment_slug}"
     network_name: Final = f"account-pool-{environment_slug}"
@@ -102,13 +107,25 @@ def render_freebuff_compose(record: EnvironmentRecord, settings: Settings, gatew
         "services": {
             _FREEBUFF2API_SERVICE: {
                 "image": settings.freebuff2api_image,
-                # 上游镜像的引导器会在启动时拉取未固定的最新代码，固定 entrypoint 让容器只运行镜像内置版本。
-                "entrypoint": ["node", "/app/server.js"],
+                # 启动时先安装代理适配器，并绕过上游自动下载代码的引导器。
+                "entrypoint": ["node", "--import", "/opt/freebuff-proxy/proxy-bootstrap.mjs", "/app/server.js"],
+                "healthcheck": {
+                    "test": [
+                        "CMD", "node", "-e",
+                        "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+                    ],
+                    "interval": "30s",
+                    "start_interval": "2s",
+                    "timeout": "3s",
+                    "retries": 3,
+                    "start_period": "5s",
+                },
                 "environment": [
                     f"PORT={_FREEBUFF2API_PORT}",
                     "HOST=0.0.0.0",
                     f"FREEBUFF_API_KEY={gateway_key}",
                     "FREEBUFF_DEBUG=false",
+                    *((f"FREEBUFF_PROXY_URL={proxy_url}",) if proxy_url else ()),
                 ],
                 "restart": "unless-stopped",
                 "read_only": True,
@@ -124,6 +141,7 @@ def render_freebuff_compose(record: EnvironmentRecord, settings: Settings, gatew
                 "security_opt": ["no-new-privileges:true"],
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=32m"],
+                "extra_hosts": ["host.docker.internal:host-gateway"],
                 "volumes": [
                     "freebuff-data:/app/credentials:ro",
                 ],

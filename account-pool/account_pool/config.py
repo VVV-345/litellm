@@ -12,9 +12,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 DEFAULT_CLI_PROXY_IMAGE: Final = (
     "eceasy/cli-proxy-api:v7.2.146@sha256:238691ac26ce55e4d1c5219d72e3ad74838f81eda26359912eeb415e2820d163"
 )
-DEFAULT_FREEBUFF2API_IMAGE: Final = (
-    "pingmike/freebuff2api@sha256:52e511ed7a64d8198edfb8e4e93c4b1ad1ad581b34b7b1765c7e42ceeed3d779"
-)
+DEFAULT_FREEBUFF2API_IMAGE: Final = "litellm-freebuff2api-proxy:1.0.0"
 
 
 DEFAULT_PROXY_GATEWAY_HOST: Final = "host.docker.internal"

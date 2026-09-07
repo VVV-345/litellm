@@ -57,6 +57,7 @@ def test_renderer_keeps_compose_identity_based_on_environment_uuid(tmp_path: Pat
 
     assert rendered == rerendered
     assert "ports" not in rendered["services"]["cli-proxy-api"]
+    assert rendered["services"]["cli-proxy-api"]["extra_hosts"] == ["host.docker.internal:host-gateway"]
     assert rendered["name"] == f"account-pool-{record.id.hex}"
     assert rendered["volumes"] == {"cliproxy-data": {"name": f"account-pool-{record.id.hex}-data"}}
     assert rendered["services"]["cli-proxy-api"]["volumes"] == ["cliproxy-data:/data:rw"]

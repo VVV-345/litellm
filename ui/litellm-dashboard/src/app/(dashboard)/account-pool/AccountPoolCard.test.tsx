@@ -2,13 +2,13 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
 
 vi.mock("./AccountPoolApi", () => ({
   updateAccountPoolEnvironment: vi.fn(),
 }));
 
-const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}) => {
+const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}, proxyGateway?: AccountPoolProxyGateway) => {
   const environment = {
     id: "env-claude-1",
     version: 1,
@@ -38,6 +38,7 @@ const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}) => {
   render(
     <AccountPoolCard
       environment={environment}
+      proxyGateway={proxyGateway}
       onConfigure={vi.fn()}
       onEnabledChange={vi.fn()}
       onAuthorize={vi.fn()}
@@ -47,6 +48,32 @@ const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}) => {
 };
 
 describe("AccountPoolCard", () => {
+  it("allows choosing a proxy after the initial authorization fails", () => {
+    renderCard({ status: "error", available_models: [], enabled_models: [] });
+    expect(screen.getByRole("button", { name: /配置|Configure/i })).toBeEnabled();
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it.each(["cliproxyapi", "freebuff2api"] as const)("shows the shared port and selected node for %s", (channel) => {
+    renderCard(
+      { channel, proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" },
+      {
+        port: 7891,
+        profile_id: "clash-gateway-7891",
+        name: "Clash 端口 7891",
+        proxy_url: "http://host:7891",
+        current_node: "美国01",
+      },
+    );
+
+    expect(screen.getByText("Clash 端口 7891 · 美国01")).toBeInTheDocument();
+  });
+
+  it("keeps the selected profile visible while gateway details are unavailable", () => {
+    renderCard({ proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" });
+    expect(screen.getByText("clash-gateway-7891")).toBeInTheDocument();
+  });
+
   it("shows translated channel and supplier labels instead of a static OpenAI label", () => {
     renderCard();
 

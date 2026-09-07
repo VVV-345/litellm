@@ -8,27 +8,30 @@ import {
   switchAccountPoolProxyGateway,
 } from "./AccountPoolApi";
 
-export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
-  const queryClient = useQueryClient();
-  const queryOptions = {
-    enabled: enabled && accessToken !== null,
-    retry: false,
-  };
-  const gatewaysQuery = useQuery({
+export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolean) =>
+  useQuery({
     queryKey: ["account-pool", "proxy-gateways", accessToken],
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolProxyGateways(accessToken);
     },
-    ...queryOptions,
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
   });
+
+export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
+  const queryClient = useQueryClient();
+  const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
   const nodesQuery = useQuery({
     queryKey: ["account-pool", "proxy-gateway-nodes", accessToken],
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolClashNodes(accessToken);
     },
-    ...queryOptions,
+    enabled: enabled && accessToken !== null,
+    retry: false,
   });
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["account-pool", "proxy-gateways"] });
@@ -43,11 +46,11 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
   return {
     gateways: gatewaysQuery.data ?? [],
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
-    gatewaysError: gatewaysQuery.isError ? (gatewaysQuery.error.message ?? null) : null,
+    gatewaysError: gatewaysQuery.isError ? gatewaysQuery.error.message ?? null : null,
     refetchGateways: () => void gatewaysQuery.refetch(),
     nodes: nodesQuery.data ?? [],
     nodesLoading: nodesQuery.isLoading || nodesQuery.isFetching,
-    nodesError: nodesQuery.isError ? (nodesQuery.error.message ?? null) : null,
+    nodesError: nodesQuery.isError ? nodesQuery.error.message ?? null : null,
     switchMutation,
   };
 };

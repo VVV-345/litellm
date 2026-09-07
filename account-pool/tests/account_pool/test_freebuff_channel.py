@@ -10,7 +10,6 @@ from uuid import uuid4
 import httpx
 import pytest
 import yaml
-
 from account_pool.channels.freebuff2api.channel import (
     FreeBuff2APIChannel,
     freebuff_supplier,
@@ -29,6 +28,7 @@ from account_pool.domain import (
     ProxyMode,
     QuotaSnapshot,
     SupplierKind,
+    configuration_from_record,
     utc_now,
 )
 from account_pool.secrets import EnvironmentSecretDeriver, StateCipher
@@ -86,7 +86,7 @@ def test_freebuff_supplier_contract_matches_codebuff_cli_flow() -> None:
     assert definition.callback_path is None
 
 
-def test_render_freebuff_compose_pins_entrypoint_and_never_binds_host_ports(tmp_path: object) -> None:
+def test_render_freebuff_compose_pins_entrypoint_and_never_binds_host_ports(tmp_path: Path) -> None:
     record: Final = _record()
     settings: Final = _settings(tmp_path)
     renamed: Final = record.model_copy(update={"name": "Renamed"})
@@ -98,7 +98,9 @@ def test_render_freebuff_compose_pins_entrypoint_and_never_binds_host_ports(tmp_
     assert rendered == rerendered
     assert "ports" not in service
     assert rendered["name"] == f"account-pool-{record.id.hex}"
-    assert service["entrypoint"] == ["node", "/app/server.js"]
+    assert service["entrypoint"] == ["node", "--import", "/opt/freebuff-proxy/proxy-bootstrap.mjs", "/app/server.js"]
+    assert service["extra_hosts"] == ["host.docker.internal:host-gateway"]
+    assert "/healthz" in service["healthcheck"]["test"][-1]
     assert service["environment"] == [
         "PORT=8787",
         "HOST=0.0.0.0",
@@ -111,6 +113,22 @@ def test_render_freebuff_compose_pins_entrypoint_and_never_binds_host_ports(tmp_
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
     assert service["volumes"] == ["freebuff-data:/app/credentials:ro"]
+
+
+def test_freebuff_proxy_changes_only_container_environment_not_storage_or_network(tmp_path: Path) -> None:
+    record: Final = _record()
+    settings: Final = _settings(tmp_path)
+    direct: Final = yaml.safe_load(render_freebuff_compose(record, settings, "gateway-key-test"))
+    proxied: Final = yaml.safe_load(render_freebuff_compose(
+        record, settings, "gateway-key-test", proxy_url="http://host.docker.internal:7891",
+    ))
+    assert proxied["services"]["freebuff2api"]["environment"] == [
+        *direct["services"]["freebuff2api"]["environment"],
+        "FREEBUFF_PROXY_URL=http://host.docker.internal:7891",
+    ]
+    assert proxied["volumes"] == direct["volumes"]
+    assert proxied["networks"] == direct["networks"]
+    assert "ports" not in proxied["services"]["freebuff2api"]
 
 
 def test_authorization_state_round_trip_encrypts_payload() -> None:
@@ -298,7 +316,7 @@ async def test_channel_authorization_status_waits_until_user_authorizes(tmp_path
         async def close(self) -> None:
             return None
 
-        async def start_authorization(self, fingerprint_id: str) -> CodeAuthorizationOperation:
+        async def start_authorization(self, fingerprint_id: str, *, proxy_url: str = "") -> CodeAuthorizationOperation:
             return CodeAuthorizationOperation(
                 authorization_url="https://www.codebuff.com/oauth/login",
                 fingerprint_id=fingerprint_id,
@@ -306,7 +324,7 @@ async def test_channel_authorization_status_waits_until_user_authorizes(tmp_path
                 expires_at="",
             )
 
-        async def authorization_token(self, operation: CodeAuthorizationOperation) -> str | None:
+        async def authorization_token(self, operation: CodeAuthorizationOperation, *, proxy_url: str = "") -> str | None:
             return None
 
     record: Final = _record()
@@ -373,6 +391,7 @@ async def test_health_check_treats_unknown_accounts_as_healthy(
     record: Final = _record()
 
     def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == f"freebuff-{record.id.hex}"
         if request.url.path == "/healthz":
             return httpx.Response(200, json=health, request=request)
         if request.url.path == "/v1/models":
@@ -394,3 +413,57 @@ async def test_health_check_treats_unknown_accounts_as_healthy(
         await channel.close()
 
     assert result is expected
+
+
+@pytest.mark.asyncio
+async def test_authorization_reads_current_account_proxy_and_closes_temporary_clients(tmp_path: Path) -> None:
+    requests: Final[list[tuple[str, str]]] = []
+    clients: Final[list[httpx.AsyncClient]] = []
+
+    def handler(proxy_url: str, request: httpx.Request) -> httpx.Response:
+        requests.append((proxy_url, request.url.path))
+        if request.url.path == "/api/auth/cli/code":
+            return httpx.Response(200, json={
+                "loginUrl": "https://www.codebuff.com/oauth/login",
+                "fingerprintHash": _FINGERPRINT_HASH,
+            })
+        return httpx.Response(401)
+
+    def factory(proxy_url: str) -> httpx.AsyncClient:
+        client: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: handler(proxy_url, request)))
+        clients.append(client)
+        return client
+
+    record: Final = _record().model_copy(update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "first"})
+    first: Final = record.model_copy(update={
+        "desired_configuration": configuration_from_record(record, "http://host.docker.internal:7891"),
+    })
+    second: Final = first.model_copy(update={
+        "proxy_profile_id": "second",
+        "desired_configuration": configuration_from_record(record, "http://host.docker.internal:7892"),
+    })
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: handler("direct", request))) as direct:
+        channel: Final = FreeBuff2APIChannel(
+            _settings(tmp_path),
+            EnvironmentSecretDeriver("s" * 32),
+            client=HttpCodebuffClient(direct, proxy_client_factory=factory),
+        )
+        try:
+            operation: Final = await channel.start_authorization(first)
+            assert await channel.authorization_status(first, operation.provider_state) == "wait"
+            assert await channel.authorization_status(second, operation.provider_state) == "wait"
+            assert await channel.authorization_status(
+                second.model_copy(update={"proxy_mode": ProxyMode.DEFAULT_GATEWAY}), operation.provider_state,
+            ) == "wait"
+            assert not direct.is_closed
+        finally:
+            await channel.close()
+
+    assert requests == [
+        ("http://host.docker.internal:7891", "/api/auth/cli/code"),
+        ("http://host.docker.internal:7891", "/api/auth/cli/status"),
+        ("http://host.docker.internal:7892", "/api/auth/cli/status"),
+        ("direct", "/api/auth/cli/status"),
+    ]
+    assert len(clients) == 3
+    assert all(client.is_closed for client in clients)

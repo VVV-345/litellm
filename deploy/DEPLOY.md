@@ -1,6 +1,6 @@
 # 号池单机部署指南
 
-四个容器一起起：LiteLLM 主服务、号池 Manager、两个独立数据库、Docker Socket Proxy。镜像从 ghcr.io/vvv-345 拉取，不需要在服务器上构建
+五个基础容器一起起：LiteLLM 主服务、号池 Manager、两个独立数据库、Docker Socket Proxy。账号容器由 Manager 按需创建。镜像从 ghcr.io/vvv-345 拉取，不需要在服务器上构建
 
 ## 首次部署
 
@@ -83,7 +83,26 @@ ssh -N -L 1455:127.0.0.1:8091 <SSH_USER>@<SSH_HOST>
 
 4. `docker compose up -d` 重启后，网关条目会自动登记进代理名单，页面上即可管理
 
-仅 CLIProxyAPI 渠道（Claude/Codex 等）走这些网关；FreeBuff 渠道不认 HTTP 代理，配置无效
+CLIProxyAPI 和 FreeBuff 共用这些网关。比如设置 7891 到 7910 共 20 个端口后，账号 A、B 都可以选择 7891，也可以各选不同端口。修改 7891 的节点会影响所有使用该端口的账号的新连接；已有连接可能继续使用原节点
+
+Clash 在宿主机上时设置 `ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`，监听地址须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。账号卡片显示所选端口与当前节点。FreeBuff 换端口时会更新该账号容器，可能短暂中断请求，登录数据保留
+
+## FreeBuff 镜像发布与升级
+
+自有镜像一共三种：LiteLLM、Manager、带代理支持的 FreeBuff。代理适配器合并在 FreeBuff 镜像中，不增加单独的代理镜像或容器；Clash 仍是服务器上已有的公共出口
+
+在构建机上从仓库根目录构建并发布，`DEPLOY_TAG` 使用本次代码版本号：
+
+```bash
+docker build -t ghcr.io/vvv-345/freebuff2api-proxy:$DEPLOY_TAG account-pool/freebuff2api-image
+docker push ghcr.io/vvv-345/freebuff2api-proxy:$DEPLOY_TAG
+```
+
+FreeBuff 基础镜像已锁定完整 digest，适配依赖通过 `package-lock.json` 锁定。部署配置默认使用与 LiteLLM、Manager 相同的 `DEPLOY_TAG`，因此发布版本时也要发布此镜像。也可通过 `ACCOUNT_POOL_FREEBUFF2API_IMAGE` 单独指定已发布的版本或 digest
+
+私有镜像需要先在 Docker 宿主机登录仓库并执行 `docker pull ghcr.io/vvv-345/freebuff2api-proxy:<实际版本号>`，使用自定义镜像地址时拉取该地址。Manager 不持有宿主机的仓库登录信息，账号启动会复用宿主机已拉取的镜像；只更新基础服务不会自动拉取动态账号镜像
+
+升级 Manager 后，在已有 FreeBuff 账号卡片中打开配置、选择代理端口并保存，容器会切换到新镜像且保留原数据卷。此前保存过但未生效的 FreeBuff 代理也需重新保存一次。新建账号自动使用新镜像。镜像尚未发布或缺少启动模块时不能直接启用此版本的 FreeBuff
 
 ## 日常操作
 
@@ -104,4 +123,4 @@ docker compose down                   # 停止（数据卷保留）
 - `ACCOUNT_POOL_SECRET_SEED` 一旦投入使用不可更换，换了所有已授权凭据作废
 - 两个数据库密码同理，换密码只改 `.env` 会导致已有数据连不上
 - Manager 只监听 127.0.0.1:8091，外部无法直接访问；LiteLLM 通过内网 `account-pool:8091` 调它
-- 非美区服务器：先在代理网关面板选好出口节点再授权（CLIProxyAPI 走页面里的代理配置即可生效；FreeBuff 容器不吃 HTTP_PROXY，需要宿主机透明代理或上游中继，详见 account-pool/README.md）
+- 非美区服务器：先在代理网关面板选好出口节点，再在账号配置中选端口并授权；FreeBuff 的免费模型需要符合上游要求的美国出口

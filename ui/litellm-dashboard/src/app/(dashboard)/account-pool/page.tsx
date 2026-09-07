@@ -33,6 +33,7 @@ import { filterAccountPoolEnvironments, paginateAccountPoolEnvironments } from "
 import { ProxyManagerPanel } from "./ProxyManagerPanel";
 import { useAccountPoolMutations } from "./useAccountPoolMutations";
 import { useAccountPoolQuery } from "./useAccountPoolQuery";
+import { useProxyGatewayQuery } from "./useProxyGateways";
 
 const PAGE_SIZE = 24;
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
@@ -59,6 +60,7 @@ export default function AccountPoolPage() {
   const [page, setPage] = useState(1);
   const canManage = canManageAccountPool(userRole, isViewOnly);
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
+  const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage);
   const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
     accessToken,
     canManage,
@@ -138,6 +140,7 @@ export default function AccountPoolPage() {
             <AccountPoolCard
               key={environment.id}
               environment={environment}
+              proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
               onConfigure={setConfigEnvironment}
               onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
               onAuthorize={(current) => authorizeMutation.mutate(current)}
@@ -285,7 +288,10 @@ export default function AccountPoolPage() {
           open
           onOpenChange={(open) => !open && setConfigEnvironment(null)}
           onRefresh={() => void environmentsQuery.refetch()}
-          onSaved={() => setConfigEnvironment(null)}
+          onSaved={() => {
+            setConfigEnvironment(null);
+            void environmentsQuery.refetch();
+          }}
         />
       )}
       <AlertDialog

@@ -5555,7 +5555,6 @@
       "manualCooldown": "Manual cooldown",
       "manualCooldownDescription": "Pause requests manually. When cleared, readiness follows the actual health state.",
       "outboundProxy": "Outbound proxy",
-      "proxyIgnoredForFreeBuff": "Proxy settings do not affect this channel: the FreeBuff container ignores HTTP(S)_PROXY. Free models require a US exit (transparent proxy on the host, or an upstream CODEBUFF_API relay).",
       "selectProxyMode": "Select proxy mode",
       "defaultGateway": "Default gateway",
       "proxyProfile": "Proxy profile",
@@ -5610,8 +5609,9 @@
       "freebuff": "FreeBuff (Codebuff)"
     },
     "proxyGateways": {
+      "switchFailed": "Unable to switch the proxy node. Refresh the current node and try again.",
       "title": "Proxy gateways",
-      "description": "Each Clash port is one gateway. Switch its exit node here; every environment using that gateway follows immediately. Environments may share a gateway.",
+      "description": "Accounts may share a port. New connections use the selected node; existing connections may continue using the previous node.",
       "loadFailed": "Unable to reach the Clash controller. Check that Clash is running and the controller address is configured.",
       "nodesUnavailable": "Node list is unavailable; gateway switching is paused until Clash responds.",
       "empty": "No proxy gateways are configured. Set ACCOUNT_POOL_CLASH_GATEWAY_PORTS to enable them.",

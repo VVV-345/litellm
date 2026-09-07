@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final, Mapping
+from typing import Final
 
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.freebuff2api.channel import freebuff_supplier

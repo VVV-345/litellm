@@ -90,7 +90,16 @@ class ComposeRuntime:
         _write_private(environment_dir / "compose.yaml", compose)
         await self._create_data_volume(record.id)
         await self._seed_freebuff_data_volume(record.id)
-        await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+        await self._compose(record.id, "up", "-d", "--wait", "--remove-orphans")
+        await self.ensure_control_plane_connections(record.id)
+
+    async def apply_freebuff_compose(self, record: EnvironmentRecord, *, compose: str) -> None:
+        """更新 FreeBuff 容器配置并复用原有数据卷。"""
+        environment_dir: Final = self.environment_dir(record.id)
+        environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _write_private(environment_dir / "compose.yaml", compose)
+        # Compose 自行比较配置；失败后再次执行会重试，不能仅因文件已写入就跳过。
+        await self._compose(record.id, "up", "-d", "--wait", "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
 
     async def _seed_freebuff_data_volume(self, environment_id: UUID) -> None:

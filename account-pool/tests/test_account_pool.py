@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -14,6 +15,12 @@ import httpx
 import pytest
 import yaml
 from account_pool.app import _reconcile_pending_configurations_until_cancelled
+from account_pool.channels.base import ChannelDefinition
+from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+from account_pool.channels.cliproxyapi.client import AuthorizationStart
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
+from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.channels.freebuff2api.channel import FreeBuff2APIChannel
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
@@ -33,12 +40,9 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
     UpdateEnvironmentRequest,
+    configuration_from_record,
     utc_now,
 )
-from account_pool.channels.base import ChannelDefinition
-from account_pool.channels.cliproxyapi.client import AuthorizationStart
-from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
-from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, Success, _safe_error
 
@@ -902,6 +906,108 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     assert arguments[3][:6] == ("docker", "compose", "--project-name", f"account-pool-{record.id.hex}", "--file", str(runtime.environment_dir(record.id) / "compose.yaml"))
     compose_text: Final = (runtime.environment_dir(record.id) / "compose.yaml").read_text(encoding="utf-8")
     assert "./" not in yaml.safe_load(compose_text)["services"]["cli-proxy-api"]["volumes"][0]
+
+
+@pytest.mark.asyncio
+async def test_freebuff_switch_and_clear_proxy_reuses_volume_and_applies_compose(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
+    channel: Final = FreeBuff2APIChannel(settings, secrets, runtime=runtime)
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={
+        "channel": ChannelKind.FREEBUFF2API,
+        "supplier": SupplierKind.FREEBUFF,
+        "proxy_mode": ProxyMode.PROFILE,
+        "proxy_profile_id": "clash-gateway-7891",
+    })
+    try:
+        for proxy_url in ("http://host.docker.internal:7891", "http://host.docker.internal:7892", ""):
+            await channel.apply_configuration(record, configuration_from_record(record, proxy_url))
+            compose: Final = yaml.safe_load((runtime.environment_dir(record.id) / "compose.yaml").read_text("utf-8"))
+            assert compose["volumes"] == {"freebuff-data": {"name": f"account-pool-{record.id.hex}-data"}}
+            values: Final = compose["services"]["freebuff2api"]["environment"]
+            assert [value for value in values if value.startswith("FREEBUFF_PROXY_URL=")] == (
+                [f"FREEBUFF_PROXY_URL={proxy_url}"] if proxy_url else []
+            )
+        assert channel.environment_dir(record.id) == runtime.environment_dir(record.id)
+    finally:
+        await channel.close()
+
+    commands: Final = tuple(arguments for arguments, _ in runner.calls)
+    assert len(commands) == 9
+    assert all(command[1] in {"compose", "network"} for command in commands)
+    assert tuple(command[-4:] for command in commands if command[1] == "compose") == (
+        ("up", "-d", "--wait", "--remove-orphans"),
+    ) * 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_status", (EnvironmentStatus.READY, EnvironmentStatus.ERROR))
+async def test_channels_share_proxy_profile_and_freebuff_retries_failed_apply(
+    tmp_path: Path, initial_status: EnvironmentStatus,
+) -> None:
+    settings: Final = _settings(tmp_path)
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    calls: Final[list[tuple[str, ...]]] = []
+    proxy_values: Final[list[str]] = []
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
+        calls.append(arguments)
+        return CompletedDockerProcess(returncode=1 if len(calls) == 1 else 0, stderr=b"temporary compose failure")
+
+    def handle_cli(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/proxy-url":
+            proxy_values.append(json.loads(request.content)["value"])
+        return httpx.Response(200, json={})
+
+    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
+    freebuff: Final = FreeBuff2APIChannel(settings, secrets, runtime=runtime)
+    cli_record: Final = _record(status=EnvironmentStatus.READY)
+    freebuff_record: Final = cli_record.model_copy(update={
+        "id": uuid4(), "channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF,
+        "status": initial_status,
+        "auth_file_name": "freebuff_credentials.json" if initial_status is EnvironmentStatus.READY else None,
+    })
+    repository: Final = MemoryRepository(cli_record)
+    await repository.save(freebuff_record)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_cli)) as http_client:
+        cli_client: Final = HttpCLIProxyClient(secrets, http_client)
+        channels: Final = ChannelRegistry(
+            definitions=ChannelRegistry.default().definitions,
+            implementations=MappingProxyType({
+                ChannelKind.CLIPROXYAPI: CLIProxyAPIChannel(settings, secrets, runtime=runtime, client=cli_client),
+                ChannelKind.FREEBUFF2API: freebuff,
+            }),
+        )
+        service: Final = EnvironmentService(
+            settings, repository, runtime, cli_client, StaticProfiles("http://host.docker.internal:7891"),
+            secrets, channels=channels,
+        )
+        request: Final = UpdateEnvironmentRequest(
+            version=0, name="Shared proxy", concurrency_limit=2, enabled=True, manual_cooldown=False,
+            proxy_mode=ProxyMode.PROFILE, proxy_profile_id="clash-gateway-7891", enabled_models=(),
+        )
+        try:
+            assert isinstance(await service.update_environment(cli_record.id, request), Success)
+            assert isinstance(await service.update_environment(freebuff_record.id, request), Failure)
+            failed: Final = await repository.get(freebuff_record.id)
+            assert failed is not None and failed.configuration_pending
+            assert freebuff.gateway(failed).routable is False
+            assert failed.desired_configuration is not None
+            assert failed.desired_configuration.proxy_url == "http://host.docker.internal:7891"
+            assert (runtime.environment_dir(failed.id) / "compose.yaml").exists()
+            recovered: Final = await service.reconcile_pending_configurations()
+            assert len(recovered) == 1 and not recovered[0].configuration_pending
+            assert recovered[0].status is initial_status
+            assert recovered[0].proxy_profile_id == "clash-gateway-7891"
+        finally:
+            await freebuff.close()
+
+    assert proxy_values == ["http://host.docker.internal:7891"]
+    assert sum(command[1] == "compose" for command in calls) == 2
+    compose: Final = yaml.safe_load((runtime.environment_dir(freebuff_record.id) / "compose.yaml").read_text("utf-8"))
+    assert "FREEBUFF_PROXY_URL=http://host.docker.internal:7891" in compose["services"]["freebuff2api"]["environment"]
 
 
 @pytest.mark.asyncio

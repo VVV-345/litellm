@@ -21,10 +21,11 @@ import {
   statusLabel,
   statusVariant,
 } from "./AccountPoolFormatters";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
 
 interface AccountPoolCardProps {
   environment: AccountPoolEnvironment;
+  proxyGateway?: AccountPoolProxyGateway;
   onConfigure: (environment: AccountPoolEnvironment) => void;
   onEnabledChange: (environment: AccountPoolEnvironment, enabled: boolean) => void;
   onAuthorize: (environment: AccountPoolEnvironment) => void;
@@ -34,6 +35,7 @@ interface AccountPoolCardProps {
 
 export const AccountPoolCard = ({
   environment,
+  proxyGateway,
   onConfigure,
   onEnabledChange,
   onAuthorize,
@@ -42,6 +44,9 @@ export const AccountPoolCard = ({
 }: AccountPoolCardProps) => {
   const { t, i18n } = useTranslation();
   const quotaWindow = mostConstrainedWindow(environment);
+  const proxyLabel = proxyGateway
+    ? `${proxyGateway.name} · ${proxyGateway.current_node ?? t("accountPool.proxyGateways.currentNodeUnknown")}`
+    : environment.proxy_profile_id;
   const authorizationAction =
     environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
 
@@ -120,6 +125,14 @@ export const AccountPoolCard = ({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
+          <p className="mt-1 break-words font-medium">
+            {environment.proxy_mode === "default_gateway"
+              ? t("accountPool.config.defaultGateway")
+              : proxyLabel}
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>

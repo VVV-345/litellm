@@ -119,7 +119,8 @@ litellm/
 │   │   │   │       └── xai.py                xAI（设备码授权）
 │   │   │   └── freebuff2api/                 FreeBuff2API 渠道实现
 │   │   │       ├── channel.py                渠道组合根与授权状态编解码
-│   │   │       ├── client.py                 codebuff CLI 授权客户端与容器管理
+│   │   │       ├── client.py                 Codebuff 授权客户端与代理请求
+│   │   │       ├── runtime.py                FreeBuff 配置、凭据与公共 Compose 运行时适配
 │   │   │       └── suppliers.py              FreeBuff 供应商静态契约
 │   │   ├── cliproxy.py                       旧调用方的兼容导出层
 │   │   ├── quota.py                          解析额度和冷却时间

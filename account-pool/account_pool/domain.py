@@ -75,7 +75,7 @@ class ModelQuotaSnapshot(BaseModel):
 
 
 class EnvironmentConfiguration(BaseModel):
-    """环境需要收敛到 CLIProxyAPI 的完整配置快照，不包含任何密钥。"""
+    """环境需要收敛到所选渠道的完整配置快照，不包含任何密钥。"""
 
     model_config = ConfigDict(frozen=True)
 
@@ -261,6 +261,12 @@ class AuthorizationView(BaseModel):
     ssh_command: str | None
     user_code: str | None
     expires_at: datetime
+
+
+def configured_proxy_url(record: EnvironmentRecord) -> str:
+    if record.proxy_mode is ProxyMode.DEFAULT_GATEWAY or record.desired_configuration is None:
+        return ""
+    return record.desired_configuration.proxy_url
 
 
 def configuration_from_record(record: EnvironmentRecord, proxy_url: str = "") -> EnvironmentConfiguration:

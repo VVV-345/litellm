@@ -2,7 +2,6 @@
 
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -16,16 +15,8 @@ interface ProxyManagerPanelProps {
 
 export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelProps) => {
   const { t } = useTranslation();
-  const {
-    gateways,
-    gatewaysLoading,
-    gatewaysError,
-    refetchGateways,
-    nodes,
-    nodesLoading,
-    nodesError,
-    switchMutation,
-  } = useProxyGateways(accessToken, enabled);
+  const { gateways, gatewaysLoading, gatewaysError, refetchGateways, nodes, nodesLoading, nodesError, switchMutation } =
+    useProxyGateways(accessToken, enabled);
 
   if (!enabled) return null;
 
@@ -60,6 +51,11 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
       {nodesError && !gatewaysError && (
         <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.nodesUnavailable")}</p>
       )}
+      {switchMutation.isError && (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {t("accountPool.proxyGateways.switchFailed")}
+        </p>
+      )}
       {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
         <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
       )}
@@ -88,7 +84,7 @@ interface GatewayRowProps {
 const GatewayRow = ({ gateway, nodes, disabled, onSelect }: GatewayRowProps) => {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
+    <div className="flex min-w-0 flex-col gap-3 border-b border-border/60 py-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{gateway.name}</p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -97,8 +93,7 @@ const GatewayRow = ({ gateway, nodes, disabled, onSelect }: GatewayRowProps) => 
             : t("accountPool.proxyGateways.currentNodeUnknown")}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {gateway.current_node && <Badge variant="outline">{gateway.current_node}</Badge>}
+      <div className="min-w-0 sm:w-52 sm:shrink-0">
         <Select
           value={gateway.current_node ?? undefined}
           onValueChange={(value) => {
@@ -106,7 +101,10 @@ const GatewayRow = ({ gateway, nodes, disabled, onSelect }: GatewayRowProps) => 
           }}
           disabled={disabled}
         >
-          <SelectTrigger className="w-44" aria-label={t("accountPool.proxyGateways.selectNode", { name: gateway.name })}>
+          <SelectTrigger
+            className="w-full"
+            aria-label={t("accountPool.proxyGateways.selectNode", { name: gateway.name })}
+          >
             <SelectValue placeholder={t("accountPool.proxyGateways.selectNodePlaceholder")} />
           </SelectTrigger>
           <SelectContent>

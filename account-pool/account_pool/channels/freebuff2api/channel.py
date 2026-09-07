@@ -13,10 +13,10 @@ from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition,
 from account_pool.channels.freebuff2api.client import (
     AuthorizationStart,
     CodeAuthorizationOperation,
-    FreeBuff2APIRuntime,
     HttpCodebuffClient,
     _ModelsResponse,
 )
+from account_pool.channels.freebuff2api.runtime import FreeBuff2APIRuntime
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.domain import (
@@ -27,6 +27,7 @@ from account_pool.domain import (
     GatewayEnvironment,
     OAuthCallback,
     SupplierKind,
+    configured_proxy_url,
 )
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 
@@ -141,7 +142,7 @@ class FreeBuff2APIChannel:
     async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
         # fingerprintId 稳定派生自环境 UUID，重复授权复用同一指纹，与官方 CLI 行为一致。
         fingerprint_id: Final = f"codebuff-cli-litellm-{record.id.hex}"
-        operation: Final = await self._client.start_authorization(fingerprint_id)
+        operation: Final = await self._client.start_authorization(fingerprint_id, proxy_url=configured_proxy_url(record))
         return AuthorizationStart(
             authorization_url=operation.authorization_url,
             provider_state=pack_authorization_state(self._cipher, record.id, operation),
@@ -151,7 +152,7 @@ class FreeBuff2APIChannel:
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
         operation: Final = unpack_authorization_state(self._cipher, record.id, state)
-        token: Final = await self._client.authorization_token(operation)
+        token: Final = await self._client.authorization_token(operation, proxy_url=configured_proxy_url(record))
         if token is None:
             return "wait"
         await self._runtime.write_credential(record, token)
@@ -186,10 +187,8 @@ class FreeBuff2APIChannel:
         return await self._runtime.health_check(record, self._http_client)
 
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
-        # 容器上游是 Node v20 的 fetch，不读 HTTP(S)_PROXY 环境变量，HTTP 代理对容器内流量无效；
-        # 非美区部署需在宿主机做透明代理，或用上游支持的 CODEBUFF_API 中继地址（当前不暴露）。
-        # 模型启停由 reconciler 按 enabled_models 快照收敛 LiteLLM Deployment，无需容器操作。
-        return None
+        # 模型启停仍由网关收敛，容器只接收出站代理配置。
+        await self._runtime.apply_configuration(record, configuration)
 
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:
         return GatewayEnvironment(

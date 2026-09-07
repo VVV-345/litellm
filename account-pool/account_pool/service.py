@@ -15,8 +15,8 @@ from uuid import UUID, uuid4
 from pydantic import HttpUrl, TypeAdapter
 
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
-from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.clash import ClashProxyNode
+from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
@@ -567,7 +567,9 @@ class EnvironmentService:
                     desired: Final = record.desired_configuration or configuration_from_record(record)
                     return await self._apply_and_persist_configuration(record, desired)
                 return Success(to_view(record))
-            if record.auth_file_name is None and record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION:
+            if record.auth_file_name is None and record.status not in (
+                EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.ERROR,
+            ):
                 return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
@@ -1028,6 +1030,9 @@ def _status_after_update(
     request: UpdateEnvironmentRequest,
     automatic_cooldown: _AutomaticCooldownState,
 ) -> EnvironmentStatus:
+    # 授权失败时允许修正代理，但保存配置不能把未授权账号变成可用账号。
+    if record.auth_file_name is None:
+        return record.status
     if not request.enabled:
         return EnvironmentStatus.DISABLED
     if request.manual_cooldown:
