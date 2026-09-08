@@ -285,6 +285,7 @@ export default function AccountPoolPage() {
           key={authorization?.environment.id ?? "create"}
           accessToken={accessToken}
           initialAuthorization={authorization}
+          environments={environments}
           open
           onOpenChange={(open) => {
             setCreateOpen(open);

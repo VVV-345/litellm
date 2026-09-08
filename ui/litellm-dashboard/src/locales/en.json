@@ -5528,6 +5528,7 @@
     "deleting": "Deleting...",
     "create": {
       "authorizationTitle": "Complete account authorization",
+      "authorizationCompleted": "Account authorization completed",
       "title": "Create account pool environment",
       "authorizationDescription": "Browser OAuth: run the SSH tunnel first, then open the authorization link. Device code: open the link and authorize. The page refreshes the environment status automatically after authorization completes.",
       "description": "Each environment uses an isolated Compose network for its channel.",

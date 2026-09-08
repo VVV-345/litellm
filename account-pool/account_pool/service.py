@@ -911,6 +911,15 @@ class EnvironmentService:
             else None
         )
 
+    async def _update_authorization_error(self, record: EnvironmentRecord, message: str | None) -> EnvironmentRecord:
+        if record.last_error == message:
+            return record
+        updated: Final = record.model_copy(
+            update={"version": record.version + 1, "last_error": message, "updated_at": utc_now()}
+        )
+        saved: Final = await self._repository.save_if_version(updated, record.version)
+        return saved or await self._repository.get(record.id) or record
+
     async def _refresh_authorization(self, record: EnvironmentRecord) -> EnvironmentRecord:
         if record.oauth_state is None or record.oauth_expires_at is None:
             return record
@@ -921,10 +930,11 @@ class EnvironmentService:
         try:
             channel: Final = self._channel(record)
             status: Final = await channel.authorization_status(record, record.oauth_provider_state or record.oauth_state)
-        except Exception:
-            return record
+        except Exception as error:
+            # 展示脱敏后的失败原因并保留授权状态，短暂断网或写入失败后仍可重试。
+            return await self._update_authorization_error(record, _safe_error(error))
         if status == "wait":
-            return record
+            return await self._update_authorization_error(record, None)
         if status.startswith("error:"):
             return await self._persist_authorization_failure(record, status.removeprefix("error:"))
         if status != "ok":
@@ -948,6 +958,7 @@ class EnvironmentService:
                 "oauth_expires_at": None,
                 "oauth_authorization_url": None,
                 "oauth_provider_state": None,
+                "last_error": None,
                 "updated_at": utc_now(),
             }
         )

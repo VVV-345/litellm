@@ -5528,6 +5528,7 @@
     "deleting": "删除中...",
     "create": {
       "authorizationTitle": "完成账号授权",
+      "authorizationCompleted": "账号授权已完成",
       "title": "创建号池环境",
       "authorizationDescription": "浏览器授权：先运行 SSH 隧道再打开授权链接。设备码：打开链接并完成授权。授权完成后页面会自动刷新环境状态。",
       "description": "每个环境使用其渠道专属的隔离 Compose 网络。",

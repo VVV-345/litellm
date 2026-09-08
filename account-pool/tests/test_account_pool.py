@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -24,6 +25,7 @@ from account_pool.channels.freebuff2api.channel import FreeBuff2APIChannel
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
+from account_pool.compose_runtime import run_docker
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
@@ -401,8 +403,10 @@ class FakeCLIProxy:
         authorization_status: str = "wait",
         data_plane_healthy: bool = True,
         observed_status: EnvironmentStatus = EnvironmentStatus.READY,
+        authorization_error: Exception | None = None,
     ) -> None:
         self.authorization_status_value = authorization_status
+        self.authorization_error = authorization_error
         self.data_plane_healthy = data_plane_healthy
         self.observed_status = observed_status
         self.read_calls = 0
@@ -428,6 +432,8 @@ class FakeCLIProxy:
         )
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
+        if self.authorization_error is not None:
+            raise self.authorization_error
         return self.authorization_status_value
 
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
@@ -1104,6 +1110,88 @@ def test_safe_error_redacts_urls_and_credentials() -> None:
     assert "oauth-state" not in safe
     assert "access-token" not in safe
     assert "example.com/oauth" in safe
+
+
+@pytest.mark.asyncio
+async def test_credential_writer_transmits_payload_through_real_subprocess_stdin(tmp_path: Path) -> None:
+    payload: Final = '{"accounts":{"default":{"authToken":"test-only-token"}}}'
+    destination: Final = tmp_path / "credential.json"
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]):
+        assert payload not in " ".join(arguments)
+        assert "--interactive" in arguments
+        # 使用真实子进程接收凭据，覆盖假进程无法发现的 stdin 管道缺失。
+        return await run_docker(
+            (
+                sys.executable, "-c",
+                "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
+                str(destination), "--interactive",
+            ),
+            dict(os.environ),
+        )
+
+    runtime: Final = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    await runtime.write_volume_files(uuid4(), image="unused", script="unused", stdin_content=payload)
+
+    assert destination.read_text() == payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("next_status", ("wait", "ok"))
+async def test_authorization_poll_error_is_visible_redacted_and_recovers(tmp_path: Path, next_status: str) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
+    state: Final = bootstrap._callback_state(record)
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
+    repository: Final = MemoryRepository(signed)
+    cli: Final = FakeCLIProxy(authorization_error=RuntimeError(
+        "credential save failed https://user:password@example.com/status?fingerprintHash=private-hash Bearer private-token"
+    ))
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    failed: Final = await service._refresh_authorization(signed)
+    assert failed == await repository.get(record.id)
+    assert failed.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert failed.oauth_state == state
+    assert failed.oauth_state_consumed_at is None
+    assert failed.last_error is not None
+    assert "credential save failed" in failed.last_error
+    assert all(secret not in failed.last_error for secret in ("password", "private-hash", "private-token"))
+    repeated: Final = await service._refresh_authorization(failed)
+    assert repeated.version == failed.version
+
+    cli.authorization_error = None
+    cli.authorization_status_value = next_status
+    recovered: Final = await service._refresh_authorization(repeated)
+    assert recovered.last_error is None
+    assert recovered == await repository.get(record.id)
+    expected: Final = EnvironmentStatus.READY if next_status == "ok" else EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert recovered.status is expected
+
+
+@pytest.mark.asyncio
+async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
+    state: Final = bootstrap._callback_state(record)
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
+    replacement: Final = signed.model_copy(update={"version": signed.version + 1, "oauth_state": "newer-state"})
+    repository: Final = MemoryRepository(replacement)
+    cli: Final = FakeCLIProxy(authorization_error=RuntimeError("old authorization failed"))
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    assert await service._refresh_authorization(signed) == replacement
+    assert await repository.get(record.id) == replacement
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,8 @@ _CHOWN_IMAGE: Final = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c
 async def run_docker(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
     return await asyncio.create_subprocess_exec(
         *arguments,
+        # 写入凭据的交互命令需要管道；普通 Compose 命令保持原有输入方式。
+        stdin=asyncio.subprocess.PIPE if "--interactive" in arguments else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=environment,

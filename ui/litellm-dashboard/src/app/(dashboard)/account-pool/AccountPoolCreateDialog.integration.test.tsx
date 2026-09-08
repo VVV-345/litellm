@@ -1,8 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+/** 本文件验证创建授权弹窗与环境状态更新的交互，网络请求使用测试替身。 */
+
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
+import { toast } from "@/lib/toast";
+import type { AccountPoolAuthorization, AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const createMock = vi.fn();
 
@@ -33,7 +37,7 @@ const deviceAuthorization = {
 };
 
 const linkOnlyAuthorization = {
-  environment: { id: "env-3", channel: "freebuff2api", supplier: "freebuff" },
+  environment: { id: "env-3", channel: "freebuff2api", supplier: "freebuff", version: 2, status: "awaiting_authorization" },
   flow: "device_code",
   authorization_url: "https://www.codebuff.com/oauth/login?auth_code=one-time",
   ssh_command: null,
@@ -54,8 +58,68 @@ const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[
 
 describe("AccountPoolCreateDialog", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     createMock.mockReset();
     createMock.mockResolvedValue(browserAuthorization);
+  });
+
+  it.each(["ready", "cooling_down", "disabled"] as const)("closes after the current authorization reaches %s", (status) => {
+    const onOpenChange = vi.fn();
+    const props = {
+      accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn(),
+      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+    };
+    const { rerender } = render(<AccountPoolCreateDialog {...props} />);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    rerender(<AccountPoolCreateDialog {...props} environments={[{
+      ...linkOnlyAuthorization.environment, version: 3, status, configuration_pending: false,
+    } as AccountPoolEnvironment]} />);
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { id: "env-3", version: 1, status: "ready", configuration_pending: false },
+    { id: "env-other", version: 3, status: "ready", configuration_pending: false },
+    { id: "env-3", version: 3, status: "validating", configuration_pending: false },
+    { id: "env-3", version: 3, status: "ready", configuration_pending: true },
+  ] as const)("keeps authorization open for stale, unrelated or incomplete updates: %o", (environment) => {
+    const onOpenChange = vi.fn();
+    renderDialog({
+      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+      environments: [environment as AccountPoolEnvironment], onOpenChange,
+    });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("shows the current authorization failure without closing the dialog", () => {
+    const onOpenChange = vi.fn();
+    renderDialog({
+      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+      environments: [{
+        ...linkOnlyAuthorization.environment, version: 3, last_error: "credential save failed",
+      } as AccountPoolEnvironment], onOpenChange,
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("credential save failed");
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("tracks completion for a newly created environment", async () => {
+    createMock.mockResolvedValue(linkOnlyAuthorization);
+    const onOpenChange = vi.fn();
+    const props = { accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn() };
+    const { rerender } = render(<AccountPoolCreateDialog {...props} />);
+    fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "New account" } });
+    fireEvent.click(screen.getByRole("button", { name: /创建|Create/i }));
+    expect(await screen.findByTestId("account-pool-authorization-panel")).toBeInTheDocument();
+
+    rerender(<AccountPoolCreateDialog {...props} environments={[{
+      ...linkOnlyAuthorization.environment, version: 3, status: "ready", configuration_pending: false,
+    } as AccountPoolEnvironment]} />);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("defaults to CLIProxyAPI and OpenAI Codex and lists all five suppliers", async () => {
