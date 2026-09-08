@@ -9,6 +9,7 @@ import type {
   AccountPoolEnvironment,
   AccountPoolProxyGatewayConfiguration,
   AccountPoolProxyGateway,
+  AccountPoolProxyGatewayDelay,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
 } from "./AccountPoolTypes";
@@ -60,6 +61,9 @@ export const listAccountPoolProxyProfiles = (accessToken: string): Promise<Accou
 
 export const listAccountPoolProxyGateways = (accessToken: string): Promise<AccountPoolProxyGateway[]> =>
   apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken });
+
+export const measureAccountPoolProxyGatewayDelays = (accessToken: string): Promise<AccountPoolProxyGatewayDelay[]> =>
+  apiClient.post<AccountPoolProxyGatewayDelay[]>("/account_pool/proxy-gateways/delay", { accessToken });
 
 export const getAccountPoolProxyGatewayConfiguration = (
   accessToken: string,

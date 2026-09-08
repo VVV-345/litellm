@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 from urllib.parse import quote, urlsplit
 
 import httpx
 
 _TIMEOUT_SECONDS: Final = 10.0
+_DELAY_TEST_URL: Final = "https://www.gstatic.com/generate_204"
+_DELAY_TIMEOUT_MS: Final = 5000
+
+ClashDelayStatus = Literal["ok", "timeout", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class ClashDelayResult:
+    status: ClashDelayStatus
+    delay_ms: int | None = None
 
 
 class ClashError(Exception):
@@ -69,6 +79,42 @@ class ClashController:
             raise ClashError("clash proxy response must be an object")
         now: Final = payload.get("now")
         return now if isinstance(now, str) else None
+
+    async def selector_currents(self, selector_names: tuple[str, ...]) -> tuple[str | None, ...]:
+        try:
+            payload: Final = await self._get_json("/proxies")
+        except httpx.HTTPError as error:
+            raise ClashError("clash controller is unreachable") from error
+        if not isinstance(payload, dict) or not isinstance(payload.get("proxies"), dict):
+            raise ClashError("clash /proxies response missing proxies map")
+        proxies: Final = payload["proxies"]
+        return tuple(
+            entry["now"] if isinstance(entry, dict) and isinstance(entry.get("now"), str) else None
+            for name in selector_names
+            for entry in (proxies.get(name),)
+        )
+
+    async def measure_delay(self, node_name: str) -> ClashDelayResult:
+        try:
+            response: Final = await self._client.get(
+                f"{self._base_url}/proxies/{_quote(node_name)}/delay",
+                params={"url": _DELAY_TEST_URL, "timeout": _DELAY_TIMEOUT_MS},
+                headers=self._headers(),
+            )
+        except httpx.HTTPError:
+            return ClashDelayResult("error")
+        if response.status_code == 504:
+            return ClashDelayResult("timeout")
+        if response.status_code != 200:
+            return ClashDelayResult("error")
+        try:
+            payload: Final = response.json()
+        except ValueError:
+            return ClashDelayResult("error")
+        delay: Final = payload.get("delay") if isinstance(payload, dict) else None
+        if type(delay) is not int or delay < 0:
+            return ClashDelayResult("error")
+        return ClashDelayResult("ok", delay)
 
     async def switch_selector(self, selector_name: str, node_name: str) -> None:
         response: Final = await self._client.put(

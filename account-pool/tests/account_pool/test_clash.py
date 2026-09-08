@@ -6,8 +6,7 @@ from typing import Final
 
 import httpx
 import pytest
-
-from account_pool.clash import ClashController, ClashError, ClashProxyNode
+from account_pool.clash import ClashController, ClashDelayResult, ClashError, ClashProxyNode
 
 
 def _controller(handler) -> tuple[ClashController, httpx.AsyncClient]:
@@ -40,6 +39,75 @@ async def test_list_nodes_parses_proxies_and_filters_builtin_entries() -> None:
 
     assert nodes == (ClashProxyNode(name="日本02", proxy_type="Vmess"), ClashProxyNode(name="美国01", proxy_type="Shadowsocks"))
 
+
+@pytest.mark.asyncio
+async def test_delay_uses_encoded_node_name_and_fixed_probe_target() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.raw_path.split(b"?")[0] == b"/proxies/US%20%2F%2001/delay"
+        assert dict(request.url.params) == {"url": "https://www.gstatic.com/generate_204", "timeout": "5000"}
+        assert request.headers["Authorization"] == "Bearer s3cret"
+        return httpx.Response(200, json={"delay": 183})
+
+    controller, client = _controller(handler)
+    try:
+        assert await controller.measure_delay("US / 01") == ClashDelayResult("ok", 183)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "body", "expected"),
+    (
+        (504, '{"message":"Timeout"}', ClashDelayResult("timeout")),
+        (503, '{"message":"connection failed"}', ClashDelayResult("error")),
+        (401, '{}', ClashDelayResult("error")),
+        (200, '{}', ClashDelayResult("error")),
+        (200, '{"delay":-1}', ClashDelayResult("error")),
+        (200, '{"delay":true}', ClashDelayResult("error")),
+        (200, '{"delay":"123"}', ClashDelayResult("error")),
+        (200, 'not-json', ClashDelayResult("error")),
+        (200, '{"delay":0}', ClashDelayResult("ok", 0)),
+    ),
+)
+async def test_delay_reports_failures_without_fabricating_latency(
+    status: int, body: str, expected: ClashDelayResult
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, text=body)
+
+    controller, client = _controller(handler)
+    try:
+        assert await controller.measure_delay("US01") == expected
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_unreachable_controller_is_a_detection_error() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("private connection details", request=request)
+
+    controller, client = _controller(handler)
+    try:
+        assert await controller.measure_delay("US01") == ClashDelayResult("error")
+        with pytest.raises(ClashError, match="controller is unreachable"):
+            await controller.selector_currents(("pool-01",))
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_selector_snapshot_preserves_requested_order_and_missing_entries() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/proxies"
+        return httpx.Response(200, json={"proxies": {"pool-01": {"now": "US01"}, "pool-02": {"now": 123}}})
+
+    controller, client = _controller(handler)
+    try:
+        assert await controller.selector_currents(("pool-02", "pool-01", "missing")) == (None, "US01", None)
+    finally:
+        await client.aclose()
 
 @pytest.mark.asyncio
 async def test_list_nodes_rejects_malformed_payload_and_missing_secret() -> None:
@@ -95,7 +163,7 @@ async def test_switch_selector_puts_node_and_rejects_unexpected_status() -> None
     finally:
         await client.aclose()
 
-    assert bodies == ['{"name":"日本02"}'.encode("utf-8")]
+    assert bodies == ['{"name":"日本02"}'.encode()]
 
     async def rejected(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, json={})

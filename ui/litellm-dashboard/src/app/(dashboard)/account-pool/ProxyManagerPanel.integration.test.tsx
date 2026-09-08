@@ -1,10 +1,12 @@
-import { render, screen } from "@testing-library/react";
+/** 本文件验证代理面板的刷新、节点切换与延迟状态展示，仅替换网络请求。 */
+
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProxyManagerPanel } from "./ProxyManagerPanel";
-import type { AccountPoolProxyGateway } from "./AccountPoolTypes";
+import type { AccountPoolProxyGateway, AccountPoolProxyGatewayDelay } from "./AccountPoolTypes";
 
 const gateways: AccountPoolProxyGateway[] = [
   {
@@ -20,12 +22,21 @@ const getConfiguration = vi.fn().mockResolvedValue({ config_path: "/opt/litellm/
 const listGateways = vi.fn();
 const listNodes = vi.fn();
 const switchGateway = vi.fn();
+const measureDelays = vi.fn();
+const delay: AccountPoolProxyGatewayDelay = {
+  port: 7891,
+  current_node: "美国01",
+  status: "ok",
+  delay_ms: 183,
+  checked_at: "2026-09-08T12:00:00Z",
+};
 
 vi.mock("./AccountPoolApi", () => ({
   getAccountPoolProxyGatewayConfiguration: (...args: unknown[]) => getConfiguration(...args),
   listAccountPoolProxyGateways: (...args: unknown[]) => listGateways(...args),
   listAccountPoolClashNodes: (...args: unknown[]) => listNodes(...args),
   switchAccountPoolProxyGateway: (...args: unknown[]) => switchGateway(...args),
+  measureAccountPoolProxyGatewayDelays: (...args: unknown[]) => measureDelays(...args),
 }));
 
 const renderPanel = (enabled = true) => {
@@ -40,6 +51,14 @@ const renderPanel = (enabled = true) => {
 };
 
 describe("ProxyManagerPanel", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    getConfiguration.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
+    listGateways.mockResolvedValue(gateways);
+    listNodes.mockResolvedValue([{ name: "美国01", proxy_type: "Shadowsocks" }]);
+    measureDelays.mockResolvedValue([delay]);
+  });
+
   it("renders gateway rows with the current node and switches on selection", async () => {
     const user = userEvent.setup();
     listGateways.mockResolvedValue(gateways);
@@ -49,18 +68,22 @@ describe("ProxyManagerPanel", () => {
     ]);
     switchGateway.mockImplementation(async () => {
       listGateways.mockResolvedValue([{ ...gateways[0], current_node: "日本02" }]);
+      measureDelays.mockResolvedValue([{ ...delay, current_node: "日本02", delay_ms: 92 }]);
       return { ...gateways[0], current_node: "日本02" };
     });
     renderPanel();
 
     expect(await screen.findByText("当前节点：美国01")).toBeInTheDocument();
     expect(await screen.findByText("当前配置文件：/opt/litellm/mihomo/config.yaml")).toBeInTheDocument();
+    expect(await screen.findByText("节点延迟：183 ms")).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: /Clash 端口 7891/ }));
     await user.click(await screen.findByRole("option", { name: "日本02" }));
 
     expect(switchGateway).toHaveBeenCalledWith("token", 7891, "日本02");
     expect(await screen.findByText("当前节点：日本02")).toBeInTheDocument();
+    expect(await screen.findByText("节点延迟：92 ms")).toBeInTheDocument();
+    expect(screen.queryByText("节点延迟：183 ms")).not.toBeInTheDocument();
   });
 
   it("reports a rejected switch and retains the observed current node", async () => {
@@ -90,5 +113,46 @@ describe("ProxyManagerPanel", () => {
     renderPanel(false);
 
     expect(screen.queryByTestId("proxy-manager-panel")).not.toBeInTheDocument();
+    expect(measureDelays).not.toHaveBeenCalled();
+  });
+
+  it("refreshes latency and hides the old value while checking", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("节点延迟：183 ms")).toBeInTheDocument();
+    const pending = Promise.withResolvers<AccountPoolProxyGatewayDelay[]>();
+    measureDelays.mockReturnValueOnce(pending.promise);
+
+    await user.click(screen.getByRole("button", { name: "刷新号池" }));
+
+    expect(await screen.findByText("节点延迟：检测中…")).toBeInTheDocument();
+    expect(screen.queryByText("节点延迟：183 ms")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新号池" })).toBeDisabled();
+    await act(async () => pending.resolve([{ ...delay, status: "timeout", delay_ms: null }]));
+    expect(await screen.findByText("节点延迟：超时")).toBeInTheDocument();
+    expect(measureDelays).toHaveBeenCalledTimes(2);
+    expect(measureDelays).toHaveBeenLastCalledWith("token");
+  });
+
+  it("reports a failed refresh instead of retaining a successful measurement", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("节点延迟：183 ms")).toBeInTheDocument();
+    measureDelays.mockRejectedValueOnce(new Error("controller unavailable"));
+
+    await user.click(screen.getByRole("button", { name: "刷新号池" }));
+
+    expect(await screen.findByText("节点延迟：检测失败")).toBeInTheDocument();
+    expect(screen.queryByText("节点延迟：183 ms")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新号池" })).toBeEnabled());
+  });
+
+  it("does not attach an old node measurement to a new node", async () => {
+    listGateways.mockResolvedValue([{ ...gateways[0], current_node: "日本02" }]);
+    renderPanel();
+
+    expect(await screen.findByText("当前节点：日本02")).toBeInTheDocument();
+    expect(await screen.findByText("节点延迟：未检测")).toBeInTheDocument();
+    expect(screen.queryByText("节点延迟：183 ms")).not.toBeInTheDocument();
   });
 });

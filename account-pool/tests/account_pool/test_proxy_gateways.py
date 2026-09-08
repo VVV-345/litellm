@@ -8,9 +8,9 @@ from urllib.parse import urlsplit
 
 import pytest
 from account_pool.api import create_router
-from account_pool.clash import ClashError, ClashProxyNode
+from account_pool.clash import ClashDelayResult, ClashError, ClashProxyNode
 from account_pool.config import Settings
-from account_pool.proxy_gateways import GatewayConfigurationView, GatewayView, ProxyGatewayService
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +22,9 @@ class FakeController:
     current: dict[str, str] = field(default_factory=dict)
     switched: list[tuple[str, str]] = field(default_factory=list)
     fail_current: bool = False
+    delay_results: dict[str, ClashDelayResult] = field(default_factory=dict)
+    measured: list[str] = field(default_factory=list)
+    change_during_measurement: tuple[str, str] | None = None
 
     async def list_nodes(self) -> tuple[ClashProxyNode, ...]:
         return self.nodes
@@ -34,6 +37,18 @@ class FakeController:
     async def switch_selector(self, selector_name: str, node_name: str) -> None:
         self.switched.append((selector_name, node_name))
         self.current[selector_name] = node_name
+
+    async def selector_currents(self, selector_names: tuple[str, ...]) -> tuple[str | None, ...]:
+        if self.fail_current:
+            raise ClashError("unreachable")
+        return tuple(self.current.get(name) for name in selector_names)
+
+    async def measure_delay(self, node_name: str) -> ClashDelayResult:
+        self.measured.append(node_name)
+        if self.change_during_measurement is not None:
+            selector, node = self.change_during_measurement
+            self.current[selector] = node
+        return self.delay_results.get(node_name, ClashDelayResult("error"))
 
 
 @dataclass
@@ -146,6 +161,79 @@ def test_gateway_profile_id_and_selector_share_naming() -> None:
     assert ProxyGatewayService.gateway_profile_id(7891) == "clash-gateway-7891"
     parsed: Final = urlsplit(_settings((7891,)).clash_controller_url)
     assert parsed.hostname == "127.0.0.1"
+
+
+@pytest.mark.asyncio
+async def test_measure_delays_deduplicates_nodes_and_keeps_individual_failures() -> None:
+    controller: Final = FakeController(
+        current={"clash-gateway-7891": "US01", "clash-gateway-7892": "US01", "clash-gateway-7893": "US02"},
+        delay_results={"US01": ClashDelayResult("ok", 183), "US02": ClashDelayResult("timeout")},
+    )
+    service, _ = _service(_settings((7891, 7892, 7893, 7894)), controller)
+
+    views: Final = await service.measure_delays()
+
+    assert controller.measured == ["US01", "US02"]
+    assert tuple((view.port, view.current_node, view.status, view.delay_ms) for view in views) == (
+        (7891, "US01", "ok", 183),
+        (7892, "US01", "ok", 183),
+        (7893, "US02", "timeout", None),
+        (7894, None, "error", None),
+    )
+    assert all(view.checked_at.tzinfo is not None for view in views)
+
+
+@pytest.mark.asyncio
+async def test_measure_delays_discards_result_if_node_changed_during_probe() -> None:
+    controller: Final = FakeController(
+        current={"clash-gateway-7891": "US01"},
+        delay_results={"US01": ClashDelayResult("ok", 183)},
+        change_during_measurement=("clash-gateway-7891", "US02"),
+    )
+    service, _ = _service(_settings((7891,)), controller)
+
+    view: Final = (await service.measure_delays())[0]
+
+    assert view.current_node == "US02"
+    assert view.status == "error"
+    assert view.delay_ms is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_delays_are_empty_and_unreachable_controller_fails() -> None:
+    disabled: Final = ProxyGatewayService.disabled(_settings(()), FakeProfiles())
+    assert await disabled.measure_delays() == ()
+    unconfigured: Final = ProxyGatewayService.disabled(_settings((7891,), ""), FakeProfiles())
+    with pytest.raises(ClashError, match="not configured"):
+        await unconfigured.measure_delays()
+    service, _ = _service(_settings((7891,)), FakeController(fail_current=True))
+    with pytest.raises(ClashError, match="unreachable"):
+        await service.measure_delays()
+
+
+@dataclass(frozen=True)
+class DelayService:
+    gateway: ProxyGatewayService
+
+    async def measure_proxy_gateway_delays(self) -> tuple[GatewayDelayView, ...]:
+        return await self.gateway.measure_delays()
+
+
+def test_manager_delay_api_requires_auth_and_returns_measured_results() -> None:
+    gateway, _ = _service(
+        _settings((7891,)),
+        FakeController(current={"clash-gateway-7891": "US01"}, delay_results={"US01": ClashDelayResult("ok", 183)}),
+    )
+    app: Final = FastAPI()
+    app.include_router(create_router(cast(EnvironmentService, DelayService(gateway)), "t" * 32))
+    with TestClient(app) as client:
+        denied: Final = client.post("/api/proxy-gateways/delay")
+        response: Final = client.post("/api/proxy-gateways/delay", headers={"Authorization": "Bearer " + "t" * 32})
+
+    assert denied.status_code == 401
+    assert response.status_code == 200
+    assert response.json()[0]["delay_ms"] == 183
+    assert response.json()[0]["status"] == "ok"
 
 
 def test_gateway_configuration_reports_only_the_declared_config_path() -> None:

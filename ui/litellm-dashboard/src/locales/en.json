@@ -5609,6 +5609,14 @@
       "freebuff": "FreeBuff (Codebuff)"
     },
     "proxyGateways": {
+      "delayTarget": "Latency test target: www.gstatic.com",
+      "delayLabel": "Node latency: {{value}}",
+      "delayValue": "{{delay}} ms",
+      "delay_checking": "Checking...",
+      "delay_unchecked": "Not tested",
+      "delay_timeout": "Timed out",
+      "delay_error": "Test failed",
+      "delayCheckedAt": "Tested at: {{time}}",
       "switchFailed": "Unable to switch the proxy node. Refresh the current node and try again.",
       "title": "Proxy gateways",
       "description": "Accounts may share a port. New connections use the selected node; existing connections may continue using the previous node.",

@@ -5609,6 +5609,14 @@
       "freebuff": "FreeBuff (Codebuff)"
     },
     "proxyGateways": {
+      "delayTarget": "延迟测试目标：www.gstatic.com",
+      "delayLabel": "节点延迟：{{value}}",
+      "delayValue": "{{delay}} ms",
+      "delay_checking": "检测中…",
+      "delay_unchecked": "未检测",
+      "delay_timeout": "超时",
+      "delay_error": "检测失败",
+      "delayCheckedAt": "检测时间：{{time}}",
       "switchFailed": "出口节点切换失败，请刷新当前节点后重试。",
       "title": "代理网关",
       "description": "多个账号可共用一个端口。切换出口节点后，新连接使用新节点，已有连接可能继续使用原节点。",

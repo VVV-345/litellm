@@ -6,6 +6,7 @@ import {
   getAccountPoolProxyGatewayConfiguration,
   listAccountPoolClashNodes,
   listAccountPoolProxyGateways,
+  measureAccountPoolProxyGatewayDelays,
   switchAccountPoolProxyGateway,
 } from "./AccountPoolApi";
 
@@ -25,6 +26,19 @@ export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolea
 export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
   const queryClient = useQueryClient();
   const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
+  const delaysKey = ["account-pool", "proxy-gateway-delays", accessToken];
+  const delaysQuery = useQuery({
+    queryKey: delaysKey,
+    queryFn: () => {
+      if (!accessToken) throw new Error("Access token required");
+      return measureAccountPoolProxyGatewayDelays(accessToken);
+    },
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: Infinity,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+  });
   const configurationQuery = useQuery({
     queryKey: ["account-pool", "proxy-gateway-configuration", accessToken],
     queryFn: () => {
@@ -46,6 +60,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
   });
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["account-pool", "proxy-gateways"] });
+    void queryClient.resetQueries({ queryKey: delaysKey });
   };
   const switchMutation = useMutation({
     mutationFn: async ({ port, nodeName }: { port: number; nodeName: string }) => {
@@ -59,7 +74,15 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
     gatewaysError: gatewaysQuery.isError ? gatewaysQuery.error.message ?? null : null,
     configuration: configurationQuery.data ?? null,
-    refetchGateways: () => void gatewaysQuery.refetch(),
+    delays: delaysQuery.data ?? [],
+    delaysLoading: delaysQuery.isFetching,
+    delaysError: delaysQuery.isError,
+    refetchGateways: () => {
+      void gatewaysQuery.refetch();
+      void delaysQuery.refetch();
+      void nodesQuery.refetch();
+      void configurationQuery.refetch();
+    },
     nodes: nodesQuery.data ?? [],
     nodesLoading: nodesQuery.isLoading || nodesQuery.isFetching,
     nodesError: nodesQuery.isError ? nodesQuery.error.message ?? null : null,

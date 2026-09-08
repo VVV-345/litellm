@@ -754,6 +754,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/proxy-gateways": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Proxy Gateways */
+        get: operations["list_proxy_gateways_account_pool_proxy_gateways_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-gateways/configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Proxy Gateway Configuration */
+        get: operations["get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-gateways/delay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Measure Proxy Gateway Delays */
+        post: operations["measure_proxy_gateway_delays_account_pool_proxy_gateways_delay_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-gateways/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Clash Nodes */
+        get: operations["list_clash_nodes_account_pool_proxy_gateways_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-gateways/{port}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Switch Proxy Gateway */
+        put: operations["switch_proxy_gateway_account_pool_proxy_gateways__port__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/proxy-profiles": {
         parameters: {
             query?: never;
@@ -22330,6 +22415,13 @@ export interface components {
             /** User Code */
             user_code: string | null;
         };
+        /** AccountPoolClashNode */
+        AccountPoolClashNode: {
+            /** Name */
+            name: string;
+            /** Proxy Type */
+            proxy_type: string;
+        };
         /** AccountPoolCreateRequest */
         AccountPoolCreateRequest: {
             /**
@@ -22442,11 +22534,50 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AccountPoolGatewaySwitchRequest */
+        AccountPoolGatewaySwitchRequest: {
+            /** Node Name */
+            node_name: string;
+        };
         /** AccountPoolModelQuotaSnapshot */
         AccountPoolModelQuotaSnapshot: {
             /** Model */
             model: string;
             quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolProxyGateway */
+        AccountPoolProxyGateway: {
+            /** Current Node */
+            current_node?: string | null;
+            /** Name */
+            name: string;
+            /** Port */
+            port: number;
+            /** Profile Id */
+            profile_id: string;
+            /** Proxy Url */
+            proxy_url: string;
+        };
+        /** AccountPoolProxyGatewayConfiguration */
+        AccountPoolProxyGatewayConfiguration: {
+            /** Config Path */
+            config_path?: string | null;
+        };
+        /** AccountPoolProxyGatewayDelay */
+        AccountPoolProxyGatewayDelay: {
+            /** Checked At */
+            checked_at: string;
+            /** Current Node */
+            current_node: string | null;
+            /** Delay Ms */
+            delay_ms: number | null;
+            /** Port */
+            port: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "timeout" | "error";
         };
         /** AccountPoolProxyProfile */
         AccountPoolProxyProfile: {
@@ -38618,6 +38749,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGatewayConfiguration"];
+                };
+            };
+        };
+    };
     home__get: {
         parameters: {
             query?: never;
@@ -38654,6 +38805,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_clash_nodes_account_pool_proxy_gateways_nodes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolClashNode"][];
+                };
+            };
+        };
+    };
+    list_proxy_gateways_account_pool_proxy_gateways_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"][];
+                };
+            };
+        };
+    };
+    measure_proxy_gateway_delays_account_pool_proxy_gateways_delay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGatewayDelay"][];
                 };
             };
         };
@@ -39298,6 +39509,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccessGroupInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    switch_proxy_gateway_account_pool_proxy_gateways__port__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolGatewaySwitchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"];
                 };
             };
             /** @description Validation Error */

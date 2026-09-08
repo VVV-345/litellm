@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Final
 
-from account_pool.clash import ClashController, ClashError, ClashProxyNode
+from account_pool.clash import ClashController, ClashDelayResult, ClashDelayStatus, ClashError, ClashProxyNode
 from account_pool.config import Settings
 from account_pool.ports import ProxyProfileRepository
 
@@ -26,6 +28,15 @@ class GatewayConfigurationView:
     config_path: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayDelayView:
+    port: int
+    current_node: str | None
+    status: ClashDelayStatus
+    delay_ms: int | None
+    checked_at: datetime
+
+
 class ProxyGatewayService:
     """对外提供代理网关管理；账号侧继续消费既有 ProxyProfileRepository，互不感知。"""
 
@@ -38,6 +49,7 @@ class ProxyGatewayService:
         self._settings: Final = settings
         self._profiles: Final = profiles
         self._controller: Final = controller
+        self._delay_slots: Final = asyncio.Semaphore(10)
 
     @classmethod
     def disabled(cls, settings: Settings, profiles: ProxyProfileRepository) -> ProxyGatewayService:
@@ -48,6 +60,9 @@ class ProxyGatewayService:
                 return ()
 
             async def selector_current(self, selector_name: str) -> str | None:
+                raise ClashError("clash controller is not configured")
+
+            async def selector_currents(self, selector_names: tuple[str, ...]) -> tuple[str | None, ...]:
                 raise ClashError("clash controller is not configured")
 
             async def switch_selector(self, selector_name: str, node_name: str) -> None:
@@ -103,6 +118,33 @@ class ProxyGatewayService:
             proxy_url=self._gateway_proxy_url(port),
             current_node=current_node,
         )
+
+    async def measure_delays(self) -> tuple[GatewayDelayView, ...]:
+        ports: Final = self._settings.clash_gateway_ports
+        if not ports:
+            return ()
+        selectors: Final = tuple(self._selector_name(port) for port in ports)
+        selected: Final = await self._controller.selector_currents(selectors)
+        # 共用节点只测一次，限制同时检测数量，避免刷新时拥塞代理线路。
+        nodes: Final = tuple(dict.fromkeys(node for node in selected if node is not None))
+        measurements: Final = await asyncio.gather(*(self._measure_node(node) for node in nodes))
+        results: Final = dict(zip(nodes, measurements, strict=True))
+        observed: Final = await self._controller.selector_currents(selectors)
+        checked_at: Final = datetime.now(timezone.utc)
+        # 检测期间节点若被切换，旧结果不能归到新节点名下。
+        return tuple(
+            GatewayDelayView(port, current, result.status, result.delay_ms, checked_at)
+            for port, previous, current in zip(ports, selected, observed, strict=True)
+            for result in (
+                results.get(current, ClashDelayResult("error"))
+                if current is not None and current == previous
+                else ClashDelayResult("error"),
+            )
+        )
+
+    async def _measure_node(self, node_name: str) -> ClashDelayResult:
+        async with self._delay_slots:
+            return await self._controller.measure_delay(node_name)
 
     async def sync_profiles(self) -> int:
         """把每个网关端口 upsert 进代理名单，返回写入条数；账号配置下拉框因此自动出现网关。"""

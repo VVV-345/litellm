@@ -1,11 +1,12 @@
-/** 本文件渲染号池代理网关面板：展示 Clash 端口网关的当前节点并支持切换出口。 */
+/** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
+import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import type { AccountPoolProxyGateway } from "./AccountPoolTypes";
+import type { AccountPoolProxyGateway, AccountPoolProxyGatewayDelay } from "./AccountPoolTypes";
 import { useProxyGateways } from "./useProxyGateways";
 
 interface ProxyManagerPanelProps {
@@ -20,6 +21,9 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
     gatewaysLoading,
     gatewaysError,
     configuration,
+    delays,
+    delaysLoading,
+    delaysError,
     refetchGateways,
     nodes,
     nodesLoading,
@@ -34,7 +38,7 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-medium">{t("accountPool.proxyGateways.title")}</p>
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.description")}</p>
           <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -42,22 +46,31 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
               ? t("accountPool.proxyGateways.configurationPath", { path: configuration.config_path })
               : t("accountPool.proxyGateways.configurationPathUnavailable")}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.delayTarget")}</p>
         </div>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon"
+          className="shrink-0"
           onClick={refetchGateways}
-          disabled={gatewaysLoading || switching}
+          disabled={gatewaysLoading || delaysLoading || switching}
           aria-label={t("accountPool.refresh")}
+          title={t("accountPool.refresh")}
         >
-          {t("accountPool.refresh")}
+          <RefreshCw className={gatewaysLoading || delaysLoading ? "size-4 animate-spin" : "size-4"} />
         </Button>
       </div>
       {gatewaysError && (
         <div className="mt-3 flex items-center justify-between gap-2" role="alert">
           <p className="text-xs text-destructive">{t("accountPool.proxyGateways.loadFailed")}</p>
-          <Button type="button" variant="ghost" size="sm" onClick={refetchGateways} disabled={gatewaysLoading}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={refetchGateways}
+            disabled={gatewaysLoading || delaysLoading}
+          >
             {t("accountPool.retry")}
           </Button>
         </div>
@@ -79,7 +92,12 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
             key={gateway.profile_id}
             gateway={gateway}
             nodes={nodes}
-            disabled={switching || nodesLoading || nodes.length === 0}
+            delay={delays.find(
+              (result) => result.port === gateway.port && result.current_node === gateway.current_node,
+            )}
+            delaysLoading={delaysLoading}
+            delaysError={delaysError}
+            disabled={switching || delaysLoading || nodesLoading || nodes.length === 0}
             onSelect={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
           />
         ))}
@@ -91,12 +109,26 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
 interface GatewayRowProps {
   gateway: AccountPoolProxyGateway;
   nodes: { name: string; proxy_type: string }[];
+  delay?: AccountPoolProxyGatewayDelay;
+  delaysLoading: boolean;
+  delaysError: boolean;
   disabled: boolean;
   onSelect: (nodeName: string) => void;
 }
 
-const GatewayRow = ({ gateway, nodes, disabled, onSelect }: GatewayRowProps) => {
+const getDelayStatus = (delay: AccountPoolProxyGatewayDelay | undefined, loading: boolean, failed: boolean) => {
+  if (loading) return "checking";
+  if (failed) return "error";
+  return delay?.status ?? "unchecked";
+};
+
+const GatewayRow = ({ gateway, nodes, delay, delaysLoading, delaysError, disabled, onSelect }: GatewayRowProps) => {
   const { t } = useTranslation();
+  const delayStatus = getDelayStatus(delay, delaysLoading, delaysError);
+  const delayText =
+    delayStatus === "ok" && delay?.delay_ms != null
+      ? t("accountPool.proxyGateways.delayValue", { delay: delay.delay_ms })
+      : t(`accountPool.proxyGateways.delay_${delayStatus}`);
   return (
     <div className="flex min-w-0 flex-col gap-3 border-b border-border/60 py-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -105,6 +137,17 @@ const GatewayRow = ({ gateway, nodes, disabled, onSelect }: GatewayRowProps) => 
           {gateway.current_node
             ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })
             : t("accountPool.proxyGateways.currentNodeUnknown")}
+        </p>
+        <p
+          className={`mt-0.5 min-h-4 text-xs tabular-nums ${delayStatus === "timeout" || delayStatus === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          title={
+            delay && !delaysLoading && !delaysError
+              ? t("accountPool.proxyGateways.delayCheckedAt", { time: new Date(delay.checked_at).toLocaleString() })
+              : undefined
+          }
+          aria-live="polite"
+        >
+          {t("accountPool.proxyGateways.delayLabel", { value: delayText })}
         </p>
       </div>
       <div className="min-w-0 sm:w-52 sm:shrink-0">

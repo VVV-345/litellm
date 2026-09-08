@@ -157,6 +157,16 @@ class AccountPoolProxyGatewayConfiguration(BaseModel):
     config_path: str | None = None
 
 
+class AccountPoolProxyGatewayDelay(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port: int
+    current_node: str | None
+    status: Literal["ok", "timeout", "error"]
+    delay_ms: int | None
+    checked_at: str
+
+
 class AccountPoolClashNode(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -176,6 +186,7 @@ _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
 _GATEWAYS: Final = TypeAdapter(tuple[AccountPoolProxyGateway, ...])
 _GATEWAY_CONFIGURATION: Final = TypeAdapter(AccountPoolProxyGatewayConfiguration)
+_GATEWAY_DELAYS: Final = TypeAdapter(tuple[AccountPoolProxyGatewayDelay, ...])
 _CLASH_NODES: Final = TypeAdapter(tuple[AccountPoolClashNode, ...])
 _GATEWAY_ADAPTER: Final = TypeAdapter(AccountPoolProxyGateway)
 
@@ -349,6 +360,14 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways")
         return _validate_response(response, _GATEWAYS)
+
+    @router.post("/proxy-gateways/delay", response_model=tuple[AccountPoolProxyGatewayDelay, ...])
+    async def measure_proxy_gateway_delays(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProxyGatewayDelay, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/proxy-gateways/delay")
+        return _validate_response(response, _GATEWAY_DELAYS)
 
     @router.get("/proxy-gateways/configuration", response_model=AccountPoolProxyGatewayConfiguration)
     async def get_proxy_gateway_configuration(

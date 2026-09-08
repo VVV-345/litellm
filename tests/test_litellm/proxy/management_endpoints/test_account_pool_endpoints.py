@@ -412,6 +412,27 @@ def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
     assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
 
 
+@pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))
+def test_proxy_gateway_delay_is_forwarded_only_for_admins(role: LitellmUserRoles) -> None:
+    payload: Final = [{"port": 7891, "current_node": "US01", "status": "timeout", "delay_ms": None,
+                       "checked_at": "2026-09-08T12:00:00Z"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert role == LitellmUserRoles.PROXY_ADMIN
+        assert request.url.path == "/api/proxy-gateways/delay"
+        assert request.method == "POST"
+        assert request.headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+        return httpx.Response(200, json=payload, request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=role), _gateway_factory(handler))
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/proxy-gateways/delay")
+
+    assert response.status_code == (200 if role == LitellmUserRoles.PROXY_ADMIN else 403)
+    if role == LitellmUserRoles.PROXY_ADMIN:
+        assert response.json() == payload
+
+
 def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/proxy-gateways/nodes" and request.method == "GET":
