@@ -15,16 +15,31 @@ from account_pool.config import validate_proxy_profile_url
 
 _UPSTREAM_BASE_URL: Final = "https://www.codebuff.com"
 _UPSTREAM_USER_AGENT: Final = "ai-sdk/openai-compatible/1.0.25/codebuff"
+_CodeExpiry = str | int | float
 
 
 def proxy_http_client(proxy_url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=15.0, proxy=validate_proxy_profile_url(proxy_url), trust_env=False)
 
 
-def _remaining_seconds(expires_at: str | None) -> int | None:
-    """把上游 ISO 过期时间换算成剩余秒数；解析失败或已过期返回 None。"""
+def _expiry_text(expires_at: _CodeExpiry | None) -> str:
+    if expires_at is None:
+        return ""
+    if isinstance(expires_at, float) and expires_at.is_integer():
+        return str(int(expires_at))
+    return str(expires_at)
+
+
+def _remaining_seconds(expires_at: _CodeExpiry | None) -> int | None:
     if not expires_at:
         return None
+    if isinstance(expires_at, (int, float)):
+        timestamp: Final = float(expires_at)
+        deadline: Final = timestamp / 1000 if abs(timestamp) >= 100_000_000_000 else timestamp
+        remaining: Final = deadline - datetime.now(timezone.utc).timestamp()
+        return int(remaining) if remaining > 0 else None
+    if expires_at.isdecimal():
+        return _remaining_seconds(int(expires_at))
     try:
         deadline: Final = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
     except ValueError:
@@ -57,7 +72,7 @@ class _CodeStartResponse(BaseModel):
 
     loginUrl: str
     fingerprintHash: str
-    expiresAt: str | None = None
+    expiresAt: _CodeExpiry | None = None
 
 
 class _CodeStatusUser(BaseModel):
@@ -130,7 +145,7 @@ class HttpCodebuffClient:
             authorization_url=payload.loginUrl,
             fingerprint_id=fingerprint_id,
             fingerprint_hash=payload.fingerprintHash,
-            expires_at=payload.expiresAt or "",
+            expires_at=_expiry_text(payload.expiresAt),
             expires_in_seconds=_remaining_seconds(payload.expiresAt),
         )
 

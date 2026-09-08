@@ -206,6 +206,41 @@ async def test_codebuff_client_starts_authorization_with_official_contract() -> 
 
 
 @pytest.mark.asyncio
+async def test_codebuff_client_accepts_millisecond_expiry_from_upstream() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    requests: Final[list[httpx.Request]] = []
+    expiry: Final = int((datetime.now(timezone.utc) + timedelta(seconds=120)).timestamp() * 1000)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/cli/code":
+            return httpx.Response(
+                200,
+                json={
+                    "loginUrl": "https://www.codebuff.com/oauth/login",
+                    "fingerprintHash": _FINGERPRINT_HASH,
+                    "expiresAt": expiry,
+                },
+                request=request,
+            )
+        return httpx.Response(200, json={"user": None}, request=request)
+
+    client: Final = HttpCodebuffClient(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    try:
+        operation: Final = await client.start_authorization("codebuff-cli-litellm-abc")
+        token: Final = await client.authorization_token(operation)
+    finally:
+        await client.close()
+
+    assert operation.expires_at == str(expiry)
+    assert operation.expires_in_seconds is not None
+    assert 60 <= operation.expires_in_seconds <= 120
+    assert token is None
+    assert requests[1].url.params["expiresAt"] == str(expiry)
+
+
+@pytest.mark.asyncio
 async def test_codebuff_client_returns_none_while_pending() -> None:
     from account_pool.channels.freebuff2api.client import CodeAuthorizationOperation
 
