@@ -69,6 +69,7 @@ class _AutomaticCooldownState(StrEnum):
 _AUTHORIZATION_COMPLETE_STATUSES: Final = frozenset(
     (EnvironmentStatus.READY, EnvironmentStatus.DISABLED, EnvironmentStatus.COOLING_DOWN)
 )
+_AUTHORIZATION_VALIDATION_TIMEOUT: Final = timedelta(minutes=2)
 
 
 class EnvironmentService:
@@ -472,33 +473,49 @@ class EnvironmentService:
         )
 
     async def _validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        started_at: Final = record.oauth_state_consumed_at or record.created_at
+        remaining: Final = (started_at + _AUTHORIZATION_VALIDATION_TIMEOUT - utc_now()).total_seconds()
+        if remaining <= 0:
+            return await self._persist_validation_retry(record, "Account channel did not become ready")
         try:
-            channel: Final = self._channel(record)
-            observed: Final = await channel.read_account(record)
+            # 限制包含底层连接退避在内的总耗时，避免 SDK 重试长期占住环境锁。
+            async with asyncio.timeout(min(15.0, remaining)):
+                channel: Final = self._channel(record)
+                observed: Final = await channel.read_account(record)
+                healthy: Final = await channel.data_plane_health_check(observed)
         except Exception as error:
-            failed: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save_if_version(failed, record.version) or failed
-        if not await channel.data_plane_health_check(observed):
-            failed_health: Final = observed.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": "Account channel data plane validation failed",
-                    "updated_at": utc_now(),
-                }
-            )
-            return await self._repository.save_if_version(failed_health, record.version) or failed_health
+            return await self._persist_validation_retry(record, _safe_error(error))
+        if not healthy:
+            return await self._persist_validation_retry(record, "Account channel data plane validation failed")
         return observed
+
+    async def _persist_validation_retry(self, record: EnvironmentRecord, message: str) -> EnvironmentRecord:
+        now: Final = utc_now()
+        # 授权消费时间已持久化，重复检查和 Manager 重启都不能延长启动等待期限。
+        started_at: Final = record.oauth_state_consumed_at or record.created_at
+        expired: Final = now - started_at >= _AUTHORIZATION_VALIDATION_TIMEOUT
+        status: Final = EnvironmentStatus.ERROR if expired else EnvironmentStatus.VALIDATING
+        updated: Final = record.model_copy(
+            update={
+                "version": record.version + 1,
+                "status": status,
+                "desired_state": status,
+                "last_error": (
+                    f"Account channel startup validation timed out: {message}"
+                    if expired else f"Waiting for account channel startup; retrying: {message}"
+                ),
+                "updated_at": now,
+            }
+        )
+        saved: Final = await self._repository.save_if_version(updated, record.version)
+        if saved is None:
+            raise _AuthorizationConflict
+        return saved
 
     async def _complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
         validated: Final = await self._validate_authorized(record)
+        if validated.status is EnvironmentStatus.VALIDATING:
+            return Failure(FailureCode.CONFLICT, "Account authorization received; waiting for channel startup")
         if validated.status not in _AUTHORIZATION_COMPLETE_STATUSES:
             return Failure(FailureCode.UPSTREAM, "environment authorization validation failed")
         completed: Final = validated.model_copy(
@@ -656,6 +673,15 @@ class EnvironmentService:
             )
         )
         return tuple(result.value for result in results if isinstance(result, Success))
+
+    async def reconcile_pending_authorizations(self) -> None:
+        """关闭页面后仍由后台继续验证已接收的授权，不重复领取或写入凭据。"""
+        records: Final = await self._repository.list()
+        await asyncio.gather(*(
+            self._refresh_if_needed(record)
+            for record in records
+            if record.status is EnvironmentStatus.VALIDATING
+        ))
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(record.id)
@@ -868,7 +894,9 @@ class EnvironmentService:
                     completion: Final = await self._complete_authorization(current)
                 except _AuthorizationConflict:
                     return await self._repository.get(current.id) or current
-                return current if isinstance(completion, Failure) else completion.value
+                if isinstance(completion, Failure):
+                    return await self._repository.get(current.id) or current
+                return completion.value
             if current.auth_file_name is None:
                 return current
             channel: Final = self._channel(current)
@@ -970,9 +998,7 @@ class EnvironmentService:
         except _AuthorizationConflict:
             return await self._repository.get(record.id) or record
         if isinstance(completion, Failure):
-            if completion.code is FailureCode.CONFLICT:
-                return await self._repository.get(claimed.id) or record
-            return record
+            return await self._repository.get(claimed.id) or record
         return completion.value
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:

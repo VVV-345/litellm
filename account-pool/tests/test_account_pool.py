@@ -22,6 +22,7 @@ from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.channels.freebuff2api.channel import FreeBuff2APIChannel
+from account_pool.channels.freebuff2api.client import HttpCodebuffClient
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
@@ -404,9 +405,14 @@ class FakeCLIProxy:
         data_plane_healthy: bool = True,
         observed_status: EnvironmentStatus = EnvironmentStatus.READY,
         authorization_error: Exception | None = None,
+        read_error: Exception | None = None,
+        health_error: Exception | None = None,
     ) -> None:
         self.authorization_status_value = authorization_status
         self.authorization_error = authorization_error
+        self.read_error = read_error
+        self.health_error = health_error
+        self.authorization_status_calls = 0
         self.data_plane_healthy = data_plane_healthy
         self.observed_status = observed_status
         self.read_calls = 0
@@ -432,6 +438,7 @@ class FakeCLIProxy:
         )
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
+        self.authorization_status_calls += 1
         if self.authorization_error is not None:
             raise self.authorization_error
         return self.authorization_status_value
@@ -441,6 +448,8 @@ class FakeCLIProxy:
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         self.read_calls += 1
+        if self.read_error is not None:
+            raise self.read_error
         return record.model_copy(
             update={
                 "auth_file_name": record.auth_file_name or "codex.json",
@@ -452,6 +461,8 @@ class FakeCLIProxy:
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
         self.health_calls += 1
+        if self.health_error is not None:
+            raise self.health_error
         return self.data_plane_healthy
 
     async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None:
@@ -1192,6 +1203,223 @@ async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path:
 
     assert await service._refresh_authorization(signed) == replacement
     assert await repository.get(record.id) == replacement
+
+
+@pytest.mark.asyncio
+async def test_freebuff_startup_retry_preserves_saved_token_and_publishes_models(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    destination: Final = tmp_path / "freebuff_credentials.json"
+    commands: Final[list[tuple[str, ...]]] = []
+    paths: Final[list[str]] = []
+    model_attempts: Final[list[str]] = []
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]):
+        commands.append(arguments)
+        if "--interactive" in arguments:
+            return await run_docker((
+                sys.executable, "-c",
+                "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
+                str(destination), "--interactive",
+            ), dict(os.environ))
+        return CompletedDockerProcess()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/api/auth/cli/code":
+            return httpx.Response(200, json={
+                "loginUrl": "https://www.codebuff.com/oauth/login", "fingerprintHash": "test-hash",
+            })
+        if request.url.path == "/api/auth/cli/status":
+            return httpx.Response(200, json={"user": {"authToken": "test-only-token"}})
+        if request.url.path == "/v1/models":
+            model_attempts.append(request.url.path)
+            if len(model_attempts) == 1:
+                raise httpx.ConnectError("container is starting", request=request)
+            return httpx.Response(200, json={"data": [{"id": "test-model"}]})
+        if request.url.path == "/healthz":
+            return httpx.Response(200, json={"status": "ok", "accounts": 1, "unknown_accounts": 1})
+        return httpx.Response(404)
+
+    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(update={
+        "channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF,
+        "available_models": (), "enabled_models": (),
+    })
+    repository: Final = MemoryRepository(record)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        channel: Final = FreeBuff2APIChannel(
+            settings, secrets, runtime=runtime, client=HttpCodebuffClient(client), http_client=client,
+        )
+        channels: Final = ChannelRegistry(
+            definitions=ChannelRegistry.default().definitions,
+            implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),
+        )
+        service: Final = EnvironmentService(
+            settings, repository, runtime, FakeCLIProxy(), EmptyProfiles(), secrets, channels=channels,
+        )
+        operation: Final = await channel.start_authorization(record)
+        state: Final = service._callback_state(record)
+        signed: Final = record.model_copy(update={
+            "oauth_state": state, "oauth_state_signature": state.rpartition(".")[2],
+            "oauth_provider_state": operation.provider_state,
+        })
+        await repository.save(signed)
+
+        pending: Final = await service._refresh_authorization(signed)
+        assert pending.status is EnvironmentStatus.VALIDATING
+        assert json.loads(destination.read_text())["accounts"]["default"]["authToken"] == "test-only-token"
+        assert not channel.gateway(pending).routable
+        await service.reconcile_pending_authorizations()
+        recovered: Final = await repository.get(record.id)
+        assert recovered is not None
+        assert recovered.status is EnvironmentStatus.READY
+        gateway: Final = channel.gateway(recovered)
+        assert gateway.routable
+        assert gateway.enabled_models == ("test-model",)
+        assert gateway.api_key
+        assert recovered.last_error is None
+
+    assert paths.count("/api/auth/cli/status") == 1
+    assert sum("--interactive" in command for command in commands) == 1
+    assert sum(command[-1] == "restart" for command in commands) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flow", ("poll", "callback"))
+@pytest.mark.parametrize("failure", ("models", "health", "health_exception"))
+async def test_authorization_waits_for_startup_and_recovers_in_background(
+    tmp_path: Path, flow: str, failure: str,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    error: Final = RuntimeError("connecting https://user:password@example.com/?token=private-token")
+    cli: Final = FakeCLIProxy(
+        authorization_status="ok",
+        read_error=error if failure == "models" else None,
+        health_error=error if failure == "health_exception" else None,
+        data_plane_healthy=failure != "health",
+    )
+    service: Final = _service(record, cli, tmp_path)
+    state: Final = service._callback_state(record)
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
+    await service._repository.save(signed)
+
+    if flow == "poll":
+        first: Final = await service._refresh_authorization(signed)
+        assert first.status is EnvironmentStatus.VALIDATING
+    else:
+        callback: Final = await service.submit_oauth_callback(OAuthCallback(state=state, code="test-code"))
+        assert isinstance(callback, Failure)
+        assert callback.code is FailureCode.CONFLICT
+        assert "waiting for channel startup" in callback.message
+
+    pending: Final = await service._repository.get(record.id)
+    assert pending is not None
+    assert pending.status is EnvironmentStatus.VALIDATING
+    assert pending.oauth_state_consumed_at is not None
+    assert pending.oauth_provider_state is None
+    assert pending.last_error is not None
+    assert "retrying" in pending.last_error
+    assert "private-token" not in pending.last_error
+    assert "password" not in pending.last_error
+    assert not service._gateway_environment(pending).routable
+    assert cli.model_calls == []
+
+    again: Final = await service._refresh_if_needed(pending)
+    assert again == await service._repository.get(record.id)
+    assert again.status is EnvironmentStatus.VALIDATING
+    assert again.oauth_state_consumed_at == pending.oauth_state_consumed_at
+
+    cli.read_error = None
+    cli.health_error = None
+    cli.data_plane_healthy = True
+    # 用新服务实例模拟 Manager 重启，并由实际后台循环推进，不依赖页面刷新。
+    runtime: Final = FakeRuntime()
+    restarted: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=service._repository, runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    stopped: Final = asyncio.Event()
+    task: Final = asyncio.create_task(
+        _reconcile_pending_configurations_until_cancelled(restarted, stopped, retry_seconds=0.01)
+    )
+    try:
+        await asyncio.wait_for(cli.configuration_completed.wait(), timeout=2)
+    finally:
+        stopped.set()
+        await task
+    recovered: Final = await service._repository.get(record.id)
+    assert recovered is not None
+    assert recovered.status is EnvironmentStatus.READY
+    assert recovered.last_error is None
+    assert recovered.auth_file_name is not None
+    assert recovered.enabled_models == ("gpt-5",)
+    assert restarted._gateway_environment(recovered).routable
+    assert cli.authorization_status_calls == (1 if flow == "poll" else 0)
+    assert len(cli.submit_calls) == (1 if flow == "callback" else 0)
+
+
+@pytest.mark.asyncio
+async def test_authorization_startup_timeout_is_bounded_and_returns_durable_error(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
+        "oauth_state_consumed_at": utc_now() - timedelta(minutes=3),
+        "updated_at": utc_now(),
+    })
+    cli: Final = FakeCLIProxy(data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service._refresh_if_needed(record)
+
+    assert result == await service._repository.get(record.id)
+    assert result.status is EnvironmentStatus.ERROR
+    assert result.last_error is not None and "timed out" in result.last_error
+    assert not service._gateway_environment(result).routable
+    await service.reconcile_pending_authorizations()
+    assert cli.health_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_startup_deadline_cancels_a_stuck_model_check(tmp_path: Path) -> None:
+    cancelled: Final = asyncio.Event()
+
+    class StuckCLI(FakeCLIProxy):
+        async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            return record
+
+    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
+        "oauth_state_consumed_at": utc_now() - timedelta(seconds=119.8),
+    })
+    service: Final = _service(record, StuckCLI(), tmp_path)
+
+    result: Final = await asyncio.wait_for(service._refresh_if_needed(record), timeout=2)
+
+    assert cancelled.is_set()
+    assert result.status is EnvironmentStatus.ERROR
+    assert result.last_error is not None and "timed out" in result.last_error
+    assert not service._gateway_environment(result).routable
+
+
+@pytest.mark.asyncio
+async def test_startup_failure_cannot_overwrite_a_newer_authorization(tmp_path: Path) -> None:
+    stale: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
+        "oauth_state_consumed_at": utc_now(),
+    })
+    newer: Final = stale.model_copy(update={
+        "version": stale.version + 1, "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
+        "oauth_state": "new-authorization-state", "oauth_state_consumed_at": None,
+    })
+    service: Final = _service(newer, FakeCLIProxy(data_plane_healthy=False), tmp_path)
+
+    from account_pool.service import _AuthorizationConflict
+
+    with pytest.raises(_AuthorizationConflict):
+        await service._complete_authorization(stale)
+    assert await service._repository.get(stale.id) == newer
 
 
 @pytest.mark.asyncio

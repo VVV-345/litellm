@@ -102,6 +102,7 @@ async def _reconcile_pending_configurations_until_cancelled(
     while not stopped.is_set():
         try:
             await service.reconcile_pending_configurations()
+            await service.reconcile_pending_authorizations()
         except Exception as error:
             _LOGGER.warning("Account pool configuration reconcile failed: %s", error.__class__.__name__)
         try:
