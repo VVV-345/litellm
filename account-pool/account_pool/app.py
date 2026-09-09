@@ -16,7 +16,8 @@ from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
-from account_pool.domain import ChannelKind, EnvironmentRecord
+from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
+from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
@@ -68,13 +69,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         retry_task: Final = asyncio.create_task(
             _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
         )
+        network_retry_task: Final = asyncio.create_task(
+            _restore_control_plane_connections_until_cancelled(channels, environments, retry_stopped)
+        )
         try:
             yield
         finally:
             retry_stopped.set()
             retry_task.cancel()
+            network_retry_task.cancel()
             try:
                 await retry_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await network_retry_task
             except asyncio.CancelledError:
                 pass
             for kind in (ChannelKind.CLIPROXYAPI, ChannelKind.FREEBUFF2API):
@@ -111,11 +120,35 @@ async def _reconcile_pending_configurations_until_cancelled(
             continue
 
 
+async def _restore_control_plane_connections_until_cancelled(
+    channels: ChannelRegistry,
+    repository: EnvironmentRepository,
+    stopped: asyncio.Event,
+    retry_seconds: float = 5.0,
+) -> None:
+    while not stopped.is_set():
+        try:
+            records: Final = await repository.list()
+            await _restore_control_plane_connections(channels, records)
+        except Exception as error:
+            _LOGGER.warning("Account pool network reconcile failed: %s", error.__class__.__name__)
+        try:
+            await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
+        except TimeoutError:
+            continue
+
+
 async def _restore_control_plane_connections(
     channels: ChannelRegistry,
     records: tuple[EnvironmentRecord, ...],
 ) -> None:
-    await asyncio.gather(*(_restore_control_plane_connection(channels, record) for record in records))
+    await asyncio.gather(
+        *(
+            _restore_control_plane_connection(channels, record)
+            for record in records
+            if record.status is not EnvironmentStatus.DELETING
+        )
+    )
 
 
 async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:

@@ -10,12 +10,15 @@ from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 import yaml
-from account_pool.app import _reconcile_pending_configurations_until_cancelled
+from account_pool.app import (
+    _reconcile_pending_configurations_until_cancelled,
+    _restore_control_plane_connections_until_cancelled,
+)
 from account_pool.channels.base import ChannelDefinition
 from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
@@ -368,6 +371,20 @@ class FailingOnceRuntime(FakeRuntime):
         if self.attempts == 1:
             raise RuntimeError("docker unavailable")
         await super().remove(record)
+
+
+class FailingOnceConnectionRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.connection_attempts = 0
+        self.connection_succeeded = asyncio.Event()
+
+    async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
+        _ = environment_id
+        self.connection_attempts += 1
+        if self.connection_attempts == 1:
+            raise RuntimeError("docker unavailable")
+        self.connection_succeeded.set()
 
 
 class FinalAuthorizationStatusRaceRepository(MemoryRepository):
@@ -3264,6 +3281,25 @@ async def test_background_reconciliation_retries_after_startup_failure(tmp_path:
 
     assert durable is not None
     assert durable.configuration_pending is False
+
+
+@pytest.mark.asyncio
+async def test_background_network_reconciliation_retries_after_startup_failure() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FailingOnceConnectionRuntime()
+    channels: Final = _fake_channels(runtime, FakeCLIProxy())
+    stopped: Final = asyncio.Event()
+    task: Final = asyncio.create_task(
+        _restore_control_plane_connections_until_cancelled(channels, repository, stopped, retry_seconds=0.01)
+    )
+    try:
+        await asyncio.wait_for(runtime.connection_succeeded.wait(), timeout=2)
+    finally:
+        stopped.set()
+        await task
+
+    assert runtime.connection_attempts >= 2
 
 
 @pytest.mark.asyncio
