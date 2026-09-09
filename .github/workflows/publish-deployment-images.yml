@@ -43,11 +43,11 @@ jobs:
             cache_scope: litellm
           - image: account-pool-manager
             context: account-pool
-            file: Dockerfile
+            file: account-pool/Dockerfile
             cache_scope: account-pool-manager
           - image: freebuff2api-proxy
             context: account-pool/freebuff2api-image
-            file: Dockerfile
+            file: account-pool/freebuff2api-image/Dockerfile
             cache_scope: freebuff2api-proxy
     steps:
       - name: Check out the commit to publish
