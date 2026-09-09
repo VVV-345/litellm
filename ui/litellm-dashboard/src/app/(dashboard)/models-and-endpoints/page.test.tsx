@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import ModelsAndEndpointsPage from "./page";
 
 vi.mock("./panels/AllModelsPanel", () => ({ default: () => <div data-testid="panel-all-models" /> }));
@@ -51,7 +52,8 @@ const renderPage = () => {
 };
 
 describe("ModelsAndEndpointsPage", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     detailState.modelId = null;
     detailState.teamId = null;
     mockUseAuthorized.mockReturnValue(ADMIN);
@@ -97,6 +99,15 @@ describe("ModelsAndEndpointsPage", () => {
     const { queryByRole } = renderPage();
     expect(queryByRole("tab", { name: "LLM Credentials" })).not.toBeInTheDocument();
     expect(queryByRole("tab", { name: "Health Status" })).not.toBeInTheDocument();
+  });
+
+  it("renders Chinese model management labels when Chinese is selected", async () => {
+    await i18next.changeLanguage("zh-CN");
+
+    const { getByRole } = renderPage();
+
+    expect(getByRole("heading", { name: "模型管理" })).toBeInTheDocument();
+    expect(getByRole("tab", { name: "添加模型" })).toBeInTheDocument();
   });
 
   // Auto-routers are excluded from the All Models table, so this tab is their home: the only

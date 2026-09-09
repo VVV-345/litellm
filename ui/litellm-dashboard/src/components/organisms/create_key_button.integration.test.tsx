@@ -1,6 +1,7 @@
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderWithProviders, screen, testQueryClient, waitFor } from "../../../tests/test-utils";
+import i18next from "@/i18n";
 import type { Team } from "../key_team_helpers/key_list";
 import { keyCreateCall, keyCreateServiceAccountCall, modelAvailableCall, userFilterUICall } from "../networking";
 import { toast } from "@/lib/toast";
@@ -211,7 +212,8 @@ const createdPayload = async () => {
 };
 
 describe("CreateKey", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     testQueryClient.clear();
     state.authorized = { accessToken: "test-token", userId: "test-user-id", userRole: "Admin", premiumUser: false };
     state.can = {};
@@ -1137,5 +1139,16 @@ describe("CreateKey", () => {
 
       expect((await createdPayload()).enable_prompt_caching).toBe(true);
     });
+  });
+
+  it("renders fixed create-key interface text in Chinese", async () => {
+    await i18next.changeLanguage("zh-CN");
+    renderCreateKey();
+    await userEvent.click(screen.getByTestId("create-key-button"));
+
+    expect(screen.getByRole("dialog", { name: "创建新密钥" })).toBeInTheDocument();
+    expect(screen.getByText("密钥归属")).toBeInTheDocument();
+    expect(screen.getByText("密钥详情")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建密钥" })).toBeInTheDocument();
   });
 });

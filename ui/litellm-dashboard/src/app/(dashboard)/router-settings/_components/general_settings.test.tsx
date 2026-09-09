@@ -1,6 +1,7 @@
 import { renderWithProviders, screen, within } from "../../../../../tests/test-utils";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import i18next from "@/i18n";
 import GeneralSettings from "./general_settings";
 import { deleteConfigFieldSetting, getGeneralSettingsCall, updateConfigFieldSetting } from "@/components/networking";
 
@@ -65,7 +66,8 @@ const settingsRow = async (fieldName: string) => {
 const numericValueIn = (row: HTMLElement) => Number((within(row).getByRole("spinbutton") as HTMLInputElement).value);
 
 describe("GeneralSettings General tab", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.mocked(getGeneralSettingsCall).mockResolvedValue([...SETTINGS_FIXTURE.map((s) => ({ ...s }))]);
     vi.mocked(updateConfigFieldSetting).mockClear();
     vi.mocked(deleteConfigFieldSetting).mockClear();
@@ -103,7 +105,8 @@ describe("GeneralSettings General tab", () => {
 
 // The five tabs here are proxy-wide settings. Auto-routers moved to Models + Endpoints.
 describe("GeneralSettings tabs", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.mocked(getGeneralSettingsCall).mockResolvedValue([]);
   });
 

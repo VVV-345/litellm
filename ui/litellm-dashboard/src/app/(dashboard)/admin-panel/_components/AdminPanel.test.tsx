@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminPanel from "./AdminPanel";
+import i18next from "@/i18n";
 
 const mockGetSSOSettings = vi.fn();
 const mockGetAllowedIPs = vi.fn();
@@ -47,7 +48,8 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
 }));
 
 describe("AdminPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     mockUseAuthorized.mockReturnValue({
       premiumUser: false,

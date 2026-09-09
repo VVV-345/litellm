@@ -9,6 +9,7 @@ import { useKeyInfo } from "@/app/(dashboard)/hooks/keys/useKeyInfo";
 import { KeysResponse, useKeys } from "@/app/(dashboard)/hooks/keys/useKeys";
 import useTeams from "@/app/(dashboard)/hooks/useTeams";
 import { regenerateKeyCall } from "../networking";
+import i18next from "@/i18n";
 
 // Resolve debounced values synchronously so an applied filter lands in the useKeys query within the test tick.
 vi.mock("@tanstack/react-pacer/debouncer", async () => {
@@ -179,7 +180,8 @@ const openFilters = () => fireEvent.click(screen.getByRole("button", { name: "Fi
 const lastKeyParam = (onUrlUpdate: Mock<OnUrlUpdateFunction>) =>
   onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.get("key");
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
   vi.clearAllMocks();
 
   mockUseKeys.mockReturnValue(keysResult([mockKey]));

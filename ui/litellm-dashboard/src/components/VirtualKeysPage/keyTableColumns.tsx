@@ -2,6 +2,7 @@
 
 import { Info } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 
 import { DataTableMultiSortHeader, DataTableSortHeader, type DataTableSortField } from "@/components/shared/DataTable";
 import { inheritedBudgetGates } from "@/components/shared/InheritedBudgetHint";
@@ -27,30 +28,25 @@ interface KeyStatus {
   tooltip?: string;
 }
 
-const SPEND_BUDGET_SORT_FIELDS: DataTableSortField[] = [
-  { id: "spend", label: "Spend" },
-  { id: "max_budget", label: "Budget" },
-];
-
-const getKeyStatus = (key: KeyResponse): KeyStatus => {
+const getKeyStatus = (key: KeyResponse, t: TFunction): KeyStatus => {
   if (key.blocked === true) {
     const isScimBlocked = (key.metadata as Record<string, unknown> | null | undefined)?.scim_blocked === true;
     return {
       tone: "error",
-      label: "Blocked",
+      label: t("ui.Blocked"),
       tooltip: isScimBlocked
-        ? "Blocked by SCIM (external identity provider deactivated or deleted the owning user)."
-        : "Blocked. Requests using this key will be rejected with 401.",
+        ? t("ui.Blocked by SCIM (external identity provider deactivated or deleted the owning user).")
+        : t("ui.Blocked. Requests using this key will be rejected with 401."),
     };
   }
   const expiresAt = key.expires ? Date.parse(key.expires) : Number.NaN;
   if (!Number.isNaN(expiresAt) && expiresAt < Date.now()) {
-    return { tone: "warning", label: "Expired", tooltip: "This key has passed its expiry date." };
+    return { tone: "warning", label: t("ui.Expired"), tooltip: t("ui.This key has passed its expiry date.") };
   }
   return {
     tone: "success",
-    label: "Active",
-    tooltip: "This key is not blocked and has not expired.",
+    label: t("ui.Active"),
+    tooltip: t("ui.This key is not blocked and has not expired."),
   };
 };
 
@@ -59,11 +55,13 @@ const UserPopoverCell = ({
   userEmail,
   userId,
   width,
+  t,
 }: {
   userAlias: string | null;
   userEmail: string | null;
   userId: string | null;
   width: number;
+  t: TFunction;
 }) => {
   const displayValue = userAlias || userEmail || userId;
   const isDefaultAdmin = userId === "default_user_id";
@@ -71,9 +69,9 @@ const UserPopoverCell = ({
   const popoverContent = (
     <div className="flex flex-col gap-2 text-xs min-w-[200px] max-w-[300px]">
       {[
-        { label: "User Alias", value: userAlias },
-        { label: "User Email", value: userEmail },
-        { label: "User ID", value: userId },
+        { label: t("ui.User Alias"), value: userAlias },
+        { label: t("ui.User Email"), value: userEmail },
+        { label: t("ui.User ID"), value: userId },
       ].map(({ label, value }) => (
         <div key={label} className="flex flex-col min-w-0">
           <span className="text-muted-foreground">{label}</span>
@@ -129,18 +127,20 @@ interface KeyTableColumnsDeps {
   allTeams: Team[];
   organizations: Organization[];
   onSelectKey: (key: KeyResponse) => void;
+  t: TFunction;
 }
 
 export const getKeyTableColumns = ({
   allTeams,
   organizations,
   onSelectKey,
+  t,
 }: KeyTableColumnsDeps): ColumnDef<KeyResponse>[] => [
   {
     id: "key_alias",
     accessorKey: "key_alias",
     meta: {
-      title: "Key",
+      title: t("ui.Key"),
       renderSkeleton: () => (
         <div className="flex flex-col gap-1 py-1">
           <Skeleton className="h-4 w-32" />
@@ -151,11 +151,11 @@ export const getKeyTableColumns = ({
         </div>
       ),
     },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Key" variant="header-cycle" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Key")} variant="header-cycle" />,
     size: 260,
     enableSorting: true,
     cell: ({ row }) => {
-      const status = getKeyStatus(row.original);
+      const status = getKeyStatus(row.original, t);
       return (
         <IdentityCell
           title={row.original.key_alias || "-"}
@@ -176,8 +176,8 @@ export const getKeyTableColumns = ({
   {
     id: "token",
     accessorKey: "token",
-    meta: { title: "Key ID" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Key ID" variant="header-cycle" />,
+    meta: { title: t("virtualKeys.keyId") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("virtualKeys.keyId")} variant="header-cycle" />,
     size: 120,
     enableSorting: true,
     cell: (info) => <IdCell value={info.getValue() as string | null} onClick={() => onSelectKey(info.row.original)} />,
@@ -185,8 +185,8 @@ export const getKeyTableColumns = ({
   {
     id: "team_alias",
     accessorKey: "team_id",
-    meta: { title: "Team" },
-    header: "Team",
+    meta: { title: t("virtualKeys.team") },
+    header: t("virtualKeys.team"),
     size: 120,
     enableSorting: false,
     cell: (info) => {
@@ -205,8 +205,8 @@ export const getKeyTableColumns = ({
   {
     id: "organization_alias",
     accessorKey: "org_id",
-    meta: { title: "Organization" },
-    header: "Organization",
+    meta: { title: t("virtualKeys.organization") },
+    header: t("virtualKeys.organization"),
     size: 140,
     enableSorting: false,
     cell: (info) => {
@@ -225,9 +225,9 @@ export const getKeyTableColumns = ({
   {
     id: "user",
     accessorKey: "user",
-    meta: { title: "User" },
+    meta: { title: t("ui.User") },
     header: () => (
-      <InfoHeader label="User" tooltip="Displays the first available value: User Alias, User Email, or User ID." />
+      <InfoHeader label={t("ui.User")} tooltip={t("ui.Displays the first available value: User Alias, User Email, or User ID.")} />
     ),
     size: 160,
     enableSorting: false,
@@ -239,6 +239,7 @@ export const getKeyTableColumns = ({
           userEmail={key.user?.user_email ?? key.user_email ?? null}
           userId={key.user_id ?? null}
           width={160}
+          t={t}
         />
       );
     },
@@ -246,8 +247,8 @@ export const getKeyTableColumns = ({
   {
     id: "created_at",
     accessorKey: "created_at",
-    meta: { title: "Created At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created At" variant="header-cycle" />,
+    meta: { title: t("virtualKeys.createdAt") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("virtualKeys.createdAt")} variant="header-cycle" />,
     size: 120,
     enableSorting: true,
     cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" />,
@@ -255,8 +256,8 @@ export const getKeyTableColumns = ({
   {
     id: "created_by",
     accessorKey: "created_by",
-    meta: { title: "Created By" },
-    header: "Created By",
+    meta: { title: t("virtualKeys.createdBy") },
+    header: t("virtualKeys.createdBy"),
     size: 160,
     enableSorting: false,
     cell: (info) => {
@@ -269,6 +270,7 @@ export const getKeyTableColumns = ({
           userEmail={createdByUser?.user_email ?? null}
           userId={userId}
           width={160}
+          t={t}
         />
       );
     },
@@ -276,40 +278,48 @@ export const getKeyTableColumns = ({
   {
     id: "updated_at",
     accessorKey: "updated_at",
-    meta: { title: "Updated At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" variant="header-cycle" />,
+    meta: { title: t("ui.Updated At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Updated At")} variant="header-cycle" />,
     size: 120,
     enableSorting: true,
-    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Never" />,
+    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Never")} />,
   },
   {
     id: "last_active",
     accessorKey: "last_active",
-    meta: { title: "Last Active" },
+    meta: { title: t("ui.Last Active") },
     header: () => (
       <InfoHeader
-        label="Last Active"
-        tooltip="This is a new field and is not backfilled. Only new key usage will update this value."
+        label={t("ui.Last Active")}
+        tooltip={t("ui.This is a new field and is not backfilled. Only new key usage will update this value.")}
       />
     ),
     size: 130,
     enableSorting: false,
-    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Unknown" />,
+    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Unknown")} />,
   },
   {
     id: "expires",
     accessorKey: "expires",
-    meta: { title: "Expires" },
-    header: "Expires",
+    meta: { title: t("virtualKeys.expires") },
+    header: t("virtualKeys.expires"),
     size: 120,
     enableSorting: false,
-    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback="Never" />,
+    cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" fallback={t("ui.Never")} />,
   },
   {
     id: "spend",
     accessorKey: "spend",
-    meta: { title: "Spend / Budget", skeleton: "meter" },
-    header: ({ table }) => <DataTableMultiSortHeader table={table} fields={SPEND_BUDGET_SORT_FIELDS} />,
+    meta: { title: t("virtualKeys.spendBudget"), skeleton: "meter" },
+    header: ({ table }) => (
+      <DataTableMultiSortHeader
+        table={table}
+        fields={[
+          { id: "spend", label: t("ui.Spend") },
+          { id: "max_budget", label: t("virtualKeys.budget") },
+        ]}
+      />
+    ),
     size: 180,
     enableSorting: true,
     cell: ({ row }) => {
@@ -328,17 +338,17 @@ export const getKeyTableColumns = ({
   {
     id: "budget_reset_at",
     accessorKey: "budget_reset_at",
-    meta: { title: "Budget Reset" },
-    header: "Budget Reset",
+    meta: { title: t("virtualKeys.budgetReset") },
+    header: t("virtualKeys.budgetReset"),
     size: 130,
     enableSorting: false,
-    cell: (info) => <DateCell value={info.getValue() as string | null} fallback="Never" />,
+    cell: (info) => <DateCell value={info.getValue() as string | null} fallback={t("ui.Never")} />,
   },
   {
     id: "models",
     accessorKey: "models",
-    meta: { title: "Models", skeleton: "chips" },
-    header: "Models",
+    meta: { title: t("ui.Models"), skeleton: "chips" },
+    header: t("ui.Models"),
     size: 220,
     enableSorting: false,
     cell: (info) => (
@@ -351,16 +361,16 @@ export const getKeyTableColumns = ({
   },
   {
     id: "rate_limits",
-    meta: { title: "Rate Limits" },
-    header: "Rate Limits",
+    meta: { title: t("ui.Rate Limits") },
+    header: t("ui.Rate Limits"),
     size: 140,
     enableSorting: false,
     cell: ({ row }) => {
       const key = row.original;
       return (
         <div className="text-xs">
-          <div>TPM: {key.tpm_limit !== null ? key.tpm_limit : "Unlimited"}</div>
-          <div>RPM: {key.rpm_limit !== null ? key.rpm_limit : "Unlimited"}</div>
+          <div>TPM: {key.tpm_limit !== null ? key.tpm_limit : t("ui.Unlimited")}</div>
+          <div>RPM: {key.rpm_limit !== null ? key.rpm_limit : t("ui.Unlimited")}</div>
         </div>
       );
     },

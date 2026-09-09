@@ -6,6 +6,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTeamMetadataSchema } from "@/app/(dashboard)/hooks/teams/useTeamMetadataSchema";
 import { toast } from "@/lib/toast";
+import i18next from "@/i18n";
 import { fetchAvailableModelsForTeamOrKey } from "./key_team_helpers/fetch_available_models_team_key";
 import {
   fetchMCPAccessGroups,
@@ -175,7 +176,8 @@ const renderWithQueryClient = (
 };
 
 // Re-establish safe defaults before every test (clearAllMocks keeps return values, so restore them here).
-beforeEach(() => {
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
   mockTeamsTableProps = null;
   can.mockReturnValue(true);
 });

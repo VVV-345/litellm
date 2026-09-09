@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { FormProvider, useForm } from "react-hook-form";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { alertingSettingsCall, getCallbackConfigsCall, getCallbacksCall, setCallbacksCall } from "./networking";
 import Settings, { backendCallbackLogoSrc, CallbackSelector } from "./settings";
 
@@ -65,7 +66,8 @@ describe("Settings", () => {
   const mockGetCallbackConfigsCall = vi.mocked(getCallbackConfigsCall);
   const mockAlertingSettingsCall = vi.mocked(alertingSettingsCall);
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     mockGetCallbacksCall.mockResolvedValue({
       callbacks: [],
@@ -286,6 +288,14 @@ describe("Settings", () => {
     });
 
     expect(getByText("CloudZero Cost Tracking")).toBeInTheDocument();
+  });
+
+  it("renders logging and alert controls in Chinese", async () => {
+    await i18next.changeLanguage("zh-CN");
+    render(<Settings {...defaultProps} />);
+
+    expect(await screen.findByRole("tab", { name: "日志回调" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "告警类型" })).toBeInTheDocument();
   });
 });
 

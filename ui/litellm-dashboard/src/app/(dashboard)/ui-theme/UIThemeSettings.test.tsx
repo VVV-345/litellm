@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "@/lib/toast";
+import i18next from "@/i18n";
 
 import UIThemeSettings from "./UIThemeSettings";
 
@@ -40,7 +41,8 @@ const patchCalls = () => fetchMock.mock.calls.filter(([, init]) => init?.method 
 const bodyOf = (call: Parameters<typeof fetch>) => JSON.parse(String(call[1]?.body));
 
 describe("UIThemeSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     fetchMock.mockImplementation(() => okResponse());
     vi.stubGlobal("fetch", fetchMock);
