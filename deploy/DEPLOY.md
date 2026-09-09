@@ -106,6 +106,24 @@ FreeBuff 基础镜像已锁定完整 digest，适配依赖通过 `package-lock.j
 
 ## 日常操作
 
+### 发布新版本
+
+向 `CLIProxyAPI分支` 推送提交后，GitHub Actions 会自动构建并发布以下三个镜像到 GHCR。镜像 tag 是该提交号的前 10 位，例如 `56db4cf0a3`
+
+- `ghcr.io/vvv-345/litellm:<DEPLOY_TAG>`
+- `ghcr.io/vvv-345/account-pool-manager:<DEPLOY_TAG>`
+- `ghcr.io/vvv-345/freebuff2api-proxy:<DEPLOY_TAG>`
+
+发布完成后，进入服务器部署目录，修改 `.env` 中的 `DEPLOY_TAG` 为 Actions 页面显示的版本号，再执行：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+这不会删除数据库或账号数据卷。需要回滚时，把 `DEPLOY_TAG` 改回之前已发布的提交号并重复同一命令
+
+GitHub Actions 的构建缓存由 GitHub 按容量和最近使用时间自动淘汰。发布流程对每种 GHCR 镜像只保留最近 20 个版本，旧版本会自动删除，保留的版本可用于回滚。服务器可定期执行 `docker image prune -f` 清理未被任何容器使用的旧镜像，不能执行会删除数据卷的清理命令
+
 ```bash
 docker compose logs -f account-pool   # 看 Manager 日志
 docker compose pull && docker compose up -d   # 升级（先改 .env 里的 DEPLOY_TAG）
