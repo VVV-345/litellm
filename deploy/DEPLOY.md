@@ -114,6 +114,8 @@ FreeBuff 基础镜像已锁定完整 digest，适配依赖通过 `package-lock.j
 - `ghcr.io/vvv-345/account-pool-manager:<DEPLOY_TAG>`
 - `ghcr.io/vvv-345/freebuff2api-proxy:<DEPLOY_TAG>`
 
+首次启用前，需要在 GitHub 的每个现有 GHCR 包设置中进入 `Package settings` -> `Manage Actions access`，添加仓库 `VVV-345/litellm` 并授予 `Admin`。三个包分别是 `litellm`、`account-pool-manager`、`freebuff2api-proxy`。这是一次性设置，授权后 Actions 使用短期 `GITHUB_TOKEN` 发布和清理旧版本，不需要创建或保存个人访问令牌
+
 发布完成后，进入服务器部署目录，修改 `.env` 中的 `DEPLOY_TAG` 为 Actions 页面显示的版本号，再执行：
 
 ```bash
