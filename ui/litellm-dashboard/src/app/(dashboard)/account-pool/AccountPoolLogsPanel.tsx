@@ -9,7 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatDateTime } from "./AccountPoolFormatters";
-import { getAccountPoolLog, listAccountPoolLogs, type LogFilters } from "./AccountPoolManagementApi";
+import {
+  getAccountPoolLog,
+  getAccountPoolStats,
+  listAccountPoolLogs,
+  type LogFilters,
+} from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 export function AccountPoolLogsPanel({
@@ -42,6 +47,16 @@ export function AccountPoolLogsPanel({
     retry: false,
   };
   const detail = useQuery(detailQuery);
+  const stats = useQuery({
+    queryKey: ["account-pool", "stats", accessToken, filters.card_id, filters.account_id, filters.model],
+    queryFn: () =>
+      getAccountPoolStats(accessToken, {
+        card_id: filters.card_id,
+        account_id: filters.account_id,
+        model: filters.model,
+      }),
+    retry: false,
+  });
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const invalidFrom = Boolean(from) && !Number.isFinite(Date.parse(from));
@@ -182,6 +197,28 @@ export function AccountPoolLogsPanel({
         </div>
       </form>
       {validationError && <p role="alert">{t("accountPool.logs.invalidTime")}</p>}
+      {stats.data && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.requests")}</p>
+            <p className="text-xl font-semibold">{stats.data.total_requests}</p>
+          </div>
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.failures")}</p>
+            <p className="text-xl font-semibold">{stats.data.failed_requests}</p>
+          </div>
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.tokens")}</p>
+            <p className="text-xl font-semibold">{stats.data.input_tokens + stats.data.output_tokens}</p>
+          </div>
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.averageDuration")}</p>
+            <p className="text-xl font-semibold">
+              {stats.data.average_duration_ms == null ? "-" : Math.round(stats.data.average_duration_ms)} ms
+            </p>
+          </div>
+        </div>
+      )}
       {query.isPending && <p role="status">{t("accountPool.management.loading")}</p>}
       {query.isError && <p role="alert">{t("accountPool.logs.loadFailed")}</p>}
       {query.data && (

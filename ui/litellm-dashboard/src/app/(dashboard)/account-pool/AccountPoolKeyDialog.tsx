@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { getProxyBaseUrl } from "@/components/networking";
 import { toast } from "@/lib/toast";
 import { formatDateTime } from "./AccountPoolFormatters";
 import { getCardKeyStatus, issueCardKey, revokeCardKey } from "./AccountPoolManagementApi";
@@ -65,6 +66,7 @@ export function AccountPoolKeyDialog({
           <DialogDescription>{t("accountPool.keys.description")}</DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">{t("accountPool.keys.pendingGateway")}</p>
+        <Input readOnly aria-label="Base URL" value={`${getProxyBaseUrl().replace(/\/$/, "")}/v1`} />
         {query.isPending && <p role="status">{t("accountPool.management.loading")}</p>}
         {query.isError && (
           <div role="alert">

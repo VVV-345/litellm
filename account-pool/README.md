@@ -84,3 +84,5 @@ Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.dock
 ## 当前边界
 
 CLIProxyAPI 的额度来自最近一次上游响应的被动观测，因此账号完成授权但尚未产生请求时，页面会显示“尚未观测”。额度窗口按响应中的分钟数解析，不假设固定周限或月限。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键
+
+NewAPI 使用卡片 Key 接入 LiteLLM 公共模型入口，配置方法和当前协议边界见 [NEWAPI_INTEGRATION.md](NEWAPI_INTEGRATION.md)

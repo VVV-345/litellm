@@ -15,7 +15,6 @@ from pydantic import BaseModel, ConfigDict
 from account_pool.domain import utc_now
 from account_pool.result import Failure, FailureCode, Result, Success
 
-
 _PREFIX: Final = "cpk_"
 _TOKEN_BYTES: Final = 32
 
@@ -90,6 +89,8 @@ class CardKeyRepository(Protocol):
 
     async def revoke(self, card_id: UUID, expected_key_id: UUID, revoked_at: datetime) -> bool: ...
 
+    async def find_by_hash(self, key_hash: str) -> CardKeyRecord | None: ...
+
 
 class CardKeyService:
     def __init__(self, repository: CardKeyRepository) -> None:
@@ -109,3 +110,7 @@ class CardKeyService:
         if not await self._repository.revoke(card_id, expected_key_id, utc_now()):
             return Failure(FailureCode.CONFLICT, "Card key has changed; refresh before retrying")
         return Success(None)
+
+    async def authenticate(self, plaintext: str) -> CardKeyRecord | None:
+        record: Final = await self._repository.find_by_hash(hash_card_key(plaintext))
+        return record if record is not None and matches_card_key(plaintext, record) else None

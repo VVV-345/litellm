@@ -33,6 +33,7 @@ const codexDefaults: Codex = {
 const defaults: FormPolicy = {
   tags: [],
   group: "",
+  account_ids: [],
   excluded_models: [],
   model_aliases: [],
   routing: {
@@ -140,6 +141,7 @@ function PolicyForm({
   const [excluded, setExcluded] = useState(policy.excluded_models.join(", "));
   const [aliases, setAliases] = useState(policy.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
   const [preferred, setPreferred] = useState(policy.routing.preferred_account_ids.join(", "));
+  const [members, setMembers] = useState((policy.account_ids ?? []).join(", "));
   const [statuses, setStatuses] = useState(policy.routing.retryable_statuses.join(", "));
   const codex = policy.codex ?? codexDefaults;
   const [clients, setClients] = useState(codex.allow_app_server_clients.join(", "));
@@ -222,6 +224,7 @@ function PolicyForm({
     }
     const parsed: FormPolicy = {
       ...policy,
+      account_ids: list(members),
       codex: { ...codex, allow_app_server_clients: list(clients) },
       tags: list(tags),
       excluded_models: list(excluded),
@@ -256,6 +259,15 @@ function PolicyForm({
       <p role="status" className="rounded-md border bg-muted/30 p-3 text-sm">
         {t("accountPool.policy.pending")}
       </p>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        {value.capabilities?.map((capability) => (
+          <div key={capability.name} className="flex justify-between gap-2">
+            <dt>{t(`accountPool.policy.capabilities.${capability.name}`)}</dt>
+            <dd>{t(`accountPool.policy.capabilityStatus.${capability.status}`)}</dd>
+          </div>
+        ))}
+      </dl>
+      {text(t("accountPool.policy.account_ids"), members, setMembers)}
       <fieldset className="grid gap-3 sm:grid-cols-2">
         <legend className="mb-3 font-medium">{t("accountPool.policy.routing")}</legend>
         {select(

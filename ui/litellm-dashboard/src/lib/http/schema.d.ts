@@ -700,6 +700,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Batches */
+        get: operations["list_batches_account_pool_batches_get"];
+        put?: never;
+        /** Submit Batch */
+        post: operations["submit_batch_account_pool_batches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/batches/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Batch */
+        get: operations["get_batch_account_pool_batches__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/cards/{card_id}/key": {
         parameters: {
             query?: never;
@@ -969,6 +1004,23 @@ export interface paths {
         };
         /** List Proxy Profiles */
         get: operations["list_proxy_profiles_account_pool_proxy_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stats */
+        get: operations["stats_account_pool_stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -22755,6 +22807,11 @@ export interface components {
         };
         /** AccountPolicy */
         AccountPolicy: {
+            /**
+             * Account Ids
+             * @default []
+             */
+            account_ids: string[];
             codex?: components["schemas"]["CodexPolicy"] | null;
             /**
              * Excluded Models
@@ -23987,6 +24044,79 @@ export interface components {
         };
         /** BaseModel */
         BaseModel: Record<string, never>;
+        /** BatchItem */
+        BatchItem: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Message */
+            message?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /** BatchJob */
+        BatchJob: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Items */
+            items: components["schemas"]["BatchItem"][];
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+        };
+        /** BatchRequest */
+        BatchRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy";
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            policy?: components["schemas"]["AccountPolicy"] | null;
+            /** Targets */
+            targets: components["schemas"]["BatchTarget"][];
+        };
+        /** BatchTarget */
+        BatchTarget: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Policy Version
+             * @default 0
+             */
+            policy_version: number;
+            /** Version */
+            version: number;
+        };
         /**
          * BedrockChecksConfigModel
          * @description Inline `checks` config for the resource-less Bedrock InvokeGuardrailChecks API.
@@ -27302,6 +27432,8 @@ export interface components {
             finished_at?: string | null;
             /** Http Status */
             http_status?: number | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
             /** Message */
             message: string;
             /** Method */
@@ -27317,6 +27449,8 @@ export interface components {
             occurred_at?: string;
             /** Operation */
             operation: string;
+            /** Output Tokens */
+            output_tokens?: number | null;
             /**
              * Request Id
              * Format: uuid
@@ -27374,6 +27508,52 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+        };
+        /** ErrorStats */
+        ErrorStats: {
+            /** Account Id */
+            account_id?: string | null;
+            /** Average Duration Ms */
+            average_duration_ms?: number | null;
+            /** Card Id */
+            card_id?: string | null;
+            /**
+             * Failed Requests
+             * @default 0
+             */
+            failed_requests: number;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /** Model */
+            model?: string | null;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Recent Errors
+             * @default []
+             */
+            recent_errors: components["schemas"]["ErrorLogRecord"][];
+            /**
+             * Retried Requests
+             * @default 0
+             */
+            retried_requests: number;
+            /**
+             * Succeeded Requests
+             * @default 0
+             */
+            succeeded_requests: number;
+            /**
+             * Total Requests
+             * @default 0
+             */
+            total_requests: number;
         };
         /**
          * Eval
@@ -33684,6 +33864,19 @@ export interface components {
              */
             total_count: number;
         };
+        /** PolicyCapability */
+        PolicyCapability: {
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "routing" | "models" | "quota" | "retry" | "timeout" | "client" | "responses_compact" | "image" | "identity" | "websocket" | "plan_expiry" | "desktop_compact" | "debug";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "gateway" | "unsupported" | "desktop";
+        };
         /**
          * PolicyConditionRequest
          * @description Condition for when a policy applies.
@@ -34215,6 +34408,8 @@ export interface components {
         };
         /** PolicyView */
         PolicyView: {
+            /** Capabilities */
+            capabilities?: components["schemas"]["PolicyCapability"][];
             /**
              * Card Id
              * Format: uuid
@@ -34229,10 +34424,10 @@ export interface components {
             policy?: components["schemas"]["AccountPolicy"];
             /**
              * Runtime Status
-             * @default not_connected
+             * @default partial
              * @constant
              */
-            runtime_status: "not_connected";
+            runtime_status: "partial";
             /**
              * Version
              * @default 0
@@ -40446,6 +40641,90 @@ export interface operations {
             };
         };
     };
+    list_batches_account_pool_batches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchJob"][];
+                };
+            };
+        };
+    };
+    submit_batch_account_pool_batches_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_batch_account_pool_batches__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_key_account_pool_cards__card_id__key_post: {
         parameters: {
             query?: never;
@@ -41057,6 +41336,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolProxyProfile"][];
+                };
+            };
+        };
+    };
+    stats_account_pool_stats_get: {
+        parameters: {
+            query?: {
+                card_id?: string | null;
+                account_id?: string | null;
+                model?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

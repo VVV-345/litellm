@@ -38,8 +38,8 @@ from account_pool.domain import (
     to_view,
     utc_now,
 )
-from account_pool.error_safety import safe_error
 from account_pool.error_logs import ErrorLogService, LogStage
+from account_pool.error_safety import safe_error
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentChannel,
@@ -126,6 +126,13 @@ class EnvironmentService:
         refreshed: Final = await self._refresh_if_needed(record)
         return Success(to_view(refreshed))
 
+    async def refresh_environment(self, environment_id: UUID) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        refreshed: Final = await self._refresh_if_needed(record)
+        return Success(to_view(refreshed))
+
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
@@ -150,6 +157,9 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         return tuple(self._gateway_environment(record) for record in refreshed)
+
+    def gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
+        return self._gateway_environment(record)
 
     async def _start_authorization(
         self,

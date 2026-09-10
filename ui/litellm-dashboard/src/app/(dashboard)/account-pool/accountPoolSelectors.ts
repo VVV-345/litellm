@@ -1,6 +1,7 @@
 /** 本文件提供号池环境查询、筛选、排序与分页的纯选择器。 */
 
 import type { AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
+import type { PolicyView } from "./AccountPoolManagementApi";
 
 export const sortAccountPoolEnvironments = (
   environments: readonly AccountPoolEnvironment[],
@@ -16,15 +17,18 @@ export const filterAccountPoolEnvironments = (
   environments: readonly AccountPoolEnvironment[],
   search: string,
   status: "all" | AccountPoolStatus,
+  policies: readonly PolicyView[] = [],
 ): AccountPoolEnvironment[] => {
   const normalizedSearch = search.trim().toLocaleLowerCase();
+  const policyByCard = new Map(policies.map((policy) => [String(policy.card_id), policy.policy]));
   return sortAccountPoolEnvironments(
     environments.filter((environment) => {
+      const policy = policyByCard.get(environment.id);
       const matchesStatus = status === "all" || environment.status === status;
+      const searchValues = [environment.name, environment.id, policy?.group ?? "", ...(policy?.tags ?? [])];
       const matchesSearch =
         normalizedSearch.length === 0 ||
-        environment.name.toLocaleLowerCase().includes(normalizedSearch) ||
-        environment.id.toLocaleLowerCase().includes(normalizedSearch);
+        searchValues.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
       return matchesStatus && matchesSearch;
     }),
   );

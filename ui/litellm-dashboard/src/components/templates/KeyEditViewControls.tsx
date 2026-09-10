@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CircleHelp } from "lucide-react";
@@ -27,24 +28,38 @@ export const KeyTypeSelect = ({
   id: string;
   value: string;
   onChange: (value: string) => void;
-}) => (
-  <Select
-    items={Object.fromEntries(KEY_TYPE_OPTIONS.map((option) => [option.value, option.label]))}
-    value={value}
-    onValueChange={(next: string | null) => next != null && onChange(next)}
-  >
-    <SelectTrigger id={id} className="w-full">
-      <SelectValue placeholder="Select key type" />
-    </SelectTrigger>
-    <SelectContent>
-      {KEY_TYPE_OPTIONS.map((option) => (
-        <SelectItem key={option.value} value={option.value}>
-          <div className="py-1">
-            <div className="font-medium">{option.label}</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">{option.hint}</div>
-          </div>
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-);
+}) => <KeyTypeSelectContent id={id} value={value} onChange={onChange} />;
+
+const KeyTypeSelectContent = ({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <Select
+      items={Object.fromEntries(KEY_TYPE_OPTIONS.map((option) => [option.value, t(`ui.${option.label}`)]))}
+      value={value}
+      onValueChange={(next: string | null) => next != null && onChange(next)}
+    >
+      <SelectTrigger id={id} className="w-full">
+        <SelectValue placeholder={t("ui.Select key type")} />
+      </SelectTrigger>
+      <SelectContent>
+        {KEY_TYPE_OPTIONS.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            <div className="py-1">
+              <div className="font-medium">{t(`ui.${option.label}`)}</div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">{t(`ui.${option.hint}`)}</div>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+};

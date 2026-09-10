@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AccountPoolCard } from "./AccountPoolCard";
+import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
 import { AccountPoolKeyDialog } from "./AccountPoolKeyDialog";
 import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
@@ -71,12 +72,13 @@ export default function AccountPoolPage() {
   const canManage = canManageAccountPool(userRole, isViewOnly);
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage);
-  const policiesQuery = useQuery({
+  const policiesQueryOptions = {
     queryKey: ["account-pool", "policies", accessToken],
     queryFn: () => listAccountPolicies(accessToken!),
     enabled: canManage && accessToken !== null,
     retry: false,
-  });
+  };
+  const policiesQuery = useQuery(policiesQueryOptions);
   const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
     accessToken,
     canManage,
@@ -86,10 +88,11 @@ export default function AccountPoolPage() {
     },
     () => setDeleteEnvironment(null),
   );
-  const environments = environmentsQuery.data ?? [];
+  const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
+  const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
   const filteredEnvironments = useMemo(
-    () => filterAccountPoolEnvironments(environments, search, statusFilter),
-    [environments, search, statusFilter],
+    () => filterAccountPoolEnvironments(environments, search, statusFilter, policies),
+    [environments, policies, search, statusFilter],
   );
   const pageCount = Math.max(1, Math.ceil(filteredEnvironments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -97,6 +100,7 @@ export default function AccountPoolPage() {
   const readyCount = environments.filter((environment) => environment.status === "ready" && environment.enabled).length;
   const awaitingCount = environments.filter((environment) => environment.status === "awaiting_authorization").length;
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
+  const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
   if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
 
@@ -163,7 +167,10 @@ export default function AccountPoolPage() {
               onDelete={setDeleteEnvironment}
               onManageKey={setKeyEnvironment}
               onManagePolicy={setPolicyEnvironment}
-              onViewLogs={(current) => { setLogCardId(current.id); setActiveTab("logs"); }}
+              onViewLogs={(current) => {
+                setLogCardId(current.id);
+                setActiveTab("logs");
+              }}
               tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
               group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
               disabled={busy}
@@ -263,7 +270,12 @@ export default function AccountPoolPage() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="accounts" className="pt-4">
-            {!environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0 && (
+            {accessToken && environments.length > 0 && (
+              <div className="mb-4">
+                <AccountPoolBatchPanel accessToken={accessToken} environments={environments} />
+              </div>
+            )}
+            {showAccountFilters && (
               <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
                 <Input
                   value={search}
@@ -302,7 +314,14 @@ export default function AccountPoolPage() {
             <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
           </TabsContent>
           <TabsContent value="logs" className="pt-4">
-            {accessToken && <AccountPoolLogsPanel key={logCardId ?? "all"} accessToken={accessToken} environments={environments} initialCardId={logCardId} />}
+            {accessToken && (
+              <AccountPoolLogsPanel
+                key={logCardId ?? "all"}
+                accessToken={accessToken}
+                environments={environments}
+                initialCardId={logCardId}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
@@ -335,10 +354,24 @@ export default function AccountPoolPage() {
         />
       )}
       {keyEnvironment && accessToken && (
-        <AccountPoolKeyDialog accessToken={accessToken} cardId={keyEnvironment.id} name={keyEnvironment.name} onClose={() => setKeyEnvironment(null)} />
+        <AccountPoolKeyDialog
+          accessToken={accessToken}
+          cardId={keyEnvironment.id}
+          name={keyEnvironment.name}
+          onClose={() => setKeyEnvironment(null)}
+        />
       )}
       {policyEnvironment && accessToken && (
-        <AccountPoolPolicyDialog accessToken={accessToken} cardId={policyEnvironment.id} name={policyEnvironment.name} supplier={policyEnvironment.supplier} onClose={() => { setPolicyEnvironment(null); void policiesQuery.refetch(); }} />
+        <AccountPoolPolicyDialog
+          accessToken={accessToken}
+          cardId={policyEnvironment.id}
+          name={policyEnvironment.name}
+          supplier={policyEnvironment.supplier}
+          onClose={() => {
+            setPolicyEnvironment(null);
+            void policiesQuery.refetch();
+          }}
+        />
       )}
       <AlertDialog
         open={deleteEnvironment !== null}

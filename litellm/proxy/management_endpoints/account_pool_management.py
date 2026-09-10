@@ -13,7 +13,17 @@ from pydantic import TypeAdapter
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_management_models import (
-    CardKeyChange, CardKeyIssue, CardKeyStatus, ErrorLogDetail, ErrorLogPage, ErrorLogQuery, PolicyUpdate, PolicyView,
+    BatchJob,
+    BatchRequest,
+    CardKeyChange,
+    CardKeyIssue,
+    CardKeyStatus,
+    ErrorLogDetail,
+    ErrorLogPage,
+    ErrorLogQuery,
+    ErrorStats,
+    PolicyUpdate,
+    PolicyView,
 )
 
 ManagementRequest = Callable[[Literal["GET", "POST", "PUT", "DELETE"], str, bytes | None], Awaitable[httpx.Response]]
@@ -76,6 +86,36 @@ def create_management_router(
         return parse_response(
             await call("PUT", f"/api/environments/{card_id}/policy", request.model_dump_json().encode()), TypeAdapter(PolicyView)
         )
+
+    @router.post("/batches", response_model=BatchJob, status_code=202)
+    async def submit_batch(request: BatchRequest) -> BatchJob:
+        return parse_response(
+            await call("POST", "/api/batches", request.model_dump_json().encode()), TypeAdapter(BatchJob)
+        )
+
+    @router.get("/batches", response_model=tuple[BatchJob, ...])
+    async def list_batches() -> tuple[BatchJob, ...]:
+        return parse_response(await call("GET", "/api/batches"), TypeAdapter(tuple[BatchJob, ...]))
+
+    @router.get("/batches/{job_id}", response_model=BatchJob)
+    async def get_batch(job_id: UUID) -> BatchJob:
+        return parse_response(await call("GET", f"/api/batches/{job_id}"), TypeAdapter(BatchJob))
+
+    @router.get("/stats", response_model=ErrorStats)
+    async def stats(
+        card_id: UUID | None = None,
+        account_id: UUID | None = None,
+        model: str | None = None,
+    ) -> ErrorStats:
+        params: Final = httpx.QueryParams(
+            {
+                key: str(value)
+                for key, value in (("card_id", card_id), ("account_id", account_id), ("model", model))
+                if value is not None
+            }
+        )
+        path: Final = "/api/stats" if not params else f"/api/stats?{params}"
+        return parse_response(await call("GET", path), TypeAdapter(ErrorStats))
 
     return router
 

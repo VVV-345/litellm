@@ -15,14 +15,32 @@ from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, ut
 from account_pool.error_safety import safe_error
 
 LogStage = Literal[
-    "provisioning", "authorization", "validation", "configuration", "quota", "cleanup",
-    "authentication", "routing", "connection", "upstream", "response", "card_key",
+    "provisioning",
+    "authorization",
+    "validation",
+    "configuration",
+    "quota",
+    "cleanup",
+    "authentication",
+    "routing",
+    "connection",
+    "upstream",
+    "response",
+    "card_key",
 ]
 ErrorCategory = Literal[
-    "authentication", "authorization", "rate_limit", "timeout", "connection",
-    "invalid_request", "upstream", "configuration", "unknown",
+    "authentication",
+    "authorization",
+    "rate_limit",
+    "timeout",
+    "connection",
+    "invalid_request",
+    "upstream",
+    "configuration",
+    "unknown",
 ]
 _LOGGER: Final = logging.getLogger(__name__)
+MODEL_REQUEST_OPERATION: Final = "model_request"
 
 
 class ErrorLogRecord(BaseModel):
@@ -56,6 +74,8 @@ class ErrorLogRecord(BaseModel):
     message: str
     detail: str | None = None
     duration_ms: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
     @field_validator("message", "detail", "model", "endpoint", "upstream_code", "operation")
@@ -106,12 +126,30 @@ class ErrorLogDetail(BaseModel):
     has_more: bool
 
 
+class ErrorStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    card_id: UUID | None = None
+    account_id: UUID | None = None
+    model: str | None = None
+    total_requests: int = 0
+    succeeded_requests: int = 0
+    failed_requests: int = 0
+    retried_requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    average_duration_ms: float | None = None
+    recent_errors: tuple[ErrorLogRecord, ...] = ()
+
+
 class ErrorLogRepository(Protocol):
     async def append(self, event: ErrorLogRecord) -> None: ...
 
     async def query(self, query: ErrorLogQuery) -> ErrorLogPage: ...
 
     async def detail(self, event_id: UUID) -> ErrorLogDetail | None: ...
+
+    async def stats(self, card_id: UUID | None, account_id: UUID | None, model: str | None) -> ErrorStats: ...
 
     async def prune(self, before: datetime) -> None: ...
 
@@ -122,29 +160,52 @@ class ErrorLogService:
         self.retention_days: Final = retention_days
 
     async def record(
-        self, record: EnvironmentRecord, stage: LogStage, error: Exception | None,
-        *, retryable: bool = False, started_at: datetime | None = None,
+        self,
+        record: EnvironmentRecord,
+        stage: LogStage,
+        error: Exception | None,
+        *,
+        retryable: bool = False,
+        started_at: datetime | None = None,
     ) -> None:
         now: Final = utc_now()
         status: Final = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
         category: Final[ErrorCategory | None] = (
-            None if error is None else
-            "timeout" if isinstance(error, (TimeoutError, httpx.TimeoutException)) else
-            "connection" if isinstance(error, httpx.TransportError) else
-            "authentication" if status == 401 else
-            "authorization" if status == 403 else
-            "rate_limit" if status == 429 else
-            "upstream" if status is not None else
-            "configuration" if stage == "configuration" else "unknown"
+            None
+            if error is None
+            else "timeout"
+            if isinstance(error, (TimeoutError, httpx.TimeoutException))
+            else "connection"
+            if isinstance(error, httpx.TransportError)
+            else "authentication"
+            if status == 401
+            else "authorization"
+            if status == 403
+            else "rate_limit"
+            if status == 429
+            else "upstream"
+            if status is not None
+            else "configuration"
+            if stage == "configuration"
+            else "unknown"
         )
         # operation_id 可由客户端指定；使用命名空间 UUID 关联日志，避免原值夹带凭据。
         from uuid import uuid5
+
         request_id: Final = uuid5(record.id, record.operation_id or f"{stage}:{record.version}")
         event: Final = ErrorLogRecord(
-            occurred_at=started_at or now, finished_at=now,
-            channel=record.channel, supplier=record.supplier, card_id=record.id,
-            environment_id=record.id, account_id=record.id, request_id=request_id,
-            operation=stage, stage=stage, http_status=status, error_category=category,
+            occurred_at=started_at or now,
+            finished_at=now,
+            channel=record.channel,
+            supplier=record.supplier,
+            card_id=record.id,
+            environment_id=record.id,
+            account_id=record.id,
+            request_id=request_id,
+            operation=stage,
+            stage=stage,
+            http_status=status,
+            error_category=category,
             severity="info" if error is None else "error",
             retryable=retryable,
             message="Operation completed" if error is None else safe_error(error),

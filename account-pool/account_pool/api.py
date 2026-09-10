@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import html
+from collections.abc import Callable
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
@@ -12,14 +13,17 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.clash import ClashError
+from account_pool.batch_models import BatchJob, BatchRequest
+from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
+from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
 from account_pool.error_logs import ErrorLogService
+from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
-from account_pool.ports import EnvironmentRepository
 from account_pool.policies import PolicyRepository
+from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
@@ -43,6 +47,8 @@ def create_router(
     keys: CardKeyService | None = None, logs: ErrorLogService | None = None,
     environments: EnvironmentRepository | None = None,
     policies: PolicyRepository | None = None,
+    gateway_service: GatewayService | None = None,
+    batch_service: BatchService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -162,7 +168,39 @@ def create_router(
         return HTMLResponse(_callback_page("授权已接收", "可以关闭此页面并返回 LiteLLM 号池"))
 
     if keys is not None and logs is not None and environments is not None and policies is not None:
-        router.include_router(create_management_router(keys, logs, environments, require_manager, policies))
+        router.include_router(create_management_router(
+            keys, logs, environments, require_manager, policies,
+        ))
+    if gateway_service is not None:
+        router.include_router(create_gateway_router(gateway_service, require_manager))
+    if batch_service is not None:
+        router.include_router(create_batch_router(batch_service, require_manager))
+    return router
+
+
+def create_batch_router(service: BatchService, authorize: Callable[..., None]) -> APIRouter:
+    router: Final = APIRouter(prefix="/api/batches", dependencies=[Depends(authorize)])
+
+    async def submit_batch(request: BatchRequest) -> BatchJob:
+        if not await service.submit(request):
+            raise HTTPException(status_code=409, detail="Batch target is missing or job id is already used")
+        job: Final = await service.get(request.job_id)
+        if job is None:
+            raise HTTPException(status_code=500, detail="Batch job was not persisted")
+        return job
+
+    async def list_batches() -> tuple[BatchJob, ...]:
+        return await service.list()
+
+    async def get_batch(job_id: UUID) -> BatchJob:
+        job: Final = await service.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Batch job not found")
+        return job
+
+    router.add_api_route("", submit_batch, methods=["POST"], response_model=BatchJob, status_code=202)
+    router.add_api_route("", list_batches, methods=["GET"], response_model=tuple[BatchJob, ...])
+    router.add_api_route("/{job_id}", get_batch, methods=["GET"], response_model=BatchJob)
     return router
 
 

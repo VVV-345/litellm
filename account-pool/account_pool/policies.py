@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from psycopg.types.json import Jsonb
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from account_pool.repository import _connection
+from account_pool.domain import EnvironmentRecord, SupplierKind
+from account_pool.repository import database_connection
 
 
 class RoutingPolicy(BaseModel):
@@ -78,6 +80,7 @@ class AccountPolicy(BaseModel):
 
     tags: tuple[str, ...] = Field(default=(), max_length=20)
     group: str = Field(default="", max_length=80)
+    account_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
     routing: RoutingPolicy = Field(default_factory=RoutingPolicy)
     excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     model_aliases: tuple[ModelAlias, ...] = Field(default=(), max_length=500)
@@ -105,13 +108,48 @@ class PolicyUpdate(BaseModel):
     policy: AccountPolicy
 
 
+class PolicyCapability(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    name: Literal[
+        "routing",
+        "models",
+        "quota",
+        "retry",
+        "timeout",
+        "client",
+        "responses_compact",
+        "image",
+        "identity",
+        "websocket",
+        "plan_expiry",
+        "desktop_compact",
+        "debug",
+    ]
+    status: Literal["gateway", "unsupported", "desktop"]
+
+
+def policy_capabilities() -> tuple[PolicyCapability, ...]:
+    return (
+        *(
+            PolicyCapability(name=name, status="gateway")
+            for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
+        ),
+        *(
+            PolicyCapability(name=name, status="unsupported")
+            for name in ("identity", "websocket", "plan_expiry", "debug")
+        ),
+        PolicyCapability(name="desktop_compact", status="desktop"),
+    )
+
+
 class PolicyView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     card_id: UUID
     version: int = 0
     policy: AccountPolicy = Field(default_factory=AccountPolicy)
-    runtime_status: Literal["not_connected"] = "not_connected"
+    runtime_status: Literal["partial"] = "partial"
+    capabilities: tuple[PolicyCapability, ...] = Field(default_factory=policy_capabilities)
     metadata_status: Literal["saved"] = "saved"
 
 
@@ -123,12 +161,38 @@ class PolicyRepository(Protocol):
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None: ...
 
 
+class PolicyEnvironmentRepository(Protocol):
+    async def get(self, environment_id: UUID) -> EnvironmentRecord | None: ...
+
+
+async def policy_validation_error(
+    card: EnvironmentRecord,
+    policy: AccountPolicy,
+    environments: PolicyEnvironmentRepository,
+) -> str | None:
+    if policy.codex is not None and card.supplier is not SupplierKind.OPENAI_CODEX:
+        return "Codex settings apply only to Codex accounts"
+    resolved: Final = await asyncio.gather(*(environments.get(identifier) for identifier in policy.account_ids))
+    if any(member is None for member in resolved):
+        return "Bound accounts must exist and use the same channel and supplier"
+    members: Final = tuple(member for member in resolved if member is not None)
+    if any(member.channel != card.channel or member.supplier != card.supplier for member in members):
+        return "Bound accounts must exist and use the same channel and supplier"
+    scope: Final = frozenset((card.id, *policy.account_ids))
+    if not frozenset(policy.routing.preferred_account_ids).issubset(scope):
+        return "Preferred accounts must be bound to this card"
+    available: Final = frozenset(model for environment in (card, *members) for model in environment.available_models)
+    if any(alias.target not in available for alias in policy.model_aliases):
+        return "Model aliases contain unavailable targets"
+    return None
+
+
 class PostgresPolicyRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url: Final = database_url
 
     async def initialize(self) -> None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             await connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS account_pool_policies (
@@ -140,36 +204,44 @@ class PostgresPolicyRepository:
             )
 
     async def get(self, card_id: UUID) -> PolicyView:
-        async with _connection(self._database_url) as connection:
-            cursor: Final = await connection.execute("SELECT * FROM account_pool_policies WHERE card_id = %s", (card_id,))
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT * FROM account_pool_policies WHERE card_id = %s", (card_id,)
+            )
             row: Final = await cursor.fetchone()
         return PolicyView(card_id=card_id) if row is None else PolicyView.model_validate(row)
 
     async def list(self) -> tuple[PolicyView, ...]:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute("SELECT * FROM account_pool_policies ORDER BY card_id")
             rows: Final = await cursor.fetchall()
         return tuple(PolicyView.model_validate(row) for row in rows)
 
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             card: Final = await connection.execute(
                 "SELECT id FROM account_pool_environments WHERE id = %s "
-                "AND payload->>'status' <> 'deleting' FOR UPDATE", (card_id,),
+                "AND payload->>'status' <> 'deleting' FOR UPDATE",
+                (card_id,),
             )
             if await card.fetchone() is None:
                 return None
-            saved: Final = await connection.execute(
-                """
+            saved: Final = (
+                await connection.execute(
+                    """
                 INSERT INTO account_pool_policies (card_id, version, policy)
                 SELECT %s, 1, %s WHERE %s = 0
                 ON CONFLICT (card_id) DO NOTHING
                 RETURNING *
-                """, (card_id, Jsonb(request.policy.model_dump(mode="json")), request.version),
-            ) if request.version == 0 else await connection.execute(
-                "UPDATE account_pool_policies SET version = version + 1, policy = %s "
-                "WHERE card_id = %s AND version = %s RETURNING *",
-                (Jsonb(request.policy.model_dump(mode="json")), card_id, request.version),
+                """,
+                    (card_id, Jsonb(request.policy.model_dump(mode="json")), request.version),
+                )
+                if request.version == 0
+                else await connection.execute(
+                    "UPDATE account_pool_policies SET version = version + 1, policy = %s "
+                    "WHERE card_id = %s AND version = %s RETURNING *",
+                    (Jsonb(request.policy.model_dump(mode="json")), card_id, request.version),
+                )
             )
             row: Final = await saved.fetchone()
         return None if row is None else PolicyView.model_validate(row)

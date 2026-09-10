@@ -10,17 +10,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
 from account_pool.domain import EnvironmentRecord
-from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService
+from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
+from account_pool.policies import PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
 from account_pool.ports import EnvironmentRepository
-from account_pool.policies import PolicyRepository, PolicyUpdate, PolicyView
 from account_pool.result import Failure, Result
 
 T = TypeVar("T")
 
 
 def create_management_router(
-    keys: CardKeyService, logs: ErrorLogService, environments: EnvironmentRepository,
-    authorize: Callable[..., None], policies: PolicyRepository,
+    keys: CardKeyService,
+    logs: ErrorLogService,
+    environments: EnvironmentRepository,
+    authorize: Callable[..., None],
+    policies: PolicyRepository,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
 
@@ -74,12 +77,9 @@ def create_management_router(
     @router.put("/environments/{card_id}/policy")
     async def update_policy(card_id: UUID, request: PolicyUpdate) -> PolicyView:
         record: Final = await card(card_id)
-        if request.policy.codex is not None and record.supplier.value != "openai_codex":
-            raise HTTPException(422, "Codex settings apply only to Codex accounts")
-        unknown: Final = tuple(item.target for item in request.policy.model_aliases
-                               if item.target not in record.available_models)
-        if unknown:
-            raise HTTPException(422, "Model aliases contain unavailable targets")
+        validation_error: Final = await policy_validation_error(record, request.policy, environments)
+        if validation_error is not None:
+            raise HTTPException(422, validation_error)
         saved: Final = await policies.save(card_id, request)
         if saved is None:
             raise HTTPException(409, "Card is unavailable or policy has changed; refresh before retrying")
@@ -91,6 +91,12 @@ def create_management_router(
         if result is None:
             raise HTTPException(404, "Log event not found")
         return result
+
+    @router.get("/stats")
+    async def stats(
+        card_id: UUID | None = None, account_id: UUID | None = None, model: str | None = None
+    ) -> ErrorStats:
+        return await logs.repository.stats(card_id, account_id, model)
 
     return router
 

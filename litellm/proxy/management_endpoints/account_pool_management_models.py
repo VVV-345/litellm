@@ -10,8 +10,74 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 ChannelKind = Literal["cliproxyapi", "freebuff2api"]
 SupplierKind = Literal["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai", "freebuff"]
-LogStage = Literal["provisioning", "authorization", "validation", "configuration", "quota", "cleanup", "authentication", "routing", "connection", "upstream", "response", "card_key"]
-ErrorCategory = Literal["authentication", "authorization", "rate_limit", "timeout", "connection", "invalid_request", "upstream", "configuration", "unknown"]
+LogStage = Literal[
+    "provisioning",
+    "authorization",
+    "validation",
+    "configuration",
+    "quota",
+    "cleanup",
+    "authentication",
+    "routing",
+    "connection",
+    "upstream",
+    "response",
+    "card_key",
+]
+ErrorCategory = Literal[
+    "authentication",
+    "authorization",
+    "rate_limit",
+    "timeout",
+    "connection",
+    "invalid_request",
+    "upstream",
+    "configuration",
+    "unknown",
+]
+
+BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy"]
+
+
+class BatchTarget(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    account_id: UUID
+    version: int = Field(ge=0)
+    policy_version: int = Field(default=0, ge=0)
+
+
+class BatchRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    job_id: UUID
+    action: BatchAction
+    targets: tuple[BatchTarget, ...] = Field(min_length=1, max_length=100)
+    policy: AccountPolicy | None = None
+
+    @model_validator(mode="after")
+    def valid_action(self) -> BatchRequest:
+        if len({target.account_id for target in self.targets}) != len(self.targets):
+            raise ValueError("Duplicate accounts are not allowed")
+        if (self.action == "policy") != (self.policy is not None):
+            raise ValueError("Policy is required only for policy jobs")
+        return self
+
+
+class BatchItem(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    account_id: UUID
+    status: Literal["queued", "running", "succeeded", "failed"]
+    attempts: int = 0
+    message: str | None = None
+    finished_at: AwareDatetime | None = None
+
+
+class BatchJob(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    job_id: UUID
+    action: BatchAction
+    created_at: AwareDatetime
+    items: tuple[BatchItem, ...]
+
 
 class CardKeyStatus(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -57,11 +123,13 @@ class RoutingPolicy(BaseModel):
             raise ValueError("retryable_statuses contains a non-retryable status")
         return tuple(dict.fromkeys(values))
 
+
 class ModelAlias(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     alias: str = Field(min_length=1, max_length=256)
     target: str = Field(min_length=1, max_length=256)
+
 
 class TransportPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -70,6 +138,7 @@ class TransportPolicy(BaseModel):
     websocket: Literal["inherit", "enabled", "disabled"] = "inherit"
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
     debug_log_enabled: bool = False
+
 
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -91,11 +160,13 @@ class CodexPolicy(BaseModel):
                 raise ValueError("Compact token limit exceeds the context window")
         return self
 
+
 class AccountPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tags: tuple[str, ...] = Field(default=(), max_length=20)
     group: str = Field(default="", max_length=80)
+    account_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
     routing: RoutingPolicy = Field(default_factory=RoutingPolicy)
     excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     model_aliases: tuple[ModelAlias, ...] = Field(default=(), max_length=500)
@@ -115,11 +186,47 @@ class AccountPolicy(BaseModel):
             raise ValueError("Model aliases must be unique")
         return self
 
+
 class PolicyUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: int = Field(ge=0)
     policy: AccountPolicy
+
+
+class PolicyCapability(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    name: Literal[
+        "routing",
+        "models",
+        "quota",
+        "retry",
+        "timeout",
+        "client",
+        "responses_compact",
+        "image",
+        "identity",
+        "websocket",
+        "plan_expiry",
+        "desktop_compact",
+        "debug",
+    ]
+    status: Literal["gateway", "unsupported", "desktop"]
+
+
+def policy_capabilities() -> tuple[PolicyCapability, ...]:
+    return (
+        *(
+            PolicyCapability(name=name, status="gateway")
+            for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
+        ),
+        *(
+            PolicyCapability(name=name, status="unsupported")
+            for name in ("identity", "websocket", "plan_expiry", "debug")
+        ),
+        PolicyCapability(name="desktop_compact", status="desktop"),
+    )
+
 
 class PolicyView(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -127,8 +234,13 @@ class PolicyView(BaseModel):
     card_id: UUID
     version: int = 0
     policy: AccountPolicy = Field(default_factory=AccountPolicy)
-    runtime_status: Literal["not_connected"] = "not_connected"
+    runtime_status: Literal["partial"] = "partial"
+    capabilities: tuple[PolicyCapability, ...] = Field(default_factory=policy_capabilities)
     metadata_status: Literal["saved"] = "saved"
+
+
+BatchRequest.model_rebuild()
+
 
 class ErrorLogRecord(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -161,8 +273,9 @@ class ErrorLogRecord(BaseModel):
     message: str
     detail: str | None = None
     duration_ms: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
-
 
 
 class ErrorLogQuery(BaseModel):
@@ -191,11 +304,28 @@ class ErrorLogQuery(BaseModel):
             raise ValueError("occurred_from must not be after occurred_to")
         return self
 
+
 class ErrorLogPage(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     items: tuple[ErrorLogRecord, ...]
     has_more: bool
+
+
+class ErrorStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    card_id: UUID | None = None
+    account_id: UUID | None = None
+    model: str | None = None
+    total_requests: int = 0
+    succeeded_requests: int = 0
+    failed_requests: int = 0
+    retried_requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    average_duration_ms: float | None = None
+    recent_errors: tuple[ErrorLogRecord, ...] = ()
+
 
 class ErrorLogDetail(BaseModel):
     model_config = ConfigDict(frozen=True)

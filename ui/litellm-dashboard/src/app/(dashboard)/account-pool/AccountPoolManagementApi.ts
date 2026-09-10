@@ -10,6 +10,9 @@ export type AccountPolicy = components["schemas"]["AccountPolicy"];
 export type LogEvent = components["schemas"]["ErrorLogRecord"];
 export type LogPage = components["schemas"]["ErrorLogPage"];
 export type LogDetail = components["schemas"]["ErrorLogDetail"];
+export type ErrorStats = components["schemas"]["ErrorStats"];
+export type BatchJob = components["schemas"]["BatchJob"];
+export type BatchAction = components["schemas"]["BatchRequest"]["action"];
 export type LogFilters = {
   occurred_from?: string;
   occurred_to?: string;
@@ -58,3 +61,21 @@ export const listAccountPoolLogs = (accessToken: string, query: LogFilters) =>
 
 export const getAccountPoolLog = (accessToken: string, eventId: string) =>
   apiClient.get<LogDetail>(`/account_pool/logs/${encodeURIComponent(eventId)}`, { accessToken });
+
+export const getAccountPoolStats = (
+  accessToken: string,
+  query: Pick<LogFilters, "card_id" | "account_id" | "model"> = {},
+) => apiClient.get<ErrorStats>("/account_pool/stats", { accessToken, query });
+
+export const listAccountPoolBatches = (accessToken: string) =>
+  apiClient.get<BatchJob[]>("/account_pool/batches", { accessToken });
+
+export const submitAccountPoolBatch = (
+  accessToken: string,
+  action: BatchAction,
+  targets: Array<{ account_id: string; version: number; policy_version: number }>,
+) =>
+  apiClient.post<BatchJob>("/account_pool/batches", {
+    accessToken,
+    body: { job_id: crypto.randomUUID(), action, targets, policy: null },
+  });

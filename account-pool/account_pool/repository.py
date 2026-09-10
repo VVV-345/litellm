@@ -39,7 +39,7 @@ _CREATE_SCHEMA: Final = (
 
 
 @asynccontextmanager
-async def _connection(database_url: str) -> AsyncGenerator[psycopg.AsyncConnection[Mapping[str, object]], None]:
+async def database_connection(database_url: str) -> AsyncGenerator[psycopg.AsyncConnection[Mapping[str, object]], None]:
     connection: Final = await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row)
     async with connection:
         yield connection
@@ -50,12 +50,12 @@ class PostgresEnvironmentRepository:
         self._database_url: Final = database_url
 
     async def initialize(self) -> None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             for statement in _CREATE_SCHEMA:
                 await connection.execute(statement)
 
     async def list(self) -> tuple[EnvironmentRecord, ...]:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT payload FROM account_pool_environments ORDER BY updated_at DESC"
             )
@@ -63,7 +63,7 @@ class PostgresEnvironmentRepository:
         return tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
 
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT payload FROM account_pool_environments WHERE id = %s",
                 (environment_id,),
@@ -72,7 +72,7 @@ class PostgresEnvironmentRepository:
         return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
 
     async def find_by_oauth_state(self, state: str) -> EnvironmentRecord | None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT payload FROM account_pool_environments WHERE oauth_state = %s",
                 (state,),
@@ -81,7 +81,7 @@ class PostgresEnvironmentRepository:
         return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
 
     async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT payload FROM account_pool_environments WHERE payload->>'operation_id' = %s LIMIT 1",
                 (operation_id,),
@@ -91,7 +91,7 @@ class PostgresEnvironmentRepository:
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
         payload: Final = record.model_dump(mode="json")
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             await connection.execute(
                 """
                 INSERT INTO account_pool_environments (
@@ -115,7 +115,7 @@ class PostgresEnvironmentRepository:
         return record
 
     async def delete(self, environment_id: UUID) -> None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             await connection.execute(
                 "DELETE FROM account_pool_environments WHERE id = %s",
                 (environment_id,),
@@ -127,7 +127,7 @@ class PostgresEnvironmentRepository:
         expected_version: int,
     ) -> EnvironmentRecord | None:
         payload: Final = record.model_dump(mode="json")
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 """
                 UPDATE account_pool_environments
@@ -161,7 +161,7 @@ class PostgresEnvironmentRepository:
 
     async def consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None:
         """使用单条条件 UPDATE 消费 state，数据库层保证并发 callback 只有一个赢家。"""
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 """
                 UPDATE account_pool_environments
@@ -189,7 +189,7 @@ class PostgresProxyProfileRepository:
         self._database_url: Final = database_url
 
     async def list(self) -> tuple[ProxyProfile, ...]:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT id, name, split_part(proxy_url, ':', 1) AS protocol FROM account_pool_proxy_profiles ORDER BY name"
             )
@@ -197,7 +197,7 @@ class PostgresProxyProfileRepository:
         return tuple(ProxyProfile.model_validate(row) for row in rows)
 
     async def get_url(self, profile_id: str) -> str | None:
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT id, name, proxy_url FROM account_pool_proxy_profiles WHERE id = %s",
                 (profile_id,),
@@ -212,7 +212,7 @@ class PostgresProxyProfileRepository:
         """写入或更新 Clash 网关条目；已存在的手工条目不受影响。"""
         if not gateways:
             return 0
-        async with _connection(self._database_url) as connection:
+        async with database_connection(self._database_url) as connection:
             async with connection.cursor() as cursor:
                 await cursor.executemany(
                     """

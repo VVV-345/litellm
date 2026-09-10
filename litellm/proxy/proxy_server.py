@@ -452,6 +452,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     start_reconciliation_loop as start_account_pool_reconciliation_loop,
 )
+from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     stop_reconciliation_loop as stop_account_pool_reconciliation_loop,
 )
@@ -2110,6 +2111,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # app.mount("/ui", StaticFiles(directory=ui_path, html=True), name="ui")
 
 
+app.add_middleware(AccountPoolGatewayMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
