@@ -36,6 +36,7 @@ vi.mock("@/components/ModelSelect/ModelSelect", async (importOriginal) => {
 });
 
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
 
 import { DefaultUserSettingsForm } from "./DefaultUserSettingsForm";
 import type { InternalUserSettings } from "./mapper";
@@ -93,7 +94,8 @@ const enterEditMode = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("DefaultUserSettingsForm", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
   });
 

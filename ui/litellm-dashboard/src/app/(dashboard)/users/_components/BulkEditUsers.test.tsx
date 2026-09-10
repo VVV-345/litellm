@@ -4,6 +4,7 @@ import { renderWithProviders, screen, waitFor } from "../../../../../tests/test-
 import BulkEditUserModal from "./BulkEditUsers";
 import { userBulkUpdateUserCall, teamBulkMemberAddCall } from "@/components/networking";
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
 
 vi.mock("@/components/networking", () => ({
   userBulkUpdateUserCall: vi.fn(),
@@ -45,7 +46,8 @@ const defaultProps = {
 };
 
 describe("BulkEditUserModal", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     mockUserBulkUpdateUserCall.mockResolvedValue({
       results: [],
