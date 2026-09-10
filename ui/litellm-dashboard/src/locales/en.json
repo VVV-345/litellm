@@ -5600,6 +5600,8 @@
     "page": "Page {{current}} of {{total}}",
     "totalEnvironments": "{{count}} environments",
     "readyEnvironments": "{{count}} ready",
+    "coolingDownEnvironments": "{{count}} cooling down",
+    "errorEnvironments": "{{count}} errors",
     "awaitingAuthorizationEnvironments": "{{count}} awaiting authorization",
     "refresh": "Refresh account pool",
     "search": "Search environment name, ID, tag, or group",

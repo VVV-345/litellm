@@ -5600,6 +5600,8 @@
     "page": "第 {{current}} / {{total}} 页",
     "totalEnvironments": "共 {{count}} 个环境",
     "readyEnvironments": "可用 {{count}}",
+    "coolingDownEnvironments": "冷却 {{count}}",
+    "errorEnvironments": "异常 {{count}}",
     "awaitingAuthorizationEnvironments": "待授权 {{count}}",
     "refresh": "刷新号池",
     "search": "搜索环境名称、ID、标签或分组",

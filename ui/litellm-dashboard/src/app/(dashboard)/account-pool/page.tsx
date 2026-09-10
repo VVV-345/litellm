@@ -36,7 +36,11 @@ import { listAccountPolicies } from "./AccountPoolManagementApi";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { canManageAccountPool } from "./AccountPoolPermissions";
 import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
-import { filterAccountPoolEnvironments, paginateAccountPoolEnvironments } from "./accountPoolSelectors";
+import {
+  filterAccountPoolEnvironments,
+  paginateAccountPoolEnvironments,
+  summarizeAccountPoolEnvironments,
+} from "./accountPoolSelectors";
 import { ProxyManagerPanel } from "./ProxyManagerPanel";
 import { useAccountPoolMutations } from "./useAccountPoolMutations";
 import { useAccountPoolQuery } from "./useAccountPoolQuery";
@@ -97,8 +101,7 @@ export default function AccountPoolPage() {
   const pageCount = Math.max(1, Math.ceil(filteredEnvironments.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleEnvironments = paginateAccountPoolEnvironments(filteredEnvironments, currentPage, PAGE_SIZE);
-  const readyCount = environments.filter((environment) => environment.status === "ready" && environment.enabled).length;
-  const awaitingCount = environments.filter((environment) => environment.status === "awaiting_authorization").length;
+  const overview = useMemo(() => summarizeAccountPoolEnvironments(environments), [environments]);
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
   const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
@@ -229,11 +232,15 @@ export default function AccountPoolPage() {
             <h1 className="text-2xl font-semibold text-foreground">{t("accountPool.title")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.description")}</p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{t("accountPool.totalEnvironments", { count: environments.length })}</Badge>
-              <Badge variant="outline">{t("accountPool.readyEnvironments", { count: readyCount })}</Badge>
-              {awaitingCount > 0 && (
+              <Badge variant="outline">{t("accountPool.totalEnvironments", { count: overview.total })}</Badge>
+              <Badge variant="outline">{t("accountPool.readyEnvironments", { count: overview.ready })}</Badge>
+              <Badge variant="outline">
+                {t("accountPool.coolingDownEnvironments", { count: overview.coolingDown })}
+              </Badge>
+              <Badge variant="outline">{t("accountPool.errorEnvironments", { count: overview.error })}</Badge>
+              {overview.awaitingAuthorization > 0 && (
                 <Badge variant="secondary">
-                  {t("accountPool.awaitingAuthorizationEnvironments", { count: awaitingCount })}
+                  {t("accountPool.awaitingAuthorizationEnvironments", { count: overview.awaitingAuthorization })}
                 </Badge>
               )}
             </div>

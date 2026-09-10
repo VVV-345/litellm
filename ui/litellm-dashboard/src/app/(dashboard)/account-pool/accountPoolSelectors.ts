@@ -3,6 +3,14 @@
 import type { AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
 import type { PolicyView } from "./AccountPoolManagementApi";
 
+export const summarizeAccountPoolEnvironments = (environments: readonly AccountPoolEnvironment[]) => ({
+  total: environments.length,
+  ready: environments.filter((environment) => environment.status === "ready" && environment.enabled).length,
+  awaitingAuthorization: environments.filter((environment) => environment.status === "awaiting_authorization").length,
+  coolingDown: environments.filter((environment) => environment.status === "cooling_down").length,
+  error: environments.filter((environment) => environment.status === "error").length,
+});
+
 export const sortAccountPoolEnvironments = (
   environments: readonly AccountPoolEnvironment[],
 ): AccountPoolEnvironment[] =>
