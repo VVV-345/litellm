@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen, waitFor } from "../../../tests/test-utils";
 import { RegenerateKeyModal } from "./RegenerateKeyModal";
 import { KeyResponse } from "../key_team_helpers/key_list";
 import { toast } from "@/lib/toast";
+import i18next, { CHINESE_LANGUAGE, ENGLISH_LANGUAGE } from "@/i18n";
 
 // Mock the networking call
 const mockRegenerateKeyCall = vi.fn();
@@ -38,13 +39,25 @@ describe("RegenerateKeyModal", () => {
     onKeyUpdate: mockOnKeyUpdate,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage(ENGLISH_LANGUAGE);
     vi.clearAllMocks();
+  });
+
+  afterAll(async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
   });
 
   it("should render the modal with correct title", () => {
     renderWithProviders(<RegenerateKeyModal {...defaultProps} />);
     expect(screen.getByText("Regenerate Virtual Key")).toBeInTheDocument();
+  });
+
+  it("should render Chinese labels after switching language", async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
+    renderWithProviders(<RegenerateKeyModal {...defaultProps} />);
+    expect(screen.getByText("重新生成虚拟密钥")).toBeInTheDocument();
+    expect(screen.getByLabelText("密钥别名")).toBeInTheDocument();
   });
 
   it("should not render the modal when visible is false", () => {

@@ -13,6 +13,7 @@ import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { FormField } from "@/components/shared/form/FormField";
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { hasCapability } from "../../utils/capabilities";
 import { isProxyAdminRole, rolesWithWriteAccess } from "../../utils/roles";
 import AgentSelector from "../agent_management/AgentSelector";
@@ -88,6 +89,7 @@ export function KeyEditView({
   userRole,
   premiumUser = false,
 }: KeyEditViewProps) {
+  const { t } = useTranslation();
   const canEditGuardrails = premiumUser || (userRole != null && rolesWithWriteAccess.includes(userRole));
   const canViewPolicies = hasCapability(userRole, "viewPolicies");
   const canViewPrompts = hasCapability(userRole, "viewPrompts");
@@ -203,11 +205,11 @@ export function KeyEditView({
         const response = await tagListCall(accessToken);
         setTagsList(response);
       } catch (error) {
-        toast.fromError("Error fetching tags: " + error);
+        toast.fromError(t("ui.Error fetching tags") + ": " + error);
       }
     };
     fetchTags();
-  }, [accessToken]);
+  }, [accessToken, t]);
 
   const handleSubmit = async (values: any) => {
     try {
@@ -347,15 +349,15 @@ export function KeyEditView({
         )}
       >
         <FieldGroup>
-          <FormField control={form.control} name="key_alias" label="Key Alias">
+          <FormField control={form.control} name="key_alias" label={t("ui.Key Alias")}>
             {(field) => <Input {...field} value={(field.value as string | undefined) ?? ""} />}
           </FormField>
 
           <FormField
             control={form.control}
             name="models"
-            label="Models"
-            description={isModelsDisabled ? "Models field is disabled for this key type" : undefined}
+            label={t("ui.Models")}
+            description={isModelsDisabled ? t("ui.Models field is disabled for this key type") : undefined}
           >
             {({ value, onChange, id }) => (
               <MultiSelect
@@ -372,13 +374,13 @@ export function KeyEditView({
                   }
                 }}
                 disabled={isModelsDisabled}
-                placeholder="Select models"
+                placeholder={t("ui.Select models")}
               />
             )}
           </FormField>
 
           <Field>
-            <FieldLabel htmlFor={keyTypeFieldId}>Key Type</FieldLabel>
+            <FieldLabel htmlFor={keyTypeFieldId}>{t("ui.Key Type")}</FieldLabel>
             <KeyTypeSelect
               id={keyTypeFieldId}
               value={keyTypeFromRoutes(allowedRoutes)}
@@ -403,38 +405,38 @@ export function KeyEditView({
             control={form.control}
             name="allowed_routes"
             label={labelWithHint(
-              "Allowed Routes",
-              "List of allowed routes for the key (comma-separated). Can be specific routes (e.g., '/chat/completions') or route patterns (e.g., 'llm_api_routes', 'management_routes', '/keys/*'). Leave empty to allow all routes.",
+              t("ui.Allowed Routes"),
+              t("ui.List of allowed routes for the key (comma-separated). Can be specific routes (e.g., '/chat/completions') or route patterns (e.g., 'llm_api_routes', 'management_routes', '/keys/*'). Leave empty to allow all routes."),
             )}
           >
             {(field) => (
               <Input
                 {...field}
                 value={(field.value as string | undefined) ?? ""}
-                placeholder="Enter allowed routes (comma-separated). Special values: llm_api_routes, management_routes. Examples: llm_api_routes, /chat/completions, /keys/*. Leave empty to allow all routes"
+                placeholder={t("ui.Enter allowed routes (comma-separated). Special values: llm_api_routes, management_routes. Examples: llm_api_routes, /chat/completions, /keys/*. Leave empty to allow all routes")}
               />
             )}
           </FormField>
 
-          <FormField control={form.control} name="max_budget" label="Max Budget (USD)">
+          <FormField control={form.control} name="max_budget" label={t("ui.Max Budget (USD)")}>
             {({ ref: _ref, ...field }) => (
               <NumericalInput
                 {...field}
                 value={field.value ?? ""}
                 step={0.01}
                 style={{ width: "100%" }}
-                placeholder="Enter a numerical value"
+                placeholder={t("ui.Enter a numerical value")}
               />
             )}
           </FormField>
 
-          <FormField control={form.control} name="budget_duration" label="Reset Budget">
+          <FormField control={form.control} name="budget_duration" label={t("ui.Reset Budget")}>
             {({ value, onChange, id }) => (
               <BudgetDurationDropdown
                 id={id}
                 value={value as string | null}
                 onChange={(next) => onChange(next ?? null)}
-                placeholder="Never resets"
+                placeholder={t("ui.Never resets")}
               />
             )}
           </FormField>
@@ -442,8 +444,8 @@ export function KeyEditView({
           <Field>
             <FieldLabel>
               {labelWithHint(
-                "Budget Windows",
-                "Set multiple independent budget windows (e.g., hourly $10 AND monthly $200). Each window tracks spend separately and resets on its own schedule.",
+                t("ui.Budget Windows"),
+                t("ui.Set multiple independent budget windows (e.g., hourly $10 AND monthly $200). Each window tracks spend separately and resets on its own schedule."),
               )}
             </FieldLabel>
             <BudgetWindowsEditor value={budgetLimits} onChange={setBudgetLimits} />
@@ -456,14 +458,14 @@ export function KeyEditView({
             onChange={modelBudget.setValue}
             availableModels={availableModels}
             usage={keyData.model_max_budget_usage}
-            hint="Cap spend on individual models, each with its own reset window. Enforced across every request this key makes."
+            hint={t("ui.Cap spend on individual models, each with its own reset window. Enforced across every request this key makes.")}
           />
 
           <Field>
             <FieldLabel>
               {labelWithHint(
-                "Budget Fallbacks",
-                "When a model exceeds its per-model budget, requests automatically reroute to fallback models instead of failing",
+                t("ui.Budget Fallbacks"),
+                t("ui.When a model exceeds its per-model budget, requests automatically reroute to fallback models instead of failing"),
               )}
             </FieldLabel>
             <BudgetFallbacksEditor
@@ -473,7 +475,7 @@ export function KeyEditView({
             />
           </Field>
 
-          <FormField control={form.control} name="tpm_limit" label="TPM Limit">
+          <FormField control={form.control} name="tpm_limit" label={t("ui.TPM Limit")}>
             {({ ref: _ref, ...field }) => <NumericalInput {...field} value={field.value ?? ""} min={0} />}
           </FormField>
 
@@ -490,7 +492,7 @@ export function KeyEditView({
             )}
           </FormField>
 
-          <FormField control={form.control} name="rpm_limit" label="RPM Limit">
+          <FormField control={form.control} name="rpm_limit" label={t("ui.RPM Limit")}>
             {({ ref: _ref, ...field }) => <NumericalInput {...field} value={field.value ?? ""} min={0} />}
           </FormField>
 
@@ -511,8 +513,8 @@ export function KeyEditView({
             control={form.control}
             name="throttle_on_budget_exceeded"
             label={labelWithHint(
-              "Throttle on budget exceeded",
-              "When this key exceeds its max budget, throttle its TPM/RPM to the globally configured percentage instead of blocking access entirely. Requires budget_exceeded_throttle_percentage in litellm_settings and a TPM/RPM limit on the key.",
+              t("ui.Throttle on budget exceeded"),
+              t("ui.When this key exceeds its max budget, throttle its TPM/RPM to the globally configured percentage instead of blocking access entirely. Requires budget_exceeded_throttle_percentage in litellm_settings and a TPM/RPM limit on the key."),
             )}
           >
             {({ value, onChange, ref: _ref, ...field }) => (
@@ -524,8 +526,8 @@ export function KeyEditView({
             control={form.control}
             name="enable_prompt_caching"
             label={labelWithHint(
-              "Enable Prompt Caching",
-              "Automatically add prompt caching breakpoints (cache_control markers) to requests made with this key, cutting input cost on repeated prompts. Applies to Anthropic and Bedrock Claude models; requests that already set their own cache_control markers are left untouched.",
+              t("ui.Enable Prompt Caching"),
+              t("ui.Automatically add prompt caching breakpoints (cache_control markers) to requests made with this key, cutting input cost on repeated prompts. Applies to Anthropic and Bedrock Claude models; requests that already set their own cache_control markers are left untouched."),
             )}
           >
             {({ value, onChange, ref: _ref, ...field }) => (
@@ -533,11 +535,11 @@ export function KeyEditView({
             )}
           </FormField>
 
-          <FormField control={form.control} name="max_parallel_requests" label="Max Parallel Requests">
+          <FormField control={form.control} name="max_parallel_requests" label={t("ui.Max Parallel Requests")}>
             {({ ref: _ref, ...field }) => <NumericalInput {...field} value={field.value ?? ""} min={0} />}
           </FormField>
 
-          <FormField control={form.control} name="model_tpm_limit" label="Model TPM Limit">
+          <FormField control={form.control} name="model_tpm_limit" label={t("ui.Model TPM Limit")}>
             {(field) => (
               <Textarea
                 {...field}
@@ -548,7 +550,7 @@ export function KeyEditView({
             )}
           </FormField>
 
-          <FormField control={form.control} name="model_rpm_limit" label="Model RPM Limit">
+          <FormField control={form.control} name="model_rpm_limit" label={t("ui.Model RPM Limit")}>
             {(field) => (
               <Textarea
                 {...field}
@@ -562,7 +564,7 @@ export function KeyEditView({
           <FormField
             control={form.control}
             name="default_estimated_output_tokens"
-            label={labelWithHint("Estimated Output Tokens", estimateTooltip.estimate)}
+            label={labelWithHint(t("ui.Estimated Output Tokens"), estimateTooltip.estimate)}
           >
             {({ ref: _ref, ...field }) => (
               <NumericalInput {...field} value={field.value ?? ""} min={1} step={1} disabled={!canEditEstimates} />
@@ -572,7 +574,7 @@ export function KeyEditView({
           <FormField
             control={form.control}
             name="default_estimated_output_tokens_per_model"
-            label={labelWithHint("Estimated Output Tokens Per Model", estimateTooltip.perModel)}
+            label={labelWithHint(t("ui.Estimated Output Tokens Per Model"), estimateTooltip.perModel)}
           >
             {(field) => (
               <Textarea
@@ -588,14 +590,14 @@ export function KeyEditView({
           <Field>
             <FieldLabel>
               {labelWithHint(
-                "Per-Tag Rate Limits",
-                "Scope rate limits to a request tag so each tag (e.g. a cell or group) gets its own RPM counter. Requests without a matching tag fall back to the key-level limit.",
+                t("ui.Per-Tag Rate Limits"),
+                t("ui.Scope rate limits to a request tag so each tag (e.g. a cell or group) gets its own RPM counter. Requests without a matching tag fall back to the key-level limit."),
               )}
             </FieldLabel>
             <TagRateLimitEditor value={tagRateLimits} onChange={setTagRateLimits} />
           </Field>
 
-          <FormField control={form.control} name="guardrails" label="Guardrails">
+          <FormField control={form.control} name="guardrails" label={t("ui.Guardrails")}>
             {({ value, onChange }) =>
               accessToken ? (
                 <GuardrailSelector
@@ -614,8 +616,8 @@ export function KeyEditView({
             control={form.control}
             name="disable_global_guardrails"
             label={labelWithHint(
-              "Disable Global Guardrails",
-              "When enabled, this key will bypass any guardrails configured to run on every request (global guardrails)",
+              t("ui.Disable Global Guardrails"),
+              t("ui.When enabled, this key will bypass any guardrails configured to run on every request (global guardrails)"),
             )}
           >
             {({ value, onChange, ref: _ref, ...field }) => (
@@ -627,7 +629,7 @@ export function KeyEditView({
             <FormField
               control={form.control}
               name="policies"
-              label={labelWithHint("Policies", "Apply policies to this key to control guardrails and other settings")}
+              label={labelWithHint(t("ui.Policies"), t("ui.Apply policies to this key to control guardrails and other settings"))}
             >
               {({ value, onChange }) =>
                 accessToken ? (
@@ -644,14 +646,14 @@ export function KeyEditView({
             </FormField>
           )}
 
-          <FormField control={form.control} name="tags" label="Tags">
+          <FormField control={form.control} name="tags" label={t("ui.Tags")}>
             {({ value, onChange, id }) => (
               <TagsInput
                 id={id}
                 value={(value as string[] | undefined) ?? []}
                 onValueChange={onChange}
                 options={Object.values(tagsList).map((tag) => ({ value: tag.name, label: tag.name }))}
-                placeholder="Select or enter tags"
+                placeholder={t("ui.Select or enter tags")}
               />
             )}
           </FormField>
@@ -660,7 +662,7 @@ export function KeyEditView({
             <FormField
               control={form.control}
               name="prompts"
-              label={premiumUser ? "Prompts" : labelWithHint("Prompts", "Setting prompts by key is a premium feature")}
+              label={premiumUser ? t("ui.Prompts") : labelWithHint(t("ui.Prompts"), t("ui.Setting prompts by key is a premium feature"))}
             >
               {({ value, onChange, id }) => (
                 <TagsInput
@@ -672,8 +674,8 @@ export function KeyEditView({
                   placeholder={currentValuePlaceholder(
                     premiumUser,
                     keyData.metadata?.prompts,
-                    "Premium feature - Upgrade to set prompts by key",
-                    "Select or enter prompts",
+                    t("ui.Premium feature - Upgrade to set prompts by key"),
+                    t("ui.Select or enter prompts"),
                   )}
                 />
               )}
@@ -684,15 +686,15 @@ export function KeyEditView({
             control={form.control}
             name="access_group_ids"
             label={labelWithHint(
-              "Access Groups",
-              "Assign access groups to this key. Access groups control which models, MCP servers, and agents this key can use",
+              t("ui.Access Groups"),
+              t("ui.Assign access groups to this key. Access groups control which models, MCP servers, and agents this key can use"),
             )}
           >
             {({ value, onChange }) => (
               <AccessGroupSelector
                 value={value as string[] | undefined}
                 onChange={onChange}
-                placeholder="Select access groups (optional)"
+                placeholder={t("ui.Select access groups (optional)")}
               />
             )}
           </FormField>
@@ -702,10 +704,10 @@ export function KeyEditView({
             name="allowed_passthrough_routes"
             label={
               premiumUser
-                ? "Allowed Pass Through Routes"
+                ? t("ui.Allowed Pass Through Routes")
                 : labelWithHint(
-                    "Allowed Pass Through Routes",
-                    "Setting allowed pass through routes by key is a premium feature",
+                    t("ui.Allowed Pass Through Routes"),
+                    t("ui.Setting allowed pass through routes by key is a premium feature"),
                   )
             }
           >
@@ -717,32 +719,32 @@ export function KeyEditView({
                 placeholder={currentValuePlaceholder(
                   premiumUser,
                   keyData.metadata?.allowed_passthrough_routes,
-                  "Premium feature - Upgrade to set allowed pass through routes by key",
-                  "Select or enter allowed pass through routes",
+                  t("ui.Premium feature - Upgrade to set allowed pass through routes by key"),
+                  t("ui.Select or enter allowed pass through routes"),
                 )}
                 disabled={!premiumUser}
               />
             )}
           </FormField>
 
-          <FormField control={form.control} name="vector_stores" label="Vector Stores">
+          <FormField control={form.control} name="vector_stores" label={t("ui.Vector Stores")}>
             {({ value, onChange }) => (
               <VectorStoreSelector
                 onChange={onChange}
                 value={value as string[] | undefined}
                 accessToken={accessToken || ""}
-                placeholder="Select vector stores"
+                placeholder={t("ui.Select vector stores")}
               />
             )}
           </FormField>
 
-          <FormField control={form.control} name="mcp_servers_and_groups" label="MCP Servers / Access Groups">
+          <FormField control={form.control} name="mcp_servers_and_groups" label={t("ui.MCP Servers / Access Groups")}>
             {({ value, onChange }) => (
               <MCPServerSelector
                 onChange={onChange}
                 value={value as McpServersAndGroups | undefined}
                 accessToken={accessToken || ""}
-                placeholder="Select MCP servers or access groups (optional)"
+                placeholder={t("ui.Select MCP servers or access groups (optional)")}
                 allowNoMcpServers
               />
             )}
@@ -759,13 +761,13 @@ export function KeyEditView({
             />
           </div>
 
-          <FormField control={form.control} name="agents_and_groups" label="Agents / Access Groups">
+          <FormField control={form.control} name="agents_and_groups" label={t("ui.Agents / Access Groups")}>
             {({ value, onChange }) => (
               <AgentSelector
                 onChange={onChange}
                 value={value as AgentsAndGroups | undefined}
                 accessToken={accessToken || ""}
-                placeholder="Select agents or access groups (optional)"
+                placeholder={t("ui.Select agents or access groups (optional)")}
               />
             )}
           </FormField>
@@ -774,8 +776,8 @@ export function KeyEditView({
             control={form.control}
             name="organization_id"
             label={labelWithHint(
-              "Organization",
-              "The organization this key belongs to. Selecting an organization filters the available teams.",
+              t("ui.Organization"),
+              t("ui.The organization this key belongs to. Selecting an organization filters the available teams."),
             )}
           >
             {({ value, onChange, id }) => (
@@ -793,9 +795,9 @@ export function KeyEditView({
           <FormField
             control={form.control}
             name="team_id"
-            label="Team ID"
+            label={t("ui.Team ID")}
             description={
-              enableProjectsUI && hasProject ? "Team is locked because this key belongs to a project" : undefined
+              enableProjectsUI && hasProject ? t("ui.Team is locked because this key belongs to a project") : undefined
             }
           >
             {({ value, onChange, id }) => (
@@ -808,7 +810,7 @@ export function KeyEditView({
                 )}
               >
                 <SelectTrigger id={id} className="w-full">
-                  <SelectValue placeholder="Select team" />
+                  <SelectValue placeholder={t("ui.Select team")} />
                 </SelectTrigger>
                 <SelectContent>
                   {visibleTeams?.map((t) => (
@@ -823,13 +825,13 @@ export function KeyEditView({
 
           {enableProjectsUI && hasProject && (
             <Field>
-              <FieldLabel htmlFor={projectFieldId}>Project</FieldLabel>
+              <FieldLabel htmlFor={projectFieldId}>{t("ui.Project")}</FieldLabel>
               <Input id={projectFieldId} value={projectDisplay ?? ""} disabled readOnly />
             </Field>
           )}
 
           <Field>
-            <FieldLabel>Router Settings</FieldLabel>
+            <FieldLabel>{t("ui.Router Settings")}</FieldLabel>
             <RouterSettingsAccordion
               ref={routerSettingsRef}
               accessToken={accessToken || ""}
@@ -838,7 +840,7 @@ export function KeyEditView({
             />
           </Field>
 
-          <FormField control={form.control} name="logging_settings" label="Logging Settings">
+          <FormField control={form.control} name="logging_settings" label={t("ui.Logging Settings")}>
             {({ value, onChange }) => (
               <EditLoggingSettings
                 value={(value as unknown[] | undefined) ?? []}
@@ -849,7 +851,7 @@ export function KeyEditView({
             )}
           </FormField>
 
-          <FormField control={form.control} name="metadata" label="Metadata">
+          <FormField control={form.control} name="metadata" label={t("ui.Metadata")}>
             {(field) => <Textarea {...field} value={(field.value as string | undefined) ?? ""} rows={10} />}
           </FormField>
 
@@ -875,11 +877,11 @@ export function KeyEditView({
         <div className="sticky z-chrome bg-background p-4 border-t border-border -bottom-6 -inset-x-6">
           <div className="flex justify-end items-center gap-2">
             <Button type="button" variant="secondary" onClick={onCancel} disabled={isKeySaving}>
-              Cancel
+              {t("ui.Cancel")}
             </Button>
             <Button type="submit" disabled={isKeySaving} aria-busy={isKeySaving}>
               {isKeySaving && <UiLoadingSpinner className="size-4" />}
-              Save Changes
+              {t("ui.Save Changes")}
             </Button>
           </div>
         </div>
