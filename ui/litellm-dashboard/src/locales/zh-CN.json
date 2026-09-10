@@ -5614,6 +5614,9 @@
       "submitted": "批量任务已提交",
       "loadFailed": "批量任务结果加载失败",
       "result": "成功 {{succeeded}}，失败 {{failed}}，处理中 {{pending}}",
+      "policyTemplate": "策略模板",
+      "selectPolicyTemplate": "选择策略模板账号",
+      "policyTemplateOption": "{{name}}（版本 {{version}}）",
       "actions": {
         "refresh": "刷新账号和配额",
         "enable": "启用账号",

@@ -74,8 +74,9 @@ export const submitAccountPoolBatch = (
   accessToken: string,
   action: BatchAction,
   targets: Array<{ account_id: string; version: number; policy_version: number }>,
+  policy: AccountPolicy | null = null,
 ) =>
   apiClient.post<BatchJob>("/account_pool/batches", {
     accessToken,
-    body: { job_id: crypto.randomUUID(), action, targets, policy: null },
+    body: { job_id: crypto.randomUUID(), action, targets, policy },
   });

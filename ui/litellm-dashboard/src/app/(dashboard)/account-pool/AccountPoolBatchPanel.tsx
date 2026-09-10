@@ -3,7 +3,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -11,11 +11,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
-import { listAccountPoolBatches, submitAccountPoolBatch, type BatchAction } from "./AccountPoolManagementApi";
+import {
+  listAccountPoolBatches,
+  submitAccountPoolBatch,
+  type BatchAction,
+  type PolicyView,
+} from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY } from "./useAccountPoolQuery";
 
-const ACTIONS: readonly BatchAction[] = ["refresh", "enable", "disable", "cooldown", "release"];
+const ACTIONS: readonly BatchAction[] = ["refresh", "enable", "disable", "cooldown", "release", "policy"];
 
 const hasPendingBatch = (jobs: Awaited<ReturnType<typeof listAccountPoolBatches>> | undefined) =>
   jobs?.some((job) => job.items.some((item) => item.status === "queued" || item.status === "running")) ?? false;
@@ -23,14 +28,17 @@ const hasPendingBatch = (jobs: Awaited<ReturnType<typeof listAccountPoolBatches>
 export function AccountPoolBatchPanel({
   accessToken,
   environments,
+  policies,
 }: {
   accessToken: string;
   environments: AccountPoolEnvironment[];
+  policies: PolicyView[];
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [action, setAction] = useState<BatchAction>("refresh");
+  const [policyTemplateId, setPolicyTemplateId] = useState<string | null>(null);
   const jobsQuery = {
     queryKey: ["account-pool", "batches", accessToken],
     queryFn: () => listAccountPoolBatches(accessToken),
@@ -39,6 +47,25 @@ export function AccountPoolBatchPanel({
     retry: false,
   };
   const jobs = useQuery(jobsQuery);
+  const completedJobs = useMemo(
+    () =>
+      jobs.data?.filter(
+        (job) =>
+          job.items.length > 0 && job.items.every((item) => item.status === "succeeded" || item.status === "failed"),
+      ) ?? [],
+    [jobs.data],
+  );
+  const completedJobSignature = completedJobs
+    .map((job) => `${job.job_id}:${job.items.map((item) => `${item.account_id}:${item.status}`).join(",")}`)
+    .join("|");
+  const hasCompletedPolicyJob = completedJobs.some((job) => job.action === "policy");
+  useEffect(() => {
+    if (!completedJobSignature) return;
+    void queryClient.invalidateQueries({ queryKey: ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY });
+    if (hasCompletedPolicyJob) {
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "policies", accessToken] });
+    }
+  }, [accessToken, completedJobSignature, hasCompletedPolicyJob, queryClient]);
   const targets = useMemo(
     () =>
       environments
@@ -46,21 +73,23 @@ export function AccountPoolBatchPanel({
         .map((environment) => ({
           account_id: environment.id,
           version: environment.version,
-          policy_version: 0,
+          policy_version: policies.find((policy) => policy.card_id === environment.id)?.version ?? 0,
         })),
-    [environments, selected],
+    [environments, policies, selected],
   );
+  const selectedPolicy = policies.find((policy) => policy.card_id === policyTemplateId)?.policy ?? null;
   const mutation = useMutation({
-    mutationFn: () => submitAccountPoolBatch(accessToken, action, targets),
+    mutationFn: () => submitAccountPoolBatch(accessToken, action, targets, action === "policy" ? selectedPolicy : null),
     onSuccess: () => {
       toast.success(t("accountPool.batch.submitted"));
       setSelected(new Set());
       void jobs.refetch();
-      void queryClient.invalidateQueries({ queryKey: ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY });
     },
     onError: (error: Error) => toast.fromError(error),
   });
   const allSelected = environments.length > 0 && selected.size === environments.length;
+  const policyTemplateRequired = action === "policy" && selectedPolicy === null;
+  const submitDisabled = targets.length === 0 || mutation.isPending || policyTemplateRequired;
   const toggle = (id: string, checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -89,7 +118,25 @@ export function AccountPoolBatchPanel({
               ))}
             </SelectContent>
           </Select>
-          <Button disabled={targets.length === 0 || mutation.isPending} onClick={() => mutation.mutate()}>
+          {action === "policy" && (
+            <Select value={policyTemplateId} onValueChange={setPolicyTemplateId}>
+              <SelectTrigger className="w-56" aria-label={t("accountPool.batch.policyTemplate")}>
+                <SelectValue placeholder={t("accountPool.batch.selectPolicyTemplate")} />
+              </SelectTrigger>
+              <SelectContent>
+                {policies.map((policy) => (
+                  <SelectItem key={policy.card_id} value={policy.card_id} disabled={policy.policy === undefined}>
+                    {t("accountPool.batch.policyTemplateOption", {
+                      name:
+                        environments.find((environment) => environment.id === policy.card_id)?.name ?? policy.card_id,
+                      version: policy.version,
+                    })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button disabled={submitDisabled} onClick={() => mutation.mutate()}>
             {mutation.isPending
               ? t("accountPool.batch.submitting")
               : t("accountPool.batch.submit", { count: targets.length })}

@@ -68,6 +68,7 @@ class Lease(BaseModel):
     supplier: SupplierKind
     model: str
     started_at: AwareDatetime
+    attempt: int = Field(default=1, ge=1, le=5)
 
 
 class FinishRequest(BaseModel):

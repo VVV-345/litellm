@@ -272,7 +272,7 @@ export default function AccountPoolPage() {
           <TabsContent value="accounts" className="pt-4">
             {accessToken && environments.length > 0 && (
               <div className="mb-4">
-                <AccountPoolBatchPanel accessToken={accessToken} environments={environments} />
+                <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
               </div>
             )}
             {showAccountFilters && (

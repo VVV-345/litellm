@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
+import type { AccountPolicy, PolicyView } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const listBatches = vi.fn();
@@ -43,11 +44,68 @@ const environment = {
   updated_at: "2026-09-10T00:00:00Z",
 } as AccountPoolEnvironment;
 
-const expectedBatchItem = {
+const secondaryEnvironment = {
+  ...environment,
+  id: "00000000-0000-4000-8000-000000000003",
+  version: 11,
+  name: "Secondary account",
+} as AccountPoolEnvironment;
+
+const expectedPrimaryTarget = {
   account_id: environment.id,
   version: 7,
-  policy_version: 0,
+  policy_version: 3,
 };
+
+const expectedSecondaryTarget = {
+  account_id: secondaryEnvironment.id,
+  version: 11,
+  policy_version: 5,
+};
+
+const policy: AccountPolicy = {
+  tags: ["premium"],
+  group: "codex",
+  account_ids: [],
+  routing: {
+    strategy: "priority",
+    priority: 10,
+    weight: 2,
+    is_backup: false,
+    preferred_account_ids: [],
+    session_affinity: false,
+    session_affinity_ttl: 3600,
+    quota_reserve_percent: 0,
+    quota_snapshot_max_age: 300,
+    max_attempts: 1,
+    retryable_statuses: [429, 502, 503, 504],
+    backoff_ms: 1000,
+    fallback_enabled: false,
+  },
+  excluded_models: [],
+  model_aliases: [],
+  transport: {
+    image_generation: "inherit",
+    websocket: "inherit",
+    request_timeout_seconds: 120,
+    debug_log_enabled: false,
+  },
+};
+
+const policyView = {
+  card_id: environment.id,
+  version: 3,
+  policy,
+  runtime_status: "partial",
+  capabilities: [],
+  metadata_status: "saved",
+} as PolicyView;
+
+const secondaryPolicyView = {
+  ...policyView,
+  card_id: secondaryEnvironment.id,
+  version: 5,
+} as PolicyView;
 
 const submittedBatch = {
   job_id: "00000000-0000-4000-8000-000000000002",
@@ -56,16 +114,21 @@ const submittedBatch = {
   items: [],
 };
 
-const renderPanel = () => {
-  const client = new QueryClient({
+const createQueryClient = () =>
+  new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+
+const renderPanel = (client = createQueryClient()) =>
+  render(
     <QueryClientProvider client={client}>
-      <AccountPoolBatchPanel accessToken="token" environments={[environment]} />
+      <AccountPoolBatchPanel
+        accessToken="token"
+        environments={[environment, secondaryEnvironment]}
+        policies={[policyView, secondaryPolicyView]}
+      />
     </QueryClientProvider>,
   );
-};
 
 describe("AccountPoolBatchPanel", () => {
   beforeEach(() => {
@@ -81,6 +144,55 @@ describe("AccountPoolBatchPanel", () => {
     await user.click(screen.getByText("Primary account"));
     await user.click(screen.getByRole("button", { name: /执行 1 个账号|Run for 1 account/i }));
 
-    await waitFor(() => expect(submitBatch).toHaveBeenCalledWith("token", "refresh", [expectedBatchItem]));
+    await waitFor(() => expect(submitBatch).toHaveBeenCalledWith("token", "refresh", [expectedPrimaryTarget], null));
+  });
+
+  it("submits the selected policy template with every target version snapshot", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByText("Primary account"));
+    await user.click(screen.getByText("Secondary account"));
+    await user.click(screen.getByRole("combobox", { name: /批量动作|Bulk action/i }));
+    await user.click(await screen.findByRole("option", { name: /更新策略|Update policy/i }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("combobox", { name: /策略模板|Policy template/i }));
+    await user.click(await screen.findByRole("option", { name: /Primary account/ }));
+    await user.click(screen.getByRole("button", { name: /执行 2 个账号|Run for 2 accounts/i }));
+
+    await waitFor(() =>
+      expect(submitBatch).toHaveBeenCalledWith(
+        "token",
+        "policy",
+        [expectedPrimaryTarget, expectedSecondaryTarget],
+        policy,
+      ),
+    );
+  });
+
+  it("refreshes policy versions after a policy batch finishes", async () => {
+    listBatches.mockResolvedValue([
+      {
+        ...submittedBatch,
+        action: "policy",
+        items: [
+          {
+            account_id: environment.id,
+            status: "succeeded",
+            attempts: 1,
+            message: "Policy updated",
+            finished_at: "2026-09-10T00:01:00Z",
+          },
+        ],
+      },
+    ]);
+    const client = createQueryClient();
+    const invalidateQueries = vi.spyOn(client, "invalidateQueries");
+
+    renderPanel(client);
+
+    await waitFor(() =>
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "policies", "token"] }),
+    );
   });
 });

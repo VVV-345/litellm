@@ -147,6 +147,7 @@ class PostgresLeaseRepository:
                 channel=candidate.channel,
                 supplier=candidate.supplier,
                 started_at=now,
+                attempt=request.attempt,
             )
             await connection.execute(
                 "INSERT INTO account_pool_leases VALUES (%s, %s, %s, %s)",

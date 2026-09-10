@@ -58,7 +58,8 @@ class Control:
             return None
         return Lease(lease_id=uuid4(), card_id=self.resolution.card_id, key_id=self.resolution.key_id,
                      account_id=request.account_id, request_id=request.request_id, model=request.model,
-                     channel="cliproxyapi", supplier="openai_codex", started_at=datetime.now(timezone.utc))
+                     channel="cliproxyapi", supplier="openai_codex", started_at=datetime.now(timezone.utc),
+                     attempt=request.attempt)
 
     async def finish(self, request: FinishRequest) -> None:
         self.finished.append(request)
@@ -229,6 +230,7 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
     assert len({request.request_id for request in control.acquisitions}) == 1
     assert control.finished[0].next_account_id == control.acquisitions[1].account_id
     assert control.finished[0].retryable and control.finished[1].http_status == 200
+    assert [request.attempt for request in control.acquisitions] == [1, 2]
     assert "private" not in str(control.finished)
 
 
