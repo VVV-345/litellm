@@ -5640,7 +5640,10 @@
       "requests": "Requests",
       "failures": "Failures",
       "tokens": "Total tokens",
-      "averageDuration": "Average duration"
+      "averageDuration": "Average duration",
+      "cost": "Known cost",
+      "costUnavailable": "No trusted amount",
+      "costCoverage": "{{known}} of {{total}} requests reported an upstream amount"
     },
     "confirmDeleteTitle": "Delete account pool environment?",
     "confirmDeleteDescription": "Delete “{{name}}”? This removes its containers, network, authorization data, and gateway route. This cannot be undone.",
@@ -5891,6 +5894,8 @@
       "http_status": "HTTP status",
       "upstream_code": "Upstream error code",
       "duration_ms": "Duration (ms)",
+      "routing_reason": "Routing reason",
+      "cost_usd": "Upstream cost (USD)",
       "retryable": "Retryable",
       "switched_account": "Account switched",
       "from": "From",
@@ -5907,6 +5912,20 @@
       "attempt": "Attempt {{count}}",
       "retryCount": "{{count}} retries",
       "moreAttempts": "Showing the first 200 events. Filter by request ID and paginate for remaining events",
+      "routingReasons": {
+        "automatic": "Automatic ordering",
+        "single_account": "Only eligible account",
+        "session_affinity": "Session affinity match",
+        "session_rebind": "Session rebound after its account became unavailable",
+        "preferred_account": "Preferred card account",
+        "priority": "Account priority",
+        "quota": "Highest remaining quota",
+        "random_weighted": "Weighted random selection",
+        "custom_order": "Custom order",
+        "backup_account": "Backup account",
+        "concurrency_fallback": "Earlier account had no concurrency",
+        "retry_failover": "Failover after the previous attempt"
+      },
       "stages": {
         "provisioning": "Provisioning",
         "authorization": "Authorization",

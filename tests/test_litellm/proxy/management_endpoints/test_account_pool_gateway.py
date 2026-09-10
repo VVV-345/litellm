@@ -12,6 +12,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
 from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError
@@ -30,6 +31,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     RoutingPolicy,
     TransportPolicy,
 )
+from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
 
 _KEY: Final = "cpk_" + "test-only-" * 5
 
@@ -59,7 +61,7 @@ class Control:
         return Lease(lease_id=uuid4(), card_id=self.resolution.card_id, key_id=self.resolution.key_id,
                      account_id=request.account_id, request_id=request.request_id, model=request.model,
                      channel="cliproxyapi", supplier="openai_codex", started_at=datetime.now(timezone.utc),
-                     attempt=request.attempt)
+                     attempt=request.attempt, routing_reason=request.routing_reason)
 
     async def finish(self, request: FinishRequest) -> None:
         self.finished.append(request)
@@ -89,6 +91,60 @@ def setup_gateway(handler: Callable[[httpx.Request], httpx.Response], *, retry: 
     return TestClient(app), control
 
 
+@pytest.mark.parametrize(
+    "policy,expected",
+    [
+        (RoutingPolicy(), "automatic"),
+        (RoutingPolicy(strategy="priority"), "priority"),
+        (RoutingPolicy(strategy="quota"), "quota"),
+        (RoutingPolicy(strategy="custom"), "custom_order"),
+    ],
+)
+def test_route_reason_matches_the_active_selection_strategy(policy: RoutingPolicy, expected: str) -> None:
+    first: Final = candidate(uuid4(), 10).model_copy(update={"remaining_percent": 80})
+    second: Final = candidate(uuid4()).model_copy(update={"remaining_percent": 20})
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=policy),
+        candidates=(first, second),
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+
+    assert not isinstance(selected, Rejected)
+    assert selected[0].reason == expected
+
+
+@pytest.mark.parametrize(
+    "routing",
+    [
+        RoutingPolicy(),
+        RoutingPolicy(strategy="random"),
+        RoutingPolicy(strategy="priority"),
+        RoutingPolicy(strategy="quota"),
+        RoutingPolicy(strategy="custom"),
+    ],
+)
+def test_single_account_route_reason_is_explicit(routing: RoutingPolicy) -> None:
+    account: Final = candidate(uuid4())
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=routing),
+        candidates=(account,),
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+
+    assert not isinstance(selected, Rejected)
+    assert selected[0].reason == "single_account"
+
+
 def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> None:
     seen: list[httpx.Request] = []
 
@@ -98,7 +154,11 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
         assert "x-api-key" not in request.headers and "cookie" not in request.headers
         assert "x-account-pool-card-id" not in request.headers
         assert json.loads(request.content)["model"] == "model-a"
-        return httpx.Response(200, json={"model": "model-a", "choices": [], "usage": {"prompt_tokens": 4, "completion_tokens": 2}})
+        return httpx.Response(
+            200,
+            headers={"x-litellm-response-cost": "0.00042"},
+            json={"model": "model-a", "choices": [], "usage": {"prompt_tokens": 4, "completion_tokens": 2}},
+        )
 
     client, control = setup_gateway(upstream)
     with client:
@@ -108,6 +168,8 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
     assert response.status_code == 200 and response.json()["model"] == "public-model"
     assert seen[0].url.host == f"cliproxy-{control.resolution.card_id.hex}"
     assert len(control.finished) == 1 and control.finished[0].input_tokens == 4
+    assert control.finished[0].cost_usd == 0.00042
+    assert control.acquisitions[0].routing_reason == "automatic"
     assert _KEY not in response.text and "internal-secret" not in response.text
 
 
@@ -231,6 +293,7 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
     assert control.finished[0].next_account_id == control.acquisitions[1].account_id
     assert control.finished[0].retryable and control.finished[1].http_status == 200
     assert [request.attempt for request in control.acquisitions] == [1, 2]
+    assert [request.routing_reason for request in control.acquisitions] == ["automatic", "retry_failover"]
     assert "private" not in str(control.finished)
 
 
@@ -287,6 +350,7 @@ def test_concurrency_falls_through_to_next_candidate_without_consuming_retry_bud
     assert seen == [f"cliproxy-{control.resolution.candidates[1].id.hex}"]
     assert [request.attempt for request in control.acquisitions] == [1, 1]
     assert [request.allow_session_rebind for request in control.acquisitions] == [False, True]
+    assert [request.routing_reason for request in control.acquisitions] == ["session_affinity", "concurrency_fallback"]
 
 
 def test_truncated_stream_is_logged_as_failure_and_never_replayed() -> None:
@@ -334,3 +398,39 @@ def test_sticky_backup_is_kept_while_it_remains_eligible() -> None:
         )
     assert response.status_code == 200
     assert control.acquisitions[0].account_id == backup.id
+    assert control.acquisitions[0].routing_reason == "session_affinity"
+
+
+@pytest.mark.parametrize("cost", [None, "", "-0.01", "nan", "inf", "1_000", "invalid"])
+def test_untrusted_upstream_cost_is_not_recorded(cost: str | None) -> None:
+    headers: Final = {} if cost is None else {"x-litellm-response-cost": cost}
+    client, control = setup_gateway(lambda _: httpx.Response(200, headers=headers, json={"output": []}))
+
+    with client:
+        response: Final = client.post(
+            "/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+
+    assert response.status_code == 200
+    assert control.finished[0].cost_usd is None
+
+
+def test_truncated_stream_keeps_trusted_upstream_cost() -> None:
+    partial: Final = 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+    client, control = setup_gateway(
+        lambda _: httpx.Response(
+            200,
+            content=partial,
+            headers={"content-type": "text/event-stream", "x-litellm-response-cost": "0.00042"},
+        )
+    )
+
+    with client:
+        response: Final = client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 200
+    assert control.finished[0].cost_usd == 0.00042

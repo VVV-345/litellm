@@ -13,9 +13,48 @@ import {
   getAccountPoolLog,
   getAccountPoolStats,
   listAccountPoolLogs,
+  type LogDetail,
   type LogFilters,
 } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+
+const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 10,
+};
+
+const formatCost = (value: number | null | undefined) =>
+  value == null ? null : new Intl.NumberFormat("en-US", COST_FORMAT_OPTIONS).format(value);
+
+type LogEvent = LogDetail["event"];
+type DetailField =
+  | "card_id"
+  | "environment_id"
+  | "account_id"
+  | "card_key_id"
+  | "request_id"
+  | "trace_id"
+  | "model"
+  | "endpoint"
+  | "method"
+  | "http_status"
+  | "upstream_code"
+  | "duration_ms"
+  | "routing_reason"
+  | "cost_usd";
+
+const detailFieldValue = (
+  event: LogEvent,
+  field: DetailField,
+  unavailable: string,
+  routeReason: (reason: NonNullable<LogEvent["routing_reason"]>) => string,
+) => {
+  if (field === "routing_reason") return event.routing_reason ? routeReason(event.routing_reason) : unavailable;
+  if (field === "cost_usd") return formatCost(event.cost_usd) ?? unavailable;
+  return event[field] ?? unavailable;
+};
 
 export function AccountPoolLogsPanel({
   accessToken,
@@ -198,7 +237,7 @@ export function AccountPoolLogsPanel({
       </form>
       {validationError && <p role="alert">{t("accountPool.logs.invalidTime")}</p>}
       {stats.data && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.stats.requests")}</p>
             <p className="text-xl font-semibold">{stats.data.total_requests}</p>
@@ -215,6 +254,18 @@ export function AccountPoolLogsPanel({
             <p className="text-xs text-muted-foreground">{t("accountPool.stats.averageDuration")}</p>
             <p className="text-xl font-semibold">
               {stats.data.average_duration_ms == null ? "-" : Math.round(stats.data.average_duration_ms)} ms
+            </p>
+          </div>
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.cost")}</p>
+            <p className="text-xl font-semibold">
+              {formatCost(stats.data.total_cost_usd) ?? t("accountPool.stats.costUnavailable")}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("accountPool.stats.costCoverage", {
+                known: stats.data.known_cost_requests,
+                total: stats.data.total_requests,
+              })}
             </p>
           </div>
         </div>
@@ -316,11 +367,17 @@ export function AccountPoolLogsPanel({
                     "http_status",
                     "upstream_code",
                     "duration_ms",
+                    "routing_reason",
+                    "cost_usd",
                   ] as const
                 ).map((field) => (
                   <div className="grid grid-cols-[9rem_1fr] gap-2" key={field}>
                     <dt>{t(`accountPool.logs.${field}`)}</dt>
-                    <dd className="break-all">{detail.data.event[field] ?? t("accountPool.management.unavailable")}</dd>
+                    <dd className="break-all">
+                      {detailFieldValue(detail.data.event, field, t("accountPool.management.unavailable"), (reason) =>
+                        t(`accountPool.logs.routingReasons.${reason}`),
+                      )}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -337,6 +394,12 @@ export function AccountPoolLogsPanel({
                     {t("accountPool.logs.retryCount", { count: event.retry_count })} ·{" "}
                     {t("accountPool.logs.switched_account")}: {t(`accountPool.management.${event.switched_account}`)}
                   </p>
+                  {event.routing_reason && (
+                    <p className="mt-1 text-muted-foreground">
+                      {t("accountPool.logs.routing_reason")}:{" "}
+                      {t(`accountPool.logs.routingReasons.${event.routing_reason}`)}
+                    </p>
+                  )}
                 </article>
               ))}
               {detail.data.has_more && <p>{t("accountPool.logs.moreAttempts")}</p>}

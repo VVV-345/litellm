@@ -35,6 +35,20 @@ ErrorCategory = Literal[
     "configuration",
     "unknown",
 ]
+RoutingReason = Literal[
+    "automatic",
+    "single_account",
+    "session_affinity",
+    "session_rebind",
+    "preferred_account",
+    "priority",
+    "quota",
+    "random_weighted",
+    "custom_order",
+    "backup_account",
+    "concurrency_fallback",
+    "retry_failover",
+]
 
 BatchAction = Literal["refresh", "authorize", "enable", "disable", "cooldown", "release", "policy", "delete"]
 
@@ -285,6 +299,8 @@ class ErrorLogRecord(BaseModel):
     duration_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    routing_reason: RoutingReason | None = None
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
 
@@ -333,6 +349,8 @@ class ErrorStats(BaseModel):
     retried_requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    known_cost_requests: int = 0
+    total_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     average_duration_ms: float | None = None
     recent_errors: tuple[ErrorLogRecord, ...] = ()
 

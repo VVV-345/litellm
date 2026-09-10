@@ -231,6 +231,8 @@ class PostgresErrorLogRepository:
                     "count(*) FILTER (WHERE (payload->>'retry_count')::integer > 0) AS retried, "
                     "coalesce(sum((payload->>'input_tokens')::bigint), 0) AS input_tokens, "
                     "coalesce(sum((payload->>'output_tokens')::bigint), 0) AS output_tokens, "
+                    "count((payload->>'cost_usd')::double precision) AS known_cost_requests, "
+                    "sum((payload->>'cost_usd')::double precision) AS total_cost_usd, "
                     "avg((payload->>'duration_ms')::double precision) AS average_duration_ms "
                     "FROM account_pool_error_log WHERE {}"
                 ).format(where),
@@ -257,6 +259,8 @@ class PostgresErrorLogRepository:
         retried: Final = TypeAdapter(int).validate_python(summary["retried"])
         input_tokens: Final = TypeAdapter(int).validate_python(summary["input_tokens"])
         output_tokens: Final = TypeAdapter(int).validate_python(summary["output_tokens"])
+        known_cost_requests: Final = TypeAdapter(int).validate_python(summary["known_cost_requests"])
+        total_cost_usd: Final = optional_float(summary["total_cost_usd"])
         average: Final = optional_float(summary["average_duration_ms"])
         return ErrorStats(
             card_id=card_id,
@@ -268,6 +272,8 @@ class PostgresErrorLogRepository:
             retried_requests=retried,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            known_cost_requests=known_cost_requests,
+            total_cost_usd=total_cost_usd,
             average_duration_ms=average,
             recent_errors=tuple(ErrorLogRecord.model_validate(row["payload"]) for row in errors),
         )

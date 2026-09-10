@@ -174,6 +174,8 @@ class GatewayService:
             final_status="retrying" if request.retryable else "failed" if failed else "succeeded",
             input_tokens=request.input_tokens,
             output_tokens=request.output_tokens,
+            routing_reason=lease.routing_reason,
+            cost_usd=request.cost_usd,
         )
         cooldown: Final = 60 if request.http_status == 429 else 300 if request.http_status in (401, 403) else 0
         try:

@@ -10,6 +10,21 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from account_pool.domain import ChannelKind, SupplierKind
 from account_pool.policies import AccountPolicy
 
+RoutingReason = Literal[
+    "automatic",
+    "single_account",
+    "session_affinity",
+    "session_rebind",
+    "preferred_account",
+    "priority",
+    "quota",
+    "random_weighted",
+    "custom_order",
+    "backup_account",
+    "concurrency_fallback",
+    "retry_failover",
+]
+
 
 class ResolveRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -54,6 +69,7 @@ class AcquireRequest(ResolveRequest):
     account_policy_version: int
     timeout_seconds: int = Field(ge=1, le=3600)
     attempt: int = Field(ge=1, le=5)
+    routing_reason: RoutingReason = "automatic"
     allow_session_rebind: bool = False
 
 
@@ -69,6 +85,7 @@ class Lease(BaseModel):
     model: str
     started_at: AwareDatetime
     attempt: int = Field(default=1, ge=1, le=5)
+    routing_reason: RoutingReason = "automatic"
 
 
 class FinishRequest(BaseModel):
@@ -84,3 +101,4 @@ class FinishRequest(BaseModel):
     endpoint: str = Field(max_length=256)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)

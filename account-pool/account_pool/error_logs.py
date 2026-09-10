@@ -13,6 +13,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
 from account_pool.error_safety import safe_error
+from account_pool.gateway_contracts import RoutingReason
 
 LogStage = Literal[
     "provisioning",
@@ -76,6 +77,8 @@ class ErrorLogRecord(BaseModel):
     duration_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    routing_reason: RoutingReason | None = None
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
     @field_validator("message", "detail", "model", "endpoint", "upstream_code", "operation")
@@ -138,6 +141,8 @@ class ErrorStats(BaseModel):
     retried_requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    known_cost_requests: int = 0
+    total_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     average_duration_ms: float | None = None
     recent_errors: tuple[ErrorLogRecord, ...] = ()
 

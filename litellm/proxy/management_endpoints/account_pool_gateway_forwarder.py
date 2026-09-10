@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import math
 import re
 from collections.abc import AsyncIterator
 from typing import Final
@@ -23,6 +24,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     FinishRequest,
     Lease,
     Resolution,
+    RoutingReason,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, usage_tokens
@@ -63,6 +65,10 @@ class Attempt:
                 **values,
             }
         )
+
+    def record_cost(self, cost_usd: float | None) -> None:
+        if cost_usd is not None:
+            self.result = self.result.model_copy(update={"cost_usd": cost_usd})
 
 
 async def report(control: GatewayControl, result: FinishRequest) -> None:
@@ -150,6 +156,7 @@ async def forward_candidate(
         account_policy_version=route.account.policy_version,
         timeout_seconds=seconds,
         attempt=attempt_number,
+        routing_reason=attempt_routing_reason(route, route_index, attempt_number, sticky_unavailable),
         allow_session_rebind=route_index > 0 or sticky_unavailable,
     )
     lease: Final = await control.acquire(acquisition)
@@ -222,6 +229,8 @@ async def execute(
             )
             response: Final = await client.send(upstream, stream=True)
             try:
+                cost_usd: Final = upstream_response_cost(response.headers)
+                attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
                     code: Final = await error_code(response)
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
@@ -236,6 +245,7 @@ async def execute(
                         retryable=retry,
                         switched_account=retry,
                         next_account_id=str(next_id) if retry else None,
+                        cost_usd=cost_usd,
                     )
                     if retry:
                         return False
@@ -247,13 +257,17 @@ async def execute(
                 if payload.get("stream") is True:
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise ValueError("Upstream did not return an event stream")
-                    await stream_response(request, response, attempt)
+                    await stream_response(request, response, attempt, cost_usd)
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
                     parsed: Final = _JSON.validate_json(data)
                     usage_in, usage_out = usage_tokens(parsed)
                     attempt.outcome(
-                        response.status_code, "Request completed", input_tokens=usage_in, output_tokens=usage_out
+                        response.status_code,
+                        "Request completed",
+                        input_tokens=usage_in,
+                        output_tokens=usage_out,
+                        cost_usd=cost_usd,
                     )
                     public: Final = {**parsed, **({"model": payload["model"]} if "model" in parsed else {})}
                     await JSONResponse(public, status_code=response.status_code)(
@@ -319,7 +333,38 @@ async def error_code(response: httpx.Response) -> str | None:
     return code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
 
 
-async def stream_response(request: Request, response: httpx.Response, attempt: Attempt) -> None:
+def upstream_response_cost(headers: httpx.Headers) -> float | None:
+    raw: Final = next((value for name, value in headers.multi_items() if name == "x-litellm-response-cost"), None)
+    if raw is None or re.fullmatch(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", raw) is None:
+        return None
+    try:
+        value: Final = float(raw)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) and value >= 0 else None
+
+
+def attempt_routing_reason(
+    route: Route,
+    route_index: int,
+    attempt_number: int,
+    sticky_unavailable: bool,
+) -> RoutingReason:
+    if attempt_number > 1:
+        return "retry_failover"
+    if route_index > 0:
+        return "concurrency_fallback"
+    if sticky_unavailable:
+        return "session_rebind"
+    return route.reason
+
+
+async def stream_response(
+    request: Request,
+    response: httpx.Response,
+    attempt: Attempt,
+    cost_usd: float | None,
+) -> None:
     state: Final = EventStream()
 
     async def chunks() -> AsyncIterator[bytes]:
@@ -344,6 +389,7 @@ async def stream_response(request: Request, response: httpx.Response, attempt: A
                 stage="response",
                 input_tokens=state.input_tokens,
                 output_tokens=state.output_tokens,
+                cost_usd=cost_usd,
             )
 
     await StreamingResponse(

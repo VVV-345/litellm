@@ -5640,7 +5640,10 @@
       "requests": "请求数",
       "failures": "失败数",
       "tokens": "Token 总数",
-      "averageDuration": "平均耗时"
+      "averageDuration": "平均耗时",
+      "cost": "已知成本",
+      "costUnavailable": "暂无可信金额",
+      "costCoverage": "{{known}} / {{total}} 次请求包含上游金额"
     },
     "confirmDeleteTitle": "确认删除号池环境",
     "confirmDeleteDescription": "确认删除“{{name}}”吗？删除会清理容器、网络、认证目录和网关路由，且无法恢复。",
@@ -5891,6 +5894,8 @@
       "http_status": "HTTP 状态",
       "upstream_code": "上游错误码",
       "duration_ms": "耗时（毫秒）",
+      "routing_reason": "路由原因",
+      "cost_usd": "上游成本（USD）",
       "retryable": "可重试",
       "switched_account": "已切号",
       "from": "开始时间",
@@ -5907,6 +5912,20 @@
       "attempt": "第 {{count}} 次尝试",
       "retryCount": "重试 {{count}} 次",
       "moreAttempts": "仅显示前 200 条事件，请使用请求 ID 筛选并分页查看后续记录",
+      "routingReasons": {
+        "automatic": "自动排序",
+        "single_account": "唯一可用账号",
+        "session_affinity": "会话粘性命中",
+        "session_rebind": "原会话账号不可用，重新绑定",
+        "preferred_account": "卡片优先账号",
+        "priority": "账号优先级",
+        "quota": "剩余配额优先",
+        "random_weighted": "按权重随机选择",
+        "custom_order": "自定义顺序",
+        "backup_account": "备用账号",
+        "concurrency_fallback": "前序账号并发已满",
+        "retry_failover": "上次尝试失败后切号"
+      },
       "stages": {
         "provisioning": "创建环境",
         "authorization": "授权",

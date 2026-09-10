@@ -46,7 +46,7 @@ class MemoryLeases:
         lease: Final = Lease(lease_id=uuid4(), card_id=resolution.card_id, key_id=resolution.key_id,
                              account_id=candidate.id, request_id=request.request_id, channel=candidate.channel,
                              supplier=candidate.supplier, model=request.model, started_at=utc_now(),
-                             attempt=request.attempt)
+                             attempt=request.attempt, routing_reason=request.routing_reason)
         self.leases[lease.lease_id] = lease
         if binding_hash:
             self.bindings[binding_hash] = candidate.id
@@ -92,19 +92,20 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
     assert {item.id for item in resolution.candidates} == {card.id, other.id}
     request: Final = AcquireRequest(card_key=issued.value.key, account_id=other.id, request_id=uuid4(), model="gpt-5",
                                    card_version=0, policy_version=1, account_version=0, account_policy_version=0,
-                                   timeout_seconds=30, attempt=2)
+                                   timeout_seconds=30, attempt=2, routing_reason="retry_failover")
     with pytest.raises(HTTPException) as outside:
         await service.acquire(request.model_copy(update={"account_id": outsiders.id}))
     assert outside.value.status_code == 403
     lease: Final = await service.acquire(request)
     await service.finish(FinishRequest(lease_id=lease.lease_id, http_status=429, message="Bearer private",
                                       endpoint="/v1/responses", retryable=True, switched_account=True,
-                                      next_account_id=card.id))
+                                      next_account_id=card.id, cost_usd=0.00042))
     assert not leases.leases and other.id in leases.cooled
     assert logs.events[0].card_id == card.id and logs.events[0].account_id == other.id
     assert logs.events[0].request_id == request.request_id
     assert logs.events[0].card_key_id == issued.value.status.key_id
     assert logs.events[0].attempt == 2 and logs.events[0].retry_count == 1
+    assert logs.events[0].routing_reason == "retry_failover" and logs.events[0].cost_usd == 0.00042
     assert "private" not in logs.events[0].message
     await policies.save(card.id, PolicyUpdate(version=1, policy=AccountPolicy()))
     with pytest.raises(HTTPException):

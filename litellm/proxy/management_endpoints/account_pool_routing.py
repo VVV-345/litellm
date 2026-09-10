@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
 
-from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Candidate, Resolution
+from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Candidate, Resolution, RoutingReason
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy
 
 
@@ -18,6 +18,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import Ac
 class Route:
     account: Candidate
     model: str
+    reason: RoutingReason
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,9 +79,7 @@ def routes(
     image_generation: bool = False,
 ) -> tuple[Route, ...] | Rejected:
     card_codex: Final = resolution.policy.codex
-    if path == "/v1/responses/compact" and (
-        card_codex is None or not card_codex.responses_compact_enabled
-    ):
+    if path == "/v1/responses/compact" and (card_codex is None or not card_codex.responses_compact_enabled):
         return Rejected(403, "Responses Compact is disabled for this card")
     rejected: Final = protocol_policy(resolution.policy, path, headers, image_generation)
     if rejected:
@@ -91,7 +90,7 @@ def routes(
     if model in resolution.policy.excluded_models or target in resolution.policy.excluded_models:
         return Rejected(403, "Model is excluded by the card policy")
     eligible: Final = tuple(
-        Route(account, mapped)
+        Route(account, mapped, "automatic")
         for account in resolution.candidates
         if (mapped := target_model(account.policy, target)) in account.enabled_models
         and model not in account.policy.excluded_models
@@ -121,14 +120,42 @@ def routes(
             quota if resolution.policy.routing.strategy == "quota" else priority,
         )
 
-    ordered: Final = tuple(sorted(eligible, key=rank))
-    if resolution.policy.routing.strategy != "random" or resolution.sticky_account_id == ordered[0].account.id:
-        return ordered
-    primaries: Final = tuple(route for route in ordered if not route.account.policy.routing.is_backup) or ordered
+    ranked: Final = tuple(sorted(eligible, key=rank))
+    sticky: Final = resolution.sticky_account_id == ranked[0].account.id
+    explained: Final = tuple(route_with_reason(resolution, route, len(ranked), sticky=sticky) for route in ranked)
+    if resolution.policy.routing.strategy != "random" or sticky or len(explained) == 1:
+        return explained
+    primaries: Final = tuple(route for route in explained if not route.account.policy.routing.is_backup) or explained
     chosen: Final = random.choices(
         primaries, weights=tuple(route.account.policy.routing.weight for route in primaries), k=1
     )[0]
-    return (chosen, *(route for route in ordered if route.account.id != chosen.account.id))
+    ordered: Final = (chosen, *(route for route in explained if route.account.id != chosen.account.id))
+    return tuple(
+        Route(route.account, route.model, "random_weighted" if index == 0 else route.reason)
+        for index, route in enumerate(ordered)
+    )
+
+
+def route_with_reason(resolution: Resolution, route: Route, eligible_count: int, *, sticky: bool) -> Route:
+    policy: Final = resolution.policy.routing
+    reason: Final[RoutingReason] = (
+        "session_affinity"
+        if sticky and route.account.id == resolution.sticky_account_id
+        else "single_account"
+        if eligible_count == 1
+        else "preferred_account"
+        if route.account.id in policy.preferred_account_ids
+        else "backup_account"
+        if route.account.policy.routing.is_backup
+        else "quota"
+        if policy.strategy == "quota"
+        else "custom_order"
+        if policy.strategy == "custom"
+        else "priority"
+        if policy.strategy == "priority"
+        else "automatic"
+    )
+    return Route(route.account, route.model, reason)
 
 
 def upstream_url(account: Candidate, path: str) -> str:

@@ -27427,6 +27427,8 @@ export interface components {
              * @enum {string}
              */
             channel: "cliproxyapi" | "freebuff2api";
+            /** Cost Usd */
+            cost_usd?: number | null;
             /** Detail */
             detail?: string | null;
             /** Duration Ms */
@@ -27489,6 +27491,8 @@ export interface components {
              * @default false
              */
             retryable: boolean;
+            /** Routing Reason */
+            routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "retry_failover") | null;
             /**
              * Severity
              * @default error
@@ -27550,6 +27554,11 @@ export interface components {
              * @default 0
              */
             input_tokens: number;
+            /**
+             * Known Cost Requests
+             * @default 0
+             */
+            known_cost_requests: number;
             /** Model */
             model?: string | null;
             /**
@@ -27572,6 +27581,8 @@ export interface components {
              * @default 0
              */
             succeeded_requests: number;
+            /** Total Cost Usd */
+            total_cost_usd?: number | null;
             /**
              * Total Requests
              * @default 0

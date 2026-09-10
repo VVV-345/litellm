@@ -107,6 +107,12 @@ class MemoryLogs:
             retried_requests=sum(event.retry_count > 0 for event in matching),
             input_tokens=sum(event.input_tokens or 0 for event in matching),
             output_tokens=sum(event.output_tokens or 0 for event in matching),
+            known_cost_requests=sum(event.cost_usd is not None for event in matching),
+            total_cost_usd=(
+                sum(event.cost_usd or 0 for event in matching)
+                if any(event.cost_usd is not None for event in matching)
+                else None
+            ),
             recent_errors=tuple(event for event in matching if event.final_status == "failed")[-10:],
         )
 
@@ -306,6 +312,8 @@ async def test_error_capture_preserves_context_and_http_status(management) -> No
             duration_ms=20,
             input_tokens=10,
             output_tokens=5,
+            routing_reason="preferred_account",
+            cost_usd=0.00042,
             final_status="succeeded",
         )
     )
@@ -321,6 +329,7 @@ async def test_error_capture_preserves_context_and_http_status(management) -> No
     stats: Final = client.get("/api/stats", params={"card_id": str(record.id)}).json()
     assert stats["total_requests"] == 1
     assert stats["input_tokens"] == 10 and stats["output_tokens"] == 5
+    assert stats["known_cost_requests"] == 1 and stats["total_cost_usd"] == 0.00042
     assert stats["recent_errors"] == []
     assert client.get(f"/api/logs/{uuid4()}").status_code == 404
     assert client.get("/api/logs?limit=5000").status_code == 422

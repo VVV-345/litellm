@@ -153,6 +153,7 @@ class PostgresLeaseRepository:
                 supplier=candidate.supplier,
                 started_at=now,
                 attempt=request.attempt,
+                routing_reason=request.routing_reason,
             )
             await connection.execute(
                 "INSERT INTO account_pool_leases VALUES (%s, %s, %s, %s)",

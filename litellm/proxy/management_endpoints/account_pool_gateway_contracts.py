@@ -7,7 +7,12 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ChannelKind, SupplierKind
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPolicy,
+    ChannelKind,
+    RoutingReason,
+    SupplierKind,
+)
 
 
 class ResolveRequest(BaseModel):
@@ -53,6 +58,7 @@ class AcquireRequest(ResolveRequest):
     account_policy_version: int
     timeout_seconds: int = Field(ge=1, le=3600)
     attempt: int = Field(ge=1, le=5)
+    routing_reason: RoutingReason = "automatic"
     allow_session_rebind: bool = False
 
 
@@ -68,6 +74,7 @@ class Lease(BaseModel):
     model: str
     started_at: AwareDatetime
     attempt: int = Field(default=1, ge=1, le=5)
+    routing_reason: RoutingReason = "automatic"
 
 
 class FinishRequest(BaseModel):
@@ -83,3 +90,4 @@ class FinishRequest(BaseModel):
     endpoint: str = Field(max_length=256)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
