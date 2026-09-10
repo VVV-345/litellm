@@ -30,6 +30,11 @@ interface AccountPoolCardProps {
   onEnabledChange: (environment: AccountPoolEnvironment, enabled: boolean) => void;
   onAuthorize: (environment: AccountPoolEnvironment) => void;
   onDelete: (environment: AccountPoolEnvironment) => void;
+  onManageKey: (environment: AccountPoolEnvironment) => void;
+  onManagePolicy: (environment: AccountPoolEnvironment) => void;
+  onViewLogs?: (environment: AccountPoolEnvironment) => void;
+  tags?: string[];
+  group?: string;
   disabled?: boolean;
 }
 
@@ -40,6 +45,11 @@ export const AccountPoolCard = ({
   onEnabledChange,
   onAuthorize,
   onDelete,
+  onManageKey,
+  onManagePolicy,
+  onViewLogs,
+  tags = [],
+  group,
   disabled = false,
 }: AccountPoolCardProps) => {
   const { t, i18n } = useTranslation();
@@ -69,6 +79,9 @@ export const AccountPoolCard = ({
                 {t("accountPool.configurationSyncing")}
               </p>
             )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("accountPool.config.versions", { desired: environment.desired_configuration_version ?? 0, observed: environment.observed_configuration_version ?? 0 })}
+            </p>
             {environment.status === "awaiting_authorization" && (
               <p className="mt-1 text-xs text-muted-foreground" role="status">
                 {t("accountPool.preAuthorizationProxyHint")}
@@ -88,6 +101,12 @@ export const AccountPoolCard = ({
             />
           </div>
           <div className="flex items-center gap-1">
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => onManageKey(environment)} disabled={disabled} aria-label={t("accountPool.keys.manage", { name: environment.name })} title={t("accountPool.keys.manageShort")}>
+              <KeyRound />
+            </Button>
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => onManagePolicy(environment)} disabled={disabled} aria-label={t("accountPool.policy.manage", { name: environment.name })} title={t("accountPool.policy.manageShort")}>
+              <Settings2 />
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -130,6 +149,11 @@ export const AccountPoolCard = ({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
+        <div className="flex flex-wrap gap-1.5">
+          {environment.quota.plan_type && <Badge variant="outline">{environment.quota.plan_type}</Badge>}
+          {group && <Badge variant="secondary">{group}</Badge>}
+          {tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
+        </div>
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
           <p className="mt-1 break-words font-medium">
@@ -161,6 +185,7 @@ export const AccountPoolCard = ({
           </div>
         </div>
         {environment.last_error && <p className="text-xs text-destructive">{environment.last_error}</p>}
+        {onViewLogs && <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>{t("accountPool.logs.cardLogs")}</Button>}
       </CardContent>
     </Card>
   );

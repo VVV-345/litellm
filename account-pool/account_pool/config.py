@@ -25,6 +25,7 @@ def _validate_hostname(value: str) -> str:
 
 
 class Settings(BaseSettings):
+    log_retention_days: int = Field(default=30, ge=1, le=365)
     model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True)
 
     database_url: str

@@ -13,8 +13,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.clash import ClashError
+from account_pool.card_keys import CardKeyService
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
+from account_pool.error_logs import ErrorLogService
+from account_pool.management_api import create_management_router
+from account_pool.ports import EnvironmentRepository
+from account_pool.policies import PolicyRepository
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
@@ -33,7 +38,12 @@ class ClashNodeView(BaseModel):
     proxy_type: str
 
 
-def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
+def create_router(
+    service: EnvironmentService, manager_token: str, *,
+    keys: CardKeyService | None = None, logs: ErrorLogService | None = None,
+    environments: EnvironmentRepository | None = None,
+    policies: PolicyRepository | None = None,
+) -> APIRouter:
     router: Final = APIRouter()
 
     def require_manager(
@@ -151,6 +161,8 @@ def create_router(service: EnvironmentService, manager_token: str) -> APIRouter:
             return HTMLResponse(_callback_page("授权未完成", result.message), status_code=_status_for(result.code))
         return HTMLResponse(_callback_page("授权已接收", "可以关闭此页面并返回 LiteLLM 号池"))
 
+    if keys is not None and logs is not None and environments is not None and policies is not None:
+        router.include_router(create_management_router(keys, logs, environments, require_manager, policies))
     return router
 
 

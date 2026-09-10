@@ -13,7 +13,12 @@ def safe_error(error: Exception) -> str:
         r"\1[redacted]",
         without_urls,
     )
-    return without_credentials[:500]
+    without_quoted: Final = re.sub(
+        r"(?i)([\"'](?:access_token|refresh_token|id_token|api_key|authorization|cookie|password|secret|code|state)[\"']\s*:\s*)([\"']).*?\2",
+        r'\1"[redacted]"', without_credentials,
+    )
+    without_keys: Final = re.sub(r"\b(?:cpk_|sk-)[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "[redacted]", without_quoted)
+    return without_keys[:500]
 
 
 def redact_urls(message: str) -> str:

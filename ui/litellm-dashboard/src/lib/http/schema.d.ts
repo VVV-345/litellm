@@ -700,6 +700,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cards/{card_id}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Key */
+        post: operations["create_key_account_pool_cards__card_id__key_post"];
+        /** Revoke Key */
+        delete: operations["revoke_key_account_pool_cards__card_id__key_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cards/{card_id}/key/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Key */
+        post: operations["rotate_key_account_pool_cards__card_id__key_rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cards/{card_id}/key/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Key Status */
+        get: operations["key_status_account_pool_cards__card_id__key_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments": {
         parameters: {
             query?: never;
@@ -712,6 +764,24 @@ export interface paths {
         put?: never;
         /** Create Environment */
         post: operations["create_environment_account_pool_environments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{card_id}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Policy */
+        get: operations["get_policy_account_pool_environments__card_id__policy_get"];
+        /** Save Policy */
+        put: operations["save_policy_account_pool_environments__card_id__policy_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -748,6 +818,57 @@ export interface paths {
         put?: never;
         /** Authorize Environment */
         post: operations["authorize_environment_account_pool_environments__environment_id__authorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Logs */
+        get: operations["logs_account_pool_logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/logs/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Log Detail */
+        get: operations["log_detail_account_pool_logs__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policies */
+        get: operations["list_policies_account_pool_policies_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1241,6 +1362,9 @@ export interface paths {
          * @description Get all audit logs with filtering and pagination.
          *
          *     Returns a paginated response of audit logs matching the specified filters.
+         *
+         *     Note: object_team_id and object_key_hash use Prisma JSON path filtering,
+         *     which requires PostgreSQL.
          */
         get: operations["get_audit_logs_audit_get"];
         put?: never;
@@ -11503,6 +11627,240 @@ export interface paths {
          *     ```
          */
         post: operations["validate_policy_policy_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Project
+         * @description Delete projects
+         *
+         *     Parameters:
+         *     - project_ids: *List[str]* - List of project ids to delete
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location --request DELETE 'http://0.0.0.0:4000/project/delete' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_ids": ["project-123", "project-456"]
+         *     }'
+         *     ```
+         */
+        delete: operations["delete_project_project_delete_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project Info
+         * @description Get information about a specific project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to fetch info for
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/info?project_id=project-123' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["project_info_project_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description List all projects that the user has access to
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/list' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["list_projects_project_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/new": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * New Project
+         * @description Create a new project. Projects sit between teams and keys in the hierarchy.
+         *
+         *     Only admins or team admins can create projects.
+         *
+         *     # Parameters
+         *
+         *     - project_alias: *Optional[str]* - The name of the project.
+         *     - description: *Optional[str]* - Description of the project's purpose and use case.
+         *     - team_id: *str* - The team id that this project belongs to. Required.
+         *     - models: *List* - The models the project has access to.
+         *     - budget_id: *Optional[str]* - The id for a budget (tpm/rpm/max budget) for the project.
+         *     ### IF NO BUDGET ID - CREATE ONE WITH THESE PARAMS ###
+         *     - max_budget: *Optional[float]* - Max budget for project
+         *     - tpm_limit: *Optional[int]* - Max tpm limit for project
+         *     - rpm_limit: *Optional[int]* - Max rpm limit for project
+         *     - max_parallel_requests: *Optional[int]* - Max parallel requests for project
+         *     - soft_budget: *Optional[float]* - Get a slack alert when this soft budget is reached. Don't block requests.
+         *     - model_max_budget: *Optional[dict]* - Max budget for a specific model. Example: {"gpt-4": 100.0, "gpt-3.5-turbo": 50.0}
+         *     - model_rpm_limit: *Optional[dict]* - RPM limits per model. Example: {"gpt-4": 1000, "gpt-3.5-turbo": 5000}
+         *     - model_tpm_limit: *Optional[dict]* - TPM limits per model. Example: {"gpt-4": 50000, "gpt-3.5-turbo": 100000}
+         *     - budget_duration: *Optional[str]* - Frequency of reseting project budget
+         *     - metadata: *Optional[dict]* - Metadata for project, store information for project. Example metadata - {"use_case_id": "SNOW-12345", "responsible_ai_id": "RAI-67890"}
+         *     - tags: *Optional[list]* - Tags for the project. Example: ["production", "api"]
+         *     - blocked: *bool* - Flag indicating if the project is blocked or not - will stop all calls from keys with this project_id.
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - project-specific object permission. Example - {"vector_stores": ["vector_store_1", "vector_store_2"]}. IF null or {} then no object permission.
+         *
+         *     Example 1: Create new project **without** a budget_id, with model-specific limits
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "flight-search-assistant",
+         *         "description": "AI-powered flight search and booking assistant",
+         *         "team_id": "team-123",
+         *         "models": ["gpt-4", "gpt-3.5-turbo"],
+         *         "max_budget": 100,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 1000,
+         *             "gpt-3.5-turbo": 5000
+         *         },
+         *         "model_tpm_limit": {
+         *             "gpt-4": 50000,
+         *             "gpt-3.5-turbo": 100000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "responsible_ai_id": "RAI-67890"
+         *         }
+         *     }'
+         *     ```
+         *
+         *     Example 2: Create new project **with** a budget_id
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "hotel-recommendations",
+         *         "description": "Personalized hotel recommendation engine",
+         *         "team_id": "team-123",
+         *         "models": ["claude-3-sonnet"],
+         *         "budget_id": "428eeaa8-f3ac-4e85-a8fb-7dc8d7aa8689",
+         *         "metadata": {
+         *             "use_case_id": "SNOW-54321"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["new_project_project_new_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Project
+         * @description Update a project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to update. Required.
+         *     - project_alias: *Optional[str]* - Updated name for the project
+         *     - description: *Optional[str]* - Updated description for the project
+         *     - team_id: *Optional[str]* - Updated team_id for the project
+         *     - metadata: *Optional[dict]* - Updated metadata for project
+         *     - models: *Optional[list]* - Updated list of models for the project
+         *     - blocked: *Optional[bool]* - Updated blocked status
+         *     - max_budget: *Optional[float]* - Updated max budget
+         *     - tpm_limit: *Optional[int]* - Updated tpm limit
+         *     - rpm_limit: *Optional[int]* - Updated rpm limit
+         *     - model_rpm_limit: *Optional[dict]* - Updated RPM limits per model
+         *     - model_tpm_limit: *Optional[dict]* - Updated TPM limits per model
+         *     - budget_duration: *Optional[str]* - Updated budget duration
+         *     - tags: *Optional[list]* - Updated list of tags for the project
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - Updated object permission
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/update' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_id": "project-123",
+         *         "description": "Updated flight search system with enhanced capabilities",
+         *         "max_budget": 200,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 2000,
+         *             "gpt-3.5-turbo": 10000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "status": "active"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["update_project_project_update_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -22395,6 +22753,32 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** AccountPolicy */
+        AccountPolicy: {
+            codex?: components["schemas"]["CodexPolicy"] | null;
+            /**
+             * Excluded Models
+             * @default []
+             */
+            excluded_models: string[];
+            /**
+             * Group
+             * @default
+             */
+            group: string;
+            /**
+             * Model Aliases
+             * @default []
+             */
+            model_aliases: components["schemas"]["ModelAlias"][];
+            routing?: components["schemas"]["RoutingPolicy"];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            transport?: components["schemas"]["TransportPolicy"];
+        };
         /** AccountPoolAuthorization */
         AccountPoolAuthorization: {
             /**
@@ -23724,18 +24108,12 @@ export interface components {
         };
         /** Body_audio_transcriptions_audio_transcriptions_post */
         Body_audio_transcriptions_audio_transcriptions_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_audio_transcriptions_v1_audio_transcriptions_post */
         Body_audio_transcriptions_v1_audio_transcriptions_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_authorize_complete_authorize_complete_post */
@@ -23761,10 +24139,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -23788,10 +24163,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -23815,10 +24187,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -23946,30 +24315,21 @@ export interface components {
         };
         /** Body_upload_logo_upload_logo_post */
         Body_upload_logo_upload_logo_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_video_create_character_v1_videos_characters_post */
         Body_video_create_character_v1_videos_characters_post: {
             /** Name */
             name: string;
-            /**
-             * Video
-             * Format: binary
-             */
+            /** Video */
             video: string;
         };
         /** Body_video_create_character_videos_characters_post */
         Body_video_create_character_videos_characters_post: {
             /** Name */
             name: string;
-            /**
-             * Video
-             * Format: binary
-             */
+            /** Video */
             video: string;
         };
         /** Body_video_generation_v1_videos_post */
@@ -24532,6 +24892,42 @@ export interface components {
              * @constant
              */
             status: "cancelled";
+        };
+        /** CardKeyChange */
+        CardKeyChange: {
+            /**
+             * Expected Key Id
+             * Format: uuid
+             */
+            expected_key_id: string;
+        };
+        /** CardKeyIssue */
+        CardKeyIssue: {
+            /** Key */
+            key: string;
+            status: components["schemas"]["CardKeyStatus"];
+        };
+        /** CardKeyStatus */
+        CardKeyStatus: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Key Id
+             * Format: uuid
+             */
+            key_id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
         };
         /** ChatCompletionAnnotation */
         ChatCompletionAnnotation: {
@@ -25213,6 +25609,50 @@ export interface components {
              * @description Timezone for date handling
              */
             timezone?: string | null;
+        };
+        /** CodexPolicy */
+        CodexPolicy: {
+            /**
+             * Allow App Server
+             * @default false
+             */
+            allow_app_server: boolean;
+            /**
+             * Allow App Server Clients
+             * @default []
+             */
+            allow_app_server_clients: string[];
+            /**
+             * Cli Only
+             * @default false
+             */
+            cli_only: boolean;
+            /**
+             * Compact Ui
+             * @default inherit
+             * @enum {string}
+             */
+            compact_ui: "inherit" | "enabled" | "disabled";
+            /**
+             * Experimental Context Management
+             * @default false
+             */
+            experimental_context_management: boolean;
+            /**
+             * Identity Fingerprint Mode
+             * @default off
+             * @enum {string}
+             */
+            identity_fingerprint_mode: "off" | "device" | "session" | "full";
+            /** Model Auto Compact Token Limit */
+            model_auto_compact_token_limit?: number | null;
+            /** Model Context Window */
+            model_context_window?: number | null;
+            /**
+             * Responses Compact Enabled
+             * @default false
+             */
+            responses_compact_enabled: boolean;
         };
         /**
          * ComplexityRouterConfigValidationRequest
@@ -26517,6 +26957,14 @@ export interface components {
             organization_ids: string[];
         };
         /**
+         * DeleteProjectRequest
+         * @description Request model for DELETE /project/delete
+         */
+        DeleteProjectRequest: {
+            /** Project Ids */
+            project_ids: string[];
+        };
+        /**
          * DeleteSkillResponse
          * @description Response from deleting a skill
          */
@@ -26786,6 +27234,129 @@ export interface components {
             };
             /** Template Id */
             template_id: string;
+        };
+        /** ErrorLogDetail */
+        ErrorLogDetail: {
+            /** Attempts */
+            attempts: components["schemas"]["ErrorLogRecord"][];
+            event: components["schemas"]["ErrorLogRecord"];
+            /** Has More */
+            has_more: boolean;
+        };
+        /** ErrorLogPage */
+        ErrorLogPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["ErrorLogRecord"][];
+        };
+        /** ErrorLogRecord */
+        ErrorLogRecord: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /**
+             * Attempt
+             * @default 1
+             */
+            attempt: number;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Card Key Id */
+            card_key_id?: string | null;
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "cliproxyapi" | "freebuff2api";
+            /** Detail */
+            detail?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Endpoint */
+            endpoint?: string | null;
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /** Error Category */
+            error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id?: string;
+            /**
+             * Final Status
+             * @default failed
+             * @enum {string}
+             */
+            final_status: "failed" | "retrying" | "succeeded";
+            /** Finished At */
+            finished_at?: string | null;
+            /** Http Status */
+            http_status?: number | null;
+            /** Message */
+            message: string;
+            /** Method */
+            method?: ("GET" | "POST" | "PUT" | "DELETE" | "PATCH") | null;
+            /** Model */
+            model?: string | null;
+            /** Next Account Id */
+            next_account_id?: string | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at?: string;
+            /** Operation */
+            operation: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id?: string;
+            /**
+             * Retry Count
+             * @default 0
+             */
+            retry_count: number;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
+            /**
+             * Severity
+             * @default error
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "error";
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key";
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            /**
+             * Switched Account
+             * @default false
+             */
+            switched_account: boolean;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Upstream Code */
+            upstream_code?: string | null;
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -29266,6 +29837,65 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * LiteLLM_ProjectTable
+         * @description Database model representation for project
+         */
+        LiteLLM_ProjectTable: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
         /** LiteLLM_ProxyModelTable */
         LiteLLM_ProxyModelTable: {
             /**
@@ -31201,6 +31831,13 @@ export interface components {
                 [key: string]: string | string[];
             };
         };
+        /** ModelAlias */
+        ModelAlias: {
+            /** Alias */
+            alias: string;
+            /** Target */
+            target: string;
+        };
         /** ModelDeprecationInfo */
         ModelDeprecationInfo: {
             /**
@@ -31710,6 +32347,142 @@ export interface components {
             updated_by: string;
             /** Users */
             users?: components["schemas"]["LiteLLM_UserTable"][] | null;
+        };
+        /**
+         * NewProjectRequest
+         * @description Request model for POST /project/new
+         */
+        NewProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id: string;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+        };
+        /**
+         * NewProjectResponse
+         * @description Response model for POST /project/new
+         */
+        NewProjectResponse: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by?: string | null;
         };
         /** NewTeamRequest */
         NewTeamRequest: {
@@ -33259,6 +34032,12 @@ export interface components {
             /** Resolved Guardrails */
             resolved_guardrails: string[];
         };
+        /** PolicyUpdate */
+        PolicyUpdate: {
+            policy: components["schemas"]["AccountPolicy"];
+            /** Version */
+            version: number;
+        };
         /**
          * PolicyUpdateRequest
          * @description Request body for updating a policy.
@@ -33433,6 +34212,32 @@ export interface components {
              * @description New status: 'published' or 'production'.
              */
             version_status: string;
+        };
+        /** PolicyView */
+        PolicyView: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Metadata Status
+             * @default saved
+             * @constant
+             */
+            metadata_status: "saved";
+            policy?: components["schemas"]["AccountPolicy"];
+            /**
+             * Runtime Status
+             * @default not_connected
+             * @constant
+             */
+            runtime_status: "not_connected";
+            /**
+             * Version
+             * @default 0
+             */
+            version: number;
         };
         /** Prompt */
         Prompt: {
@@ -34538,6 +35343,80 @@ export interface components {
             routing_strategy_args?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** RoutingPolicy */
+        RoutingPolicy: {
+            /**
+             * Backoff Ms
+             * @default 1000
+             */
+            backoff_ms: number;
+            /**
+             * Fallback Enabled
+             * @default false
+             */
+            fallback_enabled: boolean;
+            /**
+             * Is Backup
+             * @default false
+             */
+            is_backup: boolean;
+            /**
+             * Max Attempts
+             * @default 1
+             */
+            max_attempts: number;
+            /**
+             * Preferred Account Ids
+             * @default []
+             */
+            preferred_account_ids: string[];
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /**
+             * Quota Reserve Percent
+             * @default 0
+             */
+            quota_reserve_percent: number;
+            /**
+             * Quota Snapshot Max Age
+             * @default 300
+             */
+            quota_snapshot_max_age: number;
+            /**
+             * Retryable Statuses
+             * @default [
+             *       429,
+             *       502,
+             *       503,
+             *       504
+             *     ]
+             */
+            retryable_statuses: number[];
+            /**
+             * Session Affinity
+             * @default false
+             */
+            session_affinity: boolean;
+            /**
+             * Session Affinity Ttl
+             * @default 3600
+             */
+            session_affinity_ttl: number;
+            /**
+             * Strategy
+             * @default auto
+             * @enum {string}
+             */
+            strategy: "auto" | "random" | "priority" | "quota" | "plan" | "expiry" | "custom";
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
         };
         /**
          * Run
@@ -36571,6 +37450,31 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** TransportPolicy */
+        TransportPolicy: {
+            /**
+             * Debug Log Enabled
+             * @default false
+             */
+            debug_log_enabled: boolean;
+            /**
+             * Image Generation
+             * @default inherit
+             * @enum {string}
+             */
+            image_generation: "inherit" | "enabled" | "disabled";
+            /**
+             * Request Timeout Seconds
+             * @default 120
+             */
+            request_timeout_seconds: number;
+            /**
+             * Websocket
+             * @default inherit
+             * @enum {string}
+             */
+            websocket: "inherit" | "enabled" | "disabled";
+        };
         /**
          * UISettingsResponse
          * @description Response model for UI settings
@@ -37027,6 +37931,71 @@ export interface components {
              * @description Semantic version; cleared if omitted
              */
             version?: string | null;
+        };
+        /**
+         * UpdateProjectRequest
+         * @description Request model for POST /project/update
+         */
+        UpdateProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /** Blocked */
+            blocked?: boolean | null;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Models */
+            models?: string[] | null;
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id?: string | null;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
         };
         /**
          * UpdatePublicModelGroupsRequest
@@ -38749,26 +39718,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolProxyGatewayConfiguration"];
-                };
-            };
-        };
-    };
     home__get: {
         parameters: {
             query?: never;
@@ -38805,66 +39754,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_clash_nodes_account_pool_proxy_gateways_nodes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolClashNode"][];
-                };
-            };
-        };
-    };
-    list_proxy_gateways_account_pool_proxy_gateways_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolProxyGateway"][];
-                };
-            };
-        };
-    };
-    measure_proxy_gateway_delays_account_pool_proxy_gateways_delay_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolProxyGatewayDelay"][];
                 };
             };
         };
@@ -39522,41 +40411,6 @@ export interface operations {
             };
         };
     };
-    switch_proxy_gateway_account_pool_proxy_gateways__port__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                port: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AccountPoolGatewaySwitchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolProxyGateway"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     update_access_group_access_group__access_group__update_put: {
         parameters: {
             query?: never;
@@ -39579,6 +40433,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NewModelGroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_key_account_pool_cards__card_id__key_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardKeyIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_key_account_pool_cards__card_id__key_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardKeyChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_key_account_pool_cards__card_id__key_rotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardKeyChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardKeyIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    key_status_account_pool_cards__card_id__key_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardKeyStatus"] | null;
                 };
             };
             /** @description Validation Error */
@@ -39634,6 +40618,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_policy_account_pool_environments__card_id__policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_policy_account_pool_environments__card_id__policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"];
                 };
             };
             /** @description Validation Error */
@@ -39766,6 +40816,218 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logs_account_pool_logs_get: {
+        parameters: {
+            query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("cliproxyapi" | "freebuff2api") | null;
+                supplier?: ("openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
+                card_id?: string | null;
+                environment_id?: string | null;
+                account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    log_detail_account_pool_logs__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorLogDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policies_account_pool_policies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"][];
+                };
+            };
+        };
+    };
+    list_proxy_gateways_account_pool_proxy_gateways_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"][];
+                };
+            };
+        };
+    };
+    get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGatewayConfiguration"];
+                };
+            };
+        };
+    };
+    measure_proxy_gateway_delays_account_pool_proxy_gateways_delay_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGatewayDelay"][];
+                };
+            };
+        };
+    };
+    list_clash_nodes_account_pool_proxy_gateways_nodes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolClashNode"][];
+                };
+            };
+        };
+    };
+    switch_proxy_gateway_account_pool_proxy_gateways__port__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolGatewaySwitchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"];
                 };
             };
             /** @description Validation Error */
@@ -40491,6 +41753,10 @@ export interface operations {
                 start_date?: string | null;
                 /** @description Filter logs before this date */
                 end_date?: string | null;
+                /** @description Filter by team_id present in before_value or updated_values JSON (PostgreSQL only) */
+                object_team_id?: string | null;
+                /** @description Filter by token (key hash) present in before_value or updated_values JSON (PostgreSQL only) */
+                object_key_hash?: string | null;
                 /** @description Column to sort by (e.g. 'updated_at', 'action', 'table_name') */
                 sort_by?: string | null;
                 /** @description Sort order ('asc' or 'desc') */
@@ -53631,6 +54897,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyValidationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_project_delete_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_info_project_info_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_project_list_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+        };
+    };
+    new_project_project_new_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_project_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
                 };
             };
             /** @description Validation Error */

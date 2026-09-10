@@ -5,6 +5,7 @@
 import { Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -27,6 +28,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
+import { AccountPoolKeyDialog } from "./AccountPoolKeyDialog";
+import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
+import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
+import { listAccountPolicies } from "./AccountPoolManagementApi";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { canManageAccountPool } from "./AccountPoolPermissions";
 import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
@@ -56,12 +61,22 @@ export default function AccountPoolPage() {
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [keyEnvironment, setKeyEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [activeTab, setActiveTab] = useState("accounts");
+  const [logCardId, setLogCardId] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
   const canManage = canManageAccountPool(userRole, isViewOnly);
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage);
+  const policiesQuery = useQuery({
+    queryKey: ["account-pool", "policies", accessToken],
+    queryFn: () => listAccountPolicies(accessToken!),
+    enabled: canManage && accessToken !== null,
+    retry: false,
+  });
   const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
     accessToken,
     canManage,
@@ -146,6 +161,11 @@ export default function AccountPoolPage() {
               onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
               onAuthorize={(current) => authorizeMutation.mutate(current)}
               onDelete={setDeleteEnvironment}
+              onManageKey={setKeyEnvironment}
+              onManagePolicy={setPolicyEnvironment}
+              onViewLogs={(current) => { setLogCardId(current.id); setActiveTab("logs"); }}
+              tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
+              group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
               disabled={busy}
             />
           ))}
@@ -230,13 +250,16 @@ export default function AccountPoolPage() {
           </div>
         </div>
 
-        <Tabs defaultValue="accounts">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList variant="line" className="h-auto w-full justify-start rounded-none border-b p-0">
             <TabsTrigger value="accounts" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.accounts")}
             </TabsTrigger>
             <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.proxyLayer")}
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.logs")}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="accounts" className="pt-4">
@@ -278,6 +301,9 @@ export default function AccountPoolPage() {
           <TabsContent value="proxy-layer" className="pt-4">
             <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
           </TabsContent>
+          <TabsContent value="logs" className="pt-4">
+            {accessToken && <AccountPoolLogsPanel key={logCardId ?? "all"} accessToken={accessToken} environments={environments} initialCardId={logCardId} />}
+          </TabsContent>
         </Tabs>
       </div>
       {createOpen && (
@@ -307,6 +333,12 @@ export default function AccountPoolPage() {
             void environmentsQuery.refetch();
           }}
         />
+      )}
+      {keyEnvironment && accessToken && (
+        <AccountPoolKeyDialog accessToken={accessToken} cardId={keyEnvironment.id} name={keyEnvironment.name} onClose={() => setKeyEnvironment(null)} />
+      )}
+      {policyEnvironment && accessToken && (
+        <AccountPoolPolicyDialog accessToken={accessToken} cardId={policyEnvironment.id} name={policyEnvironment.name} supplier={policyEnvironment.supplier} onClose={() => { setPolicyEnvironment(null); void policiesQuery.refetch(); }} />
       )}
       <AlertDialog
         open={deleteEnvironment !== null}

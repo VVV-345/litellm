@@ -43,6 +43,8 @@ const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}, proxyGatewa
       onEnabledChange={vi.fn()}
       onAuthorize={vi.fn()}
       onDelete={vi.fn()}
+      onManageKey={vi.fn()}
+      onManagePolicy={vi.fn()}
     />,
   );
 };

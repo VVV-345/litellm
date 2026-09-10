@@ -12,12 +12,18 @@ import uvicorn
 from fastapi import FastAPI
 
 from account_pool.api import create_router
+from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
+from account_pool.error_logs import ErrorLogService
+from account_pool.management_repository import (
+    PostgresCardKeyRepository, PostgresErrorLogRepository, initialize_management_schema,
+)
 from account_pool.ports import EnvironmentRepository
+from account_pool.policies import PostgresPolicyRepository
 from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
@@ -30,6 +36,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved: Final = settings or Settings()  # pyright: ignore[reportCallIssue]  # values come from environment
     environments: Final = PostgresEnvironmentRepository(resolved.database_url)
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
+    keys: Final = CardKeyService(PostgresCardKeyRepository(resolved.database_url))
+    policies: Final = PostgresPolicyRepository(resolved.database_url)
+    logs: Final = ErrorLogService(PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     channels: Final = ChannelRegistry.default(resolved, secrets)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
@@ -54,18 +63,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         secrets=secrets,
         channels=channels,
         proxy_gateways=proxy_gateways,
+        error_logs=logs,
     )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        await initialize_management_schema(resolved.database_url)
+        await policies.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
             await proxy_gateways.sync_profiles()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
+        log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
         retry_task: Final = asyncio.create_task(
             _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
         )
@@ -78,6 +91,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             retry_stopped.set()
             retry_task.cancel()
             network_retry_task.cancel()
+            log_retention_task.cancel()
+            await asyncio.gather(log_retention_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:
@@ -95,7 +110,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await controller.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
-    app.include_router(create_router(service, resolved.manager_token))
+    app.include_router(create_router(
+        service, resolved.manager_token, keys=keys, logs=logs, environments=environments, policies=policies,
+    ))
     return app
 
 

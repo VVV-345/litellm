@@ -39,6 +39,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_safety import safe_error
+from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentChannel,
@@ -83,6 +84,7 @@ class EnvironmentService:
         secrets: EnvironmentSecretDeriver,
         channels: ChannelRegistry | None = None,
         proxy_gateways: ProxyGatewayService | None = None,
+        error_logs: ErrorLogService | None = None,
     ) -> None:
         self._settings: Final = settings
         self._repository: Final = repository
@@ -96,6 +98,13 @@ class EnvironmentService:
         )
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
+        self._error_logs: Final = error_logs
+
+    async def _log_event(
+        self, record: EnvironmentRecord, stage: LogStage, error: Exception | None, *, retryable: bool = False,
+    ) -> None:
+        if self._error_logs is not None:
+            await self._error_logs.record(record, stage, error, retryable=retryable)
 
     async def list_environments(self) -> tuple[EnvironmentView, ...]:
         records: Final = await self._repository.list()
@@ -229,6 +238,7 @@ class EnvironmentService:
                 }
             )
             await self._repository.save(failed)
+            await self._log_event(failed, "provisioning", error)
             return Failure(FailureCode.UPSTREAM, "environment provisioning failed")
         expires_at: Final = _authorization_expires_at(authorization_flow, expires_in_seconds)
         awaiting: Final = record.model_copy(
@@ -430,6 +440,8 @@ class EnvironmentService:
             }
         )
         saved: Final = await self._repository.save_if_version(failed, record.version)
+        if saved is not None:
+            await self._log_event(saved, "authorization", RuntimeError(message))
         return saved or await self._repository.get(record.id) or record
 
     def _state_signature(self, environment_id: UUID, state: str) -> str:
@@ -510,6 +522,7 @@ class EnvironmentService:
         saved: Final = await self._repository.save_if_version(updated, record.version)
         if saved is None:
             raise _AuthorizationConflict
+        await self._log_event(saved, "validation", RuntimeError(message), retryable=not expired)
         return saved
 
     async def _complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
@@ -719,6 +732,7 @@ class EnvironmentService:
             saved_failed: Final = await self._repository.save_if_version(failed, record.version)
             if saved_failed is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            await self._log_event(saved_failed, "configuration", error, retryable=True)
             return Failure(FailureCode.UPSTREAM, "environment configuration failed")
         completed: Final = record.model_copy(
             update={
@@ -733,6 +747,7 @@ class EnvironmentService:
         saved: Final = await self._repository.save_if_version(completed, record.version)
         if saved is None:
             return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+        await self._log_event(saved, "configuration", None)
         return Success(to_view(saved))
 
     async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
@@ -788,6 +803,7 @@ class EnvironmentService:
                     }
                 )
                 await self._repository.save_if_version(failed_compose, deleting_with_routes.version)
+                await self._log_event(failed_compose, "cleanup", error, retryable=True)
                 return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
             if deleting_with_compose is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
@@ -802,6 +818,7 @@ class EnvironmentService:
                     }
                 )
                 await self._repository.save_if_version(failed_directory, deleting_with_compose.version)
+                await self._log_event(failed_directory, "cleanup", error, retryable=True)
                 return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
             if deleting_with_directory is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
@@ -812,7 +829,9 @@ class EnvironmentService:
                     update={"last_error": _safe_error(error), "updated_at": utc_now()}
                 )
                 await self._repository.save_if_version(failed_delete, deleting_with_directory.version)
+                await self._log_event(failed_delete, "cleanup", error, retryable=True)
                 return Failure(FailureCode.UPSTREAM, "environment metadata cleanup failed")
+            await self._log_event(deleting_with_directory, "cleanup", None)
             return Success(None)
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
@@ -908,7 +927,8 @@ class EnvironmentService:
                 return current
             try:
                 observed: Final = await channel.read_account(current)
-            except Exception:
+            except Exception as error:
+                await self._log_event(current, "quota", error)
                 return current
             refreshed: Final = observed.model_copy(
                 update={

@@ -16,6 +16,7 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
+from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 
 _Method = Literal["DELETE", "GET", "POST", "PUT"]
 
@@ -265,6 +266,9 @@ def _default_client() -> AccountPoolManagerClient:
 def create_account_pool_router(client_factory: ManagerClientFactory = _default_client) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
+    async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
+        return await _manager_request(client_factory, method, path, body)
+
     @router.get("/environments", response_model=tuple[AccountPoolEnvironment, ...])
     async def list_environments(
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
@@ -400,6 +404,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         )
         return _validate_response(response, _GATEWAY_ADAPTER)
 
+    router.include_router(create_management_router(management_request, _require_proxy_admin))
     return router
 
 
