@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders, testQueryClient } from "../../../tests/test-utils";
 import { ERROR_CODE_OPTIONS } from "./constants";
+import i18next from "@/i18n";
 import { LOG_FILTER_IDS } from "./log_filter_logic";
 import { RequestLogsFilters } from "./RequestLogsFilters";
 
@@ -62,7 +63,8 @@ function StatefulFilters() {
 }
 
 describe("RequestLogsFilters", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     testQueryClient.clear();
     vi.mocked(useInfiniteKeyAliases).mockReturnValue(

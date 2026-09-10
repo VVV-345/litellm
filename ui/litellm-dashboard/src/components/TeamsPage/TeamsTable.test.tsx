@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, MockedFunction, vi } from "vitest";
 import { renderWithProviders } from "../../../tests/test-utils";
 import { Team } from "../key_team_helpers/key_list";
 import { TeamsResponse, useTeamsTable } from "@/app/(dashboard)/hooks/teams/useTeams";
+import i18next from "@/i18n";
 import { TeamsTable } from "./TeamsTable";
 
 // Resolve debounced values synchronously so an applied filter lands in the useTeamsTable query within the test tick.
@@ -96,7 +97,8 @@ const renderTable = (props: Partial<React.ComponentProps<typeof TeamsTable>> = {
 const openFilters = () => fireEvent.click(screen.getByRole("button", { name: "Filters" }));
 const lastOptions = () => mockUseTeamsTable.mock.calls[mockUseTeamsTable.mock.calls.length - 1][2] ?? {};
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
   vi.clearAllMocks();
   mockUseTeamsTable.mockReturnValue(teamsResult([mockTeam]));
 });
@@ -115,9 +117,9 @@ it("renders a team row with alias, organization, and spend/budget", async () => 
 it("renders the Resources cell with member, model, and key counts", () => {
   renderTable();
 
-  expect(screen.getByTitle("2 members")).toBeInTheDocument();
-  expect(screen.getByTitle("4 models")).toBeInTheDocument();
-  expect(screen.getByTitle("3 keys")).toBeInTheDocument();
+  expect(screen.getByTitle("2 Members")).toBeInTheDocument();
+  expect(screen.getByTitle("4 Models")).toBeInTheDocument();
+  expect(screen.getByTitle("3 Virtual Keys")).toBeInTheDocument();
 });
 
 it("shows 'No teams found' when the list is empty", () => {
@@ -324,7 +326,7 @@ describe("column rendering details", () => {
       ]),
     );
     renderTable();
-    expect(screen.getByTitle("2 keys")).toBeInTheDocument();
+    expect(screen.getByTitle("2 Virtual Keys")).toBeInTheDocument();
   });
 });
 

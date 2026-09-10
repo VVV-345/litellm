@@ -3,6 +3,7 @@
 import moment from "moment";
 import { CalendarDays } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ export function LogsTableToolbar({
   onResetToFirstPage,
   onResetFilters,
 }: LogsTableToolbarProps) {
+  const { t } = useTranslation();
   const [quickSelectOpen, setQuickSelectOpen] = useState(false);
 
   const applyQuickSelect = (option: { label: string; value: number; unit: string }) => {
@@ -94,7 +96,7 @@ export function LogsTableToolbar({
               className="w-full justify-start font-normal"
               onClick={() => onIsCustomDateChange(!isCustomDate)}
             >
-              Custom Range
+              {t("ui.Custom Range")}
             </Button>
           </div>
         </PopoverContent>
@@ -111,7 +113,7 @@ export function LogsTableToolbar({
               onResetToFirstPage();
             }}
           />
-          <span className="text-sm text-muted-foreground">to</span>
+          <span className="text-sm text-muted-foreground">{t("ui.to")}</span>
           <Input
             type="datetime-local"
             className="w-auto"
@@ -125,32 +127,33 @@ export function LogsTableToolbar({
       )}
 
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">Live Tail</span>
-        <Switch checked={isLiveTail} onCheckedChange={onIsLiveTailChange} aria-label="Live Tail" />
+        <span className="text-sm font-medium">{t("ui.Live Tail")}</span>
+        <Switch checked={isLiveTail} onCheckedChange={onIsLiveTailChange} aria-label={t("ui.Live Tail")} />
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium">Hide Health Checks</span>
+        <span className="text-sm font-medium">{t("ui.Hide Health Checks")}</span>
         <Switch
           checked={excludeInternalHealthChecks}
           onCheckedChange={onExcludeInternalHealthChecksChange}
-          aria-label="Hide Health Checks"
+          aria-label={t("ui.Hide Health Checks")}
         />
       </div>
 
       <Button variant="outline" size="sm" onClick={onResetFilters}>
-        Reset Filters
+        {t("ui.Reset Filters")}
       </Button>
     </div>
   );
 }
 
 export function LiveTailBanner({ onStop }: { onStop: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="mb-4 flex items-center justify-between rounded-md border border-success/20 bg-success/10 px-4 py-2">
-      <span className="text-sm text-success">Auto-refreshing every 15 seconds</span>
+      <span className="text-sm text-success">{t("ui.Auto-refreshing every 15 seconds")}</span>
       <button type="button" onClick={onStop} className="text-sm text-success hover:text-success/80">
-        Stop
+        {t("ui.Stop")}
       </button>
     </div>
   );

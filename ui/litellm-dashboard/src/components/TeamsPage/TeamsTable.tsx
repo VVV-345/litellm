@@ -39,12 +39,6 @@ const toSortOrder = (sorting: SortingState): "asc" | "desc" | undefined => {
   return active.desc ? "desc" : "asc";
 };
 
-const FILTER_LABELS: Record<string, string> = {
-  org_id: "Organization",
-  alias: "Team alias",
-  team_id: "Team ID",
-};
-
 export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDeleteTeam }: TeamsTableProps) {
   const { t } = useTranslation();
   const { data: fetchedOrganizations } = useOrganizations();
@@ -58,6 +52,11 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
   const [isExporting, setIsExporting] = useState(false);
   const [searchQuery] = useDebouncedValue(searchInput, { wait: DEBOUNCE_WAIT_MS });
   const { accessToken } = useAuthorized();
+  const filterLabels = {
+    org_id: t("ui.Organization"),
+    alias: t("ui.Team alias"),
+    team_id: t("ui.Team ID"),
+  };
 
   const getFilterValue = useCallback(
     (columnId: string): string | undefined => {
@@ -119,9 +118,9 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
   }, [accessToken, isExporting, teamListOptions]);
 
   const columns = useMemo(() => {
-    const columnDeps = { organizations, userRole, onSelectTeam, onEditTeam, onDeleteTeam };
+    const columnDeps = { organizations, userRole, onSelectTeam, onEditTeam, onDeleteTeam, t };
     return getTeamTableColumns(columnDeps);
-  }, [organizations, userRole, onSelectTeam, onEditTeam, onDeleteTeam]);
+  }, [organizations, userRole, onSelectTeam, onEditTeam, onDeleteTeam, t]);
 
   const orgOptions = useMemo(
     () =>
@@ -178,7 +177,7 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
             onRefresh={() => refetch?.()}
             isRefreshing={isFetching}
             onOpenFilters={() => setFiltersOpen(true)}
-            filterLabels={FILTER_LABELS}
+            filterLabels={filterLabels}
             formatFilterValue={formatFilterValue}
           >
             <Button
@@ -189,7 +188,7 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
               data-testid="teams-export-csv"
             >
               <Download />
-              {isExporting ? "Exporting..." : "Export CSV"}
+              {isExporting ? t("ui.Exporting...") : t("ui.Export CSV")}
             </Button>
           </DataTableToolbar>
           <DataTableFilterDrawer
@@ -201,7 +200,7 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
           >
             {({ get, set }) => (
               <>
-                <DataTableFilterField label="Organization">
+                <DataTableFilterField label={t("ui.Organization")}>
                   <SearchSelect
                     options={orgOptions}
                     value={(get("org_id") as string) || undefined}
@@ -210,14 +209,14 @@ export function TeamsTable({ userRole, userID, onSelectTeam, onEditTeam, onDelet
                     emptyText={t("ui.No organizations found")}
                   />
                 </DataTableFilterField>
-                <DataTableFilterField label="Team alias">
+                <DataTableFilterField label={t("ui.Team alias")}>
                   <Input
                     value={(get("alias") as string) ?? ""}
                     onChange={(event) => set("alias", event.target.value)}
                     placeholder={t("ui.Enter team alias…")}
                   />
                 </DataTableFilterField>
-                <DataTableFilterField label="Team ID">
+                <DataTableFilterField label={t("ui.Team ID")}>
                   <Input
                     value={(get("team_id") as string) ?? ""}
                     onChange={(event) => set("team_id", event.target.value)}

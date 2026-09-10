@@ -297,15 +297,15 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
     }
   };
   const alerts_to_UI_NAME: Record<string, string> = {
-    llm_exceptions: "LLM Exceptions",
-    llm_too_slow: "LLM Responses Too Slow",
-    llm_requests_hanging: "LLM Requests Hanging",
-    budget_alerts: "Budget Alerts (API Keys, Users)",
-    db_exceptions: "Database Exceptions (Read/Write)",
-    daily_reports: "Weekly/Monthly Spend Reports",
-    outage_alerts: "Outage Alerts",
-    region_outage_alerts: "Region Outage Alerts",
-    model_deprecation_warnings: "Model Deprecation Warnings",
+    llm_exceptions: t("ui.LLM Exceptions"),
+    llm_too_slow: t("ui.LLM Responses Too Slow"),
+    llm_requests_hanging: t("ui.LLM Requests Hanging"),
+    budget_alerts: t("ui.Budget Alerts (API Keys, Users)"),
+    db_exceptions: t("ui.Database Exceptions (Read/Write)"),
+    daily_reports: t("ui.Weekly/Monthly Spend Reports"),
+    outage_alerts: t("ui.Outage Alerts"),
+    region_outage_alerts: t("ui.Region Outage Alerts"),
+    model_deprecation_warnings: t("ui.Model Deprecation Warnings"),
   };
 
   useEffect(() => {
@@ -639,7 +639,7 @@ const Settings: React.FC<SettingsPageProps> = ({ accessToken, userRole, userID, 
             style={{ color: "blue" }}
           >
             {" "}
-            LiteLLM Docs: Logging
+            {t("ui.LiteLLM Docs: Logging")}
           </a>
 
           <FormProvider {...addForm}>
