@@ -5547,7 +5547,12 @@
     "Skill {{count}}": "Skill {{count}}",
     "No matching options": "No matching options",
     "Authentication settings": "Authentication settings",
-    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server"
+    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server",
+    "Criterion weights must sum to 100% (currently {{total}}%)": "Criterion weights must sum to 100% (currently {{total}}%)",
+    "Failed to create guardrail: please fix the highlighted fields": "Failed to create guardrail: please fix the highlighted fields",
+    "Failed to create guardrail: {{error}}": "Failed to create guardrail: {{error}}",
+    "No matching providers": "No matching providers",
+    "Select an option": "Select an option"
   },
   "accountPool": {
     "title": "Account Pool",

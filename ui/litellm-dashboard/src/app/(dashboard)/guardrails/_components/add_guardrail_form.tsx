@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { toast } from "@/lib/toast";
 import {
@@ -198,6 +199,7 @@ interface ProviderParamsResponse {
 }
 
 const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, accessToken, onSuccess, preset }) => {
+  const { t } = useTranslation();
   const form = useForm<GuardrailFormValues>({ defaultValues: INITIAL_VALUES });
   const [loading, setLoading] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
@@ -259,7 +261,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         populateGuardrailProviderMap(providerParamsResp);
       } catch (error) {
         console.error("Error fetching guardrail data:", error);
-        toast.fromError("Failed to load guardrail configuration");
+        toast.fromError(t("ui.Failed to load guardrail configuration"));
       }
     };
 
@@ -383,7 +385,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
     // Validate configuration steps
     if (currentStep === 1) {
       if (shouldRenderPIIConfigSettings(selectedProvider) && selectedEntities.length === 0) {
-        toast.fromError("Please select at least one PII entity to continue");
+        toast.fromError(t("ui.Please select at least one PII entity to continue"));
         return;
       }
     }
@@ -423,7 +425,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       setLoading(true);
       // First validate currently visible fields
       if (!(await form.trigger())) {
-        toast.fromError("Failed to create guardrail: please fix the highlighted fields");
+        toast.fromError(t("ui.Failed to create guardrail: please fix the highlighted fields"));
         return;
       }
 
@@ -543,7 +545,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
           // For some guardrails, the config values need to be in litellm_params
           guardrailData.guardrail_info = configObj;
         } catch (error) {
-          toast.fromError("Invalid JSON in configuration");
+          toast.fromError(t("ui.Invalid JSON in configuration"));
           setLoading(false);
           return;
         }
@@ -552,13 +554,13 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       if (guardrailProvider === "llm_as_a_judge") {
         const criteria: GuardrailCriterion[] = values.criteria ?? [];
         if (criteria.length === 0) {
-          toast.fromError("Add at least one evaluation criterion");
+          toast.fromError(t("ui.Add at least one evaluation criterion"));
           setLoading(false);
           return;
         }
         const weightTotal = criteria.reduce((sum, c) => sum + (Number(c?.weight) || 0), 0);
         if (weightTotal !== 100) {
-          toast.fromError(`Criterion weights must sum to 100% (currently ${weightTotal}%)`);
+          toast.fromError(t("ui.Criterion weights must sum to 100% (currently {{total}}%)", { total: weightTotal }));
           setLoading(false);
           return;
         }
@@ -574,7 +576,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
 
       if (guardrailProvider === "tool_permission") {
         if (toolPermissionConfig.rules.length === 0) {
-          toast.fromError("Add at least one tool permission rule");
+          toast.fromError(t("ui.Add at least one tool permission rule"));
           setLoading(false);
           return;
         }
@@ -650,7 +652,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
 
       await createGuardrailCall(accessToken, guardrailData);
 
-      toast.success("Guardrail created successfully");
+      toast.success(t("ui.Guardrail created successfully"));
 
       // Reset form and close modal
       resetForm();
@@ -658,7 +660,11 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       onClose();
     } catch (error) {
       console.error("Failed to create guardrail:", error);
-      toast.fromError("Failed to create guardrail: " + (error instanceof Error ? error.message : String(error)));
+      toast.fromError(
+        t("ui.Failed to create guardrail: {{error}}", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     } finally {
       setLoading(false);
     }
@@ -677,19 +683,19 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         <GuardrailField
           control={form.control}
           name="guardrail_name"
-          label="Guardrail Name"
-          rules={requiredRule("Please enter a guardrail name")}
+          label={t("ui.Guardrail Name")}
+          rules={requiredRule(t("ui.Please enter a guardrail name"))}
         >
           {({ ref, value, ...field }) => (
-            <Input {...field} ref={ref} value={asText(value)} placeholder="Enter a name for this guardrail" />
+            <Input {...field} ref={ref} value={asText(value)} placeholder={t("ui.Enter a name for this guardrail")} />
           )}
         </GuardrailField>
 
         <GuardrailField
           control={form.control}
           name="provider"
-          label="Guardrail Provider"
-          rules={requiredRule("Please select a provider")}
+          label={t("ui.Guardrail Provider")}
+          rules={requiredRule(t("ui.Please select a provider"))}
         >
           {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
             <Combobox
@@ -707,11 +713,11 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                 id={id}
                 aria-invalid={ariaInvalid}
                 aria-describedby={ariaDescribedBy}
-                placeholder="Select a guardrail provider"
+                placeholder={t("ui.Select a guardrail provider")}
                 className="w-full"
               />
               <ComboboxContent>
-                <ComboboxEmpty>No matching providers</ComboboxEmpty>
+                <ComboboxEmpty>{t("ui.No matching providers")}</ComboboxEmpty>
                 <ComboboxList>
                   {(key: string) => (
                     <ComboboxItem key={key} value={key}>
@@ -734,8 +740,8 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         <GuardrailField
           control={form.control}
           name="mode"
-          label={labelWithHint("Mode", "How the guardrail should be applied")}
-          rules={requiredRule("Please select a mode")}
+          label={labelWithHint(t("ui.Mode"), t("ui.How the guardrail should be applied"))}
+          rules={requiredRule(t("ui.Please select a mode"))}
         >
           {({ id, value, onChange }) => (
             <MultiSelect
@@ -755,7 +761,10 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
         <GuardrailField
           control={form.control}
           name="default_on"
-          label={labelWithHint("Always On", "If enabled, this guardrail will be applied to all requests by default.")}
+          label={labelWithHint(
+            t("ui.Always On"),
+            t("ui.If enabled, this guardrail will be applied to all requests by default."),
+          )}
         >
           {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
             <Select
@@ -764,11 +773,11 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
               onValueChange={(next: boolean | null) => onChange(next)}
             >
               <SelectTrigger id={id} aria-invalid={ariaInvalid} aria-describedby={ariaDescribedBy} className="w-full">
-                <SelectValue placeholder="Select an option" />
+                <SelectValue placeholder={t("ui.Select an option")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={true}>Yes</SelectItem>
-                <SelectItem value={false}>No</SelectItem>
+                <SelectItem value={true}>{t("ui.Yes")}</SelectItem>
+                <SelectItem value={false}>{t("ui.No")}</SelectItem>
               </SelectContent>
             </Select>
           )}
@@ -952,7 +961,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
             }}
           >
             <SelectTrigger id="guardrail-call-type" className="w-65">
-              <SelectValue placeholder="Select a call type" />
+              <SelectValue placeholder={t("ui.Select a call type")} />
             </SelectTrigger>
             <SelectContent>
               {CALL_TYPE_ITEMS.map((item) => (
@@ -962,7 +971,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
               ))}
             </SelectContent>
           </Select>
-          <p className="mt-1 text-xs text-muted-foreground">More call types coming soon.</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("ui.More call types coming soon.")}</p>
         </div>
 
         {selectedEndpointType === "realtime" && (
@@ -972,7 +981,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
               onClick={() => setEndpointSettingsOpen((o) => !o)}
               className="flex w-full items-center justify-between bg-muted px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/70"
             >
-              <span>/v1/realtime settings</span>
+              <span>{t("ui./v1/realtime settings")}</span>
               <svg
                 className={`w-4 h-4 text-muted-foreground transition-transform ${endpointSettingsOpen ? "rotate-180" : ""}`}
                 fill="none"
@@ -991,17 +1000,18 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                     htmlFor="guardrail-end-session-after"
                     className="mb-1 block text-sm font-medium text-foreground"
                   >
-                    End session after X violations
+                    {t("ui.End session after X violations")}
                   </label>
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Automatically close the session after this many guardrail violations. Leave empty to never
-                    auto-close.
+                    {t(
+                      "ui.Automatically close the session after this many guardrail violations. Leave empty to never auto-close.",
+                    )}
                   </p>
                   <Input
                     id="guardrail-end-session-after"
                     type="number"
                     min={1}
-                    placeholder="e.g. 3"
+                    placeholder={t("ui.e.g. 3")}
                     value={endSessionAfterNFails ?? ""}
                     onChange={(e) =>
                       setEndSessionAfterNFails(e.target.value ? parseInt(e.target.value, 10) : undefined)
@@ -1011,7 +1021,7 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">On violation</label>
+                  <label className="mb-2 block text-sm font-medium text-foreground">{t("ui.On violation")}</label>
                   <div className="space-y-2">
                     {(["warn", "end_session"] as const).map((opt) => (
                       <label key={opt} className="flex items-start gap-2 cursor-pointer">
@@ -1025,12 +1035,12 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                         />
                         <div>
                           <span className="text-sm font-medium text-foreground">
-                            {opt === "warn" ? "Warn" : "End session"}
+                            {opt === "warn" ? t("ui.Warn") : t("ui.End session")}
                           </span>
                           <p className="m-0 text-xs text-muted-foreground">
                             {opt === "warn"
-                              ? "Bot speaks the message, session continues"
-                              : "Bot speaks the message, connection closes immediately"}
+                              ? t("ui.Bot speaks the message, session continues")
+                              : t("ui.Bot speaks the message, connection closes immediately")}
                           </p>
                         </div>
                       </label>
@@ -1043,16 +1053,19 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                     htmlFor="guardrail-realtime-message"
                     className="mb-1 block text-sm font-medium text-foreground"
                   >
-                    Message the user hears
+                    {t("ui.Message the user hears")}
                   </label>
                   <p className="mb-2 text-xs text-muted-foreground">
-                    What the bot says aloud when this guardrail fires. Falls back to the default violation message if
-                    empty.
+                    {t(
+                      "ui.What the bot says aloud when this guardrail fires. Falls back to the default violation message if empty.",
+                    )}
                   </p>
                   <Textarea
                     id="guardrail-realtime-message"
                     rows={3}
-                    placeholder="e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678."
+                    placeholder={t(
+                      "ui.e.g. I'm not able to continue this conversation. Please contact us at 1-800-774-2678.",
+                    )}
                     value={realtimeViolationMessage}
                     onChange={(e) => setRealtimeViolationMessage(e.target.value)}
                     className="w-full resize-none"
@@ -1069,22 +1082,22 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
   const getStepConfigs = () => {
     if (shouldRenderContentFilterConfigSettings(selectedProvider)) {
       return [
-        { title: "Basic Info", optional: false },
-        { title: "Topics", optional: false },
-        { title: "Patterns", optional: false },
-        { title: "Keywords", optional: false },
-        { title: "Endpoint Settings (Optional)", optional: true },
+        { title: t("ui.Basic Info"), optional: false },
+        { title: t("ui.Topics"), optional: false },
+        { title: t("ui.Patterns"), optional: false },
+        { title: t("ui.Keywords"), optional: false },
+        { title: t("ui.Endpoint Settings (Optional)"), optional: true },
       ];
     }
     if (shouldRenderPIIConfigSettings(selectedProvider)) {
       return [
-        { title: "Basic Info", optional: false },
-        { title: "PII Configuration", optional: false },
+        { title: t("ui.Basic Info"), optional: false },
+        { title: t("ui.PII Configuration"), optional: false },
       ];
     }
     return [
-      { title: "Basic Info", optional: false },
-      { title: "Provider Configuration", optional: false },
+      { title: t("ui.Basic Info"), optional: false },
+      { title: t("ui.Provider Configuration"), optional: false },
     ];
   };
 
@@ -1100,7 +1113,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
           <div className="flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <DialogTitle className="m-0 text-base font-semibold text-foreground">Create guardrail</DialogTitle>
+              <DialogTitle className="m-0 text-base font-semibold text-foreground">
+                {t("ui.Create guardrail")}
+              </DialogTitle>
               <button
                 type="button"
                 onClick={handleClose}
@@ -1140,9 +1155,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
                         >
                           <span className={`text-sm ${getStepTitleClass(isDone, isCurrent)}`}>{step.title}</span>
                           {step.optional && !isCurrent && (
-                            <span className="text-[11px] text-muted-foreground">optional</span>
+                            <span className="text-[11px] text-muted-foreground">{t("ui.optional")}</span>
                           )}
-                          {isDone && <span className="text-[11px] text-info hover:underline">Edit</span>}
+                          {isDone && <span className="text-[11px] text-info hover:underline">{t("ui.Edit")}</span>}
                         </div>
 
                         {/* Expanded form content for current step */}

@@ -5547,7 +5547,12 @@
     "Skill {{count}}": "技能 {{count}}",
     "No matching options": "没有匹配项",
     "Authentication settings": "认证设置",
-    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server"
+    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server",
+    "Criterion weights must sum to 100% (currently {{total}}%)": "条件权重总和必须为 100%（当前为 {{total}}%）",
+    "Failed to create guardrail: please fix the highlighted fields": "创建防护栏失败：请修正标记的字段",
+    "Failed to create guardrail: {{error}}": "创建防护栏失败：{{error}}",
+    "No matching providers": "没有匹配的供应商",
+    "Select an option": "请选择一个选项"
   },
   "accountPool": {
     "title": "号池",
