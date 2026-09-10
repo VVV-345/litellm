@@ -5814,6 +5814,8 @@
       "session_affinity_ttl": "Session TTL (seconds)",
       "quota_reserve_percent": "Quota reserve (%)",
       "quota_snapshot_max_age": "Quota snapshot age (seconds)",
+      "token_budget_limit": "Local token budget (blank disables)",
+      "token_budget_window_seconds": "Token budget window (seconds)",
       "max_attempts": "Maximum attempts",
       "backoff_ms": "Retry interval (ms)",
       "is_backup": "Backup account",
@@ -5924,6 +5926,7 @@
         "custom_order": "Custom order",
         "backup_account": "Backup account",
         "concurrency_fallback": "Earlier account had no concurrency",
+        "token_budget_fallback": "Earlier account exhausted its local token budget",
         "retry_failover": "Failover after the previous attempt"
       },
       "stages": {

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Final, Protocol, TypeVar
+from typing import Final, Protocol
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
+    AcquireRejected,
     AcquireRequest,
     FinishRequest,
     Lease,
@@ -15,7 +16,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     ResolveRequest,
 )
 
-T = TypeVar("T", bound=BaseModel)
+_ERROR_RESPONSE: Final = TypeAdapter(dict[str, object])
 
 
 class ControlError(Exception):
@@ -26,7 +27,7 @@ class ControlError(Exception):
 
 class GatewayControl(Protocol):
     async def resolve(self, request: ResolveRequest) -> Resolution: ...
-    async def acquire(self, request: AcquireRequest) -> Lease | None: ...
+    async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected: ...
     async def finish(self, request: FinishRequest) -> None: ...
 
 
@@ -51,10 +52,12 @@ class ManagerControl:
             raise ControlError(response.status_code if response.status_code in (401, 403) else 503)
         return Resolution.model_validate_json(response.content)
 
-    async def acquire(self, request: AcquireRequest) -> Lease | None:
+    async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
         response: Final = await self.call("acquire", request)
         if response.status_code == 409:
-            return None
+            payload: Final = _ERROR_RESPONSE.validate_json(response.content)
+            detail: Final = payload.get("detail")
+            return AcquireRejected.model_validate(detail) if isinstance(detail, dict) else AcquireRejected(reason="configuration")
         if response.is_error:
             raise ControlError(response.status_code if response.status_code in (401, 403) else 503)
         return Lease.model_validate_json(response.content)

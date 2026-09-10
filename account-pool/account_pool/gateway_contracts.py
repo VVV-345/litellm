@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -10,7 +10,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from account_pool.domain import ChannelKind, SupplierKind
 from account_pool.policies import AccountPolicy
 
-RoutingReason = Literal[
+RoutingReason: TypeAlias = Literal[
     "automatic",
     "single_account",
     "session_affinity",
@@ -22,7 +22,12 @@ RoutingReason = Literal[
     "custom_order",
     "backup_account",
     "concurrency_fallback",
+    "token_budget_fallback",
     "retry_failover",
+]
+
+AcquireRejectionReason: TypeAlias = Literal[
+    "concurrency", "configuration", "cooldown", "session", "token_budget"
 ]
 
 
@@ -68,6 +73,7 @@ class AcquireRequest(ResolveRequest):
     account_version: int
     account_policy_version: int
     timeout_seconds: int = Field(ge=1, le=3600)
+    estimated_tokens: int = Field(default=0, ge=0, le=1000000000)
     attempt: int = Field(ge=1, le=5)
     routing_reason: RoutingReason = "automatic"
     allow_session_rebind: bool = False
@@ -84,6 +90,10 @@ class Lease(BaseModel):
     supplier: SupplierKind
     model: str
     started_at: AwareDatetime
+    reserved_tokens: int = Field(default=0, ge=0)
+    budget_enabled: bool = False
+    budget_window_seconds: int | None = Field(default=None, ge=60, le=2592000)
+    budget_window_started_at: AwareDatetime | None = None
     attempt: int = Field(default=1, ge=1, le=5)
     routing_reason: RoutingReason = "automatic"
 
@@ -102,3 +112,8 @@ class FinishRequest(BaseModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+class AcquireRejected(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    reason: AcquireRejectionReason

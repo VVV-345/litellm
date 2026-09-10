@@ -17,6 +17,7 @@ from starlette.datastructures import Headers
 from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
+    AcquireRejected,
     AcquireRequest,
     Candidate,
     FinishRequest,
@@ -43,6 +44,7 @@ class Control:
         self.finished: list[FinishRequest] = []
         self.revoked = False
         self.exhausted = False
+        self.budget_exhausted_account_ids: frozenset[UUID] = frozenset()
         self.unavailable_account_ids: frozenset[UUID] = frozenset()
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
@@ -50,14 +52,16 @@ class Control:
             raise ControlError(401)
         return self.resolution
 
-    async def acquire(self, request: AcquireRequest) -> Lease | None:
+    async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
         self.acquisitions.append(request)
         if self.revoked:
             raise ControlError(401)
         if self.exhausted:
-            return None
+            return AcquireRejected(reason="concurrency")
+        if request.account_id in self.budget_exhausted_account_ids:
+            return AcquireRejected(reason="token_budget")
         if request.account_id in self.unavailable_account_ids:
-            return None
+            return AcquireRejected(reason="concurrency")
         return Lease(lease_id=uuid4(), card_id=self.resolution.card_id, key_id=self.resolution.key_id,
                      account_id=request.account_id, request_id=request.request_id, model=request.model,
                      channel="cliproxyapi", supplier="openai_codex", started_at=datetime.now(timezone.utc),
@@ -170,7 +174,24 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
     assert len(control.finished) == 1 and control.finished[0].input_tokens == 4
     assert control.finished[0].cost_usd == 0.00042
     assert control.acquisitions[0].routing_reason == "automatic"
+    assert control.acquisitions[0].estimated_tokens == 0
     assert _KEY not in response.text and "internal-secret" not in response.text
+
+
+def test_explicit_output_cap_is_included_in_token_reservation() -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(200, json={"output": []}))
+    budget_policy: Final = AccountPolicy(routing=RoutingPolicy(token_budget_limit=10000))
+    control.resolution = control.resolution.model_copy(
+        update={"candidates": tuple(item.model_copy(update={"policy": budget_policy}) for item in control.resolution.candidates)}
+    )
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello", "max_output_tokens": 321},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 200
+    assert control.acquisitions[0].estimated_tokens > 321
 
 
 def test_models_and_management_scope_are_separate_from_ordinary_keys() -> None:
@@ -273,6 +294,42 @@ def test_revocation_and_concurrency_are_checked_before_forwarding(revoked: bool,
         response: Final = client.post("/v1/responses", json={"model": "model-a"},
                                       headers={"Authorization": f"Bearer {_KEY}"})
     assert response.status_code == expected
+
+
+def test_token_budget_exhaustion_falls_through_with_explicit_reason() -> None:
+    seen: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        return httpx.Response(200, json={"output": []})
+
+    client, control = setup_gateway(upstream)
+    rejected: Final = control.resolution.candidates[0].id
+    control.budget_exhausted_account_ids = frozenset((rejected,))
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 200
+    assert seen == [f"cliproxy-{control.resolution.candidates[1].id.hex}"]
+    assert [request.routing_reason for request in control.acquisitions] == ["automatic", "token_budget_fallback"]
+
+
+def test_all_token_budgets_exhausted_returns_rate_limit() -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("No upstream request expected"))
+    control.budget_exhausted_account_ids = frozenset(item.id for item in control.resolution.candidates)
+
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 429
+    assert response.json()["error"]["message"] == "No bound account has available local token budget"
 
 
 def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:

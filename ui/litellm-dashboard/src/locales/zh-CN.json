@@ -5814,6 +5814,8 @@
       "session_affinity_ttl": "会话有效期（秒）",
       "quota_reserve_percent": "配额保留（%）",
       "quota_snapshot_max_age": "配额快照有效期（秒）",
+      "token_budget_limit": "本地 Token 预算（留空则关闭）",
+      "token_budget_window_seconds": "Token 预算窗口（秒）",
       "max_attempts": "最多尝试次数",
       "backoff_ms": "重试间隔（毫秒）",
       "is_backup": "备用账号",
@@ -5924,6 +5926,7 @@
         "custom_order": "自定义顺序",
         "backup_account": "备用账号",
         "concurrency_fallback": "前序账号并发已满",
+        "token_budget_fallback": "前序账号本地 Token 预算不足",
         "retry_failover": "上次尝试失败后切号"
       },
       "stages": {

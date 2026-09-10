@@ -13,7 +13,15 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from account_pool.card_keys import CardKeyService
 from account_pool.domain import EnvironmentRecord, GatewayEnvironment, utc_now
 from account_pool.error_logs import MODEL_REQUEST_OPERATION, ErrorLogRecord, ErrorLogService
-from account_pool.gateway_contracts import AcquireRequest, Candidate, FinishRequest, Lease, Resolution, ResolveRequest
+from account_pool.gateway_contracts import (
+    AcquireRejected,
+    AcquireRequest,
+    Candidate,
+    FinishRequest,
+    Lease,
+    Resolution,
+    ResolveRequest,
+)
 from account_pool.gateway_repository import LeaseRepository
 from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -119,8 +127,8 @@ class GatewayService:
             else None
         )
         lease: Final = await self.leases.acquire(request, resolution, candidate, binding)
-        if lease is None:
-            raise HTTPException(409, "Account concurrency is exhausted or configuration changed")
+        if isinstance(lease, AcquireRejected):
+            raise HTTPException(409, detail=lease.model_dump(mode="json"))
         return lease
 
     async def finish(self, request: FinishRequest) -> None:
@@ -178,11 +186,20 @@ class GatewayService:
             cost_usd=request.cost_usd,
         )
         cooldown: Final = 60 if request.http_status == 429 else 300 if request.http_status in (401, 403) else 0
+        actual_tokens: Final = (
+            0
+            if failed
+            else request.input_tokens + request.output_tokens
+            if request.input_tokens is not None and request.output_tokens is not None
+            else lease.reserved_tokens
+            if lease.budget_enabled
+            else None
+        )
         try:
             await self.logs.repository.append(event)
         finally:
             # 日志故障不能占住并发租约，否则账号会持续误判为满载。
-            await self.leases.release(lease, cooldown)
+            await self.leases.release(lease, cooldown, actual_tokens)
 
 
 def binding_hash(key_id: UUID, session_hash: str | None) -> str | None:

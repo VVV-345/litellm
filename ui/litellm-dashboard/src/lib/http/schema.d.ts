@@ -27492,7 +27492,7 @@ export interface components {
              */
             retryable: boolean;
             /** Routing Reason */
-            routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "retry_failover") | null;
+            routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "token_budget_fallback" | "retry_failover") | null;
             /**
              * Severity
              * @default error
@@ -35641,6 +35641,13 @@ export interface components {
              * @enum {string}
              */
             strategy: "auto" | "random" | "priority" | "quota" | "plan" | "expiry" | "custom";
+            /** Token Budget Limit */
+            token_budget_limit?: number | null;
+            /**
+             * Token Budget Window Seconds
+             * @default 3600
+             */
+            token_budget_window_seconds: number;
             /**
              * Weight
              * @default 1

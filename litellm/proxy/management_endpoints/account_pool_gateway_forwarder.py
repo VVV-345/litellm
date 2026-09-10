@@ -7,19 +7,24 @@ import io
 import json
 import math
 import re
-from collections.abc import AsyncIterator
-from typing import Final
+from collections.abc import AsyncIterator, Mapping, Sequence
+from functools import cache
+from typing import Final, Protocol, cast
 from uuid import UUID, uuid4
 
 import httpx
+from openai.types.responses.response_create_params import ResponseInputParam
 from pydantic import JsonValue, TypeAdapter
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
 
 from litellm._logging import verbose_proxy_logger
+from litellm.litellm_core_utils import token_counter as token_counter_module
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
+    AcquireRejected,
+    AcquireRejectionReason,
     AcquireRequest,
     FinishRequest,
     Lease,
@@ -28,10 +33,61 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, usage_tokens
+from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
+from litellm.types.llms.openai import (
+    AllMessageValues,
+    ChatCompletionNamedToolChoiceParam,
+    ChatCompletionToolParam,
+    ResponsesAPIOptionalRequestParams,
+)
+from litellm.types.utils import Message as LiteLLMMessage
+
+
+class _TokenCounter(Protocol):
+    def __call__(
+        self,
+        *,
+        model: str,
+        messages: Sequence[AllMessageValues | LiteLLMMessage],
+        tools: Sequence[ChatCompletionToolParam] | None,
+        tool_choice: ChatCompletionNamedToolChoiceParam | None,
+        use_default_image_token_count: bool,
+    ) -> int: ...
+
+
+class _ResponsesRequestTransformer(Protocol):
+    def __call__(
+        self,
+        model: str,
+        input: str | ResponseInputParam,
+        responses_api_request: ResponsesAPIOptionalRequestParams,
+    ) -> Mapping[str, object]: ...
 
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
 _HEADERS: Final = frozenset(("content-type", "accept", "user-agent", "originator", "openai-beta", "anthropic-version"))
 _SAFE_CONNECT_FAILURES: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+_MESSAGES: Final = TypeAdapter(list[AllMessageValues])
+_CHAT_TOOLS: Final = TypeAdapter(list[ChatCompletionToolParam])
+_TOOL_CHOICE: Final = TypeAdapter(ChatCompletionNamedToolChoiceParam)
+_TOKEN_COUNTER: Final[_TokenCounter] = cast(
+    _TokenCounter, token_counter_module.token_counter
+)  # cast-ok: legacy token counter annotations expose broader optional inputs
+_RESPONSES_TO_CHAT: Final[_ResponsesRequestTransformer] = cast(
+    _ResponsesRequestTransformer,
+    LiteLLMCompletionResponsesConfig.transform_responses_api_request_to_chat_completion_request,
+)  # cast-ok: shared transformer returns a legacy dict with the validated fields read here
+_CONFIGURATION_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("configuration", "session"))
+_TOKEN_BUDGET_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("token_budget",))
+
+
+@cache
+def _responses_input_adapter() -> TypeAdapter[str | ResponseInputParam]:
+    return TypeAdapter(str | ResponseInputParam)
+
+
+@cache
+def _responses_request_adapter() -> TypeAdapter[ResponsesAPIOptionalRequestParams]:
+    return TypeAdapter(ResponsesAPIOptionalRequestParams)
 
 
 class Attempt:
@@ -96,7 +152,7 @@ async def forward(
     allow_retry: Final = routing.fallback_enabled and not payload.get("previous_response_id")
     max_attempts: Final = routing.max_attempts if allow_retry else 1
     request_id: Final = uuid4()
-    completed: Final = await forward_candidate(
+    completed, rejections = await forward_candidate(
         request,
         payload,
         key,
@@ -110,12 +166,24 @@ async def forward(
         route_index=0,
         attempt_number=1,
         max_attempts=max_attempts,
+        rejection_reasons=frozenset[AcquireRejectionReason](),
     )
     if completed:
         return
+    budget_only: Final = rejections == _TOKEN_BUDGET_REJECTIONS
+    status: Final = 409 if rejections & _CONFIGURATION_REJECTIONS else 429 if budget_only else 503
+    message: Final = (
+        "Account pool configuration changed"
+        if "configuration" in rejections
+        else "The session-bound account is unavailable"
+        if "session" in rejections
+        else "No bound account has available local token budget"
+        if budget_only
+        else "No bound account is currently available"
+    )
     await JSONResponse(
-        {"error": {"message": "No bound account has available concurrency", "type": "account_pool_error"}},
-        status_code=503,
+        {"error": {"message": message, "type": "account_pool_error"}},
+        status_code=status,
         headers={"x-request-id": str(request_id)},
     )(request.scope, request.receive, send)
 
@@ -134,15 +202,21 @@ async def forward_candidate(
     route_index: int,
     attempt_number: int,
     max_attempts: int,
-) -> bool:
+    rejection_reasons: frozenset[AcquireRejectionReason],
+) -> tuple[bool, frozenset[AcquireRejectionReason]]:
     if route_index >= len(selected):
-        return False
+        return False, rejection_reasons
     route: Final = selected[route_index]
     seconds: Final = min(
         resolution.policy.transport.request_timeout_seconds, route.account.policy.transport.request_timeout_seconds
     )
     sticky_unavailable: Final = resolution.sticky_account_id is not None and all(
         item.account.id != resolution.sticky_account_id for item in selected
+    )
+    estimated_tokens: Final = (
+        estimate_request_tokens(request.url.path, payload, route.model)
+        if route.account.policy.routing.token_budget_limit is not None
+        else 0
     )
     acquisition: Final = AcquireRequest(
         card_key=key,
@@ -155,12 +229,15 @@ async def forward_candidate(
         account_version=route.account.environment_version,
         account_policy_version=route.account.policy_version,
         timeout_seconds=seconds,
+        estimated_tokens=estimated_tokens,
         attempt=attempt_number,
-        routing_reason=attempt_routing_reason(route, route_index, attempt_number, sticky_unavailable),
+        routing_reason=attempt_routing_reason(
+            route, route_index, attempt_number, sticky_unavailable, "token_budget" in rejection_reasons
+        ),
         allow_session_rebind=route_index > 0 or sticky_unavailable,
     )
     lease: Final = await control.acquire(acquisition)
-    if lease is None:
+    if isinstance(lease, AcquireRejected):
         return await forward_candidate(
             request,
             payload,
@@ -175,6 +252,7 @@ async def forward_candidate(
             route_index + 1,
             attempt_number,
             max_attempts,
+            rejection_reasons | frozenset((lease.reason,)),
         )
     next_id: Final = (
         selected[route_index + 1].account.id
@@ -202,8 +280,9 @@ async def forward_candidate(
             route_index + 1,
             attempt_number + 1,
             max_attempts,
+            frozenset[AcquireRejectionReason](),
         )
-    return True
+    return True, frozenset[AcquireRejectionReason]()
 
 
 async def execute(
@@ -349,14 +428,80 @@ def attempt_routing_reason(
     route_index: int,
     attempt_number: int,
     sticky_unavailable: bool,
+    budget_fallback: bool,
 ) -> RoutingReason:
     if attempt_number > 1:
         return "retry_failover"
     if route_index > 0:
-        return "concurrency_fallback"
+        return "token_budget_fallback" if budget_fallback else "concurrency_fallback"
     if sticky_unavailable:
         return "session_rebind"
     return route.reason
+
+
+def estimate_request_tokens(path: str, payload: Mapping[str, JsonValue], model: str) -> int:
+    output_tokens: Final = requested_output_tokens(path, payload)
+    if path == "/v1/images/generations":
+        return output_tokens
+    try:
+        input_tokens: Final = (
+            estimate_responses_input_tokens(payload, model)
+            if path.startswith("/v1/responses")
+            else estimate_chat_input_tokens(payload, model)
+        )
+    except (TypeError, ValueError):
+        serialized: Final = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+        return max(1, len(serialized)) + output_tokens
+    return input_tokens + output_tokens
+
+
+def estimate_chat_input_tokens(payload: Mapping[str, JsonValue], model: str) -> int:
+    messages: Final = _MESSAGES.validate_python(payload.get("messages", ()))
+    tools: Final = _CHAT_TOOLS.validate_python(payload.get("tools")) if payload.get("tools") is not None else None
+    tool_choice_value: Final = payload.get("tool_choice")
+    tool_choice: Final = _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    return _TOKEN_COUNTER(
+        model=model,
+        messages=messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        use_default_image_token_count=True,
+    )
+
+
+def estimate_responses_input_tokens(payload: Mapping[str, JsonValue], model: str) -> int:
+    request: Final = _responses_request_adapter().validate_python(payload)
+    request_input: Final = _responses_input_adapter().validate_python(payload.get("input", ""))
+    chat_request: Final = _RESPONSES_TO_CHAT(
+        model,
+        request_input,
+        request,
+    )
+    messages: Final = _MESSAGES.validate_python(chat_request.get("messages", ()))
+    tools_value: Final = chat_request.get("tools")
+    tools: Final = _CHAT_TOOLS.validate_python(tools_value) if tools_value is not None else None
+    tool_choice_value: Final = chat_request.get("tool_choice")
+    tool_choice: Final = _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    return _TOKEN_COUNTER(
+        model=model,
+        messages=messages,
+        tools=tools,
+        tool_choice=tool_choice,
+        use_default_image_token_count=True,
+    )
+
+
+def requested_output_tokens(path: str, payload: Mapping[str, JsonValue]) -> int:
+    fields: Final = ("max_output_tokens",) if path.startswith("/v1/responses") else (
+        "max_completion_tokens",
+        "max_tokens",
+    )
+    explicit: Final = tuple(
+        value for field in fields for value in (payload.get(field),) if type(value) is int and value >= 0
+    )
+    if explicit:
+        return max(explicit)
+    return 0 if path == "/v1/images/generations" else 1024
 
 
 async def stream_response(

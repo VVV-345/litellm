@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Final, cast
 from uuid import UUID, uuid4
 
@@ -10,7 +11,7 @@ import psycopg
 import pytest
 from account_pool.domain import ChannelKind, SupplierKind, utc_now
 from account_pool.gateway_contracts import Lease
-from account_pool.gateway_repository import _release_lease
+from account_pool.gateway_repository import _release_lease, reserve_token_budget
 from account_pool.repository import _delete_environment
 
 
@@ -20,6 +21,7 @@ class RuntimeState:
     leases: dict[UUID, tuple[UUID, UUID]]
     sessions: dict[str, tuple[UUID | None, UUID]]
     cooldowns: set[UUID]
+    settled_tokens: dict[tuple[UUID, int, datetime], int] = field(default_factory=dict)
 
 
 class ResultCursor:
@@ -49,8 +51,9 @@ class RuntimeConnection:
             }
             return ResultCursor()
         if statement.startswith("DELETE FROM account_pool_leases WHERE lease_id"):
-            self.state.leases.pop(cast(UUID, params[0]), None)
-            return ResultCursor()
+            lease_id: Final = cast(UUID, params[0])
+            existed: Final = self.state.leases.pop(lease_id, None)
+            return ResultCursor({"lease_id": lease_id} if existed is not None else None)
         if statement.startswith("DELETE FROM account_pool_sessions"):
             environment_id = cast(UUID, params[0])
             self.state.sessions = {
@@ -65,14 +68,53 @@ class RuntimeConnection:
         if statement.startswith("INSERT INTO account_pool_runtime_cooldown"):
             self.state.cooldowns.add(cast(UUID, params[0]))
             return ResultCursor()
+        if statement.startswith("UPDATE account_pool_token_budget_windows"):
+            tokens: Final = cast(int, params[0])
+            budget_key: Final = (cast(UUID, params[1]), cast(int, params[2]), cast(datetime, params[3]))
+            self.state.settled_tokens[budget_key] = self.state.settled_tokens.get(budget_key, 0) + tokens
+            return ResultCursor()
         if statement.startswith("DELETE FROM account_pool_environments"):
             self.state.environments.discard(cast(UUID, params[0]))
             return ResultCursor()
         raise AssertionError(f"Unexpected query: {statement}")
 
 
+@dataclass
+class BudgetState:
+    settled_tokens: dict[tuple[UUID, int, datetime], int]
+    reservations: tuple[tuple[UUID, int, datetime, int], ...]
+
+
+class BudgetConnection:
+    def __init__(self, state: BudgetState) -> None:
+        self.state = state
+
+    async def execute(self, query: str, params: tuple[object, ...] = ()) -> ResultCursor:
+        statement: Final = " ".join(query.split())
+        if statement.startswith("INSERT INTO account_pool_token_budget_windows"):
+            account_id: Final = cast(UUID, params[0])
+            window_seconds: Final = cast(int, params[1])
+            window_started_at: Final = cast(datetime, params[2])
+            budget_key: Final = (account_id, window_seconds, window_started_at)
+            settled_tokens: Final = self.state.settled_tokens.setdefault(budget_key, 0)
+            return ResultCursor({"window_started_at": window_started_at, "settled_tokens": settled_tokens})
+        if statement.startswith("SELECT COALESCE(sum((payload->>'reserved_tokens')::bigint)"):
+            reservation_key: Final = (cast(UUID, params[0]), cast(int, params[1]), cast(datetime, params[2]))
+            reserved_tokens: Final = sum(
+                tokens
+                for account_id, window_seconds, window_started_at, tokens in self.state.reservations
+                if (account_id, window_seconds, window_started_at) == reservation_key
+            )
+            return ResultCursor({"reserved_tokens": reserved_tokens})
+        raise AssertionError(f"Unexpected query: {statement}")
+
+
 def connection(state: RuntimeState) -> psycopg.AsyncConnection[dict[str, object]]:
     return cast(psycopg.AsyncConnection[dict[str, object]], RuntimeConnection(state))
+
+
+def budget_connection(state: BudgetState) -> psycopg.AsyncConnection[dict[str, object]]:
+    return cast(psycopg.AsyncConnection[dict[str, object]], BudgetConnection(state))
 
 
 def lease(card_id: UUID, account_id: UUID) -> Lease:
@@ -150,7 +192,74 @@ async def test_releasing_deleted_account_does_not_restore_cooldown() -> None:
         cooldowns=set(),
     )
 
-    await _release_lease(connection(state), active_lease, cooldown_seconds=60)
+    await _release_lease(connection(state), active_lease, cooldown_seconds=60, actual_tokens=None)
 
     assert state.leases == {}
     assert state.cooldowns == set()
+
+
+@pytest.mark.asyncio
+async def test_releasing_lease_twice_settles_token_budget_once() -> None:
+    account_id: Final = uuid4()
+    window_started_at: Final = datetime(2026, 9, 11, 8, tzinfo=timezone.utc)
+    active_lease: Final = lease(uuid4(), account_id).model_copy(
+        update={
+            "reserved_tokens": 40,
+            "budget_enabled": True,
+            "budget_window_seconds": 3600,
+            "budget_window_started_at": window_started_at,
+        }
+    )
+    budget_key: Final = (account_id, 3600, window_started_at)
+    state: Final = RuntimeState(
+        environments={account_id},
+        leases={active_lease.lease_id: (active_lease.account_id, active_lease.card_id)},
+        sessions={},
+        cooldowns=set(),
+        settled_tokens={budget_key: 7},
+    )
+
+    await _release_lease(connection(state), active_lease, cooldown_seconds=0, actual_tokens=12)
+    await _release_lease(connection(state), active_lease, cooldown_seconds=0, actual_tokens=12)
+
+    assert state.settled_tokens[budget_key] == 19
+
+
+@pytest.mark.asyncio
+async def test_token_budget_uses_active_fixed_window_only() -> None:
+    account_id: Final = uuid4()
+    first_window: Final = datetime(2026, 9, 11, 8, tzinfo=timezone.utc)
+    next_window: Final = datetime(2026, 9, 11, 9, tzinfo=timezone.utc)
+    state: Final = BudgetState(
+        settled_tokens={(account_id, 3600, first_window): 20},
+        reservations=((account_id, 3600, first_window, 30),),
+    )
+
+    exact_limit: Final = await reserve_token_budget(
+        budget_connection(state),
+        account_id,
+        limit=100,
+        window_seconds=3600,
+        requested_tokens=50,
+        now=datetime(2026, 9, 11, 8, 59, 59, tzinfo=timezone.utc),
+    )
+    exhausted: Final = await reserve_token_budget(
+        budget_connection(state),
+        account_id,
+        limit=100,
+        window_seconds=3600,
+        requested_tokens=51,
+        now=datetime(2026, 9, 11, 8, 59, 59, tzinfo=timezone.utc),
+    )
+    reset: Final = await reserve_token_budget(
+        budget_connection(state),
+        account_id,
+        limit=100,
+        window_seconds=3600,
+        requested_tokens=100,
+        now=next_window,
+    )
+
+    assert exact_limit == first_window
+    assert exhausted is None
+    assert reset == next_window

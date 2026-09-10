@@ -9,7 +9,15 @@ import pytest
 from account_pool.card_keys import CardKeyService
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, GatewayEnvironment, utc_now
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
-from account_pool.gateway_contracts import AcquireRequest, Candidate, FinishRequest, Lease, Resolution, ResolveRequest
+from account_pool.gateway_contracts import (
+    AcquireRejected,
+    AcquireRequest,
+    Candidate,
+    FinishRequest,
+    Lease,
+    Resolution,
+    ResolveRequest,
+)
 from account_pool.gateway_service import GatewayService
 from account_pool.policies import AccountPolicy, PolicyUpdate, RoutingPolicy
 from account_pool.result import Success
@@ -23,6 +31,7 @@ class MemoryLeases:
         self.leases: dict[UUID, Lease] = {}
         self.bindings: dict[str, UUID] = {}
         self.cooled: tuple[UUID, ...] = ()
+        self.settled_tokens: dict[UUID, int] = {}
 
     async def sticky(self, binding_hash: str | None) -> UUID | None:
         return self.bindings.get(binding_hash) if binding_hash else None
@@ -33,19 +42,33 @@ class MemoryLeases:
     async def clear_cooldown(self, account_id: UUID) -> None:
         self.cooled = tuple(identifier for identifier in self.cooled if identifier != account_id)
 
-    async def acquire(self, request: AcquireRequest, resolution: Resolution, candidate: Candidate, binding_hash: str | None) -> Lease | None:
+    async def acquire(
+        self,
+        request: AcquireRequest,
+        resolution: Resolution,
+        candidate: Candidate,
+        binding_hash: str | None,
+    ) -> Lease | AcquireRejected:
         if (
             binding_hash
             and binding_hash in self.bindings
             and self.bindings[binding_hash] != candidate.id
             and not request.allow_session_rebind
         ):
-            return None
+            return AcquireRejected(reason="session")
         if len(tuple(item for item in self.leases.values() if item.account_id == candidate.id)) >= candidate.concurrency_limit:
-            return None
+            return AcquireRejected(reason="concurrency")
+        budget: Final = candidate.policy.routing.token_budget_limit
+        reserved: Final = sum(item.reserved_tokens for item in self.leases.values() if item.account_id == candidate.id)
+        if budget is not None and self.settled_tokens.get(candidate.id, 0) + reserved + request.estimated_tokens > budget:
+            return AcquireRejected(reason="token_budget")
         lease: Final = Lease(lease_id=uuid4(), card_id=resolution.card_id, key_id=resolution.key_id,
                              account_id=candidate.id, request_id=request.request_id, channel=candidate.channel,
                              supplier=candidate.supplier, model=request.model, started_at=utc_now(),
+                             reserved_tokens=request.estimated_tokens if budget is not None else 0,
+                             budget_enabled=budget is not None,
+                             budget_window_seconds=candidate.policy.routing.token_budget_window_seconds if budget is not None else None,
+                             budget_window_started_at=utc_now() if budget is not None else None,
                              attempt=request.attempt, routing_reason=request.routing_reason)
         self.leases[lease.lease_id] = lease
         if binding_hash:
@@ -55,8 +78,10 @@ class MemoryLeases:
     async def get(self, lease_id: UUID) -> Lease | None:
         return self.leases.get(lease_id)
 
-    async def release(self, lease: Lease, cooldown_seconds: int) -> None:
+    async def release(self, lease: Lease, cooldown_seconds: int, actual_tokens: int | None) -> None:
         self.leases.pop(lease.lease_id, None)
+        if lease.budget_window_seconds is not None:
+            self.settled_tokens[lease.account_id] = self.settled_tokens.get(lease.account_id, 0) + (actual_tokens or 0)
         if cooldown_seconds:
             self.cooled = (*self.cooled, lease.account_id)
 
@@ -114,6 +139,99 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
     with pytest.raises(HTTPException) as revoked:
         await service.resolve(ResolveRequest(card_key=issued.value.key))
     assert revoked.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_token_budget_reserves_active_requests_and_settles_successful_usage() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(card)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    await policies.save(
+        card.id,
+        PolicyUpdate(
+            version=0,
+            policy=AccountPolicy(routing=RoutingPolicy(token_budget_limit=100, token_budget_window_seconds=3600)),
+        ),
+    )
+    logs: Final = MemoryLogs()
+    leases: Final = MemoryLeases()
+    service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), gateway)
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    candidate: Final = resolution.candidates[0]
+    request: Final = AcquireRequest(
+        card_key=issued.value.key,
+        account_id=card.id,
+        request_id=uuid4(),
+        model="gpt-5",
+        card_version=resolution.card_version,
+        policy_version=resolution.policy_version,
+        account_version=candidate.environment_version,
+        account_policy_version=candidate.policy_version,
+        timeout_seconds=30,
+        estimated_tokens=60,
+        attempt=1,
+    )
+
+    lease: Final = await service.acquire(request)
+    with pytest.raises(HTTPException) as exhausted:
+        await service.acquire(request.model_copy(update={"request_id": uuid4(), "estimated_tokens": 41}))
+    assert exhausted.value.status_code == 409
+    assert exhausted.value.detail == {"reason": "token_budget"}
+
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=200,
+            message="Request completed",
+            endpoint="/v1/responses",
+            input_tokens=20,
+            output_tokens=10,
+        )
+    )
+    assert leases.settled_tokens[card.id] == 30
+    assert (await service.acquire(request.model_copy(update={"request_id": uuid4(), "estimated_tokens": 70}))).reserved_tokens == 70
+
+
+@pytest.mark.asyncio
+async def test_failed_request_releases_token_reservation() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(card)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    await policies.save(
+        card.id,
+        PolicyUpdate(version=0, policy=AccountPolicy(routing=RoutingPolicy(token_budget_limit=50))),
+    )
+    leases: Final = MemoryLeases()
+    service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(MemoryLogs()), gateway)
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    candidate: Final = resolution.candidates[0]
+    request: Final = AcquireRequest(
+        card_key=issued.value.key,
+        account_id=card.id,
+        request_id=uuid4(),
+        model="gpt-5",
+        card_version=resolution.card_version,
+        policy_version=resolution.policy_version,
+        account_version=candidate.environment_version,
+        account_policy_version=candidate.policy_version,
+        timeout_seconds=30,
+        estimated_tokens=50,
+        attempt=1,
+    )
+
+    lease: Final = await service.acquire(request)
+    await service.finish(
+        FinishRequest(lease_id=lease.lease_id, http_status=503, message="Unavailable", endpoint="/v1/responses")
+    )
+
+    assert leases.settled_tokens[card.id] == 0
+    assert (await service.acquire(request.model_copy(update={"request_id": uuid4()}))).reserved_tokens == 50
 
 
 @pytest.mark.asyncio

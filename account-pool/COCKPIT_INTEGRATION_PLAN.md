@@ -73,7 +73,7 @@
 | 账号优先级 | 优先账号、权重、备用账号、固定顺序 | 已有优先账号、账号优先级、随机权重和备用账号排序 | 自定义顺序目前等同于优先账号和优先级组合，尚无独立拖拽顺序字段 |
 | 会话粘性 | 按会话或客户端把请求尽量固定到同一账号 | 已有按卡片 Key、`X-Session-ID` 和模型哈希隔离的持久化绑定及 TTL | 未提供会话绑定数量统计 |
 | 模型策略 | 全局模型排除、账号模型排除、模型别名、Key 模型白名单 | 已有卡片和账号排除、模型别名、真实模型目录及请求校验 | 卡片范围本身承担 Key 的模型可用范围，不另建重复白名单字段 |
-| 配额策略 | 配额不足过滤、额度保留、窗口重置恢复 | 已有剩余比例、保留阈值、快照有效期和冷却过滤 | 尚无请求前 Token 额度预留与请求后结算账本 |
+| 配额策略 | 配额不足过滤、额度保留、窗口重置恢复 | 已有剩余比例、保留阈值、快照有效期和冷却过滤；可选本地 Token 预算会在请求前按估算值原子预留，完成后按真实用量结算，失败和过期租约释放 | 本地预算不把上游百分比配额换算为 Token；真实部署下的窗口切换和并发压力仍需 E2E |
 | 故障处理 | 重试、冷却、备用账号、错误分类和故障切换 | 已有有限重试、连接失败与可重试状态切号、401/403/429 临时冷却、并发回退和流式中断保护；租约和请求日志保存真实尝试序号及重试次数 | 不重放带 `previous_response_id` 的有状态请求；真实上游边界仍需 E2E |
 | 高级传输 | WebSocket、图片策略、超时、调试日志 | 已有图片入口准入和请求超时；卡片 Key WebSocket 明确拒绝；调试开关仅保存 | WebSocket 和调试日志运行时未实现 |
 | 统计 | 账号、模型、Key 维度的请求数、Token、延迟、成本和错误 | 已有卡片、账号和模型筛选的请求数、成功、失败、重试、Token、平均耗时、显式路由原因和上游明确报告的成本 | 未返回可信金额的请求保持成本未知，不按 Token 和公共价格表推算；卡片 Key ID 已写入事件，可通过日志查询 |
@@ -95,7 +95,7 @@
 | 路由 | `routing_strategy` | `auto` | 号池路由配置 | 代理层账号选择器 |
 | 路由排序 | `priority`、`weight`、`is_backup`、`preferred_account_ids` | 优先级 0，权重 1，不是备用 | 路由规则表 | 代理层候选排序 |
 | 会话 | `session_affinity`、`session_affinity_ttl` | 关闭或按部署策略开启，TTL 1 小时 | 路由配置表 | 代理层会话缓存 |
-| 配额 | `quota_reserve`、`reserve_percent`、`snapshot_max_age` | 不保留，快照过期即不参与保留判断 | 账号策略表 | 代理层请求前筛选和额度保留状态 |
+| 配额 | `quota_reserve`、`reserve_percent`、`snapshot_max_age`、`token_budget_limit`、`token_budget_window_seconds` | 上游百分比默认不保留；本地 Token 预算默认关闭，窗口默认 1 小时 | 账号策略表和本地预算账本 | 代理层请求前筛选、原子预留和请求后结算；不伪造上游剩余额度 |
 | 重试 | `retryable_statuses`、`max_attempts`、`backoff` | 只重试明确可重试错误，默认 1 次切换 | 全局策略和账号覆盖 | 代理层请求编排 |
 | 故障切换 | `fallback_enabled`、`fallback_scope` | 开启文本请求的账号切换，关闭不可重试请求切换 | Key 或路由组配置 | 代理层 |
 | 客户端准入 | `codex_cli_only`、`codex_cli_only_allow_app_server`、`codex_cli_only_allow_app_server_clients` | 默认关闭限制 | 账号策略表 | 号池网关根据 User-Agent 和 Originator 判断，已实现 |
@@ -223,7 +223,8 @@ NewAPI 下游用户
 | `account_pool_route_group` | 名称、策略、默认模型、会话设置 | 当一张卡片包含多个账号时定义选择规则 |
 | `account_pool_route_member` | `route_group_id`、`environment_id`、优先级、权重、备用标记、模型覆盖 | 定义账号在卡片或路由组中的位置 |
 | `account_pool_session_binding` | 卡片 Key ID、会话哈希、模型、账号 ID、创建和过期时间 | 保存卡片内部的会话粘性 |
-| `account_pool_quota_state` | 账号 ID、窗口、剩余量、快照时间、保留量 | 支持配额优先和额度保留 |
+| `account_pool_quota_state` | 账号 ID、窗口、剩余量、快照时间、保留量 | 支持上游配额优先和百分比保留 |
+| `account_pool_token_budget_windows` | 账号 ID、固定窗口、已结算 Token；活跃预留保存在租约中 | 支持可选本地 Token 预算的原子预留、失败释放和成功结算 |
 | `account_pool_request_event` | 请求 ID、卡片 Key ID、账号 ID、模型、路由原因、状态、延迟、Token、上游明确报告的成本 | 支持审计和统计；无可信金额时成本为空 |
 | `account_pool_error_log` | 渠道、卡片、账号、请求、阶段、时间、错误分类、上游状态、是否重试、是否切号、脱敏详情 | 记录可查询的结构化错误日志 |
 
@@ -456,6 +457,7 @@ AccountPolicy
 - 实现会话粘性、TTL、账号冷却、并发占用和故障切换
 - 只对明确可重试的错误切换账号，避免重复提交不可重试请求
 - 记录卡片 Key、账号、模型、路由原因、状态、延迟、Token 和上游明确报告的成本；没有可信金额时保持未知
+- 可选本地 Token 预算按账号和固定窗口执行；请求前估算并预留，成功按真实输入与输出 Token 结算，失败和租约过期释放预留
 - 记录每次错误的渠道、卡片、账号、时间、阶段、错误分类、上游码、重试和切号结果
 - 完成 `/v1/responses/compact` 的端到端验证
 

@@ -47,6 +47,7 @@ RoutingReason = Literal[
     "custom_order",
     "backup_account",
     "concurrency_fallback",
+    "token_budget_fallback",
     "retry_failover",
 ]
 
@@ -135,6 +136,8 @@ class RoutingPolicy(BaseModel):
     session_affinity_ttl: int = Field(default=3600, ge=60, le=86400)
     quota_reserve_percent: int = Field(default=0, ge=0, le=100)
     quota_snapshot_max_age: int = Field(default=300, ge=10, le=86400)
+    token_budget_limit: int | None = Field(default=None, ge=1, le=1000000000000)
+    token_budget_window_seconds: int = Field(default=3600, ge=60, le=2592000)
     max_attempts: int = Field(default=1, ge=1, le=5)
     retryable_statuses: tuple[int, ...] = (429, 502, 503, 504)
     backoff_ms: int = Field(default=1000, ge=0, le=60000)
