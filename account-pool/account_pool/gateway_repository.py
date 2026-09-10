@@ -22,8 +22,13 @@ _SCHEMA: Final = (
     )""",
     "CREATE INDEX IF NOT EXISTS account_pool_leases_account_idx ON account_pool_leases (account_id, expires_at)",
     """CREATE TABLE IF NOT EXISTS account_pool_sessions (
-        binding_hash text PRIMARY KEY, account_id uuid NOT NULL, expires_at timestamptz NOT NULL
+        binding_hash text PRIMARY KEY, card_id uuid NOT NULL, account_id uuid NOT NULL, expires_at timestamptz NOT NULL
     )""",
+    "ALTER TABLE account_pool_sessions ADD COLUMN IF NOT EXISTS card_id uuid",
+    # 旧会话无法从单向绑定摘要恢复卡片归属，升级时丢弃短期粘性，避免删除卡片后遗留绑定。
+    "DELETE FROM account_pool_sessions WHERE card_id IS NULL",
+    "ALTER TABLE account_pool_sessions ALTER COLUMN card_id SET NOT NULL",
+    "CREATE INDEX IF NOT EXISTS account_pool_sessions_card_idx ON account_pool_sessions (card_id)",
     """CREATE TABLE IF NOT EXISTS account_pool_runtime_cooldown (
         account_id uuid PRIMARY KEY, expires_at timestamptz NOT NULL
     )""",
@@ -160,11 +165,12 @@ class PostgresLeaseRepository:
             )
             if binding_hash is not None:
                 await connection.execute(
-                    "INSERT INTO account_pool_sessions VALUES (%s, %s, %s) "
-                    "ON CONFLICT (binding_hash) DO UPDATE SET account_id = EXCLUDED.account_id, "
-                    "expires_at = EXCLUDED.expires_at",
+                    "INSERT INTO account_pool_sessions (binding_hash, card_id, account_id, expires_at) "
+                    "VALUES (%s, %s, %s, %s) ON CONFLICT (binding_hash) DO UPDATE SET "
+                    "card_id = EXCLUDED.card_id, account_id = EXCLUDED.account_id, expires_at = EXCLUDED.expires_at",
                     (
                         binding_hash,
+                        resolution.card_id,
                         candidate.id,
                         now + timedelta(seconds=resolution.policy.routing.session_affinity_ttl),
                     ),
@@ -186,14 +192,27 @@ class PostgresLeaseRepository:
 
     async def release(self, lease: Lease, cooldown_seconds: int) -> None:
         async with database_connection(self._database_url) as connection:
-            await connection.execute("DELETE FROM account_pool_leases WHERE lease_id = %s", (lease.lease_id,))
-            if cooldown_seconds:
-                await connection.execute(
-                    "INSERT INTO account_pool_runtime_cooldown VALUES (%s, %s) "
-                    "ON CONFLICT (account_id) DO UPDATE SET expires_at = GREATEST("
-                    "account_pool_runtime_cooldown.expires_at, EXCLUDED.expires_at)",
-                    (lease.account_id, utc_now() + timedelta(seconds=cooldown_seconds)),
-                )
+            await _release_lease(connection, lease, cooldown_seconds)
+
+
+async def _release_lease(
+    connection: psycopg.AsyncConnection[Mapping[str, object]],
+    lease: Lease,
+    cooldown_seconds: int,
+) -> None:
+    environment: Final = await connection.execute(
+        "SELECT id FROM account_pool_environments WHERE id = %s FOR UPDATE",
+        (lease.account_id,),
+    )
+    environment_row: Final = await environment.fetchone()
+    await connection.execute("DELETE FROM account_pool_leases WHERE lease_id = %s", (lease.lease_id,))
+    if cooldown_seconds and environment_row is not None:
+        await connection.execute(
+            "INSERT INTO account_pool_runtime_cooldown VALUES (%s, %s) "
+            "ON CONFLICT (account_id) DO UPDATE SET expires_at = GREATEST("
+            "account_pool_runtime_cooldown.expires_at, EXCLUDED.expires_at)",
+            (lease.account_id, utc_now() + timedelta(seconds=cooldown_seconds)),
+        )
 
 
 async def lock_version(

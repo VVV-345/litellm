@@ -10,6 +10,7 @@ from uuid import UUID
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
 from account_pool.domain import EnvironmentRecord, ProxyProfile
@@ -40,7 +41,10 @@ _CREATE_SCHEMA: Final = (
 
 @asynccontextmanager
 async def database_connection(database_url: str) -> AsyncGenerator[psycopg.AsyncConnection[Mapping[str, object]], None]:
-    connection: Final = await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row)
+    connection: Final = await psycopg.AsyncConnection[Mapping[str, object]].connect(
+        database_url,
+        row_factory=dict_row,
+    )
     async with connection:
         yield connection
 
@@ -106,7 +110,7 @@ class PostgresEnvironmentRepository:
                 """,
                 (
                     record.id,
-                    psycopg.types.json.Jsonb(payload),
+                    Jsonb(payload),
                     record.oauth_state,
                     record.oauth_state_consumed_at,
                     record.updated_at,
@@ -116,10 +120,7 @@ class PostgresEnvironmentRepository:
 
     async def delete(self, environment_id: UUID) -> None:
         async with database_connection(self._database_url) as connection:
-            await connection.execute(
-                "DELETE FROM account_pool_environments WHERE id = %s",
-                (environment_id,),
-            )
+            await _delete_environment(connection, environment_id)
 
     async def save_if_version(
         self,
@@ -138,7 +139,7 @@ class PostgresEnvironmentRepository:
                 WHERE id = %s AND COALESCE((payload->>'version')::integer, 0) = %s
                 """,
                 (
-                    psycopg.types.json.Jsonb(payload),
+                    Jsonb(payload),
                     record.oauth_state,
                     record.oauth_state_consumed_at,
                     record.updated_at,
@@ -182,6 +183,31 @@ class PostgresEnvironmentRepository:
             )
             row: Final = await cursor.fetchone()
         return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+
+
+async def _delete_environment(
+    connection: psycopg.AsyncConnection[Mapping[str, object]],
+    environment_id: UUID,
+) -> None:
+    environment: Final = await connection.execute(
+        "SELECT id FROM account_pool_environments WHERE id = %s FOR UPDATE",
+        (environment_id,),
+    )
+    if await environment.fetchone() is None:
+        return
+    await connection.execute(
+        "DELETE FROM account_pool_leases WHERE account_id = %s OR payload->>'card_id' = %s",
+        (environment_id, str(environment_id)),
+    )
+    await connection.execute(
+        "DELETE FROM account_pool_sessions WHERE account_id = %s OR card_id = %s",
+        (environment_id, environment_id),
+    )
+    await connection.execute(
+        "DELETE FROM account_pool_runtime_cooldown WHERE account_id = %s",
+        (environment_id,),
+    )
+    await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (environment_id,))
 
 
 class PostgresProxyProfileRepository:
