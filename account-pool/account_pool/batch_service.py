@@ -8,7 +8,7 @@ from uuid import UUID
 
 from account_pool.batch_models import BatchClaim, BatchJob, BatchRequest
 from account_pool.batch_repository import BatchRepository
-from account_pool.domain import UpdateEnvironmentRequest, configuration_from_record, utc_now
+from account_pool.domain import EnvironmentStatus, UpdateEnvironmentRequest, configuration_from_record, utc_now
 from account_pool.error_logs import ErrorLogService
 from account_pool.gateway_repository import CooldownRepository
 from account_pool.policies import PolicyRepository, PolicyUpdate, policy_validation_error
@@ -71,7 +71,26 @@ class BatchService:
     async def _run_claim(self, claim: BatchClaim) -> Result[str]:
         record: Final = await self.environments.get(claim.target.account_id)
         if record is None:
-            return Failure(FailureCode.NOT_FOUND, "Account no longer exists")
+            return (
+                Success("Account already deleted")
+                if claim.request.action == "delete"
+                else Failure(FailureCode.NOT_FOUND, "Account no longer exists")
+            )
+        operation_id: Final = f"batch:{claim.request.job_id}:{record.id}"
+        if claim.request.action == "delete":
+            owns_cleanup: Final = record.status is EnvironmentStatus.DELETING and record.operation_id == operation_id
+            if record.version != claim.target.version and not owns_cleanup:
+                return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
+            # 删除失败后环境保留原操作 ID，新任务沿用它才能继续清理而不会与自己冲突。
+            deletion_operation_id: Final = (
+                record.operation_id if record.status is EnvironmentStatus.DELETING and record.operation_id else operation_id
+            )
+            delete_result: Final = await self.service.delete_environment(record.id, deletion_operation_id)
+            return (
+                Success("Account deleted")
+                if isinstance(delete_result, Success)
+                else Failure(delete_result.code, delete_result.message)
+            )
         if claim.request.action == "refresh":
             if record.version != claim.target.version and claim.attempts == 1:
                 return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
@@ -102,7 +121,6 @@ class BatchService:
                 else Failure(FailureCode.CONFLICT, "Policy changed after submission")
             )
         configuration: Final = configuration_from_record(record)
-        operation_id: Final = f"batch:{claim.request.job_id}:{record.id}"
         if record.version != claim.target.version and record.operation_id != operation_id:
             return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
         update: Final = UpdateEnvironmentRequest(

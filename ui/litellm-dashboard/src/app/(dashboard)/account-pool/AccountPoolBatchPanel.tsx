@@ -8,6 +8,15 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
@@ -20,7 +29,7 @@ import {
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY } from "./useAccountPoolQuery";
 
-const ACTIONS: readonly BatchAction[] = ["refresh", "enable", "disable", "cooldown", "release", "policy"];
+const ACTIONS: readonly BatchAction[] = ["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"];
 
 const hasPendingBatch = (jobs: Awaited<ReturnType<typeof listAccountPoolBatches>> | undefined) =>
   jobs?.some((job) => job.items.some((item) => item.status === "queued" || item.status === "running")) ?? false;
@@ -39,6 +48,7 @@ export function AccountPoolBatchPanel({
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [action, setAction] = useState<BatchAction>("refresh");
   const [policyTemplateId, setPolicyTemplateId] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const jobsQuery = {
     queryKey: ["account-pool", "batches", accessToken],
     queryFn: () => listAccountPoolBatches(accessToken),
@@ -58,14 +68,14 @@ export function AccountPoolBatchPanel({
   const completedJobSignature = completedJobs
     .map((job) => `${job.job_id}:${job.items.map((item) => `${item.account_id}:${item.status}`).join(",")}`)
     .join("|");
-  const hasCompletedPolicyJob = completedJobs.some((job) => job.action === "policy");
+  const hasCompletedPolicyChange = completedJobs.some((job) => job.action === "policy" || job.action === "delete");
   useEffect(() => {
     if (!completedJobSignature) return;
     void queryClient.invalidateQueries({ queryKey: ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY });
-    if (hasCompletedPolicyJob) {
+    if (hasCompletedPolicyChange) {
       void queryClient.invalidateQueries({ queryKey: ["account-pool", "policies", accessToken] });
     }
-  }, [accessToken, completedJobSignature, hasCompletedPolicyJob, queryClient]);
+  }, [accessToken, completedJobSignature, hasCompletedPolicyChange, queryClient]);
   const targets = useMemo(
     () =>
       environments
@@ -82,6 +92,7 @@ export function AccountPoolBatchPanel({
     mutationFn: () => submitAccountPoolBatch(accessToken, action, targets, action === "policy" ? selectedPolicy : null),
     onSuccess: () => {
       toast.success(t("accountPool.batch.submitted"));
+      setConfirmDeleteOpen(false);
       setSelected(new Set());
       void jobs.refetch();
     },
@@ -90,6 +101,13 @@ export function AccountPoolBatchPanel({
   const allSelected = environments.length > 0 && selected.size === environments.length;
   const policyTemplateRequired = action === "policy" && selectedPolicy === null;
   const submitDisabled = targets.length === 0 || mutation.isPending || policyTemplateRequired;
+  const submit = () => {
+    if (action === "delete") {
+      setConfirmDeleteOpen(true);
+      return;
+    }
+    mutation.mutate();
+  };
   const toggle = (id: string, checked: boolean) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -136,7 +154,7 @@ export function AccountPoolBatchPanel({
               </SelectContent>
             </Select>
           )}
-          <Button disabled={submitDisabled} onClick={() => mutation.mutate()}>
+          <Button variant={action === "delete" ? "destructive" : "default"} disabled={submitDisabled} onClick={submit}>
             {mutation.isPending
               ? t("accountPool.batch.submitting")
               : t("accountPool.batch.submit", { count: targets.length })}
@@ -191,6 +209,27 @@ export function AccountPoolBatchPanel({
           </div>
         );
       })}
+      <AlertDialog
+        open={confirmDeleteOpen}
+        onOpenChange={(open) => {
+          if (!open && !mutation.isPending) setConfirmDeleteOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("accountPool.batch.confirmDeleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("accountPool.batch.confirmDeleteDescription", { count: targets.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutation.isPending}>{t("accountPool.cancel")}</AlertDialogCancel>
+            <Button variant="destructive" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+              {mutation.isPending ? t("accountPool.batch.submitting") : t("accountPool.batch.confirmDelete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

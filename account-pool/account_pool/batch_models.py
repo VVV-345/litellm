@@ -9,7 +9,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from account_pool.policies import AccountPolicy
 
-BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy"]
+BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"]
 
 
 class BatchTarget(BaseModel):

@@ -44,6 +44,7 @@ class UpdatingService:
         self.environments: Final = environments
         self.requests: tuple[UpdateEnvironmentRequest, ...] = ()
         self.refreshes: tuple[UUID, ...] = ()
+        self.deletions: tuple[tuple[UUID, str | None], ...] = ()
 
     async def get_environment(self, environment_id: UUID) -> Success[UUID]:
         return Success(environment_id)
@@ -59,6 +60,11 @@ class UpdatingService:
     ) -> Success[UUID]:
         self.requests = (*self.requests, request)
         return Success(environment_id)
+
+    async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Success[None]:
+        self.deletions = (*self.deletions, (environment_id, operation_id))
+        await self.environments.delete(environment_id)
+        return Success(None)
 
 
 class MemoryCooldowns:
@@ -121,6 +127,105 @@ async def test_reclaimed_refresh_retries_after_the_account_version_changes() -> 
     assert await service.run_once()
     assert batches.finished == (True, "Account refreshed")
     assert updater.refreshes == (record.id,)
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_uses_version_snapshot_and_idempotency_key() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    request: Final = BatchRequest(
+        job_id=uuid4(), action="delete", targets=(BatchTarget(account_id=record.id, version=record.version),)
+    )
+    batches: Final = MemoryBatches(BatchClaim(request=request, target=request.targets[0], token=uuid4()))
+    environments: Final = MemoryRepository(record)
+    updater: Final = UpdatingService(environments)
+    service: Final = BatchService(batches, environments, updater, MemoryPolicies(), ErrorLogService(MemoryLogs()))
+
+    assert await service.run_once()
+    assert batches.finished == (True, "Account deleted")
+    assert updater.deletions == ((record.id, f"batch:{request.job_id}:{record.id}"),)
+    assert await environments.get(record.id) is None
+
+
+@pytest.mark.asyncio
+async def test_batch_delete_rejects_an_account_changed_after_submission() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"version": 2})
+    request: Final = BatchRequest(
+        job_id=uuid4(), action="delete", targets=(BatchTarget(account_id=record.id, version=1),)
+    )
+    batches: Final = MemoryBatches(BatchClaim(request=request, target=request.targets[0], token=uuid4()))
+    environments: Final = MemoryRepository(record)
+    updater: Final = UpdatingService(environments)
+    service: Final = BatchService(batches, environments, updater, MemoryPolicies(), ErrorLogService(MemoryLogs()))
+
+    assert await service.run_once()
+    assert batches.finished == (False, "Account changed after the batch was submitted")
+    assert updater.deletions == ()
+    assert await environments.get(record.id) == record
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_batch_delete_continues_its_own_cleanup() -> None:
+    base: Final = _record(status=EnvironmentStatus.READY)
+    request: Final = BatchRequest(
+        job_id=uuid4(), action="delete", targets=(BatchTarget(account_id=base.id, version=base.version),)
+    )
+    operation_id: Final = f"batch:{request.job_id}:{base.id}"
+    record: Final = base.model_copy(
+        update={"version": base.version + 1, "status": EnvironmentStatus.DELETING, "operation_id": operation_id}
+    )
+    batches: Final = MemoryBatches(
+        BatchClaim(request=request, target=request.targets[0], token=uuid4(), attempts=2)
+    )
+    environments: Final = MemoryRepository(record)
+    updater: Final = UpdatingService(environments)
+    service: Final = BatchService(batches, environments, updater, MemoryPolicies(), ErrorLogService(MemoryLogs()))
+
+    assert await service.run_once()
+    assert batches.finished == (True, "Account deleted")
+    assert updater.deletions == ((record.id, operation_id),)
+
+
+@pytest.mark.asyncio
+async def test_new_batch_delete_continues_an_existing_cleanup_operation() -> None:
+    base: Final = _record(status=EnvironmentStatus.READY)
+    existing_operation_id: Final = "existing-delete-operation"
+    record: Final = base.model_copy(
+        update={
+            "version": base.version + 1,
+            "status": EnvironmentStatus.DELETING,
+            "operation_id": existing_operation_id,
+        }
+    )
+    request: Final = BatchRequest(
+        job_id=uuid4(), action="delete", targets=(BatchTarget(account_id=record.id, version=record.version),)
+    )
+    batches: Final = MemoryBatches(BatchClaim(request=request, target=request.targets[0], token=uuid4()))
+    environments: Final = MemoryRepository(record)
+    updater: Final = UpdatingService(environments)
+    service: Final = BatchService(batches, environments, updater, MemoryPolicies(), ErrorLogService(MemoryLogs()))
+
+    assert await service.run_once()
+    assert batches.finished == (True, "Account deleted")
+    assert updater.deletions == ((record.id, existing_operation_id),)
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_batch_delete_succeeds_after_account_was_removed() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    request: Final = BatchRequest(
+        job_id=uuid4(), action="delete", targets=(BatchTarget(account_id=record.id, version=record.version),)
+    )
+    batches: Final = MemoryBatches(
+        BatchClaim(request=request, target=request.targets[0], token=uuid4(), attempts=2)
+    )
+    environments: Final = MemoryRepository(record)
+    await environments.delete(record.id)
+    updater: Final = UpdatingService(environments)
+    service: Final = BatchService(batches, environments, updater, MemoryPolicies(), ErrorLogService(MemoryLogs()))
+
+    assert await service.run_once()
+    assert batches.finished == (True, "Account already deleted")
+    assert updater.deletions == ()
 
 
 @pytest.mark.asyncio

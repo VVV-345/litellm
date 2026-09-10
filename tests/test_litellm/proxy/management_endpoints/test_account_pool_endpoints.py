@@ -313,6 +313,56 @@ def test_proxy_admin_can_reauthorize_environment_from_manager_response() -> None
     assert response.json()["authorization_url"] == "https://example.com/oauth"
 
 
+def test_proxy_admin_can_submit_a_delete_batch() -> None:
+    forwarded: dict[str, object] = {}
+    job_id: Final = uuid4()
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/batches" and request.method == "POST":
+                forwarded.update(json.loads(request.content))
+                return httpx.Response(
+                    202,
+                    json={
+                        "job_id": str(job_id),
+                        "action": "delete",
+                        "created_at": "2026-09-10T00:00:00Z",
+                        "items": [
+                            {
+                                "account_id": str(_ENVIRONMENT_ID),
+                                "status": "queued",
+                                "attempts": 0,
+                                "message": None,
+                                "finished_at": None,
+                            }
+                        ],
+                    },
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+    payload: Final = {
+        "job_id": str(job_id),
+        "action": "delete",
+        "targets": [{"account_id": str(_ENVIRONMENT_ID), "version": 3, "policy_version": 0}],
+        "policy": None,
+    }
+
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/batches", json=payload)
+
+    assert response.status_code == 202
+    assert response.json()["action"] == "delete"
+    assert forwarded == payload
+
+
 def test_proxy_admin_viewer_cannot_read_or_manage_account_pool() -> None:
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY), _manager_factory)
 

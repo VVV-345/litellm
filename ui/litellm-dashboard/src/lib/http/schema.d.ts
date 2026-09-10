@@ -24072,7 +24072,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy";
+            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
             /**
              * Created At
              * Format: date-time
@@ -24092,7 +24092,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy";
+            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
             /**
              * Job Id
              * Format: uuid

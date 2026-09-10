@@ -170,11 +170,11 @@ describe("AccountPoolBatchPanel", () => {
     );
   });
 
-  it("refreshes policy versions after a policy batch finishes", async () => {
+  it.each(["policy", "delete"] as const)("refreshes policy data after a completed %s batch", async (action) => {
     listBatches.mockResolvedValue([
       {
         ...submittedBatch,
-        action: "policy",
+        action,
         items: [
           {
             account_id: environment.id,
@@ -193,6 +193,31 @@ describe("AccountPoolBatchPanel", () => {
 
     await waitFor(() =>
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "policies", "token"] }),
+    );
+  });
+
+  it("requires confirmation before submitting a delete batch", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByText("Primary account"));
+    await user.click(screen.getByText("Secondary account"));
+    await user.click(screen.getByRole("combobox", { name: /批量动作|Bulk action/i }));
+    await user.click(await screen.findByRole("option", { name: /删除账号|Delete accounts/i }));
+    await user.click(screen.getByRole("button", { name: /执行 2 个账号|Run for 2 accounts/i }));
+
+    expect(submitBatch).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(/2 个账号|2 accounts/i);
+
+    await user.click(screen.getByRole("button", { name: /确认删除|Delete selected accounts/i }));
+
+    await waitFor(() =>
+      expect(submitBatch).toHaveBeenCalledWith(
+        "token",
+        "delete",
+        [expectedPrimaryTarget, expectedSecondaryTarget],
+        null,
+      ),
     );
   });
 });

@@ -5619,13 +5619,17 @@
       "policyTemplate": "策略模板",
       "selectPolicyTemplate": "选择策略模板账号",
       "policyTemplateOption": "{{name}}（版本 {{version}}）",
+      "confirmDeleteTitle": "确认批量删除账号",
+      "confirmDeleteDescription": "确认删除选中的 {{count}} 个账号吗？这会清理对应容器、网络、认证目录、卡片 Key 和网关路由，且无法恢复。",
+      "confirmDelete": "确认删除",
       "actions": {
         "refresh": "刷新账号和配额",
         "enable": "启用账号",
         "disable": "停用账号",
         "cooldown": "进入人工冷却",
         "release": "解除人工冷却",
-        "policy": "更新策略"
+        "policy": "更新策略",
+        "delete": "删除账号"
       }
     },
     "stats": {

@@ -5619,13 +5619,17 @@
       "policyTemplate": "Policy template",
       "selectPolicyTemplate": "Select a policy template account",
       "policyTemplateOption": "{{name}} (version {{version}})",
+      "confirmDeleteTitle": "Delete selected accounts?",
+      "confirmDeleteDescription": "Delete the {{count}} selected accounts? This removes their containers, networks, authorization data, card keys, and gateway routes. This cannot be undone.",
+      "confirmDelete": "Delete selected accounts",
       "actions": {
         "refresh": "Refresh accounts and quota",
         "enable": "Enable accounts",
         "disable": "Disable accounts",
         "cooldown": "Start manual cooldown",
         "release": "Release manual cooldown",
-        "policy": "Update policy"
+        "policy": "Update policy",
+        "delete": "Delete accounts"
       }
     },
     "stats": {

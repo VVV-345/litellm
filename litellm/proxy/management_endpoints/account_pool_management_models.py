@@ -36,7 +36,7 @@ ErrorCategory = Literal[
     "unknown",
 ]
 
-BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy"]
+BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"]
 
 
 class BatchTarget(BaseModel):
