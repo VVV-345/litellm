@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18n from "@/i18n";
 
 import AgentsTable from "./AgentsTable";
 import { Agent } from "@/components/agents/types";
@@ -26,6 +27,9 @@ const makeAgent = (overrides: Partial<Agent> = {}): Agent => ({
 });
 
 describe("AgentsTable", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
   it("renders every column header", () => {
     render(<AgentsTable agents={[]} {...baseProps} />);
     for (const header of ["Agent Name", "Agent ID", "Spend (USD)", "Model", "Created", "Status"]) {

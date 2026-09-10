@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/../tests/test-utils";
+import i18n from "@/i18n";
 import AgentCardDiscovery from "./agent_card_discovery";
 
 vi.mock("@/components/networking", async () => {
@@ -42,7 +43,8 @@ const sampleCard = {
 };
 
 describe("AgentCardDiscovery", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockDiscover.mockReset();
   });

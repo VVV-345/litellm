@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import AgentInfoView from "./agent_info";
 import * as networking from "@/components/networking";
 import type { Agent } from "@/components/agents/types";
+import i18n from "@/i18n";
 
 vi.mock("@/components/networking", () => ({
   getAgentInfo: vi.fn(),
@@ -40,7 +41,8 @@ const agent = {
 } as unknown as Agent;
 
 describe("AgentInfoView settings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.mocked(networking.getAgentInfo).mockReset().mockResolvedValue(agent);
     vi.mocked(networking.getAgentCreateMetadata).mockReset().mockResolvedValue([]);
     vi.mocked(networking.patchAgentCall).mockReset().mockResolvedValue({});

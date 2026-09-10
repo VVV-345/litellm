@@ -65,6 +65,8 @@
     "closeManually": "如果窗口未自动关闭，授权结果仍已保存。你可以手动关闭此窗口。"
   },
   "ui": {
+    "Paste the upstream agent's base URL. We'll try /.well-known/agent-card.json, /.well-known/agent.json, and /agent.json in order.": "粘贴上游智能体的基础 URL。系统会依次尝试 /.well-known/agent-card.json、/.well-known/agent.json 和 /agent.json。",
+    "https://upstream-agent.example.com": "https://upstream-agent.example.com",
     "Added users to {{count}} team(s) ({{total}} total additions)": "已将用户加入 {{count}} 个团队，共 {{total}} 人次",
     "Bulk Edit {{count}} User(s)": "批量编辑 {{count}} 个用户",
     "Cap this user's spend on individual models, each with its own reset window. Applies across every key the user holds.": "限制此用户在单个模型上的消费，每个模型可单独设置重置周期。适用于该用户持有的所有密钥。",
@@ -5536,7 +5538,14 @@
     "Error fetching tags": "获取标签失败",
     "Cap spend on individual models, each with its own reset window. Enforced across every request this key makes.": "限制单个模型的花费，每个模型都有自己的重置周期。此限制会应用到该密钥的每一次请求。",
     "Model TPM Limits": "模型 TPM 限制",
-    "Model RPM Limits": "模型 RPM 限制"
+    "Model RPM Limits": "模型 RPM 限制",
+    "Agent creation steps": "智能体创建步骤",
+    "Failed to create agent: {{errorMessage}}": "创建智能体失败：{{errorMessage}}",
+    "GENERIC": "通用",
+    "Please enter {{field}}": "请输入{{field}}",
+    "Remove static header": "移除静态请求头",
+    "Skill {{count}}": "技能 {{count}}",
+    "No matching options": "没有匹配项"
   },
   "accountPool": {
     "title": "号池",

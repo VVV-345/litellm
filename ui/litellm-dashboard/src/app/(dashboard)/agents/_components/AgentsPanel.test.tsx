@@ -2,6 +2,7 @@ import React from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18n from "@/i18n";
 import AgentsPanel from "./AgentsPanel";
 import * as networking from "@/components/networking";
 
@@ -19,7 +20,8 @@ vi.mock("./agent_info", () => ({
 }));
 
 describe("AgentsPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     // mockReset (not mockClear) so an unconsumed *Once queue cannot leak into the next test
     vi.mocked(networking.getAgentsList).mockReset().mockResolvedValue({ agents: [] });
     vi.mocked(networking.deleteAgentCall).mockReset().mockResolvedValue({});

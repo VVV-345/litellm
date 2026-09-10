@@ -65,6 +65,8 @@
     "closeManually": "If the window does not close automatically, everything is still saved. You can close it manually."
   },
   "ui": {
+    "Paste the upstream agent's base URL. We'll try /.well-known/agent-card.json, /.well-known/agent.json, and /agent.json in order.": "Paste the upstream agent's base URL. We'll try /.well-known/agent-card.json, /.well-known/agent.json, and /agent.json in order.",
+    "https://upstream-agent.example.com": "https://upstream-agent.example.com",
     "Added users to {{count}} team(s) ({{total}} total additions)": "Added users to {{count}} team(s) ({{total}} total additions)",
     "Bulk Edit {{count}} User(s)": "Bulk Edit {{count}} User(s)",
     "Cap this user's spend on individual models, each with its own reset window. Applies across every key the user holds.": "Cap this user's spend on individual models, each with its own reset window. Applies across every key the user holds.",
@@ -5536,7 +5538,14 @@
     "Error fetching tags": "Error fetching tags",
     "Cap spend on individual models, each with its own reset window. Enforced across every request this key makes.": "Cap spend on individual models, each with its own reset window. Enforced across every request this key makes.",
     "Model TPM Limits": "Model TPM Limits",
-    "Model RPM Limits": "Model RPM Limits"
+    "Model RPM Limits": "Model RPM Limits",
+    "Agent creation steps": "Agent creation steps",
+    "Failed to create agent: {{errorMessage}}": "Failed to create agent: {{errorMessage}}",
+    "GENERIC": "GENERIC",
+    "Please enter {{field}}": "Please enter {{field}}",
+    "Remove static header": "Remove static header",
+    "Skill {{count}}": "Skill {{count}}",
+    "No matching options": "No matching options"
   },
   "accountPool": {
     "title": "Account Pool",

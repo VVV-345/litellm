@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { cx } from "@/lib/cva.config";
 import { FormProvider, useForm, useWatch } from "react-hook-form";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ const DetailItem: React.FC<{ label: React.ReactNode; children: React.ReactNode }
 );
 
 const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessToken, isAdmin }) => {
+  const { t } = useTranslation();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [selectedKey, setSelectedKey] = useState<KeyResponse | null>(null);
   const { data: keysData, isLoading: keysLoading, refetch: refetchAgentKeys } = useKeys(1, 100, { agentID: agentId });
@@ -118,7 +120,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
       }
     } catch (error) {
       console.error("Error fetching agent info:", error);
-      toast.error("Failed to load agent information");
+      toast.error(t("ui.Failed to load agent information"));
     } finally {
       setIsLoading(false);
     }
@@ -200,12 +202,12 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
         : built;
 
       await patchAgentCall(accessToken, agentId, updateData);
-      toast.success("Agent updated successfully");
+      toast.success(t("ui.Agent updated successfully"));
       setIsEditing(false);
       fetchAgentInfo();
     } catch (error) {
       console.error("Error updating agent:", error);
-      toast.error("Failed to update agent");
+      toast.error(t("ui.Failed to update agent"));
     } finally {
       setIsSaving(false);
     }
@@ -224,7 +226,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
   if (!agent) {
     return (
       <div className="p-4">
-        <div className="text-center">Agent not found</div>
+        <div className="text-center">{t("ui.Agent not found")}</div>
         <Button onClick={onClose} className="mt-4">
           Back to Agents List
         </Button>
@@ -248,7 +250,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
           onChange={onChange}
           inputRef={ref}
           min={0}
-          placeholder="Unlimited"
+          placeholder={t("ui.Unlimited")}
         />
       )}
     </AgentFormField>
@@ -265,7 +267,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
           refetchAgentKeys();
         }}
         teams={null}
-        backButtonText="Back to Agent"
+        backButtonText={t("ui.Back to Agent")}
       />
     );
   }
@@ -277,7 +279,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
           <ArrowLeft className="size-4" />
           Back to Agents
         </Button>
-        <h1 className="text-2xl font-semibold">{agent.agent_name || "Unnamed Agent"}</h1>
+        <h1 className="text-2xl font-semibold">{agent.agent_name || t("ui.Unnamed Agent")}</h1>
         <p className="text-sm text-muted-foreground font-mono">{agent.agent_id}</p>
       </div>
 
@@ -297,39 +299,47 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
           {/* Overview Panel */}
           <TabsContent value="overview" keepMounted>
             <DetailList>
-              <DetailItem label="Agent ID">{agent.agent_id}</DetailItem>
-              <DetailItem label="Agent Name">{agent.agent_name}</DetailItem>
-              <DetailItem label="Display Name">{agent.agent_card_params?.name || "-"}</DetailItem>
-              <DetailItem label="Description">{agent.agent_card_params?.description || "-"}</DetailItem>
-              <DetailItem label="URL">{agent.agent_card_params?.url || "-"}</DetailItem>
-              <DetailItem label="Version">{agent.agent_card_params?.version || "-"}</DetailItem>
-              <DetailItem label="Protocol Version">{agent.agent_card_params?.protocolVersion || "-"}</DetailItem>
-              <DetailItem label="Streaming">
-                {agent.agent_card_params?.capabilities?.streaming ? "Yes" : "No"}
+              <DetailItem label={t("ui.Agent ID")}>{agent.agent_id}</DetailItem>
+              <DetailItem label={t("ui.Agent Name")}>{agent.agent_name}</DetailItem>
+              <DetailItem label={t("ui.Display Name")}>{agent.agent_card_params?.name || "-"}</DetailItem>
+              <DetailItem label={t("ui.Description")}>{agent.agent_card_params?.description || "-"}</DetailItem>
+              <DetailItem label={t("ui.URL")}>{agent.agent_card_params?.url || "-"}</DetailItem>
+              <DetailItem label={t("ui.Version")}>{agent.agent_card_params?.version || "-"}</DetailItem>
+              <DetailItem label={t("ui.Protocol Version")}>
+                {agent.agent_card_params?.protocolVersion || "-"}
+              </DetailItem>
+              <DetailItem label={t("ui.Streaming")}>
+                {agent.agent_card_params?.capabilities?.streaming ? t("ui.Yes") : t("ui.No")}
               </DetailItem>
               {agent.agent_card_params?.capabilities?.pushNotifications && (
-                <DetailItem label="Push Notifications">Yes</DetailItem>
+                <DetailItem label={t("ui.Push Notifications")}>{t("ui.Yes")}</DetailItem>
               )}
               {agent.agent_card_params?.capabilities?.stateTransitionHistory && (
-                <DetailItem label="State Transition History">Yes</DetailItem>
+                <DetailItem label={t("ui.State Transition History")}>{t("ui.Yes")}</DetailItem>
               )}
-              <DetailItem label="Skills">{agent.agent_card_params?.skills?.length || 0} configured</DetailItem>
-              {agent.litellm_params?.model && <DetailItem label="Model">{agent.litellm_params.model}</DetailItem>}
+              <DetailItem label={t("ui.Skills")}>
+                {agent.agent_card_params?.skills?.length || 0} {t("ui.configured")}
+              </DetailItem>
+              {agent.litellm_params?.model && (
+                <DetailItem label={t("ui.Model")}>{agent.litellm_params.model}</DetailItem>
+              )}
               {agent.litellm_params?.make_public !== undefined && (
-                <DetailItem label="Make Public">{agent.litellm_params.make_public ? "Yes" : "No"}</DetailItem>
+                <DetailItem label={t("ui.Make Public")}>
+                  {agent.litellm_params.make_public ? t("ui.Yes") : t("ui.No")}
+                </DetailItem>
               )}
               {agent.agent_card_params?.iconUrl && (
-                <DetailItem label="Icon URL">{agent.agent_card_params.iconUrl}</DetailItem>
+                <DetailItem label={t("ui.Icon URL")}>{agent.agent_card_params.iconUrl}</DetailItem>
               )}
               {agent.agent_card_params?.documentationUrl && (
-                <DetailItem label="Documentation URL">{agent.agent_card_params.documentationUrl}</DetailItem>
+                <DetailItem label={t("ui.Documentation URL")}>{agent.agent_card_params.documentationUrl}</DetailItem>
               )}
-              <DetailItem label="TPM Limit">{agent.tpm_limit ?? "Unlimited"}</DetailItem>
-              <DetailItem label="RPM Limit">{agent.rpm_limit ?? "Unlimited"}</DetailItem>
-              <DetailItem label="Session TPM Limit">{agent.session_tpm_limit ?? "Unlimited"}</DetailItem>
-              <DetailItem label="Session RPM Limit">{agent.session_rpm_limit ?? "Unlimited"}</DetailItem>
-              <DetailItem label="Created At">{formatDate(agent.created_at)}</DetailItem>
-              <DetailItem label="Updated At">{formatDate(agent.updated_at)}</DetailItem>
+              <DetailItem label={t("ui.TPM Limit")}>{agent.tpm_limit ?? t("ui.Unlimited")}</DetailItem>
+              <DetailItem label={t("ui.RPM Limit")}>{agent.rpm_limit ?? t("ui.Unlimited")}</DetailItem>
+              <DetailItem label={t("ui.Session TPM Limit")}>{agent.session_tpm_limit ?? t("ui.Unlimited")}</DetailItem>
+              <DetailItem label={t("ui.Session RPM Limit")}>{agent.session_rpm_limit ?? t("ui.Unlimited")}</DetailItem>
+              <DetailItem label={t("ui.Created At")}>{formatDate(agent.created_at)}</DetailItem>
+              <DetailItem label={t("ui.Updated At")}>{formatDate(agent.updated_at)}</DetailItem>
             </DetailList>
 
             <AgentVirtualKeys keys={agentKeys} isLoading={keysLoading} onKeyClick={setSelectedKey} />
@@ -340,20 +350,22 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                 (agent.object_permission.mcp_tool_permissions &&
                   Object.keys(agent.object_permission.mcp_tool_permissions).length > 0)) && (
                 <div style={{ marginTop: 24 }}>
-                  <h3 className="text-lg font-medium">MCP Tool Permissions</h3>
+                  <h3 className="text-lg font-medium">{t("ui.MCP Tool Permissions")}</h3>
                   <DetailList className="mt-4">
                     {agent.object_permission.mcp_servers && agent.object_permission.mcp_servers.length > 0 && (
-                      <DetailItem label="MCP Servers">{agent.object_permission.mcp_servers.join(", ")}</DetailItem>
+                      <DetailItem label={t("ui.MCP Servers")}>
+                        {agent.object_permission.mcp_servers.join(", ")}
+                      </DetailItem>
                     )}
                     {agent.object_permission.mcp_access_groups &&
                       agent.object_permission.mcp_access_groups.length > 0 && (
-                        <DetailItem label="MCP Access Groups">
+                        <DetailItem label={t("ui.MCP Access Groups")}>
                           {agent.object_permission.mcp_access_groups.join(", ")}
                         </DetailItem>
                       )}
                     {agent.object_permission.mcp_tool_permissions &&
                       Object.keys(agent.object_permission.mcp_tool_permissions).length > 0 && (
-                        <DetailItem label="Tool permissions per server">
+                        <DetailItem label={t("ui.Tool permissions per server")}>
                           <div className="space-y-1">
                             {Object.entries(agent.object_permission.mcp_tool_permissions).map(([serverId, tools]) => (
                               <div key={serverId}>
@@ -372,23 +384,24 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
 
             {agent.agent_card_params?.skills && agent.agent_card_params.skills.length > 0 && (
               <div style={{ marginTop: 24 }}>
-                <h3 className="text-lg font-medium">Skills</h3>
+                <h3 className="text-lg font-medium">{t("ui.Skills")}</h3>
                 <DetailList className="mt-4">
                   {agent.agent_card_params.skills.map((skill: any, index: number) => (
-                    <DetailItem label={skill.name || `Skill ${index + 1}`} key={index}>
+                    <DetailItem label={skill.name || t("ui.Skill {{count}}", { count: index + 1 })} key={index}>
                       <div>
                         <div>
-                          <strong>ID:</strong> {skill.id}
+                          <strong>{t("ui.ID")}:</strong> {skill.id}
                         </div>
                         <div>
-                          <strong>Description:</strong> {skill.description}
+                          <strong>{t("ui.Description")}:</strong> {skill.description}
                         </div>
                         <div>
-                          <strong>Tags:</strong> {Array.isArray(skill.tags) ? skill.tags.join(", ") : skill.tags}
+                          <strong>{t("ui.Tags")}:</strong>{" "}
+                          {Array.isArray(skill.tags) ? skill.tags.join(", ") : skill.tags}
                         </div>
                         {skill.examples && skill.examples.length > 0 && (
                           <div>
-                            <strong>Examples:</strong>{" "}
+                            <strong>{t("ui.Examples")}:</strong>{" "}
                             {Array.isArray(skill.examples) ? skill.examples.join(", ") : skill.examples}
                           </div>
                         )}
@@ -405,7 +418,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
             <TabsContent value="settings" keepMounted>
               <Card className="block p-6">
                 <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-medium">Agent Settings</h3>
+                  <h3 className="text-lg font-medium">{t("ui.Agent Settings")}</h3>
                   {!isEditing && (
                     <Button
                       onClick={() => {
@@ -424,7 +437,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                       <form onSubmit={form.handleSubmit(handleUpdate)}>
                         <FieldGroup className="mb-4">
                           <Field>
-                            <FieldLabel htmlFor="agent-id">Agent ID</FieldLabel>
+                            <FieldLabel htmlFor="agent-id">{t("ui.Agent ID")}</FieldLabel>
                             <Input id="agent-id" value={agent.agent_id} disabled readOnly />
                           </Field>
                         </FieldGroup>
@@ -447,14 +460,14 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                         )}
 
                         <Separator className="my-6" />
-                        <h3 className="text-lg font-medium mb-4">Rate Limits</h3>
+                        <h3 className="text-lg font-medium mb-4">{t("ui.Rate Limits")}</h3>
                         <div className="grid grid-cols-2 gap-4">
-                          {rateLimitField("tpm_limit", "TPM Limit")}
-                          {rateLimitField("rpm_limit", "RPM Limit")}
+                          {rateLimitField("tpm_limit", t("ui.TPM Limit"))}
+                          {rateLimitField("rpm_limit", t("ui.RPM Limit"))}
                         </div>
                         <div className="mt-4 grid grid-cols-2 gap-4">
-                          {rateLimitField("session_tpm_limit", "Session TPM Limit")}
-                          {rateLimitField("session_rpm_limit", "Session RPM Limit")}
+                          {rateLimitField("session_tpm_limit", t("ui.Session TPM Limit"))}
+                          {rateLimitField("session_rpm_limit", t("ui.Session RPM Limit"))}
                         </div>
 
                         <div className="mt-6 flex justify-end gap-2">
@@ -478,7 +491,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                     </FormProvider>
                   </TooltipProvider>
                 ) : (
-                  <p>Click &quot;Edit Settings&quot; to modify agent configuration.</p>
+                  <p>{t('ui.Click "Edit Settings" to modify agent configuration.')}</p>
                 )}
               </Card>
             </TabsContent>

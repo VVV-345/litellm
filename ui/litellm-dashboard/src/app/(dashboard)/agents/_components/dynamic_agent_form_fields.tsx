@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,106 +25,112 @@ interface DynamicAgentFormFieldsProps {
 export const unmountedDynamicFieldNames = (mountedPanels: readonly string[]): readonly string[] =>
   mountedPanels.includes(AGENT_FORM_CONFIG.cost.key) ? [] : COST_FIELD_NAMES;
 
-const CredentialField = ({ field }: { field: AgentCredentialFieldMetadata }) => (
-  <AgentFormField
-    name={field.key}
-    label={field.tooltip ? labelWithHint(field.label, field.tooltip) : field.label}
-    defaultValue={field.default_value ?? undefined}
-    rules={field.required ? { required: `Please enter ${field.label}` } : undefined}
-  >
-    {({ value, onChange, ref, ...control }) => {
-      const text = typeof value === "string" ? value : "";
-      if (field.field_type === "password") {
-        return (
-          <PasswordInput
-            {...control}
-            value={typeof value === "string" ? value : ""}
-            onChange={onChange}
-            ref={ref}
-            placeholder={field.placeholder || ""}
-          />
-        );
-      }
-      if (field.field_type === "textarea") {
-        return (
-          <Textarea
-            {...control}
-            ref={ref}
-            rows={3}
-            placeholder={field.placeholder || ""}
-            value={text}
-            onChange={onChange}
-          />
-        );
-      }
-      if (field.field_type === "select" && field.options) {
-        return (
-          <Select value={text || null} onValueChange={onChange}>
-            <SelectTrigger {...control} className="w-full">
-              <SelectValue placeholder={field.placeholder || ""} />
-            </SelectTrigger>
-            <SelectContent>
-              {field.options.map((option) => (
-                <SelectItem key={option} value={option} title={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
-      }
-      return <Input {...control} ref={ref} placeholder={field.placeholder || ""} value={text} onChange={onChange} />;
-    }}
-  </AgentFormField>
-);
+const CredentialField = ({ field }: { field: AgentCredentialFieldMetadata }) => {
+  const { t } = useTranslation();
+  return (
+    <AgentFormField
+      name={field.key}
+      label={field.tooltip ? labelWithHint(field.label, field.tooltip) : field.label}
+      defaultValue={field.default_value ?? undefined}
+      rules={field.required ? { required: t("ui.Please enter {{field}}", { field: field.label }) } : undefined}
+    >
+      {({ value, onChange, ref, ...control }) => {
+        const text = typeof value === "string" ? value : "";
+        if (field.field_type === "password") {
+          return (
+            <PasswordInput
+              {...control}
+              value={typeof value === "string" ? value : ""}
+              onChange={onChange}
+              ref={ref}
+              placeholder={field.placeholder || ""}
+            />
+          );
+        }
+        if (field.field_type === "textarea") {
+          return (
+            <Textarea
+              {...control}
+              ref={ref}
+              rows={3}
+              placeholder={field.placeholder || ""}
+              value={text}
+              onChange={onChange}
+            />
+          );
+        }
+        if (field.field_type === "select" && field.options) {
+          return (
+            <Select value={text || null} onValueChange={onChange}>
+              <SelectTrigger {...control} className="w-full">
+                <SelectValue placeholder={field.placeholder || ""} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options.map((option) => (
+                  <SelectItem key={option} value={option} title={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          );
+        }
+        return <Input {...control} ref={ref} placeholder={field.placeholder || ""} value={text} onChange={onChange} />;
+      }}
+    </AgentFormField>
+  );
+};
 
-const DynamicAgentFormFields: React.FC<DynamicAgentFormFieldsProps> = ({ agentTypeInfo, panels }) => (
-  <>
-    <FieldGroup className="mb-4">
-      <AgentFormField
-        name="agent_name"
-        label={labelWithHint("Agent Name", "Unique identifier for the agent")}
-        rules={{ required: "Please enter a unique agent name" }}
-      >
-        {({ value, onChange, ref, ...control }) => (
-          <Input
-            {...control}
-            ref={ref}
-            placeholder="e.g., my-langgraph-agent"
-            value={typeof value === "string" ? value : ""}
-            onChange={onChange}
-          />
-        )}
-      </AgentFormField>
+const DynamicAgentFormFields: React.FC<DynamicAgentFormFieldsProps> = ({ agentTypeInfo, panels }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      <FieldGroup className="mb-4">
+        <AgentFormField
+          name="agent_name"
+          label={labelWithHint(t("ui.Agent Name"), t("ui.Unique identifier for the agent"))}
+          rules={{ required: t("ui.Please enter a unique agent name") }}
+        >
+          {({ value, onChange, ref, ...control }) => (
+            <Input
+              {...control}
+              ref={ref}
+              placeholder={t("ui.e.g., my-langgraph-agent")}
+              value={typeof value === "string" ? value : ""}
+              onChange={onChange}
+            />
+          )}
+        </AgentFormField>
 
-      <AgentFormField
-        name="description"
-        label={labelWithHint("Description", "Brief description of what this agent does")}
-      >
-        {({ value, onChange, ref, ...control }) => (
-          <Textarea
-            {...control}
-            ref={ref}
-            rows={2}
-            placeholder="Describe what this agent does..."
-            value={typeof value === "string" ? value : ""}
-            onChange={onChange}
-          />
-        )}
-      </AgentFormField>
+        <AgentFormField
+          name="description"
+          label={labelWithHint(t("ui.Description"), t("ui.Brief description of what this agent does"))}
+        >
+          {({ value, onChange, ref, ...control }) => (
+            <Textarea
+              {...control}
+              ref={ref}
+              rows={2}
+              placeholder={t("ui.Describe what this agent does...")}
+              value={typeof value === "string" ? value : ""}
+              onChange={onChange}
+            />
+          )}
+        </AgentFormField>
 
-      {agentTypeInfo.credential_fields.map((field) => (
-        <CredentialField key={field.key} field={field} />
-      ))}
-    </FieldGroup>
+        {agentTypeInfo.credential_fields.map((field) => (
+          <CredentialField key={field.key} field={field} />
+        ))}
+      </FieldGroup>
 
-    <div className="mb-4 rounded-md border border-border px-4">
-      <AgentFormPanel panelKey={AGENT_FORM_CONFIG.cost.key} title={AGENT_FORM_CONFIG.cost.title} panels={panels}>
-        <CostConfigFields />
-      </AgentFormPanel>
-    </div>
-  </>
-);
+      <div className="mb-4 rounded-md border border-border px-4">
+        <AgentFormPanel panelKey={AGENT_FORM_CONFIG.cost.key} title={AGENT_FORM_CONFIG.cost.title} panels={panels}>
+          <CostConfigFields />
+        </AgentFormPanel>
+      </div>
+    </>
+  );
+};
 
 export const buildDynamicAgentData = (values: AgentFormValues, agentTypeInfo: AgentCreateInfo): AgentRequestPayload => {
   const litellmParams: Record<string, unknown> = {

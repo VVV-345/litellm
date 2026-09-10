@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import AddAgentForm from "./add_agent_form";
 import * as networking from "@/components/networking";
 import type { AgentCreateInfo } from "@/components/networking";
+import i18n from "@/i18n";
 
 vi.mock("@/components/networking", () => ({
   createAgentCall: vi.fn(),
@@ -37,7 +38,8 @@ const renderForm = () =>
   render(<AddAgentForm visible={true} onClose={vi.fn()} accessToken="test-token" onSuccess={vi.fn()} />);
 
 describe("AddAgentForm logos", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.mocked(networking.getAgentCreateMetadata).mockReset().mockResolvedValue([a2aInfo]);
     vi.mocked(networking.getAgentsList).mockReset().mockResolvedValue({ agents: [] });
     vi.mocked(networking.keyListCall).mockReset().mockResolvedValue({ keys: [] });
