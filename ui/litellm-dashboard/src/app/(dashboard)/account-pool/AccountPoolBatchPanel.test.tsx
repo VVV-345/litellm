@@ -220,4 +220,36 @@ describe("AccountPoolBatchPanel", () => {
       ),
     );
   });
+
+  it("reopens persisted authorization details from a completed batch", async () => {
+    listBatches.mockResolvedValue([
+      {
+        ...submittedBatch,
+        action: "authorize",
+        items: [
+          {
+            account_id: environment.id,
+            status: "succeeded",
+            attempts: 1,
+            message: "Authorization details generated",
+            authorization: {
+              flow: "device_code",
+              authorization_url: "https://auth.example.com/device",
+              ssh_command: null,
+              user_code: "ABCD-1234",
+              expires_at: "2026-09-10T00:05:00Z",
+            },
+            finished_at: "2026-09-10T00:00:01Z",
+          },
+        ],
+      },
+    ]);
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /查看授权信息|View authorization/i }));
+
+    expect(await screen.findByDisplayValue("ABCD-1234")).toBeInTheDocument();
+    expect(screen.getByText("https://auth.example.com/device")).toBeInTheDocument();
+  });
 });

@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
-from account_pool.batch_models import BatchClaim, BatchJob, BatchRequest
+from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest
 from account_pool.batch_repository import BatchRepository
 from account_pool.domain import EnvironmentStatus, UpdateEnvironmentRequest, configuration_from_record, utc_now
-from account_pool.error_logs import ErrorLogService
+from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.gateway_repository import CooldownRepository
 from account_pool.policies import PolicyRepository, PolicyUpdate, policy_validation_error
 from account_pool.ports import EnvironmentRepository
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.service import EnvironmentService
+
+
+@dataclass(frozen=True, slots=True)
+class BatchExecution:
+    message: str
+    authorization: BatchAuthorization | None = None
 
 
 class BatchService:
@@ -52,11 +59,12 @@ class BatchService:
             return False
         started: Final = utc_now()
         outcome: Final = await self._run_safely(claim)
-        succeeded, message = outcome
-        await self.repository.finish(claim, succeeded, message)
+        succeeded, message, authorization = outcome
+        await self.repository.finish(claim, succeeded, message, authorization)
         record: Final = await self.environments.get(claim.target.account_id)
         if record is not None and not succeeded:
-            await self.logs.record(record, "configuration", RuntimeError(message), started_at=started)
+            stage: Final[LogStage] = "authorization" if claim.request.action == "authorize" else "configuration"
+            await self.logs.record(record, stage, RuntimeError(message), started_at=started)
         return True
 
     async def run_until_cancelled(self, stopped: asyncio.Event, interval: float = 1.0) -> None:
@@ -68,11 +76,11 @@ class BatchService:
                 except TimeoutError:
                     pass
 
-    async def _run_claim(self, claim: BatchClaim) -> Result[str]:
+    async def _run_claim(self, claim: BatchClaim) -> Result[BatchExecution]:
         record: Final = await self.environments.get(claim.target.account_id)
         if record is None:
             return (
-                Success("Account already deleted")
+                Success(BatchExecution("Account already deleted"))
                 if claim.request.action == "delete"
                 else Failure(FailureCode.NOT_FOUND, "Account no longer exists")
             )
@@ -83,11 +91,13 @@ class BatchService:
                 return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
             # 删除失败后环境保留原操作 ID，新任务沿用它才能继续清理而不会与自己冲突。
             deletion_operation_id: Final = (
-                record.operation_id if record.status is EnvironmentStatus.DELETING and record.operation_id else operation_id
+                record.operation_id
+                if record.status is EnvironmentStatus.DELETING and record.operation_id
+                else operation_id
             )
             delete_result: Final = await self.service.delete_environment(record.id, deletion_operation_id)
             return (
-                Success("Account deleted")
+                Success(BatchExecution("Account deleted"))
                 if isinstance(delete_result, Success)
                 else Failure(delete_result.code, delete_result.message)
             )
@@ -96,9 +106,35 @@ class BatchService:
                 return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
             refresh_result: Final = await self.service.refresh_environment(record.id)
             return (
-                Success("Account refreshed")
+                Success(BatchExecution("Account refreshed"))
                 if isinstance(refresh_result, Success)
                 else Failure(FailureCode.UPSTREAM, refresh_result.message)
+            )
+        if claim.request.action == "authorize":
+            if record.version != claim.target.version and record.operation_id != operation_id:
+                return Failure(FailureCode.CONFLICT, "Account changed after the batch was submitted")
+            if record.operation_id == operation_id and record.status in (
+                EnvironmentStatus.VALIDATING,
+                EnvironmentStatus.READY,
+                EnvironmentStatus.COOLING_DOWN,
+                EnvironmentStatus.DISABLED,
+            ):
+                return Success(BatchExecution("Authorization already submitted"))
+            authorization_result: Final = await self.service.authorize_environment(record.id, operation_id)
+            if not isinstance(authorization_result, Success):
+                return Failure(authorization_result.code, authorization_result.message)
+            authorization: Final = authorization_result.value
+            return Success(
+                BatchExecution(
+                    "Authorization details generated",
+                    BatchAuthorization(
+                        flow=authorization.flow,
+                        authorization_url=authorization.authorization_url,
+                        ssh_command=authorization.ssh_command,
+                        user_code=authorization.user_code,
+                        expires_at=authorization.expires_at,
+                    ),
+                )
             )
         if claim.request.action == "policy":
             if record.version != claim.target.version:
@@ -108,7 +144,7 @@ class BatchService:
                 return Failure(FailureCode.INVALID, "Policy is required")
             current_policy: Final = await self.policies.get(record.id)
             if current_policy.policy == policy_request:
-                return Success("Policy already updated")
+                return Success(BatchExecution("Policy already updated"))
             validation_error: Final = await policy_validation_error(record, policy_request, self.environments)
             if validation_error is not None:
                 return Failure(FailureCode.INVALID, validation_error)
@@ -116,7 +152,7 @@ class BatchService:
                 record.id, PolicyUpdate(version=claim.target.policy_version, policy=policy_request)
             )
             return (
-                Success("Policy updated")
+                Success(BatchExecution("Policy updated"))
                 if policy is not None
                 else Failure(FailureCode.CONFLICT, "Policy changed after submission")
             )
@@ -141,13 +177,13 @@ class BatchService:
             return Failure(FailureCode.CONFLICT, update_result.message)
         if claim.request.action == "release" and self.leases is not None:
             await self.leases.clear_cooldown(record.id)
-        return Success("Account configuration updated")
+        return Success(BatchExecution("Account configuration updated"))
 
-    async def _run_safely(self, claim: BatchClaim) -> tuple[bool, str]:
+    async def _run_safely(self, claim: BatchClaim) -> tuple[bool, str, BatchAuthorization | None]:
         try:
             run_result: Final = await self._run_claim(claim)
         except Exception as error:
-            return False, error.__class__.__name__
-        return isinstance(run_result, Success), run_result.value if isinstance(
-            run_result, Success
-        ) else run_result.message
+            return False, error.__class__.__name__, None
+        if isinstance(run_result, Success):
+            return True, run_result.value.message, run_result.value.authorization
+        return False, run_result.message, None

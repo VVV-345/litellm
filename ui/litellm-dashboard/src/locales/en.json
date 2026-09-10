@@ -5616,6 +5616,9 @@
       "submitted": "Bulk job submitted",
       "loadFailed": "Bulk job results could not be loaded",
       "result": "{{succeeded}} succeeded, {{failed}} failed, {{pending}} pending",
+      "viewAuthorization": "View authorization",
+      "authorizationTitle": "Continue bulk authorization",
+      "authorizationDescription": "Complete authorization for {{name}}. You can reopen these details after closing the page or restarting the service.",
       "policyTemplate": "Policy template",
       "selectPolicyTemplate": "Select a policy template account",
       "policyTemplateOption": "{{name}} (version {{version}})",
@@ -5624,6 +5627,7 @@
       "confirmDelete": "Delete selected accounts",
       "actions": {
         "refresh": "Refresh accounts and quota",
+        "authorize": "Reauthorize accounts",
         "enable": "Enable accounts",
         "disable": "Disable accounts",
         "cooldown": "Start manual cooldown",

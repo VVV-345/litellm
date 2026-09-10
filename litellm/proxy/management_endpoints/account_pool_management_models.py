@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 ChannelKind = Literal["cliproxyapi", "freebuff2api"]
 SupplierKind = Literal["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai", "freebuff"]
@@ -36,7 +36,7 @@ ErrorCategory = Literal[
     "unknown",
 ]
 
-BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"]
+BatchAction = Literal["refresh", "authorize", "enable", "disable", "cooldown", "release", "policy", "delete"]
 
 
 class BatchTarget(BaseModel):
@@ -62,12 +62,22 @@ class BatchRequest(BaseModel):
         return self
 
 
+class BatchAuthorization(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    flow: Literal["browser_oauth", "device_code"]
+    authorization_url: HttpUrl
+    ssh_command: str | None
+    user_code: str | None
+    expires_at: AwareDatetime
+
+
 class BatchItem(BaseModel):
     model_config = ConfigDict(frozen=True)
     account_id: UUID
     status: Literal["queued", "running", "succeeded", "failed"]
     attempts: int = 0
     message: str | None = None
+    authorization: BatchAuthorization | None = None
     finished_at: AwareDatetime | None = None
 
 

@@ -24044,6 +24044,28 @@ export interface components {
         };
         /** BaseModel */
         BaseModel: Record<string, never>;
+        /** BatchAuthorization */
+        BatchAuthorization: {
+            /**
+             * Authorization Url
+             * Format: uri
+             */
+            authorization_url: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "browser_oauth" | "device_code";
+            /** Ssh Command */
+            ssh_command: string | null;
+            /** User Code */
+            user_code: string | null;
+        };
         /** BatchItem */
         BatchItem: {
             /**
@@ -24056,6 +24078,7 @@ export interface components {
              * @default 0
              */
             attempts: number;
+            authorization?: components["schemas"]["BatchAuthorization"] | null;
             /** Finished At */
             finished_at?: string | null;
             /** Message */
@@ -24072,7 +24095,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
+            action: "refresh" | "authorize" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
             /**
              * Created At
              * Format: date-time
@@ -24092,7 +24115,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "refresh" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
+            action: "refresh" | "authorize" | "enable" | "disable" | "cooldown" | "release" | "policy" | "delete";
             /**
              * Job Id
              * Format: uuid

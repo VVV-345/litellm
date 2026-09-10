@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -26,10 +27,20 @@ import {
   type BatchAction,
   type PolicyView,
 } from "./AccountPoolManagementApi";
+import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY } from "./useAccountPoolQuery";
 
-const ACTIONS: readonly BatchAction[] = ["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"];
+const ACTIONS: readonly BatchAction[] = [
+  "refresh",
+  "authorize",
+  "enable",
+  "disable",
+  "cooldown",
+  "release",
+  "policy",
+  "delete",
+];
 
 const hasPendingBatch = (jobs: Awaited<ReturnType<typeof listAccountPoolBatches>> | undefined) =>
   jobs?.some((job) => job.items.some((item) => item.status === "queued" || item.status === "running")) ?? false;
@@ -49,6 +60,12 @@ export function AccountPoolBatchPanel({
   const [action, setAction] = useState<BatchAction>("refresh");
   const [policyTemplateId, setPolicyTemplateId] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [authorizationItem, setAuthorizationItem] = useState<{
+    accountId: string;
+    authorization: NonNullable<
+      Awaited<ReturnType<typeof listAccountPoolBatches>>[number]["items"][number]["authorization"]
+    >;
+  } | null>(null);
   const jobsQuery = {
     queryKey: ["account-pool", "batches", accessToken],
     queryFn: () => listAccountPoolBatches(accessToken),
@@ -206,9 +223,55 @@ export function AccountPoolBatchPanel({
                   ))}
               </ul>
             )}
+            {job.action === "authorize" && job.items.some((item) => item.authorization) && (
+              <ul className="mt-2 grid gap-1">
+                {job.items
+                  .filter((item) => item.authorization)
+                  .map((item) => (
+                    <li key={item.account_id} className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {environments.find((environment) => environment.id === item.account_id)?.name ??
+                          item.account_id}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (item.authorization) {
+                            setAuthorizationItem({ accountId: item.account_id, authorization: item.authorization });
+                          }
+                        }}
+                      >
+                        {t("accountPool.batch.viewAuthorization")}
+                      </Button>
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         );
       })}
+      <Dialog open={authorizationItem !== null} onOpenChange={(open) => !open && setAuthorizationItem(null)}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("accountPool.batch.authorizationTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("accountPool.batch.authorizationDescription", {
+                name:
+                  environments.find((environment) => environment.id === authorizationItem?.accountId)?.name ??
+                  authorizationItem?.accountId,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {authorizationItem && (
+            <AccountPoolAuthorizationPanel
+              authorization={authorizationItem.authorization}
+              idPrefix={`account-pool-batch-${authorizationItem.accountId}`}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={confirmDeleteOpen}
         onOpenChange={(open) => {

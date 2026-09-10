@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,8 +43,11 @@ class ClashNodeView(BaseModel):
 
 
 def create_router(
-    service: EnvironmentService, manager_token: str, *,
-    keys: CardKeyService | None = None, logs: ErrorLogService | None = None,
+    service: EnvironmentService,
+    manager_token: str,
+    *,
+    keys: CardKeyService | None = None,
+    logs: ErrorLogService | None = None,
     environments: EnvironmentRepository | None = None,
     policies: PolicyRepository | None = None,
     gateway_service: GatewayService | None = None,
@@ -72,7 +75,9 @@ def create_router(
         request: CreateEnvironmentRequest,
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> AuthorizationView:
-        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        effective: Final = (
+            request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        )
         return _unwrap(await service.create_environment(effective))
 
     @router.get("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
@@ -85,7 +90,9 @@ def create_router(
         request: UpdateEnvironmentRequest,
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> EnvironmentView:
-        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        effective: Final = (
+            request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        )
         return _unwrap(await service.update_environment(environment_id, effective))
 
     @router.post("/api/environments/{environment_id}/authorize", dependencies=[Depends(require_manager)])
@@ -168,9 +175,15 @@ def create_router(
         return HTMLResponse(_callback_page("授权已接收", "可以关闭此页面并返回 LiteLLM 号池"))
 
     if keys is not None and logs is not None and environments is not None and policies is not None:
-        router.include_router(create_management_router(
-            keys, logs, environments, require_manager, policies,
-        ))
+        router.include_router(
+            create_management_router(
+                keys,
+                logs,
+                environments,
+                require_manager,
+                policies,
+            )
+        )
     if gateway_service is not None:
         router.include_router(create_gateway_router(gateway_service, require_manager))
     if batch_service is not None:
@@ -181,7 +194,8 @@ def create_router(
 def create_batch_router(service: BatchService, authorize: Callable[..., None]) -> APIRouter:
     router: Final = APIRouter(prefix="/api/batches", dependencies=[Depends(authorize)])
 
-    async def submit_batch(request: BatchRequest) -> BatchJob:
+    async def submit_batch(request: BatchRequest, response: Response) -> BatchJob:
+        response.headers["Cache-Control"] = "no-store"
         if not await service.submit(request):
             raise HTTPException(status_code=409, detail="Batch target is missing or job id is already used")
         job: Final = await service.get(request.job_id)
@@ -189,10 +203,12 @@ def create_batch_router(service: BatchService, authorize: Callable[..., None]) -
             raise HTTPException(status_code=500, detail="Batch job was not persisted")
         return job
 
-    async def list_batches() -> tuple[BatchJob, ...]:
+    async def list_batches(response: Response) -> tuple[BatchJob, ...]:
+        response.headers["Cache-Control"] = "no-store"
         return await service.list()
 
-    async def get_batch(job_id: UUID) -> BatchJob:
+    async def get_batch(job_id: UUID, response: Response) -> BatchJob:
+        response.headers["Cache-Control"] = "no-store"
         job: Final = await service.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Batch job not found")

@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
+from account_pool.domain import AuthorizationFlow
 from account_pool.policies import AccountPolicy
 
-BatchAction = Literal["refresh", "enable", "disable", "cooldown", "release", "policy", "delete"]
+BatchAction = Literal["refresh", "authorize", "enable", "disable", "cooldown", "release", "policy", "delete"]
 
 
 class BatchTarget(BaseModel):
@@ -35,12 +36,22 @@ class BatchRequest(BaseModel):
         return self
 
 
+class BatchAuthorization(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    flow: AuthorizationFlow
+    authorization_url: HttpUrl
+    ssh_command: str | None
+    user_code: str | None
+    expires_at: AwareDatetime
+
+
 class BatchItem(BaseModel):
     model_config = ConfigDict(frozen=True)
     account_id: UUID
     status: Literal["queued", "running", "succeeded", "failed"]
     attempts: int = 0
     message: str | None = None
+    authorization: BatchAuthorization | None = None
     finished_at: AwareDatetime | None = None
 
 

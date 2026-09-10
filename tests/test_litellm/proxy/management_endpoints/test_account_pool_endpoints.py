@@ -359,8 +359,61 @@ def test_proxy_admin_can_submit_a_delete_batch() -> None:
         response: Final = client.post("/account_pool/batches", json=payload)
 
     assert response.status_code == 202
+    assert response.headers["cache-control"] == "no-store"
     assert response.json()["action"] == "delete"
     assert forwarded == payload
+
+
+def test_proxy_admin_can_read_batch_authorization_details() -> None:
+    job_id: Final = uuid4()
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/batches" and request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "job_id": str(job_id),
+                            "action": "authorize",
+                            "created_at": "2026-09-10T00:00:00Z",
+                            "items": [
+                                {
+                                    "account_id": str(_ENVIRONMENT_ID),
+                                    "status": "succeeded",
+                                    "attempts": 1,
+                                    "message": "Authorization details generated",
+                                    "authorization": {
+                                        "flow": "device_code",
+                                        "authorization_url": "https://example.com/device",
+                                        "ssh_command": None,
+                                        "user_code": "ABCD-1234",
+                                        "expires_at": "2026-09-10T00:05:00Z",
+                                    },
+                                    "finished_at": "2026-09-10T00:00:01Z",
+                                }
+                            ],
+                        }
+                    ],
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+
+    with TestClient(app) as client:
+        response: Final = client.get("/account_pool/batches")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()[0]["action"] == "authorize"
+    assert response.json()[0]["items"][0]["authorization"]["user_code"] == "ABCD-1234"
 
 
 def test_proxy_admin_viewer_cannot_read_or_manage_account_pool() -> None:
@@ -464,8 +517,15 @@ def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
 
 @pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))
 def test_proxy_gateway_delay_is_forwarded_only_for_admins(role: LitellmUserRoles) -> None:
-    payload: Final = [{"port": 7891, "current_node": "US01", "status": "timeout", "delay_ms": None,
-                       "checked_at": "2026-09-08T12:00:00Z"}]
+    payload: Final = [
+        {
+            "port": 7891,
+            "current_node": "US01",
+            "status": "timeout",
+            "delay_ms": None,
+            "checked_at": "2026-09-08T12:00:00Z",
+        }
+    ]
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert role == LitellmUserRoles.PROXY_ADMIN

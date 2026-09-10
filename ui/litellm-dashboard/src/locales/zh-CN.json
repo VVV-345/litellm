@@ -5616,6 +5616,9 @@
       "submitted": "批量任务已提交",
       "loadFailed": "批量任务结果加载失败",
       "result": "成功 {{succeeded}}，失败 {{failed}}，处理中 {{pending}}",
+      "viewAuthorization": "查看授权信息",
+      "authorizationTitle": "继续批量授权",
+      "authorizationDescription": "完成 {{name}} 的账号授权。页面关闭或服务重启后仍可从批量任务中重新打开。",
       "policyTemplate": "策略模板",
       "selectPolicyTemplate": "选择策略模板账号",
       "policyTemplateOption": "{{name}}（版本 {{version}}）",
@@ -5624,6 +5627,7 @@
       "confirmDelete": "确认删除",
       "actions": {
         "refresh": "刷新账号和配额",
+        "authorize": "重新授权账号",
         "enable": "启用账号",
         "disable": "停用账号",
         "cooldown": "进入人工冷却",

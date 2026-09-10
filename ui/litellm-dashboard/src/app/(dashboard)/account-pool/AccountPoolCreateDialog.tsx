@@ -1,6 +1,6 @@
 /** 本文件处理号池环境创建和授权引导，按渠道供应商与授权流程展示 SSH 隧道或设备码。 */
 
-import { ExternalLink, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -15,18 +15,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import CopyButton from "@/components/shared/CopyButton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
 import { createAccountPoolEnvironment } from "./AccountPoolApi";
-import { formatDateTime } from "./AccountPoolFormatters";
+import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
 import type {
   AccountPoolAuthorization,
   AccountPoolChannel,
@@ -63,7 +56,7 @@ export const AccountPoolCreateDialog = ({
   onOpenChange,
   onCreated,
 }: AccountPoolCreateDialogProps) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [channel, setChannel] = useState<AccountPoolChannel>("cliproxyapi");
   const [supplier, setSupplier] = useState<AccountPoolSupplier>("openai_codex");
@@ -72,7 +65,9 @@ export const AccountPoolCreateDialog = ({
   const completionReported = useRef(false);
   // 重新授权时查询缓存可能仍是上一次的成功状态，必须等到本次授权之后的版本。
   const currentEnvironment = environments.find(
-    (environment) => authorization !== null && environment.id === authorization.environment.id &&
+    (environment) =>
+      authorization !== null &&
+      environment.id === authorization.environment.id &&
       environment.version > authorization.environment.version,
   );
   const authorizationComplete =
@@ -126,8 +121,6 @@ export const AccountPoolCreateDialog = ({
     onOpenChange(nextOpen);
   };
 
-  const isBrowserFlow = authorization?.flow === "browser_oauth";
-
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
@@ -140,63 +133,17 @@ export const AccountPoolCreateDialog = ({
           </DialogDescription>
         </DialogHeader>
         {authorization ? (
-          <div className="grid gap-5" data-testid="account-pool-authorization-panel">
-            {currentEnvironment?.last_error && (
-              <p role="alert" className="break-words text-sm text-destructive">{currentEnvironment.last_error}</p>
-            )}
-            {isBrowserFlow && authorization.ssh_command && (
-              <div className="grid gap-2" data-testid="account-pool-browser-oauth">
-                <Label htmlFor="account-pool-ssh">{t("accountPool.create.sshTunnelCommand")}</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="account-pool-ssh"
-                    value={authorization.ssh_command}
-                    readOnly
-                    className="font-mono text-xs"
-                  />
-                  <CopyButton value={authorization.ssh_command} label={t("accountPool.create.copySshTunnelCommand")} />
-                </div>
-              </div>
-            )}
-            {authorization.flow === "device_code" && authorization.user_code && (
-              <div className="grid gap-2" data-testid="account-pool-device-code">
-                <Label htmlFor="account-pool-user-code">{t("accountPool.create.userCode")}</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="account-pool-user-code"
-                    value={authorization.user_code}
-                    readOnly
-                    className="font-mono text-xs"
-                  />
-                  <CopyButton value={authorization.user_code} label={t("accountPool.create.copyUserCode")} />
-                </div>
-              </div>
-            )}
-            <div className="rounded-md border border-border bg-muted/30 p-4">
-              <p className="text-sm font-medium">{t("accountPool.create.authorizationLink")}</p>
-              <p className="mt-1 break-all text-xs text-muted-foreground">{authorization.authorization_url}</p>
-              <Button
-                type="button"
-                nativeButton={false}
-                className="mt-3"
-                size="sm"
-                render={<a href={authorization.authorization_url} target="_blank" rel="noreferrer" />}
-              >
-                <ExternalLink />
-                {t("accountPool.create.openAuthorization")}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t("accountPool.create.authorizationExpires", {
-                time: formatDateTime(authorization.expires_at, i18n.language),
-              })}
-            </p>
+          <AccountPoolAuthorizationPanel
+            authorization={authorization}
+            idPrefix="account-pool"
+            error={currentEnvironment?.last_error}
+          >
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("common.close")}
               </Button>
             </DialogFooter>
-          </div>
+          </AccountPoolAuthorizationPanel>
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-2">
@@ -212,10 +159,7 @@ export const AccountPoolCreateDialog = ({
             </div>
             <div className="grid gap-2">
               <Label htmlFor="account-pool-channel">{t("accountPool.channel.label")}</Label>
-              <Select
-                value={channel}
-                onValueChange={(value) => handleChannelChange(value as AccountPoolChannel)}
-              >
+              <Select value={channel} onValueChange={(value) => handleChannelChange(value as AccountPoolChannel)}>
                 <SelectTrigger id="account-pool-channel" data-testid="account-pool-channel-select">
                   <SelectValue />
                 </SelectTrigger>

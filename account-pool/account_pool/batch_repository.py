@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from account_pool.batch_models import BatchClaim, BatchItem, BatchJob, BatchRequest, BatchTarget
+from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchItem, BatchJob, BatchRequest, BatchTarget
 from account_pool.repository import database_connection
 
 
@@ -19,7 +19,9 @@ class BatchRepository(Protocol):
     async def list(self) -> tuple[BatchJob, ...]: ...
     async def get(self, job_id: UUID) -> BatchJob | None: ...
     async def claim(self) -> BatchClaim | None: ...
-    async def finish(self, claim: BatchClaim, succeeded: bool, message: str) -> None: ...
+    async def finish(
+        self, claim: BatchClaim, succeeded: bool, message: str, authorization: BatchAuthorization | None
+    ) -> None: ...
 
 
 class PostgresBatchRepository:
@@ -38,9 +40,12 @@ class PostgresBatchRepository:
                     job_id uuid REFERENCES account_pool_batch_jobs(job_id) ON DELETE CASCADE,
                     account_id uuid NOT NULL, target jsonb NOT NULL, status text NOT NULL DEFAULT 'queued',
                     attempts integer NOT NULL DEFAULT 0, token uuid, expires_at timestamptz,
-                    message text, finished_at timestamptz, PRIMARY KEY (job_id, account_id)
+                    message text, authorization_result jsonb, finished_at timestamptz, PRIMARY KEY (job_id, account_id)
                 )
             """)
+            await connection.execute(
+                "ALTER TABLE account_pool_batch_items ADD COLUMN IF NOT EXISTS authorization_result jsonb"
+            )
             await connection.execute(
                 "CREATE INDEX IF NOT EXISTS account_pool_batch_claim_idx "
                 "ON account_pool_batch_items (status, expires_at)"
@@ -87,7 +92,8 @@ class PostgresBatchRepository:
             if row is None:
                 return None
             items: Final = await connection.execute(
-                "SELECT account_id, status, attempts, message, finished_at FROM account_pool_batch_items "
+                "SELECT account_id, status, attempts, message, authorization_result AS authorization, finished_at "
+                "FROM account_pool_batch_items "
                 "WHERE job_id = %s ORDER BY account_id",
                 (job_id,),
             )
@@ -134,14 +140,22 @@ class PostgresBatchRepository:
                 attempts=TypeAdapter(int).validate_python(row["attempts"]) + 1,
             )
 
-    async def finish(self, claim: BatchClaim, succeeded: bool, message: str) -> None:
+    async def finish(
+        self,
+        claim: BatchClaim,
+        succeeded: bool,
+        message: str,
+        authorization: BatchAuthorization | None,
+    ) -> None:
         async with database_connection(self.database_url) as connection:
             await connection.execute(
-                "UPDATE account_pool_batch_items SET status = %s, message = %s, finished_at = now(), expires_at = NULL "
+                "UPDATE account_pool_batch_items SET status = %s, message = %s, authorization_result = %s, "
+                "finished_at = now(), expires_at = NULL "
                 "WHERE job_id = %s AND account_id = %s AND token = %s AND status = 'running'",
                 (
                     "succeeded" if succeeded else "failed",
                     message,
+                    None if authorization is None else Jsonb(authorization.model_dump(mode="json")),
                     claim.request.job_id,
                     claim.target.account_id,
                     claim.token,

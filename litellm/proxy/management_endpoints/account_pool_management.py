@@ -30,7 +30,8 @@ ManagementRequest = Callable[[Literal["GET", "POST", "PUT", "DELETE"], str, byte
 
 
 def create_management_router(
-    request_manager: ManagementRequest, require_admin: Callable[[UserAPIKeyAuth], None],
+    request_manager: ManagementRequest,
+    require_admin: Callable[[UserAPIKeyAuth], None],
 ) -> APIRouter:
     def authorize(user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]) -> None:
         require_admin(user)
@@ -57,7 +58,8 @@ def create_management_router(
     async def rotate_key(card_id: UUID, request: CardKeyChange, response: Response) -> CardKeyIssue:
         response.headers["Cache-Control"] = "no-store"
         return parse_response(
-            await call("POST", f"/api/cards/{card_id}/key/rotate", request.model_dump_json().encode()), TypeAdapter(CardKeyIssue)
+            await call("POST", f"/api/cards/{card_id}/key/rotate", request.model_dump_json().encode()),
+            TypeAdapter(CardKeyIssue),
         )
 
     @router.delete("/cards/{card_id}/key", status_code=204)
@@ -84,21 +86,25 @@ def create_management_router(
     @router.put("/environments/{card_id}/policy")
     async def save_policy(card_id: UUID, request: PolicyUpdate) -> PolicyView:
         return parse_response(
-            await call("PUT", f"/api/environments/{card_id}/policy", request.model_dump_json().encode()), TypeAdapter(PolicyView)
+            await call("PUT", f"/api/environments/{card_id}/policy", request.model_dump_json().encode()),
+            TypeAdapter(PolicyView),
         )
 
     @router.post("/batches", response_model=BatchJob, status_code=202)
-    async def submit_batch(request: BatchRequest) -> BatchJob:
+    async def submit_batch(request: BatchRequest, response: Response) -> BatchJob:
+        response.headers["Cache-Control"] = "no-store"
         return parse_response(
             await call("POST", "/api/batches", request.model_dump_json().encode()), TypeAdapter(BatchJob)
         )
 
     @router.get("/batches", response_model=tuple[BatchJob, ...])
-    async def list_batches() -> tuple[BatchJob, ...]:
+    async def list_batches(response: Response) -> tuple[BatchJob, ...]:
+        response.headers["Cache-Control"] = "no-store"
         return parse_response(await call("GET", "/api/batches"), TypeAdapter(tuple[BatchJob, ...]))
 
     @router.get("/batches/{job_id}", response_model=BatchJob)
-    async def get_batch(job_id: UUID) -> BatchJob:
+    async def get_batch(job_id: UUID, response: Response) -> BatchJob:
+        response.headers["Cache-Control"] = "no-store"
         return parse_response(await call("GET", f"/api/batches/{job_id}"), TypeAdapter(BatchJob))
 
     @router.get("/stats", response_model=ErrorStats)
