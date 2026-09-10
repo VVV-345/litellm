@@ -5545,7 +5545,9 @@
     "Please enter {{field}}": "Please enter {{field}}",
     "Remove static header": "Remove static header",
     "Skill {{count}}": "Skill {{count}}",
-    "No matching options": "No matching options"
+    "No matching options": "No matching options",
+    "Authentication settings": "Authentication settings",
+    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server"
   },
   "accountPool": {
     "title": "Account Pool",

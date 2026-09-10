@@ -5545,7 +5545,9 @@
     "Please enter {{field}}": "请输入{{field}}",
     "Remove static header": "移除静态请求头",
     "Skill {{count}}": "技能 {{count}}",
-    "No matching options": "没有匹配项"
+    "No matching options": "没有匹配项",
+    "Authentication settings": "认证设置",
+    "https://github.com/org/mcp-server": "https://github.com/org/mcp-server"
   },
   "accountPool": {
     "title": "号池",
