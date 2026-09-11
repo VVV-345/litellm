@@ -23123,6 +23123,8 @@ export interface components {
              * @default []
              */
             account_ids: string[];
+            antigravity?: components["schemas"]["AntigravityPolicy"] | null;
+            claude?: components["schemas"]["ClaudePolicy"] | null;
             codex?: components["schemas"]["CodexPolicy"] | null;
             /**
              * Excluded Models
@@ -23139,6 +23141,7 @@ export interface components {
              * @default []
              */
             model_aliases: components["schemas"]["ModelAlias"][];
+            openai_compatible?: components["schemas"]["OpenAICompatiblePolicy"] | null;
             routing?: components["schemas"]["RoutingPolicy"];
             /**
              * Tags
@@ -23146,6 +23149,7 @@ export interface components {
              */
             tags: string[];
             transport?: components["schemas"]["TransportPolicy"];
+            xai?: components["schemas"]["XaiPolicy"] | null;
         };
         /** AccountPoolAuthorization */
         AccountPoolAuthorization: {
@@ -24036,6 +24040,26 @@ export interface components {
             index_name: string;
             /** Index Permissions */
             index_permissions: ("read" | "write")[];
+        };
+        /** AntigravityPolicy */
+        AntigravityPolicy: {
+            /**
+             * Sensitive Word Filter
+             * @default inherit
+             * @enum {string}
+             */
+            sensitive_word_filter: "inherit" | "enabled" | "disabled";
+            /**
+             * Signature Cache
+             * @default inherit
+             * @enum {string}
+             */
+            signature_cache: "inherit" | "enabled" | "disabled";
+            /**
+             * Strict Bypass Signature
+             * @default false
+             */
+            strict_bypass_signature: boolean;
         };
         /** ApplyGuardrailRequest */
         ApplyGuardrailRequest: {
@@ -26265,6 +26289,30 @@ export interface components {
              * @default 3000
              */
             timeout_ms: number;
+        };
+        /** ClaudePolicy */
+        ClaudePolicy: {
+            /**
+             * Cloak
+             * @default false
+             */
+            cloak: boolean;
+            /**
+             * Experimental Cch Signing
+             * @default false
+             */
+            experimental_cch_signing: boolean;
+            /**
+             * Fingerprint Profile
+             * @default inherit
+             * @enum {string}
+             */
+            fingerprint_profile: "inherit" | "disabled" | "claude-code-cli" | "oauth-cli";
+            /**
+             * Rebuild Mid System Message
+             * @default false
+             */
+            rebuild_mid_system_message: boolean;
         };
         /**
          * CloudZeroExportRequest
@@ -33799,6 +33847,14 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** OpenAICompatiblePolicy */
+        OpenAICompatiblePolicy: {
+            /**
+             * Support Prompt Cache Key
+             * @default false
+             */
+            support_prompt_cache_key: boolean;
+        };
         /**
          * OpenIdConnectSecurityScheme
          * @description Defines a security scheme using OpenID Connect.
@@ -34539,12 +34595,12 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "routing" | "models" | "quota" | "retry" | "timeout" | "client" | "responses_compact" | "image" | "identity" | "websocket" | "plan_expiry" | "desktop_compact" | "debug";
+            name: "routing" | "models" | "quota" | "retry" | "timeout" | "client" | "responses_compact" | "image" | "identity" | "websocket" | "plan_expiry" | "desktop_compact" | "debug" | "provider_settings";
             /**
              * Status
              * @enum {string}
              */
-            status: "gateway" | "unsupported" | "desktop";
+            status: "gateway" | "unsupported" | "desktop" | "metadata";
         };
         /**
          * PolicyConditionRequest
@@ -40138,6 +40194,14 @@ export interface components {
             } | null;
             /** Status */
             status?: ("pending" | "running" | "paused" | "completed" | "failed") | null;
+        };
+        /** XaiPolicy */
+        XaiPolicy: {
+            /**
+             * Inject X Search
+             * @default false
+             */
+            inject_x_search: boolean;
         };
         /** ModelInfo */
         litellm__proxy___types__ModelInfo: {

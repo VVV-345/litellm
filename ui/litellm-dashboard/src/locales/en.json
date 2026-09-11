@@ -5981,7 +5981,7 @@
       "loadFailed": "Unable to load policy",
       "version": "Policy version {{version}}",
       "pending": "Routing, models, quota thresholds, timeout, and request logs run at the card-key gateway. Identity, WebSocket, plan/expiry ordering, and local settings follow the capability status below",
-      "providerPending": "Identity, fingerprint, and client settings for this provider remain planned pending verification and adapter support. Codex fields do not apply",
+      "providerPending": "This provider has no editable provider-specific settings yet. Plans and quotas sync to the card after authentication",
       "saved": "Policy saved for subsequent card-key requests. Unsupported settings are not marked active",
       "invalidAliases": "Use alias=model, separated by commas",
       "tags": "Tags (comma separated)",
@@ -6010,6 +6010,17 @@
       "request_timeout_seconds": "Request timeout (seconds)",
       "debug_log_enabled": "Debug logging (always redacted)",
       "provider": "Provider settings",
+      "providerSummary": "Provider setting summary",
+      "kimiDeviceIdAuto": "Device ID is maintained automatically after authentication",
+      "fingerprint_profile": "Claude fingerprint profile",
+      "experimental_cch_signing": "Experimental CCH signing",
+      "cloak": "Claude request cloak",
+      "rebuild_mid_system_message": "Rebuild mid-system message",
+      "inject_x_search": "Inject x_search",
+      "support_prompt_cache_key": "Support Prompt Cache Key",
+      "sensitive_word_filter": "Sensitive word handling",
+      "signature_cache": "Signature cache",
+      "strict_bypass_signature": "Strict bypass signature",
       "identity_fingerprint_mode": "Request identity mode",
       "cli_only": "Codex CLI only",
       "allow_app_server": "Allow app-server",
@@ -6033,7 +6044,9 @@
         "off": "Off",
         "device": "Device",
         "session": "Session",
-        "full": "Full"
+        "full": "Full",
+        "claude-code-cli": "Claude Code CLI",
+        "oauth-cli": "OAuth CLI"
       },
       "account_ids": "Additional bound account IDs (comma separated, same channel and provider)",
       "capabilities": {
@@ -6054,7 +6067,8 @@
       "capabilityStatus": {
         "gateway": "Gateway enforced",
         "unsupported": "Unsupported by current adapter",
-        "desktop": "Requires local client"
+        "desktop": "Requires local client",
+        "metadata": "Saved to card policy, awaiting adapter execution"
       }
     },
     "logs": {

@@ -196,6 +196,35 @@ class CodexPolicy(BaseModel):
         return self
 
 
+class ClaudePolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fingerprint_profile: Literal["inherit", "disabled", "claude-code-cli", "oauth-cli"] = "inherit"
+    experimental_cch_signing: bool = False
+    cloak: bool = False
+    rebuild_mid_system_message: bool = False
+
+
+class XaiPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    inject_x_search: bool = False
+
+
+class OpenAICompatiblePolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    support_prompt_cache_key: bool = False
+
+
+class AntigravityPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sensitive_word_filter: Literal["inherit", "enabled", "disabled"] = "inherit"
+    signature_cache: Literal["inherit", "enabled", "disabled"] = "inherit"
+    strict_bypass_signature: bool = False
+
+
 class AccountPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -207,6 +236,10 @@ class AccountPolicy(BaseModel):
     model_aliases: tuple[ModelAlias, ...] = Field(default=(), max_length=500)
     transport: TransportPolicy = Field(default_factory=TransportPolicy)
     codex: CodexPolicy | None = None
+    claude: ClaudePolicy | None = None
+    xai: XaiPolicy | None = None
+    openai_compatible: OpenAICompatiblePolicy | None = None
+    antigravity: AntigravityPolicy | None = None
 
     @field_validator("tags")
     @classmethod
@@ -394,20 +427,21 @@ class PolicyCapability(BaseModel):
         "plan_expiry",
         "desktop_compact",
         "debug",
+        "provider_settings",
     ]
-    status: Literal["gateway", "unsupported", "desktop"]
+    status: Literal["gateway", "unsupported", "desktop", "metadata"]
 
 
-def policy_capabilities() -> tuple[PolicyCapability, ...]:
+def policy_capabilities(supplier: str | None = None) -> tuple[PolicyCapability, ...]:
+    provider_status: Final = "metadata"
     return (
         *(
             PolicyCapability(name=name, status="gateway")
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
-        *(
-            PolicyCapability(name=name, status="unsupported")
-            for name in ("identity", "websocket", "plan_expiry", "debug")
-        ),
+        PolicyCapability(name="identity", status="metadata" if supplier == "openai_codex" else "unsupported"),
+        *(PolicyCapability(name=name, status="unsupported") for name in ("websocket", "plan_expiry", "debug")),
+        PolicyCapability(name="provider_settings", status=provider_status),
         PolicyCapability(name="desktop_compact", status="desktop"),
     )
 

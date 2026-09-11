@@ -79,6 +79,7 @@ class _AuthFile(BaseModel):
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
+    plan_type: str | None = None
 
 
 class _AuthFilesResponse(BaseModel):
@@ -205,7 +206,12 @@ class HttpCLIProxyClient:
             if not record.available_models
             else tuple(model for model in record.enabled_models if model in available_models)
         )
-        quota: Final = selected_supplier.quota_parser(auth_file.quota)
+        parsed_quota: Final = selected_supplier.quota_parser(auth_file.quota)
+        quota: Final = (
+            parsed_quota
+            if parsed_quota.plan_type is not None or auth_file.plan_type is None
+            else parsed_quota.model_copy(update={"plan_type": auth_file.plan_type})
+        )
         model_quotas: Final = tuple(
             ModelQuotaSnapshot(model=model, quota=selected_supplier.quota_parser(observation))
             for model, observation in sorted(auth_file.model_quotas.items())

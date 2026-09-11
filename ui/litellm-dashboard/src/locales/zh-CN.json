@@ -5981,7 +5981,7 @@
       "loadFailed": "策略加载失败",
       "version": "配置版本 {{version}}",
       "pending": "路由、模型、配额阈值、超时和请求日志通过卡片 Key 的网关入口执行。指纹、WebSocket、套餐/到期排序和本机设置仍按下方能力状态处理",
-      "providerPending": "该供应商的身份、指纹和客户端专属设置尚待核实和适配，已纳入计划，不套用 Codex 字段",
+      "providerPending": "该供应商当前没有可编辑的专属设置；认证后的套餐和额度由卡片自动同步",
       "saved": "策略已保存，下次卡片 Key 请求读取新版本；不支持的能力不会被标记为已生效",
       "invalidAliases": "模型别名格式为 别名=模型，多项用逗号分隔",
       "tags": "标签（逗号分隔）",
@@ -6010,6 +6010,17 @@
       "request_timeout_seconds": "请求超时（秒）",
       "debug_log_enabled": "调试日志（始终脱敏）",
       "provider": "供应商专属设置",
+      "providerSummary": "专属设置摘要",
+      "kimiDeviceIdAuto": "设备 ID 认证后自动维护",
+      "fingerprint_profile": "Claude 指纹配置",
+      "experimental_cch_signing": "实验性 CCH 签名",
+      "cloak": "Claude 请求伪装",
+      "rebuild_mid_system_message": "重建中间系统消息",
+      "inject_x_search": "自动注入 x_search",
+      "support_prompt_cache_key": "支持 Prompt Cache Key",
+      "sensitive_word_filter": "敏感词处理",
+      "signature_cache": "签名缓存",
+      "strict_bypass_signature": "严格旁路签名",
       "identity_fingerprint_mode": "请求标识模式",
       "cli_only": "仅允许 Codex CLI",
       "allow_app_server": "允许 app-server",
@@ -6033,7 +6044,9 @@
         "off": "关闭",
         "device": "设备标识",
         "session": "会话标识",
-        "full": "完整标识"
+        "full": "完整标识",
+        "claude-code-cli": "Claude Code CLI",
+        "oauth-cli": "OAuth CLI"
       },
       "account_ids": "额外绑定账号 ID（逗号分隔，仅限同渠道和供应商）",
       "capabilities": {
@@ -6054,7 +6067,8 @@
       "capabilityStatus": {
         "gateway": "网关执行",
         "unsupported": "当前适配器不支持",
-        "desktop": "等待本机客户端"
+        "desktop": "等待本机客户端",
+        "metadata": "已保存到卡片配置，等待适配器执行"
       }
     },
     "logs": {

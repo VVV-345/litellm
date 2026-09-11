@@ -233,10 +233,13 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     capabilities: Final = {item["name"]: item["status"] for item in first.json()["capabilities"]}
     assert capabilities["responses_compact"] == "gateway"
     assert capabilities["desktop_compact"] == "desktop"
-    assert capabilities["identity"] == "unsupported"
+    assert capabilities["identity"] == "metadata"
+    assert capabilities["provider_settings"] == "metadata"
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409
     assert client.get(path).json()["policy"]["routing"]["weight"] == 4
     assert client.put(path, json={"version": 1, "policy": {"unknown_setting": True}}).status_code == 422
+    for provider_field in ("claude", "xai", "openai_compatible", "antigravity"):
+        assert client.put(path, json={"version": 1, "policy": {provider_field: {}}}).status_code == 422
     assert (
         client.put(
             path, json={"version": 1, "policy": {"model_aliases": [{"alias": "alias", "target": "missing"}]}}

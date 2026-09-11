@@ -167,6 +167,7 @@ export default function AccountPoolPage() {
       }}
       tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
       group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
+      policy={policiesQuery.data?.find((item) => item.card_id === environment.id)}
       disabled={busy}
     />
   );

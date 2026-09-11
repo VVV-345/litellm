@@ -1,14 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
+import type { PolicyView } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
 
 vi.mock("./AccountPoolApi", () => ({
   updateAccountPoolEnvironment: vi.fn(),
 }));
 
-const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}, proxyGateway?: AccountPoolProxyGateway) => {
+const renderCard = (
+  overrides: Partial<AccountPoolEnvironment> = {},
+  proxyGateway?: AccountPoolProxyGateway,
+  policy?: PolicyView,
+) => {
   const environment = {
     id: "env-claude-1",
     version: 1,
@@ -45,6 +50,7 @@ const renderCard = (overrides: Partial<AccountPoolEnvironment> = {}, proxyGatewa
       onDelete={vi.fn()}
       onManageKey={vi.fn()}
       onManagePolicy={vi.fn()}
+      policy={policy}
     />,
   );
 };
@@ -87,6 +93,17 @@ describe("AccountPoolCard", () => {
     renderCard({ supplier: "kimi", enabled_models: ["kimi-model"], available_models: ["kimi-model"] });
 
     expect(screen.getByText(/CLIProxyAPI · Kimi/)).toBeInTheDocument();
+    expect(screen.getByText("设备 ID 认证后自动维护")).toBeInTheDocument();
+  });
+
+  it("shows the authenticated provider setting summary on a card", () => {
+    renderCard({}, undefined, {
+      card_id: "env-claude-1",
+      version: 1,
+      policy: { claude: { fingerprint_profile: "oauth-cli" } },
+    } as PolicyView);
+
+    expect(screen.getByText("OAuth CLI")).toBeInTheDocument();
   });
 
   it("keeps the configure button enabled while awaiting authorization and shows the proxy hint", () => {
@@ -98,5 +115,48 @@ describe("AccountPoolCard", () => {
 
     expect(screen.getByRole("button", { name: /配置|Configure/i })).toBeEnabled();
     expect(screen.getByText(/先.*代理|proxy before authorizing/i)).toBeInTheDocument();
+  });
+
+  it("opens the policy editor when the card is double-clicked", () => {
+    const onManagePolicy = vi.fn();
+    const environment = {
+      id: "env-double-click",
+      version: 1,
+      name: "Double click account",
+      provider: "openai",
+      channel: "cliproxyapi",
+      supplier: "openai_codex",
+      status: "ready",
+      configuration_pending: false,
+      enabled: true,
+      manual_cooldown: false,
+      concurrency_limit: 2,
+      proxy_mode: "default_gateway",
+      proxy_profile_id: null,
+      available_models: ["codex-model"],
+      enabled_models: ["codex-model"],
+      quota: { observed_at: null, plan_type: null, windows: [] },
+      model_quotas: [],
+      cooldown_until: null,
+      automatic_cooldown: false,
+      last_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    } as unknown as AccountPoolEnvironment;
+    render(
+      <AccountPoolCard
+        environment={environment}
+        onConfigure={vi.fn()}
+        onEnabledChange={vi.fn()}
+        onAuthorize={vi.fn()}
+        onDelete={vi.fn()}
+        onManageKey={vi.fn()}
+        onManagePolicy={onManagePolicy}
+      />,
+    );
+
+    fireEvent.doubleClick(screen.getByTestId("account-pool-card-env-double-click"));
+
+    expect(onManagePolicy).toHaveBeenCalledWith(environment);
   });
 });

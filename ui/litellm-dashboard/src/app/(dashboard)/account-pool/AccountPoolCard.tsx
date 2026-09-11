@@ -22,6 +22,7 @@ import {
   statusVariant,
 } from "./AccountPoolFormatters";
 import type { ErrorStats } from "./AccountPoolManagementApi";
+import type { PolicyView } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
 import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "./accountPoolDashboardSelectors";
 
@@ -38,6 +39,7 @@ interface AccountPoolCardProps {
   requestStats?: ErrorStats;
   tags?: string[];
   group?: string;
+  policy?: PolicyView;
   disabled?: boolean;
 }
 
@@ -54,6 +56,7 @@ export const AccountPoolCard = ({
   requestStats,
   tags = [],
   group,
+  policy,
   disabled = false,
 }: AccountPoolCardProps) => {
   const { t, i18n } = useTranslation();
@@ -70,9 +73,33 @@ export const AccountPoolCard = ({
     environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
+  const policyValues = policy?.policy;
   const completedRequests = (requestStats?.succeeded_requests ?? 0) + (requestStats?.failed_requests ?? 0);
   const successRate =
     completedRequests === 0 ? null : ((requestStats?.succeeded_requests ?? 0) / completedRequests) * 100;
+  const providerSummary = (() => {
+    if (environment.supplier === "kimi" && environment.status === "ready") {
+      return t("accountPool.policy.kimiDeviceIdAuto");
+    }
+    if (!policyValues) return null;
+    if (environment.supplier === "anthropic_claude" && policyValues.claude) {
+      return t(`accountPool.policy.options.${policyValues.claude.fingerprint_profile}`);
+    }
+    if (environment.supplier === "xai" && policyValues.xai) {
+      return t(`accountPool.policy.options.${policyValues.xai.inject_x_search ? "enabled" : "disabled"}`);
+    }
+    if (environment.supplier === "openai_compatible" && policyValues.openai_compatible) {
+      return t(
+        `accountPool.policy.options.${policyValues.openai_compatible.support_prompt_cache_key ? "enabled" : "disabled"}`,
+      );
+    }
+    if (environment.supplier === "google_antigravity" && policyValues.antigravity) {
+      return `${t(`accountPool.policy.options.${policyValues.antigravity.sensitive_word_filter}`)} / ${t(
+        `accountPool.policy.options.${policyValues.antigravity.signature_cache}`,
+      )}`;
+    }
+    return null;
+  })();
   const healthLabel = (() => {
     if (environment.status === "ready") return t("accountPool.dashboard.healthy");
     if (environment.status === "error") return t("accountPool.dashboard.unhealthy");
@@ -82,7 +109,7 @@ export const AccountPoolCard = ({
   return (
     <Card
       data-testid={`account-pool-card-${environment.id}`}
-      onDoubleClick={() => onConfigure(environment)}
+      onDoubleClick={() => onManagePolicy(environment)}
       title={t("accountPool.dashboard.doubleClickToConfigure")}
     >
       <CardHeader className="gap-3">
@@ -223,6 +250,34 @@ export const AccountPoolCard = ({
             <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
           </div>
         </div>
+        {policyValues && (
+          <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
+            <div>
+              <p className="text-xs text-muted-foreground">{t("accountPool.policy.strategy")}</p>
+              <p className="mt-1 font-medium">
+                {t(`accountPool.policy.options.${policyValues.routing?.strategy ?? "auto"}`)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{t("accountPool.policy.weight")}</p>
+              <p className="mt-1 font-medium">{policyValues.routing?.weight ?? 1}</p>
+            </div>
+            {environment.supplier === "openai_codex" && policyValues.codex && (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground">{t("accountPool.policy.identity_fingerprint_mode")}</p>
+                <p className="mt-1 font-medium">
+                  {t(`accountPool.policy.options.${policyValues.codex.identity_fingerprint_mode}`)}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+        {providerSummary && (
+          <div className="grid gap-1 border-t border-border pt-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.policy.providerSummary")}</p>
+            <p className="font-medium">{providerSummary}</p>
+          </div>
+        )}
         <div>
           <p className="text-xs text-muted-foreground">{t("accountPool.availableModels")}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">

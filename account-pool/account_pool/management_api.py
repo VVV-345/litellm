@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
 from account_pool.domain import EnvironmentRecord
 from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
-from account_pool.policies import PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
+from account_pool.policies import PolicyRepository, PolicyUpdate, PolicyView, policy_capabilities, policy_validation_error
 from account_pool.ports import EnvironmentRepository
 from account_pool.result import Failure, Result
 from account_pool.settings import (
@@ -92,12 +92,20 @@ def create_management_router(
 
     @router.get("/environments/{card_id}/policy")
     async def get_policy(card_id: UUID) -> PolicyView:
-        await card(card_id)
-        return await policies.get(card_id)
+        record: Final = await card(card_id)
+        policy: Final = await policies.get(card_id)
+        return policy.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
 
     @router.get("/policies")
     async def list_policies() -> tuple[PolicyView, ...]:
-        return await policies.list()
+        records: Final = {record.id: record for record in await environments.list()}
+        return tuple(
+            policy.model_copy(
+                update={"capabilities": policy_capabilities(records[policy.card_id].supplier)}
+            )
+            for policy in await policies.list()
+            if policy.card_id in records
+        )
 
     @router.put("/environments/{card_id}/policy")
     async def update_policy(card_id: UUID, request: PolicyUpdate) -> PolicyView:
@@ -108,7 +116,7 @@ def create_management_router(
         saved: Final = await policies.save(card_id, request)
         if saved is None:
             raise HTTPException(409, "Card is unavailable or policy has changed; refresh before retrying")
-        return saved
+        return saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
 
     @router.get("/logs/{event_id}")
     async def log_detail(event_id: UUID) -> ErrorLogDetail:
