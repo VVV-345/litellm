@@ -140,6 +140,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         batch_service=batch_service,
         settings=settings_repository,
         plugins=plugin_service,
+        sync_settings=service.sync_global_settings,
+        sync_policy=service.sync_policy,
     ))
     return app
 

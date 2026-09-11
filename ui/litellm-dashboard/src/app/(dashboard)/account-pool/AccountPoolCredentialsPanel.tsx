@@ -1,6 +1,6 @@
 /** 本文件展示凭据文件的脱敏状态和所属卡片，不返回任何令牌或完整配置。 */
 
-import { FileKey2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Download, FileKey2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -11,17 +11,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import {
   addAccountPoolCredential,
+  deleteAccountPoolAuthFile,
   deleteAccountPoolCredential,
+  downloadAccountPoolAuthFile,
   listAccountPoolCredentials,
+  patchAccountPoolAuthFileStatus,
+  patchAccountPoolAuthFileFields,
   uploadAccountPoolAuthFile,
 } from "./AccountPoolManagementApi";
-import { updateAccountPoolEnvironment } from "./AccountPoolApi";
-import { toUpdateRequest } from "./AccountPoolTypes";
 
 export const AccountPoolCredentialsPanel = ({
   accessToken,
@@ -38,6 +41,8 @@ export const AccountPoolCredentialsPanel = ({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadCardId, setUploadCardId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [editCredential, setEditCredential] = useState<(typeof credentials)[number] | null>(null);
+  const [editFields, setEditFields] = useState("{}");
   const query = useQuery({
     queryKey: ["account-pool", "credentials", accessToken],
     queryFn: () => listAccountPoolCredentials(accessToken!),
@@ -79,7 +84,7 @@ export const AccountPoolCredentialsPanel = ({
   });
   const toggleMutation = useMutation({
     mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) =>
-      updateAccountPoolEnvironment(accessToken!, environment.id, toUpdateRequest(environment, { enabled })),
+      patchAccountPoolAuthFileStatus(accessToken!, environment.id, !enabled),
     onSuccess: () => {
       toast.success(t("accountPool.credentials.statusUpdated"));
       void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
@@ -87,6 +92,51 @@ export const AccountPoolCredentialsPanel = ({
     },
     onError: (error: Error) => toast.fromError(error),
   });
+  const downloadCredential = async (credential: (typeof credentials)[number]) => {
+    try {
+      const blob = await downloadAccountPoolAuthFile(accessToken!, credential.card_id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${credential.card_name}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
+  const deleteAuthFile = async (credential: (typeof credentials)[number]) => {
+    if (!window.confirm(t("accountPool.credentials.removeConfirm"))) return;
+    try {
+      await deleteAccountPoolAuthFile(accessToken!, credential.card_id);
+      toast.success(t("accountPool.credentials.removed"));
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
+  const saveAuthFileFields = async () => {
+    if (!editCredential) return;
+    let fields: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(editFields);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("fields must be an object");
+      fields = parsed as Record<string, unknown>;
+    } catch (error) {
+      toast.fromError(error);
+      return;
+    }
+    try {
+      await patchAccountPoolAuthFileFields(accessToken!, editCredential.card_id, fields);
+      toast.success(t("accountPool.credentials.fieldsUpdated"));
+      setEditCredential(null);
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
   const removeCredential = (credential: (typeof credentials)[number]) => {
     const environment = environments.find((item) => item.id === credential.card_id);
     const index = Number.parseInt(credential.auth_index ?? "", 10) - 1;
@@ -170,7 +220,24 @@ export const AccountPoolCredentialsPanel = ({
               )}
               {credential.kind === "oauth_file" && (() => {
                 const environment = environments.find((item) => item.id === credential.card_id);
-                return environment ? <Button type="button" variant="outline" size="sm" className="mt-2 justify-self-start" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}>{environment.enabled ? t("accountPool.credentials.disable") : t("accountPool.credentials.enable")}</Button> : null;
+                return environment ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}>
+                      {environment.enabled ? t("accountPool.credentials.disable") : t("accountPool.credentials.enable")}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void downloadCredential(credential)}>
+                      <Download />
+                      {t("accountPool.credentials.download")}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditCredential(credential); setEditFields("{}"); }}>
+                      {t("accountPool.credentials.editFields")}
+                    </Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={() => void deleteAuthFile(credential)}>
+                      <Trash2 />
+                      {t("accountPool.credentials.remove")}
+                    </Button>
+                  </div>
+                ) : null;
               })()}
               <p className="text-xs text-muted-foreground">{t("accountPool.credentials.secretHint")}</p>
             </CardContent>
@@ -220,6 +287,22 @@ export const AccountPoolCredentialsPanel = ({
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setUploadOpen(false)} disabled={uploadMutation.isPending}>{t("accountPool.cancel")}</Button>
             <Button type="button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending || uploadFile === null || !uploadCardId}>{uploadMutation.isPending ? t("accountPool.credentials.uploading") : t("accountPool.credentials.upload")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={editCredential !== null} onOpenChange={(open) => !open && setEditCredential(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("accountPool.credentials.editFields")}</DialogTitle>
+            <DialogDescription>{editCredential?.card_name}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-auth-fields">{t("accountPool.credentials.fieldsJson")}</Label>
+            <Textarea id="account-pool-auth-fields" value={editFields} onChange={(event) => setEditFields(event.target.value)} rows={8} className="font-mono text-xs" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditCredential(null)}>{t("accountPool.cancel")}</Button>
+            <Button type="button" onClick={() => void saveAuthFileFields()}>{t("accountPool.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

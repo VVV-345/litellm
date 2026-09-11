@@ -39,7 +39,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     PolicyView,
 )
 
-ManagementRequest = Callable[[Literal["GET", "POST", "PUT", "DELETE"], str, bytes | None], Awaitable[httpx.Response]]
+ManagementRequest = Callable[[Literal["GET", "POST", "PUT", "DELETE", "PATCH"], str, bytes | None], Awaitable[httpx.Response]]
 
 
 def create_management_router(
@@ -51,7 +51,7 @@ def create_management_router(
 
     router: Final = APIRouter(dependencies=[Depends(authorize)])
 
-    async def call(method: Literal["GET", "POST", "PUT", "DELETE"], path: str, body: bytes | None = None) -> bytes:
+    async def call(method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None) -> bytes:
         response: Final = await request_manager(method, path, body)
         if response.is_error:
             raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")

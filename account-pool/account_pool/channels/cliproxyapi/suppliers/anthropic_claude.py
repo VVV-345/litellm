@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition, parse_empty_quota
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import AuthorizationFlow, SupplierKind
+from account_pool.quota import parse_provider_quota
 
 DEFINITION: Final = SupplierDefinition(
     kind=SupplierKind.ANTHROPIC_CLAUDE,
@@ -16,5 +17,9 @@ DEFINITION: Final = SupplierDefinition(
     excluded_models_key="claude",
     callback_port=54545,
     callback_path="/callback",
-    quota_parser=parse_empty_quota,
+    quota_parser=lambda observation: parse_provider_quota(
+        observation,
+        ("anthropic-ratelimit-unified-",),
+        ("anthropic-plan-type", "plan_type", "plan-type"),
+    ),
 )

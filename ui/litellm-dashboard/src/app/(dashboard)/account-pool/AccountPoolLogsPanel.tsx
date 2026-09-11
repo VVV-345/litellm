@@ -175,11 +175,11 @@ export function AccountPoolLogsPanel({
         )}
         {choice(
           "channel",
-          ["cliproxyapi", "freebuff2api"].map((value) => ({ value, label: t(`accountPool.channel.${value}`) })),
+          ["cliproxyapi"].map((value) => ({ value, label: t(`accountPool.channel.${value}`) })),
         )}
         {choice(
           "supplier",
-          ["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai", "freebuff"].map((value) => ({
+          ["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai"].map((value) => ({
             value,
             label: t(`accountPool.supplier.${value}`),
           })),

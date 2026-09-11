@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,10 +22,12 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
+from account_pool.policies import AccountPolicy
 from account_pool.quota import QuotaObservation
 from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.quota import parse_quota as parse_quota_snapshot
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.settings import AccountPoolSettings
 
 _QuotaObservation = QuotaObservation
 
@@ -80,6 +83,8 @@ class _AuthFile(BaseModel):
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
     plan_type: str | None = None
+    metadata: Mapping[str, object] = Field(default_factory=dict)
+    attributes: Mapping[str, object] = Field(default_factory=dict)
 
 
 class _AuthFilesResponse(BaseModel):
@@ -89,6 +94,7 @@ class _AuthFilesResponse(BaseModel):
 
 
 _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
+_JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
 
 
@@ -137,6 +143,14 @@ class HttpCLIProxyClient:
         if payload.status == "error":
             return f"error:{payload.error or 'authentication failed'}"
         return payload.status
+
+    async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
+        await self._request(
+            record,
+            "DELETE",
+            "/v0/management/oauth-session",
+            params={"state": state},
+        )
 
     async def submit_callback(
         self,
@@ -206,7 +220,16 @@ class HttpCLIProxyClient:
             if not record.available_models
             else tuple(model for model in record.enabled_models if model in available_models)
         )
-        parsed_quota: Final = selected_supplier.quota_parser(auth_file.quota)
+        metadata_signals: Final = {
+            str(key): str(value)
+            for source in (auth_file.metadata, auth_file.attributes)
+            for key, value in source.items()
+            if isinstance(value, (str, int, float))
+        }
+        observed_quota: Final = auth_file.quota.model_copy(
+            update={"signals": {**metadata_signals, **auth_file.quota.signals}}
+        )
+        parsed_quota: Final = selected_supplier.quota_parser(observed_quota)
         quota: Final = (
             parsed_quota
             if parsed_quota.plan_type is not None or auth_file.plan_type is None
@@ -273,6 +296,54 @@ class HttpCLIProxyClient:
         )
         response.raise_for_status()
 
+    async def download_auth_file(self, record: EnvironmentRecord, filename: str) -> tuple[bytes, str]:
+        response: Final = await self._request(
+            record,
+            "GET",
+            "/v0/management/auth-files/download",
+            params={"name": filename},
+        )
+        content_type: Final = response.headers.get("content-type", "application/json")
+        return response.content, content_type
+
+    async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None:
+        await self._request(
+            record,
+            "DELETE",
+            "/v0/management/auth-files",
+            params={"name": filename},
+        )
+
+    async def patch_auth_file_status(
+        self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
+    ) -> None:
+        await self._request(
+            record,
+            "PATCH",
+            "/v0/management/auth-files/status",
+            json={"name": filename, "auth_index": auth_index or "", "disabled": disabled},
+        )
+
+    async def patch_auth_file_fields(
+        self, record: EnvironmentRecord, filename: str, fields: Mapping[str, object]
+    ) -> None:
+        await self._request(
+            record,
+            "PATCH",
+            "/v0/management/auth-files/fields",
+            json={"name": filename, **fields},
+        )
+
+    async def get_auth_file_models(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
+        response: Final = await self._request(
+            record,
+            "GET",
+            "/v0/management/auth-files/models",
+            params={"name": filename},
+        )
+        models: Final = _ModelsResponse.model_validate(response.json())
+        return tuple(dict.fromkeys(model.id for model in (*models.models, *models.data)))
+
     async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None:
         await self._request(record, "PUT", "/v0/management/proxy-url", json={"value": proxy_url})
 
@@ -304,6 +375,112 @@ class HttpCLIProxyClient:
         await self.set_proxy_url(record, selected_configuration.proxy_url)
         await self.set_enabled_models(record, selected_supplier, selected_configuration.enabled_models)
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
+
+    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+        route_strategy: Final = {
+            "auto": "round-robin",
+            "priority": "fill-first",
+            "random": "round-robin",
+            "quota": "weighted-round-robin",
+        }[settings.default_route]
+        bool_fields: Final = (
+            ("/v0/management/debug", settings.debug_logging_enabled),
+            ("/v0/management/logging-to-file", settings.file_logging_enabled),
+            ("/v0/management/usage-statistics-enabled", settings.usage_statistics_enabled),
+            ("/v0/management/request-log", settings.request_log_enabled),
+            ("/v0/management/ws-auth", settings.websocket_auth_enabled or settings.websocket_enabled),
+            ("/v0/management/quota-exceeded/switch-project", settings.quota_switch_project),
+            ("/v0/management/quota-exceeded/switch-preview-model", settings.quota_switch_preview_model),
+        )
+        await asyncio.gather(*(self._put_value(record, path, value) for path, value in bool_fields))
+        int_fields: Final = (
+            ("/v0/management/request-retry", settings.request_retry),
+            ("/v0/management/max-retry-credentials", settings.max_retry_credentials),
+            ("/v0/management/max-retry-interval", settings.max_retry_interval),
+            ("/v0/management/logs-max-total-size-mb", settings.logs_max_total_size_mb),
+            ("/v0/management/error-logs-max-files", settings.error_logs_max_files),
+        )
+        await asyncio.gather(*(self._put_value(record, path, value) for path, value in int_fields))
+        await self._put_value(record, "/v0/management/force-model-prefix", settings.force_model_prefix)
+        await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
+        if settings.oauth_model_aliases:
+            await self._request(
+                record,
+                "PUT",
+                "/v0/management/oauth-model-alias",
+                json={
+                    key: [{"name": name, "alias": alias} for name, alias in value]
+                    for key, value in settings.oauth_model_aliases.items()
+                },
+            )
+
+    async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
+        route_strategy: Final = {
+            "auto": "round-robin",
+            "priority": "fill-first",
+            "random": "round-robin",
+            "quota": "weighted-round-robin",
+            "plan": "fill-first",
+            "expiry": "fill-first",
+            "custom": "round-robin",
+        }[policy.routing.strategy]
+        await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
+        await self._put_value(record, "/v0/management/request-retry", policy.routing.max_attempts)
+        if record.auth_file_name is None:
+            return
+        fields: Final = _policy_auth_fields(policy)
+        if fields:
+            await self.patch_auth_file_fields(record, record.auth_file_name, fields)
+
+    async def _put_value(self, record: EnvironmentRecord, path: str, value: object) -> None:
+        await self._request(record, "PUT", path, json={"value": value})
+
+    async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python((await self._request(record, "GET", "/v0/management/plugins")).json())
+
+    async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (await self._request(record, "GET", "/v0/management/plugin-store")).json()
+        )
+
+    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (
+                await self._request(
+                    record, "POST", f"/v0/management/plugin-store/{plugin_id}/install", json={"version": version}
+                )
+            ).json()
+        )
+
+    async def set_plugin_enabled(
+        self, record: EnvironmentRecord, plugin_id: str, enabled: bool
+    ) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (
+                await self._request(
+                    record, "PATCH", f"/v0/management/plugins/{plugin_id}/enabled", json={"enabled": enabled}
+                )
+            ).json()
+        )
+
+    async def uninstall_plugin(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (await self._request(record, "DELETE", f"/v0/management/plugins/{plugin_id}")).json()
+        )
+
+    async def get_plugin_config(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (await self._request(record, "GET", f"/v0/management/plugins/{plugin_id}/config")).json()
+        )
+
+    async def put_plugin_config(
+        self, record: EnvironmentRecord, plugin_id: str, config: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (
+                await self._request(record, "PUT", f"/v0/management/plugins/{plugin_id}/config", json=config)
+            ).json()
+        )
 
     async def _request(
         self,
@@ -354,3 +531,38 @@ class HttpCLIProxyClient:
 
 def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
     return parse_quota_snapshot(observation)
+
+
+def _policy_auth_fields(policy: AccountPolicy) -> Mapping[str, object]:
+    fields: dict[str, object] = {}
+    if policy.codex is not None:
+        fields.update(
+            {
+                "codex_cli_only": policy.codex.cli_only,
+                "codex_cli_only_allow_app_server": policy.codex.allow_app_server,
+                "codex_cli_only_allow_app_server_clients": list(policy.codex.allow_app_server_clients),
+                "identity_confuse": policy.codex.identity_confuse,
+                "disable_codex_cloaking": policy.codex.disable_codex_cloaking,
+            }
+        )
+    if policy.claude is not None:
+        fields.update(
+            {
+                "fingerprint_profile": policy.claude.fingerprint_profile,
+                "experimental_cch_signing": policy.claude.experimental_cch_signing,
+                "cloak": policy.claude.cloak,
+                "rebuild_mid_system_message": policy.claude.rebuild_mid_system_message,
+            }
+        )
+    if policy.xai is not None:
+        fields["inject_x_search"] = policy.xai.inject_x_search
+    if policy.openai_compatible is not None:
+        fields["support_prompt_cache_key"] = policy.openai_compatible.support_prompt_cache_key
+    if policy.antigravity is not None:
+        fields.update(
+            {
+                "signature_cache": policy.antigravity.signature_cache,
+                "strict_bypass_signature": policy.antigravity.strict_bypass_signature,
+            }
+        )
+    return fields

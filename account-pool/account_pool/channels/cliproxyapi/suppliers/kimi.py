@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Final
 
-from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition, parse_empty_quota
+from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import AuthorizationFlow, SupplierKind
+from account_pool.quota import parse_provider_quota
 
 DEFINITION: Final = SupplierDefinition(
     kind=SupplierKind.KIMI,
@@ -16,5 +17,7 @@ DEFINITION: Final = SupplierDefinition(
     excluded_models_key="kimi",
     callback_port=None,
     callback_path=None,
-    quota_parser=parse_empty_quota,
+    quota_parser=lambda observation: parse_provider_quota(
+        observation, ("kimi-", "moonshot-"), ("kimi-plan-type", "plan_type", "plan-type")
+    ),
 )

@@ -1,11 +1,11 @@
 """验证 CLIProxy 额度解析模块保持窗口和冷却语义。"""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Final
 from uuid import uuid4
 
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, Provider, ProxyMode, QuotaSnapshot, utc_now
-from account_pool.quota import QuotaObservation, effective_cooldown_until, parse_quota
+from account_pool.quota import QuotaObservation, effective_cooldown_until, parse_provider_quota, parse_quota
 
 
 def _record(*, manual_cooldown: bool = False, enabled: bool = True):
@@ -51,6 +51,25 @@ def test_parse_quota_keeps_valid_windows_and_ignores_invalid_values() -> None:
     assert snapshot.plan_type == "pro"
     assert len(snapshot.windows) == 1
     assert snapshot.windows[0].remaining_percent == 75
+
+
+def test_parse_provider_quota_reads_unified_rate_limit_utilization() -> None:
+    snapshot: Final = parse_provider_quota(
+        QuotaObservation(
+            observed_at=datetime(2026, 9, 4, tzinfo=timezone.utc),
+            signals={
+                "Anthropic-Ratelimit-Unified-5h-Utilization": "0.25",
+                "Anthropic-Ratelimit-Unified-5h-Reset": "1799000000",
+                "plan_type": "max",
+            },
+        ),
+        ("anthropic-ratelimit-unified-",),
+        ("plan_type",),
+    )
+
+    assert snapshot.plan_type == "max"
+    assert snapshot.windows[0].used_percent == 25
+    assert snapshot.windows[0].window_minutes == 300
 
 
 def test_effective_cooldown_preserves_manual_cooldown_when_upstream_value_elapsed() -> None:

@@ -21,6 +21,7 @@ export type AccountPoolQuotaRefreshResult = components["schemas"]["AccountPoolQu
 export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
 export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
 export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
+export type AccountPoolPluginRuntimeResponse = Record<string, unknown>;
 export type AccountPoolCredentialRequest = {
   version: number;
   api_key: string;
@@ -107,6 +108,42 @@ export const uploadAccountPoolAuthFile = (accessToken: string, cardId: string, f
   });
 };
 
+export const downloadAccountPoolAuthFile = (accessToken: string, cardId: string) =>
+  apiClient.requestBlob("GET", `/account_pool/environments/${encodeURIComponent(cardId)}/auth-file/download`, {
+    accessToken,
+  });
+
+export const deleteAccountPoolAuthFile = (accessToken: string, cardId: string) =>
+  apiClient.delete<components["schemas"]["AccountPoolEnvironment"]>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/auth-file`,
+    { accessToken },
+  );
+
+export const patchAccountPoolAuthFileStatus = (accessToken: string, cardId: string, disabled: boolean) =>
+  apiClient.patch<components["schemas"]["AccountPoolEnvironment"]>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/auth-file/status`,
+    { accessToken, body: { disabled } },
+  );
+
+export const patchAccountPoolAuthFileFields = (
+  accessToken: string,
+  cardId: string,
+  fields: Record<string, unknown>,
+) =>
+  apiClient.patch<components["schemas"]["AccountPoolEnvironment"]>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/auth-file/fields`,
+    { accessToken, body: { fields } },
+  );
+
+export const getAccountPoolAuthFileModels = (accessToken: string, cardId: string) =>
+  apiClient.get<string[]>(`/account_pool/environments/${encodeURIComponent(cardId)}/auth-file/models`, { accessToken });
+
+export const cancelAccountPoolOAuthSession = (accessToken: string, cardId: string) =>
+  apiClient.delete<components["schemas"]["AccountPoolEnvironment"]>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/oauth-session`,
+    { accessToken },
+  );
+
 export const addAccountPoolCredential = (accessToken: string, cardId: string, request: AccountPoolCredentialRequest) =>
   apiClient.post<unknown>(`/account_pool/environments/${encodeURIComponent(cardId)}/credentials`, {
     accessToken,
@@ -143,6 +180,53 @@ export const setAccountPoolPluginEnabled = (accessToken: string, pluginId: strin
 
 export const uninstallAccountPoolPlugin = (accessToken: string, pluginId: string) =>
   apiClient.delete<void>(`/account_pool/plugins/${encodeURIComponent(pluginId)}`, { accessToken });
+
+export const listCardAccountPoolPlugins = (accessToken: string, cardId: string) =>
+  apiClient.get<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins`,
+    { accessToken },
+  );
+
+export const listCardAccountPoolPluginStore = (accessToken: string, cardId: string) =>
+  apiClient.get<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugin-store`,
+    { accessToken },
+  );
+
+export const installCardAccountPoolPlugin = (accessToken: string, cardId: string, pluginId: string, version: string) =>
+  apiClient.post<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/install`,
+    { accessToken, body: { version } },
+  );
+
+export const setCardAccountPoolPluginEnabled = (accessToken: string, cardId: string, pluginId: string, enabled: boolean) =>
+  apiClient.patch<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/enabled`,
+    { accessToken, body: { enabled } },
+  );
+
+export const uninstallCardAccountPoolPlugin = (accessToken: string, cardId: string, pluginId: string) =>
+  apiClient.delete<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}`,
+    { accessToken },
+  );
+
+export const getCardAccountPoolPluginConfig = (accessToken: string, cardId: string, pluginId: string) =>
+  apiClient.get<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/config`,
+    { accessToken },
+  );
+
+export const putCardAccountPoolPluginConfig = (
+  accessToken: string,
+  cardId: string,
+  pluginId: string,
+  config: Record<string, unknown>,
+) =>
+  apiClient.put<AccountPoolPluginRuntimeResponse>(
+    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/config`,
+    { accessToken, body: config },
+  );
 
 export const exportAccountPoolLogs = async (accessToken: string, query: LogFilters): Promise<Blob> => {
   return apiClient.requestBlob("GET", "/account_pool/logs/export", { accessToken, query });

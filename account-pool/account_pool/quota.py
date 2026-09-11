@@ -36,6 +36,113 @@ def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
     return QuotaSnapshot(observed_at=observation.observed_at, plan_type=plan_type, windows=windows)
 
 
+def parse_provider_quota(
+    observation: QuotaObservation,
+    prefixes: tuple[str, ...],
+    plan_keys: tuple[str, ...] = (),
+) -> QuotaSnapshot:
+    signals: Final = {key.lower(): value.strip() for key, value in observation.signals.items()}
+    plan_type: Final = next((signals[key] for key in plan_keys if signals.get(key)), None)
+    windows: Final = tuple(
+        window
+        for prefix in prefixes
+        for window in _provider_windows(prefix, signals, observation.observed_at)
+    )
+    return QuotaSnapshot(observed_at=observation.observed_at, plan_type=plan_type, windows=windows)
+
+
+def _provider_windows(
+    prefix: str,
+    signals: Mapping[str, str],
+    observed_at: datetime | None,
+) -> tuple[QuotaWindow, ...]:
+    candidates: Final = tuple(
+        key
+        for key in signals
+        if key.startswith(prefix)
+        and (key.endswith("-utilization") or key.endswith("-used-percent") or key.endswith("-used_percent"))
+    )
+    return tuple(
+        window
+        for key in candidates
+        if (window := _provider_window(key, signals, observed_at)) is not None
+    )
+
+
+def _provider_window(
+    usage_key: str,
+    signals: Mapping[str, str],
+    observed_at: datetime | None,
+) -> QuotaWindow | None:
+    try:
+        raw_used: Final = float(signals[usage_key])
+    except (KeyError, ValueError):
+        return None
+    used: Final = raw_used * 100 if usage_key.endswith("utilization") and raw_used <= 1 else raw_used
+    if used < 0 or used > 100:
+        return None
+    stem: Final = usage_key.rsplit("-", 1)[0].removesuffix("_used").removesuffix("_used")
+    minutes: Final = _window_minutes(stem, signals)
+    if minutes is None:
+        minutes = _window_length_from_name(stem)
+    if minutes is None:
+        return None
+    reset: Final = _provider_reset_at(stem, signals, observed_at)
+    label: Final = stem.rsplit("-", 1)[-1].replace("_", " ").title()
+    return QuotaWindow(
+        name=label,
+        used_percent=used,
+        remaining_percent=100 - used,
+        window_minutes=minutes,
+        resets_at=reset,
+    )
+
+
+def _window_minutes(stem: str, signals: Mapping[str, str]) -> int | None:
+    for key in (f"{stem}-window-minutes", f"{stem}-window_minutes", f"{stem}-minutes"):
+        raw: Final = signals.get(key)
+        if raw is not None:
+            try:
+                value: Final = int(raw)
+            except ValueError:
+                return None
+            return value if value > 0 else None
+    return None
+
+
+def _window_length_from_name(stem: str) -> int | None:
+    token: Final = stem.rsplit("-", 1)[-1]
+    lengths: Final = {"minute": 1, "hour": 60, "day": 1440, "week": 10080, "month": 43200}
+    if token in lengths:
+        return lengths[token]
+    if token.endswith("h"):
+        try:
+            return int(token[:-1]) * 60
+        except ValueError:
+            return None
+    if token.endswith("d"):
+        try:
+            return int(token[:-1]) * 1440
+        except ValueError:
+            return None
+    return None
+
+
+def _provider_reset_at(stem: str, signals: Mapping[str, str], observed_at: datetime | None) -> datetime | None:
+    raw: Final = next((signals.get(f"{stem}-{suffix}") for suffix in ("reset", "resets-at", "reset-at")), None)
+    if raw is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(raw), tz=timezone.utc)
+    except (ValueError, OSError):
+        if observed_at is None:
+            return None
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+
 def effective_cooldown_until(
     record: EnvironmentRecord,
     upstream_cooldown_until: datetime | None,

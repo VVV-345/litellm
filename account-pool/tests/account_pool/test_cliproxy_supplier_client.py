@@ -8,10 +8,19 @@ from uuid import uuid4
 
 import httpx
 import pytest
-
 from account_pool.channels.cliproxyapi.client import AuthorizationStart, HttpCLIProxyClient
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
-from account_pool.domain import EnvironmentConfiguration, EnvironmentRecord, EnvironmentStatus, OAuthCallback, Provider, ProxyMode, QuotaSnapshot, SupplierKind, utc_now
+from account_pool.domain import (
+    EnvironmentConfiguration,
+    EnvironmentRecord,
+    EnvironmentStatus,
+    OAuthCallback,
+    Provider,
+    ProxyMode,
+    QuotaSnapshot,
+    SupplierKind,
+    utc_now,
+)
 from account_pool.secrets import EnvironmentSecretDeriver
 
 
@@ -136,3 +145,38 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
     assert "/v0/management/concurrency-limit" not in tuple(request.url.path for request in requests)
     exclusion: Final = next(request for request in requests if request.url.path.endswith("oauth-excluded-models"))
     assert json.loads(exclusion.content) == {"claude": []}
+
+
+@pytest.mark.asyncio
+async def test_auth_file_management_uses_cockpit_endpoints() -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "codex.json", "auth_index": "1"})
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, content=b'{"type":"codex"}', headers={"content-type": "application/json"}, request=request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    content: Final = await proxy.download_auth_file(record, "codex.json")
+    await proxy.patch_auth_file_status(record, "codex.json", "1", True)
+    await proxy.patch_auth_file_fields(record, "codex.json", {"priority": 3})
+    await proxy.delete_auth_file(record, "codex.json")
+    models: Final = await proxy.get_auth_file_models(record, "codex.json")
+    await client.aclose()
+
+    assert content[0] == b'{"type":"codex"}'
+    assert models == ("gpt-5-codex",)
+    assert tuple(request.url.path for request in requests) == (
+        "/v0/management/auth-files/download",
+        "/v0/management/auth-files/status",
+        "/v0/management/auth-files/fields",
+        "/v0/management/auth-files",
+        "/v0/management/auth-files/models",
+    )
+    assert json.loads(requests[1].content) == {"name": "codex.json", "auth_index": "1", "disabled": True}
+    assert json.loads(requests[2].content) == {"name": "codex.json", "priority": 3}

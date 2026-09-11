@@ -68,6 +68,8 @@ class CodexPolicy(BaseModel):
     model_context_window: int | None = Field(default=None, ge=1, le=10000000)
     model_auto_compact_token_limit: int | None = Field(default=None, ge=1, le=10000000)
     experimental_context_management: bool = False
+    identity_confuse: bool = False
+    disable_codex_cloaking: bool = False
 
     @model_validator(mode="after")
     def compact_limit_within_context(self) -> CodexPolicy:

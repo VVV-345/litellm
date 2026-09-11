@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import hmac
 import html
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,12 +32,12 @@ from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
-from account_pool.policies import PolicyRepository
+from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
-from account_pool.settings import AccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
 
 _BEARER: Final = HTTPBearer(auto_error=False)
 T = TypeVar("T")
@@ -102,6 +102,34 @@ class QuotaRefreshResult(BaseModel):
     failed_card_ids: tuple[UUID, ...] = ()
 
 
+class AuthFileStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    disabled: bool
+
+
+class AuthFileFieldsRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fields: dict[str, object]
+
+
+class PluginConfigRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+
+class PluginInstallRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: str = Field(min_length=1, max_length=64)
+
+
+class PluginEnabledRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    enabled: bool
+
+
 def create_router(
     service: EnvironmentService,
     manager_token: str,
@@ -114,6 +142,8 @@ def create_router(
     batch_service: BatchService | None = None,
     settings: AccountPoolSettingsRepository | None = None,
     plugins: PluginService | None = None,
+    sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
+    sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -188,6 +218,35 @@ def create_router(
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
         return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type))
 
+    @router.get("/api/environments/{environment_id}/auth-file/download", dependencies=[Depends(require_manager)])
+    async def download_auth_file(environment_id: UUID) -> StreamingResponse:
+        content, content_type, filename = _unwrap(await service.download_auth_file(environment_id))
+        return StreamingResponse(
+            iter((content,)),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @router.delete("/api/environments/{environment_id}/auth-file", dependencies=[Depends(require_manager)])
+    async def delete_auth_file(environment_id: UUID) -> EnvironmentView:
+        return _unwrap(await service.delete_auth_file(environment_id))
+
+    @router.patch("/api/environments/{environment_id}/auth-file/status", dependencies=[Depends(require_manager)])
+    async def patch_auth_file_status(
+        environment_id: UUID, request: AuthFileStatusRequest
+    ) -> EnvironmentView:
+        return _unwrap(await service.patch_auth_file_status(environment_id, request.disabled))
+
+    @router.patch("/api/environments/{environment_id}/auth-file/fields", dependencies=[Depends(require_manager)])
+    async def patch_auth_file_fields(
+        environment_id: UUID, request: AuthFileFieldsRequest
+    ) -> EnvironmentView:
+        return _unwrap(await service.patch_auth_file_fields(environment_id, request.fields))
+
+    @router.get("/api/environments/{environment_id}/auth-file/models", dependencies=[Depends(require_manager)])
+    async def get_auth_file_models(environment_id: UUID) -> tuple[str, ...]:
+        return _unwrap(await service.get_auth_file_models(environment_id))
+
     @router.post("/api/environments/{environment_id}/credentials", dependencies=[Depends(require_manager)])
     async def add_credential(
         environment_id: UUID,
@@ -245,6 +304,40 @@ def create_router(
         async def uninstall_plugin(plugin_id: str) -> None:
             await plugins.uninstall(plugin_id)
 
+    @router.get("/api/environments/{environment_id}/plugins", dependencies=[Depends(require_manager)])
+    async def list_card_plugins(environment_id: UUID) -> Mapping[str, object]:
+        return _unwrap(await service.list_card_plugins(environment_id))
+
+    @router.get("/api/environments/{environment_id}/plugin-store", dependencies=[Depends(require_manager)])
+    async def list_card_plugin_store(environment_id: UUID) -> Mapping[str, object]:
+        return _unwrap(await service.list_card_plugin_store(environment_id))
+
+    @router.post("/api/environments/{environment_id}/plugins/{plugin_id}/install", dependencies=[Depends(require_manager)])
+    async def install_card_plugin(
+        environment_id: UUID, plugin_id: str, request: PluginInstallRequest
+    ) -> Mapping[str, object]:
+        return _unwrap(await service.install_card_plugin(environment_id, plugin_id, request.version))
+
+    @router.patch("/api/environments/{environment_id}/plugins/{plugin_id}/enabled", dependencies=[Depends(require_manager)])
+    async def set_card_plugin_enabled(
+        environment_id: UUID, plugin_id: str, request: PluginEnabledRequest
+    ) -> Mapping[str, object]:
+        return _unwrap(await service.set_card_plugin_enabled(environment_id, plugin_id, request.enabled))
+
+    @router.delete("/api/environments/{environment_id}/plugins/{plugin_id}", dependencies=[Depends(require_manager)])
+    async def uninstall_card_plugin(environment_id: UUID, plugin_id: str) -> Mapping[str, object]:
+        return _unwrap(await service.uninstall_card_plugin(environment_id, plugin_id))
+
+    @router.get("/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)])
+    async def get_card_plugin_config(environment_id: UUID, plugin_id: str) -> Mapping[str, object]:
+        return _unwrap(await service.get_card_plugin_config(environment_id, plugin_id))
+
+    @router.put("/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)])
+    async def put_card_plugin_config(
+        environment_id: UUID, plugin_id: str, request: PluginConfigRequest
+    ) -> Mapping[str, object]:
+        return _unwrap(await service.put_card_plugin_config(environment_id, plugin_id, request.model_extra or {}))
+
     @router.post("/api/environments", dependencies=[Depends(require_manager)], response_model=AuthorizationView)
     async def create_environment(
         request: CreateEnvironmentRequest,
@@ -284,6 +377,10 @@ def create_router(
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> AuthorizationView:
         return _unwrap(await service.authorize_environment(environment_id, operation_id))
+
+    @router.delete("/api/environments/{environment_id}/oauth-session", dependencies=[Depends(require_manager)])
+    async def cancel_oauth_session(environment_id: UUID) -> EnvironmentView:
+        return _unwrap(await service.cancel_oauth_session(environment_id))
 
     @router.delete("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
     async def delete_environment(
@@ -366,6 +463,8 @@ def create_router(
                 require_manager,
                 policies,
                 settings,
+                sync_settings,
+                sync_policy,
             )
         )
     if gateway_service is not None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -18,6 +18,8 @@ from account_pool.domain import (
     ProxyProfile,
     SupplierKind,
 )
+from account_pool.policies import AccountPolicy
+from account_pool.settings import AccountPoolSettings
 
 
 class EnvironmentRepository(Protocol):
@@ -76,6 +78,8 @@ class EnvironmentChannel(EnvironmentRuntime, Protocol):
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str: ...
 
+    async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None: ...
+
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None: ...
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
@@ -115,9 +119,45 @@ class CLIProxyClient(Protocol):
         self, record: EnvironmentRecord, supplier: SupplierDefinition, configuration: EnvironmentConfiguration
     ) -> None: ...
 
+    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None: ...
+
+    async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None: ...
+
+    async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]: ...
+
+    async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]: ...
+
+    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]: ...
+
+    async def set_plugin_enabled(
+        self, record: EnvironmentRecord, plugin_id: str, enabled: bool
+    ) -> Mapping[str, object]: ...
+
+    async def uninstall_plugin(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]: ...
+
+    async def get_plugin_config(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]: ...
+
+    async def put_plugin_config(
+        self, record: EnvironmentRecord, plugin_id: str, config: Mapping[str, object]
+    ) -> Mapping[str, object]: ...
+
     async def upload_auth_file(
         self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
     ) -> None: ...
+
+    async def download_auth_file(self, record: EnvironmentRecord, filename: str) -> tuple[bytes, str]: ...
+
+    async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None: ...
+
+    async def patch_auth_file_status(
+        self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
+    ) -> None: ...
+
+    async def patch_auth_file_fields(
+        self, record: EnvironmentRecord, filename: str, fields: Mapping[str, object]
+    ) -> None: ...
+
+    async def get_auth_file_models(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]: ...
 
 
 class ProxyProfileRepository(Protocol):

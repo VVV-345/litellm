@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/lib/toast";
 
 import { createAccountPoolEnvironment } from "./AccountPoolApi";
+import { cancelAccountPoolOAuthSession } from "./AccountPoolManagementApi";
 import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
@@ -99,6 +100,18 @@ export const AccountPoolCreateDialog = ({
     onOpenChange(nextOpen);
   };
 
+  const cancelAuthorization = async () => {
+    if (!accessToken || !authorization) return;
+    try {
+      await cancelAccountPoolOAuthSession(accessToken, authorization.environment.id);
+      toast.success(t("accountPool.create.authorizationCancelled"));
+      onCreated();
+      onOpenChange(false);
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
+
   const dialogTitle = authorization
     ? t("accountPool.create.authorizationTitle")
     : `${t("accountPool.providers.create")} · ${t(`accountPool.supplier.${supplier}`)}`;
@@ -114,6 +127,9 @@ export const AccountPoolCreateDialog = ({
           error={currentEnvironment?.last_error}
         >
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => void cancelAuthorization()}>
+              {t("accountPool.create.cancelAuthorization")}
+            </Button>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t("common.close")}
             </Button>

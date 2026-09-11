@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Final, Literal, Protocol
 from uuid import UUID
@@ -36,6 +36,20 @@ class AccountPoolSettings(BaseModel):
     file_logging_enabled: bool = False
     debug_logging_enabled: bool = False
     websocket_enabled: bool = False
+    request_log_enabled: bool = False
+    websocket_auth_enabled: bool = False
+    force_model_prefix: bool = False
+    request_retry: int = Field(default=1, ge=0, le=20)
+    max_retry_credentials: int = Field(default=1, ge=0, le=100)
+    max_retry_interval: int = Field(default=0, ge=0, le=3600)
+    usage_statistics_enabled: bool = False
+    logs_max_total_size_mb: int = Field(default=0, ge=0, le=100000)
+    error_logs_max_files: int = Field(default=10, ge=0, le=10000)
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
+    oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
+    oauth_model_aliases: Mapping[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
+    oauth_request_scoped_errors: bool = False
     plugins_enabled: bool = False
     streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
 

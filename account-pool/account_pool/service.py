@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import secrets as token_secrets
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final, TypeVar
@@ -47,6 +48,7 @@ from account_pool.domain import (
 )
 from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.error_safety import safe_error
+from account_pool.policies import AccountPolicy
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentChannel,
@@ -167,6 +169,76 @@ class EnvironmentService:
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
+    async def sync_global_settings(self, settings: AccountPoolSettings) -> tuple[UUID, ...]:
+        records: Final = await self._repository.list()
+        results: Final = await asyncio.gather(
+            *(self._sync_global_settings_for_record(record, settings) for record in records),
+            return_exceptions=True,
+        )
+        return tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
+
+    async def _sync_global_settings_for_record(
+        self, record: EnvironmentRecord, settings: AccountPoolSettings
+    ) -> None:
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.status is EnvironmentStatus.DELETING:
+            return
+        await self._cli_proxy.apply_global_settings(record, settings)
+
+    async def sync_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
+        if record.channel is ChannelKind.CLIPROXYAPI and record.status is not EnvironmentStatus.DELETING:
+            await self._cli_proxy.apply_policy(record, policy)
+
+    async def list_card_plugins(self, environment_id: UUID) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(environment_id, lambda record: self._cli_proxy.list_plugins(record))
+
+    async def list_card_plugin_store(self, environment_id: UUID) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(environment_id, lambda record: self._cli_proxy.list_plugin_store(record))
+
+    async def install_card_plugin(
+        self, environment_id: UUID, plugin_id: str, version: str
+    ) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(
+            environment_id, lambda record: self._cli_proxy.install_plugin(record, plugin_id, version)
+        )
+
+    async def set_card_plugin_enabled(
+        self, environment_id: UUID, plugin_id: str, enabled: bool
+    ) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(
+            environment_id, lambda record: self._cli_proxy.set_plugin_enabled(record, plugin_id, enabled)
+        )
+
+    async def uninstall_card_plugin(self, environment_id: UUID, plugin_id: str) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(
+            environment_id, lambda record: self._cli_proxy.uninstall_plugin(record, plugin_id)
+        )
+
+    async def get_card_plugin_config(self, environment_id: UUID, plugin_id: str) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(
+            environment_id, lambda record: self._cli_proxy.get_plugin_config(record, plugin_id)
+        )
+
+    async def put_card_plugin_config(
+        self, environment_id: UUID, plugin_id: str, config: Mapping[str, object]
+    ) -> Result[Mapping[str, object]]:
+        return await self._plugin_call(
+            environment_id, lambda record: self._cli_proxy.put_plugin_config(record, plugin_id, config)
+        )
+
+    async def _plugin_call(
+        self, environment_id: UUID, operation: Callable[[EnvironmentRecord], Awaitable[Mapping[str, object]]]
+    ) -> Result[Mapping[str, object]]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI:
+            return Failure(FailureCode.INVALID, "plugins are supported by CLIProxyAPI cards only")
+        try:
+            return Success(await operation(record))
+        except Exception as error:
+            await self._log_event(record, "configuration", error)
+            return Failure(FailureCode.UPSTREAM, "plugin runtime operation failed")
+
     async def upload_auth_file(
         self, environment_id: UUID, filename: str, content: bytes, content_type: str | None
     ) -> Result[EnvironmentView]:
@@ -181,6 +253,94 @@ class EnvironmentService:
             await self._log_event(record, "authentication", error)
             return Failure(FailureCode.UPSTREAM, "auth file upload failed")
         return await self.refresh_environment(environment_id)
+
+    async def download_auth_file(self, environment_id: UUID) -> Result[tuple[bytes, str, str]]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
+            return Failure(FailureCode.INVALID, "this card has no downloadable auth file")
+        try:
+            content, content_type = await self._cli_proxy.download_auth_file(record, record.auth_file_name)
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file download failed")
+        return Success((content, content_type, record.auth_file_name))
+
+    async def delete_auth_file(self, environment_id: UUID) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
+            return Failure(FailureCode.INVALID, "this card has no auth file")
+        try:
+            await self._cli_proxy.delete_auth_file(record, record.auth_file_name)
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file deletion failed")
+        cleared: Final = record.model_copy(
+            update={
+                "version": record.version + 1,
+                "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                "configuration_pending": False,
+                "auth_file_name": None,
+                "auth_index": None,
+                "available_models": (),
+                "enabled_models": (),
+                "quota": QuotaSnapshot(),
+                "model_quotas": (),
+                "cooldown_until": None,
+                "automatic_cooldown": False,
+                "updated_at": utc_now(),
+            }
+        )
+        await self._repository.save_if_version(cleared, record.version)
+        return Success(to_view(cleared))
+
+    async def patch_auth_file_status(
+        self, environment_id: UUID, disabled: bool
+    ) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
+            return Failure(FailureCode.INVALID, "this card has no auth file")
+        try:
+            await self._cli_proxy.patch_auth_file_status(record, record.auth_file_name, record.auth_index, disabled)
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file status update failed")
+        return await self.refresh_environment(environment_id)
+
+    async def patch_auth_file_fields(
+        self, environment_id: UUID, fields: Mapping[str, object]
+    ) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
+            return Failure(FailureCode.INVALID, "this card has no auth file")
+        if not fields:
+            return Failure(FailureCode.INVALID, "auth file fields are required")
+        try:
+            await self._cli_proxy.patch_auth_file_fields(record, record.auth_file_name, fields)
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file fields update failed")
+        return await self.refresh_environment(environment_id)
+
+    async def get_auth_file_models(self, environment_id: UUID) -> Result[tuple[str, ...]]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
+            return Failure(FailureCode.INVALID, "this card has no auth file")
+        try:
+            return Success(await self._cli_proxy.get_auth_file_models(record, record.auth_file_name))
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file model query failed")
 
     async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
         return await self._proxy_gateways.list_gateways()
@@ -674,6 +834,45 @@ class EnvironmentService:
             if saved is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             return Success(self._authorization_view(saved))
+
+    async def cancel_oauth_session(self, environment_id: UUID) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        state: Final = record.oauth_provider_state or record.oauth_state
+        if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION or state is None:
+            return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
+        try:
+            await self._channel(record).cancel_oauth_session(record, state)
+        except Exception as error:
+            await self._log_event(record, "authorization", error)
+            return Failure(FailureCode.UPSTREAM, "OAuth session cancellation failed")
+        restored_status: Final = (
+            EnvironmentStatus.READY
+            if record.auth_file_name is not None and record.enabled and not record.manual_cooldown
+            else EnvironmentStatus.COOLING_DOWN
+            if record.manual_cooldown
+            else EnvironmentStatus.DISABLED
+            if not record.enabled
+            else EnvironmentStatus.AWAITING_AUTHORIZATION
+        )
+        cancelled: Final = record.model_copy(
+            update={
+                "version": record.version + 1,
+                "status": restored_status,
+                "desired_state": restored_status,
+                "oauth_state": None,
+                "oauth_expires_at": None,
+                "oauth_state_signature": None,
+                "oauth_provider_state": None,
+                "oauth_authorization_url": None,
+                "authorization_user_code": None,
+                "last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        saved: Final = await self._repository.save_if_version(cancelled, record.version)
+        return Success(to_view(saved or cancelled))
 
     async def submit_oauth_callback(
         self,

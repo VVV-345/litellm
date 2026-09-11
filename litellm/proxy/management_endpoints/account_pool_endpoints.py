@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Annotated, Final, Literal, TypeVar
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
@@ -19,7 +21,7 @@ from litellm.proxy.management_endpoints.account_pool_management import create_ma
 from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 
-_Method = Literal["DELETE", "GET", "POST", "PUT"]
+_Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
 
 
 class AccountPoolQuotaWindow(BaseModel):
@@ -139,6 +141,18 @@ class AccountPoolQuotaRefreshResult(BaseModel):
 
     refreshed: tuple[AccountPoolEnvironment, ...]
     failed_card_ids: tuple[UUID, ...] = ()
+
+
+class AccountPoolAuthFileStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    disabled: bool
+
+
+class AccountPoolAuthFileFieldsRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fields: dict[str, object]
 
 
 class AccountPoolCreateRequest(BaseModel):
@@ -420,6 +434,84 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         await _reconcile_after_saved_change()
         return environment
 
+    @router.get("/environments/{environment_id}/auth-file/download")
+    async def download_auth_file(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> Response:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/auth-file/download"
+        )
+        _raise_for_upstream_error(response)
+        return Response(
+            content=response.content,
+            media_type=response.headers.get("content-type", "application/json"),
+            headers={
+                "Content-Disposition": response.headers.get(
+                    "content-disposition", 'attachment; filename="auth.json"'
+                )
+            },
+        )
+
+    @router.delete("/environments/{environment_id}/auth-file", response_model=AccountPoolEnvironment)
+    async def delete_auth_file(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "DELETE", f"/api/environments/{environment_id}/auth-file"
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.patch("/environments/{environment_id}/auth-file/status", response_model=AccountPoolEnvironment)
+    async def patch_auth_file_status(
+        environment_id: UUID,
+        request: AccountPoolAuthFileStatusRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PATCH",
+            f"/api/environments/{environment_id}/auth-file/status",
+            request.model_dump_json().encode("utf-8"),
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.patch("/environments/{environment_id}/auth-file/fields", response_model=AccountPoolEnvironment)
+    async def patch_auth_file_fields(
+        environment_id: UUID,
+        request: AccountPoolAuthFileFieldsRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PATCH",
+            f"/api/environments/{environment_id}/auth-file/fields",
+            request.model_dump_json().encode("utf-8"),
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.get("/environments/{environment_id}/auth-file/models", response_model=tuple[str, ...])
+    async def auth_file_models(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[str, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/auth-file/models"
+        )
+        return _validate_response(response, TypeAdapter(tuple[str, ...]))
+
     @router.post("/environments", response_model=AccountPoolAuthorization)
     async def create_environment(
         request: AccountPoolCreateRequest,
@@ -500,6 +592,99 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         response: Final = await _manager_request(client_factory, "POST", path, idempotency_key=idempotency_key)
         authorization: Final = _validate_response(response, _AUTHORIZATION)
         return authorization
+
+    @router.delete("/environments/{environment_id}/oauth-session", response_model=AccountPoolEnvironment)
+    async def cancel_oauth_session(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "DELETE", f"/api/environments/{environment_id}/oauth-session"
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    async def _card_plugin_request(
+        environment_id: UUID,
+        method: _Method,
+        suffix: str,
+        user_api_key_dict: UserAPIKeyAuth,
+        body: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            method,
+            f"/api/environments/{environment_id}/plugins{suffix}",
+            None if body is None else json.dumps(body).encode("utf-8"),
+        )
+        return _validate_response(response, TypeAdapter(dict[str, object]))
+
+    @router.get("/environments/{environment_id}/plugins", response_model=dict[str, object])
+    async def list_card_plugins(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        return await _card_plugin_request(environment_id, "GET", "", user_api_key_dict)
+
+    @router.get("/environments/{environment_id}/plugin-store", response_model=dict[str, object])
+    async def list_card_plugin_store(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/plugin-store"
+        )
+        return _validate_response(response, TypeAdapter(dict[str, object]))
+
+    @router.post("/environments/{environment_id}/plugins/{plugin_id}/install", response_model=dict[str, object])
+    async def install_card_plugin(
+        environment_id: UUID,
+        plugin_id: str,
+        request: dict[str, object],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "POST", f"/{safe_plugin_id}/install", user_api_key_dict, request)
+
+    @router.patch("/environments/{environment_id}/plugins/{plugin_id}/enabled", response_model=dict[str, object])
+    async def set_card_plugin_enabled(
+        environment_id: UUID,
+        plugin_id: str,
+        request: dict[str, object],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "PATCH", f"/{safe_plugin_id}/enabled", user_api_key_dict, request)
+
+    @router.delete("/environments/{environment_id}/plugins/{plugin_id}", response_model=dict[str, object])
+    async def uninstall_card_plugin(
+        environment_id: UUID,
+        plugin_id: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "DELETE", f"/{safe_plugin_id}", user_api_key_dict)
+
+    @router.get("/environments/{environment_id}/plugins/{plugin_id}/config", response_model=dict[str, object])
+    async def get_card_plugin_config(
+        environment_id: UUID,
+        plugin_id: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "GET", f"/{safe_plugin_id}/config", user_api_key_dict)
+
+    @router.put("/environments/{environment_id}/plugins/{plugin_id}/config", response_model=dict[str, object])
+    async def put_card_plugin_config(
+        environment_id: UUID,
+        plugin_id: str,
+        request: dict[str, object],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "PUT", f"/{safe_plugin_id}/config", user_api_key_dict, request)
 
     @router.delete("/environments/{environment_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_environment(

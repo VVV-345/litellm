@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 from uuid import UUID
@@ -19,7 +20,9 @@ from account_pool.domain import (
     OAuthCallback,
     SupplierKind,
 )
+from account_pool.policies import AccountPolicy
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.settings import AccountPoolSettings
 
 
 class CLIProxyAPIChannel:
@@ -81,6 +84,9 @@ class CLIProxyAPIChannel:
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str:
         return await self._client.authorization_status(record, state)
 
+    async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
+        await self._client.cancel_oauth_session(record, state)
+
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         await self._client.submit_callback(record, self.supplier(record.supplier), callback)
 
@@ -93,10 +99,60 @@ class CLIProxyAPIChannel:
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
         await self._client.apply_configuration(record, self.supplier(record.supplier), configuration)
 
+    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+        await self._client.apply_global_settings(record, settings)
+
+    async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
+        await self._client.apply_policy(record, policy)
+
     async def upload_auth_file(
         self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
     ) -> None:
         await self._client.upload_auth_file(record, filename, content, content_type)
+
+    async def download_auth_file(self, record: EnvironmentRecord, filename: str) -> tuple[bytes, str]:
+        return await self._client.download_auth_file(record, filename)
+
+    async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None:
+        await self._client.delete_auth_file(record, filename)
+
+    async def patch_auth_file_status(
+        self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
+    ) -> None:
+        await self._client.patch_auth_file_status(record, filename, auth_index, disabled)
+
+    async def patch_auth_file_fields(
+        self, record: EnvironmentRecord, filename: str, fields: Mapping[str, object]
+    ) -> None:
+        await self._client.patch_auth_file_fields(record, filename, fields)
+
+    async def get_auth_file_models(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
+        return await self._client.get_auth_file_models(record, filename)
+
+    async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:
+        return await self._client.list_plugins(record)
+
+    async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]:
+        return await self._client.list_plugin_store(record)
+
+    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]:
+        return await self._client.install_plugin(record, plugin_id, version)
+
+    async def set_plugin_enabled(
+        self, record: EnvironmentRecord, plugin_id: str, enabled: bool
+    ) -> Mapping[str, object]:
+        return await self._client.set_plugin_enabled(record, plugin_id, enabled)
+
+    async def uninstall_plugin(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]:
+        return await self._client.uninstall_plugin(record, plugin_id)
+
+    async def get_plugin_config(self, record: EnvironmentRecord, plugin_id: str) -> Mapping[str, object]:
+        return await self._client.get_plugin_config(record, plugin_id)
+
+    async def put_plugin_config(
+        self, record: EnvironmentRecord, plugin_id: str, config: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        return await self._client.put_plugin_config(record, plugin_id, config)
 
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:
         return GatewayEnvironment(

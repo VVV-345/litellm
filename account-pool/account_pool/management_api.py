@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
@@ -13,10 +13,18 @@ from pydantic import BaseModel, ConfigDict, Field
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
 from account_pool.domain import EnvironmentRecord
 from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
-from account_pool.policies import PolicyRepository, PolicyUpdate, PolicyView, policy_capabilities, policy_validation_error
+from account_pool.policies import (
+    AccountPolicy,
+    PolicyRepository,
+    PolicyUpdate,
+    PolicyView,
+    policy_capabilities,
+    policy_validation_error,
+)
 from account_pool.ports import EnvironmentRepository
 from account_pool.result import Failure, Result
 from account_pool.settings import (
+    AccountPoolSettings,
     AccountPoolSettingsHistoryEntry,
     AccountPoolSettingsPreview,
     AccountPoolSettingsRepository,
@@ -35,6 +43,8 @@ def create_management_router(
     authorize: Callable[..., None],
     policies: PolicyRepository,
     settings: AccountPoolSettingsRepository | None = None,
+    sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
+    sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
 
@@ -116,6 +126,11 @@ def create_management_router(
         saved: Final = await policies.save(card_id, request)
         if saved is None:
             raise HTTPException(409, "Card is unavailable or policy has changed; refresh before retrying")
+        if sync_policy is not None:
+            try:
+                await sync_policy(record, saved.policy)
+            except Exception as error:
+                raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error
         return saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
 
     @router.get("/logs/{event_id}")
@@ -146,6 +161,10 @@ def create_management_router(
             saved: Final = await settings.save(request)
             if saved is None:
                 raise HTTPException(409, "Settings have changed; refresh before retrying")
+            if sync_settings is not None:
+                failed_card_ids: Final = await sync_settings(saved.values)
+                if failed_card_ids:
+                    raise HTTPException(status_code=502, detail="settings runtime synchronization failed")
             return saved
 
         @router.post("/settings/preview")

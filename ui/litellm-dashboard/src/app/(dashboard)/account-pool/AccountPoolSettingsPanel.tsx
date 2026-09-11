@@ -34,6 +34,20 @@ const defaults: AccountPoolSettings = {
   file_logging_enabled: false,
   debug_logging_enabled: false,
   websocket_enabled: false,
+  request_log_enabled: false,
+  websocket_auth_enabled: false,
+  force_model_prefix: false,
+  request_retry: 1,
+  max_retry_credentials: 1,
+  max_retry_interval: 0,
+  usage_statistics_enabled: false,
+  logs_max_total_size_mb: 0,
+  error_logs_max_files: 10,
+  quota_switch_project: false,
+  quota_switch_preview_model: false,
+  oauth_excluded_models: [],
+  oauth_model_aliases: {},
+  oauth_request_scoped_errors: false,
   plugins_enabled: false,
   streaming_rules: [],
 };
@@ -214,8 +228,15 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props & 
             <TabsContent value="logging" className="grid gap-3 pt-4 sm:grid-cols-2">
               {toggleField("file_logging_enabled", t("accountPool.settings.fileLogging"))}
               {toggleField("debug_logging_enabled", t("accountPool.settings.debugLogging"))}
+              {toggleField("request_log_enabled", t("accountPool.settings.requestLog"))}
+              {toggleField("usage_statistics_enabled", t("accountPool.settings.usageStatistics"))}
+              {numberField("logs_max_total_size_mb", t("accountPool.settings.logsMaxSize"))}
+              {numberField("error_logs_max_files", t("accountPool.settings.errorLogsMaxFiles"))}
             </TabsContent>
-            <TabsContent value="quota" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.quotaDescription")}</p></TabsContent>
+            <TabsContent value="quota" className="grid gap-3 pt-4 sm:grid-cols-2">
+              {toggleField("quota_switch_project", t("accountPool.settings.quotaSwitchProject"))}
+              {toggleField("quota_switch_preview_model", t("accountPool.settings.quotaSwitchPreview"))}
+            </TabsContent>
             <TabsContent value="streaming" className="grid gap-4 pt-4">
               <p className="text-sm text-muted-foreground">{t("accountPool.settings.streamingDescription")}</p>
               <div className="grid gap-3">
@@ -245,7 +266,14 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props & 
                 <Button type="button" variant="outline" disabled={busy} onClick={() => update("streaming_rules", [...(values.streaming_rules ?? []), { id: crypto.randomUUID(), name: `${t("accountPool.settings.ruleName")} ${(values.streaming_rules ?? []).length + 1}`, mode: "enabled", card_ids: [] }])}>{t("accountPool.settings.addRule")}</Button>
               </div>
             </TabsContent>
-            <TabsContent value="advanced" className="grid gap-3 pt-4">{toggleField("plugins_enabled", t("accountPool.settings.plugins"))}</TabsContent>
+            <TabsContent value="advanced" className="grid gap-3 pt-4 sm:grid-cols-2">
+              {toggleField("plugins_enabled", t("accountPool.settings.plugins"))}
+              {toggleField("websocket_auth_enabled", t("accountPool.settings.websocketAuth"))}
+              {toggleField("force_model_prefix", t("accountPool.settings.forceModelPrefix"))}
+              {numberField("request_retry", t("accountPool.settings.requestRetry"))}
+              {numberField("max_retry_credentials", t("accountPool.settings.maxRetryCredentials"))}
+              {numberField("max_retry_interval", t("accountPool.settings.maxRetryInterval"))}
+            </TabsContent>
             <TabsContent value="payload" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.payloadDescription")}</p></TabsContent>
           </Tabs>
           {previewText.length > 0 && (
