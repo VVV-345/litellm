@@ -787,6 +787,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dashboard Stats */
+        get: operations["dashboard_stats_account_pool_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments": {
         parameters: {
             query?: never;
@@ -893,6 +910,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/openai-compatible": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Openai Compatible */
+        post: operations["create_openai_compatible_account_pool_openai_compatible_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/policies": {
         parameters: {
             query?: never;
@@ -902,6 +936,23 @@ export interface paths {
         };
         /** List Policies */
         get: operations["list_policies_account_pool_policies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/provider-families": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Provider Families */
+        get: operations["list_provider_families_account_pool_provider_families_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -22870,21 +22921,30 @@ export interface components {
              * @default cliproxyapi
              * @enum {string}
              */
-            channel: "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
             /** Name */
             name: string;
+            openai_compatible?: components["schemas"]["AccountPoolOpenAICompatibleConfig"] | null;
             /**
              * Provider
              * @default openai
              * @constant
              */
             provider: "openai";
+            /** Provider Family */
+            provider_family?: string | null;
             /**
              * Supplier
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+        };
+        /** AccountPoolDashboardStats */
+        AccountPoolDashboardStats: {
+            /** Cards */
+            cards: components["schemas"]["ErrorStats"][];
+            summary: components["schemas"]["ErrorStats"];
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
@@ -22900,7 +22960,7 @@ export interface components {
              * @default cliproxyapi
              * @enum {string}
              */
-            channel: "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
             /** Concurrency Limit */
             concurrency_limit: number;
             /**
@@ -22969,7 +23029,7 @@ export interface components {
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
             /** Updated At */
             updated_at: string;
             /** Version */
@@ -22985,6 +23045,70 @@ export interface components {
             /** Model */
             model: string;
             quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolOpenAICompatibleConfig */
+        AccountPoolOpenAICompatibleConfig: {
+            /** Api Keys */
+            api_keys: components["schemas"]["AccountPoolOpenAICompatibleKey"][];
+            /**
+             * Base Url
+             * Format: uri
+             */
+            base_url: string;
+            /**
+             * Custom Models
+             * @default []
+             */
+            custom_models: string[];
+            /**
+             * Headers
+             * @default []
+             */
+            headers: [
+                string,
+                string
+            ][];
+            /**
+             * Prefix
+             * @default
+             */
+            prefix: string;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /** Test Model */
+            test_model: string;
+        };
+        /** AccountPoolOpenAICompatibleKey */
+        AccountPoolOpenAICompatibleKey: {
+            /** Api Key */
+            api_key: string;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+        };
+        /** AccountPoolProviderFamily */
+        AccountPoolProviderFamily: {
+            /** Authentication */
+            authentication: string;
+            /** Available */
+            available: boolean;
+            /** Card Count */
+            card_count: number;
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** Kind */
+            kind: string;
+            /** Supplier */
+            supplier?: string | null;
         };
         /** AccountPoolProxyGateway */
         AccountPoolProxyGateway: {
@@ -27426,7 +27550,7 @@ export interface components {
              * Channel
              * @enum {string}
              */
-            channel: "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
             /** Cost Usd */
             cost_usd?: number | null;
             /** Detail */
@@ -27508,7 +27632,7 @@ export interface components {
              * Supplier
              * @enum {string}
              */
-            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
             /**
              * Switched Account
              * @default false
@@ -40896,6 +41020,26 @@ export interface operations {
             };
         };
     };
+    dashboard_stats_account_pool_dashboard_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolDashboardStats"];
+                };
+            };
+        };
+    };
     list_environments_account_pool_environments_get: {
         parameters: {
             query?: never;
@@ -41154,8 +41298,8 @@ export interface operations {
             query?: {
                 occurred_from?: string | null;
                 occurred_to?: string | null;
-                channel?: ("cliproxyapi" | "freebuff2api") | null;
-                supplier?: ("openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
+                channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
                 card_id?: string | null;
                 environment_id?: string | null;
                 account_id?: string | null;
@@ -41226,6 +41370,41 @@ export interface operations {
             };
         };
     };
+    create_openai_compatible_account_pool_openai_compatible_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_policies_account_pool_policies_get: {
         parameters: {
             query?: never;
@@ -41242,6 +41421,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyView"][];
+                };
+            };
+        };
+    };
+    list_provider_families_account_pool_provider_families_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProviderFamily"][];
                 };
             };
         };

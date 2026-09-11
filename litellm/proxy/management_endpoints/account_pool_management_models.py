@@ -8,8 +8,16 @@ from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-ChannelKind = Literal["cliproxyapi", "freebuff2api"]
-SupplierKind = Literal["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai", "freebuff"]
+ChannelKind = Literal["openai_compatible", "cliproxyapi", "freebuff2api"]
+SupplierKind = Literal[
+    "openai_compatible",
+    "openai_codex",
+    "anthropic_claude",
+    "google_antigravity",
+    "kimi",
+    "xai",
+    "freebuff",
+]
 LogStage = Literal[
     "provisioning",
     "authorization",

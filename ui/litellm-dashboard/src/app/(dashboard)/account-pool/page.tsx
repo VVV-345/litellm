@@ -29,13 +29,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
+import { AccountPoolDashboard } from "./AccountPoolDashboard";
 import { AccountPoolKeyDialog } from "./AccountPoolKeyDialog";
 import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
+import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
+import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
+import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
+import { AccountPoolScopePanel } from "./AccountPoolScopePanel";
 import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
-import { listAccountPolicies } from "./AccountPoolManagementApi";
+import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
+import { getAccountPoolDashboardStats, listAccountPolicies, type ErrorStats } from "./AccountPoolManagementApi";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { canManageAccountPool } from "./AccountPoolPermissions";
-import type { AccountPoolAuthorization, AccountPoolEnvironment, AccountPoolStatus } from "./AccountPoolTypes";
+import type {
+  AccountPoolAuthorization,
+  AccountPoolEnvironment,
+  AccountPoolStatus,
+  AccountPoolSupplier,
+} from "./AccountPoolTypes";
 import {
   filterAccountPoolEnvironments,
   paginateAccountPoolEnvironments,
@@ -68,7 +79,8 @@ export default function AccountPoolPage() {
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [keyEnvironment, setKeyEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [activeTab, setActiveTab] = useState("accounts");
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [logCardId, setLogCardId] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
@@ -94,6 +106,23 @@ export default function AccountPoolPage() {
   );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
+  const dashboardStatsQuery = useQuery({
+    queryKey: ["account-pool", "dashboard-stats", accessToken],
+    queryFn: () => getAccountPoolDashboardStats(accessToken!),
+    enabled: canManage && accessToken !== null,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const statsByCard = useMemo(
+    () =>
+      new Map<string, ErrorStats>(
+        (dashboardStatsQuery.data?.cards ?? []).flatMap((stats) =>
+          stats.card_id ? [[stats.card_id, stats] as [string, ErrorStats]] : [],
+        ),
+      ),
+    [dashboardStatsQuery.data?.cards],
+  );
+  const statsLoading = dashboardStatsQuery.isPending || dashboardStatsQuery.isFetching;
   const filteredEnvironments = useMemo(
     () => filterAccountPoolEnvironments(environments, search, statusFilter, policies),
     [environments, policies, search, statusFilter],
@@ -107,10 +136,33 @@ export default function AccountPoolPage() {
 
   if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (supplier: AccountPoolSupplier = "openai_codex") => {
     setAuthorization(null);
+    setCreateSupplier(supplier);
     setCreateOpen(true);
   };
+
+  const renderCard = (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => (
+    <AccountPoolCard
+      key={environment.id}
+      environment={environment}
+      requestStats={requestStats}
+      proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
+      onConfigure={setConfigEnvironment}
+      onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
+      onAuthorize={(current) => authorizeMutation.mutate(current)}
+      onDelete={setDeleteEnvironment}
+      onManageKey={setKeyEnvironment}
+      onManagePolicy={setPolicyEnvironment}
+      onViewLogs={(current) => {
+        setLogCardId(current.id);
+        setActiveTab("logs");
+      }}
+      tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
+      group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
+      disabled={busy}
+    />
+  );
 
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
@@ -149,7 +201,7 @@ export default function AccountPoolPage() {
         <div className="rounded-md border border-dashed border-border p-12 text-center">
           <p className="font-medium">{t("accountPool.noEnvironments")}</p>
           <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noEnvironmentsDescription")}</p>
-          <Button type="button" className="mt-4" onClick={openCreateDialog}>
+          <Button type="button" className="mt-4" onClick={() => openCreateDialog()}>
             <Plus />
             {t("accountPool.createEnvironment")}
           </Button>
@@ -159,26 +211,7 @@ export default function AccountPoolPage() {
     return (
       <>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visibleEnvironments.map((environment) => (
-            <AccountPoolCard
-              key={environment.id}
-              environment={environment}
-              proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
-              onConfigure={setConfigEnvironment}
-              onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
-              onAuthorize={(current) => authorizeMutation.mutate(current)}
-              onDelete={setDeleteEnvironment}
-              onManageKey={setKeyEnvironment}
-              onManagePolicy={setPolicyEnvironment}
-              onViewLogs={(current) => {
-                setLogCardId(current.id);
-                setActiveTab("logs");
-              }}
-              tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
-              group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
-              disabled={busy}
-            />
-          ))}
+          {visibleEnvironments.map((environment) => renderCard(environment, statsByCard.get(environment.id)))}
         </div>
         {filteredEnvironments.length === 0 && (
           <div className="rounded-md border border-dashed border-border p-12 text-center">
@@ -257,7 +290,7 @@ export default function AccountPoolPage() {
             >
               <RefreshCw className={environmentsQuery.isFetching ? "animate-spin" : undefined} />
             </Button>
-            <Button type="button" onClick={openCreateDialog} disabled={busy}>
+            <Button type="button" onClick={() => openCreateDialog()} disabled={busy}>
               <Plus />
               {t("accountPool.createEnvironment")}
             </Button>
@@ -266,8 +299,23 @@ export default function AccountPoolPage() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList variant="line" className="h-auto w-full justify-start rounded-none border-b p-0">
-            <TabsTrigger value="accounts" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.accounts")}
+            <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.dashboard")}
+            </TabsTrigger>
+            <TabsTrigger value="providers" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.providers")}
+            </TabsTrigger>
+            <TabsTrigger value="oauth" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.oauth")}
+            </TabsTrigger>
+            <TabsTrigger value="credentials" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.credentials")}
+            </TabsTrigger>
+            <TabsTrigger value="quotas" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.quotas")}
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.settings")}
             </TabsTrigger>
             <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.proxyLayer")}
@@ -276,7 +324,20 @@ export default function AccountPoolPage() {
               {t("accountPool.tabs.logs")}
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="accounts" className="pt-4">
+          <TabsContent value="dashboard" className="pt-4">
+            {environmentsQuery.isLoading || environmentsQuery.isError ? (
+              renderContent()
+            ) : (
+              <AccountPoolDashboard
+                environments={environments}
+                statsByCard={statsByCard}
+                statsLoading={statsLoading}
+                renderCard={renderCard}
+              />
+            )}
+          </TabsContent>
+          <TabsContent value="providers" className="pt-4">
+            <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
             {accessToken && environments.length > 0 && (
               <div className="mb-4">
                 <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
@@ -320,6 +381,25 @@ export default function AccountPoolPage() {
           <TabsContent value="proxy-layer" className="pt-4">
             <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
           </TabsContent>
+          <TabsContent value="oauth" className="pt-4">
+            <AccountPoolAuthorizationOverview
+              environments={environments}
+              onAuthorize={(environment) => authorizeMutation.mutate(environment)}
+            />
+          </TabsContent>
+          <TabsContent value="credentials" className="pt-4">
+            <AccountPoolCredentialsPanel environments={environments} />
+          </TabsContent>
+          <TabsContent value="quotas" className="pt-4">
+            <AccountPoolQuotaPanel
+              environments={environments}
+              onRefresh={() => void environmentsQuery.refetch()}
+              refreshing={environmentsQuery.isFetching}
+            />
+          </TabsContent>
+          <TabsContent value="settings" className="pt-4">
+            <AccountPoolScopePanel environments={environments} onConfigure={setConfigEnvironment} />
+          </TabsContent>
           <TabsContent value="logs" className="pt-4">
             {accessToken && (
               <AccountPoolLogsPanel
@@ -337,6 +417,7 @@ export default function AccountPoolPage() {
           key={authorization?.environment.id ?? "create"}
           accessToken={accessToken}
           initialAuthorization={authorization}
+          initialSupplier={createSupplier}
           environments={environments}
           open
           onOpenChange={(open) => {

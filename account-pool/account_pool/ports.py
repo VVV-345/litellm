@@ -11,7 +11,6 @@ from uuid import UUID
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import (
-    ChannelKind,
     EnvironmentConfiguration,
     EnvironmentRecord,
     GatewayEnvironment,

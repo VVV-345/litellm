@@ -160,6 +160,12 @@ def route_with_reason(resolution: Resolution, route: Route, eligible_count: int,
 
 def upstream_url(account: Candidate, path: str) -> str:
     base: Final = urlsplit(account.api_base)
+    if account.supplier == "openai_compatible":
+        if base.scheme not in ("http", "https") or base.username or base.password or base.query or base.fragment:
+            raise ValueError("Unexpected OpenAI-compatible target")
+        normalized: Final = account.api_base.rstrip("/")
+        suffix: Final = path.removeprefix("/v1") if base.path.rstrip("/").endswith("/v1") else path
+        return f"{normalized}{suffix}"
     prefix: Final = "cliproxy" if account.channel == "cliproxyapi" else "freebuff"
     port: Final = 8317 if account.channel == "cliproxyapi" else 8787
     if base.scheme != "http" or base.hostname != f"{prefix}-{account.id.hex}" or base.port != port:

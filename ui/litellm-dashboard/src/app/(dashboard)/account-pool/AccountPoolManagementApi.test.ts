@@ -24,6 +24,7 @@ const policy: AccountPolicy = {
     session_affinity_ttl: 3600,
     quota_reserve_percent: 0,
     quota_snapshot_max_age: 300,
+    token_budget_window_seconds: 3600,
     max_attempts: 1,
     retryable_statuses: [429, 502, 503, 504],
     backoff_ms: 1000,

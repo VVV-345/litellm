@@ -251,6 +251,32 @@ def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
     assert first["configuration_pending"] is False
 
 
+def test_proxy_admin_can_read_dashboard_stats_from_one_manager_endpoint() -> None:
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/dashboard" and request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={"summary": {"total_requests": 4, "succeeded_requests": 3, "failed_requests": 1}, "cards": []},
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+
+    with TestClient(app) as client:
+        response: Final = client.get("/account_pool/dashboard")
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["total_requests"] == 4
+
+
 def test_malformed_manager_environment_response_is_rejected() -> None:
     def factory() -> AccountPoolManagerClient:
         def handler(request: httpx.Request) -> httpx.Response:

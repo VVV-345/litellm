@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Annotated, Final
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 
 class EnvironmentStatus(StrEnum):
@@ -26,11 +28,13 @@ class Provider(StrEnum):
 
 
 class ChannelKind(StrEnum):
+    OPENAI_COMPATIBLE = "openai_compatible"
     CLIPROXYAPI = "cliproxyapi"
     FREEBUFF2API = "freebuff2api"
 
 
 class SupplierKind(StrEnum):
+    OPENAI_COMPATIBLE = "openai_compatible"
     OPENAI_CODEX = "openai_codex"
     ANTHROPIC_CLAUDE = "anthropic_claude"
     GOOGLE_ANTIGRAVITY = "google_antigravity"
@@ -96,6 +100,105 @@ class EnvironmentConfiguration(BaseModel):
         return self
 
 
+class OpenAICompatibleKeyRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class OpenAICompatibleCreateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: AnyHttpUrl
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    test_model: str = Field(min_length=1, max_length=256)
+    api_keys: tuple[OpenAICompatibleKeyRequest, ...] = Field(min_length=1, max_length=100)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+    custom_models: tuple[str, ...] = Field(default=(), max_length=500)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        normalized: Final = str(value).rstrip("/")
+        parsed: Final = urlsplit(normalized)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or not parsed.hostname
+        ):
+            raise ValueError("base_url must be a credential-free HTTP(S) origin")
+        hostname: Final = parsed.hostname.rstrip(".").lower()
+        if hostname in {
+            "localhost",
+            "localhost.localdomain",
+            "ip6-localhost",
+            "host.docker.internal",
+            "metadata",
+            "metadata.google.internal",
+            "instance-data.ec2.internal",
+        }:
+            raise ValueError("base_url targets a blocked local or metadata host")
+        try:
+            address: Final = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and (
+            address.is_loopback
+            or address.is_private
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_multicast
+            or address.is_unspecified
+        ):
+            raise ValueError("base_url targets a blocked local network address")
+        return AnyHttpUrl(normalized)
+
+    @field_validator("headers")
+    @classmethod
+    def validate_headers(cls, values: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+        blocked: Final = frozenset(
+            ("authorization", "proxy-authorization", "host", "content-length", "transfer-encoding", "connection")
+        )
+        normalized: Final = tuple((name.strip().lower(), value) for name, value in values if name.strip())
+        if any(name in blocked for name, _ in normalized):
+            raise ValueError("headers contain a protected transport header")
+        if any(not name.replace("-", "").isalnum() for name, _ in normalized):
+            raise ValueError("headers contain an invalid name")
+        return tuple(dict.fromkeys(normalized))
+
+    @field_validator("custom_models")
+    @classmethod
+    def normalize_models(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
+
+
+class OpenAICompatibleCredential(BaseModel):
+    model_config = ConfigDict(frozen=True, repr=False)
+
+    api_key_ciphertext: str
+    proxy_profile_id: str | None = None
+    proxy_url: str | None = None
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class OpenAICompatibleConfiguration(BaseModel):
+    model_config = ConfigDict(frozen=True, repr=False)
+
+    base_url: str
+    prefix: str = ""
+    priority: int = 0
+    test_model: str
+    credentials: tuple[OpenAICompatibleCredential, ...]
+    headers_ciphertext: str | None = None
+    custom_models: tuple[str, ...] = ()
+
+
 class CleanupProgress(BaseModel):
     """删除流程的持久化检查点，允许 Manager 重启后从未完成步骤继续。"""
 
@@ -126,6 +229,7 @@ class EnvironmentRecord(BaseModel):
     provider: Provider
     channel: ChannelKind = ChannelKind.CLIPROXYAPI
     supplier: SupplierKind = SupplierKind.OPENAI_CODEX
+    openai_compatible: OpenAICompatibleConfiguration | None = None
     status: EnvironmentStatus
     configuration_pending: bool = False
     enabled: bool
@@ -186,6 +290,14 @@ class EnvironmentView(BaseModel):
     updated_at: datetime
 
 
+class GatewayCredential(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    api_key: str = Field(repr=False)
+    proxy_url: str | None = None
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
 class GatewayEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -194,7 +306,10 @@ class GatewayEnvironment(BaseModel):
     concurrency_limit: int
     enabled_models: tuple[str, ...]
     api_base: str
-    api_key: str
+    api_key: str = Field(repr=False)
+    credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
+    model_prefix: str = ""
     custom_llm_provider: str = "openai"
 
 
@@ -205,6 +320,8 @@ class CreateEnvironmentRequest(BaseModel):
     provider: Provider = Provider.OPENAI
     channel: ChannelKind = ChannelKind.CLIPROXYAPI
     supplier: SupplierKind = SupplierKind.OPENAI_CODEX
+    provider_family: str | None = Field(default=None, max_length=80)
+    openai_compatible: OpenAICompatibleCreateRequest | None = None
     operation_id: str | None = Field(default=None, max_length=160)
 
     @field_validator("name")
@@ -214,6 +331,14 @@ class CreateEnvironmentRequest(BaseModel):
         if not normalized:
             raise ValueError("name must not be blank")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_provider_family(self) -> CreateEnvironmentRequest:
+        if self.provider_family == SupplierKind.OPENAI_COMPATIBLE.value and self.openai_compatible is None:
+            raise ValueError("openai_compatible configuration is required")
+        if self.openai_compatible is not None and self.provider_family != SupplierKind.OPENAI_COMPATIBLE.value:
+            raise ValueError("openai_compatible configuration requires the openai_compatible provider family")
+        return self
 
 
 class UpdateEnvironmentRequest(BaseModel):

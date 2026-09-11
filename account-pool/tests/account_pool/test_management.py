@@ -331,6 +331,9 @@ async def test_error_capture_preserves_context_and_http_status(management) -> No
     assert stats["input_tokens"] == 10 and stats["output_tokens"] == 5
     assert stats["known_cost_requests"] == 1 and stats["total_cost_usd"] == 0.00042
     assert stats["recent_errors"] == []
+    dashboard: Final = client.get("/api/dashboard").json()
+    assert dashboard["summary"]["total_requests"] == 1
+    assert dashboard["cards"][0]["card_id"] == str(record.id)
     assert client.get(f"/api/logs/{uuid4()}").status_code == 404
     assert client.get("/api/logs?limit=5000").status_code == 422
     assert client.get("/api/logs?occurred_from=invalid").status_code == 422

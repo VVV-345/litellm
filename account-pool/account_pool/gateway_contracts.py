@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from account_pool.domain import ChannelKind, SupplierKind
+from account_pool.domain import ChannelKind, GatewayCredential, SupplierKind
 from account_pool.policies import AccountPolicy
 
 RoutingReason: TypeAlias = Literal[
@@ -47,6 +47,9 @@ class Candidate(BaseModel):
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str = Field(repr=False)
+    credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
+    model_prefix: str = ""
     concurrency_limit: int
     policy: AccountPolicy
     remaining_percent: float | None = None

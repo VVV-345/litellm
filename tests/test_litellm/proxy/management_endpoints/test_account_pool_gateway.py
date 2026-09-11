@@ -24,6 +24,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     Lease,
     Resolution,
     ResolveRequest,
+    GatewayCredential,
 )
 from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPolicy,
@@ -176,6 +177,51 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
     assert control.acquisitions[0].routing_reason == "automatic"
     assert control.acquisitions[0].estimated_tokens == 0
     assert _KEY not in response.text and "internal-secret" not in response.text
+
+
+def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.validate_url",
+        lambda url: (url, "api.example.com"),
+    )
+    seen: list[httpx.Request] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert request.headers["host"] == "api.example.com"
+        assert request.headers["x-provider-feature"] == "enabled"
+        assert request.headers["authorization"] in {"Bearer first-key", "Bearer second-key"}
+        assert json.loads(request.content)["model"] == "chat-model"
+        return httpx.Response(200, json={"model": "chat-model", "choices": []})
+
+    client, control = setup_gateway(upstream)
+    compatible: Final = control.resolution.candidates[0].model_copy(
+        update={
+            "channel": "openai_compatible",
+            "supplier": "openai_compatible",
+            "enabled_models": ("vendor/chat-model",),
+            "api_base": "https://api.example.com/v1",
+            "api_key": "first-key",
+            "credentials": (
+                GatewayCredential(api_key="first-key", weight=2),
+                GatewayCredential(api_key="second-key", weight=1),
+            ),
+            "headers": (("x-provider-feature", "enabled"),),
+            "model_prefix": "vendor/",
+        }
+    )
+    control.resolution = control.resolution.model_copy(update={"candidates": (compatible,)})
+    with client:
+        response: Final = client.post(
+            "/v1/chat/completions",
+            json={"model": "vendor/chat-model", "messages": []},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 200
+    assert response.json()["model"] == "vendor/chat-model"
+    assert seen[0].url == "https://api.example.com/v1/chat/completions"
 
 
 def test_explicit_output_cap_is_included_in_token_reservation() -> None:

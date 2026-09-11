@@ -8,7 +8,6 @@ from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import AuthorizationFlow, SupplierKind
 from account_pool.quota import parse_quota
 
-
 DEFINITION: Final = SupplierDefinition(
     kind=SupplierKind.OPENAI_CODEX,
     authorization_flow=AuthorizationFlow.BROWSER_OAUTH,

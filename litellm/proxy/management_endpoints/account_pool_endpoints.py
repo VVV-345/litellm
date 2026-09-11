@@ -16,6 +16,7 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
+from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 
 _Method = Literal["DELETE", "GET", "POST", "PUT"]
@@ -29,6 +30,45 @@ class AccountPoolQuotaWindow(BaseModel):
     remaining_percent: float
     window_minutes: int
     resets_at: str | None = None
+
+
+class AccountPoolProviderFamily(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    display_name: str
+    supplier: str | None = None
+    authentication: str
+    available: bool
+    description: str
+    card_count: int = Field(ge=0)
+
+
+class AccountPoolOpenAICompatibleKey(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class AccountPoolOpenAICompatibleConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: HttpUrl
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    test_model: str = Field(min_length=1, max_length=256)
+    api_keys: tuple[AccountPoolOpenAICompatibleKey, ...] = Field(min_length=1, max_length=100)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+    custom_models: tuple[str, ...] = Field(default=(), max_length=500)
+
+
+class AccountPoolDashboardStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    summary: ErrorStats
+    cards: tuple[ErrorStats, ...]
 
 
 class AccountPoolQuotaSnapshot(BaseModel):
@@ -57,9 +97,10 @@ class AccountPoolEnvironment(BaseModel):
     observed_configuration_version: int = Field(default=0, ge=0)
     name: str
     provider: Literal["openai"]
-    channel: Literal["cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    channel: Literal["openai_compatible", "cliproxyapi", "freebuff2api"] = "cliproxyapi"
     supplier: Literal[
         "openai_codex",
+        "openai_compatible",
         "anthropic_claude",
         "google_antigravity",
         "kimi",
@@ -98,15 +139,18 @@ class AccountPoolCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=80)
     provider: Literal["openai"] = "openai"
-    channel: Literal["cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    channel: Literal["openai_compatible", "cliproxyapi", "freebuff2api"] = "cliproxyapi"
     supplier: Literal[
         "openai_codex",
+        "openai_compatible",
         "anthropic_claude",
         "google_antigravity",
         "kimi",
         "xai",
         "freebuff",
     ] = "openai_codex"
+    provider_family: str | None = Field(default=None, max_length=80)
+    openai_compatible: AccountPoolOpenAICompatibleConfig | None = None
 
 
 class AccountPoolUpdateRequest(BaseModel):
@@ -182,6 +226,8 @@ class AccountPoolGatewaySwitchRequest(BaseModel):
 
 
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
+_PROVIDER_FAMILIES: Final = TypeAdapter(tuple[AccountPoolProviderFamily, ...])
+_DASHBOARD_STATS: Final = TypeAdapter(AccountPoolDashboardStats)
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
@@ -277,6 +323,22 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         response: Final = await _manager_request(client_factory, "GET", "/api/environments")
         return _validate_response(response, _ENVIRONMENTS)
 
+    @router.get("/provider-families", response_model=tuple[AccountPoolProviderFamily, ...])
+    async def list_provider_families(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProviderFamily, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/provider-families")
+        return _validate_response(response, _PROVIDER_FAMILIES)
+
+    @router.get("/dashboard", response_model=AccountPoolDashboardStats)
+    async def dashboard_stats(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolDashboardStats:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/dashboard")
+        return _validate_response(response, _DASHBOARD_STATS)
+
     @router.post("/environments", response_model=AccountPoolAuthorization)
     async def create_environment(
         request: AccountPoolCreateRequest,
@@ -288,10 +350,26 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             client_factory,
             "POST",
             "/api/environments",
-            request.model_dump_json().encode("utf-8"),
+            request.model_dump_json(exclude_none=True).encode("utf-8"),
             idempotency_key,
         )
         return _validate_response(response, _AUTHORIZATION)
+
+    @router.post("/openai-compatible", response_model=AccountPoolEnvironment)
+    async def create_openai_compatible(
+        request: AccountPoolCreateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            "/api/openai-compatible",
+            request.model_dump_json().encode("utf-8"),
+            idempotency_key,
+        )
+        return _validate_response(response, _ENVIRONMENT)
 
     @router.get("/environments/{environment_id}", response_model=AccountPoolEnvironment)
     async def get_environment(

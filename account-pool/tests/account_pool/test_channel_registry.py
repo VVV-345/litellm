@@ -6,11 +6,10 @@ from types import MappingProxyType
 from typing import Final, get_type_hints
 
 import pytest
-
 from account_pool.channels.base import ChannelDefinition, SupplierResolver
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
-from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.domain import AuthorizationFlow, ChannelKind, SupplierKind
 from account_pool.quota import QuotaObservation
 
@@ -152,6 +151,8 @@ def test_supplier_quota_parser_preserves_only_unstructured_observation_metadata(
     definition: Final = (
         ChannelRegistry.default().get(ChannelKind.FREEBUFF2API).supplier(kind)
         if kind is SupplierKind.FREEBUFF
+        else ChannelRegistry.default().get(ChannelKind.OPENAI_COMPATIBLE).supplier(kind)
+        if kind is SupplierKind.OPENAI_COMPATIBLE
         else SupplierRegistry.default().get(kind)
     )
 

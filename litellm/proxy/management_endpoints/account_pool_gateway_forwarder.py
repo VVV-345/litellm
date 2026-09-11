@@ -21,12 +21,14 @@ from starlette.types import Message, Send
 
 from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils import token_counter as token_counter_module
+from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
     AcquireRejectionReason,
     AcquireRequest,
     FinishRequest,
+    GatewayCredential,
     Lease,
     Resolution,
     RoutingReason,
@@ -296,17 +298,46 @@ async def execute(
     seconds: int,
 ) -> bool:
     headers: Final = {name: value for name, value in request.headers.items() if name in _HEADERS}
-    body: Final = {**payload, "model": route.model}
+    upstream_model: Final = (
+        route.model.removeprefix(route.account.model_prefix)
+        if route.account.model_prefix and route.model.startswith(route.account.model_prefix)
+        else route.model
+    )
+    body: Final = {**payload, "model": upstream_model}
+    credential: Final = select_gateway_credential(route.account.credentials, attempt.request_id, route.account.api_key)
+    selected_client: Final = (
+        client
+        if credential.proxy_url is None
+        else httpx.AsyncClient(
+            proxy=credential.proxy_url,
+            timeout=seconds,
+            trust_env=False,
+            follow_redirects=False,
+        )
+    )
     try:
+        destination: Final = upstream_url(route.account, request.url.path)
+        validated_destination, host_header = (
+            await asyncio.to_thread(validate_url, destination)
+            if route.account.supplier == "openai_compatible"
+            else (destination, None)
+        )
+        provider_headers: Final = dict(route.account.headers)
         async with asyncio.timeout(seconds):
-            upstream: Final = client.build_request(
+            upstream: Final = selected_client.build_request(
                 "POST",
-                upstream_url(route.account, request.url.path),
-                headers={**headers, "authorization": f"Bearer {route.account.api_key}", "accept-encoding": "identity"},
+                validated_destination,
+                headers={
+                    **headers,
+                    **provider_headers,
+                    **({"host": host_header} if host_header is not None else {}),
+                    "authorization": f"Bearer {credential.api_key}",
+                    "accept-encoding": "identity",
+                },
                 content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode(),
                 timeout=seconds,
             )
-            response: Final = await client.send(upstream, stream=True)
+            response: Final = await selected_client.send(upstream, stream=True)
             try:
                 cost_usd: Final = upstream_response_cost(response.headers)
                 attempt.record_cost(cost_usd)
@@ -391,6 +422,26 @@ async def execute(
                 }
             )
         return True
+    finally:
+        if selected_client is not client:
+            await selected_client.aclose()
+
+
+def select_gateway_credential(
+    credentials: tuple[GatewayCredential, ...],
+    request_id: UUID,
+    fallback_api_key: str,
+) -> GatewayCredential:
+    if not credentials:
+        return GatewayCredential(api_key=fallback_api_key)
+    total_weight: Final = sum(credential.weight for credential in credentials)
+    selected: Final = request_id.int % total_weight
+    boundary: int = 0
+    for credential in credentials:
+        boundary += credential.weight
+        if selected < boundary:
+            return credential
+    return credentials[-1]
 
 
 async def bounded_body(response: httpx.Response, limit: int) -> bytes:

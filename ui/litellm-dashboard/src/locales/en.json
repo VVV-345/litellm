@@ -5723,11 +5723,13 @@
     },
     "channel": {
       "label": "Channel",
+      "openai_compatible": "OpenAI-compatible",
       "cliproxyapi": "CLIProxyAPI",
       "freebuff2api": "FreeBuff2API"
     },
     "supplier": {
       "label": "Supplier",
+      "openai_compatible": "OpenAI-compatible",
       "openai_codex": "OpenAI Codex",
       "anthropic_claude": "Anthropic Claude",
       "google_antigravity": "Google Antigravity",
@@ -5759,9 +5761,100 @@
       "assignment": "Port {{port}} · {{node}}"
     },
     "tabs": {
+      "dashboard": "Dashboard",
+      "providers": "AI Providers",
+      "oauth": "OAuth login",
+      "credentials": "Credential files",
+      "quotas": "Quota management",
+      "settings": "Configuration panel",
       "accounts": "Account management",
       "proxyLayer": "Proxy layer",
       "logs": "Operation and error logs"
+    },
+    "providers": {
+      "title": "AI provider families",
+      "description": "Choose a provider family to create an independent account pool card. Each family can have multiple instances.",
+      "instances": "instances",
+      "available": "Available",
+      "pendingAdapter": "Adapter required",
+      "create": "Create",
+      "loadFailed": "Unable to load provider families",
+      "openaiCompatible": {
+        "name": "Card name",
+        "baseUrl": "Base URL",
+        "prefix": "Model prefix",
+        "priority": "Priority",
+        "testModel": "Test model",
+        "apiKeys": "API keys",
+        "apiKey": "API key {{index}}",
+        "proxyProfileId": "Outbound proxy",
+        "defaultProxy": "Default gateway",
+        "weight": "Weight",
+        "addKey": "Add key",
+        "removeKey": "Remove key {{index}}",
+        "headers": "Custom headers",
+        "addHeader": "Add header",
+        "headerName": "Header name {{index}}",
+        "headerValue": "Header value {{index}}",
+        "removeHeader": "Remove header {{index}}",
+        "customModels": "Custom models (comma separated)",
+        "required": "Enter a name, Base URL, test model, and at least one API key",
+        "created": "OpenAI-compatible card created"
+      }
+    },
+    "oauth": {
+      "title": "OAuth login",
+      "description": "Authorize and recover credentials for the selected account pool card.",
+      "configurationPending": "Runtime configuration is synchronizing",
+      "credentialStored": "Credential status is managed by the provider adapter",
+      "reauthorize": "Authorize again"
+    },
+    "credentials": {
+      "title": "Credential files",
+      "description": "Review credential ownership and model discovery status. Secret values stay in server-side storage.",
+      "provider": "Provider",
+      "models": "Discovered models",
+      "secretHint": "Secret content is never returned to the dashboard."
+    },
+    "quotas": {
+      "title": "Quota management",
+      "description": "Review the latest quota snapshots by card and model. Values are reported by provider adapters.",
+      "refresh": "Refresh quotas",
+      "minimumRemaining": "Most constrained window",
+      "reset": "Resets {{time}}"
+    },
+    "scope": {
+      "title": "Configuration panel",
+      "description": "Global defaults are inherited by new cards. A card override only changes the selected card.",
+      "inheritanceTitle": "Configuration scope",
+      "inheritanceRule": "System limits and global defaults are evaluated before provider and card settings.",
+      "cardRule": "Use the card configuration dialog to change concurrency, models, cooldown, and outbound proxy for one card.",
+      "proxyRule": "Outbound proxy selection is stored as a profile or gateway ID and is applied by the runtime adapter.",
+      "cardOverride": "Card override version {{version}}"
+    },
+    "dashboard": {
+      "successRate": "Success rate",
+      "failures": "Failures",
+      "traffic": "Total traffic",
+      "tokens": "Input + output tokens",
+      "cards": "Enabled cards",
+      "enabled": "Available for routing",
+      "overview": "Pool overview",
+      "overviewDescription": "Review card status, request processing, and runtime settings by provider",
+      "live": "Live data",
+      "requests": "Processed requests",
+      "successes": "Successful requests",
+      "supplierFamilies": "Provider families",
+      "health": "Health",
+      "available": "available",
+      "healthy": "Healthy",
+      "unhealthy": "Unhealthy",
+      "checking": "Checking",
+      "unknown": "No data",
+      "empty": "No account pool cards yet. Create the first instance from AI Providers",
+      "cardSuccessRate": "Card success rate",
+      "moreModels": "{{count}} more models",
+      "doubleClickToConfigure": "Double-click to open card configuration"
     },
     "management": {
       "loading": "Loading…",

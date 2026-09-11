@@ -7,7 +7,6 @@ from typing import Final
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition, parse_empty_quota
 from account_pool.domain import AuthorizationFlow, SupplierKind
 
-
 DEFINITION: Final = SupplierDefinition(
     kind=SupplierKind.ANTHROPIC_CLAUDE,
     authorization_flow=AuthorizationFlow.BROWSER_OAUTH,

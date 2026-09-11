@@ -90,6 +90,17 @@ class GatewayService:
     async def candidate(self, record: EnvironmentRecord) -> Candidate:
         endpoint: Final = self.gateway(record)
         policy: Final = await self.policies.get(record.id)
+        effective_policy: Final = (
+            policy.policy.model_copy(
+                update={
+                    "routing": policy.policy.routing.model_copy(
+                        update={"priority": record.openai_compatible.priority}
+                    )
+                }
+            )
+            if policy.version == 0 and record.openai_compatible is not None
+            else policy.policy
+        )
         return Candidate(
             id=record.id,
             channel=record.channel,
@@ -99,8 +110,11 @@ class GatewayService:
             enabled_models=endpoint.enabled_models,
             api_base=endpoint.api_base,
             api_key=endpoint.api_key,
+            credentials=endpoint.credentials,
+            headers=endpoint.headers,
+            model_prefix=endpoint.model_prefix,
             concurrency_limit=endpoint.concurrency_limit,
-            policy=policy.policy,
+            policy=effective_policy,
             remaining_percent=min((window.remaining_percent for window in record.quota.windows), default=None),
             quota_observed_at=record.quota.observed_at,
         )

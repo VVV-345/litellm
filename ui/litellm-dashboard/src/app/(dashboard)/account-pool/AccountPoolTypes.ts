@@ -43,7 +43,7 @@ export type AccountPoolClashNode = {
 
 export type AccountPoolStatus = AccountPoolEnvironment["status"];
 export type AccountPoolChannel = AccountPoolEnvironment["channel"];
-export type AccountPoolSupplier = AccountPoolEnvironment["supplier"];
+export type AccountPoolSupplier = AccountPoolEnvironment["supplier"] | "openai_compatible";
 export type AccountPoolCreateRequest = components["schemas"]["AccountPoolCreateRequest"];
 
 export const toUpdateRequest = (

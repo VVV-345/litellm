@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import secrets as token_secrets
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -21,6 +22,7 @@ from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationView,
+    ChannelKind,
     CleanupProgress,
     CreateEnvironmentRequest,
     EnvironmentConfiguration,
@@ -29,10 +31,12 @@ from account_pool.domain import (
     EnvironmentView,
     GatewayEnvironment,
     OAuthCallback,
+    OpenAICompatibleConfiguration,
     Provider,
     ProxyMode,
     ProxyProfile,
     QuotaSnapshot,
+    SupplierKind,
     UpdateEnvironmentRequest,
     configuration_from_record,
     to_view,
@@ -49,10 +53,14 @@ from account_pool.ports import (
 )
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.result import Failure, FailureCode, Result, Success
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
+
+
+async def _constant_async(value: T) -> T:
+    return value
 
 
 class _AuthorizationConflict(Exception):
@@ -285,6 +293,127 @@ class EnvironmentService:
                 expires_at=expires_at,
             )
         )
+
+    async def create_openai_compatible(self, request: CreateEnvironmentRequest) -> Result[EnvironmentView]:
+        if request.provider_family != "openai_compatible" or request.openai_compatible is None:
+            return Failure(FailureCode.INVALID, "openai_compatible configuration is required")
+        configuration: Final = request.openai_compatible
+        if request.operation_id is not None:
+            existing: Final = await self._find_by_operation_id(request.operation_id)
+            if existing is not None:
+                return Success(to_view(existing))
+        now: Final = utc_now()
+        environment_id: Final = uuid4()
+        cipher: Final = StateCipher(self._secrets)
+        proxy_urls: Final = tuple(
+            await asyncio.gather(
+                *(
+                    self._proxy_profiles.get_url(item.proxy_profile_id)
+                    if item.proxy_profile_id is not None
+                    else _constant_async(None)
+                    for item in configuration.api_keys
+                )
+            )
+        )
+        if any(item.proxy_profile_id is not None and proxy_url is None for item, proxy_url in zip(configuration.api_keys, proxy_urls)):
+            return Failure(FailureCode.INVALID, "proxy profile is unavailable")
+        try:
+            validated_proxy_urls: Final = tuple(
+                validate_proxy_profile_url(proxy_url) if proxy_url is not None else None for proxy_url in proxy_urls
+            )
+        except ValueError:
+            return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
+        encrypted_credentials: Final = tuple(
+            {
+                "api_key_ciphertext": cipher.seal(environment_id, item.api_key),
+                "proxy_profile_id": item.proxy_profile_id,
+                "proxy_url": proxy_url,
+                "weight": item.weight,
+            }
+            for item, proxy_url in zip(configuration.api_keys, validated_proxy_urls)
+        )
+        encrypted_headers: Final = (
+            cipher.seal(environment_id, json.dumps(configuration.headers, ensure_ascii=False))
+            if configuration.headers
+            else None
+        )
+        upstream_models: Final = tuple(dict.fromkeys(configuration.custom_models or (configuration.test_model,)))
+        models: Final = tuple(
+            f"{configuration.prefix}{model}" if configuration.prefix else model for model in upstream_models
+        )
+        record: Final = EnvironmentRecord(
+            id=environment_id,
+            operation_id=request.operation_id or str(uuid4()),
+            name=request.name,
+            provider=Provider.OPENAI,
+            channel=ChannelKind.OPENAI_COMPATIBLE,
+            supplier=SupplierKind.OPENAI_COMPATIBLE,
+            openai_compatible=OpenAICompatibleConfiguration(
+                base_url=str(configuration.base_url),
+                prefix=configuration.prefix,
+                priority=configuration.priority,
+                test_model=configuration.test_model,
+                credentials=tuple(encrypted_credentials),
+                headers_ciphertext=encrypted_headers,
+                custom_models=upstream_models,
+            ),
+            desired_state=EnvironmentStatus.READY,
+            status=EnvironmentStatus.VALIDATING,
+            configuration_pending=True,
+            desired_configuration_version=1,
+            observed_configuration_version=0,
+            enabled=True,
+            manual_cooldown=False,
+            concurrency_limit=1,
+            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+            proxy_profile_id=None,
+            available_models=models,
+            enabled_models=models,
+            auth_file_name=None,
+            auth_index=None,
+            quota=QuotaSnapshot(),
+            cooldown_until=None,
+            automatic_cooldown=False,
+            oauth_state=None,
+            oauth_expires_at=None,
+            oauth_state_consumed_at=None,
+            oauth_state_signature=None,
+            oauth_provider_state=None,
+            oauth_authorization_url=None,
+            authorization_flow=AuthorizationFlow.BROWSER_OAUTH,
+            authorization_user_code=None,
+            last_error=None,
+            created_at=now,
+            updated_at=now,
+        )
+        await self._repository.save(record)
+        try:
+            observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(record)
+        except Exception as error:
+            failed: Final = record.model_copy(
+                update={
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
+                    "configuration_pending": False,
+                    "last_error": _safe_error(error),
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save(failed)
+            return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
+        ready: Final = observed.model_copy(
+            update={
+                "version": record.version + 1,
+                "desired_state": EnvironmentStatus.READY,
+                "status": EnvironmentStatus.READY,
+                "configuration_pending": False,
+                "observed_configuration_version": record.desired_configuration_version,
+                "last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        await self._repository.save(ready)
+        return Success(to_view(ready))
 
     async def authorize_environment(
         self,
@@ -616,7 +745,8 @@ class EnvironmentService:
             if record.auth_file_name is None and record.status not in (
                 EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.ERROR,
             ):
-                return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
+                if record.channel is not ChannelKind.OPENAI_COMPATIBLE:
+                    return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             if (
@@ -845,16 +975,20 @@ class EnvironmentService:
             return Success(None)
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
-        channel: Final = self._channel(record)
         if record.cleanup_progress.compose_removed:
             return record
+        if record.channel is ChannelKind.OPENAI_COMPATIBLE:
+            return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
+        channel: Final = self._channel(record)
         await channel.remove_compose(record)
         return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
 
     async def _remove_directory_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
-        channel: Final = self._channel(record)
         if record.cleanup_progress.directory_removed:
             return record
+        if record.channel is ChannelKind.OPENAI_COMPATIBLE:
+            return await self._persist_cleanup_progress(record, directory_removed())
+        channel: Final = self._channel(record)
         await channel.remove_directory(record.id)
         return await self._persist_cleanup_progress(record, directory_removed())
 
@@ -926,7 +1060,7 @@ class EnvironmentService:
                 if isinstance(completion, Failure):
                     return await self._repository.get(current.id) or current
                 return completion.value
-            if current.auth_file_name is None:
+            if current.auth_file_name is None and current.channel is not ChannelKind.OPENAI_COMPATIBLE:
                 return current
             channel: Final = self._channel(current)
             if current.automatic_cooldown and not await channel.data_plane_health_check(current):

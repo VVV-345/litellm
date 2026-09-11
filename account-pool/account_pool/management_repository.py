@@ -226,6 +226,9 @@ class PostgresErrorLogRepository:
         async with database_connection(self._database_url) as connection:
             summary_cursor: Final = await connection.execute(
                 sql.SQL(
+                    "WITH final_requests AS ("
+                    "SELECT DISTINCT ON (request_id, card_id) payload FROM account_pool_error_log WHERE {} "
+                    "ORDER BY request_id, card_id, (payload->>'attempt')::integer DESC, occurred_at DESC, event_id DESC) "
                     "SELECT count(*) AS total, count(*) FILTER (WHERE payload->>'final_status' = 'succeeded') AS succeeded, "
                     "count(*) FILTER (WHERE payload->>'final_status' = 'failed') AS failed, "
                     "count(*) FILTER (WHERE (payload->>'retry_count')::integer > 0) AS retried, "
@@ -234,7 +237,7 @@ class PostgresErrorLogRepository:
                     "count((payload->>'cost_usd')::double precision) AS known_cost_requests, "
                     "sum((payload->>'cost_usd')::double precision) AS total_cost_usd, "
                     "avg((payload->>'duration_ms')::double precision) AS average_duration_ms "
-                    "FROM account_pool_error_log WHERE {}"
+                    "FROM final_requests"
                 ).format(where),
                 tuple(
                     str(value) if clause.startswith("payload->>'account_id'") else value for clause, value in conditions
@@ -243,7 +246,10 @@ class PostgresErrorLogRepository:
             summary: Final = await summary_cursor.fetchone()
             errors_cursor: Final = await connection.execute(
                 sql.SQL(
-                    "SELECT payload FROM account_pool_error_log WHERE {} AND (payload->>'final_status') = 'failed' "
+                    "WITH final_requests AS ("
+                    "SELECT DISTINCT ON (request_id, card_id) payload, occurred_at FROM account_pool_error_log WHERE {} "
+                    "ORDER BY request_id, card_id, (payload->>'attempt')::integer DESC, occurred_at DESC, event_id DESC) "
+                    "SELECT payload FROM final_requests WHERE (payload->>'final_status') = 'failed' "
                     "ORDER BY occurred_at DESC LIMIT 10"
                 ).format(where),
                 tuple(

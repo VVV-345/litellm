@@ -115,7 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await network_retry_task
             except asyncio.CancelledError:
                 pass
-            for kind in (ChannelKind.CLIPROXYAPI, ChannelKind.FREEBUFF2API):
+            for kind in (ChannelKind.OPENAI_COMPATIBLE, ChannelKind.CLIPROXYAPI, ChannelKind.FREEBUFF2API):
                 try:
                     await channels.channel(kind).close()
                 except UnsupportedChannelError:
@@ -185,6 +185,8 @@ async def _restore_control_plane_connections(
 
 
 async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:
+    if record.channel is ChannelKind.OPENAI_COMPATIBLE:
+        return
     try:
         channels.get(record.channel)
     except UnsupportedChannelError:

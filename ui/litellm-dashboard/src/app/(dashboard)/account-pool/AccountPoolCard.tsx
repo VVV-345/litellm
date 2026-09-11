@@ -21,7 +21,9 @@ import {
   statusLabel,
   statusVariant,
 } from "./AccountPoolFormatters";
+import type { ErrorStats } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
+import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "./accountPoolDashboardSelectors";
 
 interface AccountPoolCardProps {
   environment: AccountPoolEnvironment;
@@ -33,6 +35,7 @@ interface AccountPoolCardProps {
   onManageKey: (environment: AccountPoolEnvironment) => void;
   onManagePolicy: (environment: AccountPoolEnvironment) => void;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
+  requestStats?: ErrorStats;
   tags?: string[];
   group?: string;
   disabled?: boolean;
@@ -48,6 +51,7 @@ export const AccountPoolCard = ({
   onManageKey,
   onManagePolicy,
   onViewLogs,
+  requestStats,
   tags = [],
   group,
   disabled = false,
@@ -64,9 +68,23 @@ export const AccountPoolCard = ({
     : environment.proxy_profile_id;
   const authorizationAction =
     environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
+  const visibleModels = accountPoolVisibleModels(environment);
+  const hiddenModelCount = accountPoolHiddenModelCount(environment);
+  const completedRequests = (requestStats?.succeeded_requests ?? 0) + (requestStats?.failed_requests ?? 0);
+  const successRate =
+    completedRequests === 0 ? null : ((requestStats?.succeeded_requests ?? 0) / completedRequests) * 100;
+  const healthLabel = (() => {
+    if (environment.status === "ready") return t("accountPool.dashboard.healthy");
+    if (environment.status === "error") return t("accountPool.dashboard.unhealthy");
+    return t("accountPool.dashboard.checking");
+  })();
 
   return (
-    <Card data-testid={`account-pool-card-${environment.id}`}>
+    <Card
+      data-testid={`account-pool-card-${environment.id}`}
+      onDoubleClick={() => onConfigure(environment)}
+      title={t("accountPool.dashboard.doubleClickToConfigure")}
+    >
       <CardHeader className="gap-3">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
@@ -80,7 +98,10 @@ export const AccountPoolCard = ({
               </p>
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              {t("accountPool.config.versions", { desired: environment.desired_configuration_version ?? 0, observed: environment.observed_configuration_version ?? 0 })}
+              {t("accountPool.config.versions", {
+                desired: environment.desired_configuration_version ?? 0,
+                observed: environment.observed_configuration_version ?? 0,
+              })}
             </p>
             {environment.status === "awaiting_authorization" && (
               <p className="mt-1 text-xs text-muted-foreground" role="status">
@@ -101,10 +122,26 @@ export const AccountPoolCard = ({
             />
           </div>
           <div className="flex items-center gap-1">
-            <Button type="button" variant="ghost" size="icon-sm" onClick={() => onManageKey(environment)} disabled={disabled} aria-label={t("accountPool.keys.manage", { name: environment.name })} title={t("accountPool.keys.manageShort")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onManageKey(environment)}
+              disabled={disabled}
+              aria-label={t("accountPool.keys.manage", { name: environment.name })}
+              title={t("accountPool.keys.manageShort")}
+            >
               <KeyRound />
             </Button>
-            <Button type="button" variant="ghost" size="icon-sm" onClick={() => onManagePolicy(environment)} disabled={disabled} aria-label={t("accountPool.policy.manage", { name: environment.name })} title={t("accountPool.policy.manageShort")}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onManagePolicy(environment)}
+              disabled={disabled}
+              aria-label={t("accountPool.policy.manage", { name: environment.name })}
+              title={t("accountPool.policy.manageShort")}
+            >
               <Settings2 />
             </Button>
             <Button
@@ -152,7 +189,11 @@ export const AccountPoolCard = ({
         <div className="flex flex-wrap gap-1.5">
           {environment.quota.plan_type && <Badge variant="outline">{environment.quota.plan_type}</Badge>}
           {group && <Badge variant="secondary">{group}</Badge>}
-          {tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>)}
+          {tags.map((tag) => (
+            <Badge key={tag} variant="outline">
+              {tag}
+            </Badge>
+          ))}
         </div>
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
@@ -161,6 +202,18 @@ export const AccountPoolCard = ({
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
+            <p className="mt-1 font-medium">{requestStats?.total_requests ?? "-"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
+            <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
+            <p className="mt-1 font-medium">{healthLabel}</p>
+          </div>
           <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
             <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
@@ -174,18 +227,33 @@ export const AccountPoolCard = ({
           <p className="text-xs text-muted-foreground">{t("accountPool.availableModels")}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {environment.enabled_models.length > 0 ? (
-              environment.enabled_models.map((model) => (
-                <Badge key={model} variant="outline">
-                  {model}
-                </Badge>
-              ))
+              <>
+                {visibleModels.map((model) => (
+                  <Badge key={model} variant="outline">
+                    {model}
+                  </Badge>
+                ))}
+                {hiddenModelCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    title={environment.enabled_models.slice(3).join("\n")}
+                    aria-label={t("accountPool.dashboard.moreModels", { count: hiddenModelCount })}
+                  >
+                    +{hiddenModelCount}
+                  </Badge>
+                )}
+              </>
             ) : (
               <span className="text-muted-foreground">{t("accountPool.noEnabledModels")}</span>
             )}
           </div>
         </div>
         {environment.last_error && <p className="text-xs text-destructive">{environment.last_error}</p>}
-        {onViewLogs && <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>{t("accountPool.logs.cardLogs")}</Button>}
+        {onViewLogs && (
+          <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>
+            {t("accountPool.logs.cardLogs")}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

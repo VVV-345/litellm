@@ -25,6 +25,14 @@ class ResolveRequest(BaseModel):
     session_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
+class GatewayCredential(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    api_key: str = Field(repr=False)
+    proxy_url: str | None = None
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
 class Candidate(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID
@@ -35,6 +43,9 @@ class Candidate(BaseModel):
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str = Field(repr=False)
+    credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
+    model_prefix: str = ""
     concurrency_limit: int
     policy: AccountPolicy
     remaining_percent: float | None = None

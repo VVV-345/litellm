@@ -11,6 +11,10 @@ export type LogEvent = components["schemas"]["ErrorLogRecord"];
 export type LogPage = components["schemas"]["ErrorLogPage"];
 export type LogDetail = components["schemas"]["ErrorLogDetail"];
 export type ErrorStats = components["schemas"]["ErrorStats"];
+export interface AccountPoolDashboardStats {
+  summary: ErrorStats;
+  cards: ErrorStats[];
+}
 export type BatchJob = components["schemas"]["BatchJob"];
 export type BatchAction = components["schemas"]["BatchRequest"]["action"];
 export type LogFilters = {
@@ -66,6 +70,9 @@ export const getAccountPoolStats = (
   accessToken: string,
   query: Pick<LogFilters, "card_id" | "account_id" | "model"> = {},
 ) => apiClient.get<ErrorStats>("/account_pool/stats", { accessToken, query });
+
+export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
+  apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
 
 export const listAccountPoolBatches = (accessToken: string) =>
   apiClient.get<BatchJob[]>("/account_pool/batches", { accessToken });

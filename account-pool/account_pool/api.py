@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import html
 from collections.abc import Callable
@@ -19,11 +20,12 @@ from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
-from account_pool.error_logs import ErrorLogService
+from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
 from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
+from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 
@@ -40,6 +42,29 @@ class ClashNodeView(BaseModel):
 
     name: str
     proxy_type: str
+
+
+class ProviderFamilyView(BaseModel):
+    """供应商家族的公开目录项，不包含密钥、代理地址或账号状态。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    display_name: str
+    supplier: str | None
+    authentication: str
+    available: bool
+    description: str
+    card_count: int = 0
+
+
+class DashboardStatsView(BaseModel):
+    """仪表盘聚合统计，只返回脱敏请求统计和按卡片拆分结果。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    summary: ErrorStats
+    cards: tuple[ErrorStats, ...]
 
 
 def create_router(
@@ -66,9 +91,37 @@ def create_router(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @router.get("/api/provider-families", dependencies=[Depends(require_manager)])
+    async def list_provider_families() -> tuple[ProviderFamilyView, ...]:
+        records: Final = await service.list_environments()
+        counts: Final = {family.kind: sum(1 for record in records if record.supplier.value == family.kind) for family in PROVIDER_FAMILIES}
+        return tuple(
+            ProviderFamilyView(
+                kind=family.kind,
+                display_name=family.display_name,
+                supplier=family.supplier.value if family.supplier is not None else None,
+                authentication=family.authentication,
+                available=family.available,
+                description=family.description,
+                card_count=counts.get(family.kind, 0),
+            )
+            for family in PROVIDER_FAMILIES
+        )
+
     @router.get("/api/environments", dependencies=[Depends(require_manager)])
     async def list_environments() -> tuple[EnvironmentView, ...]:
         return await service.list_environments()
+
+    @router.get("/api/dashboard", dependencies=[Depends(require_manager)])
+    async def dashboard_stats() -> DashboardStatsView:
+        if logs is None or environments is None:
+            return DashboardStatsView(summary=ErrorStats(), cards=())
+        records: Final = await environments.list()
+        cards: Final = tuple(
+            await asyncio.gather(*(logs.repository.stats(record.id, None, None) for record in records))
+        )
+        summary: Final = await logs.repository.stats(None, None, None)
+        return DashboardStatsView(summary=summary, cards=cards)
 
     @router.post("/api/environments", dependencies=[Depends(require_manager)], response_model=AuthorizationView)
     async def create_environment(
@@ -79,6 +132,14 @@ def create_router(
             request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
         )
         return _unwrap(await service.create_environment(effective))
+
+    @router.post("/api/openai-compatible", dependencies=[Depends(require_manager)])
+    async def create_openai_compatible(
+        request: CreateEnvironmentRequest,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> EnvironmentView:
+        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        return _unwrap(await service.create_openai_compatible(effective))
 
     @router.get("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
     async def get_environment(environment_id: UUID) -> EnvironmentView:

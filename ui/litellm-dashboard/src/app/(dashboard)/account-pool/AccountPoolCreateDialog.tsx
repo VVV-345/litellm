@@ -20,6 +20,7 @@ import { toast } from "@/lib/toast";
 
 import { createAccountPoolEnvironment } from "./AccountPoolApi";
 import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
+import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
   AccountPoolAuthorization,
   AccountPoolChannel,
@@ -42,6 +43,7 @@ const CHANNELS: readonly AccountPoolChannel[] = ["cliproxyapi", "freebuff2api"] 
 interface AccountPoolCreateDialogProps {
   accessToken: string | null;
   initialAuthorization?: AccountPoolAuthorization | null;
+  initialSupplier?: AccountPoolSupplier;
   environments?: readonly AccountPoolEnvironment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -51,6 +53,7 @@ interface AccountPoolCreateDialogProps {
 export const AccountPoolCreateDialog = ({
   accessToken,
   initialAuthorization = null,
+  initialSupplier = "openai_codex",
   environments = [],
   open,
   onOpenChange,
@@ -59,7 +62,7 @@ export const AccountPoolCreateDialog = ({
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [channel, setChannel] = useState<AccountPoolChannel>("cliproxyapi");
-  const [supplier, setSupplier] = useState<AccountPoolSupplier>("openai_codex");
+  const [supplier, setSupplier] = useState<AccountPoolSupplier>(initialSupplier);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
   const completionReported = useRef(false);
@@ -115,10 +118,95 @@ export const AccountPoolCreateDialog = ({
     if (!nextOpen) {
       setName("");
       setChannel("cliproxyapi");
-      setSupplier("openai_codex");
+      setSupplier(initialSupplier);
       setAuthorization(null);
     }
     onOpenChange(nextOpen);
+  };
+
+  const dialogTitle = authorization ? t("accountPool.create.authorizationTitle") : t("accountPool.create.title");
+  const dialogDescription = authorization
+    ? t("accountPool.create.authorizationDescription")
+    : t("accountPool.create.description");
+  const renderDialogBody = () => {
+    if (authorization) {
+      return (
+        <AccountPoolAuthorizationPanel
+          authorization={authorization}
+          idPrefix="account-pool"
+          error={currentEnvironment?.last_error}
+        >
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {t("common.close")}
+            </Button>
+          </DialogFooter>
+        </AccountPoolAuthorizationPanel>
+      );
+    }
+    if (supplier === "openai_compatible") {
+      return (
+        <AccountPoolOpenAICompatibleForm
+          accessToken={accessToken}
+          onClose={() => onOpenChange(false)}
+          onCreated={onCreated}
+        />
+      );
+    }
+    return (
+      <div className="grid gap-4">
+        <div className="grid gap-2">
+          <Label htmlFor="account-pool-name">{t("accountPool.create.environmentName")}</Label>
+          <Input
+            id="account-pool-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={80}
+            placeholder={t("accountPool.create.environmentNamePlaceholder")}
+            autoFocus
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="account-pool-channel">{t("accountPool.channel.label")}</Label>
+          <Select value={channel} onValueChange={(value) => handleChannelChange(value as AccountPoolChannel)}>
+            <SelectTrigger id="account-pool-channel" data-testid="account-pool-channel-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CHANNELS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(`accountPool.channel.${option}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="account-pool-supplier">{t("accountPool.supplier.label")}</Label>
+          <Select value={supplier} onValueChange={(value) => setSupplier(value as AccountPoolSupplier)}>
+            <SelectTrigger id="account-pool-supplier" data-testid="account-pool-supplier-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(channel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS).map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(`accountPool.supplier.${option}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter className="mt-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            {t("accountPool.cancel")}
+          </Button>
+          <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
+            <Plus />
+            {saving ? t("accountPool.create.creating") : t("accountPool.createEnvironment")}
+          </Button>
+        </DialogFooter>
+      </div>
+    );
   };
 
   return (
@@ -126,78 +214,13 @@ export const AccountPoolCreateDialog = ({
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {authorization ? t("accountPool.create.authorizationTitle") : t("accountPool.create.title")}
+            {dialogTitle}
           </DialogTitle>
           <DialogDescription>
-            {authorization ? t("accountPool.create.authorizationDescription") : t("accountPool.create.description")}
+            {dialogDescription}
           </DialogDescription>
         </DialogHeader>
-        {authorization ? (
-          <AccountPoolAuthorizationPanel
-            authorization={authorization}
-            idPrefix="account-pool"
-            error={currentEnvironment?.last_error}
-          >
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                {t("common.close")}
-              </Button>
-            </DialogFooter>
-          </AccountPoolAuthorizationPanel>
-        ) : (
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="account-pool-name">{t("accountPool.create.environmentName")}</Label>
-              <Input
-                id="account-pool-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={80}
-                placeholder={t("accountPool.create.environmentNamePlaceholder")}
-                autoFocus
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="account-pool-channel">{t("accountPool.channel.label")}</Label>
-              <Select value={channel} onValueChange={(value) => handleChannelChange(value as AccountPoolChannel)}>
-                <SelectTrigger id="account-pool-channel" data-testid="account-pool-channel-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CHANNELS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {t(`accountPool.channel.${option}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="account-pool-supplier">{t("accountPool.supplier.label")}</Label>
-              <Select value={supplier} onValueChange={(value) => setSupplier(value as AccountPoolSupplier)}>
-                <SelectTrigger id="account-pool-supplier" data-testid="account-pool-supplier-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(channel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS).map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {t(`accountPool.supplier.${option}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter className="mt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-                {t("accountPool.cancel")}
-              </Button>
-              <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
-                <Plus />
-                {saving ? t("accountPool.create.creating") : t("accountPool.createEnvironment")}
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
+        {renderDialogBody()}
       </DialogContent>
     </Dialog>
   );
