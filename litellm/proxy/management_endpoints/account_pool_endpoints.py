@@ -134,6 +134,13 @@ class AccountPoolEnvironment(BaseModel):
     updated_at: str
 
 
+class AccountPoolQuotaRefreshResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    refreshed: tuple[AccountPoolEnvironment, ...]
+    failed_card_ids: tuple[UUID, ...] = ()
+
+
 class AccountPoolCreateRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -228,6 +235,7 @@ class AccountPoolGatewaySwitchRequest(BaseModel):
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
 _PROVIDER_FAMILIES: Final = TypeAdapter(tuple[AccountPoolProviderFamily, ...])
 _DASHBOARD_STATS: Final = TypeAdapter(AccountPoolDashboardStats)
+_QUOTA_REFRESH: Final = TypeAdapter(AccountPoolQuotaRefreshResult)
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
@@ -339,6 +347,14 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         response: Final = await _manager_request(client_factory, "GET", "/api/dashboard")
         return _validate_response(response, _DASHBOARD_STATS)
 
+    @router.post("/quotas/refresh", response_model=AccountPoolQuotaRefreshResult)
+    async def refresh_quotas(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshResult:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/quotas/refresh")
+        return _validate_response(response, _QUOTA_REFRESH)
+
     @router.post("/environments", response_model=AccountPoolAuthorization)
     async def create_environment(
         request: AccountPoolCreateRequest,
@@ -378,6 +394,15 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
     ) -> AccountPoolEnvironment:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "GET", f"/api/environments/{environment_id}")
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.post("/environments/{environment_id}/refresh", response_model=AccountPoolEnvironment)
+    async def refresh_environment(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", f"/api/environments/{environment_id}/refresh")
         return _validate_response(response, _ENVIRONMENT)
 
     @router.put("/environments/{environment_id}", response_model=AccountPoolEnvironment)

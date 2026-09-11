@@ -158,6 +158,8 @@ class ErrorLogRepository(Protocol):
 
     async def prune(self, before: datetime) -> None: ...
 
+    async def clear(self) -> int: ...
+
 
 class ErrorLogService:
     def __init__(self, repository: ErrorLogRepository, retention_days: int = 30) -> None:

@@ -12,7 +12,13 @@ from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistr
 from account_pool.compose_renderer import render_cli_proxy_config, render_compose
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
-from account_pool.domain import EnvironmentConfiguration, EnvironmentRecord, GatewayEnvironment, OAuthCallback, SupplierKind
+from account_pool.domain import (
+    EnvironmentConfiguration,
+    EnvironmentRecord,
+    GatewayEnvironment,
+    OAuthCallback,
+    SupplierKind,
+)
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 

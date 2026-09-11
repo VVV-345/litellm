@@ -19,15 +19,25 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
-from account_pool.domain import CreateEnvironmentRequest, OAuthCallback, UpdateEnvironmentRequest
+from account_pool.domain import (
+    ChannelKind,
+    CreateEnvironmentRequest,
+    EnvironmentRecord,
+    OAuthCallback,
+    OpenAICompatibleCredentialDeleteRequest,
+    OpenAICompatibleCredentialRequest,
+    UpdateEnvironmentRequest,
+)
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
+from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
+from account_pool.settings import AccountPoolSettingsRepository
 
 _BEARER: Final = HTTPBearer(auto_error=False)
 T = TypeVar("T")
@@ -67,6 +77,31 @@ class DashboardStatsView(BaseModel):
     cards: tuple[ErrorStats, ...]
 
 
+class CredentialView(BaseModel):
+    """凭据投影视图，只返回状态和统计，不暴露密钥或认证文件内容。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    card_id: UUID
+    card_name: str
+    supplier: str
+    kind: str
+    status: str
+    enabled: bool
+    model_count: int = 0
+    auth_index: str | None = None
+
+
+class QuotaRefreshResult(BaseModel):
+    """额度刷新结果，只返回已更新的卡片投影。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    refreshed: tuple[EnvironmentView, ...]
+    failed_card_ids: tuple[UUID, ...] = ()
+
+
 def create_router(
     service: EnvironmentService,
     manager_token: str,
@@ -77,6 +112,8 @@ def create_router(
     policies: PolicyRepository | None = None,
     gateway_service: GatewayService | None = None,
     batch_service: BatchService | None = None,
+    settings: AccountPoolSettingsRepository | None = None,
+    plugins: PluginService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -112,6 +149,45 @@ def create_router(
     async def list_environments() -> tuple[EnvironmentView, ...]:
         return await service.list_environments()
 
+    @router.post("/api/environments/{environment_id}/refresh", dependencies=[Depends(require_manager)])
+    async def refresh_environment(environment_id: UUID) -> EnvironmentView:
+        return _unwrap(await service.refresh_environment(environment_id))
+
+    @router.post("/api/quotas/refresh", dependencies=[Depends(require_manager)])
+    async def refresh_quotas() -> QuotaRefreshResult:
+        if environments is None:
+            return QuotaRefreshResult(refreshed=())
+        records: Final = await environments.list()
+        results: Final = await asyncio.gather(*(service.refresh_environment(record.id) for record in records))
+        refreshed: Final = tuple(result.value for result in results if not isinstance(result, Failure))
+        failed: Final = tuple(record.id for record, result in zip(records, results) if isinstance(result, Failure))
+        return QuotaRefreshResult(refreshed=refreshed, failed_card_ids=failed)
+
+    @router.get("/api/credentials", dependencies=[Depends(require_manager)])
+    async def list_credentials() -> tuple[CredentialView, ...]:
+        if environments is None:
+            return ()
+        records: Final = await environments.list()
+        return tuple(
+            credential
+            for record in records
+            for credential in _credential_views(record)
+        )
+
+    @router.post("/api/environments/{environment_id}/credentials", dependencies=[Depends(require_manager)])
+    async def add_credential(
+        environment_id: UUID,
+        request: OpenAICompatibleCredentialRequest,
+    ) -> EnvironmentView:
+        return _unwrap(await service.add_openai_compatible_credential(environment_id, request))
+
+    @router.delete("/api/environments/{environment_id}/credentials", dependencies=[Depends(require_manager)])
+    async def delete_credential(
+        environment_id: UUID,
+        request: OpenAICompatibleCredentialDeleteRequest,
+    ) -> EnvironmentView:
+        return _unwrap(await service.delete_openai_compatible_credential(environment_id, request))
+
     @router.get("/api/dashboard", dependencies=[Depends(require_manager)])
     async def dashboard_stats() -> DashboardStatsView:
         if logs is None or environments is None:
@@ -122,6 +198,38 @@ def create_router(
         )
         summary: Final = await logs.repository.stats(None, None, None)
         return DashboardStatsView(summary=summary, cards=cards)
+
+    if plugins is not None:
+
+        @router.get("/api/plugins", dependencies=[Depends(require_manager)])
+        async def list_plugins() -> tuple[PluginRecord, ...]:
+            return await plugins.installed()
+
+        @router.get("/api/plugin-store", dependencies=[Depends(require_manager)])
+        async def plugin_store() -> tuple[PluginManifest, ...]:
+            return plugins.store()
+
+        @router.post("/api/plugins", dependencies=[Depends(require_manager)])
+        async def install_plugin(manifest: PluginManifest) -> PluginRecord:
+            return await plugins.install(manifest)
+
+        @router.post("/api/plugins/{plugin_id}/enable", dependencies=[Depends(require_manager)])
+        async def enable_plugin(plugin_id: str) -> PluginRecord:
+            record: Final = await plugins.set_enabled(plugin_id, True)
+            if record is None:
+                raise HTTPException(status_code=404, detail="plugin not found or incompatible")
+            return record
+
+        @router.post("/api/plugins/{plugin_id}/disable", dependencies=[Depends(require_manager)])
+        async def disable_plugin(plugin_id: str) -> PluginRecord:
+            record: Final = await plugins.set_enabled(plugin_id, False)
+            if record is None:
+                raise HTTPException(status_code=404, detail="plugin not found or incompatible")
+            return record
+
+        @router.delete("/api/plugins/{plugin_id}", dependencies=[Depends(require_manager)], status_code=204)
+        async def uninstall_plugin(plugin_id: str) -> None:
+            await plugins.uninstall(plugin_id)
 
     @router.post("/api/environments", dependencies=[Depends(require_manager)], response_model=AuthorizationView)
     async def create_environment(
@@ -243,6 +351,7 @@ def create_router(
                 environments,
                 require_manager,
                 policies,
+                settings,
             )
         )
     if gateway_service is not None:
@@ -303,4 +412,37 @@ def _callback_page(title: str, message: str) -> str:
     return (
         '<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         f"<title>{safe_title}</title><body><main><h1>{safe_title}</h1><p>{safe_message}</p></main></body></html>"
+    )
+
+
+def _credential_views(record: EnvironmentRecord) -> tuple[CredentialView, ...]:
+    if record.channel is ChannelKind.OPENAI_COMPATIBLE and record.openai_compatible is not None:
+        return tuple(
+            CredentialView(
+                id=f"{record.id}:key-{index}",
+                card_id=record.id,
+                card_name=record.name,
+                supplier=record.supplier.value,
+                kind="api_key",
+                status="enabled" if record.enabled else "disabled",
+                enabled=record.enabled,
+                model_count=len(record.available_models),
+                auth_index=str(index),
+            )
+            for index, _ in enumerate(record.openai_compatible.credentials, start=1)
+        )
+    if record.auth_file_name is None:
+        return ()
+    return (
+        CredentialView(
+            id=f"{record.id}:{record.auth_index or 'default'}",
+            card_id=record.id,
+            card_name=record.name,
+            supplier=record.supplier.value,
+            kind="oauth_file",
+            status=record.status.value,
+            enabled=record.enabled,
+            model_count=len(record.available_models),
+            auth_index=record.auth_index,
+        ),
     )

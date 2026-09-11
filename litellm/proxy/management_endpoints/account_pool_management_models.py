@@ -222,6 +222,136 @@ class AccountPolicy(BaseModel):
         return self
 
 
+class AccountPoolSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default_route: Literal["auto", "priority", "random", "quota"] = "auto"
+    default_concurrency_limit: int = Field(default=1, ge=1, le=1000)
+    default_model_discovery: bool = True
+    default_proxy_profile_id: str | None = Field(default=None, max_length=120)
+    max_attempts: int = Field(default=1, ge=1, le=5)
+    request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    file_logging_enabled: bool = False
+    debug_logging_enabled: bool = False
+    websocket_enabled: bool = False
+    plugins_enabled: bool = False
+
+
+class AccountPoolSettingsView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    version: int = Field(ge=0)
+    values: AccountPoolSettings
+    updated_at: datetime | None = None
+    requires_reload: bool = False
+
+
+class AccountPoolSettingsUpdate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: int = Field(ge=0)
+    values: AccountPoolSettings
+
+
+class AccountPoolSettingsHistoryEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    version: int = Field(ge=0)
+    values: AccountPoolSettings
+    created_at: datetime
+    source: Literal["initial", "update", "rollback"]
+
+
+class AccountPoolSettingsChange(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    previous: str
+    proposed: str
+
+
+class AccountPoolSettingsPreview(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    base_version: int = Field(ge=0)
+    affected_card_ids: tuple[UUID, ...]
+    changes: tuple[AccountPoolSettingsChange, ...]
+    requires_reload: bool
+
+
+class AccountPoolSettingsRollbackRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    target_version: int = Field(ge=0)
+
+
+class AccountPoolCredential(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    card_id: UUID
+    card_name: str
+    supplier: str
+    kind: str
+    status: str
+    enabled: bool
+    model_count: int = Field(default=0, ge=0)
+    auth_index: str | None = None
+
+
+class AccountPoolCredentialRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: int = Field(ge=0)
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class AccountPoolCredentialDeleteRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: int = Field(ge=0)
+    credential_index: int = Field(ge=0, le=99)
+
+
+class AccountPoolCredentialMutationResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    version: int = Field(ge=0)
+
+
+class AccountPoolLogClearResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    deleted: int = Field(ge=0)
+
+
+class AccountPoolPluginManifest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    plugin_id: str = Field(min_length=1, max_length=120, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    display_name: str = Field(min_length=1, max_length=160)
+    version: str = Field(min_length=1, max_length=64)
+    runtime: Literal["sidecar"] = "sidecar"
+    entrypoint: str = Field(min_length=1, max_length=512)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+    capabilities: tuple[str, ...] = ()
+    provider_families: tuple[str, ...] = ()
+
+
+class AccountPoolPluginRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    manifest: AccountPoolPluginManifest
+    state: Literal["installed", "enabled", "disabled", "incompatible", "error"]
+    installed_at: datetime
+    updated_at: datetime
+    last_error: str | None = None
+
+
 class PolicyUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

@@ -35,10 +35,16 @@ import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
 import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
-import { AccountPoolScopePanel } from "./AccountPoolScopePanel";
+import { AccountPoolSettingsPanel } from "./AccountPoolSettingsPanel";
+import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
 import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
-import { getAccountPoolDashboardStats, listAccountPolicies, type ErrorStats } from "./AccountPoolManagementApi";
+import {
+  getAccountPoolDashboardStats,
+  listAccountPolicies,
+  refreshAccountPoolQuotas,
+  type ErrorStats,
+} from "./AccountPoolManagementApi";
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { canManageAccountPool } from "./AccountPoolPermissions";
 import type {
@@ -323,6 +329,9 @@ export default function AccountPoolPage() {
             <TabsTrigger value="logs" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.logs")}
             </TabsTrigger>
+            <TabsTrigger value="plugins" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.plugins")}
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="pt-4">
             {environmentsQuery.isLoading || environmentsQuery.isError ? (
@@ -388,17 +397,19 @@ export default function AccountPoolPage() {
             />
           </TabsContent>
           <TabsContent value="credentials" className="pt-4">
-            <AccountPoolCredentialsPanel environments={environments} />
+            <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
           </TabsContent>
           <TabsContent value="quotas" className="pt-4">
             <AccountPoolQuotaPanel
               environments={environments}
-              onRefresh={() => void environmentsQuery.refetch()}
+              onRefresh={() => {
+                if (accessToken) void refreshAccountPoolQuotas(accessToken).then(() => environmentsQuery.refetch());
+              }}
               refreshing={environmentsQuery.isFetching}
             />
           </TabsContent>
           <TabsContent value="settings" className="pt-4">
-            <AccountPoolScopePanel environments={environments} onConfigure={setConfigEnvironment} />
+            {accessToken && <AccountPoolSettingsPanel accessToken={accessToken} />}
           </TabsContent>
           <TabsContent value="logs" className="pt-4">
             {accessToken && (
@@ -409,6 +420,9 @@ export default function AccountPoolPage() {
                 initialCardId={logCardId}
               />
             )}
+          </TabsContent>
+          <TabsContent value="plugins" className="pt-4">
+            {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} />}
           </TabsContent>
         </Tabs>
       </div>

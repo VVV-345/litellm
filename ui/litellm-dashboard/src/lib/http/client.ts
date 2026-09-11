@@ -108,6 +108,7 @@ export interface ApiClientConfig {
 
 export interface ApiClient {
   request<T = any>(method: HttpMethod, path: string, options?: RequestOptions): Promise<T>;
+  requestBlob(method: HttpMethod, path: string, options?: RequestOptions): Promise<Blob>;
   get<T = any>(path: string, options?: RequestOptions): Promise<T>;
   post<T = any>(path: string, options?: RequestOptions): Promise<T>;
   put<T = any>(path: string, options?: RequestOptions): Promise<T>;
@@ -179,8 +180,34 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     return (text ? JSON.parse(text) : undefined) as T;
   }
 
+  async function requestBlob(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Blob> {
+    const { accessToken, body, rawBody, query, headers: extraHeaders, signal } = options;
+    const url = appendQuery(`${getBaseUrl()}${path}`, query);
+    const headers: Record<string, string> = {};
+    if (rawBody === undefined) headers["Content-Type"] = "application/json";
+    if (accessToken) headers[getAuthHeaderName ? getAuthHeaderName() : "Authorization"] = `Bearer ${accessToken}`;
+    if (extraHeaders) Object.assign(headers, extraHeaders);
+    const init: RequestInit = { method, headers, signal };
+    if (rawBody !== undefined) init.body = rawBody;
+    else if (body !== undefined) init.body = JSON.stringify(body);
+    const response = await doFetch(url, init);
+    if (!response.ok) {
+      const raw = await response.text();
+      let message = raw || `HTTP ${response.status}`;
+      try {
+        message = deriveErrorMessage(JSON.parse(raw));
+      } catch {
+        // Keep the plain response body when it is not JSON
+      }
+      onError?.(message);
+      throw new ApiError(message, response.status, raw);
+    }
+    return response.blob();
+  }
+
   return {
     request,
+    requestBlob,
     get: (path, options) => request("GET", path, options),
     post: (path, options) => request("POST", path, options),
     put: (path, options) => request("PUT", path, options),

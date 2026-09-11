@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     clash_config_path: str = Field(default="", max_length=1024)
     clash_gateway_ports: Annotated[tuple[int, ...], NoDecode] = ()
     proxy_gateway_host: str = DEFAULT_PROXY_GATEWAY_HOST
+    plugin_registry_json: str = Field(default="", max_length=2_000_000)
 
     @field_validator("clash_controller_url")
     @classmethod

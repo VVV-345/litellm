@@ -108,6 +108,26 @@ class OpenAICompatibleKeyRequest(BaseModel):
     weight: int = Field(default=1, ge=1, le=10000)
 
 
+class OpenAICompatibleCredentialRequest(BaseModel):
+    """新增卡片 API Key 的请求，密钥只在写入时接收。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: int = Field(ge=0)
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class OpenAICompatibleCredentialDeleteRequest(BaseModel):
+    """按卡片版本和凭据索引删除 API Key，避免向客户端暴露密钥。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: int = Field(ge=0)
+    credential_index: int = Field(ge=0, le=99)
+
+
 class OpenAICompatibleCreateRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

@@ -119,6 +119,11 @@ class MemoryLogs:
     async def prune(self, before: datetime) -> None:
         self.events = tuple(event for event in self.events if event.occurred_at >= before)
 
+    async def clear(self) -> int:
+        deleted: Final = len(self.events)
+        self.events = ()
+        return deleted
+
 
 class MemoryPolicies:
     def __init__(self) -> None:

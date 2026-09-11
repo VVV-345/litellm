@@ -787,6 +787,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Credentials */
+        get: operations["credentials_account_pool_credentials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/dashboard": {
         parameters: {
             query?: never;
@@ -817,6 +834,24 @@ export interface paths {
         /** Create Environment */
         post: operations["create_environment_account_pool_environments_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{card_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Credential */
+        post: operations["add_credential_account_pool_environments__card_id__credentials_post"];
+        /** Delete Credential */
+        delete: operations["delete_credential_account_pool_environments__card_id__credentials_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -876,6 +911,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Environment */
+        post: operations["refresh_environment_account_pool_environments__environment_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/logs": {
         parameters: {
             query?: never;
@@ -885,6 +937,24 @@ export interface paths {
         };
         /** Logs */
         get: operations["logs_account_pool_logs_get"];
+        put?: never;
+        post?: never;
+        /** Clear Logs */
+        delete: operations["clear_logs_account_pool_logs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/logs/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Logs */
+        get: operations["export_logs_account_pool_logs_export_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -921,6 +991,92 @@ export interface paths {
         put?: never;
         /** Create Openai Compatible */
         post: operations["create_openai_compatible_account_pool_openai_compatible_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/plugin-store": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plugin Store */
+        get: operations["plugin_store_account_pool_plugin_store_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plugins */
+        get: operations["plugins_account_pool_plugins_get"];
+        put?: never;
+        /** Install Plugin */
+        post: operations["install_plugin_account_pool_plugins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/plugins/{plugin_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Uninstall Plugin */
+        delete: operations["uninstall_plugin_account_pool_plugins__plugin_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/plugins/{plugin_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable Plugin */
+        post: operations["disable_plugin_account_pool_plugins__plugin_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/plugins/{plugin_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable Plugin */
+        post: operations["enable_plugin_account_pool_plugins__plugin_id__enable_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1057,6 +1213,92 @@ export interface paths {
         get: operations["list_proxy_profiles_account_pool_proxy_profiles_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/quotas/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Quotas */
+        post: operations["refresh_quotas_account_pool_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_account_pool_settings_get"];
+        /** Update Settings */
+        put: operations["update_settings_account_pool_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/settings/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Settings History */
+        get: operations["settings_history_account_pool_settings_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/settings/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Settings */
+        post: operations["preview_settings_account_pool_settings_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/settings/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rollback Settings */
+        post: operations["rollback_settings_account_pool_settings_rollback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1465,9 +1707,6 @@ export interface paths {
          * @description Get all audit logs with filtering and pagination.
          *
          *     Returns a paginated response of audit logs matching the specified filters.
-         *
-         *     Note: object_team_id and object_key_hash use Prisma JSON path filtering,
-         *     which requires PostgreSQL.
          */
         get: operations["get_audit_logs_audit_get"];
         put?: never;
@@ -11730,240 +11969,6 @@ export interface paths {
          *     ```
          */
         post: operations["validate_policy_policy_validate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Project
-         * @description Delete projects
-         *
-         *     Parameters:
-         *     - project_ids: *List[str]* - List of project ids to delete
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location --request DELETE 'http://0.0.0.0:4000/project/delete' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_ids": ["project-123", "project-456"]
-         *     }'
-         *     ```
-         */
-        delete: operations["delete_project_project_delete_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/info": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Project Info
-         * @description Get information about a specific project
-         *
-         *     Parameters:
-         *     - project_id: *str* - The project id to fetch info for
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/info?project_id=project-123' \
-         *     --header 'Authorization: Bearer sk-1234'
-         *     ```
-         */
-        get: operations["project_info_project_info_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/list": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Projects
-         * @description List all projects that the user has access to
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/list' \
-         *     --header 'Authorization: Bearer sk-1234'
-         *     ```
-         */
-        get: operations["list_projects_project_list_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/new": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * New Project
-         * @description Create a new project. Projects sit between teams and keys in the hierarchy.
-         *
-         *     Only admins or team admins can create projects.
-         *
-         *     # Parameters
-         *
-         *     - project_alias: *Optional[str]* - The name of the project.
-         *     - description: *Optional[str]* - Description of the project's purpose and use case.
-         *     - team_id: *str* - The team id that this project belongs to. Required.
-         *     - models: *List* - The models the project has access to.
-         *     - budget_id: *Optional[str]* - The id for a budget (tpm/rpm/max budget) for the project.
-         *     ### IF NO BUDGET ID - CREATE ONE WITH THESE PARAMS ###
-         *     - max_budget: *Optional[float]* - Max budget for project
-         *     - tpm_limit: *Optional[int]* - Max tpm limit for project
-         *     - rpm_limit: *Optional[int]* - Max rpm limit for project
-         *     - max_parallel_requests: *Optional[int]* - Max parallel requests for project
-         *     - soft_budget: *Optional[float]* - Get a slack alert when this soft budget is reached. Don't block requests.
-         *     - model_max_budget: *Optional[dict]* - Max budget for a specific model. Example: {"gpt-4": 100.0, "gpt-3.5-turbo": 50.0}
-         *     - model_rpm_limit: *Optional[dict]* - RPM limits per model. Example: {"gpt-4": 1000, "gpt-3.5-turbo": 5000}
-         *     - model_tpm_limit: *Optional[dict]* - TPM limits per model. Example: {"gpt-4": 50000, "gpt-3.5-turbo": 100000}
-         *     - budget_duration: *Optional[str]* - Frequency of reseting project budget
-         *     - metadata: *Optional[dict]* - Metadata for project, store information for project. Example metadata - {"use_case_id": "SNOW-12345", "responsible_ai_id": "RAI-67890"}
-         *     - tags: *Optional[list]* - Tags for the project. Example: ["production", "api"]
-         *     - blocked: *bool* - Flag indicating if the project is blocked or not - will stop all calls from keys with this project_id.
-         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - project-specific object permission. Example - {"vector_stores": ["vector_store_1", "vector_store_2"]}. IF null or {} then no object permission.
-         *
-         *     Example 1: Create new project **without** a budget_id, with model-specific limits
-         *
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/new' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_alias": "flight-search-assistant",
-         *         "description": "AI-powered flight search and booking assistant",
-         *         "team_id": "team-123",
-         *         "models": ["gpt-4", "gpt-3.5-turbo"],
-         *         "max_budget": 100,
-         *         "model_rpm_limit": {
-         *             "gpt-4": 1000,
-         *             "gpt-3.5-turbo": 5000
-         *         },
-         *         "model_tpm_limit": {
-         *             "gpt-4": 50000,
-         *             "gpt-3.5-turbo": 100000
-         *         },
-         *         "metadata": {
-         *             "use_case_id": "SNOW-12345",
-         *             "responsible_ai_id": "RAI-67890"
-         *         }
-         *     }'
-         *     ```
-         *
-         *     Example 2: Create new project **with** a budget_id
-         *
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/new' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_alias": "hotel-recommendations",
-         *         "description": "Personalized hotel recommendation engine",
-         *         "team_id": "team-123",
-         *         "models": ["claude-3-sonnet"],
-         *         "budget_id": "428eeaa8-f3ac-4e85-a8fb-7dc8d7aa8689",
-         *         "metadata": {
-         *             "use_case_id": "SNOW-54321"
-         *         }
-         *     }'
-         *     ```
-         */
-        post: operations["new_project_project_new_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Update Project
-         * @description Update a project
-         *
-         *     Parameters:
-         *     - project_id: *str* - The project id to update. Required.
-         *     - project_alias: *Optional[str]* - Updated name for the project
-         *     - description: *Optional[str]* - Updated description for the project
-         *     - team_id: *Optional[str]* - Updated team_id for the project
-         *     - metadata: *Optional[dict]* - Updated metadata for project
-         *     - models: *Optional[list]* - Updated list of models for the project
-         *     - blocked: *Optional[bool]* - Updated blocked status
-         *     - max_budget: *Optional[float]* - Updated max budget
-         *     - tpm_limit: *Optional[int]* - Updated tpm limit
-         *     - rpm_limit: *Optional[int]* - Updated rpm limit
-         *     - model_rpm_limit: *Optional[dict]* - Updated RPM limits per model
-         *     - model_tpm_limit: *Optional[dict]* - Updated TPM limits per model
-         *     - budget_duration: *Optional[str]* - Updated budget duration
-         *     - tags: *Optional[list]* - Updated list of tags for the project
-         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - Updated object permission
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/update' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_id": "project-123",
-         *         "description": "Updated flight search system with enhanced capabilities",
-         *         "max_budget": 200,
-         *         "model_rpm_limit": {
-         *             "gpt-4": 2000,
-         *             "gpt-3.5-turbo": 10000
-         *         },
-         *         "metadata": {
-         *             "use_case_id": "SNOW-12345",
-         *             "status": "active"
-         *         }
-         *     }'
-         *     ```
-         */
-        post: operations["update_project_project_update_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -22940,6 +22945,64 @@ export interface components {
              */
             supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
         };
+        /** AccountPoolCredential */
+        AccountPoolCredential: {
+            /** Auth Index */
+            auth_index?: string | null;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Card Name */
+            card_name: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Model Count
+             * @default 0
+             */
+            model_count: number;
+            /** Status */
+            status: string;
+            /** Supplier */
+            supplier: string;
+        };
+        /** AccountPoolCredentialDeleteRequest */
+        AccountPoolCredentialDeleteRequest: {
+            /** Credential Index */
+            credential_index: number;
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolCredentialMutationResult */
+        AccountPoolCredentialMutationResult: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolCredentialRequest */
+        AccountPoolCredentialRequest: {
+            /** Api Key */
+            api_key: string;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
+            /** Version */
+            version: number;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+        };
         /** AccountPoolDashboardStats */
         AccountPoolDashboardStats: {
             /** Cards */
@@ -23040,6 +23103,11 @@ export interface components {
             /** Node Name */
             node_name: string;
         };
+        /** AccountPoolLogClearResult */
+        AccountPoolLogClearResult: {
+            /** Deleted */
+            deleted: number;
+        };
         /** AccountPoolModelQuotaSnapshot */
         AccountPoolModelQuotaSnapshot: {
             /** Model */
@@ -23092,6 +23160,56 @@ export interface components {
              * @default 1
              */
             weight: number;
+        };
+        /** AccountPoolPluginManifest */
+        AccountPoolPluginManifest: {
+            /**
+             * Capabilities
+             * @default []
+             */
+            capabilities: string[];
+            /** Display Name */
+            display_name: string;
+            /** Entrypoint */
+            entrypoint: string;
+            /** Plugin Id */
+            plugin_id: string;
+            /**
+             * Provider Families
+             * @default []
+             */
+            provider_families: string[];
+            /**
+             * Runtime
+             * @default sidecar
+             * @constant
+             */
+            runtime: "sidecar";
+            /** Sha256 */
+            sha256: string;
+            /** Version */
+            version: string;
+        };
+        /** AccountPoolPluginRecord */
+        AccountPoolPluginRecord: {
+            /**
+             * Installed At
+             * Format: date-time
+             */
+            installed_at: string;
+            /** Last Error */
+            last_error?: string | null;
+            manifest: components["schemas"]["AccountPoolPluginManifest"];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "installed" | "enabled" | "disabled" | "incompatible" | "error";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** AccountPoolProviderFamily */
         AccountPoolProviderFamily: {
@@ -23153,6 +23271,16 @@ export interface components {
             /** Protocol */
             protocol?: string | null;
         };
+        /** AccountPoolQuotaRefreshResult */
+        AccountPoolQuotaRefreshResult: {
+            /**
+             * Failed Card Ids
+             * @default []
+             */
+            failed_card_ids: string[];
+            /** Refreshed */
+            refreshed: components["schemas"]["AccountPoolEnvironment"][];
+        };
         /** AccountPoolQuotaSnapshot */
         AccountPoolQuotaSnapshot: {
             /** Observed At */
@@ -23177,6 +23305,119 @@ export interface components {
             used_percent: number;
             /** Window Minutes */
             window_minutes: number;
+        };
+        /** AccountPoolSettings */
+        AccountPoolSettings: {
+            /**
+             * Debug Logging Enabled
+             * @default false
+             */
+            debug_logging_enabled: boolean;
+            /**
+             * Default Concurrency Limit
+             * @default 1
+             */
+            default_concurrency_limit: number;
+            /**
+             * Default Model Discovery
+             * @default true
+             */
+            default_model_discovery: boolean;
+            /** Default Proxy Profile Id */
+            default_proxy_profile_id?: string | null;
+            /**
+             * Default Route
+             * @default auto
+             * @enum {string}
+             */
+            default_route: "auto" | "priority" | "random" | "quota";
+            /**
+             * File Logging Enabled
+             * @default false
+             */
+            file_logging_enabled: boolean;
+            /**
+             * Max Attempts
+             * @default 1
+             */
+            max_attempts: number;
+            /**
+             * Plugins Enabled
+             * @default false
+             */
+            plugins_enabled: boolean;
+            /**
+             * Request Timeout Seconds
+             * @default 120
+             */
+            request_timeout_seconds: number;
+            /**
+             * Websocket Enabled
+             * @default false
+             */
+            websocket_enabled: boolean;
+        };
+        /** AccountPoolSettingsChange */
+        AccountPoolSettingsChange: {
+            /** Key */
+            key: string;
+            /** Previous */
+            previous: string;
+            /** Proposed */
+            proposed: string;
+        };
+        /** AccountPoolSettingsHistoryEntry */
+        AccountPoolSettingsHistoryEntry: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "initial" | "update" | "rollback";
+            values: components["schemas"]["AccountPoolSettings"];
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolSettingsPreview */
+        AccountPoolSettingsPreview: {
+            /** Affected Card Ids */
+            affected_card_ids: string[];
+            /** Base Version */
+            base_version: number;
+            /** Changes */
+            changes: components["schemas"]["AccountPoolSettingsChange"][];
+            /** Requires Reload */
+            requires_reload: boolean;
+        };
+        /** AccountPoolSettingsRollbackRequest */
+        AccountPoolSettingsRollbackRequest: {
+            /** Expected Version */
+            expected_version: number;
+            /** Target Version */
+            target_version: number;
+        };
+        /** AccountPoolSettingsUpdate */
+        AccountPoolSettingsUpdate: {
+            values: components["schemas"]["AccountPoolSettings"];
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolSettingsView */
+        AccountPoolSettingsView: {
+            /**
+             * Requires Reload
+             * @default false
+             */
+            requires_reload: boolean;
+            /** Updated At */
+            updated_at?: string | null;
+            values: components["schemas"]["AccountPoolSettings"];
+            /** Version */
+            version: number;
         };
         /** AccountPoolUpdateRequest */
         AccountPoolUpdateRequest: {
@@ -24385,12 +24626,18 @@ export interface components {
         };
         /** Body_audio_transcriptions_audio_transcriptions_post */
         Body_audio_transcriptions_audio_transcriptions_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_audio_transcriptions_v1_audio_transcriptions_post */
         Body_audio_transcriptions_v1_audio_transcriptions_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_authorize_complete_authorize_complete_post */
@@ -24416,7 +24663,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -24440,7 +24690,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -24464,7 +24717,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -24592,21 +24848,30 @@ export interface components {
         };
         /** Body_upload_logo_upload_logo_post */
         Body_upload_logo_upload_logo_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_video_create_character_v1_videos_characters_post */
         Body_video_create_character_v1_videos_characters_post: {
             /** Name */
             name: string;
-            /** Video */
+            /**
+             * Video
+             * Format: binary
+             */
             video: string;
         };
         /** Body_video_create_character_videos_characters_post */
         Body_video_create_character_videos_characters_post: {
             /** Name */
             name: string;
-            /** Video */
+            /**
+             * Video
+             * Format: binary
+             */
             video: string;
         };
         /** Body_video_generation_v1_videos_post */
@@ -27232,14 +27497,6 @@ export interface components {
         DeleteOrganizationRequest: {
             /** Organization Ids */
             organization_ids: string[];
-        };
-        /**
-         * DeleteProjectRequest
-         * @description Request model for DELETE /project/delete
-         */
-        DeleteProjectRequest: {
-            /** Project Ids */
-            project_ids: string[];
         };
         /**
          * DeleteSkillResponse
@@ -30175,65 +30432,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /**
-         * LiteLLM_ProjectTable
-         * @description Database model representation for project
-         */
-        LiteLLM_ProjectTable: {
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Created At */
-            created_at?: string | null;
-            /** Created By */
-            created_by?: string | null;
-            /** Description */
-            description?: string | null;
-            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Spend */
-            model_spend?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
-            /** Object Permission Id */
-            object_permission_id?: string | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /**
-             * Spend
-             * @default 0
-             */
-            spend: number;
-            /** Team Id */
-            team_id?: string | null;
-            /** Updated At */
-            updated_at?: string | null;
-            /** Updated By */
-            updated_by?: string | null;
-        };
         /** LiteLLM_ProxyModelTable */
         LiteLLM_ProxyModelTable: {
             /**
@@ -32685,142 +32883,6 @@ export interface components {
             updated_by: string;
             /** Users */
             users?: components["schemas"]["LiteLLM_UserTable"][] | null;
-        };
-        /**
-         * NewProjectRequest
-         * @description Request model for POST /project/new
-         */
-        NewProjectRequest: {
-            /** Allowed Models */
-            allowed_models?: string[] | null;
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Duration */
-            budget_duration?: string | null;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Guardrails */
-            guardrails?: string[] | null;
-            /** Max Budget */
-            max_budget?: number | null;
-            /** Max Parallel Requests */
-            max_parallel_requests?: number | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Itpm Limit */
-            model_itpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Max Budget */
-            model_max_budget?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Otpm Limit */
-            model_otpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
-            /** Policies */
-            policies?: string[] | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id?: string | null;
-            /** Rpm Limit */
-            rpm_limit?: number | null;
-            /** Soft Budget */
-            soft_budget?: number | null;
-            /** Tags */
-            tags?: string[] | null;
-            /** Team Id */
-            team_id: string;
-            /** Tpm Limit */
-            tpm_limit?: number | null;
-        };
-        /**
-         * NewProjectResponse
-         * @description Response model for POST /project/new
-         */
-        NewProjectResponse: {
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Id */
-            budget_id?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created By */
-            created_by?: string | null;
-            /** Description */
-            description?: string | null;
-            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Spend */
-            model_spend?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
-            /** Object Permission Id */
-            object_permission_id?: string | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /**
-             * Spend
-             * @default 0
-             */
-            spend: number;
-            /** Team Id */
-            team_id?: string | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Updated By */
-            updated_by?: string | null;
         };
         /** NewTeamRequest */
         NewTeamRequest: {
@@ -38293,71 +38355,6 @@ export interface components {
             version?: string | null;
         };
         /**
-         * UpdateProjectRequest
-         * @description Request model for POST /project/update
-         */
-        UpdateProjectRequest: {
-            /** Allowed Models */
-            allowed_models?: string[] | null;
-            /** Blocked */
-            blocked?: boolean | null;
-            /** Budget Duration */
-            budget_duration?: string | null;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Guardrails */
-            guardrails?: string[] | null;
-            /** Max Budget */
-            max_budget?: number | null;
-            /** Max Parallel Requests */
-            max_parallel_requests?: number | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Itpm Limit */
-            model_itpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Max Budget */
-            model_max_budget?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Otpm Limit */
-            model_otpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Models */
-            models?: string[] | null;
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
-            /** Policies */
-            policies?: string[] | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /** Rpm Limit */
-            rpm_limit?: number | null;
-            /** Soft Budget */
-            soft_budget?: number | null;
-            /** Tags */
-            tags?: string[] | null;
-            /** Team Id */
-            team_id?: string | null;
-            /** Tpm Limit */
-            tpm_limit?: number | null;
-        };
-        /**
          * UpdatePublicModelGroupsRequest
          * @description Request model for updating public model groups
          */
@@ -41020,6 +41017,26 @@ export interface operations {
             };
         };
     };
+    credentials_account_pool_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolCredential"][];
+                };
+            };
+        };
+    };
     dashboard_stats_account_pool_dashboard_get: {
         parameters: {
             query?: never;
@@ -41082,6 +41099,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_credential_account_pool_environments__card_id__credentials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolCredentialMutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_credential_account_pool_environments__card_id__credentials_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolCredentialDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolCredentialMutationResult"];
                 };
             };
             /** @description Validation Error */
@@ -41293,6 +41380,37 @@ export interface operations {
             };
         };
     };
+    refresh_environment_account_pool_environments__environment_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     logs_account_pool_logs_get: {
         parameters: {
             query?: {
@@ -41326,6 +41444,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_logs_account_pool_logs_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+        };
+    };
+    export_logs_account_pool_logs_export_get: {
+        parameters: {
+            query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
+                card_id?: string | null;
+                environment_id?: string | null;
+                account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
                 };
             };
             /** @description Validation Error */
@@ -41392,6 +41576,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plugin_store_account_pool_plugin_store_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolPluginManifest"][];
+                };
+            };
+        };
+    };
+    plugins_account_pool_plugins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolPluginRecord"][];
+                };
+            };
+        };
+    };
+    install_plugin_account_pool_plugins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolPluginManifest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolPluginRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uninstall_plugin_account_pool_plugins__plugin_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_plugin_account_pool_plugins__plugin_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolPluginRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_plugin_account_pool_plugins__plugin_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolPluginRecord"];
                 };
             };
             /** @description Validation Error */
@@ -41576,6 +41924,165 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolProxyProfile"][];
+                };
+            };
+        };
+    };
+    refresh_quotas_account_pool_quotas_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolQuotaRefreshResult"];
+                };
+            };
+        };
+    };
+    get_settings_account_pool_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsView"];
+                };
+            };
+        };
+    };
+    update_settings_account_pool_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settings_history_account_pool_settings_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsHistoryEntry"][];
+                };
+            };
+        };
+    };
+    preview_settings_account_pool_settings_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_settings_account_pool_settings_rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolSettingsRollbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -42305,10 +42812,6 @@ export interface operations {
                 start_date?: string | null;
                 /** @description Filter logs before this date */
                 end_date?: string | null;
-                /** @description Filter by team_id present in before_value or updated_values JSON (PostgreSQL only) */
-                object_team_id?: string | null;
-                /** @description Filter by token (key hash) present in before_value or updated_values JSON (PostgreSQL only) */
-                object_key_hash?: string | null;
                 /** @description Column to sort by (e.g. 'updated_at', 'action', 'table_name') */
                 sort_by?: string | null;
                 /** @description Sort order ('asc' or 'desc') */
@@ -55449,156 +55952,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyValidationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_project_project_delete_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    project_info_project_info_get: {
-        parameters: {
-            query: {
-                project_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_projects_project_list_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
-                };
-            };
-        };
-    };
-    new_project_project_new_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NewProjectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_project_project_update_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
                 };
             };
             /** @description Validation Error */

@@ -28,12 +28,14 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
+from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
+from account_pool.settings import PostgresAccountPoolSettingsRepository
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -46,6 +48,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     policies: Final = PostgresPolicyRepository(resolved.database_url)
     leases: Final = PostgresLeaseRepository(resolved.database_url)
     batches: Final = PostgresBatchRepository(resolved.database_url)
+    settings_repository: Final = PostgresAccountPoolSettingsRepository(resolved.database_url)
+    plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
+    plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
     logs: Final = ErrorLogService(PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     channels: Final = ChannelRegistry.default(resolved, secrets)
@@ -72,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         channels=channels,
         proxy_gateways=proxy_gateways,
         error_logs=logs,
+        global_settings=settings_repository,
     )
     batch_service: Final = BatchService(batches, environments, service, policies, logs, leases)
 
@@ -83,6 +89,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await policies.initialize()
         await leases.initialize()
         await batches.initialize()
+        await settings_repository.initialize()
+        await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
             await proxy_gateways.sync_profiles()
         records: Final = await environments.list()
@@ -128,6 +136,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service, resolved.manager_token, keys=keys, logs=logs, environments=environments, policies=policies,
         gateway_service=GatewayService(keys, environments, policies, leases, logs, service.gateway_environment),
         batch_service=batch_service,
+        settings=settings_repository,
+        plugins=plugin_service,
     ))
     return app
 

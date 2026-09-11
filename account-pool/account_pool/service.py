@@ -32,6 +32,9 @@ from account_pool.domain import (
     GatewayEnvironment,
     OAuthCallback,
     OpenAICompatibleConfiguration,
+    OpenAICompatibleCredential,
+    OpenAICompatibleCredentialDeleteRequest,
+    OpenAICompatibleCredentialRequest,
     Provider,
     ProxyMode,
     ProxyProfile,
@@ -54,6 +57,7 @@ from account_pool.ports import (
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
@@ -93,6 +97,7 @@ class EnvironmentService:
         channels: ChannelRegistry | None = None,
         proxy_gateways: ProxyGatewayService | None = None,
         error_logs: ErrorLogService | None = None,
+        global_settings: AccountPoolSettingsRepository | None = None,
     ) -> None:
         self._settings: Final = settings
         self._repository: Final = repository
@@ -107,6 +112,24 @@ class EnvironmentService:
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
         self._error_logs: Final = error_logs
+        self._global_settings: Final = global_settings
+
+    async def _account_pool_settings(self) -> AccountPoolSettings:
+        if self._global_settings is None:
+            return AccountPoolSettings()
+        return (await self._global_settings.get()).values
+
+    async def _default_proxy(self, settings: AccountPoolSettings) -> Result[tuple[ProxyMode, str | None, str]]:
+        if settings.default_proxy_profile_id is None:
+            return Success((ProxyMode.DEFAULT_GATEWAY, None, ""))
+        proxy_url: Final = await self._proxy_profiles.get_url(settings.default_proxy_profile_id)
+        if proxy_url is None:
+            return Failure(FailureCode.INVALID, "default proxy profile is unavailable")
+        try:
+            validated_url: Final = validate_proxy_profile_url(proxy_url)
+        except ValueError:
+            return Failure(FailureCode.INVALID, "default proxy profile URL is invalid")
+        return Success((ProxyMode.PROFILE, settings.default_proxy_profile_id, validated_url))
 
     async def _log_event(
         self, record: EnvironmentRecord, stage: LogStage, error: Exception | None, *, retryable: bool = False,
@@ -188,6 +211,8 @@ class EnvironmentService:
         )
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
+        if request.channel is ChannelKind.FREEBUFF2API:
+            return Failure(FailureCode.INVALID, "freebuff2api channel has been retired; create an OpenAI-compatible card")
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
@@ -199,6 +224,11 @@ class EnvironmentService:
                 if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
                     return Success(self._authorization_view(existing))
                 return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
+        pool_settings: Final = await self._account_pool_settings()
+        proxy_result: Final = await self._default_proxy(pool_settings)
+        if isinstance(proxy_result, Failure):
+            return proxy_result
+        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
         now: Final = utc_now()
         record: Final = EnvironmentRecord(
             id=uuid4(),
@@ -213,9 +243,24 @@ class EnvironmentService:
             status=EnvironmentStatus.PROVISIONING,
             enabled=True,
             manual_cooldown=False,
-            concurrency_limit=1,
-            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
-            proxy_profile_id=None,
+            concurrency_limit=pool_settings.default_concurrency_limit,
+            proxy_mode=proxy_mode,
+            proxy_profile_id=proxy_profile_id,
+            desired_configuration=(
+                EnvironmentConfiguration(
+                    name=request.name,
+                    concurrency_limit=pool_settings.default_concurrency_limit,
+                    enabled=True,
+                    manual_cooldown=False,
+                    proxy_mode=proxy_mode,
+                    proxy_profile_id=proxy_profile_id,
+                    enabled_models=(),
+                    proxy_url=proxy_url,
+                    credential_enabled=True,
+                )
+                if proxy_mode is ProxyMode.PROFILE
+                else None
+            ),
             available_models=(),
             enabled_models=(),
             auth_file_name=None,
@@ -341,6 +386,11 @@ class EnvironmentService:
         models: Final = tuple(
             f"{configuration.prefix}{model}" if configuration.prefix else model for model in upstream_models
         )
+        pool_settings: Final = await self._account_pool_settings()
+        proxy_result: Final = await self._default_proxy(pool_settings)
+        if isinstance(proxy_result, Failure):
+            return proxy_result
+        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
         record: Final = EnvironmentRecord(
             id=environment_id,
             operation_id=request.operation_id or str(uuid4()),
@@ -364,9 +414,24 @@ class EnvironmentService:
             observed_configuration_version=0,
             enabled=True,
             manual_cooldown=False,
-            concurrency_limit=1,
-            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
-            proxy_profile_id=None,
+            concurrency_limit=pool_settings.default_concurrency_limit,
+            proxy_mode=proxy_mode,
+            proxy_profile_id=proxy_profile_id,
+            desired_configuration=(
+                EnvironmentConfiguration(
+                    name=request.name,
+                    concurrency_limit=pool_settings.default_concurrency_limit,
+                    enabled=True,
+                    manual_cooldown=False,
+                    proxy_mode=proxy_mode,
+                    proxy_profile_id=proxy_profile_id,
+                    enabled_models=models,
+                    proxy_url=proxy_url,
+                    credential_enabled=True,
+                )
+                if proxy_mode is ProxyMode.PROFILE
+                else None
+            ),
             available_models=models,
             enabled_models=models,
             auth_file_name=None,
@@ -414,6 +479,131 @@ class EnvironmentService:
         )
         await self._repository.save(ready)
         return Success(to_view(ready))
+
+    async def add_openai_compatible_credential(
+        self,
+        environment_id: UUID,
+        request: OpenAICompatibleCredentialRequest,
+    ) -> Result[EnvironmentView]:
+        """把一个 API Key 加入指定卡片，并以卡片版本保证并发修改不会互相覆盖。"""
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.channel is not ChannelKind.OPENAI_COMPATIBLE or record.openai_compatible is None:
+                return Failure(FailureCode.INVALID, "credentials can only be added to OpenAI-compatible cards")
+            if request.version != record.version:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            if request.proxy_profile_id is None:
+                validated_proxy_url: Final = None
+            else:
+                profile_url: Final = await self._proxy_profiles.get_url(request.proxy_profile_id)
+                if profile_url is None:
+                    return Failure(FailureCode.INVALID, "proxy profile is unavailable")
+                try:
+                    validated_proxy_url: Final = validate_proxy_profile_url(profile_url)
+                except ValueError:
+                    return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
+            cipher: Final = StateCipher(self._secrets)
+            credential: Final = OpenAICompatibleCredential(
+                api_key_ciphertext=cipher.seal(environment_id, request.api_key),
+                proxy_profile_id=request.proxy_profile_id,
+                proxy_url=validated_proxy_url,
+                weight=request.weight,
+            )
+            configuration: Final = record.openai_compatible.model_copy(
+                update={"credentials": (*record.openai_compatible.credentials, credential)}
+            )
+            candidate: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "openai_compatible": configuration,
+                    "configuration_pending": True,
+                    "desired_configuration_version": record.desired_configuration_version + 1,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            saved: Final = await self._repository.save_if_version(candidate, record.version)
+            if saved is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            try:
+                observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(saved)
+            except Exception as error:
+                failed: Final = saved.model_copy(
+                    update={"status": EnvironmentStatus.ERROR, "configuration_pending": False, "last_error": _safe_error(error), "updated_at": utc_now()}
+                )
+                await self._repository.save_if_version(failed, saved.version)
+                return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
+            ready: Final = observed.model_copy(
+                update={
+                    "version": saved.version + 1,
+                    "status": EnvironmentStatus.READY if saved.enabled else EnvironmentStatus.DISABLED,
+                    "configuration_pending": False,
+                    "observed_configuration_version": saved.desired_configuration_version,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save_if_version(ready, saved.version)
+            return Success(to_view(ready))
+
+    async def delete_openai_compatible_credential(
+        self,
+        environment_id: UUID,
+        request: OpenAICompatibleCredentialDeleteRequest,
+    ) -> Result[EnvironmentView]:
+        """删除单张 OpenAI 兼容凭据，至少保留一张凭据以避免卡片失去路由身份。"""
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            configuration: Final = record.openai_compatible
+            if record.channel is not ChannelKind.OPENAI_COMPATIBLE or configuration is None:
+                return Failure(FailureCode.INVALID, "credentials can only be removed from OpenAI-compatible cards")
+            if request.version != record.version:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            if len(configuration.credentials) <= 1:
+                return Failure(FailureCode.INVALID, "an OpenAI-compatible card must retain at least one credential")
+            if request.credential_index >= len(configuration.credentials):
+                return Failure(FailureCode.NOT_FOUND, "credential not found")
+            credentials: Final = tuple(
+                credential for index, credential in enumerate(configuration.credentials) if index != request.credential_index
+            )
+            candidate: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "openai_compatible": configuration.model_copy(update={"credentials": credentials}),
+                    "configuration_pending": True,
+                    "desired_configuration_version": record.desired_configuration_version + 1,
+                    "updated_at": utc_now(),
+                }
+            )
+            saved: Final = await self._repository.save_if_version(candidate, record.version)
+            if saved is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            try:
+                observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(saved)
+            except Exception as error:
+                failed: Final = saved.model_copy(
+                    update={"status": EnvironmentStatus.ERROR, "configuration_pending": False, "last_error": _safe_error(error), "updated_at": utc_now()}
+                )
+                await self._repository.save_if_version(failed, saved.version)
+                return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
+            ready: Final = observed.model_copy(
+                update={
+                    "version": saved.version + 1,
+                    "status": EnvironmentStatus.READY if saved.enabled else EnvironmentStatus.DISABLED,
+                    "configuration_pending": False,
+                    "observed_configuration_version": saved.desired_configuration_version,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save_if_version(ready, saved.version)
+            return Success(to_view(ready))
 
     async def authorize_environment(
         self,
@@ -694,7 +884,12 @@ class EnvironmentService:
             if saved_completed is None:
                 raise _AuthorizationConflict
             return Success(saved_completed)
-        desired: Final = completed.desired_configuration or configuration_from_record(completed)
+        initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
+        desired: Final = (
+            initial_desired.model_copy(update={"enabled_models": completed.enabled_models})
+            if not initial_desired.enabled_models and completed.enabled_models
+            else initial_desired
+        )
         pending: Final = completed.model_copy(
             update={
                 "configuration_pending": True,

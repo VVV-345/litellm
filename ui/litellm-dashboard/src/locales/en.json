@@ -5649,6 +5649,7 @@
     "confirmDeleteDescription": "Delete “{{name}}”? This removes its containers, network, authorization data, and gateway route. This cannot be undone.",
     "confirmDeleteUnavailable": "Deleting this account pool environment cannot be undone.",
     "cancel": "Cancel",
+    "save": "Save",
     "confirmDelete": "Delete environment",
     "deleting": "Deleting...",
     "create": {
@@ -5769,7 +5770,8 @@
       "settings": "Configuration panel",
       "accounts": "Account management",
       "proxyLayer": "Proxy layer",
-      "logs": "Operation and error logs"
+      "logs": "Operation and error logs",
+      "plugins": "Plugins"
     },
     "providers": {
       "title": "AI provider families",
@@ -5814,6 +5816,16 @@
       "description": "Review credential ownership and model discovery status. Secret values stay in server-side storage.",
       "provider": "Provider",
       "models": "Discovered models",
+      "kind": "Credential type",
+      "loadFailed": "Credential files failed to load",
+      "add": "Add API key",
+      "remove": "Remove credential",
+      "apiKey": "API key",
+      "weight": "Weight",
+      "keyRequired": "Enter an API key",
+      "added": "Credential added",
+      "removed": "Credential removed",
+      "removeConfirm": "Remove this credential?",
       "secretHint": "Secret content is never returned to the dashboard."
     },
     "quotas": {
@@ -5822,6 +5834,19 @@
       "refresh": "Refresh quotas",
       "minimumRemaining": "Most constrained window",
       "reset": "Resets {{time}}"
+    },
+    "plugins": {
+      "title": "Plugin management and store",
+      "description": "Plugins must declare the sidecar runtime and SHA-256 manifest, then run outside LiteLLM.",
+      "available": "Available",
+      "install": "Install",
+      "enable": "Enable",
+      "disable": "Disable",
+      "uninstall": "Uninstall",
+      "installed": "Plugin installed",
+      "uninstalled": "Plugin uninstalled",
+      "loadFailed": "Plugins failed to load",
+      "storeEmpty": "No plugins are available in the store"
     },
     "scope": {
       "title": "Configuration panel",
@@ -5832,7 +5857,46 @@
       "proxyRule": "Outbound proxy selection is stored as a profile or gateway ID and is applied by the runtime adapter.",
       "cardOverride": "Card override version {{version}}"
     },
-    "dashboard": {
+    "settings": {
+    "title": "Global configuration",
+    "description": "Manage global defaults for new cards. Preview changes before saving and restore any previous version.",
+    "preview": "Preview changes",
+    "save": "Save defaults",
+    "version": "Configuration version {{version}}",
+    "previewReady": "Configuration preview is ready",
+    "saved": "Global defaults saved",
+    "rolledBack": "Configuration restored",
+    "previewChanges": "Pending changes",
+    "history": "Version history",
+    "historyEmpty": "No configuration history",
+    "historyVersion": "Version {{version}} · {{source}}",
+    "rollback": "Restore",
+    "defaultRoute": "Default routing strategy",
+    "defaultConcurrency": "Default concurrency",
+    "modelDiscovery": "Discover models automatically",
+    "defaultProxy": "Default proxy profile",
+    "maxAttempts": "Maximum attempts",
+    "timeout": "Request timeout (seconds)",
+    "websocket": "Enable WebSocket",
+    "fileLogging": "Enable file logging",
+    "debugLogging": "Enable debug logging",
+    "plugins": "Enable plugins",
+    "accessDescription": "Service-level access settings are inherited from LiteLLM and Manager.",
+    "quotaDescription": "Quota fallback settings are managed by provider and card policies.",
+    "streamingDescription": "Streaming keepalive and first-token retry use the gateway policy.",
+    "payloadDescription": "Payload rules can be added per provider and card after the base configuration is saved.",
+    "categories": {
+      "common": "Common",
+      "access": "Access and authentication",
+      "network": "Network",
+      "logging": "Logging and diagnostics",
+      "quota": "Quota fallback",
+      "streaming": "Streaming",
+      "advanced": "Advanced and experiments",
+      "payload": "Payload"
+    }
+  },
+  "dashboard": {
       "successRate": "Success rate",
       "failures": "Failures",
       "traffic": "Total traffic",
@@ -5996,6 +6060,10 @@
       "from": "From",
       "to": "To",
       "apply": "Search",
+      "export": "Export logs",
+      "clear": "Clear logs",
+      "clearConfirm": "Clear all account pool logs?",
+      "cleared": "Cleared {{count}} log entries",
       "invalidTime": "Enter a valid time range with the start before the end",
       "loadFailed": "Unable to load logs. Check the filters and retry",
       "time": "Time",

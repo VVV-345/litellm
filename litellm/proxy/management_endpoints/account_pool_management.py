@@ -8,11 +8,24 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import TypeAdapter
 
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPoolCredential,
+    AccountPoolCredentialDeleteRequest,
+    AccountPoolCredentialMutationResult,
+    AccountPoolCredentialRequest,
+    AccountPoolLogClearResult,
+    AccountPoolPluginManifest,
+    AccountPoolPluginRecord,
+    AccountPoolSettingsHistoryEntry,
+    AccountPoolSettingsPreview,
+    AccountPoolSettingsRollbackRequest,
+    AccountPoolSettingsUpdate,
+    AccountPoolSettingsView,
     BatchJob,
     BatchRequest,
     CardKeyChange,
@@ -71,6 +84,65 @@ def create_management_router(
         params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True))
         return parse_response(await call("GET", f"/api/logs?{params}"), TypeAdapter(ErrorLogPage))
 
+    @router.get("/logs/export", response_class=PlainTextResponse)
+    async def export_logs(query: Annotated[ErrorLogQuery, Query()]) -> PlainTextResponse:
+        params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True))
+        payload: Final = await call("GET", f"/api/logs/export?{params}")
+        return PlainTextResponse(
+            payload,
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": "attachment; filename=account-pool-logs.ndjson"},
+        )
+
+    @router.delete("/logs", response_model=AccountPoolLogClearResult)
+    async def clear_logs() -> AccountPoolLogClearResult:
+        return parse_response(await call("DELETE", "/api/logs"), TypeAdapter(AccountPoolLogClearResult))
+
+    @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
+    async def credentials() -> tuple[AccountPoolCredential, ...]:
+        return parse_response(await call("GET", "/api/credentials"), TypeAdapter(tuple[AccountPoolCredential, ...]))
+
+    @router.post("/environments/{card_id}/credentials")
+    async def add_credential(card_id: UUID, request: AccountPoolCredentialRequest) -> AccountPoolCredentialMutationResult:
+        return parse_response(
+            await call("POST", f"/api/environments/{card_id}/credentials", request.model_dump_json().encode()),
+            TypeAdapter(AccountPoolCredentialMutationResult),
+        )
+
+    @router.delete("/environments/{card_id}/credentials")
+    async def delete_credential(card_id: UUID, request: AccountPoolCredentialDeleteRequest) -> AccountPoolCredentialMutationResult:
+        return parse_response(
+            await call("DELETE", f"/api/environments/{card_id}/credentials", request.model_dump_json().encode()),
+            TypeAdapter(AccountPoolCredentialMutationResult),
+        )
+
+    @router.get("/plugins", response_model=tuple[AccountPoolPluginRecord, ...])
+    async def plugins() -> tuple[AccountPoolPluginRecord, ...]:
+        return parse_response(await call("GET", "/api/plugins"), TypeAdapter(tuple[AccountPoolPluginRecord, ...]))
+
+    @router.get("/plugin-store", response_model=tuple[AccountPoolPluginManifest, ...])
+    async def plugin_store() -> tuple[AccountPoolPluginManifest, ...]:
+        return parse_response(await call("GET", "/api/plugin-store"), TypeAdapter(tuple[AccountPoolPluginManifest, ...]))
+
+    @router.post("/plugins", response_model=AccountPoolPluginRecord)
+    async def install_plugin(manifest: AccountPoolPluginManifest) -> AccountPoolPluginRecord:
+        return parse_response(
+            await call("POST", "/api/plugins", manifest.model_dump_json().encode()),
+            TypeAdapter(AccountPoolPluginRecord),
+        )
+
+    @router.post("/plugins/{plugin_id}/enable", response_model=AccountPoolPluginRecord)
+    async def enable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
+        return parse_response(await call("POST", f"/api/plugins/{plugin_id}/enable"), TypeAdapter(AccountPoolPluginRecord))
+
+    @router.post("/plugins/{plugin_id}/disable", response_model=AccountPoolPluginRecord)
+    async def disable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
+        return parse_response(await call("POST", f"/api/plugins/{plugin_id}/disable"), TypeAdapter(AccountPoolPluginRecord))
+
+    @router.delete("/plugins/{plugin_id}", status_code=204)
+    async def uninstall_plugin(plugin_id: str) -> None:
+        await call("DELETE", f"/api/plugins/{plugin_id}")
+
     @router.get("/logs/{event_id}")
     async def log_detail(event_id: UUID) -> ErrorLogDetail:
         return parse_response(await call("GET", f"/api/logs/{event_id}"), TypeAdapter(ErrorLogDetail))
@@ -88,6 +160,36 @@ def create_management_router(
         return parse_response(
             await call("PUT", f"/api/environments/{card_id}/policy", request.model_dump_json().encode()),
             TypeAdapter(PolicyView),
+        )
+
+    @router.get("/settings")
+    async def get_settings() -> AccountPoolSettingsView:
+        return parse_response(await call("GET", "/api/settings"), TypeAdapter(AccountPoolSettingsView))
+
+    @router.get("/settings/history")
+    async def settings_history() -> tuple[AccountPoolSettingsHistoryEntry, ...]:
+        return parse_response(
+            await call("GET", "/api/settings/history"), TypeAdapter(tuple[AccountPoolSettingsHistoryEntry, ...])
+        )
+
+    @router.put("/settings")
+    async def update_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView:
+        return parse_response(
+            await call("PUT", "/api/settings", request.model_dump_json().encode()), TypeAdapter(AccountPoolSettingsView)
+        )
+
+    @router.post("/settings/preview")
+    async def preview_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsPreview:
+        return parse_response(
+            await call("POST", "/api/settings/preview", request.model_dump_json().encode()),
+            TypeAdapter(AccountPoolSettingsPreview),
+        )
+
+    @router.post("/settings/rollback")
+    async def rollback_settings(request: AccountPoolSettingsRollbackRequest) -> AccountPoolSettingsView:
+        return parse_response(
+            await call("POST", "/api/settings/rollback", request.model_dump_json().encode()),
+            TypeAdapter(AccountPoolSettingsView),
         )
 
     @router.post("/batches", response_model=BatchJob, status_code=202)

@@ -11,6 +11,26 @@ export type LogEvent = components["schemas"]["ErrorLogRecord"];
 export type LogPage = components["schemas"]["ErrorLogPage"];
 export type LogDetail = components["schemas"]["ErrorLogDetail"];
 export type ErrorStats = components["schemas"]["ErrorStats"];
+export type AccountPoolSettings = components["schemas"]["AccountPoolSettings"];
+export type AccountPoolSettingsView = components["schemas"]["AccountPoolSettingsView"];
+export type AccountPoolSettingsUpdate = components["schemas"]["AccountPoolSettingsUpdate"];
+export type AccountPoolSettingsHistoryEntry = components["schemas"]["AccountPoolSettingsHistoryEntry"];
+export type AccountPoolSettingsPreview = components["schemas"]["AccountPoolSettingsPreview"];
+export type AccountPoolCredential = components["schemas"]["AccountPoolCredential"];
+export type AccountPoolQuotaRefreshResult = components["schemas"]["AccountPoolQuotaRefreshResult"];
+export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
+export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
+export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
+export type AccountPoolCredentialRequest = {
+  version: number;
+  api_key: string;
+  proxy_profile_id?: string | null;
+  weight?: number;
+};
+export type AccountPoolCredentialDeleteRequest = {
+  version: number;
+  credential_index: number;
+};
 export interface AccountPoolDashboardStats {
   summary: ErrorStats;
   cards: ErrorStats[];
@@ -73,6 +93,68 @@ export const getAccountPoolStats = (
 
 export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
   apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
+
+export const listAccountPoolCredentials = (accessToken: string) =>
+  apiClient.get<AccountPoolCredential[]>("/account_pool/credentials", { accessToken });
+
+export const addAccountPoolCredential = (accessToken: string, cardId: string, request: AccountPoolCredentialRequest) =>
+  apiClient.post<unknown>(`/account_pool/environments/${encodeURIComponent(cardId)}/credentials`, {
+    accessToken,
+    body: request,
+  });
+
+export const deleteAccountPoolCredential = (
+  accessToken: string,
+  cardId: string,
+  request: AccountPoolCredentialDeleteRequest,
+) =>
+  apiClient.delete<unknown>(`/account_pool/environments/${encodeURIComponent(cardId)}/credentials`, {
+    accessToken,
+    body: request,
+  });
+
+export const refreshAccountPoolQuotas = (accessToken: string) =>
+  apiClient.post<AccountPoolQuotaRefreshResult>("/account_pool/quotas/refresh", { accessToken });
+
+export const clearAccountPoolLogs = (accessToken: string) =>
+  apiClient.delete<AccountPoolLogClearResult>("/account_pool/logs", { accessToken });
+
+export const listAccountPoolPlugins = (accessToken: string) =>
+  apiClient.get<AccountPoolPluginRecord[]>("/account_pool/plugins", { accessToken });
+
+export const listAccountPoolPluginStore = (accessToken: string) =>
+  apiClient.get<AccountPoolPluginManifest[]>("/account_pool/plugin-store", { accessToken });
+
+export const installAccountPoolPlugin = (accessToken: string, manifest: AccountPoolPluginManifest) =>
+  apiClient.post<AccountPoolPluginRecord>("/account_pool/plugins", { accessToken, body: manifest });
+
+export const setAccountPoolPluginEnabled = (accessToken: string, pluginId: string, enabled: boolean) =>
+  apiClient.post<AccountPoolPluginRecord>(`/account_pool/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`, { accessToken });
+
+export const uninstallAccountPoolPlugin = (accessToken: string, pluginId: string) =>
+  apiClient.delete<void>(`/account_pool/plugins/${encodeURIComponent(pluginId)}`, { accessToken });
+
+export const exportAccountPoolLogs = async (accessToken: string, query: LogFilters): Promise<Blob> => {
+  return apiClient.requestBlob("GET", "/account_pool/logs/export", { accessToken, query });
+};
+
+export const getAccountPoolSettings = (accessToken: string) =>
+  apiClient.get<AccountPoolSettingsView>("/account_pool/settings", { accessToken });
+
+export const listAccountPoolSettingsHistory = (accessToken: string) =>
+  apiClient.get<AccountPoolSettingsHistoryEntry[]>("/account_pool/settings/history", { accessToken });
+
+export const updateAccountPoolSettings = (accessToken: string, request: AccountPoolSettingsUpdate) =>
+  apiClient.put<AccountPoolSettingsView>("/account_pool/settings", { accessToken, body: request });
+
+export const previewAccountPoolSettings = (accessToken: string, request: AccountPoolSettingsUpdate) =>
+  apiClient.post<AccountPoolSettingsPreview>("/account_pool/settings/preview", { accessToken, body: request });
+
+export const rollbackAccountPoolSettings = (accessToken: string, expectedVersion: number, targetVersion: number) =>
+  apiClient.post<AccountPoolSettingsView>("/account_pool/settings/rollback", {
+    accessToken,
+    body: { expected_version: expectedVersion, target_version: targetVersion },
+  });
 
 export const listAccountPoolBatches = (accessToken: string) =>
   apiClient.get<BatchJob[]>("/account_pool/batches", { accessToken });

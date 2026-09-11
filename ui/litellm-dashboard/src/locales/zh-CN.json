@@ -5649,6 +5649,7 @@
     "confirmDeleteDescription": "确认删除“{{name}}”吗？删除会清理容器、网络、认证目录和网关路由，且无法恢复。",
     "confirmDeleteUnavailable": "删除此号池环境后将无法恢复。",
     "cancel": "取消",
+    "save": "保存",
     "confirmDelete": "确认删除",
     "deleting": "删除中...",
     "create": {
@@ -5769,7 +5770,8 @@
       "settings": "配置面板",
       "accounts": "账号管理",
       "proxyLayer": "代理层设置",
-      "logs": "操作与错误日志"
+      "logs": "操作与错误日志",
+      "plugins": "插件管理"
     },
     "providers": {
       "title": "AI 供应商家族",
@@ -5814,6 +5816,16 @@
       "description": "查看凭据归属和模型发现状态，敏感值只保存在服务端。",
       "provider": "供应商",
       "models": "已发现模型",
+      "kind": "凭据类型",
+      "loadFailed": "认证文件加载失败",
+      "add": "添加 API Key",
+      "remove": "删除凭据",
+      "apiKey": "API Key",
+      "weight": "权重",
+      "keyRequired": "请输入 API Key",
+      "added": "凭据已添加",
+      "removed": "凭据已删除",
+      "removeConfirm": "确定删除这条凭据吗？",
       "secretHint": "认证内容不会返回到管理页面。"
     },
     "quotas": {
@@ -5822,6 +5834,19 @@
       "refresh": "刷新配额",
       "minimumRemaining": "最紧张窗口",
       "reset": "重置时间 {{time}}"
+    },
+    "plugins": {
+      "title": "插件管理与商城",
+      "description": "插件必须声明 sidecar 运行时和 SHA-256 清单，启用后在独立进程中执行。",
+      "available": "可安装",
+      "install": "安装",
+      "enable": "启用",
+      "disable": "停用",
+      "uninstall": "卸载",
+      "installed": "插件已安装",
+      "uninstalled": "插件已卸载",
+      "loadFailed": "插件列表加载失败",
+      "storeEmpty": "商城暂无可用插件"
     },
     "scope": {
       "title": "配置面板",
@@ -5832,7 +5857,46 @@
       "proxyRule": "出站代理保存为代理档案或网关 ID，由运行适配器执行。",
       "cardOverride": "卡片覆盖版本 {{version}}"
     },
-    "dashboard": {
+    "settings": {
+    "title": "全局配置面板",
+    "description": "管理新卡片继承的全局默认值，保存前可预览并支持恢复历史版本",
+    "preview": "预览变更",
+    "save": "保存默认值",
+    "version": "配置版本 {{version}}",
+    "previewReady": "配置预览已生成",
+    "saved": "全局默认值已保存",
+    "rolledBack": "配置已恢复",
+    "previewChanges": "待应用变更",
+    "history": "版本历史",
+    "historyEmpty": "暂无配置历史",
+    "historyVersion": "版本 {{version}} · {{source}}",
+    "rollback": "恢复",
+    "defaultRoute": "默认路由策略",
+    "defaultConcurrency": "默认并发上限",
+    "modelDiscovery": "自动发现模型",
+    "defaultProxy": "默认代理档案",
+    "maxAttempts": "最大尝试次数",
+    "timeout": "请求超时（秒）",
+    "websocket": "启用 WebSocket",
+    "fileLogging": "启用文件日志",
+    "debugLogging": "启用调试日志",
+    "plugins": "启用插件",
+    "accessDescription": "服务级接入设置由 LiteLLM 和 Manager 继承提供",
+    "quotaDescription": "配额回退设置由供应商和卡片策略管理",
+    "streamingDescription": "流式保活和首包重试使用网关策略",
+    "payloadDescription": "基础配置保存后，可按供应商和卡片增加 Payload 规则",
+    "categories": {
+      "common": "常用",
+      "access": "接入与认证",
+      "network": "网络配置",
+      "logging": "日志与诊断",
+      "quota": "配额回退",
+      "streaming": "流式传输",
+      "advanced": "高级与实验",
+      "payload": "Payload"
+    }
+  },
+  "dashboard": {
       "successRate": "成功率",
       "failures": "故障数",
       "traffic": "总流量",
@@ -5996,6 +6060,10 @@
       "from": "开始时间",
       "to": "结束时间",
       "apply": "查询",
+      "export": "导出日志",
+      "clear": "清空日志",
+      "clearConfirm": "确定清空所有号池日志吗？",
+      "cleared": "已清空 {{count}} 条日志",
       "invalidTime": "请填写有效的时间范围，开始时间不能晚于结束时间",
       "loadFailed": "日志加载失败，请检查筛选条件并重试",
       "time": "发生时间",

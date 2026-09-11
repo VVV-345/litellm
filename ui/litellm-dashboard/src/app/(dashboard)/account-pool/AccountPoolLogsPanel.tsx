@@ -1,5 +1,6 @@
 /** 本文件展示号池日志筛选、分页及同次请求的尝试链，不读取完整请求正文。 */
 
+import { Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -10,12 +11,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatDateTime } from "./AccountPoolFormatters";
 import {
+  clearAccountPoolLogs,
+  exportAccountPoolLogs,
   getAccountPoolLog,
   getAccountPoolStats,
   listAccountPoolLogs,
   type LogDetail,
   type LogFilters,
 } from "./AccountPoolManagementApi";
+import { toast } from "@/lib/toast";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
@@ -113,6 +117,29 @@ export function AccountPoolLogsPanel({
       occurred_to: to ? new Date(to).toISOString() : undefined,
     });
     setOffset(0);
+  };
+  const downloadLogs = async () => {
+    try {
+      const blob = await exportAccountPoolLogs(accessToken, pageQuery);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "account-pool-logs.ndjson";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.fromError(error);
+    }
+  };
+  const clearLogs = async () => {
+    if (!window.confirm(t("accountPool.logs.clearConfirm"))) return;
+    try {
+      const result = await clearAccountPoolLogs(accessToken);
+      toast.success(t("accountPool.logs.cleared", { count: result.deleted }));
+      await query.refetch();
+    } catch (error) {
+      toast.fromError(error);
+    }
   };
   const choice = (
     field: "channel" | "supplier" | "card_id" | "stage" | "error_category",
@@ -232,6 +259,14 @@ export function AccountPoolLogsPanel({
           <Button type="submit">{t("accountPool.logs.apply")}</Button>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
             {t("accountPool.refresh")}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void downloadLogs()}>
+            <Download />
+            {t("accountPool.logs.export")}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void clearLogs()}>
+            <Trash2 />
+            {t("accountPool.logs.clear")}
           </Button>
         </div>
       </form>

@@ -288,6 +288,11 @@ class PostgresErrorLogRepository:
         async with database_connection(self._database_url) as connection:
             await connection.execute("DELETE FROM account_pool_error_log WHERE occurred_at < %s", (before,))
 
+    async def clear(self) -> int:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute("DELETE FROM account_pool_error_log")
+        return cursor.rowcount
+
 
 def optional_float(value: object) -> float | None:
     if value is None:
