@@ -12,6 +12,7 @@ dependencies = [
   "cryptography>=43.0,<51.0",
   "fastapi>=0.136,<1.0",
   "httpx>=0.28,<1.0",
+  "python-multipart>=0.0.20,<1.0",
   "psycopg[binary]>=3.3,<4.0",
   "pydantic>=2.10,<3.0",
   "pydantic-settings>=2.14,<3.0",
@@ -34,4 +35,3 @@ packages = ["account_pool"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-

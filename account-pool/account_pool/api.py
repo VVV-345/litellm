@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
@@ -164,6 +164,7 @@ def create_router(
         return QuotaRefreshResult(refreshed=refreshed, failed_card_ids=failed)
 
     @router.get("/api/credentials", dependencies=[Depends(require_manager)])
+    @router.get("/api/auth-files", dependencies=[Depends(require_manager)])
     async def list_credentials() -> tuple[CredentialView, ...]:
         if environments is None:
             return ()
@@ -173,6 +174,19 @@ def create_router(
             for record in records
             for credential in _credential_views(record)
         )
+
+    @router.post("/api/auth-files", dependencies=[Depends(require_manager)])
+    async def upload_auth_file(
+        card_id: Annotated[UUID, Form()],
+        file: Annotated[UploadFile, File()],
+    ) -> EnvironmentView:
+        filename: Final = file.filename or "auth.json"
+        if len(filename) > 256 or "\\" in filename or "/" in filename:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid auth file name")
+        content: Final = await file.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
+        return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type))
 
     @router.post("/api/environments/{environment_id}/credentials", dependencies=[Depends(require_manager)])
     async def add_credential(

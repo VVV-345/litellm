@@ -1,4 +1,4 @@
-/** 本文件处理号池环境创建和授权引导，按渠道供应商与授权流程展示 SSH 隧道或设备码。 */
+/** 本文件从 AI 提供商入口创建卡片，并按供应商展示授权引导。 */
 
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -15,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
 import { createAccountPoolEnvironment } from "./AccountPoolApi";
@@ -23,22 +22,9 @@ import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
   AccountPoolAuthorization,
-  AccountPoolChannel,
   AccountPoolEnvironment,
   AccountPoolSupplier,
 } from "./AccountPoolTypes";
-
-const CLI_PROXY_SUPPLIERS: readonly AccountPoolSupplier[] = [
-  "openai_codex",
-  "anthropic_claude",
-  "google_antigravity",
-  "kimi",
-  "xai",
-] as const;
-
-const FREEBUFF_SUPPLIERS: readonly AccountPoolSupplier[] = ["freebuff"] as const;
-
-const CHANNELS: readonly AccountPoolChannel[] = ["cliproxyapi", "freebuff2api"] as const;
 
 interface AccountPoolCreateDialogProps {
   accessToken: string | null;
@@ -61,8 +47,7 @@ export const AccountPoolCreateDialog = ({
 }: AccountPoolCreateDialogProps) => {
   const { t } = useTranslation();
   const [name, setName] = useState("");
-  const [channel, setChannel] = useState<AccountPoolChannel>("cliproxyapi");
-  const [supplier, setSupplier] = useState<AccountPoolSupplier>(initialSupplier);
+  const supplier = initialSupplier;
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
   const completionReported = useRef(false);
@@ -85,14 +70,6 @@ export const AccountPoolCreateDialog = ({
     onOpenChange(false);
   }, [open, authorizationComplete, onOpenChange, t]);
 
-  const handleChannelChange = (nextChannel: AccountPoolChannel) => {
-    setChannel(nextChannel);
-    const allowed = nextChannel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS;
-    if (!allowed.includes(supplier)) {
-      setSupplier(allowed[0]);
-    }
-  };
-
   const handleCreate = async () => {
     const trimmedName = name.trim();
     if (!accessToken || !trimmedName) {
@@ -100,7 +77,7 @@ export const AccountPoolCreateDialog = ({
       return;
     }
     setSaving(true);
-    const createRequest = { name: trimmedName, provider: "openai" as const, channel, supplier };
+    const createRequest = { name: trimmedName, provider: "openai" as const, channel: "cliproxyapi" as const, supplier };
     try {
       const result = await createAccountPoolEnvironment(accessToken, createRequest);
       setAuthorization(result);
@@ -117,14 +94,14 @@ export const AccountPoolCreateDialog = ({
     if (!nextOpen && saving) return;
     if (!nextOpen) {
       setName("");
-      setChannel("cliproxyapi");
-      setSupplier(initialSupplier);
       setAuthorization(null);
     }
     onOpenChange(nextOpen);
   };
 
-  const dialogTitle = authorization ? t("accountPool.create.authorizationTitle") : t("accountPool.create.title");
+  const dialogTitle = authorization
+    ? t("accountPool.create.authorizationTitle")
+    : `${t("accountPool.providers.create")} · ${t(`accountPool.supplier.${supplier}`)}`;
   const dialogDescription = authorization
     ? t("accountPool.create.authorizationDescription")
     : t("accountPool.create.description");
@@ -166,35 +143,9 @@ export const AccountPoolCreateDialog = ({
             autoFocus
           />
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="account-pool-channel">{t("accountPool.channel.label")}</Label>
-          <Select value={channel} onValueChange={(value) => handleChannelChange(value as AccountPoolChannel)}>
-            <SelectTrigger id="account-pool-channel" data-testid="account-pool-channel-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CHANNELS.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {t(`accountPool.channel.${option}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="account-pool-supplier">{t("accountPool.supplier.label")}</Label>
-          <Select value={supplier} onValueChange={(value) => setSupplier(value as AccountPoolSupplier)}>
-            <SelectTrigger id="account-pool-supplier" data-testid="account-pool-supplier-select">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(channel === "cliproxyapi" ? CLI_PROXY_SUPPLIERS : FREEBUFF_SUPPLIERS).map((option) => (
-                <SelectItem key={option} value={option}>
-                  {t(`accountPool.supplier.${option}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
+          <span className="text-muted-foreground">{t("accountPool.supplier.label")}</span>
+          <span>{t(`accountPool.supplier.${supplier}`)} · OAuth</span>
         </div>
         <DialogFooter className="mt-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -202,7 +153,7 @@ export const AccountPoolCreateDialog = ({
           </Button>
           <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
             <Plus />
-            {saving ? t("accountPool.create.creating") : t("accountPool.createEnvironment")}
+            {saving ? t("accountPool.create.creating") : t("accountPool.providers.create")}
           </Button>
         </DialogFooter>
       </div>

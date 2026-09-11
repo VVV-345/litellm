@@ -134,7 +134,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(create_router(
         service, resolved.manager_token, keys=keys, logs=logs, environments=environments, policies=policies,
-        gateway_service=GatewayService(keys, environments, policies, leases, logs, service.gateway_environment),
+        gateway_service=GatewayService(
+            keys, environments, policies, leases, logs, service.gateway_environment, settings_repository
+        ),
         batch_service=batch_service,
         settings=settings_repository,
         plugins=plugin_service,

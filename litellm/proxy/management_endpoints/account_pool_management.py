@@ -99,8 +99,9 @@ def create_management_router(
         return parse_response(await call("DELETE", "/api/logs"), TypeAdapter(AccountPoolLogClearResult))
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
+    @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
     async def credentials() -> tuple[AccountPoolCredential, ...]:
-        return parse_response(await call("GET", "/api/credentials"), TypeAdapter(tuple[AccountPoolCredential, ...]))
+        return parse_response(await call("GET", "/api/auth-files"), TypeAdapter(tuple[AccountPoolCredential, ...]))
 
     @router.post("/environments/{card_id}/credentials")
     async def add_credential(card_id: UUID, request: AccountPoolCredentialRequest) -> AccountPoolCredentialMutationResult:

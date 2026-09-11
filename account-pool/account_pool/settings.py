@@ -8,9 +8,20 @@ from typing import Final, Literal, Protocol
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from account_pool.repository import database_connection
+
+
+class StreamingRule(BaseModel):
+    """流式传输规则，将一个规则绑定到若干号池卡片。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    mode: Literal["enabled", "disabled"] = "enabled"
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
 
 
 class AccountPoolSettings(BaseModel):
@@ -26,6 +37,14 @@ class AccountPoolSettings(BaseModel):
     debug_logging_enabled: bool = False
     websocket_enabled: bool = False
     plugins_enabled: bool = False
+    streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
+
+    @model_validator(mode="after")
+    def unique_streaming_cards(self) -> AccountPoolSettings:
+        cards: Final = tuple(card_id for rule in self.streaming_rules for card_id in rule.card_ids)
+        if len(cards) != len(frozenset(cards)):
+            raise ValueError("A card cannot be assigned to multiple streaming rules")
+        return self
 
 
 class AccountPoolSettingsView(BaseModel):

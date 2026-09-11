@@ -5807,6 +5807,9 @@
     "oauth": {
       "title": "OAuth 登录",
       "description": "为指定号池卡片发起授权并恢复凭据。",
+      "cardCount": "已有卡片",
+      "start": "开始登录",
+      "cardsTitle": "已配置卡片",
       "configurationPending": "运行环境配置正在同步",
       "credentialStored": "凭据状态由供应商适配器管理",
       "reauthorize": "重新授权"
@@ -5826,14 +5829,26 @@
       "added": "凭据已添加",
       "removed": "凭据已删除",
       "removeConfirm": "确定删除这条凭据吗？",
-      "secretHint": "认证内容不会返回到管理页面。"
+      "secretHint": "认证内容不会返回到管理页面。",
+      "upload": "上传认证文件",
+      "uploadDescription": "选择目标卡片并上传供应商认证文件，文件只会发送到对应的 CLIProxyAPI 环境。",
+      "targetCard": "目标卡片",
+      "file": "认证文件",
+      "uploading": "上传中...",
+      "uploaded": "认证文件已上传",
+      "fileRequired": "请选择认证文件",
+      "enable": "启用",
+      "disable": "停用",
+      "statusUpdated": "认证文件状态已更新"
     },
     "quotas": {
       "title": "配额管理",
       "description": "按卡片和模型查看最新配额快照，数据来自供应商适配器。",
       "refresh": "刷新配额",
       "minimumRemaining": "最紧张窗口",
-      "reset": "重置时间 {{time}}"
+      "reset": "重置时间 {{time}}",
+      "refreshed": "配额已刷新",
+      "partialFailure": "部分卡片刷新失败（{{count}} 张）"
     },
     "plugins": {
       "title": "插件管理与商城",
@@ -5885,6 +5900,13 @@
     "quotaDescription": "配额回退设置由供应商和卡片策略管理",
     "streamingDescription": "流式保活和首包重试使用网关策略",
     "payloadDescription": "基础配置保存后，可按供应商和卡片增加 Payload 规则",
+    "ruleName": "规则名称",
+    "addRule": "添加流式规则",
+    "removeRule": "删除规则",
+    "ruleMode": "流式模式",
+    "streamEnabled": "允许流式传输",
+    "streamDisabled": "禁止流式传输",
+    "applyCards": "应用到号池卡片（每张卡片只能命中一条规则）",
     "categories": {
       "common": "常用",
       "access": "接入与认证",

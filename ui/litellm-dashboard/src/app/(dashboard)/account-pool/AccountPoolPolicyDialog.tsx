@@ -159,7 +159,7 @@ function PolicyForm({
   const updateCodex = <K extends keyof Codex>(field: K, next: Codex[K]) =>
     setPolicy((current) => ({ ...current, codex: { ...(current.codex ?? codexDefaults), [field]: next } }));
   const text = (label: string, current: string, change: (next: string) => void) => (
-    <div className="grid gap-1">
+    <div className="grid gap-1 border-b pb-3">
       <Label>{label}</Label>
       <Input aria-label={label} value={current} disabled={busy} onChange={(event) => change(event.target.value)} />
     </div>
@@ -171,7 +171,7 @@ function PolicyForm({
     </div>
   );
   const number = (label: string, value: number, change: (next: number) => void) => (
-    <div className="grid gap-1">
+    <div className="grid gap-1 border-b pb-3">
       <Label>{label}</Label>
       <Input
         aria-label={label}
@@ -183,7 +183,7 @@ function PolicyForm({
     </div>
   );
   const optionalNumber = (label: string, value: number | null | undefined, change: (next: number | null) => void) => (
-    <div className="grid gap-1">
+    <div className="grid gap-1 border-b pb-3">
       <Label>{label}</Label>
       <Input
         aria-label={label}
@@ -195,7 +195,7 @@ function PolicyForm({
     </div>
   );
   const select = (label: string, value: string, options: readonly string[], change: (next: string) => void) => (
-    <div className="grid gap-1">
+    <div className="grid gap-1 border-b pb-3">
       <Label>{label}</Label>
       <Select
         value={value}
@@ -270,7 +270,7 @@ function PolicyForm({
         ))}
       </dl>
       {text(t("accountPool.policy.account_ids"), members, setMembers)}
-      <fieldset className="grid gap-3 sm:grid-cols-2">
+      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
         <legend className="mb-3 font-medium">{t("accountPool.policy.routing")}</legend>
         {select(
           t("accountPool.policy.strategy"),
@@ -317,7 +317,7 @@ function PolicyForm({
           updateRouting("fallback_enabled", next),
         )}
       </fieldset>
-      <fieldset className="grid gap-3 sm:grid-cols-2">
+      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
         <legend className="mb-3 font-medium">{t("accountPool.policy.transport")}</legend>
         {select(
           t("accountPool.policy.image_generation"),
@@ -338,7 +338,7 @@ function PolicyForm({
           updateTransport("debug_log_enabled", next),
         )}
       </fieldset>
-      <fieldset className="grid gap-3 sm:grid-cols-2">
+      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
         <legend className="mb-3 font-medium">{t("accountPool.policy.provider")}</legend>
         {supplier !== "openai_codex" ? (
           <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.policy.providerPending")}</p>

@@ -95,7 +95,17 @@ export const getAccountPoolDashboardStats = (accessToken: string): Promise<Accou
   apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
 
 export const listAccountPoolCredentials = (accessToken: string) =>
-  apiClient.get<AccountPoolCredential[]>("/account_pool/credentials", { accessToken });
+  apiClient.get<AccountPoolCredential[]>("/account_pool/auth-files", { accessToken });
+
+export const uploadAccountPoolAuthFile = (accessToken: string, cardId: string, file: File) => {
+  const form: FormData = new FormData();
+  form.append("card_id", cardId);
+  form.append("file", file, file.name);
+  return apiClient.post<components["schemas"]["AccountPoolEnvironment"]>("/account_pool/auth-files", {
+    accessToken,
+    rawBody: form,
+  });
+};
 
 export const addAccountPoolCredential = (accessToken: string, cardId: string, request: AccountPoolCredentialRequest) =>
   apiClient.post<unknown>(`/account_pool/environments/${encodeURIComponent(cardId)}/credentials`, {

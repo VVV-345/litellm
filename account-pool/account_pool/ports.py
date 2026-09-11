@@ -115,6 +115,10 @@ class CLIProxyClient(Protocol):
         self, record: EnvironmentRecord, supplier: SupplierDefinition, configuration: EnvironmentConfiguration
     ) -> None: ...
 
+    async def upload_auth_file(
+        self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
+    ) -> None: ...
+
 
 class ProxyProfileRepository(Protocol):
     async def list(self) -> tuple[ProxyProfile, ...]: ...

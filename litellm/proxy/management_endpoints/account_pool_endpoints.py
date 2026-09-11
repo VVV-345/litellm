@@ -8,7 +8,7 @@ from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
@@ -292,6 +292,31 @@ class AccountPoolManagerClient:
                 detail="Account Pool Manager is unavailable",
             ) from error
 
+    async def request_multipart(
+        self,
+        path: str,
+        fields: dict[str, str],
+        filename: str,
+        content: bytes,
+        content_type: str | None,
+    ) -> httpx.Response:
+        if self._token is None or len(self._token) < 32:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is not configured",
+            )
+        try:
+            headers: Final = {"Authorization": f"Bearer {self._token}"}
+            files: Final = {"file": (filename, content, content_type or "application/octet-stream")}
+            return await self._client.post(
+                f"{self._base_url}{path}", headers=headers, data=fields, files=files
+            )
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is unavailable",
+            ) from error
+
 
 ManagerClientFactory = Callable[[], AccountPoolManagerClient]
 
@@ -306,6 +331,21 @@ async def _manager_request(
     client: Final = client_factory()
     try:
         return await client.request(method, path, body, idempotency_key)
+    finally:
+        await client.close()
+
+
+async def _manager_request_multipart(
+    client_factory: ManagerClientFactory,
+    path: str,
+    fields: dict[str, str],
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+) -> httpx.Response:
+    client: Final = client_factory()
+    try:
+        return await client.request_multipart(path, fields, filename, content, content_type)
     finally:
         await client.close()
 
@@ -354,6 +394,31 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "POST", "/api/quotas/refresh")
         return _validate_response(response, _QUOTA_REFRESH)
+
+    @router.post("/auth-files", response_model=AccountPoolEnvironment)
+    async def upload_auth_file(
+        card_id: Annotated[UUID, Form()],
+        file: Annotated[UploadFile, File()],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        filename: Final = file.filename or "auth.json"
+        if len(filename) > 256 or "\\" in filename or "/" in filename:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid auth file name")
+        content: Final = await file.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
+        response: Final = await _manager_request_multipart(
+            client_factory,
+            "/api/auth-files",
+            {"card_id": str(card_id)},
+            filename,
+            content,
+            file.content_type,
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
 
     @router.post("/environments", response_model=AccountPoolAuthorization)
     async def create_environment(

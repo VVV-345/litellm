@@ -113,7 +113,7 @@ describe("AccountPoolCreateDialog", () => {
     const props = { accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn() };
     const { rerender } = render(<AccountPoolCreateDialog {...props} />);
     fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "New account" } });
-    fireEvent.click(screen.getByRole("button", { name: /创建|Create/i }));
+    fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
     expect(await screen.findByTestId("account-pool-authorization-panel")).toBeInTheDocument();
 
     rerender(<AccountPoolCreateDialog {...props} environments={[{
@@ -122,29 +122,18 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("defaults to CLIProxyAPI and OpenAI Codex and lists all five suppliers", async () => {
-    const user = userEvent.setup();
-    renderDialog();
-
-    await user.click(screen.getByTestId("account-pool-channel-select"));
-    expect(screen.getByRole("option", { name: "CLIProxyAPI" })).toHaveAttribute("aria-selected", "true");
-    await user.keyboard("{Escape}");
-
-    await user.click(screen.getByTestId("account-pool-supplier-select"));
-    expect(screen.getByRole("option", { name: "OpenAI Codex" })).toHaveAttribute("aria-selected", "true");
-    for (const supplier of ["OpenAI Codex", "Anthropic Claude", "Google Antigravity", "Kimi", "xAI"]) {
-      expect(screen.getByRole("option", { name: supplier })).toBeInTheDocument();
-    }
+  it("shows the provider selected by the AI provider page", () => {
+    renderDialog({ initialSupplier: "anthropic_claude" });
+    expect(screen.getByText("Anthropic Claude · OAuth")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-pool-channel-select")).not.toBeInTheDocument();
   });
 
-  it("sends the selected channel and supplier to the create API", async () => {
+  it("sends the provider selected by the AI provider page to the create API", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderDialog({ initialSupplier: "anthropic_claude" });
 
     await user.type(screen.getByLabelText(/环境名称|Environment name/i), "Claude account");
-    await user.click(screen.getByTestId("account-pool-supplier-select"));
-    await user.click(screen.getByRole("option", { name: "Anthropic Claude" }));
-    await user.click(screen.getByRole("button", { name: /创建|Create/i }));
+    await user.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith(
@@ -154,33 +143,9 @@ describe("AccountPoolCreateDialog", () => {
     });
   });
 
-  it("sends freebuff2api with the freebuff supplier when selected", async () => {
-    createMock.mockResolvedValue(linkOnlyAuthorization);
-    const user = userEvent.setup();
+  it("does not offer retired FreeBuff as a provider", () => {
     renderDialog();
-
-    await user.type(screen.getByLabelText(/环境名称|Environment name/i), "FreeBuff account");
-    await user.click(screen.getByTestId("account-pool-channel-select"));
-    await user.click(screen.getByRole("option", { name: "FreeBuff2API" }));
-    await user.click(screen.getByRole("button", { name: /创建|Create/i }));
-
-    await waitFor(() => {
-      expect(createMock).toHaveBeenCalledWith(
-        "token-1",
-        expect.objectContaining({ channel: "freebuff2api", supplier: "freebuff" }),
-      );
-    });
-  });
-
-  it("shows only the freebuff supplier after switching to FreeBuff2API", async () => {
-    const user = userEvent.setup();
-    renderDialog();
-
-    await user.click(screen.getByTestId("account-pool-channel-select"));
-    await user.click(await screen.findByRole("option", { name: "FreeBuff2API" }));
-    await user.click(screen.getByTestId("account-pool-supplier-select"));
-    expect(await screen.findByRole("option", { name: "FreeBuff (Codebuff)" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "OpenAI Codex" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/FreeBuff/i)).not.toBeInTheDocument();
   });
 
   it("renders the SSH command for browser OAuth results and no device-code field", async () => {

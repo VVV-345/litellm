@@ -254,6 +254,19 @@ class HttpCLIProxyClient:
             },
         )
 
+    async def upload_auth_file(
+        self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
+    ) -> None:
+        response: Final = await self._request_multipart(
+            record,
+            "POST",
+            "/v0/management/auth-files",
+            filename,
+            content,
+            content_type,
+        )
+        response.raise_for_status()
+
     async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None:
         await self._request(record, "PUT", "/v0/management/proxy-url", json={"value": proxy_url})
 
@@ -314,6 +327,23 @@ class HttpCLIProxyClient:
         )
         response.raise_for_status()
         return response
+
+    async def _request_multipart(
+        self,
+        record: EnvironmentRecord,
+        method: str,
+        path: str,
+        filename: str,
+        content: bytes,
+        content_type: str | None,
+    ) -> httpx.Response:
+        headers: Final = {"X-Management-Key": self._secrets.derive(record.id, SecretPurpose.MANAGEMENT)}
+        return await self._client.request(
+            method,
+            f"http://cliproxy-{record.id.hex}:8317{path}",
+            headers=headers,
+            files={"files": (filename, content, content_type or "application/json")},
+        )
 
 
 def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:

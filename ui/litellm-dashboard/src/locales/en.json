@@ -5807,6 +5807,9 @@
     "oauth": {
       "title": "OAuth login",
       "description": "Authorize and recover credentials for the selected account pool card.",
+      "cardCount": "Configured cards",
+      "start": "Start login",
+      "cardsTitle": "Configured cards",
       "configurationPending": "Runtime configuration is synchronizing",
       "credentialStored": "Credential status is managed by the provider adapter",
       "reauthorize": "Authorize again"
@@ -5826,14 +5829,26 @@
       "added": "Credential added",
       "removed": "Credential removed",
       "removeConfirm": "Remove this credential?",
-      "secretHint": "Secret content is never returned to the dashboard."
+      "secretHint": "Secret content is never returned to the dashboard.",
+      "upload": "Upload auth file",
+      "uploadDescription": "Choose a target card and upload the provider auth file to its isolated CLIProxyAPI environment.",
+      "targetCard": "Target card",
+      "file": "Auth file",
+      "uploading": "Uploading...",
+      "uploaded": "Auth file uploaded",
+      "fileRequired": "Choose an auth file",
+      "enable": "Enable",
+      "disable": "Disable",
+      "statusUpdated": "Auth file status updated"
     },
     "quotas": {
       "title": "Quota management",
       "description": "Review the latest quota snapshots by card and model. Values are reported by provider adapters.",
       "refresh": "Refresh quotas",
       "minimumRemaining": "Most constrained window",
-      "reset": "Resets {{time}}"
+      "reset": "Resets {{time}}",
+      "refreshed": "Quotas refreshed",
+      "partialFailure": "Some cards failed to refresh ({{count}})"
     },
     "plugins": {
       "title": "Plugin management and store",
@@ -5885,6 +5900,13 @@
     "quotaDescription": "Quota fallback settings are managed by provider and card policies.",
     "streamingDescription": "Streaming keepalive and first-token retry use the gateway policy.",
     "payloadDescription": "Payload rules can be added per provider and card after the base configuration is saved.",
+    "ruleName": "Rule name",
+    "addRule": "Add streaming rule",
+    "removeRule": "Delete rule",
+    "ruleMode": "Streaming mode",
+    "streamEnabled": "Allow streaming",
+    "streamDisabled": "Disable streaming",
+    "applyCards": "Apply to cards (one rule per card)",
     "categories": {
       "common": "Common",
       "access": "Access and authentication",

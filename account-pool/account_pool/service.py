@@ -167,6 +167,21 @@ class EnvironmentService:
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
+    async def upload_auth_file(
+        self, environment_id: UUID, filename: str, content: bytes, content_type: str | None
+    ) -> Result[EnvironmentView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI:
+            return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
+        try:
+            await self._cli_proxy.upload_auth_file(record, filename, content, content_type)
+        except Exception as error:
+            await self._log_event(record, "authentication", error)
+            return Failure(FailureCode.UPSTREAM, "auth file upload failed")
+        return await self.refresh_environment(environment_id)
+
     async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
         return await self._proxy_gateways.list_gateways()
 

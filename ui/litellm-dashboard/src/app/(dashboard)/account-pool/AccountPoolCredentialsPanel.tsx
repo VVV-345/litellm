@@ -1,6 +1,6 @@
 /** 本文件展示凭据文件的脱敏状态和所属卡片，不返回任何令牌或完整配置。 */
 
-import { FileKey2, Plus, Trash2 } from "lucide-react";
+import { FileKey2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -18,7 +18,10 @@ import {
   addAccountPoolCredential,
   deleteAccountPoolCredential,
   listAccountPoolCredentials,
+  uploadAccountPoolAuthFile,
 } from "./AccountPoolManagementApi";
+import { updateAccountPoolEnvironment } from "./AccountPoolApi";
+import { toUpdateRequest } from "./AccountPoolTypes";
 
 export const AccountPoolCredentialsPanel = ({
   accessToken,
@@ -32,6 +35,9 @@ export const AccountPoolCredentialsPanel = ({
   const [addCard, setAddCard] = useState<AccountPoolEnvironment | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [weight, setWeight] = useState("1");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadCardId, setUploadCardId] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const query = useQuery({
     queryKey: ["account-pool", "credentials", accessToken],
     queryFn: () => listAccountPoolCredentials(accessToken!),
@@ -52,6 +58,30 @@ export const AccountPoolCredentialsPanel = ({
       toast.success(t("accountPool.credentials.added"));
       setAddCard(null);
       setApiKey("");
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+    },
+    onError: (error: Error) => toast.fromError(error),
+  });
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      if (!uploadCardId || uploadFile === null) throw new Error(t("accountPool.credentials.fileRequired"));
+      return uploadAccountPoolAuthFile(accessToken!, uploadCardId, uploadFile);
+    },
+    onSuccess: () => {
+      toast.success(t("accountPool.credentials.uploaded"));
+      setUploadOpen(false);
+      setUploadFile(null);
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+    },
+    onError: (error: Error) => toast.fromError(error),
+  });
+  const toggleMutation = useMutation({
+    mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) =>
+      updateAccountPoolEnvironment(accessToken!, environment.id, toUpdateRequest(environment, { enabled })),
+    onSuccess: () => {
+      toast.success(t("accountPool.credentials.statusUpdated"));
       void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
       void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
     },
@@ -80,16 +110,28 @@ export const AccountPoolCredentialsPanel = ({
         <h2 className="text-lg font-semibold">{t("accountPool.credentials.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.credentials.description")}</p>
         </div>
-        {environments.some((environment) => environment.channel === "openai_compatible") && (
-          <Button
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
+            <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
+            {t("accountPool.refresh")}
+          </Button>
+          {environments.some((environment) => environment.channel === "cliproxyapi") && (
+            <Button type="button" size="sm" onClick={() => { setUploadCardId(environments.find((environment) => environment.channel === "cliproxyapi")?.id ?? ""); setUploadOpen(true); }}>
+              <Plus />
+              {t("accountPool.credentials.upload")}
+            </Button>
+          )}
+          {environments.some((environment) => environment.channel === "openai_compatible") && (
+            <Button
             type="button"
             size="sm"
             onClick={() => setAddCard(environments.find((environment) => environment.channel === "openai_compatible") ?? null)}
-          >
-            <Plus />
-            {t("accountPool.credentials.add")}
-          </Button>
-        )}
+            >
+              <Plus />
+              {t("accountPool.credentials.add")}
+            </Button>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {query.isError && <p role="alert">{t("accountPool.credentials.loadFailed")}</p>}
@@ -107,25 +149,29 @@ export const AccountPoolCredentialsPanel = ({
                 <Badge variant={credential.enabled ? "secondary" : "outline"}>{credential.status}</Badge>
               </div>
             </CardHeader>
-            <CardContent className="grid gap-2 text-sm">
-              <div className="flex items-center justify-between gap-3">
+            <CardContent className="grid divide-y text-sm">
+              <div className="flex items-center justify-between gap-3 py-2">
                 <span className="text-muted-foreground">{t("accountPool.credentials.provider")}</span>
                 <span>{t(`accountPool.supplier.${credential.supplier}`)}</span>
               </div>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 py-2">
                 <span className="text-muted-foreground">{t("accountPool.credentials.models")}</span>
                 <span>{credential.model_count}</span>
               </div>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 py-2">
                 <span className="text-muted-foreground">{t("accountPool.credentials.kind")}</span>
                 <span>{credential.kind}</span>
               </div>
               {credential.kind === "api_key" && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => removeCredential(credential)}>
+                <Button type="button" variant="ghost" size="sm" className="mt-2 justify-self-start" onClick={() => removeCredential(credential)}>
                   <Trash2 />
                   {t("accountPool.credentials.remove")}
                 </Button>
               )}
+              {credential.kind === "oauth_file" && (() => {
+                const environment = environments.find((item) => item.id === credential.card_id);
+                return environment ? <Button type="button" variant="outline" size="sm" className="mt-2 justify-self-start" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}>{environment.enabled ? t("accountPool.credentials.disable") : t("accountPool.credentials.enable")}</Button> : null;
+              })()}
               <p className="text-xs text-muted-foreground">{t("accountPool.credentials.secretHint")}</p>
             </CardContent>
           </Card>
@@ -150,6 +196,30 @@ export const AccountPoolCredentialsPanel = ({
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setAddCard(null)}>{t("accountPool.cancel")}</Button>
             <Button type="button" onClick={() => addMutation.mutate()} disabled={addMutation.isPending || !apiKey.trim()}>{t("accountPool.save")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={uploadOpen} onOpenChange={(open) => { if (!open && !uploadMutation.isPending) { setUploadOpen(false); setUploadFile(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("accountPool.credentials.upload")}</DialogTitle>
+            <DialogDescription>{t("accountPool.credentials.uploadDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-1">
+              <Label>{t("accountPool.credentials.targetCard")}</Label>
+              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={uploadCardId} onChange={(event) => setUploadCardId(event.target.value)}>
+                {environments.filter((environment) => environment.channel === "cliproxyapi").map((environment) => <option key={environment.id} value={environment.id}>{environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}</option>)}
+              </select>
+            </div>
+            <div className="grid gap-1">
+              <Label htmlFor="account-pool-auth-file">{t("accountPool.credentials.file")}</Label>
+              <Input id="account-pool-auth-file" type="file" accept=".json,.yaml,.yml" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setUploadOpen(false)} disabled={uploadMutation.isPending}>{t("accountPool.cancel")}</Button>
+            <Button type="button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending || uploadFile === null || !uploadCardId}>{uploadMutation.isPending ? t("accountPool.credentials.uploading") : t("accountPool.credentials.upload")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

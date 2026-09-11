@@ -91,7 +91,8 @@ class AccountPoolGatewayMiddleware:
                 has_images: Final = isinstance(image_tools, list) and any(
                     isinstance(item, dict) and item.get("type") == "image_generation" for item in image_tools
                 )
-                selected: Final = routes(resolution, model, path, headers, has_images)
+                stream: Final = payload.get("stream") is True
+                selected: Final = routes(resolution, model, path, headers, has_images, stream)
                 if isinstance(selected, Rejected):
                     await error_response(selected.status, selected.message)(scope, receive, send)
                     return

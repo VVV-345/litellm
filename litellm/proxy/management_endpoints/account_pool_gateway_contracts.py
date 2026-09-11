@@ -61,6 +61,7 @@ class Resolution(BaseModel):
     policy: AccountPolicy
     candidates: tuple[Candidate, ...]
     sticky_account_id: UUID | None = None
+    streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
 
 
 class AcquireRequest(ResolveRequest):

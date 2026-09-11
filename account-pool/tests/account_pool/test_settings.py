@@ -12,6 +12,7 @@ from account_pool.settings import (
     AccountPoolSettingsHistoryEntry,
     AccountPoolSettingsUpdate,
     AccountPoolSettingsView,
+    StreamingRule,
     settings_preview,
 )
 from fastapi import FastAPI
@@ -129,6 +130,21 @@ def test_settings_preview_requires_reload_when_runtime_features_are_disabled() -
     preview: Final = settings_preview(current, AccountPoolSettings(), ())
 
     assert preview.requires_reload is True
+
+
+def test_streaming_rules_reject_duplicate_card_assignments() -> None:
+    card_id: Final = uuid4()
+    try:
+        AccountPoolSettings(
+            streaming_rules=(
+                StreamingRule(id="one", name="允许", card_ids=(card_id,)),
+                StreamingRule(id="two", name="禁止", card_ids=(card_id,)),
+            )
+        )
+    except ValueError as error:
+        assert "multiple streaming rules" in str(error)
+    else:
+        raise AssertionError("duplicate streaming rule assignments must be rejected")
 
 
 def test_settings_management_api_supports_conflict_preview_history_and_rollback() -> None:

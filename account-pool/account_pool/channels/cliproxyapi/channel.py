@@ -93,6 +93,11 @@ class CLIProxyAPIChannel:
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
         await self._client.apply_configuration(record, self.supplier(record.supplier), configuration)
 
+    async def upload_auth_file(
+        self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
+    ) -> None:
+        await self._client.upload_auth_file(record, filename, content, content_type)
+
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:
         return GatewayEnvironment(
             id=record.id,

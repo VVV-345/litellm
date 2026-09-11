@@ -2,7 +2,7 @@
 
 "use client";
 
-import { Plus, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "@/lib/toast";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
@@ -207,10 +208,6 @@ export default function AccountPoolPage() {
         <div className="rounded-md border border-dashed border-border p-12 text-center">
           <p className="font-medium">{t("accountPool.noEnvironments")}</p>
           <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noEnvironmentsDescription")}</p>
-          <Button type="button" className="mt-4" onClick={() => openCreateDialog()}>
-            <Plus />
-            {t("accountPool.createEnvironment")}
-          </Button>
         </div>
       );
     }
@@ -295,10 +292,6 @@ export default function AccountPoolPage() {
               title={t("accountPool.refresh")}
             >
               <RefreshCw className={environmentsQuery.isFetching ? "animate-spin" : undefined} />
-            </Button>
-            <Button type="button" onClick={() => openCreateDialog()} disabled={busy}>
-              <Plus />
-              {t("accountPool.createEnvironment")}
             </Button>
           </div>
         </div>
@@ -393,6 +386,7 @@ export default function AccountPoolPage() {
           <TabsContent value="oauth" className="pt-4">
             <AccountPoolAuthorizationOverview
               environments={environments}
+              onCreate={openCreateDialog}
               onAuthorize={(environment) => authorizeMutation.mutate(environment)}
             />
           </TabsContent>
@@ -403,13 +397,17 @@ export default function AccountPoolPage() {
             <AccountPoolQuotaPanel
               environments={environments}
               onRefresh={() => {
-                if (accessToken) void refreshAccountPoolQuotas(accessToken).then(() => environmentsQuery.refetch());
+                if (accessToken) void refreshAccountPoolQuotas(accessToken).then((result) => {
+                  if (result.failed_card_ids.length) toast.error(t("accountPool.quotas.partialFailure", { count: result.failed_card_ids.length }));
+                  else toast.success(t("accountPool.quotas.refreshed"));
+                  return environmentsQuery.refetch();
+                }).catch((error: unknown) => toast.fromError(error));
               }}
               refreshing={environmentsQuery.isFetching}
             />
           </TabsContent>
           <TabsContent value="settings" className="pt-4">
-            {accessToken && <AccountPoolSettingsPanel accessToken={accessToken} />}
+            {accessToken && <AccountPoolSettingsPanel accessToken={accessToken} environments={environments} />}
           </TabsContent>
           <TabsContent value="logs" className="pt-4">
             {accessToken && (

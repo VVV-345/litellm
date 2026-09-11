@@ -21,6 +21,8 @@ import {
   updateAccountPoolSettings,
   type AccountPoolSettings,
 } from "./AccountPoolManagementApi";
+import { listAccountPoolProxyProfiles } from "./AccountPoolApi";
+import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const defaults: AccountPoolSettings = {
   default_route: "auto",
@@ -33,17 +35,23 @@ const defaults: AccountPoolSettings = {
   debug_logging_enabled: false,
   websocket_enabled: false,
   plugins_enabled: false,
+  streaming_rules: [],
 };
 
 type Props = {
   accessToken: string;
 };
 
-export const AccountPoolSettingsPanel = ({ accessToken }: Props) => {
+export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props & { environments: readonly AccountPoolEnvironment[] }) => {
   const { t } = useTranslation();
   const settingsQuery = useQuery({
     queryKey: ["account-pool", "settings", accessToken],
     queryFn: () => getAccountPoolSettings(accessToken),
+    retry: false,
+  });
+  const profilesQuery = useQuery({
+    queryKey: ["account-pool", "proxy-profiles", accessToken],
+    queryFn: () => listAccountPoolProxyProfiles(accessToken),
     retry: false,
   });
   const historyQuery = useQuery({
@@ -106,7 +114,7 @@ export const AccountPoolSettingsPanel = ({ accessToken }: Props) => {
     [],
   );
   const textField = <K extends keyof AccountPoolSettings>(key: K, label: string) => (
-    <div className="grid gap-1" key={String(key)}>
+    <div className="grid gap-1 border-b pb-3" key={String(key)}>
       <Label htmlFor={`account-pool-setting-${String(key)}`}>{label}</Label>
       <Input
         id={`account-pool-setting-${String(key)}`}
@@ -117,7 +125,7 @@ export const AccountPoolSettingsPanel = ({ accessToken }: Props) => {
     </div>
   );
   const numberField = <K extends keyof AccountPoolSettings>(key: K, label: string) => (
-    <div className="grid gap-1" key={String(key)}>
+    <div className="grid gap-1 border-b pb-3" key={String(key)}>
       <Label htmlFor={`account-pool-setting-${String(key)}`}>{label}</Label>
       <Input
         id={`account-pool-setting-${String(key)}`}
@@ -177,11 +185,26 @@ export const AccountPoolSettingsPanel = ({ accessToken }: Props) => {
               </div>
               {numberField("default_concurrency_limit", t("accountPool.settings.defaultConcurrency"))}
               {toggleField("default_model_discovery", t("accountPool.settings.modelDiscovery"))}
-              {textField("default_proxy_profile_id", t("accountPool.settings.defaultProxy"))}
+      <div className="grid gap-1" key="default_proxy_profile_id">
+        <Label>{t("accountPool.settings.defaultProxy")}</Label>
+        <Select value={values.default_proxy_profile_id ?? "default"} disabled={busy} onValueChange={(value) => update("default_proxy_profile_id", value === "default" ? null : value)}>
+          <SelectTrigger aria-label={t("accountPool.settings.defaultProxy")}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default">{t("accountPool.config.defaultGateway")}</SelectItem>
+            {(profilesQuery.data ?? []).map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
             </TabsContent>
             <TabsContent value="access" className="grid gap-3 pt-4 sm:grid-cols-2">
               <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.settings.accessDescription")}</p>
-              {textField("default_proxy_profile_id", t("accountPool.settings.defaultProxy"))}
+              <div className="grid gap-1" key="access-default-proxy">
+                <Label>{t("accountPool.settings.defaultProxy")}</Label>
+                <Select value={values.default_proxy_profile_id ?? "default"} disabled={busy} onValueChange={(value) => update("default_proxy_profile_id", value === "default" ? null : value)}>
+                  <SelectTrigger aria-label={t("accountPool.settings.defaultProxy")}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="default">{t("accountPool.config.defaultGateway")}</SelectItem>{(profilesQuery.data ?? []).map((profile) => <SelectItem key={profile.id} value={profile.id}>{profile.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             </TabsContent>
             <TabsContent value="network" className="grid gap-3 pt-4 sm:grid-cols-2">
               {numberField("max_attempts", t("accountPool.settings.maxAttempts"))}
@@ -193,7 +216,35 @@ export const AccountPoolSettingsPanel = ({ accessToken }: Props) => {
               {toggleField("debug_logging_enabled", t("accountPool.settings.debugLogging"))}
             </TabsContent>
             <TabsContent value="quota" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.quotaDescription")}</p></TabsContent>
-            <TabsContent value="streaming" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.streamingDescription")}</p></TabsContent>
+            <TabsContent value="streaming" className="grid gap-4 pt-4">
+              <p className="text-sm text-muted-foreground">{t("accountPool.settings.streamingDescription")}</p>
+              <div className="grid gap-3">
+                {(values.streaming_rules ?? []).map((rule, index) => {
+                  const assigned = new Set((values.streaming_rules ?? []).flatMap((item, itemIndex) => itemIndex === index ? [] : item.card_ids));
+                  return <div key={rule.id} className="grid gap-3 rounded-md border p-4">
+                    <div className="flex items-center justify-between gap-3 border-b pb-3">
+                      <Input value={rule.name} disabled={busy} onChange={(event) => update("streaming_rules", (values.streaming_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} aria-label={t("accountPool.settings.ruleName")} />
+                      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => update("streaming_rules", (values.streaming_rules ?? []).filter((_, itemIndex) => itemIndex !== index))}>{t("accountPool.settings.removeRule")}</Button>
+                    </div>
+                    <Select value={rule.mode} disabled={busy} onValueChange={(mode) => {
+                      if (mode !== "enabled" && mode !== "disabled") return;
+                      update("streaming_rules", (values.streaming_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, mode } : item));
+                    }}>
+                      <SelectTrigger aria-label={t("accountPool.settings.ruleMode")}><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="enabled">{t("accountPool.settings.streamEnabled")}</SelectItem><SelectItem value="disabled">{t("accountPool.settings.streamDisabled")}</SelectItem></SelectContent>
+                    </Select>
+                    <div className="grid gap-2 border-t pt-3">
+                      <Label>{t("accountPool.settings.applyCards")}</Label>
+                      {environments.map((environment) => <label key={environment.id} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={rule.card_ids.includes(environment.id)} disabled={busy || (assigned.has(environment.id) && !rule.card_ids.includes(environment.id))} onChange={(event) => update("streaming_rules", (values.streaming_rules ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, card_ids: event.target.checked ? [...item.card_ids, environment.id] : item.card_ids.filter((id) => id !== environment.id) } : item))} />
+                        <span>{environment.name}</span>
+                      </label>)}
+                    </div>
+                  </div>;
+                })}
+                <Button type="button" variant="outline" disabled={busy} onClick={() => update("streaming_rules", [...(values.streaming_rules ?? []), { id: crypto.randomUUID(), name: `${t("accountPool.settings.ruleName")} ${(values.streaming_rules ?? []).length + 1}`, mode: "enabled", card_ids: [] }])}>{t("accountPool.settings.addRule")}</Button>
+              </div>
+            </TabsContent>
             <TabsContent value="advanced" className="grid gap-3 pt-4">{toggleField("plugins_enabled", t("accountPool.settings.plugins"))}</TabsContent>
             <TabsContent value="payload" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.payloadDescription")}</p></TabsContent>
           </Tabs>

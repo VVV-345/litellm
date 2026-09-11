@@ -21,10 +21,10 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRequest,
     Candidate,
     FinishRequest,
+    GatewayCredential,
     Lease,
     Resolution,
     ResolveRequest,
-    GatewayCredential,
 )
 from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPolicy,
@@ -148,6 +148,23 @@ def test_single_account_route_reason_is_explicit(routing: RoutingPolicy) -> None
 
     assert not isinstance(selected, Rejected)
     assert selected[0].reason == "single_account"
+
+
+def test_streaming_rule_can_disable_stream_requests() -> None:
+    account: Final = candidate(uuid4())
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(),
+        candidates=(account,),
+        streaming_mode="disabled",
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/chat/completions", Headers(), stream=True)
+
+    assert selected == Rejected(403, "Streaming is disabled for this account")
 
 
 def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> None:

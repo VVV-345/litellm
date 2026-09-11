@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Final
+from typing import Final, Literal
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
@@ -32,9 +32,13 @@ def protocol_policy(
     path: str,
     headers: Headers,
     image_generation: bool,
+    stream: bool = False,
+    streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit",
 ) -> Rejected | None:
     if (path.startswith("/v1/images/") or image_generation) and policy.transport.image_generation == "disabled":
         return Rejected(403, "Image generation is disabled for this account")
+    if stream and streaming_mode == "disabled":
+        return Rejected(403, "Streaming is disabled for this account")
     codex: Final = policy.codex
     if codex is None:
         return None
@@ -77,11 +81,14 @@ def routes(
     path: str,
     headers: Headers,
     image_generation: bool = False,
+    stream: bool = False,
 ) -> tuple[Route, ...] | Rejected:
     card_codex: Final = resolution.policy.codex
     if path == "/v1/responses/compact" and (card_codex is None or not card_codex.responses_compact_enabled):
         return Rejected(403, "Responses Compact is disabled for this card")
-    rejected: Final = protocol_policy(resolution.policy, path, headers, image_generation)
+    rejected: Final = protocol_policy(
+        resolution.policy, path, headers, image_generation, stream, resolution.streaming_mode
+    )
     if rejected:
         return rejected
     if resolution.policy.routing.strategy in ("plan", "expiry"):
@@ -97,7 +104,7 @@ def routes(
         and target not in account.policy.excluded_models
         and mapped not in account.policy.excluded_models
         and quota_available(account, resolution.policy)
-        and protocol_policy(account.policy, path, headers, image_generation) is None
+        and protocol_policy(account.policy, path, headers, image_generation, stream, resolution.streaming_mode) is None
     )
     if not eligible:
         return Rejected(503, "No bound account currently supports this model and policy")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import Callable
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -25,6 +25,7 @@ from account_pool.gateway_contracts import (
 from account_pool.gateway_repository import LeaseRepository
 from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
+from account_pool.settings import AccountPoolSettingsRepository
 
 
 class GatewayService:
@@ -36,6 +37,7 @@ class GatewayService:
         leases: LeaseRepository,
         logs: ErrorLogService,
         gateway: Callable[[EnvironmentRecord], GatewayEnvironment],
+        settings: AccountPoolSettingsRepository | None = None,
     ) -> None:
         self.keys: Final = keys
         self.environments: Final = environments
@@ -43,6 +45,7 @@ class GatewayService:
         self.leases: Final = leases
         self.logs: Final = logs
         self.gateway: Final = gateway
+        self.settings: Final = settings
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         key: Final = await self.keys.authenticate(request.card_key)
@@ -77,6 +80,7 @@ class GatewayService:
         binding: Final = (
             binding_hash(key.key_id, request.session_hash) if policy.policy.routing.session_affinity else None
         )
+        streaming_mode: Final = await self._streaming_mode(card.id)
         return Resolution(
             card_id=card.id,
             key_id=key.key_id,
@@ -85,6 +89,15 @@ class GatewayService:
             policy=policy.policy,
             candidates=candidates,
             sticky_account_id=await self.leases.sticky(binding),
+            streaming_mode=streaming_mode,
+        )
+
+    async def _streaming_mode(self, card_id: UUID) -> Literal["inherit", "enabled", "disabled"]:
+        if self.settings is None:
+            return "inherit"
+        return next(
+            (rule.mode for rule in (await self.settings.get()).values.streaming_rules if card_id in rule.card_ids),
+            "inherit",
         )
 
     async def candidate(self, record: EnvironmentRecord) -> Candidate:
