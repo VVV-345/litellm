@@ -469,9 +469,13 @@ export default function AccountPoolPage() {
       {policyEnvironment && accessToken && (
         <AccountPoolPolicyDialog
           accessToken={accessToken}
-          cardId={policyEnvironment.id}
-          name={policyEnvironment.name}
-          supplier={policyEnvironment.supplier}
+          environment={policyEnvironment}
+          environments={environments}
+          policies={policies}
+          onOpenRuntimeConfig={() => {
+            setPolicyEnvironment(null);
+            setConfigEnvironment(policyEnvironment);
+          }}
           onClose={() => {
             setPolicyEnvironment(null);
             void policiesQuery.refetch();

@@ -1,17 +1,30 @@
-/** 本文件编辑版本化账号策略，区分管理元数据与尚待代理接入的设置。 */
+/** 编辑单张号池卡片的路由、传输和供应商策略。 */
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+
+import { MultiSelect, type MultiSelectOption } from "@/components/shared/MultiSelect";
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
-import { getAccountPolicy, saveAccountPolicy, type AccountPolicy, type PolicyView } from "./AccountPoolManagementApi";
+
 import { AccountPoolProviderPolicyFields } from "./AccountPoolProviderPolicyFields";
+import { getAccountPolicy, saveAccountPolicy, type AccountPolicy, type PolicyView } from "./AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { buildAccountPoolPolicyOptions, type AccountPoolPolicyOptions } from "./accountPoolPolicyOptions";
 
 type Routing = NonNullable<AccountPolicy["routing"]>;
 type Transport = NonNullable<AccountPolicy["transport"]>;
@@ -20,6 +33,14 @@ type Claude = NonNullable<AccountPolicy["claude"]>;
 type Kimi = NonNullable<AccountPolicy["kimi"]>;
 type Xai = NonNullable<AccountPolicy["xai"]>;
 type Antigravity = NonNullable<AccountPolicy["antigravity"]>;
+
+interface MultiFieldProps {
+  label: string;
+  selected: string[];
+  entries: MultiSelectOption[];
+  change: (next: string[]) => void;
+  allowCustomValues?: boolean;
+}
 type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claude" | "kimi" | "xai" | "antigravity"> & {
   routing: Routing;
   transport: Transport;
@@ -31,6 +52,7 @@ type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claud
 };
 
 const codexDefaults: Codex = {
+  identity_fingerprint_mode: "off",
   cli_only: false,
   allow_app_server: false,
   allow_app_server_clients: [],
@@ -86,58 +108,73 @@ const defaults: FormPolicy = {
   antigravity: null,
 };
 
+const FieldCard = ({ children, className = "" }: { children: ReactNode; className?: string }) => (
+  <div className={`min-w-0 rounded-lg border border-border bg-background p-4 ${className}`}>{children}</div>
+);
+
 export function AccountPoolPolicyDialog({
   accessToken,
-  cardId,
-  name,
-  supplier,
+  environment,
+  environments,
+  policies,
+  onOpenRuntimeConfig,
   onClose,
 }: {
   accessToken: string;
-  cardId: string;
-  name: string;
-  supplier: string;
+  environment: AccountPoolEnvironment;
+  environments: readonly AccountPoolEnvironment[];
+  policies: readonly PolicyView[];
+  onOpenRuntimeConfig: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const queryOptions = {
-    queryKey: ["account-pool", "policy", accessToken, cardId],
-    queryFn: () => getAccountPolicy(accessToken, cardId),
+    queryKey: ["account-pool", "policy", accessToken, environment.id],
+    queryFn: () => getAccountPolicy(accessToken, environment.id),
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   };
   const query = useQuery(queryOptions);
+  const options = buildAccountPoolPolicyOptions(environment, environments, policies);
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{t("accountPool.policy.title", { name })}</DialogTitle>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b border-border px-6 pt-6 pb-4">
+          <DialogTitle>{t("accountPool.policy.title", { name: environment.name })}</DialogTitle>
           <DialogDescription>{t("accountPool.policy.description")}</DialogDescription>
-        </DialogHeader>
-        {query.isPending && <p>{t("accountPool.management.loading")}</p>}
-        {query.isError && (
-          <div role="alert">
-            <p>{t("accountPool.policy.loadFailed")}</p>
-            <Button onClick={() => void query.refetch()}>{t("accountPool.retry")}</Button>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+            <p className="min-w-0 flex-1 leading-6 text-muted-foreground">
+              {t("accountPool.policy.cardScopedDescription")}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={onOpenRuntimeConfig}>
+              {t("accountPool.policy.openRuntimeConfig")}
+            </Button>
           </div>
-        )}
-        {query.data && (
-          <PolicyForm
-            key={query.data.version}
-            value={query.data}
-            supplier={supplier}
-            save={async (policy) => {
-              await saveAccountPolicy(accessToken, cardId, query.data.version, policy);
-              await query.refetch();
-            }}
-          />
-        )}
+        </DialogHeader>
+        <div className="max-h-[calc(100dvh-14rem)] overflow-y-auto px-6 pb-6">
+          {query.isPending && <p className="py-6">{t("accountPool.management.loading")}</p>}
+          {query.isError && (
+            <div className="grid gap-3 py-6" role="alert">
+              <p>{t("accountPool.policy.loadFailed")}</p>
+              <Button className="w-fit" onClick={() => void query.refetch()}>
+                {t("accountPool.retry")}
+              </Button>
+            </div>
+          )}
+          {query.data && (
+            <PolicyForm
+              key={query.data.version}
+              value={query.data}
+              environment={environment}
+              options={options}
+              save={async (policy) => {
+                await saveAccountPolicy(accessToken, environment.id, query.data.version, policy);
+                await query.refetch();
+              }}
+            />
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -145,11 +182,13 @@ export function AccountPoolPolicyDialog({
 
 function PolicyForm({
   value,
-  supplier,
+  environment,
+  options,
   save,
 }: {
   value: PolicyView;
-  supplier: string;
+  environment: AccountPoolEnvironment;
+  options: AccountPoolPolicyOptions;
   save: (policy: AccountPolicy) => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -167,19 +206,22 @@ function PolicyForm({
   };
   const [policy, setPolicy] = useState<FormPolicy>(initial);
   const [busy, setBusy] = useState(false);
-  const [tags, setTags] = useState(policy.tags.join(", "));
-  const [excluded, setExcluded] = useState(policy.excluded_models.join(", "));
   const [aliases, setAliases] = useState(policy.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
-  const [preferred, setPreferred] = useState(policy.routing.preferred_account_ids.join(", "));
-  const [members, setMembers] = useState((policy.account_ids ?? []).join(", "));
   const [statuses, setStatuses] = useState(policy.routing.retryable_statuses.join(", "));
   const codex = policy.codex ?? codexDefaults;
   const claude = policy.claude ?? claudeDefaults;
   const kimi = policy.kimi ?? kimiDefaults;
   const xai = policy.xai ?? xaiDefaults;
   const antigravity = policy.antigravity ?? antigravityDefaults;
-  const [clients, setClients] = useState(codex.allow_app_server_clients.join(", "));
-  const [sensitiveWords, setSensitiveWords] = useState(antigravity.sensitive_words.join(", "));
+  const groupOptions = options.groups.map((value) => ({
+    label: value,
+    value,
+  }));
+  const selectedGroup = groupOptions.find((option) => option.value === policy.group) ?? null;
+  const preferredAccountOptions = [
+    { label: environment.name, value: environment.id, description: environment.id },
+    ...options.accounts.filter((option) => policy.account_ids?.includes(option.value)),
+  ];
   const list = (input: string) =>
     input
       .split(",")
@@ -202,64 +244,93 @@ function PolicyForm({
       ...current,
       antigravity: { ...(current.antigravity ?? antigravityDefaults), [field]: next },
     }));
-  const text = (label: string, current: string, change: (next: string) => void) => (
-    <div className="grid gap-1 border-b pb-3">
-      <Label>{label}</Label>
-      <Input aria-label={label} value={current} disabled={busy} onChange={(event) => change(event.target.value)} />
-    </div>
+  const textField = (label: string, current: string, change: (next: string) => void) => (
+    <FieldCard>
+      <div className="grid min-w-0 gap-2">
+        <Label className="break-words leading-5">{label}</Label>
+        <Input aria-label={label} value={current} disabled={busy} onChange={(event) => change(event.target.value)} />
+      </div>
+    </FieldCard>
   );
-  const toggle = (label: string, checked: boolean, change: (next: boolean) => void) => (
-    <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-      <Label>{label}</Label>
-      <Switch aria-label={label} checked={checked} disabled={busy} onCheckedChange={(next) => change(next === true)} />
-    </div>
+  const toggleField = (label: string, checked: boolean, change: (next: boolean) => void) => (
+    <FieldCard>
+      <div className="flex min-w-0 items-center justify-between gap-4">
+        <Label className="min-w-0 break-words leading-5">{label}</Label>
+        <Switch
+          aria-label={label}
+          checked={checked}
+          disabled={busy}
+          onCheckedChange={(next) => change(next === true)}
+        />
+      </div>
+    </FieldCard>
   );
-  const number = (label: string, value: number, change: (next: number) => void) => (
-    <div className="grid gap-1 border-b pb-3">
-      <Label>{label}</Label>
-      <Input
-        aria-label={label}
-        type="number"
-        value={value}
-        disabled={busy}
-        onChange={(event) => change(Number(event.target.value))}
-      />
-    </div>
+  const numberField = (label: string, current: number, change: (next: number) => void) => (
+    <FieldCard>
+      <div className="grid min-w-0 gap-2">
+        <Label className="break-words leading-5">{label}</Label>
+        <Input
+          aria-label={label}
+          type="number"
+          value={current}
+          disabled={busy}
+          onChange={(event) => change(Number(event.target.value))}
+        />
+      </div>
+    </FieldCard>
   );
-  const optionalNumber = (label: string, value: number | null | undefined, change: (next: number | null) => void) => (
-    <div className="grid gap-1 border-b pb-3">
-      <Label>{label}</Label>
-      <Input
-        aria-label={label}
-        type="number"
-        value={value ?? ""}
-        disabled={busy}
-        onChange={(event) => change(event.target.value ? Number(event.target.value) : null)}
-      />
-    </div>
+  const optionalNumberField = (
+    label: string,
+    current: number | null | undefined,
+    change: (next: number | null) => void,
+  ) => (
+    <FieldCard>
+      <div className="grid min-w-0 gap-2">
+        <Label className="break-words leading-5">{label}</Label>
+        <Input
+          aria-label={label}
+          type="number"
+          value={current ?? ""}
+          disabled={busy}
+          onChange={(event) => change(event.target.value ? Number(event.target.value) : null)}
+        />
+      </div>
+    </FieldCard>
   );
-  const select = (label: string, value: string, options: readonly string[], change: (next: string) => void) => (
-    <div className="grid gap-1 border-b pb-3">
-      <Label>{label}</Label>
-      <Select
-        value={value}
-        disabled={busy}
-        onValueChange={(next) => {
-          if (next !== null) change(next);
-        }}
-      >
-        <SelectTrigger aria-label={label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
-              {t(`accountPool.policy.options.${option}`)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+  const selectField = (label: string, current: string, entries: readonly string[], change: (next: string) => void) => (
+    <FieldCard>
+      <div className="grid min-w-0 gap-2">
+        <Label className="break-words leading-5">{label}</Label>
+        <Select value={current} disabled={busy} onValueChange={(next) => next !== null && change(next)}>
+          <SelectTrigger aria-label={label} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {entries.map((option) => (
+              <SelectItem key={option} value={option}>
+                {t(`accountPool.policy.options.${option}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </FieldCard>
+  );
+  const multiField = ({ label, selected, entries, change, allowCustomValues = false }: MultiFieldProps) => (
+    <FieldCard>
+      <div className="grid min-w-0 gap-2">
+        <Label className="break-words leading-5">{label}</Label>
+        <MultiSelect
+          value={selected}
+          options={entries}
+          onValueChange={change}
+          allowCustomValues={allowCustomValues}
+          disabled={busy}
+          placeholder={t(allowCustomValues ? "accountPool.policy.selectOrCreate" : "accountPool.policy.selectOptions")}
+          emptyText={t("accountPool.policy.noMatchingOptions")}
+        />
+      </div>
+    </FieldCard>
   );
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -270,32 +341,36 @@ function PolicyForm({
     }
     const parsed: FormPolicy = {
       ...policy,
-      account_ids: list(members),
-      codex: { ...codex, allow_app_server_clients: list(clients) },
-      antigravity: { ...antigravity, sensitive_words: list(sensitiveWords) },
-      tags: list(tags),
-      excluded_models: list(excluded),
       model_aliases: aliasValues.map((item) => {
         const split = item.indexOf("=");
         return { alias: item.slice(0, split).trim(), target: item.slice(split + 1).trim() };
       }),
       routing: {
         ...policy.routing,
-        preferred_account_ids: list(preferred) as Routing["preferred_account_ids"],
         retryable_statuses: list(statuses).map(Number),
       },
     };
     setBusy(true);
     try {
-      const { codex, claude, kimi, xai, antigravity, ...rest } = parsed;
-      await save({
+      const {
+        codex: parsedCodex,
+        claude: parsedClaude,
+        kimi: parsedKimi,
+        xai: parsedXai,
+        antigravity: parsedAntigravity,
+        ...rest
+      } = parsed;
+      const nextPolicy: AccountPolicy = {
         ...rest,
-        ...(supplier === "openai_codex" && codex ? { codex } : {}),
-        ...(supplier === "anthropic_claude" && claude ? { claude } : {}),
-        ...(supplier === "kimi" && kimi ? { kimi } : {}),
-        ...(supplier === "xai" && xai ? { xai } : {}),
-        ...(supplier === "google_antigravity" && antigravity ? { antigravity } : {}),
-      });
+        ...(environment.supplier === "openai_codex" && parsedCodex ? { codex: parsedCodex } : {}),
+        ...(environment.supplier === "anthropic_claude" && parsedClaude ? { claude: parsedClaude } : {}),
+        ...(environment.supplier === "kimi" && parsedKimi ? { kimi: parsedKimi } : {}),
+        ...(environment.supplier === "xai" && parsedXai ? { xai: parsedXai } : {}),
+        ...(environment.supplier === "google_antigravity" && parsedAntigravity
+          ? { antigravity: parsedAntigravity }
+          : {}),
+      };
+      await save(nextPolicy);
       toast.success(t("accountPool.policy.saved"));
     } catch (error) {
       toast.fromError(error);
@@ -304,116 +379,214 @@ function PolicyForm({
     }
   };
   return (
-    <form className="grid gap-4" onSubmit={handleSubmit}>
-      <p className="text-sm">{t("accountPool.policy.version", { version: value.version })}</p>
+    <form className="grid gap-6 pt-5" onSubmit={handleSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
-        {text(t("accountPool.policy.tags"), tags, setTags)}
-        {text(t("accountPool.policy.group"), policy.group, (group) => setPolicy((current) => ({ ...current, group })))}
-      </div>
-      <p role="status" className="rounded-md border bg-muted/30 p-3 text-sm">
-        {t("accountPool.policy.pending")}
-      </p>
-      <dl className="grid gap-2 text-sm sm:grid-cols-2">
-        {value.capabilities?.map((capability) => (
-          <div key={capability.name} className="flex justify-between gap-2">
-            <dt>{t(`accountPool.policy.capabilities.${capability.name}`)}</dt>
-            <dd>{t(`accountPool.policy.capabilityStatus.${capability.status}`)}</dd>
+        {multiField({
+          label: t("accountPool.policy.tags"),
+          selected: policy.tags,
+          entries: options.tags,
+          change: (tags) => setPolicy((current) => ({ ...current, tags })),
+          allowCustomValues: true,
+        })}
+        <FieldCard>
+          <div className="grid min-w-0 gap-2">
+            <Label className="break-words leading-5">{t("accountPool.policy.group")}</Label>
+            <Combobox
+              items={groupOptions}
+              value={selectedGroup}
+              onValueChange={(group: MultiSelectOption | null) =>
+                setPolicy((current) => ({ ...current, group: group?.value ?? "" }))
+              }
+              inputValue={policy.group}
+              onInputValueChange={(group) => setPolicy((current) => ({ ...current, group }))}
+              isItemEqualToValue={(option: MultiSelectOption, current: MultiSelectOption) =>
+                option.value === current.value
+              }
+              itemToStringLabel={(option: MultiSelectOption) => option.label}
+              filter={(option: MultiSelectOption, query: string) =>
+                option.label.toLowerCase().includes(query.trim().toLowerCase())
+              }
+              openOnInputClick
+            >
+              <ComboboxInput
+                aria-label={t("accountPool.policy.group")}
+                placeholder={t("accountPool.policy.selectOrCreateGroup")}
+                className="w-full"
+                showClear
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>{t("accountPool.policy.createCurrentGroup", { group: policy.group })}</ComboboxEmpty>
+                <ComboboxList>
+                  {(group: MultiSelectOption) => (
+                    <ComboboxItem key={group.value} value={group}>
+                      {group.label}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
           </div>
-        ))}
-      </dl>
-      {text(t("accountPool.policy.account_ids"), members, setMembers)}
-      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
-        <legend className="mb-3 font-medium">{t("accountPool.policy.routing")}</legend>
-        {select(
-          t("accountPool.policy.strategy"),
-          policy.routing.strategy,
-          ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
-          (next) => updateRouting("strategy", next as Routing["strategy"]),
-        )}
-        {number(t("accountPool.policy.priority"), policy.routing.priority, (next) => updateRouting("priority", next))}
-        {number(t("accountPool.policy.weight"), policy.routing.weight, (next) => updateRouting("weight", next))}
-        {number(t("accountPool.policy.session_affinity_ttl"), policy.routing.session_affinity_ttl, (next) =>
-          updateRouting("session_affinity_ttl", next),
-        )}
-        {number(t("accountPool.policy.quota_reserve_percent"), policy.routing.quota_reserve_percent, (next) =>
-          updateRouting("quota_reserve_percent", next),
-        )}
-        {number(t("accountPool.policy.quota_snapshot_max_age"), policy.routing.quota_snapshot_max_age, (next) =>
-          updateRouting("quota_snapshot_max_age", next),
-        )}
-        {optionalNumber(t("accountPool.policy.token_budget_limit"), policy.routing.token_budget_limit, (next) =>
-          updateRouting("token_budget_limit", next),
-        )}
-        {number(
-          t("accountPool.policy.token_budget_window_seconds"),
-          policy.routing.token_budget_window_seconds,
-          (next) => updateRouting("token_budget_window_seconds", next),
-        )}
-        {number(t("accountPool.policy.max_attempts"), policy.routing.max_attempts, (next) =>
-          updateRouting("max_attempts", next),
-        )}
-        {number(t("accountPool.policy.backoff_ms"), policy.routing.backoff_ms, (next) =>
-          updateRouting("backoff_ms", next),
-        )}
-        {text(t("accountPool.policy.preferred_account_ids"), preferred, setPreferred)}
-        {text(t("accountPool.policy.retryable_statuses"), statuses, setStatuses)}
-        {text(t("accountPool.policy.excluded_models"), excluded, setExcluded)}
-        {text(t("accountPool.policy.model_aliases"), aliases, setAliases)}
-        {toggle(t("accountPool.policy.is_backup"), policy.routing.is_backup, (next) =>
-          updateRouting("is_backup", next),
-        )}
-        {toggle(t("accountPool.policy.session_affinity"), policy.routing.session_affinity, (next) =>
-          updateRouting("session_affinity", next),
-        )}
-        {toggle(t("accountPool.policy.fallback_enabled"), policy.routing.fallback_enabled, (next) =>
-          updateRouting("fallback_enabled", next),
-        )}
-      </fieldset>
-      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
-        <legend className="mb-3 font-medium">{t("accountPool.policy.transport")}</legend>
-        {select(
-          t("accountPool.policy.image_generation"),
-          policy.transport.image_generation,
-          ["inherit", "enabled", "disabled"],
-          (next) => updateTransport("image_generation", next as Transport["image_generation"]),
-        )}
-        {select(
-          t("accountPool.policy.websocket"),
-          policy.transport.websocket,
-          ["inherit", "enabled", "disabled"],
-          (next) => updateTransport("websocket", next as Transport["websocket"]),
-        )}
-        {number(t("accountPool.policy.request_timeout_seconds"), policy.transport.request_timeout_seconds, (next) =>
-          updateTransport("request_timeout_seconds", next),
-        )}
-        {toggle(t("accountPool.policy.debug_log_enabled"), policy.transport.debug_log_enabled, (next) =>
-          updateTransport("debug_log_enabled", next),
-        )}
-      </fieldset>
-      <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
-        <legend className="mb-3 font-medium">{t("accountPool.policy.provider")}</legend>
-        <AccountPoolProviderPolicyFields
-          supplier={supplier}
-          busy={busy}
-          codex={codex}
-          claude={claude}
-          kimi={kimi}
-          xai={xai}
-          antigravity={antigravity}
-          clients={clients}
-          sensitiveWords={sensitiveWords}
-          onClientsChange={setClients}
-          onSensitiveWordsChange={setSensitiveWords}
-          onCodexChange={updateCodex}
-          onClaudeChange={updateClaude}
-          onKimiChange={updateKimi}
-          onXaiChange={updateXai}
-          onAntigravityChange={updateAntigravity}
-        />
-      </fieldset>
-      <Button type="submit" disabled={busy}>
-        {t(busy ? "accountPool.config.saving" : "accountPool.config.save")}
-      </Button>
+        </FieldCard>
+      </div>
+      <section className="grid gap-3">
+        <div className="space-y-1">
+          <h3 className="font-medium">{t("accountPool.policy.capabilityTitle")}</h3>
+          <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.pending")}</p>
+        </div>
+        <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {value.capabilities?.map((capability) => (
+            <div key={capability.name} className="min-w-0 rounded-lg border border-border p-3">
+              <dt className="break-words font-medium leading-5">
+                {t(`accountPool.policy.capabilities.${capability.name}`)}
+              </dt>
+              <dd className="mt-2 break-words text-xs leading-5 text-muted-foreground">
+                {t(`accountPool.policy.capabilityStatus.${capability.status}`)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <section className="grid gap-3">
+        <div className="space-y-1">
+          <h3 className="font-medium">{t("accountPool.policy.accountScope")}</h3>
+          <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.accountScopeDescription")}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {multiField({
+            label: t("accountPool.policy.account_ids"),
+            selected: policy.account_ids ?? [],
+            entries: options.accounts,
+            change: (accountIds) =>
+              setPolicy((current) => ({
+                ...current,
+                account_ids: accountIds,
+                routing: {
+                  ...current.routing,
+                  preferred_account_ids: current.routing.preferred_account_ids.filter(
+                    (accountId) => accountId === environment.id || accountIds.includes(accountId),
+                  ),
+                },
+              })),
+          })}
+          {multiField({
+            label: t("accountPool.policy.preferred_account_ids"),
+            selected: policy.routing.preferred_account_ids,
+            entries: preferredAccountOptions,
+            change: (preferredAccountIds) => updateRouting("preferred_account_ids", preferredAccountIds),
+          })}
+        </div>
+      </section>
+      <section className="grid gap-3">
+        <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {selectField(
+            t("accountPool.policy.strategy"),
+            policy.routing.strategy,
+            ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
+            (next) => updateRouting("strategy", next as Routing["strategy"]),
+          )}
+          {numberField(t("accountPool.policy.priority"), policy.routing.priority, (next) =>
+            updateRouting("priority", next),
+          )}
+          {numberField(t("accountPool.policy.weight"), policy.routing.weight, (next) => updateRouting("weight", next))}
+          {numberField(t("accountPool.policy.session_affinity_ttl"), policy.routing.session_affinity_ttl, (next) =>
+            updateRouting("session_affinity_ttl", next),
+          )}
+          {numberField(t("accountPool.policy.quota_reserve_percent"), policy.routing.quota_reserve_percent, (next) =>
+            updateRouting("quota_reserve_percent", next),
+          )}
+          {numberField(t("accountPool.policy.quota_snapshot_max_age"), policy.routing.quota_snapshot_max_age, (next) =>
+            updateRouting("quota_snapshot_max_age", next),
+          )}
+          {optionalNumberField(t("accountPool.policy.token_budget_limit"), policy.routing.token_budget_limit, (next) =>
+            updateRouting("token_budget_limit", next),
+          )}
+          {numberField(
+            t("accountPool.policy.token_budget_window_seconds"),
+            policy.routing.token_budget_window_seconds,
+            (next) => updateRouting("token_budget_window_seconds", next),
+          )}
+          {numberField(t("accountPool.policy.max_attempts"), policy.routing.max_attempts, (next) =>
+            updateRouting("max_attempts", next),
+          )}
+          {numberField(t("accountPool.policy.backoff_ms"), policy.routing.backoff_ms, (next) =>
+            updateRouting("backoff_ms", next),
+          )}
+          {textField(t("accountPool.policy.retryable_statuses"), statuses, setStatuses)}
+          {multiField({
+            label: t("accountPool.policy.excluded_models"),
+            selected: policy.excluded_models,
+            entries: options.models,
+            change: (models) => setPolicy((current) => ({ ...current, excluded_models: models })),
+            allowCustomValues: true,
+          })}
+          {textField(t("accountPool.policy.model_aliases"), aliases, setAliases)}
+          {toggleField(t("accountPool.policy.is_backup"), policy.routing.is_backup, (next) =>
+            updateRouting("is_backup", next),
+          )}
+          {toggleField(t("accountPool.policy.session_affinity"), policy.routing.session_affinity, (next) =>
+            updateRouting("session_affinity", next),
+          )}
+          {toggleField(t("accountPool.policy.fallback_enabled"), policy.routing.fallback_enabled, (next) =>
+            updateRouting("fallback_enabled", next),
+          )}
+        </div>
+      </section>
+      <section className="grid gap-3">
+        <h3 className="font-medium">{t("accountPool.policy.transport")}</h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {selectField(
+            t("accountPool.policy.image_generation"),
+            policy.transport.image_generation,
+            ["inherit", "enabled", "disabled"],
+            (next) => updateTransport("image_generation", next as Transport["image_generation"]),
+          )}
+          {selectField(
+            t("accountPool.policy.websocket"),
+            policy.transport.websocket,
+            ["inherit", "enabled", "disabled"],
+            (next) => updateTransport("websocket", next as Transport["websocket"]),
+          )}
+          {numberField(
+            t("accountPool.policy.request_timeout_seconds"),
+            policy.transport.request_timeout_seconds,
+            (next) => updateTransport("request_timeout_seconds", next),
+          )}
+          {toggleField(t("accountPool.policy.debug_log_enabled"), policy.transport.debug_log_enabled, (next) =>
+            updateTransport("debug_log_enabled", next),
+          )}
+        </div>
+      </section>
+      <section className="grid gap-3">
+        <div className="space-y-1">
+          <h3 className="font-medium">{t("accountPool.policy.provider")}</h3>
+          <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.providerDescription")}</p>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <AccountPoolProviderPolicyFields
+            environment={environment}
+            busy={busy}
+            codex={codex}
+            claude={claude}
+            kimi={kimi}
+            xai={xai}
+            antigravity={antigravity}
+            codexClientOptions={options.codexAppServerClients}
+            sensitiveWordOptions={options.antigravitySensitiveWords}
+            onCodexChange={updateCodex}
+            onClaudeChange={updateClaude}
+            onKimiChange={updateKimi}
+            onXaiChange={updateXai}
+            onAntigravityChange={updateAntigravity}
+          />
+        </div>
+      </section>
+      <div className="sticky bottom-0 z-sticky -mx-6 flex items-center justify-between gap-3 border-t border-border bg-popover/95 px-6 py-4 backdrop-blur">
+        <p className="text-xs text-muted-foreground">{t("accountPool.policy.version", { version: value.version })}</p>
+        <Button type="submit" disabled={busy}>
+          {t(busy ? "accountPool.config.saving" : "accountPool.config.save")}
+        </Button>
+      </div>
     </form>
   );
 }

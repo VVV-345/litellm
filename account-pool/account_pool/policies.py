@@ -60,6 +60,7 @@ class TransportPolicy(BaseModel):
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    identity_fingerprint_mode: Literal["off", "device", "session", "full"] = "off"
     cli_only: bool = False
     allow_app_server: bool = False
     allow_app_server_clients: tuple[str, ...] = ()
@@ -74,7 +75,6 @@ class CodexPolicy(BaseModel):
             return value
         legacy: Final = frozenset(
             (
-                "identity_fingerprint_mode",
                 "compact_ui",
                 "model_context_window",
                 "model_auto_compact_token_limit",
@@ -219,7 +219,7 @@ class PolicyCapability(BaseModel):
 
 
 def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCapability, ...]:
-    provider_status: Final = "metadata"
+    provider_status: Final = "gateway"
     return (
         *(
             PolicyCapability(name=name, status="gateway")

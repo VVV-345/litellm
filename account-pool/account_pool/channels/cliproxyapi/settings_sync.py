@@ -117,6 +117,12 @@ def _yaml_document(content: str) -> dict[str, object]:
 
 
 def _policy_auth_fields(policy: AccountPolicy) -> Mapping[str, object]:
+    if policy.codex is not None:
+        return {
+            "codex_fingerprint_mode": policy.codex.identity_fingerprint_mode,
+            "codex_cli_only": policy.codex.cli_only,
+            "codex_cli_only_allow_app_server": policy.codex.allow_app_server,
+        }
     if policy.claude is not None:
         return {
             "fingerprint_profile": policy.claude.fingerprint_profile,

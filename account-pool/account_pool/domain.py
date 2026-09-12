@@ -73,6 +73,8 @@ class QuotaSnapshot(BaseModel):
 
     observed_at: datetime | None = None
     plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    subscription_active_until: datetime | None = None
     windows: tuple[QuotaWindow, ...] = ()
 
 

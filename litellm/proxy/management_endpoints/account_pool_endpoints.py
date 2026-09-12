@@ -97,6 +97,8 @@ class AccountPoolQuotaSnapshot(BaseModel):
 
     observed_at: str | None = None
     plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    subscription_active_until: str | None = None
     windows: tuple[AccountPoolQuotaWindow, ...] = ()
 
 

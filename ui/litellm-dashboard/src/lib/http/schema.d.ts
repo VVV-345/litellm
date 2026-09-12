@@ -23847,10 +23847,14 @@ export interface components {
         };
         /** AccountPoolQuotaSnapshot */
         AccountPoolQuotaSnapshot: {
+            /** Auth File Plan Type */
+            auth_file_plan_type?: string | null;
             /** Observed At */
             observed_at?: string | null;
             /** Plan Type */
             plan_type?: string | null;
+            /** Subscription Active Until */
+            subscription_active_until?: string | null;
             /**
              * Windows
              * @default []
@@ -26856,6 +26860,12 @@ export interface components {
              * @default false
              */
             identity_confuse: boolean;
+            /**
+             * Identity Fingerprint Mode
+             * @default off
+             * @enum {string}
+             */
+            identity_fingerprint_mode: "off" | "device" | "session" | "full";
             /**
              * Responses Compact Enabled
              * @default false

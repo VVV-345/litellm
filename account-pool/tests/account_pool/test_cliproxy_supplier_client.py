@@ -108,6 +108,47 @@ async def test_read_account_selects_matching_type_and_model_file() -> None:
     assert observed.available_models == ("claude-model",)
     assert model_names == ["selected.json"]
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "auth_file_plan_type", "expected_auth_file_plan_type"),
+    (
+        ("codex-user-prolite.json", None, "prolite"),
+        ("codex-user-pro-max.json", None, "promax"),
+        ("codex-user.json", "pro_lite", "prolite"),
+    ),
+)
+async def test_read_codex_account_exposes_subscription_and_auth_file_plan(
+    name: str, auth_file_plan_type: str | None, expected_auth_file_plan_type: str
+) -> None:
+    record: Final = _record()
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    auth_file: Final = {
+        "name": name,
+        "provider": "codex",
+        "id_token": {
+            "plan_type": "pro",
+            "chatgpt_subscription_active_until": "2090-01-02T03:04:05Z",
+        },
+        **({"auth_file_plan_type": auth_file_plan_type} if auth_file_plan_type is not None else {}),
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(200, json={"files": [auth_file]}, request=request)
+        return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier)
+    await client.aclose()
+
+    assert observed.quota.plan_type == "pro"
+    assert observed.quota.auth_file_plan_type == expected_auth_file_plan_type
+    assert observed.quota.subscription_active_until is not None
+    assert observed.quota.subscription_active_until.isoformat() == "2090-01-02T03:04:05+00:00"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("kind", "provider"),
@@ -486,6 +527,51 @@ async def test_apply_policy_syncs_yaml_settings_without_an_auth_file() -> None:
     assert document["antigravity-signature-cache-enabled"] is False
     assert document["antigravity-signature-bypass-strict"] is True
     assert not any(request.url.path.endswith("/auth-files/fields") for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "codex.json"})
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(200, text="host: 0.0.0.0\ncodex:\n  keep: unchanged\n", request=request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_policy(
+        record,
+        AccountPolicy(
+            codex=CodexPolicy(
+                identity_fingerprint_mode="session",
+                cli_only=True,
+                allow_app_server=True,
+                identity_confuse=True,
+                disable_codex_cloaking=True,
+            )
+        ),
+    )
+    await client.aclose()
+
+    patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
+    assert json.loads(patch_request.content) == {
+        "name": "codex.json",
+        "codex_fingerprint_mode": "session",
+        "codex_cli_only": True,
+        "codex_cli_only_allow_app_server": True,
+    }
+    config: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    assert yaml.safe_load(config.content)["codex"] == {
+        "keep": "unchanged",
+        "identity-confuse": True,
+        "disable-codex-cloaking": True,
+    }
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
-import { KeyRound, Trash2, Settings2 } from "lucide-react";
+import { KeyRound, SlidersHorizontal, Trash2, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +84,12 @@ export const AccountPoolCard = ({
     if (!policyValues) return null;
     if (environment.supplier === "openai_codex" && policyValues.codex) {
       const enabled = [
+        policyValues.codex.identity_fingerprint_mode !== "off" &&
+          `${t("accountPool.policy.identity_fingerprint_mode")}: ${t(
+            `accountPool.policy.options.${policyValues.codex.identity_fingerprint_mode}`,
+          )}`,
+        policyValues.codex.cli_only && t("accountPool.policy.cli_only"),
+        policyValues.codex.allow_app_server && t("accountPool.policy.allow_app_server"),
         policyValues.codex.identity_confuse && t("accountPool.policy.identity_confuse"),
         policyValues.codex.disable_codex_cloaking && t("accountPool.policy.disable_codex_cloaking"),
       ].filter(Boolean);
@@ -180,7 +186,7 @@ export const AccountPoolCard = ({
               aria-label={t("accountPool.policy.manage", { name: environment.name })}
               title={t("accountPool.policy.manageShort")}
             >
-              <Settings2 />
+              <SlidersHorizontal />
             </Button>
             <Button
               type="button"

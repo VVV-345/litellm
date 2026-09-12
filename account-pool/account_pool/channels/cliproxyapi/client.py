@@ -67,6 +67,13 @@ class _ModelsResponse(BaseModel):
     data: tuple[_ModelResponse, ...] = ()
 
 
+class _CodexIdentity(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    plan_type: str | None = None
+    chatgpt_subscription_active_until: datetime | None = None
+
+
 class _AuthFile(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -80,6 +87,8 @@ class _AuthFile(BaseModel):
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
     plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    id_token: _CodexIdentity | None = None
     metadata: Mapping[str, object] = Field(default_factory=dict)
     attributes: Mapping[str, object] = Field(default_factory=dict)
 
@@ -94,6 +103,27 @@ _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
 JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+
+
+def _codex_auth_file_plan_type(auth_file: _AuthFile) -> str | None:
+    explicit: Final = _normalize_codex_auth_file_plan_type(auth_file.auth_file_plan_type)
+    if explicit is not None:
+        return explicit
+    normalized_name: Final = auth_file.name.rsplit(".", 1)[0].strip().lower().replace("_", "-").replace(" ", "-")
+    if normalized_name.endswith(("-prolite", "-pro-lite")):
+        return "prolite"
+    if normalized_name.endswith(("-promax", "-pro-max")):
+        return "promax"
+    return None
+
+
+def _normalize_codex_auth_file_plan_type(value: str | None) -> str | None:
+    normalized: Final = (value or "").strip().lower().replace("_", "-").replace(" ", "-")
+    if normalized in ("prolite", "pro-lite"):
+        return "prolite"
+    if normalized in ("promax", "pro-max"):
+        return "promax"
+    return None
 
 
 def _legacy_openai_supplier() -> SupplierDefinition:
@@ -228,10 +258,22 @@ class HttpCLIProxyClient:
             update={"signals": {**metadata_signals, **auth_file.quota.signals}}
         )
         parsed_quota: Final = selected_supplier.quota_parser(observed_quota)
-        quota: Final = (
-            parsed_quota
-            if parsed_quota.plan_type is not None or auth_file.plan_type is None
-            else parsed_quota.model_copy(update={"plan_type": auth_file.plan_type})
+        identity: Final = auth_file.id_token if selected_supplier.kind is SupplierKind.OPENAI_CODEX else None
+        plan_type: Final = auth_file.plan_type or (identity.plan_type if identity is not None else None)
+        quota: Final = parsed_quota.model_copy(
+            update={
+                **({"plan_type": plan_type} if parsed_quota.plan_type is None and plan_type is not None else {}),
+                **(
+                    {
+                        "auth_file_plan_type": _codex_auth_file_plan_type(auth_file),
+                        "subscription_active_until": identity.chatgpt_subscription_active_until
+                        if identity is not None
+                        else None,
+                    }
+                    if selected_supplier.kind is SupplierKind.OPENAI_CODEX
+                    else {}
+                ),
+            }
         )
         model_quotas: Final = tuple(
             ModelQuotaSnapshot(model=model, quota=selected_supplier.quota_parser(observation))
