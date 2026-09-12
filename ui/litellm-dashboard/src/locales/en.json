@@ -5871,6 +5871,13 @@
       "card": "Pool card",
       "selectCard": "Select a pool card to manage",
       "noCards": "No CLIProxyAPI pool cards support plugins"
+      ,"configure": "Configure"
+      ,"configTitle": "Plugin configuration"
+      ,"configDescription": "Edit {{name}} for the selected pool card using a JSON object."
+      ,"configSave": "Save configuration"
+      ,"configSaving": "Saving..."
+      ,"configSaved": "Plugin configuration saved"
+      ,"configLoadFailed": "Plugin configuration failed to load"
     },
     "scope": {
       "title": "Configuration panel",
@@ -5915,6 +5922,15 @@
     "requestRetry": "Request retry count",
     "maxRetryCredentials": "Maximum retry credentials",
     "maxRetryInterval": "Maximum retry interval (seconds)",
+    "oauthExcludedModels": "OAuth excluded models",
+    "oauthExcludedModelsPlaceholder": "One model name per line",
+    "oauthModelAliases": "OAuth model aliases",
+    "oauthModelAliasesDescription": "Configure upstream and public model names for each provider",
+    "upstreamModel": "Upstream model",
+    "publicModel": "Public model",
+    "addAlias": "Add alias",
+    "removeAlias": "Remove",
+    "oauthRequestScopedErrors": "Enable OAuth request scoped error rules",
     "plugins": "Enable plugins",
     "accessDescription": "Service-level access settings are inherited from LiteLLM and Manager.",
     "quotaDescription": "Quota fallback settings are managed by provider and card policies.",

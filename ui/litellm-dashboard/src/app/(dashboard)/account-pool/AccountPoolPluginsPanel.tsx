@@ -7,13 +7,24 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
 import {
   installCardAccountPoolPlugin,
   listCardAccountPoolPluginStore,
   listCardAccountPoolPlugins,
+  getCardAccountPoolPluginConfig,
+  putCardAccountPoolPluginConfig,
   setCardAccountPoolPluginEnabled,
   uninstallCardAccountPoolPlugin,
 } from "./AccountPoolManagementApi";
@@ -77,8 +88,17 @@ export function AccountPoolPluginsPanel({
     [environments],
   );
   const [selectedCardId, setSelectedCardId] = useState<string | null>(cards[0]?.id ?? null);
+  const [configPluginId, setConfigPluginId] = useState<string | null>(null);
+  const [configText, setConfigText] = useState("{}");
+  const [configDirty, setConfigDirty] = useState(false);
   const activeCardId = cards.some((card) => card.id === selectedCardId) ? selectedCardId : cards[0]?.id ?? null;
   const selectedCard = cards.find((card) => card.id === activeCardId) ?? null;
+  const configQuery = useQuery({
+    queryKey: ["account-pool", "card-plugin-config", accessToken, activeCardId, configPluginId],
+    queryFn: () => getCardAccountPoolPluginConfig(accessToken, activeCardId!, configPluginId!),
+    enabled: activeCardId !== null && configPluginId !== null,
+    retry: false,
+  });
   const installed = useQuery({
     queryKey: ["account-pool", "card-plugins", accessToken, activeCardId],
     queryFn: () => listCardAccountPoolPlugins(accessToken, activeCardId!),
@@ -118,6 +138,21 @@ export function AccountPoolPluginsPanel({
     },
     onError: (error: Error) => toast.fromError(error),
   });
+  const configMutation = useMutation({
+    mutationFn: () => {
+      if (activeCardId === null || configPluginId === null) throw new Error("plugin card is not selected");
+      const parsed: unknown = JSON.parse(configText);
+      if (!isRecord(parsed)) throw new Error("plugin configuration must be a JSON object");
+      return putCardAccountPoolPluginConfig(accessToken, activeCardId, configPluginId, parsed);
+    },
+    onSuccess: () => {
+      toast.success(t("accountPool.plugins.configSaved"));
+      setConfigDirty(false);
+      void configQuery.refetch();
+      invalidate();
+    },
+    onError: (error: Error) => toast.fromError(error),
+  });
   const availablePlugins = useMemo(() => runtimePlugins(store.data), [store.data]);
   const installedPlugins = useMemo(() => runtimePlugins(installed.data), [installed.data]);
   const installedById = useMemo(
@@ -129,6 +164,13 @@ export function AccountPoolPluginsPanel({
     installedPlugins.forEach((plugin) => merged.set(plugin.id, { ...merged.get(plugin.id), ...plugin }));
     return [...merged.values()];
   }, [availablePlugins, installedPlugins]);
+  const loadedConfigText = configQuery.data ? JSON.stringify(configQuery.data, null, 2) : "{}";
+  const editorText = configDirty ? configText : loadedConfigText;
+  const openConfig = (pluginId: string) => {
+    setConfigPluginId(pluginId);
+    setConfigText("{}");
+    setConfigDirty(false);
+  };
 
   if (cards.length === 0) {
     return (
@@ -186,6 +228,7 @@ export function AccountPoolPluginsPanel({
                 <div className="flex gap-2">
                   {!isInstalled && <Button size="sm" onClick={() => install.mutate(plugin)}>{t("accountPool.plugins.install")}</Button>}
                   {isInstalled && <Button size="sm" variant="outline" onClick={() => toggle.mutate({ pluginId: plugin.id, enabled: !isEnabled })}>{isEnabled ? t("accountPool.plugins.disable") : t("accountPool.plugins.enable")}</Button>}
+                  {isInstalled && <Button size="sm" variant="outline" onClick={() => openConfig(plugin.id)}>{t("accountPool.plugins.configure")}</Button>}
                   {isInstalled && <Button size="sm" variant="destructive" onClick={() => uninstall.mutate(plugin.id)}>{t("accountPool.plugins.uninstall")}</Button>}
                 </div>
               </CardContent>
@@ -194,6 +237,43 @@ export function AccountPoolPluginsPanel({
         })}
       </div>
       {plugins.length === 0 && <p className="text-sm text-muted-foreground">{t("accountPool.plugins.storeEmpty")}</p>}
+      <Dialog
+        open={configPluginId !== null}
+        onOpenChange={(open) => {
+          if (!open && !configMutation.isPending) setConfigPluginId(null);
+        }}
+      >
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("accountPool.plugins.configTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("accountPool.plugins.configDescription", {
+                name: plugins.find((plugin) => plugin.id === configPluginId)?.name ?? configPluginId,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {configQuery.isError && <p role="alert">{t("accountPool.plugins.configLoadFailed")}</p>}
+          <Textarea
+            value={editorText}
+            onChange={(event) => {
+              setConfigText(event.target.value);
+              setConfigDirty(true);
+            }}
+            disabled={configQuery.isPending || configMutation.isPending}
+            className="min-h-64 font-mono text-xs"
+            aria-label={t("accountPool.plugins.configTitle")}
+            spellCheck={false}
+          />
+          <DialogFooter>
+            <Button
+              onClick={() => configMutation.mutate()}
+              disabled={configQuery.isPending || configMutation.isPending || !configDirty}
+            >
+              {configMutation.isPending ? t("accountPool.plugins.configSaving") : t("accountPool.plugins.configSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

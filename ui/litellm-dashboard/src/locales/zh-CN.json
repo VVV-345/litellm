@@ -5871,6 +5871,13 @@
       "card": "号池卡片",
       "selectCard": "选择要管理的号池卡片",
       "noCards": "暂无支持插件的 CLIProxyAPI 号池卡片"
+      ,"configure": "配置"
+      ,"configTitle": "插件配置"
+      ,"configDescription": "编辑 {{name}} 在当前号池卡片上的配置，使用 JSON 对象格式。"
+      ,"configSave": "保存配置"
+      ,"configSaving": "保存中..."
+      ,"configSaved": "插件配置已保存"
+      ,"configLoadFailed": "插件配置加载失败"
     },
     "scope": {
       "title": "配置面板",
@@ -5915,6 +5922,15 @@
     "requestRetry": "请求重试次数",
     "maxRetryCredentials": "最大重试凭据数",
     "maxRetryInterval": "最大重试间隔（秒）",
+    "oauthExcludedModels": "OAuth 排除模型",
+    "oauthExcludedModelsPlaceholder": "每行一个模型名称",
+    "oauthModelAliases": "OAuth 模型别名",
+    "oauthModelAliasesDescription": "为各供应商配置上游模型名和对外模型名",
+    "upstreamModel": "上游模型名",
+    "publicModel": "对外模型名",
+    "addAlias": "添加别名",
+    "removeAlias": "删除",
+    "oauthRequestScopedErrors": "启用 OAuth 请求级错误规则",
     "plugins": "启用插件",
     "accessDescription": "服务级接入设置由 LiteLLM 和 Manager 继承提供",
     "quotaDescription": "配额回退设置由供应商和卡片策略管理",

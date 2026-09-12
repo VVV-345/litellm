@@ -23571,20 +23571,82 @@ export interface components {
              */
             default_route: "auto" | "priority" | "random" | "quota";
             /**
+             * Error Logs Max Files
+             * @default 10
+             */
+            error_logs_max_files: number;
+            /**
              * File Logging Enabled
              * @default false
              */
             file_logging_enabled: boolean;
+            /**
+             * Force Model Prefix
+             * @default false
+             */
+            force_model_prefix: boolean;
+            /**
+             * Logs Max Total Size Mb
+             * @default 0
+             */
+            logs_max_total_size_mb: number;
             /**
              * Max Attempts
              * @default 1
              */
             max_attempts: number;
             /**
+             * Max Retry Credentials
+             * @default 1
+             */
+            max_retry_credentials: number;
+            /**
+             * Max Retry Interval
+             * @default 0
+             */
+            max_retry_interval: number;
+            /**
+             * Oauth Excluded Models
+             * @default []
+             */
+            oauth_excluded_models: string[];
+            /** Oauth Model Aliases */
+            oauth_model_aliases?: {
+                [key: string]: [
+                    string,
+                    string
+                ][];
+            };
+            /**
+             * Oauth Request Scoped Errors
+             * @default false
+             */
+            oauth_request_scoped_errors: boolean;
+            /**
              * Plugins Enabled
              * @default false
              */
             plugins_enabled: boolean;
+            /**
+             * Quota Switch Preview Model
+             * @default false
+             */
+            quota_switch_preview_model: boolean;
+            /**
+             * Quota Switch Project
+             * @default false
+             */
+            quota_switch_project: boolean;
+            /**
+             * Request Log Enabled
+             * @default false
+             */
+            request_log_enabled: boolean;
+            /**
+             * Request Retry
+             * @default 1
+             */
+            request_retry: number;
             /**
              * Request Timeout Seconds
              * @default 120
@@ -23595,6 +23657,16 @@ export interface components {
              * @default []
              */
             streaming_rules: components["schemas"]["StreamingRule"][];
+            /**
+             * Usage Statistics Enabled
+             * @default false
+             */
+            usage_statistics_enabled: boolean;
+            /**
+             * Websocket Auth Enabled
+             * @default false
+             */
+            websocket_auth_enabled: boolean;
             /**
              * Websocket Enabled
              * @default false
@@ -26477,10 +26549,20 @@ export interface components {
              */
             compact_ui: "inherit" | "enabled" | "disabled";
             /**
+             * Disable Codex Cloaking
+             * @default false
+             */
+            disable_codex_cloaking: boolean;
+            /**
              * Experimental Context Management
              * @default false
              */
             experimental_context_management: boolean;
+            /**
+             * Identity Confuse
+             * @default false
+             */
+            identity_confuse: boolean;
             /**
              * Identity Fingerprint Mode
              * @default off
@@ -34951,12 +35033,16 @@ export interface components {
              */
             metadata_status: "saved";
             policy?: components["schemas"]["AccountPolicy"];
+            /** Runtime Error */
+            runtime_error?: string | null;
             /**
              * Runtime Status
              * @default partial
-             * @constant
+             * @enum {string}
              */
-            runtime_status: "partial";
+            runtime_status: "partial" | "synced" | "failed";
+            /** Runtime Updated At */
+            runtime_updated_at?: string | null;
             /**
              * Version
              * @default 0

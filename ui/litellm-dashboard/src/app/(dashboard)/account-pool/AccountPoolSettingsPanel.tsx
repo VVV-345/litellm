@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
 import {
@@ -51,6 +52,8 @@ const defaults: AccountPoolSettings = {
   plugins_enabled: false,
   streaming_rules: [],
 };
+
+const OAUTH_ALIAS_CHANNELS = ["codex", "claude", "antigravity", "kimi", "xai", "gemini", "vertex", "aistudio"] as const;
 
 type Props = {
   accessToken: string;
@@ -161,6 +164,8 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props & 
       />
     </div>
   );
+  const updateOAuthAliases = (channel: string, aliases: Array<[string, string]>) =>
+    update("oauth_model_aliases", { ...(values.oauth_model_aliases ?? {}), [channel]: aliases });
 
   return (
     <div className="grid gap-5" data-testid="account-pool-settings-panel">
@@ -273,6 +278,42 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props & 
               {numberField("request_retry", t("accountPool.settings.requestRetry"))}
               {numberField("max_retry_credentials", t("accountPool.settings.maxRetryCredentials"))}
               {numberField("max_retry_interval", t("accountPool.settings.maxRetryInterval"))}
+              <div className="grid gap-1 sm:col-span-2">
+                <Label htmlFor="account-pool-oauth-excluded-models">{t("accountPool.settings.oauthExcludedModels")}</Label>
+                <Textarea
+                  id="account-pool-oauth-excluded-models"
+                  value={(values.oauth_excluded_models ?? []).join("\n")}
+                  disabled={busy}
+                  onChange={(event) => update("oauth_excluded_models", event.target.value.split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean))}
+                  placeholder={t("accountPool.settings.oauthExcludedModelsPlaceholder")}
+                  className="min-h-20"
+                />
+              </div>
+              <div className="grid gap-3 sm:col-span-2">
+                <div>
+                  <Label>{t("accountPool.settings.oauthModelAliases")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("accountPool.settings.oauthModelAliasesDescription")}</p>
+                </div>
+                {OAUTH_ALIAS_CHANNELS.map((channel) => {
+                  const aliases = values.oauth_model_aliases?.[channel] ?? [];
+                  return (
+                    <div key={channel} className="grid gap-2 rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-2 border-b pb-2">
+                        <span className="text-sm font-medium">{channel}</span>
+                        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => updateOAuthAliases(channel, [...aliases, ["", ""]])}>{t("accountPool.settings.addAlias")}</Button>
+                      </div>
+                      {aliases.map(([name, alias], index) => (
+                        <div key={`${channel}-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                          <Input value={name} disabled={busy} placeholder={t("accountPool.settings.upstreamModel")} onChange={(event) => updateOAuthAliases(channel, aliases.map((item, itemIndex) => itemIndex === index ? [event.target.value, item[1]] : item))} />
+                          <Input value={alias} disabled={busy} placeholder={t("accountPool.settings.publicModel")} onChange={(event) => updateOAuthAliases(channel, aliases.map((item, itemIndex) => itemIndex === index ? [item[0], event.target.value] : item))} />
+                          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => updateOAuthAliases(channel, aliases.filter((_, itemIndex) => itemIndex !== index))}>{t("accountPool.settings.removeAlias")}</Button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+              {toggleField("oauth_request_scoped_errors", t("accountPool.settings.oauthRequestScopedErrors"))}
             </TabsContent>
             <TabsContent value="payload" className="pt-4"><p className="text-sm text-muted-foreground">{t("accountPool.settings.payloadDescription")}</p></TabsContent>
           </Tabs>
