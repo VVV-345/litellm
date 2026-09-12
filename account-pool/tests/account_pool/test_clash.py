@@ -27,6 +27,12 @@ async def test_list_nodes_parses_proxies_and_filters_builtin_entries() -> None:
                     "日本02": {"type": "Vmess"},
                     "DIRECT": {"type": "Direct"},
                     "REJECT": {"type": "Reject"},
+                    "DROP": {"type": "RejectDrop"},
+                    "自动选择": {"type": "URLTest", "all": ["美国01", "日本02"]},
+                    "clash-gateway-7891": {
+                        "type": "Selector",
+                        "all": ["美国01", "日本02"],
+                    },
                 }
             },
         )

@@ -924,6 +924,8 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
     assert manager["cap_drop"] == ["ALL"]
     assert manager["security_opt"] == ["no-new-privileges:true"]
     assert manager["mem_limit"] == "512m"
+    assert "ACCOUNT_POOL_PROXY_GATEWAY_HOST" not in manager["environment"]
+    assert "ACCOUNT_POOL_CLASH_CONFIG_PATH" not in manager["environment"]
     assert manager["cpus"] == "1.0"
     assert manager["pids_limit"] == 256
     assert manager["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}

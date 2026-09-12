@@ -11,6 +11,20 @@ import httpx
 _TIMEOUT_SECONDS: Final = 10.0
 _DELAY_TEST_URL: Final = "https://www.gstatic.com/generate_204"
 _DELAY_TIMEOUT_MS: Final = 5000
+_NON_EGRESS_PROXY_TYPES: Final = frozenset(
+    {
+        "Compatible",
+        "Direct",
+        "Fallback",
+        "LoadBalance",
+        "Pass",
+        "Reject",
+        "RejectDrop",
+        "Relay",
+        "Selector",
+        "URLTest",
+    }
+)
 
 ClashDelayStatus = Literal["ok", "timeout", "error"]
 
@@ -44,7 +58,7 @@ def _proxies_payload_to_nodes(payload: object) -> tuple[ClashProxyNode, ...]:
         proxy_type: Final = entry.get("type")
         if not isinstance(name, str) or not isinstance(proxy_type, str):
             continue
-        if proxy_type in {"Direct", "Reject", "Compatible", "Pass"}:
+        if proxy_type in _NON_EGRESS_PROXY_TYPES or isinstance(entry.get("all"), list):
             continue
         nodes.append(ClashProxyNode(name=name, proxy_type=proxy_type))
     return tuple(sorted(nodes, key=lambda node: node.name))
