@@ -1,6 +1,0 @@
-# 构建只需要适配器及锁定的依赖描述。
-*
-!Dockerfile
-!package.json
-!package-lock.json
-!proxy-bootstrap.mjs

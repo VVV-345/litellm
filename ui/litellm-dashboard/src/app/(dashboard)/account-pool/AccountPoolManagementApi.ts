@@ -125,11 +125,7 @@ export const patchAccountPoolAuthFileStatus = (accessToken: string, cardId: stri
     { accessToken, body: { disabled } },
   );
 
-export const patchAccountPoolAuthFileFields = (
-  accessToken: string,
-  cardId: string,
-  fields: Record<string, unknown>,
-) =>
+export const patchAccountPoolAuthFileFields = (accessToken: string, cardId: string, fields: Record<string, unknown>) =>
   apiClient.patch<components["schemas"]["AccountPoolEnvironment"]>(
     `/account_pool/environments/${encodeURIComponent(cardId)}/auth-file/fields`,
     { accessToken, body: { fields } },
@@ -176,16 +172,18 @@ export const installAccountPoolPlugin = (accessToken: string, manifest: AccountP
   apiClient.post<AccountPoolPluginRecord>("/account_pool/plugins", { accessToken, body: manifest });
 
 export const setAccountPoolPluginEnabled = (accessToken: string, pluginId: string, enabled: boolean) =>
-  apiClient.post<AccountPoolPluginRecord>(`/account_pool/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`, { accessToken });
+  apiClient.post<AccountPoolPluginRecord>(
+    `/account_pool/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`,
+    { accessToken },
+  );
 
 export const uninstallAccountPoolPlugin = (accessToken: string, pluginId: string) =>
   apiClient.delete<void>(`/account_pool/plugins/${encodeURIComponent(pluginId)}`, { accessToken });
 
 export const listCardAccountPoolPlugins = (accessToken: string, cardId: string) =>
-  apiClient.get<AccountPoolPluginRuntimeResponse>(
-    `/account_pool/environments/${encodeURIComponent(cardId)}/plugins`,
-    { accessToken },
-  );
+  apiClient.get<AccountPoolPluginRuntimeResponse>(`/account_pool/environments/${encodeURIComponent(cardId)}/plugins`, {
+    accessToken,
+  });
 
 export const listCardAccountPoolPluginStore = (accessToken: string, cardId: string) =>
   apiClient.get<AccountPoolPluginRuntimeResponse>(
@@ -193,13 +191,23 @@ export const listCardAccountPoolPluginStore = (accessToken: string, cardId: stri
     { accessToken },
   );
 
-export const installCardAccountPoolPlugin = (accessToken: string, cardId: string, pluginId: string, version: string) =>
+export const installCardAccountPoolPlugin = (
+  accessToken: string,
+  cardId: string,
+  pluginId: string,
+  request: { version: string; source?: string },
+) =>
   apiClient.post<AccountPoolPluginRuntimeResponse>(
     `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/install`,
-    { accessToken, body: { version } },
+    { accessToken, body: request },
   );
 
-export const setCardAccountPoolPluginEnabled = (accessToken: string, cardId: string, pluginId: string, enabled: boolean) =>
+export const setCardAccountPoolPluginEnabled = (
+  accessToken: string,
+  cardId: string,
+  pluginId: string,
+  enabled: boolean,
+) =>
   apiClient.patch<AccountPoolPluginRuntimeResponse>(
     `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/enabled`,
     { accessToken, body: { enabled } },

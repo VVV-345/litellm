@@ -21,6 +21,7 @@ const environment = (status: AccountPoolEnvironment["status"]): AccountPoolEnvir
   provider: "openai",
   channel: "cliproxyapi",
   supplier: "openai_codex",
+  authorization_flow: "browser_oauth",
   desired_configuration_version: 0,
   observed_configuration_version: 0,
   automatic_cooldown: false,
@@ -62,6 +63,9 @@ describe("account pool lifecycle controls", () => {
     expect(canDeleteEnvironment(pending)).toBe(true);
     expect(canDeleteEnvironment(deleting)).toBe(false);
     expect(canAuthorizeEnvironment(environment("awaiting_authorization"))).toBe(true);
+    expect(canAuthorizeEnvironment({ ...environment("error"), authorization_flow: "direct_credential" })).toBe(false);
+    expect(canConfigureEnvironment(environment("migration_required"))).toBe(false);
+    expect(canToggleEnvironment(environment("migration_required"))).toBe(false);
   });
 
   it("rejects missing, removed, and unsafe proxy profiles before saving", () => {

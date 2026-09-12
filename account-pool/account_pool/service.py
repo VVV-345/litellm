@@ -22,10 +22,13 @@ from account_pool.cleanup import compose_removed, directory_removed, routes_remo
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
+    AuthorizationInstructionFlow,
     AuthorizationView,
     ChannelKind,
     CleanupProgress,
+    CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
+    CreateVertexEnvironmentRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
@@ -85,6 +88,8 @@ _AUTHORIZATION_COMPLETE_STATUSES: Final = frozenset(
     (EnvironmentStatus.READY, EnvironmentStatus.DISABLED, EnvironmentStatus.COOLING_DOWN)
 )
 _AUTHORIZATION_VALIDATION_TIMEOUT: Final = timedelta(minutes=2)
+_DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS: Final = 20.0
+_DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS: Final = 0.5
 
 
 class EnvironmentService:
@@ -100,6 +105,8 @@ class EnvironmentService:
         proxy_gateways: ProxyGatewayService | None = None,
         error_logs: ErrorLogService | None = None,
         global_settings: AccountPoolSettingsRepository | None = None,
+        direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
+        direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
         self._settings: Final = settings
         self._repository: Final = repository
@@ -108,13 +115,13 @@ class EnvironmentService:
         self._proxy_profiles: Final = proxy_profiles
         self._secrets: Final = secrets
         self._channels: Final = channels or ChannelRegistry.default(self._settings, self._secrets)
-        self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(
-            self._settings, proxy_profiles
-        )
+        self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(self._settings, proxy_profiles)
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
         self._error_logs: Final = error_logs
         self._global_settings: Final = global_settings
+        self._direct_credential_validation_timeout_seconds: Final = direct_credential_validation_timeout_seconds
+        self._direct_credential_validation_interval_seconds: Final = direct_credential_validation_interval_seconds
 
     async def _account_pool_settings(self) -> AccountPoolSettings:
         if self._global_settings is None:
@@ -134,7 +141,12 @@ class EnvironmentService:
         return Success((ProxyMode.PROFILE, settings.default_proxy_profile_id, validated_url))
 
     async def _log_event(
-        self, record: EnvironmentRecord, stage: LogStage, error: Exception | None, *, retryable: bool = False,
+        self,
+        record: EnvironmentRecord,
+        stage: LogStage,
+        error: Exception | None,
+        *,
+        retryable: bool = False,
     ) -> None:
         if self._error_logs is not None:
             await self._error_logs.record(record, stage, error, retryable=retryable)
@@ -177,9 +189,7 @@ class EnvironmentService:
         )
         return tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
 
-    async def _sync_global_settings_for_record(
-        self, record: EnvironmentRecord, settings: AccountPoolSettings
-    ) -> None:
+    async def _sync_global_settings_for_record(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
         if record.channel is not ChannelKind.CLIPROXYAPI or record.status is EnvironmentStatus.DELETING:
             return
         await self._cli_proxy.apply_global_settings(record, settings)
@@ -195,10 +205,10 @@ class EnvironmentService:
         return await self._plugin_call(environment_id, lambda record: self._cli_proxy.list_plugin_store(record))
 
     async def install_card_plugin(
-        self, environment_id: UUID, plugin_id: str, version: str
+        self, environment_id: UUID, plugin_id: str, version: str, source: str | None
     ) -> Result[Mapping[str, object]]:
         return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.install_plugin(record, plugin_id, version)
+            environment_id, lambda record: self._cli_proxy.install_plugin(record, plugin_id, version, source)
         )
 
     async def set_card_plugin_enabled(
@@ -298,9 +308,7 @@ class EnvironmentService:
         await self._repository.save_if_version(cleared, record.version)
         return Success(to_view(cleared))
 
-    async def patch_auth_file_status(
-        self, environment_id: UUID, disabled: bool
-    ) -> Result[EnvironmentView]:
+    async def patch_auth_file_status(self, environment_id: UUID, disabled: bool) -> Result[EnvironmentView]:
         record: Final = await self._repository.get(environment_id)
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
@@ -370,10 +378,12 @@ class EnvironmentService:
     async def _start_authorization(
         self,
         record: EnvironmentRecord,
-    ) -> tuple[str, str, str, AuthorizationFlow, str | None, int | None]:
+    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]:
         channel: Final = self._channel(record)
         result: Final = await channel.start_authorization(record)
         supplier: Final = channel.supplier(record.supplier)
+        if supplier.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
+            raise RuntimeError("direct credential suppliers do not use authorization instructions")
         callback_state: Final = self._callback_state(record)
         callback_url: Final = _replace_state(result.authorization_url, callback_state)
         return (
@@ -387,12 +397,16 @@ class EnvironmentService:
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
         if request.channel is ChannelKind.FREEBUFF2API:
-            return Failure(FailureCode.INVALID, "freebuff2api channel has been retired; create an OpenAI-compatible card")
+            return Failure(
+                FailureCode.INVALID, "freebuff2api channel has been retired; create an OpenAI-compatible card"
+            )
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
         except (KeyError, UnsupportedChannelError) as error:
             return Failure(FailureCode.INVALID, str(error))
+        if supplier_definition.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
+            return Failure(FailureCode.INVALID, "direct credential suppliers require the credential creation endpoint")
         if request.operation_id is not None:
             existing: Final = await self._find_by_operation_id(request.operation_id)
             if existing is not None:
@@ -514,6 +528,160 @@ class EnvironmentService:
             )
         )
 
+    async def create_direct_credential_environment(
+        self, request: CreateDirectCredentialEnvironmentRequest
+    ) -> Result[EnvironmentView]:
+        return await self._create_direct_credential_environment(
+            name=request.name,
+            supplier=request.supplier,
+            operation_id=request.operation_id,
+            write_credential=lambda channel, record, proxy_url: channel.write_direct_api_key(
+                record, request.credential, proxy_url
+            ),
+        )
+
+    async def create_vertex_environment(
+        self,
+        request: CreateVertexEnvironmentRequest,
+        filename: str,
+        content: bytes,
+    ) -> Result[EnvironmentView]:
+        return await self._create_direct_credential_environment(
+            name=request.name,
+            supplier=SupplierKind.VERTEX,
+            operation_id=request.operation_id,
+            write_credential=lambda channel, record, _: channel.import_vertex_credential(
+                record, filename, content, request.location
+            ),
+        )
+
+    async def _create_direct_credential_environment(
+        self,
+        *,
+        name: str,
+        supplier: SupplierKind,
+        operation_id: str | None,
+        write_credential: Callable[[EnvironmentChannel, EnvironmentRecord, str], Awaitable[None]],
+    ) -> Result[EnvironmentView]:
+        try:
+            supplier_definition: Final = self._channels.get(ChannelKind.CLIPROXYAPI).supplier(supplier)
+        except (KeyError, UnsupportedChannelError) as error:
+            return Failure(FailureCode.INVALID, str(error))
+        if supplier_definition.authorization_flow is not AuthorizationFlow.DIRECT_CREDENTIAL:
+            return Failure(FailureCode.INVALID, "supplier does not accept direct credentials")
+        if operation_id is not None:
+            existing: Final = await self._find_by_operation_id(operation_id)
+            if existing is not None:
+                return Success(to_view(existing))
+        pool_settings: Final = await self._account_pool_settings()
+        proxy_result: Final = await self._default_proxy(pool_settings)
+        if isinstance(proxy_result, Failure):
+            return proxy_result
+        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
+        now: Final = utc_now()
+        record: Final = EnvironmentRecord(
+            id=uuid4(),
+            version=0,
+            desired_state=EnvironmentStatus.VALIDATING,
+            operation_id=operation_id or str(uuid4()),
+            name=name,
+            provider=Provider.OPENAI,
+            channel=ChannelKind.CLIPROXYAPI,
+            supplier=supplier,
+            authorization_flow=AuthorizationFlow.DIRECT_CREDENTIAL,
+            status=EnvironmentStatus.PROVISIONING,
+            enabled=True,
+            manual_cooldown=False,
+            concurrency_limit=pool_settings.default_concurrency_limit,
+            proxy_mode=proxy_mode,
+            proxy_profile_id=proxy_profile_id,
+            available_models=(),
+            enabled_models=(),
+            auth_file_name=None,
+            auth_index=None,
+            quota=QuotaSnapshot(),
+            model_quotas=(),
+            cooldown_until=None,
+            oauth_state=None,
+            oauth_expires_at=None,
+            oauth_state_consumed_at=None,
+            oauth_state_signature=None,
+            oauth_provider_state=None,
+            oauth_authorization_url=None,
+            authorization_user_code=None,
+            last_error=None,
+            created_at=now,
+            updated_at=now,
+        )
+        await self._repository.save(record)
+        try:
+            channel: Final = self._channel(record)
+            await channel.provision(record)
+            await write_credential(channel, record, proxy_url)
+            validating: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "status": EnvironmentStatus.VALIDATING,
+                    "desired_state": EnvironmentStatus.VALIDATING,
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save(validating)
+            observed: Final = await self._wait_for_direct_credential(channel, validating)
+            desired: Final = configuration_from_record(observed, proxy_url).model_copy(
+                update={"enabled_models": observed.enabled_models}
+            )
+            pending: Final = observed.model_copy(
+                update={
+                    "version": validating.version + 1,
+                    "status": EnvironmentStatus.READY,
+                    "desired_state": EnvironmentStatus.READY,
+                    "configuration_pending": True,
+                    "desired_configuration_version": validating.desired_configuration_version + 1,
+                    "desired_configuration": desired,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save(pending)
+            reconciled: Final = await self._apply_and_persist_configuration(pending, desired)
+            if isinstance(reconciled, Failure):
+                return reconciled
+            return reconciled
+        except Exception:
+            current: Final = await self._repository.get(record.id) or record
+            public_error: Final = RuntimeError("Direct credential validation failed")
+            failed: Final = current.model_copy(
+                update={
+                    "version": current.version + 1,
+                    "status": EnvironmentStatus.ERROR,
+                    "desired_state": EnvironmentStatus.ERROR,
+                    "configuration_pending": False,
+                    "last_error": str(public_error),
+                    "updated_at": utc_now(),
+                }
+            )
+            await self._repository.save(failed)
+            await self._log_event(failed, "authentication", public_error)
+            return Failure(FailureCode.UPSTREAM, "direct credential validation failed")
+
+    async def _wait_for_direct_credential(
+        self, channel: EnvironmentChannel, record: EnvironmentRecord
+    ) -> EnvironmentRecord:
+        deadline: Final = asyncio.get_running_loop().time() + self._direct_credential_validation_timeout_seconds
+        last_error: Exception | None = None
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                observed: Final = await channel.read_account(record)
+                if observed.available_models and await channel.data_plane_health_check(observed):
+                    return observed
+            except Exception as error:
+                last_error = error
+            await asyncio.sleep(self._direct_credential_validation_interval_seconds)
+        if last_error is not None:
+            raise RuntimeError(_safe_error(last_error)) from last_error
+        raise RuntimeError("credential was saved but no models became available")
+
     async def create_openai_compatible(self, request: CreateEnvironmentRequest) -> Result[EnvironmentView]:
         if request.provider_family != "openai_compatible" or request.openai_compatible is None:
             return Failure(FailureCode.INVALID, "openai_compatible configuration is required")
@@ -535,7 +703,10 @@ class EnvironmentService:
                 )
             )
         )
-        if any(item.proxy_profile_id is not None and proxy_url is None for item, proxy_url in zip(configuration.api_keys, proxy_urls)):
+        if any(
+            item.proxy_profile_id is not None and proxy_url is None
+            for item, proxy_url in zip(configuration.api_keys, proxy_urls)
+        ):
             return Failure(FailureCode.INVALID, "proxy profile is unavailable")
         try:
             validated_proxy_urls: Final = tuple(
@@ -707,7 +878,12 @@ class EnvironmentService:
                 observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(saved)
             except Exception as error:
                 failed: Final = saved.model_copy(
-                    update={"status": EnvironmentStatus.ERROR, "configuration_pending": False, "last_error": _safe_error(error), "updated_at": utc_now()}
+                    update={
+                        "status": EnvironmentStatus.ERROR,
+                        "configuration_pending": False,
+                        "last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
                 )
                 await self._repository.save_if_version(failed, saved.version)
                 return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
@@ -745,7 +921,9 @@ class EnvironmentService:
             if request.credential_index >= len(configuration.credentials):
                 return Failure(FailureCode.NOT_FOUND, "credential not found")
             credentials: Final = tuple(
-                credential for index, credential in enumerate(configuration.credentials) if index != request.credential_index
+                credential
+                for index, credential in enumerate(configuration.credentials)
+                if index != request.credential_index
             )
             candidate: Final = record.model_copy(
                 update={
@@ -763,7 +941,12 @@ class EnvironmentService:
                 observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(saved)
             except Exception as error:
                 failed: Final = saved.model_copy(
-                    update={"status": EnvironmentStatus.ERROR, "configuration_pending": False, "last_error": _safe_error(error), "updated_at": utc_now()}
+                    update={
+                        "status": EnvironmentStatus.ERROR,
+                        "configuration_pending": False,
+                        "last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
                 )
                 await self._repository.save_if_version(failed, saved.version)
                 return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
@@ -791,8 +974,12 @@ class EnvironmentService:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.status is EnvironmentStatus.MIGRATION_REQUIRED or record.channel is ChannelKind.FREEBUFF2API:
+                return Failure(FailureCode.INVALID, "retired cards are read-only and can only be exported or deleted")
             if record.status is EnvironmentStatus.DELETING:
                 return Failure(FailureCode.CONFLICT, "environment is being deleted")
+            if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
+                return Failure(FailureCode.INVALID, "direct credential cards do not use OAuth authorization")
             if (
                 operation_id is not None
                 and record.operation_id == operation_id
@@ -1010,6 +1197,8 @@ class EnvironmentService:
     def _authorization_view(self, record: EnvironmentRecord) -> AuthorizationView:
         if record.oauth_authorization_url is None or record.oauth_expires_at is None:
             raise RuntimeError("authorization operation has no active credentials")
+        if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
+            raise RuntimeError("direct credential cards do not have authorization instructions")
         supplier: Final = self._channels.get(record.channel).supplier(record.supplier)
         return AuthorizationView(
             environment=to_view(record),
@@ -1057,7 +1246,8 @@ class EnvironmentService:
                 "desired_state": status,
                 "last_error": (
                     f"Account channel startup validation timed out: {message}"
-                    if expired else f"Waiting for account channel startup; retrying: {message}"
+                    if expired
+                    else f"Waiting for account channel startup; retrying: {message}"
                 ),
                 "updated_at": now,
             }
@@ -1143,6 +1333,8 @@ class EnvironmentService:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.status is EnvironmentStatus.MIGRATION_REQUIRED or record.channel is ChannelKind.FREEBUFF2API:
+                return Failure(FailureCode.INVALID, "retired cards are read-only and can only be exported or deleted")
             if request.operation_id is not None and record.operation_id == request.operation_id:
                 if (
                     record.configuration_pending
@@ -1152,7 +1344,8 @@ class EnvironmentService:
                     return await self._apply_and_persist_configuration(record, desired)
                 return Success(to_view(record))
             if record.auth_file_name is None and record.status not in (
-                EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.ERROR,
+                EnvironmentStatus.AWAITING_AUTHORIZATION,
+                EnvironmentStatus.ERROR,
             ):
                 if record.channel is not ChannelKind.OPENAI_COMPATIBLE:
                     return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
@@ -1239,11 +1432,83 @@ class EnvironmentService:
     async def reconcile_pending_authorizations(self) -> None:
         """关闭页面后仍由后台继续验证已接收的授权，不重复领取或写入凭据。"""
         records: Final = await self._repository.list()
-        await asyncio.gather(*(
-            self._refresh_if_needed(record)
-            for record in records
-            if record.status is EnvironmentStatus.VALIDATING
-        ))
+        await asyncio.gather(
+            *(self._refresh_if_needed(record) for record in records if record.status is EnvironmentStatus.VALIDATING)
+        )
+
+    async def retire_legacy_environments(self) -> tuple[UUID, ...]:
+        """将历史 FreeBuff 卡片摘出路由并停止其旧容器，保留删除所需元数据。"""
+        records: Final = await self._repository.list()
+        results: Final = await asyncio.gather(
+            *(
+                self._retire_legacy_environment(record)
+                for record in records
+                if record.channel is ChannelKind.FREEBUFF2API
+            )
+        )
+        return tuple(record.id for record in results if not record.legacy_runtime_stopped)
+
+    async def _retire_legacy_environment(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        lock: Final = await self._lock_for(record.id)
+        async with lock:
+            current: Final = await self._repository.get(record.id) or record
+            if current.channel is not ChannelKind.FREEBUFF2API or current.status is EnvironmentStatus.DELETING:
+                return current
+            requires_state_change: Final = (
+                current.status is not EnvironmentStatus.MIGRATION_REQUIRED
+                or current.desired_state is not EnvironmentStatus.MIGRATION_REQUIRED
+                or current.enabled
+                or current.configuration_pending
+            )
+            migrated: Final = (
+                current.model_copy(
+                    update={
+                        "version": current.version + 1,
+                        "status": EnvironmentStatus.MIGRATION_REQUIRED,
+                        "desired_state": EnvironmentStatus.MIGRATION_REQUIRED,
+                        "enabled": False,
+                        "manual_cooldown": False,
+                        "automatic_cooldown": False,
+                        "cooldown_until": None,
+                        "configuration_pending": False,
+                        "legacy_runtime_stopped": False,
+                        "last_error": "FreeBuff has been retired; export this card before deleting it",
+                        "updated_at": utc_now(),
+                    }
+                )
+                if requires_state_change
+                else current
+            )
+            durable: Final = (
+                await self._repository.save_if_version(migrated, current.version) if requires_state_change else current
+            )
+            if durable is None:
+                return await self._repository.get(record.id) or current
+            if durable.legacy_runtime_stopped:
+                return durable
+            try:
+                await self._channel(durable).set_running(durable, False)
+            except Exception as error:
+                failed: Final = durable.model_copy(
+                    update={
+                        "version": durable.version + 1,
+                        "configuration_last_error": _safe_error(error),
+                        "updated_at": utc_now(),
+                    }
+                )
+                saved_failed: Final = await self._repository.save_if_version(failed, durable.version)
+                await self._log_event(saved_failed or failed, "cleanup", error, retryable=True)
+                return saved_failed or failed
+            stopped: Final = durable.model_copy(
+                update={
+                    "version": durable.version + 1,
+                    "legacy_runtime_stopped": True,
+                    "configuration_last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            saved: Final = await self._repository.save_if_version(stopped, durable.version)
+            return saved or await self._repository.get(record.id) or durable
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(record.id)
@@ -1437,6 +1702,8 @@ class EnvironmentService:
         return await channel.data_plane_health_check(record)
 
     async def _refresh_if_needed(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        if record.channel is ChannelKind.FREEBUFF2API:
+            return await self._retire_legacy_environment(record)
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
             EnvironmentStatus.VALIDATING,
@@ -1530,7 +1797,9 @@ class EnvironmentService:
             return await self._persist_authorization_failure(record, "invalid OAuth state")
         try:
             channel: Final = self._channel(record)
-            status: Final = await channel.authorization_status(record, record.oauth_provider_state or record.oauth_state)
+            status: Final = await channel.authorization_status(
+                record, record.oauth_provider_state or record.oauth_state
+            )
         except Exception as error:
             # 展示脱敏后的失败原因并保留授权状态，短暂断网或写入失败后仍可重试。
             return await self._update_authorization_error(record, _safe_error(error))
@@ -1589,7 +1858,10 @@ class EnvironmentService:
         return Success(validated_url)
 
     def _gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
-        return self._channel(record).gateway(record)
+        gateway: Final = self._channel(record).gateway(record)
+        if record.channel is ChannelKind.FREEBUFF2API or record.status is EnvironmentStatus.MIGRATION_REQUIRED:
+            return gateway.model_copy(update={"routable": False, "enabled_models": ()})
+        return gateway
 
     async def _lock_for(self, environment_id: UUID) -> asyncio.Lock:
         async with self._locks_guard:
@@ -1602,7 +1874,9 @@ class EnvironmentService:
 
 
 def _authorization_expires_at(flow: AuthorizationFlow, expires_in_seconds: int | None) -> datetime:
-    duration: Final = expires_in_seconds if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None else 300
+    duration: Final = (
+        expires_in_seconds if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None else 300
+    )
     return utc_now() + timedelta(seconds=min(max(duration, 1), 3600))
 
 

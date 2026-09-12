@@ -10,7 +10,13 @@ from uuid import UUID
 
 from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest
 from account_pool.batch_repository import BatchRepository
-from account_pool.domain import EnvironmentRecord, EnvironmentStatus, UpdateEnvironmentRequest, configuration_from_record, utc_now
+from account_pool.domain import (
+    EnvironmentRecord,
+    EnvironmentStatus,
+    UpdateEnvironmentRequest,
+    configuration_from_record,
+    utc_now,
+)
 from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.gateway_repository import CooldownRepository
 from account_pool.policies import AccountPolicy, PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
@@ -87,6 +93,8 @@ class BatchService:
                 if claim.request.action == "delete"
                 else Failure(FailureCode.NOT_FOUND, "Account no longer exists")
             )
+        if record.status is EnvironmentStatus.MIGRATION_REQUIRED and claim.request.action != "delete":
+            return Failure(FailureCode.INVALID, "Retired cards are read-only and can only be exported or deleted")
         operation_id: Final = f"batch:{claim.request.job_id}:{record.id}"
         if claim.request.action == "delete":
             owns_cleanup: Final = record.status is EnvironmentStatus.DELETING and record.operation_id == operation_id

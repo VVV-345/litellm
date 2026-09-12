@@ -51,33 +51,23 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
 
 号池按两层组织上游账号。渠道是承载账号的反代程序，供应商是渠道内提供模型的订阅来源
 
-- CLIProxyAPI（正式实现）：镜像固定为 `eceasy/cli-proxy-api:v7.2.146`。支持五个供应商，均通过 CLIProxyAPI 的 OpenAI-compatible 数据面对外提供模型：
+- CLIProxyAPI（正式实现）：镜像固定为 `eceasy/cli-proxy-api:v7.2.155`。支持 OAuth、设备码、API Key 和 Vertex 服务账号供应商，均通过 CLIProxyAPI 的 OpenAI-compatible 数据面对外提供模型：
   - OpenAI Codex：浏览器 OAuth，回调端口 1455，路径 `/auth/callback`
   - Anthropic Claude：浏览器 OAuth，回调端口 54545，路径 `/callback`
   - Google Antigravity：浏览器 OAuth，回调端口 51121，路径 `/oauth-callback`
   - Kimi：设备码授权，返回用户码，无 SSH 隧道
   - xAI：设备码授权，返回用户码，无 SSH 隧道
-- FreeBuff2API（正式实现）：使用 `freebuff2api-image/` 构建的代理适配镜像，基础版本固定为 `pingmike/freebuff2api@sha256:52e511ed...`。启动适配器为 Node 的 `fetch` 设置代理，原有 FreeBuff 业务代码保持在基础镜像中。唯一供应商 FreeBuff（Codebuff）：打开 codebuff.com 登录链接完成 Google/GitHub 授权后，Manager 轮询拿到 authToken 写入数据卷凭据文件并重启容器。数据面为 OpenAI 兼容 `/v1`（容器别名 `freebuff-<UUID>`，端口 8787）。授权请求和模型请求都支持账号选中的公共代理，免费模型需要符合上游要求的美国出口
+- 历史 FreeBuff2API 卡片会自动停用、停止旧容器并标记为待迁移，只保留脱敏导出和删除入口，不再创建或参与路由
 
-所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，CLIProxyAPI v7.2.146 没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
+所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，CLIProxyAPI v7.2.155 没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
 
 授权结果接收后，账号先进入“验证中”。容器启动或模型读取暂时失败时，后台默认每 5 秒重试，关闭页面或重启 Manager 也会继续。启动等待期限为授权结果接收后的 2 分钟，持续失败时显示超时原因；成功后才进入可用状态并交给 LiteLLM 同步模型。重试验证不会重复领取授权、写入凭据或重启容器
 
 ## 公共代理出口
 
-CLIProxyAPI 和 FreeBuff 共用 `ProxyGatewayService` 登记的代理名单。比如配置 7891 到 7910 共 20 个端口后，两个渠道的账号都可以选择同一个 7891。代理设置里更换 7891 的 Clash 节点，该端口上的所有账号随之使用同一出口；已有连接可能继续使用原节点，新连接使用更新后的节点
-
-FreeBuff 的账号配置通过 `FREEBUFF_PROXY_URL` 写入 Compose，容器启动时加载 `proxy-bootstrap.mjs`。切换账号使用的端口会更新该账号容器，登录凭据和数据卷保留；取消指定代理则恢复默认出站。只改名称、模型或并发时，Compose 不会因这些字段重建容器。代理失效时请求报错，不自动回退直连
+CLIProxyAPI 账号共用 `ProxyGatewayService` 登记的代理名单。比如配置 7891 到 7910 共 20 个端口后，多张卡片可以选择同一个 7891。代理设置里更换 7891 的 Clash 节点，该端口上的所有账号随之使用同一出口；已有连接可能继续使用原节点，新连接使用更新后的节点
 
 Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。浏览器打开登录页面仍使用浏览器自身的网络
-
-本地启用 FreeBuff 前，在仓库根目录构建适配镜像：
-
-```bash
-docker build -t litellm-freebuff2api-proxy:1.0.0 account-pool/freebuff2api-image
-```
-
-生产部署使用 `ACCOUNT_POOL_FREEBUFF2API_IMAGE` 指向已发布的适配镜像，推荐锁定 digest。不能直接填原始 `pingmike/freebuff2api`，因为它不含代理启动模块。发布方式见 `../deploy/DEPLOY.md`
 
 Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`；Manager 和账号容器均设置宿主机地址映射。Clash 的监听地址必须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。Clash 在其他主机上时，填所有账号容器和 Manager 都可访问的主机名或 IP
 

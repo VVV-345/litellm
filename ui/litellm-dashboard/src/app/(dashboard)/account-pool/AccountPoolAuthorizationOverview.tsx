@@ -60,34 +60,39 @@ export const AccountPoolAuthorizationOverview = ({
       </div>
       <div className="border-t pt-5">
         <h3 className="mb-3 text-base font-semibold">{t("accountPool.oauth.cardsTitle")}</h3>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {environments.map((environment) => (
-          <Card key={environment.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="truncate text-base">{environment.name}</CardTitle>
-                <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex items-center justify-between gap-3 text-sm">
-              <div>
-                <p className="text-muted-foreground">{t(`accountPool.supplier.${environment.supplier}`)}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {environment.configuration_pending
-                    ? t("accountPool.oauth.configurationPending")
-                    : t("accountPool.oauth.credentialStored")}
-                </p>
-              </div>
-              {canAuthorizeEnvironment(environment) && (
-                <Button type="button" size="sm" variant="outline" onClick={() => onAuthorize(environment)}>
-                  <KeyRound />
-                  {t("accountPool.oauth.reauthorize")}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {environments
+            .filter(
+              (environment) =>
+                environment.authorization_flow !== "direct_credential" && environment.status !== "migration_required",
+            )
+            .map((environment) => (
+              <Card key={environment.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="truncate text-base">{environment.name}</CardTitle>
+                    <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">{t(`accountPool.supplier.${environment.supplier}`)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {environment.configuration_pending
+                        ? t("accountPool.oauth.configurationPending")
+                        : t("accountPool.oauth.credentialStored")}
+                    </p>
+                  </div>
+                  {canAuthorizeEnvironment(environment) && (
+                    <Button type="button" size="sm" variant="outline" onClick={() => onAuthorize(environment)}>
+                      <KeyRound />
+                      {t("accountPool.oauth.reauthorize")}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+        </div>
       </div>
     </div>
   );

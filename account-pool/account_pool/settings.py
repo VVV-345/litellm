@@ -24,6 +24,52 @@ class StreamingRule(BaseModel):
     card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
 
 
+class OAuthRequestScopedErrorRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    status: int = Field(default=0, ge=0, le=599)
+    match: tuple[str, ...] = Field(default=(), max_length=100)
+    match_regexr: tuple[str, ...] = Field(default=(), max_length=100, alias="match-regexr")
+    action: Literal["stop", "stop-and-cooldown", "continue", "continue-and-cooldown"] = "continue"
+
+
+class PayloadModelRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=256)
+    protocol: str = Field(default="", max_length=80)
+    headers: Mapping[str, str] = Field(default_factory=dict)
+    from_protocol: str = Field(default="", max_length=80, alias="from-protocol")
+    match: tuple[Mapping[str, object], ...] = Field(default=())
+    not_match: tuple[Mapping[str, object], ...] = Field(default=(), alias="not-match")
+    exist: tuple[str, ...] = Field(default=())
+    not_exist: tuple[str, ...] = Field(default=(), alias="not-exist")
+
+
+class PayloadRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    models: tuple[PayloadModelRule, ...] = Field(default=(), max_length=100)
+    params: Mapping[str, object] = Field(default_factory=dict)
+
+
+class PayloadFilterRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    models: tuple[PayloadModelRule, ...] = Field(default=(), max_length=100)
+    params: tuple[str, ...] = Field(default=(), max_length=500)
+
+
+class PayloadSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    default: tuple[PayloadRule, ...] = Field(default=())
+    default_raw: tuple[PayloadRule, ...] = Field(default=(), alias="default-raw")
+    override: tuple[PayloadRule, ...] = Field(default=())
+    override_raw: tuple[PayloadRule, ...] = Field(default=(), alias="override-raw")
+    filter: tuple[PayloadFilterRule, ...] = Field(default=())
+
+
 class AccountPoolSettings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -49,7 +95,8 @@ class AccountPoolSettings(BaseModel):
     quota_switch_preview_model: bool = False
     oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     oauth_model_aliases: Mapping[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
-    oauth_request_scoped_errors: bool = False
+    oauth_request_scoped_errors: Mapping[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)
+    payload: PayloadSettings = Field(default_factory=PayloadSettings)
     plugins_enabled: bool = False
     streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
 

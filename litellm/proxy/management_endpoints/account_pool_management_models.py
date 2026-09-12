@@ -16,6 +16,9 @@ SupplierKind = Literal[
     "google_antigravity",
     "kimi",
     "xai",
+    "gemini",
+    "gemini_interactions",
+    "vertex",
     "freebuff",
 ]
 LogStage = Literal[
@@ -178,33 +181,59 @@ class TransportPolicy(BaseModel):
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity_fingerprint_mode: Literal["off", "device", "session", "full"] = "off"
     cli_only: bool = False
     allow_app_server: bool = False
     allow_app_server_clients: tuple[str, ...] = ()
     responses_compact_enabled: bool = False
-    compact_ui: Literal["inherit", "enabled", "disabled"] = "inherit"
-    model_context_window: int | None = Field(default=None, ge=1, le=10000000)
-    model_auto_compact_token_limit: int | None = Field(default=None, ge=1, le=10000000)
-    experimental_context_management: bool = False
     identity_confuse: bool = False
     disable_codex_cloaking: bool = False
 
-    @model_validator(mode="after")
-    def compact_limit_within_context(self) -> CodexPolicy:
-        if self.model_context_window and self.model_auto_compact_token_limit:
-            if self.model_auto_compact_token_limit > self.model_context_window:
-                raise ValueError("Compact token limit exceeds the context window")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_desktop_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        legacy: Final = frozenset(
+            (
+                "identity_fingerprint_mode",
+                "compact_ui",
+                "model_context_window",
+                "model_auto_compact_token_limit",
+                "experimental_context_management",
+            )
+        )
+        return {key: item for key, item in value.items() if key not in legacy}
 
 
 class ClaudePolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    fingerprint_profile: Literal["inherit", "disabled", "claude-code-cli", "oauth-cli"] = "inherit"
-    experimental_cch_signing: bool = False
-    cloak: bool = False
+    fingerprint_profile: Literal["inherit", "claude-code-cli"] = "inherit"
+    cloak_mode: Literal["auto", "always", "never"] = "auto"
     rebuild_mid_system_message: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        fingerprint: Final = value.get("fingerprint_profile", "inherit")
+        normalized_fingerprint: Final = (
+            "claude-code-cli" if fingerprint in ("claude-code-cli", "oauth-cli") else "inherit"
+        )
+        legacy_cloak: Final = value.get("cloak")
+        cloak_mode: Final = value.get("cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto")
+        return {
+            key: item
+            for key, item in {**value, "fingerprint_profile": normalized_fingerprint, "cloak_mode": cloak_mode}.items()
+            if key not in {"experimental_cch_signing", "cloak"}
+        }
+
+
+class KimiPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fingerprint_profile: Literal["inherit", "claude-code-cli"] = "inherit"
 
 
 class XaiPolicy(BaseModel):
@@ -213,18 +242,36 @@ class XaiPolicy(BaseModel):
     inject_x_search: bool = False
 
 
-class OpenAICompatiblePolicy(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    support_prompt_cache_key: bool = False
-
-
 class AntigravityPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    sensitive_word_filter: Literal["inherit", "enabled", "disabled"] = "inherit"
-    signature_cache: Literal["inherit", "enabled", "disabled"] = "inherit"
-    strict_bypass_signature: bool = False
+    sensitive_words: tuple[str, ...] = Field(default=(), max_length=100)
+    signature_cache_enabled: bool = True
+    signature_bypass_strict: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        legacy_cache: Final = value.get("signature_cache")
+        return {
+            key: item
+            for key, item in {
+                **value,
+                "sensitive_words": value.get("sensitive_words", ()),
+                "signature_cache_enabled": value.get("signature_cache_enabled", legacy_cache != "disabled"),
+                "signature_bypass_strict": value.get(
+                    "signature_bypass_strict", value.get("strict_bypass_signature", False)
+                ),
+            }.items()
+            if key not in {"sensitive_word_filter", "signature_cache", "strict_bypass_signature"}
+        }
+
+    @field_validator("sensitive_words")
+    @classmethod
+    def normalize_sensitive_words(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 class AccountPolicy(BaseModel):
@@ -239,9 +286,16 @@ class AccountPolicy(BaseModel):
     transport: TransportPolicy = Field(default_factory=TransportPolicy)
     codex: CodexPolicy | None = None
     claude: ClaudePolicy | None = None
+    kimi: KimiPolicy | None = None
     xai: XaiPolicy | None = None
-    openai_compatible: OpenAICompatiblePolicy | None = None
     antigravity: AntigravityPolicy | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_provider_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        return {key: item for key, item in value.items() if key != "openai_compatible"}
 
     @field_validator("tags")
     @classmethod
@@ -266,6 +320,52 @@ class StreamingRule(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     mode: Literal["enabled", "disabled"] = "enabled"
     card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+
+
+class OAuthRequestScopedErrorRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    status: int = Field(default=0, ge=0, le=599)
+    match: tuple[str, ...] = Field(default=(), max_length=100)
+    match_regexr: tuple[str, ...] = Field(default=(), max_length=100, alias="match-regexr")
+    action: Literal["stop", "stop-and-cooldown", "continue", "continue-and-cooldown"] = "continue"
+
+
+class PayloadModelRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=256)
+    protocol: str = Field(default="", max_length=80)
+    headers: dict[str, str] = Field(default_factory=dict)
+    from_protocol: str = Field(default="", max_length=80, alias="from-protocol")
+    match: tuple[dict[str, object], ...] = Field(default=())
+    not_match: tuple[dict[str, object], ...] = Field(default=(), alias="not-match")
+    exist: tuple[str, ...] = Field(default=())
+    not_exist: tuple[str, ...] = Field(default=(), alias="not-exist")
+
+
+class PayloadRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    models: tuple[PayloadModelRule, ...] = Field(default=(), max_length=100)
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class PayloadFilterRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    models: tuple[PayloadModelRule, ...] = Field(default=(), max_length=100)
+    params: tuple[str, ...] = Field(default=(), max_length=500)
+
+
+class PayloadSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    default: tuple[PayloadRule, ...] = Field(default=())
+    default_raw: tuple[PayloadRule, ...] = Field(default=(), alias="default-raw")
+    override: tuple[PayloadRule, ...] = Field(default=())
+    override_raw: tuple[PayloadRule, ...] = Field(default=(), alias="override-raw")
+    filter: tuple[PayloadFilterRule, ...] = Field(default=())
 
 
 class AccountPoolSettings(BaseModel):
@@ -293,7 +393,8 @@ class AccountPoolSettings(BaseModel):
     quota_switch_preview_model: bool = False
     oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     oauth_model_aliases: dict[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
-    oauth_request_scoped_errors: bool = False
+    oauth_request_scoped_errors: dict[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)
+    payload: PayloadSettings = Field(default_factory=PayloadSettings)
     plugins_enabled: bool = False
     streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
 

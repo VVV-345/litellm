@@ -9,9 +9,13 @@ import { toast } from "@/lib/toast";
 import type { AccountPoolAuthorization, AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const createMock = vi.fn();
+const createDirectMock = vi.fn();
+const createVertexMock = vi.fn();
 
 vi.mock("./AccountPoolApi", () => ({
   createAccountPoolEnvironment: (...args: unknown[]) => createMock(...args),
+  createDirectCredentialAccountPoolEnvironment: (...args: unknown[]) => createDirectMock(...args),
+  createVertexAccountPoolEnvironment: (...args: unknown[]) => createVertexMock(...args),
 }));
 
 vi.mock("@/lib/toast", () => ({
@@ -37,7 +41,13 @@ const deviceAuthorization = {
 };
 
 const linkOnlyAuthorization = {
-  environment: { id: "env-3", channel: "freebuff2api", supplier: "freebuff", version: 2, status: "awaiting_authorization" },
+  environment: {
+    id: "env-3",
+    channel: "freebuff2api",
+    supplier: "freebuff",
+    version: 2,
+    status: "awaiting_authorization",
+  },
   flow: "device_code",
   authorization_url: "https://www.codebuff.com/oauth/login?auth_code=one-time",
   ssh_command: null,
@@ -46,39 +56,51 @@ const linkOnlyAuthorization = {
 };
 
 const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[0]> = {}) =>
-  render(
-    <AccountPoolCreateDialog
-      accessToken="token-1"
-      open
-      onOpenChange={vi.fn()}
-      onCreated={vi.fn()}
-      {...props}
-    />,
-  );
+  render(<AccountPoolCreateDialog accessToken="token-1" open onOpenChange={vi.fn()} onCreated={vi.fn()} {...props} />);
 
 describe("AccountPoolCreateDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createMock.mockReset();
+    createDirectMock.mockReset();
+    createVertexMock.mockReset();
     createMock.mockResolvedValue(browserAuthorization);
+    createDirectMock.mockResolvedValue({ id: "gemini-1" });
+    createVertexMock.mockResolvedValue({ id: "vertex-1" });
   });
 
-  it.each(["ready", "cooling_down", "disabled"] as const)("closes after the current authorization reaches %s", (status) => {
-    const onOpenChange = vi.fn();
-    const props = {
-      accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn(),
-      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
-    };
-    const { rerender } = render(<AccountPoolCreateDialog {...props} />);
-    expect(onOpenChange).not.toHaveBeenCalled();
+  it.each(["ready", "cooling_down", "disabled"] as const)(
+    "closes after the current authorization reaches %s",
+    (status) => {
+      const onOpenChange = vi.fn();
+      const props = {
+        accessToken: "token-1",
+        open: true,
+        onOpenChange,
+        onCreated: vi.fn(),
+        initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+      };
+      const { rerender } = render(<AccountPoolCreateDialog {...props} />);
+      expect(onOpenChange).not.toHaveBeenCalled();
 
-    rerender(<AccountPoolCreateDialog {...props} environments={[{
-      ...linkOnlyAuthorization.environment, version: 3, status, configuration_pending: false,
-    } as AccountPoolEnvironment]} />);
+      rerender(
+        <AccountPoolCreateDialog
+          {...props}
+          environments={[
+            {
+              ...linkOnlyAuthorization.environment,
+              version: 3,
+              status,
+              configuration_pending: false,
+            } as AccountPoolEnvironment,
+          ]}
+        />,
+      );
 
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(toast.success).toHaveBeenCalledTimes(1);
-  });
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(toast.success).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it.each([
     { id: "env-3", version: 1, status: "ready", configuration_pending: false },
@@ -89,7 +111,8 @@ describe("AccountPoolCreateDialog", () => {
     const onOpenChange = vi.fn();
     renderDialog({
       initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
-      environments: [environment as AccountPoolEnvironment], onOpenChange,
+      environments: [environment as AccountPoolEnvironment],
+      onOpenChange,
     });
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
@@ -99,9 +122,14 @@ describe("AccountPoolCreateDialog", () => {
     const onOpenChange = vi.fn();
     renderDialog({
       initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
-      environments: [{
-        ...linkOnlyAuthorization.environment, version: 3, last_error: "credential save failed",
-      } as AccountPoolEnvironment], onOpenChange,
+      environments: [
+        {
+          ...linkOnlyAuthorization.environment,
+          version: 3,
+          last_error: "credential save failed",
+        } as AccountPoolEnvironment,
+      ],
+      onOpenChange,
     });
     expect(screen.getByRole("alert")).toHaveTextContent("credential save failed");
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -116,9 +144,19 @@ describe("AccountPoolCreateDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
     expect(await screen.findByTestId("account-pool-authorization-panel")).toBeInTheDocument();
 
-    rerender(<AccountPoolCreateDialog {...props} environments={[{
-      ...linkOnlyAuthorization.environment, version: 3, status: "ready", configuration_pending: false,
-    } as AccountPoolEnvironment]} />);
+    rerender(
+      <AccountPoolCreateDialog
+        {...props}
+        environments={[
+          {
+            ...linkOnlyAuthorization.environment,
+            version: 3,
+            status: "ready",
+            configuration_pending: false,
+          } as AccountPoolEnvironment,
+        ]}
+      />,
+    );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -148,6 +186,59 @@ describe("AccountPoolCreateDialog", () => {
     expect(screen.queryByText(/FreeBuff/i)).not.toBeInTheDocument();
   });
 
+  it("creates a Gemini card with a direct API key", async () => {
+    const onCreated = vi.fn();
+    const onOpenChange = vi.fn();
+    renderDialog({ initialSupplier: "gemini", onCreated, onOpenChange });
+
+    fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "Gemini account" } });
+    fireEvent.change(screen.getByLabelText(/^API Key$|^API key$/i), { target: { value: "secret-key" } });
+    fireEvent.change(screen.getByLabelText(/模型前缀|Model prefix/i), { target: { value: "team/" } });
+    fireEvent.change(screen.getByLabelText(/自定义服务地址|Custom Base URL/i), {
+      target: { value: "https://gemini.example/v1" },
+    });
+    fireEvent.change(screen.getByLabelText(/优先级|Priority/i), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText(/权重|Weight/i), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
+
+    await waitFor(() =>
+      expect(createDirectMock).toHaveBeenCalledWith("token-1", {
+        name: "Gemini account",
+        supplier: "gemini",
+        credential: {
+          api_key: "secret-key",
+          prefix: "team/",
+          priority: 4,
+          weight: 7,
+          base_url: "https://gemini.example/v1",
+          headers: [],
+        },
+      }),
+    );
+    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("creates a Vertex card from a service account file", async () => {
+    const onCreated = vi.fn();
+    const onOpenChange = vi.fn();
+    const file = new File(
+      [JSON.stringify({ project_id: "demo", client_email: "svc@example.com", private_key: "secret" })],
+      "service-account.json",
+      { type: "application/json" },
+    );
+    renderDialog({ initialSupplier: "vertex", onCreated, onOpenChange });
+
+    fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "Vertex account" } });
+    fireEvent.change(screen.getByLabelText(/服务账号 JSON|Service account JSON/i), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText(/区域|Location/i), { target: { value: "asia-east1" } });
+    fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
+
+    await waitFor(() => expect(createVertexMock).toHaveBeenCalledWith("token-1", "Vertex account", "asia-east1", file));
+    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("renders the SSH command for browser OAuth results and no device-code field", async () => {
     renderDialog({ initialAuthorization: browserAuthorization as never });
 
@@ -170,8 +261,6 @@ describe("AccountPoolCreateDialog", () => {
     expect(screen.getByTestId("account-pool-authorization-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-browser-oauth")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("https://www.codebuff.com/oauth/login?auth_code=one-time"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("https://www.codebuff.com/oauth/login?auth_code=one-time")).toBeInTheDocument();
   });
 });

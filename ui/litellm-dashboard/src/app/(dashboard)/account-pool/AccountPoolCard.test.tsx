@@ -21,6 +21,7 @@ const renderCard = (
     provider: "openai",
     channel: "cliproxyapi",
     supplier: "anthropic_claude",
+    authorization_flow: "browser_oauth",
     status: "ready",
     configuration_pending: false,
     enabled: true,
@@ -63,16 +64,14 @@ describe("AccountPoolCard", () => {
   });
 
   it.each(["cliproxyapi", "freebuff2api"] as const)("shows the shared port and selected node for %s", (channel) => {
-    renderCard(
-      { channel, proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" },
-      {
-        port: 7891,
-        profile_id: "clash-gateway-7891",
-        name: "Clash 端口 7891",
-        proxy_url: "http://host:7891",
-        current_node: "美国01",
-      },
-    );
+    const proxyGateway: AccountPoolProxyGateway = {
+      port: 7891,
+      profile_id: "clash-gateway-7891",
+      name: "Clash 端口 7891",
+      proxy_url: "http://host:7891",
+      current_node: "美国01",
+    };
+    renderCard({ channel, proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" }, proxyGateway);
 
     expect(screen.getByText("端口 7891 · 美国01")).toBeInTheDocument();
   });
@@ -100,10 +99,23 @@ describe("AccountPoolCard", () => {
     renderCard({}, undefined, {
       card_id: "env-claude-1",
       version: 1,
-      policy: { claude: { fingerprint_profile: "oauth-cli" } },
+      policy: {
+        tags: [],
+        group: "",
+        account_ids: [],
+        excluded_models: [],
+        model_aliases: [],
+        claude: {
+          fingerprint_profile: "claude-code-cli",
+          cloak_mode: "auto",
+          rebuild_mid_system_message: false,
+        },
+      },
+      runtime_status: "partial",
+      metadata_status: "saved",
     } as PolicyView);
 
-    expect(screen.getByText("OAuth CLI")).toBeInTheDocument();
+    expect(screen.getByText(/Claude Code CLI/)).toBeInTheDocument();
   });
 
   it("keeps the configure button enabled while awaiting authorization and shows the proxy hint", () => {
@@ -126,6 +138,7 @@ describe("AccountPoolCard", () => {
       provider: "openai",
       channel: "cliproxyapi",
       supplier: "openai_codex",
+      authorization_flow: "browser_oauth",
       status: "ready",
       configuration_pending: false,
       enabled: true,

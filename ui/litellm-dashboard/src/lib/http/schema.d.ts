@@ -839,6 +839,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/direct-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Direct Credential */
+        post: operations["create_direct_credential_account_pool_direct_credentials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments": {
         parameters: {
             query?: never;
@@ -1545,6 +1562,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/vertex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Vertex */
+        post: operations["create_vertex_account_pool_vertex_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/active/callbacks": {
         parameters: {
             query?: never;
@@ -1930,6 +1964,9 @@ export interface paths {
          * @description Get all audit logs with filtering and pagination.
          *
          *     Returns a paginated response of audit logs matching the specified filters.
+         *
+         *     Note: object_team_id and object_key_hash use Prisma JSON path filtering,
+         *     which requires PostgreSQL.
          */
         get: operations["get_audit_logs_audit_get"];
         put?: never;
@@ -12192,6 +12229,240 @@ export interface paths {
          *     ```
          */
         post: operations["validate_policy_policy_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Project
+         * @description Delete projects
+         *
+         *     Parameters:
+         *     - project_ids: *List[str]* - List of project ids to delete
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location --request DELETE 'http://0.0.0.0:4000/project/delete' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_ids": ["project-123", "project-456"]
+         *     }'
+         *     ```
+         */
+        delete: operations["delete_project_project_delete_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project Info
+         * @description Get information about a specific project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to fetch info for
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/info?project_id=project-123' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["project_info_project_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description List all projects that the user has access to
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/list' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["list_projects_project_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/new": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * New Project
+         * @description Create a new project. Projects sit between teams and keys in the hierarchy.
+         *
+         *     Only admins or team admins can create projects.
+         *
+         *     # Parameters
+         *
+         *     - project_alias: *Optional[str]* - The name of the project.
+         *     - description: *Optional[str]* - Description of the project's purpose and use case.
+         *     - team_id: *str* - The team id that this project belongs to. Required.
+         *     - models: *List* - The models the project has access to.
+         *     - budget_id: *Optional[str]* - The id for a budget (tpm/rpm/max budget) for the project.
+         *     ### IF NO BUDGET ID - CREATE ONE WITH THESE PARAMS ###
+         *     - max_budget: *Optional[float]* - Max budget for project
+         *     - tpm_limit: *Optional[int]* - Max tpm limit for project
+         *     - rpm_limit: *Optional[int]* - Max rpm limit for project
+         *     - max_parallel_requests: *Optional[int]* - Max parallel requests for project
+         *     - soft_budget: *Optional[float]* - Get a slack alert when this soft budget is reached. Don't block requests.
+         *     - model_max_budget: *Optional[dict]* - Max budget for a specific model. Example: {"gpt-4": 100.0, "gpt-3.5-turbo": 50.0}
+         *     - model_rpm_limit: *Optional[dict]* - RPM limits per model. Example: {"gpt-4": 1000, "gpt-3.5-turbo": 5000}
+         *     - model_tpm_limit: *Optional[dict]* - TPM limits per model. Example: {"gpt-4": 50000, "gpt-3.5-turbo": 100000}
+         *     - budget_duration: *Optional[str]* - Frequency of reseting project budget
+         *     - metadata: *Optional[dict]* - Metadata for project, store information for project. Example metadata - {"use_case_id": "SNOW-12345", "responsible_ai_id": "RAI-67890"}
+         *     - tags: *Optional[list]* - Tags for the project. Example: ["production", "api"]
+         *     - blocked: *bool* - Flag indicating if the project is blocked or not - will stop all calls from keys with this project_id.
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - project-specific object permission. Example - {"vector_stores": ["vector_store_1", "vector_store_2"]}. IF null or {} then no object permission.
+         *
+         *     Example 1: Create new project **without** a budget_id, with model-specific limits
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "flight-search-assistant",
+         *         "description": "AI-powered flight search and booking assistant",
+         *         "team_id": "team-123",
+         *         "models": ["gpt-4", "gpt-3.5-turbo"],
+         *         "max_budget": 100,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 1000,
+         *             "gpt-3.5-turbo": 5000
+         *         },
+         *         "model_tpm_limit": {
+         *             "gpt-4": 50000,
+         *             "gpt-3.5-turbo": 100000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "responsible_ai_id": "RAI-67890"
+         *         }
+         *     }'
+         *     ```
+         *
+         *     Example 2: Create new project **with** a budget_id
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "hotel-recommendations",
+         *         "description": "Personalized hotel recommendation engine",
+         *         "team_id": "team-123",
+         *         "models": ["claude-3-sonnet"],
+         *         "budget_id": "428eeaa8-f3ac-4e85-a8fb-7dc8d7aa8689",
+         *         "metadata": {
+         *             "use_case_id": "SNOW-54321"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["new_project_project_new_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Project
+         * @description Update a project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to update. Required.
+         *     - project_alias: *Optional[str]* - Updated name for the project
+         *     - description: *Optional[str]* - Updated description for the project
+         *     - team_id: *Optional[str]* - Updated team_id for the project
+         *     - metadata: *Optional[dict]* - Updated metadata for project
+         *     - models: *Optional[list]* - Updated list of models for the project
+         *     - blocked: *Optional[bool]* - Updated blocked status
+         *     - max_budget: *Optional[float]* - Updated max budget
+         *     - tpm_limit: *Optional[int]* - Updated tpm limit
+         *     - rpm_limit: *Optional[int]* - Updated rpm limit
+         *     - model_rpm_limit: *Optional[dict]* - Updated RPM limits per model
+         *     - model_tpm_limit: *Optional[dict]* - Updated TPM limits per model
+         *     - budget_duration: *Optional[str]* - Updated budget duration
+         *     - tags: *Optional[list]* - Updated list of tags for the project
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - Updated object permission
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/update' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_id": "project-123",
+         *         "description": "Updated flight search system with enhanced capabilities",
+         *         "max_budget": 200,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 2000,
+         *             "gpt-3.5-turbo": 10000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "status": "active"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["update_project_project_update_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23104,12 +23375,12 @@ export interface components {
              * @default
              */
             group: string;
+            kimi?: components["schemas"]["KimiPolicy"] | null;
             /**
              * Model Aliases
              * @default []
              */
             model_aliases: components["schemas"]["ModelAlias"][];
-            openai_compatible?: components["schemas"]["OpenAICompatiblePolicy"] | null;
             routing?: components["schemas"]["RoutingPolicy"];
             /**
              * Tags
@@ -23182,7 +23453,7 @@ export interface components {
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
         };
         /** AccountPoolCredential */
         AccountPoolCredential: {
@@ -23248,8 +23519,55 @@ export interface components {
             cards: components["schemas"]["ErrorStats"][];
             summary: components["schemas"]["ErrorStats"];
         };
+        /** AccountPoolDirectAPIKey */
+        AccountPoolDirectAPIKey: {
+            /** Api Key */
+            api_key: string;
+            /** Base Url */
+            base_url?: string | null;
+            /**
+             * Headers
+             * @default []
+             */
+            headers: [
+                string,
+                string
+            ][];
+            /**
+             * Prefix
+             * @default
+             */
+            prefix: string;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+        };
+        /** AccountPoolDirectCredentialCreateRequest */
+        AccountPoolDirectCredentialCreateRequest: {
+            credential: components["schemas"]["AccountPoolDirectAPIKey"];
+            /** Name */
+            name: string;
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "gemini" | "gemini_interactions";
+        };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
+            /**
+             * Authorization Flow
+             * @default browser_oauth
+             * @enum {string}
+             */
+            authorization_flow: "browser_oauth" | "device_code" | "direct_credential";
             /**
              * Automatic Cooldown
              * @default false
@@ -23325,13 +23643,13 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting";
+            status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting" | "migration_required";
             /**
              * Supplier
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
             /** Updated At */
             updated_at: string;
             /** Version */
@@ -23399,6 +23717,13 @@ export interface components {
              * @default 1
              */
             weight: number;
+        };
+        /** AccountPoolPluginInstallRequest */
+        AccountPoolPluginInstallRequest: {
+            /** Source */
+            source?: string | null;
+            /** Version */
+            version: string;
         };
         /** AccountPoolPluginManifest */
         AccountPoolPluginManifest: {
@@ -23617,11 +23942,11 @@ export interface components {
                     string
                 ][];
             };
-            /**
-             * Oauth Request Scoped Errors
-             * @default false
-             */
-            oauth_request_scoped_errors: boolean;
+            /** Oauth Request Scoped Errors */
+            oauth_request_scoped_errors?: {
+                [key: string]: components["schemas"]["OAuthRequestScopedErrorRule"][];
+            };
+            payload?: components["schemas"]["PayloadSettings"];
             /**
              * Plugins Enabled
              * @default false
@@ -24096,22 +24421,20 @@ export interface components {
         /** AntigravityPolicy */
         AntigravityPolicy: {
             /**
-             * Sensitive Word Filter
-             * @default inherit
-             * @enum {string}
+             * Sensitive Words
+             * @default []
              */
-            sensitive_word_filter: "inherit" | "enabled" | "disabled";
+            sensitive_words: string[];
             /**
-             * Signature Cache
-             * @default inherit
-             * @enum {string}
-             */
-            signature_cache: "inherit" | "enabled" | "disabled";
-            /**
-             * Strict Bypass Signature
+             * Signature Bypass Strict
              * @default false
              */
-            strict_bypass_signature: boolean;
+            signature_bypass_strict: boolean;
+            /**
+             * Signature Cache Enabled
+             * @default true
+             */
+            signature_cache_enabled: boolean;
         };
         /** ApplyGuardrailRequest */
         ApplyGuardrailRequest: {
@@ -24962,18 +25285,12 @@ export interface components {
         };
         /** Body_audio_transcriptions_audio_transcriptions_post */
         Body_audio_transcriptions_audio_transcriptions_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_audio_transcriptions_v1_audio_transcriptions_post */
         Body_audio_transcriptions_v1_audio_transcriptions_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_authorize_complete_authorize_complete_post */
@@ -24999,10 +25316,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -25026,10 +25340,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -25053,10 +25364,7 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -25072,6 +25380,18 @@ export interface components {
              * @default default
              */
             target_storage: string;
+        };
+        /** Body_create_vertex_account_pool_vertex_post */
+        Body_create_vertex_account_pool_vertex_post: {
+            /** File */
+            file: string;
+            /**
+             * Location
+             * @default us-central1
+             */
+            location: string;
+            /** Name */
+            name: string;
         };
         /** Body_image_edit_api_images_edits_post */
         Body_image_edit_api_images_edits_post: {
@@ -25189,38 +25509,26 @@ export interface components {
              * Format: uuid
              */
             card_id: string;
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_upload_logo_upload_logo_post */
         Body_upload_logo_upload_logo_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_video_create_character_v1_videos_characters_post */
         Body_video_create_character_v1_videos_characters_post: {
             /** Name */
             name: string;
-            /**
-             * Video
-             * Format: binary
-             */
+            /** Video */
             video: string;
         };
         /** Body_video_create_character_videos_characters_post */
         Body_video_create_character_videos_characters_post: {
             /** Name */
             name: string;
-            /**
-             * Video
-             * Format: binary
-             */
+            /** Video */
             video: string;
         };
         /** Body_video_generation_v1_videos_post */
@@ -26372,21 +26680,17 @@ export interface components {
         /** ClaudePolicy */
         ClaudePolicy: {
             /**
-             * Cloak
-             * @default false
+             * Cloak Mode
+             * @default auto
+             * @enum {string}
              */
-            cloak: boolean;
-            /**
-             * Experimental Cch Signing
-             * @default false
-             */
-            experimental_cch_signing: boolean;
+            cloak_mode: "auto" | "always" | "never";
             /**
              * Fingerprint Profile
              * @default inherit
              * @enum {string}
              */
-            fingerprint_profile: "inherit" | "disabled" | "claude-code-cli" | "oauth-cli";
+            fingerprint_profile: "inherit" | "claude-code-cli";
             /**
              * Rebuild Mid System Message
              * @default false
@@ -26543,36 +26847,15 @@ export interface components {
              */
             cli_only: boolean;
             /**
-             * Compact Ui
-             * @default inherit
-             * @enum {string}
-             */
-            compact_ui: "inherit" | "enabled" | "disabled";
-            /**
              * Disable Codex Cloaking
              * @default false
              */
             disable_codex_cloaking: boolean;
             /**
-             * Experimental Context Management
-             * @default false
-             */
-            experimental_context_management: boolean;
-            /**
              * Identity Confuse
              * @default false
              */
             identity_confuse: boolean;
-            /**
-             * Identity Fingerprint Mode
-             * @default off
-             * @enum {string}
-             */
-            identity_fingerprint_mode: "off" | "device" | "session" | "full";
-            /** Model Auto Compact Token Limit */
-            model_auto_compact_token_limit?: number | null;
-            /** Model Context Window */
-            model_context_window?: number | null;
             /**
              * Responses Compact Enabled
              * @default false
@@ -27882,6 +28165,14 @@ export interface components {
             organization_ids: string[];
         };
         /**
+         * DeleteProjectRequest
+         * @description Request model for DELETE /project/delete
+         */
+        DeleteProjectRequest: {
+            /** Project Ids */
+            project_ids: string[];
+        };
+        /**
          * DeleteSkillResponse
          * @description Response from deleting a skill
          */
@@ -28272,7 +28563,7 @@ export interface components {
              * Supplier
              * @enum {string}
              */
-            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff";
+            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
             /**
              * Switched Account
              * @default false
@@ -29422,6 +29713,15 @@ export interface components {
              * @description Tier to route to when this rule matches: a built-in tier name, or with tier_definitions set, one of the defined tier names
              */
             tier: string;
+        };
+        /** KimiPolicy */
+        KimiPolicy: {
+            /**
+             * Fingerprint Profile
+             * @default inherit
+             * @enum {string}
+             */
+            fingerprint_profile: "inherit" | "claude-code-cli";
         };
         /** LakeraCategoryThresholds */
         LakeraCategoryThresholds: {
@@ -30814,6 +31114,65 @@ export interface components {
             watsonx_region_name?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * LiteLLM_ProjectTable
+         * @description Database model representation for project
+         */
+        LiteLLM_ProjectTable: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
         };
         /** LiteLLM_ProxyModelTable */
         LiteLLM_ProxyModelTable: {
@@ -33267,6 +33626,142 @@ export interface components {
             /** Users */
             users?: components["schemas"]["LiteLLM_UserTable"][] | null;
         };
+        /**
+         * NewProjectRequest
+         * @description Request model for POST /project/new
+         */
+        NewProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id: string;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+        };
+        /**
+         * NewProjectResponse
+         * @description Response model for POST /project/new
+         */
+        NewProjectResponse: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by?: string | null;
+        };
         /** NewTeamRequest */
         NewTeamRequest: {
             /** Access Group Ids */
@@ -33733,13 +34228,29 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
-        /** OpenAICompatiblePolicy */
-        OpenAICompatiblePolicy: {
+        /** OAuthRequestScopedErrorRule */
+        OAuthRequestScopedErrorRule: {
             /**
-             * Support Prompt Cache Key
-             * @default false
+             * Action
+             * @default continue
+             * @enum {string}
              */
-            support_prompt_cache_key: boolean;
+            action: "stop" | "stop-and-cooldown" | "continue" | "continue-and-cooldown";
+            /**
+             * Match
+             * @default []
+             */
+            match: string[];
+            /**
+             * Match-Regexr
+             * @default []
+             */
+            "match-regexr": string[];
+            /**
+             * Status
+             * @default 0
+             */
+            status: number;
         };
         /**
          * OpenIdConnectSecurityScheme
@@ -34144,6 +34655,102 @@ export interface components {
             team_member_tpm_limit?: number | null;
             /** Tpm Limit */
             tpm_limit?: number | null;
+        };
+        /** PayloadFilterRule */
+        PayloadFilterRule: {
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["PayloadModelRule"][];
+            /**
+             * Params
+             * @default []
+             */
+            params: string[];
+        };
+        /** PayloadModelRule */
+        PayloadModelRule: {
+            /**
+             * Exist
+             * @default []
+             */
+            exist: string[];
+            /**
+             * From-Protocol
+             * @default
+             */
+            "from-protocol": string;
+            /** Headers */
+            headers?: {
+                [key: string]: string;
+            };
+            /**
+             * Match
+             * @default []
+             */
+            match: {
+                [key: string]: unknown;
+            }[];
+            /** Name */
+            name: string;
+            /**
+             * Not-Exist
+             * @default []
+             */
+            "not-exist": string[];
+            /**
+             * Not-Match
+             * @default []
+             */
+            "not-match": {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Protocol
+             * @default
+             */
+            protocol: string;
+        };
+        /** PayloadRule */
+        PayloadRule: {
+            /**
+             * Models
+             * @default []
+             */
+            models: components["schemas"]["PayloadModelRule"][];
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+        };
+        /** PayloadSettings */
+        PayloadSettings: {
+            /**
+             * Default
+             * @default []
+             */
+            default: components["schemas"]["PayloadRule"][];
+            /**
+             * Default-Raw
+             * @default []
+             */
+            "default-raw": components["schemas"]["PayloadRule"][];
+            /**
+             * Filter
+             * @default []
+             */
+            filter: components["schemas"]["PayloadFilterRule"][];
+            /**
+             * Override
+             * @default []
+             */
+            override: components["schemas"]["PayloadRule"][];
+            /**
+             * Override-Raw
+             * @default []
+             */
+            "override-raw": components["schemas"]["PayloadRule"][];
         };
         /**
          * PerTestingCriteriaResult
@@ -38771,6 +39378,71 @@ export interface components {
             version?: string | null;
         };
         /**
+         * UpdateProjectRequest
+         * @description Request model for POST /project/update
+         */
+        UpdateProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /** Blocked */
+            blocked?: boolean | null;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Models */
+            models?: string[] | null;
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id?: string | null;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+        };
+        /**
          * UpdatePublicModelGroupsRequest
          * @description Request model for updating public model groups
          */
@@ -41534,6 +42206,41 @@ export interface operations {
             };
         };
     };
+    create_direct_credential_account_pool_direct_credentials_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolDirectCredentialCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_environments_account_pool_environments_get: {
         parameters: {
             query?: never;
@@ -42277,9 +42984,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["AccountPoolPluginInstallRequest"];
             };
         };
         responses: {
@@ -42342,7 +43047,7 @@ export interface operations {
                 occurred_from?: string | null;
                 occurred_to?: string | null;
                 channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff") | null;
                 card_id?: string | null;
                 environment_id?: string | null;
                 account_id?: string | null;
@@ -42408,7 +43113,7 @@ export interface operations {
                 occurred_from?: string | null;
                 occurred_to?: string | null;
                 channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "freebuff") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff") | null;
                 card_id?: string | null;
                 environment_id?: string | null;
                 account_id?: string | null;
@@ -43032,6 +43737,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_vertex_account_pool_vertex_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_vertex_account_pool_vertex_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
                 };
             };
             /** @description Validation Error */
@@ -43737,6 +44475,10 @@ export interface operations {
                 start_date?: string | null;
                 /** @description Filter logs before this date */
                 end_date?: string | null;
+                /** @description Filter by team_id present in before_value or updated_values JSON (PostgreSQL only) */
+                object_team_id?: string | null;
+                /** @description Filter by token (key hash) present in before_value or updated_values JSON (PostgreSQL only) */
+                object_key_hash?: string | null;
                 /** @description Column to sort by (e.g. 'updated_at', 'action', 'table_name') */
                 sort_by?: string | null;
                 /** @description Sort order ('asc' or 'desc') */
@@ -56877,6 +57619,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyValidationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_project_delete_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_info_project_info_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_project_list_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+        };
+    };
+    new_project_project_new_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_project_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
                 };
             };
             /** @description Validation Error */

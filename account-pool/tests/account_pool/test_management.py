@@ -238,20 +238,26 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409
     assert client.get(path).json()["policy"]["routing"]["weight"] == 4
     assert client.put(path, json={"version": 1, "policy": {"unknown_setting": True}}).status_code == 422
-    for provider_field in ("claude", "xai", "openai_compatible", "antigravity"):
-        assert client.put(path, json={"version": 1, "policy": {provider_field: {}}}).status_code == 422
+    migrated: Final = client.put(
+        path,
+        json={"version": 1, "policy": {"openai_compatible": {"support_prompt_cache_key": True}}},
+    )
+    assert migrated.status_code == 200
+    assert "openai_compatible" not in migrated.json()["policy"]
+    for provider_field in ("claude", "kimi", "xai", "antigravity"):
+        assert client.put(path, json={"version": 2, "policy": {provider_field: {}}}).status_code == 422
     assert (
         client.put(
-            path, json={"version": 1, "policy": {"model_aliases": [{"alias": "alias", "target": "missing"}]}}
+            path, json={"version": 2, "policy": {"model_aliases": [{"alias": "alias", "target": "missing"}]}}
         ).status_code
         == 422
     )
-    assert client.put(path, json={"version": 1, "policy": {"account_ids": [str(uuid4())]}}).status_code == 422
+    assert client.put(path, json={"version": 2, "policy": {"account_ids": [str(uuid4())]}}).status_code == 422
     assert (
         client.put(
             path,
             json={
-                "version": 1,
+                "version": 2,
                 "policy": {
                     "routing": {"preferred_account_ids": [str(uuid4())]},
                 },

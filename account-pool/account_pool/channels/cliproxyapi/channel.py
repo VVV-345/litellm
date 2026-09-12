@@ -14,6 +14,7 @@ from account_pool.compose_renderer import render_cli_proxy_config, render_compos
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.domain import (
+    DirectAPIKeyCredentialRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
     GatewayEnvironment,
@@ -93,6 +94,26 @@ class CLIProxyAPIChannel:
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         return await self._client.read_account(record, self.supplier(record.supplier))
 
+    async def write_direct_api_key(
+        self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
+    ) -> None:
+        await self._client.write_direct_api_key(
+            record,
+            self.supplier(record.supplier),
+            api_key=credential.api_key,
+            prefix=credential.prefix,
+            priority=credential.priority,
+            weight=credential.weight,
+            base_url=None if credential.base_url is None else str(credential.base_url),
+            headers=dict(credential.headers),
+            proxy_url=proxy_url,
+        )
+
+    async def import_vertex_credential(
+        self, record: EnvironmentRecord, filename: str, content: bytes, location: str
+    ) -> None:
+        await self._client.import_vertex_credential(record, filename, content, location)
+
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
         return await self._client.data_plane_health_check(record)
 
@@ -135,8 +156,10 @@ class CLIProxyAPIChannel:
     async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]:
         return await self._client.list_plugin_store(record)
 
-    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]:
-        return await self._client.install_plugin(record, plugin_id, version)
+    async def install_plugin(
+        self, record: EnvironmentRecord, plugin_id: str, version: str, source: str | None
+    ) -> Mapping[str, object]:
+        return await self._client.install_plugin(record, plugin_id, version, source)
 
     async def set_plugin_enabled(
         self, record: EnvironmentRecord, plugin_id: str, enabled: bool

@@ -101,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
             await proxy_gateways.sync_profiles()
+        await service.retire_legacy_environments()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
@@ -165,6 +166,7 @@ async def _reconcile_pending_configurations_until_cancelled(
 ) -> None:
     while not stopped.is_set():
         try:
+            await service.retire_legacy_environments()
             await service.reconcile_pending_configurations()
             await service.reconcile_pending_authorizations()
         except Exception as error:
@@ -201,7 +203,7 @@ async def _restore_control_plane_connections(
         *(
             _restore_control_plane_connection(channels, record)
             for record in records
-            if record.status is not EnvironmentStatus.DELETING
+            if record.status is not EnvironmentStatus.DELETING and record.channel is ChannelKind.CLIPROXYAPI
         )
     )
 

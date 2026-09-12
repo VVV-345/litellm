@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -21,6 +21,7 @@ class EnvironmentStatus(StrEnum):
     DISABLED = "disabled"
     ERROR = "error"
     DELETING = "deleting"
+    MIGRATION_REQUIRED = "migration_required"
 
 
 class Provider(StrEnum):
@@ -40,12 +41,19 @@ class SupplierKind(StrEnum):
     GOOGLE_ANTIGRAVITY = "google_antigravity"
     KIMI = "kimi"
     XAI = "xai"
+    GEMINI = "gemini"
+    GEMINI_INTERACTIONS = "gemini_interactions"
+    VERTEX = "vertex"
     FREEBUFF = "freebuff"
 
 
 class AuthorizationFlow(StrEnum):
     BROWSER_OAUTH = "browser_oauth"
     DEVICE_CODE = "device_code"
+    DIRECT_CREDENTIAL = "direct_credential"
+
+
+AuthorizationInstructionFlow = Literal[AuthorizationFlow.BROWSER_OAUTH, AuthorizationFlow.DEVICE_CODE]
 
 
 class ProxyMode(StrEnum):
@@ -106,6 +114,80 @@ class OpenAICompatibleKeyRequest(BaseModel):
     api_key: str = Field(min_length=1, max_length=4096, repr=False)
     proxy_profile_id: str | None = Field(default=None, max_length=120)
     weight: int = Field(default=1, ge=1, le=10000)
+
+
+class DirectAPIKeyCredentialRequest(BaseModel):
+    """CLIProxyAPI 直连 API Key 创建载荷，密钥只允许在本次请求中使用。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    weight: int = Field(default=1, ge=1, le=1000000)
+    base_url: AnyHttpUrl | None = None
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+
+    @field_validator("api_key", "prefix")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("headers")
+    @classmethod
+    def validate_headers(cls, values: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+        blocked: Final = frozenset(
+            ("authorization", "proxy-authorization", "host", "content-length", "transfer-encoding", "connection")
+        )
+        normalized: Final = tuple((name.strip().lower(), value) for name, value in values if name.strip())
+        if any(name in blocked for name, _ in normalized):
+            raise ValueError("headers contain a protected transport header")
+        if any(not name.replace("-", "").isalnum() for name, _ in normalized):
+            raise ValueError("headers contain an invalid name")
+        return tuple(dict.fromkeys(normalized))
+
+
+class CreateDirectCredentialEnvironmentRequest(BaseModel):
+    """创建单凭据 CLIProxyAPI 环境，不持久化 API Key 明文。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: Annotated[str, Field(min_length=1, max_length=80)]
+    supplier: SupplierKind
+    credential: DirectAPIKeyCredentialRequest
+    operation_id: str | None = Field(default=None, max_length=160)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized: Final = value.strip()
+        if not normalized:
+            raise ValueError("name must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_supplier(self) -> CreateDirectCredentialEnvironmentRequest:
+        if self.supplier not in (SupplierKind.GEMINI, SupplierKind.GEMINI_INTERACTIONS):
+            raise ValueError("supplier does not accept a direct API key")
+        return self
+
+
+class CreateVertexEnvironmentRequest(BaseModel):
+    """创建 Vertex 服务账号环境，服务账号正文由独立 multipart 字段传入。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: Annotated[str, Field(min_length=1, max_length=80)]
+    location: str = Field(default="us-central1", pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    operation_id: str | None = Field(default=None, max_length=160)
+
+    @field_validator("name", "location")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized: Final = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
 
 
 class OpenAICompatibleCredentialRequest(BaseModel):
@@ -273,6 +355,7 @@ class EnvironmentRecord(BaseModel):
     oauth_authorization_url: str | None = None
     authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
     authorization_user_code: str | None = None
+    legacy_runtime_stopped: bool = False
     last_error: str | None
     created_at: datetime
     updated_at: datetime
@@ -292,6 +375,7 @@ class EnvironmentView(BaseModel):
     provider: Provider
     channel: ChannelKind = ChannelKind.CLIPROXYAPI
     supplier: SupplierKind = SupplierKind.OPENAI_CODEX
+    authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
     status: EnvironmentStatus
     configuration_pending: bool
     enabled: bool
@@ -401,7 +485,7 @@ class AuthorizationView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     environment: EnvironmentView
-    flow: AuthorizationFlow
+    flow: AuthorizationInstructionFlow
     authorization_url: HttpUrl
     ssh_command: str | None
     user_code: str | None
@@ -474,6 +558,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         provider=record.provider,
         channel=record.channel,
         supplier=record.supplier,
+        authorization_flow=record.authorization_flow,
         status=record.status,
         configuration_pending=record.configuration_pending,
         enabled=record.enabled,

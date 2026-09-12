@@ -24,6 +24,7 @@ const environment = {
   provider: "openai",
   channel: "cliproxyapi",
   supplier: "openai_codex",
+  authorization_flow: "browser_oauth",
   status: "ready",
   configuration_pending: false,
   desired_configuration_version: 0,

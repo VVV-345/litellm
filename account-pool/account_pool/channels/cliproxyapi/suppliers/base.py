@@ -21,6 +21,10 @@ class SupplierDefinition:
     callback_path: str | None
     quota_parser: Callable[[QuotaObservation], QuotaSnapshot]
 
+    @property
+    def uses_oauth_model_exclusions(self) -> bool:
+        return self.authorization_flow is not AuthorizationFlow.DIRECT_CREDENTIAL
+
 
 def parse_empty_quota(observation: QuotaObservation) -> QuotaSnapshot:
     return QuotaSnapshot(observed_at=observation.observed_at)

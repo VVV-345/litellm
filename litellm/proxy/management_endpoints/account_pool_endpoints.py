@@ -66,6 +66,25 @@ class AccountPoolOpenAICompatibleConfig(BaseModel):
     custom_models: tuple[str, ...] = Field(default=(), max_length=500)
 
 
+class AccountPoolDirectAPIKey(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    weight: int = Field(default=1, ge=1, le=1000000)
+    base_url: HttpUrl | None = None
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+
+
+class AccountPoolDirectCredentialCreateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    supplier: Literal["gemini", "gemini_interactions"]
+    credential: AccountPoolDirectAPIKey
+
+
 class AccountPoolDashboardStats(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -107,8 +126,12 @@ class AccountPoolEnvironment(BaseModel):
         "google_antigravity",
         "kimi",
         "xai",
+        "gemini",
+        "gemini_interactions",
+        "vertex",
         "freebuff",
     ] = "openai_codex"
+    authorization_flow: Literal["browser_oauth", "device_code", "direct_credential"] = "browser_oauth"
     configuration_pending: bool = False
     status: Literal[
         "provisioning",
@@ -119,6 +142,7 @@ class AccountPoolEnvironment(BaseModel):
         "disabled",
         "error",
         "deleting",
+        "migration_required",
     ]
     enabled: bool
     manual_cooldown: bool
@@ -155,6 +179,13 @@ class AccountPoolAuthFileFieldsRequest(BaseModel):
     fields: dict[str, object]
 
 
+class AccountPoolPluginInstallRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: str = Field(min_length=1, max_length=64)
+    source: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 class AccountPoolCreateRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -168,6 +199,9 @@ class AccountPoolCreateRequest(BaseModel):
         "google_antigravity",
         "kimi",
         "xai",
+        "gemini",
+        "gemini_interactions",
+        "vertex",
         "freebuff",
     ] = "openai_codex"
     provider_family: str | None = Field(default=None, max_length=80)
@@ -544,6 +578,43 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         )
         return _validate_response(response, _ENVIRONMENT)
 
+    @router.post("/direct-credentials", response_model=AccountPoolEnvironment)
+    async def create_direct_credential(
+        request: AccountPoolDirectCredentialCreateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            "/api/direct-credentials",
+            request.model_dump_json().encode("utf-8"),
+            idempotency_key,
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.post("/vertex", response_model=AccountPoolEnvironment)
+    async def create_vertex(
+        name: Annotated[str, Form(min_length=1, max_length=80)],
+        file: Annotated[UploadFile, File()],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        location: Annotated[str, Form(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")] = "us-central1",
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        content: Final = await file.read(1024 * 1024 + 1)
+        if not content or len(content) > 1024 * 1024:
+            raise HTTPException(status_code=422, detail="Vertex credential must be a JSON file no larger than 1 MiB")
+        response: Final = await _manager_request_multipart(
+            client_factory,
+            "/api/vertex",
+            {"name": name, "location": location},
+            file.filename or "vertex-service-account.json",
+            content,
+            file.content_type,
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
     @router.get("/environments/{environment_id}", response_model=AccountPoolEnvironment)
     async def get_environment(
         environment_id: UUID,
@@ -642,11 +713,17 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
     async def install_card_plugin(
         environment_id: UUID,
         plugin_id: str,
-        request: dict[str, object],
+        request: AccountPoolPluginInstallRequest,
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> dict[str, object]:
         safe_plugin_id: Final = quote(plugin_id, safe=".-_")
-        return await _card_plugin_request(environment_id, "POST", f"/{safe_plugin_id}/install", user_api_key_dict, request)
+        return await _card_plugin_request(
+            environment_id,
+            "POST",
+            f"/{safe_plugin_id}/install",
+            user_api_key_dict,
+            request.model_dump(mode="json", exclude_none=True),
+        )
 
     @router.patch("/environments/{environment_id}/plugins/{plugin_id}/enabled", response_model=dict[str, object])
     async def set_card_plugin_enabled(

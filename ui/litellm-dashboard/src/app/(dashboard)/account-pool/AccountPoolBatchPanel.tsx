@@ -66,6 +66,10 @@ export function AccountPoolBatchPanel({
       Awaited<ReturnType<typeof listAccountPoolBatches>>[number]["items"][number]["authorization"]
     >;
   } | null>(null);
+  const selectableEnvironments = useMemo(
+    () => environments.filter((environment) => action === "delete" || environment.status !== "migration_required"),
+    [action, environments],
+  );
   const jobsQuery = {
     queryKey: ["account-pool", "batches", accessToken],
     queryFn: () => listAccountPoolBatches(accessToken),
@@ -115,7 +119,7 @@ export function AccountPoolBatchPanel({
     },
     onError: (error: Error) => toast.fromError(error),
   });
-  const allSelected = environments.length > 0 && selected.size === environments.length;
+  const allSelected = selectableEnvironments.length > 0 && selected.size === selectableEnvironments.length;
   const policyTemplateRequired = action === "policy" && selectedPolicy === null;
   const submitDisabled = targets.length === 0 || mutation.isPending || policyTemplateRequired;
   const submit = () => {
@@ -182,13 +186,15 @@ export function AccountPoolBatchPanel({
         <Checkbox
           checked={allSelected}
           onCheckedChange={(checked) =>
-            setSelected(checked === true ? new Set(environments.map((environment) => environment.id)) : new Set())
+            setSelected(
+              checked === true ? new Set(selectableEnvironments.map((environment) => environment.id)) : new Set(),
+            )
           }
         />
         {t("accountPool.batch.selectAll")}
       </label>
       <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
-        {environments.map((environment) => (
+        {selectableEnvironments.map((environment) => (
           <label key={environment.id} className="flex items-center gap-2 rounded border p-2 text-sm">
             <Checkbox
               checked={selected.has(environment.id)}

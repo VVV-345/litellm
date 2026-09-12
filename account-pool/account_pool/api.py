@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import html
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Final, TypeVar
 from uuid import UUID
@@ -12,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
@@ -21,7 +22,9 @@ from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
     ChannelKind,
+    CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
+    CreateVertexEnvironmentRequest,
     EnvironmentRecord,
     OAuthCallback,
     OpenAICompatibleCredentialDeleteRequest,
@@ -122,12 +125,32 @@ class PluginInstallRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     version: str = Field(min_length=1, max_length=64)
+    source: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class PluginEnabledRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     enabled: bool
+
+
+_MAX_VERTEX_CREDENTIAL_BYTES: Final = 1024 * 1024
+
+
+def _validate_vertex_credential(content: bytes) -> None:
+    if not content or len(content) > _MAX_VERTEX_CREDENTIAL_BYTES:
+        raise HTTPException(status_code=422, detail="Vertex credential must be a JSON file no larger than 1 MiB")
+    try:
+        payload: Final = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=422, detail="Vertex credential must contain valid JSON") from error
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Vertex credential must be a JSON object")
+    required: Final = ("project_id", "client_email", "private_key")
+    if any(not isinstance(payload.get(key), str) or not payload[key].strip() for key in required):
+        raise HTTPException(
+            status_code=422, detail="Vertex credential is missing project_id, client_email, or private_key"
+        )
 
 
 def create_router(
@@ -161,7 +184,10 @@ def create_router(
     @router.get("/api/provider-families", dependencies=[Depends(require_manager)])
     async def list_provider_families() -> tuple[ProviderFamilyView, ...]:
         records: Final = await service.list_environments()
-        counts: Final = {family.kind: sum(1 for record in records if record.supplier.value == family.kind) for family in PROVIDER_FAMILIES}
+        counts: Final = {
+            family.kind: sum(1 for record in records if record.supplier.value == family.kind)
+            for family in PROVIDER_FAMILIES
+        }
         return tuple(
             ProviderFamilyView(
                 kind=family.kind,
@@ -199,11 +225,7 @@ def create_router(
         if environments is None:
             return ()
         records: Final = await environments.list()
-        return tuple(
-            credential
-            for record in records
-            for credential in _credential_views(record)
-        )
+        return tuple(credential for record in records for credential in _credential_views(record))
 
     @router.post("/api/auth-files", dependencies=[Depends(require_manager)])
     async def upload_auth_file(
@@ -232,15 +254,11 @@ def create_router(
         return _unwrap(await service.delete_auth_file(environment_id))
 
     @router.patch("/api/environments/{environment_id}/auth-file/status", dependencies=[Depends(require_manager)])
-    async def patch_auth_file_status(
-        environment_id: UUID, request: AuthFileStatusRequest
-    ) -> EnvironmentView:
+    async def patch_auth_file_status(environment_id: UUID, request: AuthFileStatusRequest) -> EnvironmentView:
         return _unwrap(await service.patch_auth_file_status(environment_id, request.disabled))
 
     @router.patch("/api/environments/{environment_id}/auth-file/fields", dependencies=[Depends(require_manager)])
-    async def patch_auth_file_fields(
-        environment_id: UUID, request: AuthFileFieldsRequest
-    ) -> EnvironmentView:
+    async def patch_auth_file_fields(environment_id: UUID, request: AuthFileFieldsRequest) -> EnvironmentView:
         return _unwrap(await service.patch_auth_file_fields(environment_id, request.fields))
 
     @router.get("/api/environments/{environment_id}/auth-file/models", dependencies=[Depends(require_manager)])
@@ -312,13 +330,17 @@ def create_router(
     async def list_card_plugin_store(environment_id: UUID) -> Mapping[str, object]:
         return _unwrap(await service.list_card_plugin_store(environment_id))
 
-    @router.post("/api/environments/{environment_id}/plugins/{plugin_id}/install", dependencies=[Depends(require_manager)])
+    @router.post(
+        "/api/environments/{environment_id}/plugins/{plugin_id}/install", dependencies=[Depends(require_manager)]
+    )
     async def install_card_plugin(
         environment_id: UUID, plugin_id: str, request: PluginInstallRequest
     ) -> Mapping[str, object]:
-        return _unwrap(await service.install_card_plugin(environment_id, plugin_id, request.version))
+        return _unwrap(await service.install_card_plugin(environment_id, plugin_id, request.version, request.source))
 
-    @router.patch("/api/environments/{environment_id}/plugins/{plugin_id}/enabled", dependencies=[Depends(require_manager)])
+    @router.patch(
+        "/api/environments/{environment_id}/plugins/{plugin_id}/enabled", dependencies=[Depends(require_manager)]
+    )
     async def set_card_plugin_enabled(
         environment_id: UUID, plugin_id: str, request: PluginEnabledRequest
     ) -> Mapping[str, object]:
@@ -328,11 +350,15 @@ def create_router(
     async def uninstall_card_plugin(environment_id: UUID, plugin_id: str) -> Mapping[str, object]:
         return _unwrap(await service.uninstall_card_plugin(environment_id, plugin_id))
 
-    @router.get("/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)])
+    @router.get(
+        "/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)]
+    )
     async def get_card_plugin_config(environment_id: UUID, plugin_id: str) -> Mapping[str, object]:
         return _unwrap(await service.get_card_plugin_config(environment_id, plugin_id))
 
-    @router.put("/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)])
+    @router.put(
+        "/api/environments/{environment_id}/plugins/{plugin_id}/config", dependencies=[Depends(require_manager)]
+    )
     async def put_card_plugin_config(
         environment_id: UUID, plugin_id: str, request: PluginConfigRequest
     ) -> Mapping[str, object]:
@@ -353,8 +379,40 @@ def create_router(
         request: CreateEnvironmentRequest,
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> EnvironmentView:
-        effective: Final = request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        effective: Final = (
+            request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        )
         return _unwrap(await service.create_openai_compatible(effective))
+
+    @router.post("/api/direct-credentials", dependencies=[Depends(require_manager)])
+    async def create_direct_credential(
+        request: CreateDirectCredentialEnvironmentRequest,
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> EnvironmentView:
+        effective: Final = (
+            request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
+        )
+        return _unwrap(await service.create_direct_credential_environment(effective))
+
+    @router.post("/api/vertex", dependencies=[Depends(require_manager)])
+    async def create_vertex(
+        name: Annotated[str, Form(min_length=1, max_length=80)],
+        file: Annotated[UploadFile, File()],
+        location: Annotated[str, Form(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")] = "us-central1",
+        operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> EnvironmentView:
+        content: Final = await file.read(_MAX_VERTEX_CREDENTIAL_BYTES + 1)
+        _validate_vertex_credential(content)
+        try:
+            request: Final = CreateVertexEnvironmentRequest(
+                name=name,
+                location=location,
+                operation_id=operation_id,
+            )
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail="Vertex environment request is invalid") from error
+        filename: Final = file.filename or "vertex-service-account.json"
+        return _unwrap(await service.create_vertex_environment(request, filename, content))
 
     @router.get("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])
     async def get_environment(environment_id: UUID) -> EnvironmentView:
@@ -529,6 +587,8 @@ def _callback_page(title: str, message: str) -> str:
 
 
 def _credential_views(record: EnvironmentRecord) -> tuple[CredentialView, ...]:
+    if record.channel is ChannelKind.FREEBUFF2API:
+        return ()
     if record.channel is ChannelKind.OPENAI_COMPATIBLE and record.openai_compatible is not None:
         return tuple(
             CredentialView(

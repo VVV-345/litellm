@@ -45,10 +45,6 @@ jobs:
             context: account-pool
             file: account-pool/Dockerfile
             cache_scope: account-pool-manager
-          - image: freebuff2api-proxy
-            context: account-pool/freebuff2api-image
-            file: account-pool/freebuff2api-image/Dockerfile
-            cache_scope: freebuff2api-proxy
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -88,7 +84,6 @@ jobs:
         package:
           - litellm
           - account-pool-manager
-          - freebuff2api-proxy
     steps:
       - name: Retain the latest 20 versions of ${{ matrix.package }}
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
@@ -119,5 +114,4 @@ jobs:
             echo
             echo "- \`ghcr.io/vvv-345/litellm:${DEPLOY_TAG}\`"
             echo "- \`ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG}\`"
-            echo "- \`ghcr.io/vvv-345/freebuff2api-proxy:${DEPLOY_TAG}\`"
           } >> "$GITHUB_STEP_SUMMARY"

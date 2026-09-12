@@ -115,6 +115,7 @@ def test_to_view_includes_channel_and_supplier_without_internal_authorization_fi
 
     assert payload["channel"] == "cliproxyapi"
     assert payload["supplier"] == "openai_codex"
+    assert payload["authorization_flow"] == "browser_oauth"
     for field in (
         "oauth_state",
         "oauth_state_signature",
@@ -169,6 +170,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "provider": "openai",
             "channel": "cliproxyapi",
             "supplier": "openai_codex",
+            "authorization_flow": "browser_oauth",
             "status": "awaiting_authorization",
             "configuration_pending": False,
             "enabled": True,

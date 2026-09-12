@@ -11,6 +11,7 @@ from uuid import UUID
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import (
+    DirectAPIKeyCredentialRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
     GatewayEnvironment,
@@ -84,6 +85,14 @@ class EnvironmentChannel(EnvironmentRuntime, Protocol):
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
 
+    async def write_direct_api_key(
+        self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
+    ) -> None: ...
+
+    async def import_vertex_credential(
+        self, record: EnvironmentRecord, filename: str, content: bytes, location: str
+    ) -> None: ...
+
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool: ...
 
     async def apply_configuration(
@@ -107,6 +116,24 @@ class CLIProxyClient(Protocol):
 
     async def read_account(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> EnvironmentRecord: ...
 
+    async def write_direct_api_key(
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition,
+        *,
+        api_key: str,
+        prefix: str,
+        priority: int,
+        weight: int,
+        base_url: str | None,
+        headers: Mapping[str, str],
+        proxy_url: str,
+    ) -> None: ...
+
+    async def import_vertex_credential(
+        self, record: EnvironmentRecord, filename: str, content: bytes, location: str
+    ) -> None: ...
+
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool: ...
 
     async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None: ...
@@ -127,7 +154,9 @@ class CLIProxyClient(Protocol):
 
     async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]: ...
 
-    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]: ...
+    async def install_plugin(
+        self, record: EnvironmentRecord, plugin_id: str, version: str, source: str | None
+    ) -> Mapping[str, object]: ...
 
     async def set_plugin_enabled(
         self, record: EnvironmentRecord, plugin_id: str, enabled: bool

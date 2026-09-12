@@ -26,6 +26,9 @@ const SUPPORTED_SUPPLIERS: readonly AccountPoolSupplier[] = [
   "google_antigravity",
   "kimi",
   "xai",
+  "gemini",
+  "gemini_interactions",
+  "vertex",
 ] as const;
 
 const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolSupplier | null =>

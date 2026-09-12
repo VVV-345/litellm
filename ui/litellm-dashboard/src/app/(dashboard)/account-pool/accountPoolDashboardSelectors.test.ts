@@ -17,6 +17,7 @@ const environment = (id: string, supplier: AccountPoolEnvironment["supplier"]): 
     provider: "openai",
     channel: "cliproxyapi",
     supplier,
+    authorization_flow: "browser_oauth",
     status: "ready",
     desired_configuration_version: 0,
     observed_configuration_version: 0,
@@ -57,8 +58,7 @@ describe("account pool dashboard selectors", () => {
   it("aggregates request and token totals without treating missing stats as failures", () => {
     const environments = [environment("one", "openai_codex"), environment("two", "kimi")];
     const summary = summarizeAccountPoolDashboard(environments, new Map([["one", stats(4, 3, 1)]]));
-
-    expect(summary).toMatchObject({
+    const expectedSummary = {
       totalCards: 2,
       enabledCards: 2,
       totalRequests: 4,
@@ -66,7 +66,9 @@ describe("account pool dashboard selectors", () => {
       failedRequests: 1,
       totalTokens: 150,
       successRate: 75,
-    });
+    };
+
+    expect(summary).toMatchObject(expectedSummary);
   });
 
   it("groups cards by supplier and limits the card preview to three models", () => {

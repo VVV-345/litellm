@@ -70,6 +70,38 @@ export const createOpenAICompatibleAccountPoolEnvironment = (
 ): Promise<AccountPoolEnvironment> =>
   apiClient.post<AccountPoolEnvironment>("/account_pool/openai-compatible", { accessToken, body: request });
 
+export interface AccountPoolDirectCredentialCreateRequest {
+  name: string;
+  supplier: "gemini" | "gemini_interactions";
+  credential: {
+    api_key: string;
+    prefix: string;
+    priority: number;
+    weight: number;
+    base_url?: string;
+    headers: Array<[string, string]>;
+  };
+}
+
+export const createDirectCredentialAccountPoolEnvironment = (
+  accessToken: string,
+  request: AccountPoolDirectCredentialCreateRequest,
+): Promise<AccountPoolEnvironment> =>
+  apiClient.post<AccountPoolEnvironment>("/account_pool/direct-credentials", { accessToken, body: request });
+
+export const createVertexAccountPoolEnvironment = (
+  accessToken: string,
+  name: string,
+  location: string,
+  file: File,
+): Promise<AccountPoolEnvironment> => {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("location", location);
+  form.append("file", file, file.name);
+  return apiClient.post<AccountPoolEnvironment>("/account_pool/vertex", { accessToken, rawBody: form });
+};
+
 export const updateAccountPoolEnvironment = (
   accessToken: string,
   environmentId: string,

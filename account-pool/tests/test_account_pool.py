@@ -15,17 +15,16 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import yaml
+from account_pool.api import _credential_views
 from account_pool.app import (
     _reconcile_pending_configurations_until_cancelled,
     _restore_control_plane_connections_until_cancelled,
 )
 from account_pool.channels.base import ChannelDefinition
-from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.channels.freebuff2api.channel import FreeBuff2APIChannel
-from account_pool.channels.freebuff2api.client import HttpCodebuffClient
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
@@ -34,7 +33,10 @@ from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
     AuthorizationFlow,
     ChannelKind,
+    CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
+    CreateVertexEnvironmentRequest,
+    DirectAPIKeyCredentialRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
@@ -49,6 +51,7 @@ from account_pool.domain import (
     configuration_from_record,
     utc_now,
 )
+from account_pool.error_logs import ErrorLogRecord, ErrorLogService
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, Success, _safe_error
 
@@ -268,6 +271,7 @@ class FakeRuntime:
     def __init__(self) -> None:
         self.provisioned: list[EnvironmentRecord] = []
         self.removed: list[EnvironmentRecord] = []
+        self.running_changes: list[tuple[UUID, bool]] = []
 
     def environment_dir(self, environment_id):
         return Path("/tmp") / environment_id.hex
@@ -277,11 +281,9 @@ class FakeRuntime:
 
     async def ensure_control_plane_connections(self, environment_id) -> None:
         _ = environment_id
-        return None
 
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
-        _ = running
-        return None
+        self.running_changes.append((record.id, running))
 
     async def remove(self, record: EnvironmentRecord) -> None:
         self.removed.append(record)
@@ -313,6 +315,16 @@ class FakeChannel:
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         return await self._cli.read_account(record)
+
+    async def write_direct_api_key(
+        self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
+    ) -> None:
+        await self._cli.write_direct_api_key(record, credential, proxy_url)
+
+    async def import_vertex_credential(
+        self, record: EnvironmentRecord, filename: str, content: bytes, location: str
+    ) -> None:
+        await self._cli.import_vertex_credential(record, filename, content, location)
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
         return await self._cli.data_plane_health_check(record)
@@ -355,7 +367,6 @@ class FakeChannel:
 
     async def remove_directory(self, environment_id) -> None:
         _ = environment_id
-        return None
 
     def environment_dir(self, environment_id):
         return self._runtime.environment_dir(environment_id)
@@ -424,11 +435,19 @@ class FakeCLIProxy:
         authorization_error: Exception | None = None,
         read_error: Exception | None = None,
         health_error: Exception | None = None,
+        read_failures_before_success: int = 0,
+        health_failures_before_success: int = 0,
+        direct_write_error: Exception | None = None,
+        vertex_write_error: Exception | None = None,
     ) -> None:
         self.authorization_status_value = authorization_status
         self.authorization_error = authorization_error
         self.read_error = read_error
         self.health_error = health_error
+        self.read_failures_before_success = read_failures_before_success
+        self.health_failures_before_success = health_failures_before_success
+        self.direct_write_error = direct_write_error
+        self.vertex_write_error = vertex_write_error
         self.authorization_status_calls = 0
         self.data_plane_healthy = data_plane_healthy
         self.observed_status = observed_status
@@ -441,6 +460,8 @@ class FakeCLIProxy:
         self.configuration_completed = asyncio.Event()
         self.submit_calls: list[OAuthCallback] = []
         self.fail_proxy_once = False
+        self.direct_credentials: list[tuple[UUID, DirectAPIKeyCredentialRequest, str]] = []
+        self.vertex_credentials: list[tuple[UUID, str, bytes, str]] = []
 
     async def close(self) -> None:
         return None
@@ -465,6 +486,8 @@ class FakeCLIProxy:
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         self.read_calls += 1
+        if self.read_calls <= self.read_failures_before_success:
+            raise RuntimeError("credential is not visible yet")
         if self.read_error is not None:
             raise self.read_error
         return record.model_copy(
@@ -478,9 +501,25 @@ class FakeCLIProxy:
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
         self.health_calls += 1
+        if self.health_calls <= self.health_failures_before_success:
+            return False
         if self.health_error is not None:
             raise self.health_error
         return self.data_plane_healthy
+
+    async def write_direct_api_key(
+        self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
+    ) -> None:
+        if self.direct_write_error is not None:
+            raise self.direct_write_error
+        self.direct_credentials.append((record.id, credential, proxy_url))
+
+    async def import_vertex_credential(
+        self, record: EnvironmentRecord, filename: str, content: bytes, location: str
+    ) -> None:
+        if self.vertex_write_error is not None:
+            raise self.vertex_write_error
+        self.vertex_credentials.append((record.id, filename, content, location))
 
     async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None:
         self.status_calls.append(enabled)
@@ -538,6 +577,32 @@ class EmptyProfiles:
 
     async def get_url(self, profile_id: str):
         return None
+
+
+class RecordingLogs:
+    def __init__(self) -> None:
+        self.events: list[ErrorLogRecord] = []
+
+    async def append(self, event: ErrorLogRecord) -> None:
+        self.events.append(event)
+
+
+class RecordingRepository(MemoryRepository):
+    def __init__(self, record: EnvironmentRecord) -> None:
+        super().__init__(record)
+        self.saved_payloads: list[str] = []
+
+    async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        self.saved_payloads.append(json.dumps(record.model_dump(mode="json"), sort_keys=True))
+        return await super().save(record)
+
+    async def save_if_version(
+        self,
+        record: EnvironmentRecord,
+        expected_version: int,
+    ) -> EnvironmentRecord | None:
+        self.saved_payloads.append(json.dumps(record.model_dump(mode="json"), sort_keys=True))
+        return await super().save_if_version(record, expected_version)
 
 
 class StaticProfiles:
@@ -744,9 +809,7 @@ def test_render_compose_never_binds_host_paths(tmp_path: Path) -> None:
         render_compose(_record(status=EnvironmentStatus.PROVISIONING), _settings(tmp_path))
     )
     mounts: Final = tuple(
-        volume
-        for volume in rendered["services"]["cli-proxy-api"]["volumes"]
-        if "/" in volume.split(":")[0]
+        volume for volume in rendered["services"]["cli-proxy-api"]["volumes"] if "/" in volume.split(":")[0]
     )
 
     assert mounts == ()
@@ -928,7 +991,14 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
 
     volume: Final = f"account-pool-{record.id.hex}-data"
     arguments: Final = tuple(arguments for arguments, _ in runner.calls)
-    assert arguments[0] == ("docker", "volume", "create", "--label", f"account-pool-environment={record.id.hex}", volume)
+    assert arguments[0] == (
+        "docker",
+        "volume",
+        "create",
+        "--label",
+        f"account-pool-environment={record.id.hex}",
+        volume,
+    )
     chown: Final = arguments[1]
     assert chown[0] == "docker" and chown[-3:] == ("chown", "65532:65532", "/data")
     seed: Final = arguments[2]
@@ -937,7 +1007,14 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     assert seed[-1].startswith("mkdir -p /data/config /data/auths")
     assert f"{volume}:/data:rw" in seed
     assert "config.yaml" in seed[-1]
-    assert arguments[3][:6] == ("docker", "compose", "--project-name", f"account-pool-{record.id.hex}", "--file", str(runtime.environment_dir(record.id) / "compose.yaml"))
+    assert arguments[3][:6] == (
+        "docker",
+        "compose",
+        "--project-name",
+        f"account-pool-{record.id.hex}",
+        "--file",
+        str(runtime.environment_dir(record.id) / "compose.yaml"),
+    )
     compose_text: Final = (runtime.environment_dir(record.id) / "compose.yaml").read_text(encoding="utf-8")
     assert "./" not in yaml.safe_load(compose_text)["services"]["cli-proxy-api"]["volumes"][0]
 
@@ -949,12 +1026,14 @@ async def test_freebuff_switch_and_clear_proxy_reuses_volume_and_applies_compose
     runner: Final = RecordingDockerRunner()
     runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
     channel: Final = FreeBuff2APIChannel(settings, secrets, runtime=runtime)
-    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={
-        "channel": ChannelKind.FREEBUFF2API,
-        "supplier": SupplierKind.FREEBUFF,
-        "proxy_mode": ProxyMode.PROFILE,
-        "proxy_profile_id": "clash-gateway-7891",
-    })
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "channel": ChannelKind.FREEBUFF2API,
+            "supplier": SupplierKind.FREEBUFF,
+            "proxy_mode": ProxyMode.PROFILE,
+            "proxy_profile_id": "clash-gateway-7891",
+        }
+    )
     try:
         for proxy_url in ("http://host.docker.internal:7891", "http://host.docker.internal:7892", ""):
             await channel.apply_configuration(record, configuration_from_record(record, proxy_url))
@@ -971,77 +1050,10 @@ async def test_freebuff_switch_and_clear_proxy_reuses_volume_and_applies_compose
     commands: Final = tuple(arguments for arguments, _ in runner.calls)
     assert len(commands) == 9
     assert all(command[1] in {"compose", "network"} for command in commands)
-    assert tuple(command[-4:] for command in commands if command[1] == "compose") == (
-        ("up", "-d", "--wait", "--remove-orphans"),
-    ) * 3
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("initial_status", (EnvironmentStatus.READY, EnvironmentStatus.ERROR))
-async def test_channels_share_proxy_profile_and_freebuff_retries_failed_apply(
-    tmp_path: Path, initial_status: EnvironmentStatus,
-) -> None:
-    settings: Final = _settings(tmp_path)
-    secrets: Final = EnvironmentSecretDeriver("s" * 32)
-    calls: Final[list[tuple[str, ...]]] = []
-    proxy_values: Final[list[str]] = []
-
-    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
-        calls.append(arguments)
-        return CompletedDockerProcess(returncode=1 if len(calls) == 1 else 0, stderr=b"temporary compose failure")
-
-    def handle_cli(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v0/management/proxy-url":
-            proxy_values.append(json.loads(request.content)["value"])
-        return httpx.Response(200, json={})
-
-    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
-    freebuff: Final = FreeBuff2APIChannel(settings, secrets, runtime=runtime)
-    cli_record: Final = _record(status=EnvironmentStatus.READY)
-    freebuff_record: Final = cli_record.model_copy(update={
-        "id": uuid4(), "channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF,
-        "status": initial_status,
-        "auth_file_name": "freebuff_credentials.json" if initial_status is EnvironmentStatus.READY else None,
-    })
-    repository: Final = MemoryRepository(cli_record)
-    await repository.save(freebuff_record)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_cli)) as http_client:
-        cli_client: Final = HttpCLIProxyClient(secrets, http_client)
-        channels: Final = ChannelRegistry(
-            definitions=ChannelRegistry.default().definitions,
-            implementations=MappingProxyType({
-                ChannelKind.CLIPROXYAPI: CLIProxyAPIChannel(settings, secrets, runtime=runtime, client=cli_client),
-                ChannelKind.FREEBUFF2API: freebuff,
-            }),
-        )
-        service: Final = EnvironmentService(
-            settings, repository, runtime, cli_client, StaticProfiles("http://host.docker.internal:7891"),
-            secrets, channels=channels,
-        )
-        request: Final = UpdateEnvironmentRequest(
-            version=0, name="Shared proxy", concurrency_limit=2, enabled=True, manual_cooldown=False,
-            proxy_mode=ProxyMode.PROFILE, proxy_profile_id="clash-gateway-7891", enabled_models=(),
-        )
-        try:
-            assert isinstance(await service.update_environment(cli_record.id, request), Success)
-            assert isinstance(await service.update_environment(freebuff_record.id, request), Failure)
-            failed: Final = await repository.get(freebuff_record.id)
-            assert failed is not None and failed.configuration_pending
-            assert freebuff.gateway(failed).routable is False
-            assert failed.desired_configuration is not None
-            assert failed.desired_configuration.proxy_url == "http://host.docker.internal:7891"
-            assert (runtime.environment_dir(failed.id) / "compose.yaml").exists()
-            recovered: Final = await service.reconcile_pending_configurations()
-            assert len(recovered) == 1 and not recovered[0].configuration_pending
-            assert recovered[0].status is initial_status
-            assert recovered[0].proxy_profile_id == "clash-gateway-7891"
-        finally:
-            await freebuff.close()
-
-    assert proxy_values == ["http://host.docker.internal:7891"]
-    assert sum(command[1] == "compose" for command in calls) == 2
-    compose: Final = yaml.safe_load((runtime.environment_dir(freebuff_record.id) / "compose.yaml").read_text("utf-8"))
-    assert "FREEBUFF_PROXY_URL=http://host.docker.internal:7891" in compose["services"]["freebuff2api"]["environment"]
+    assert (
+        tuple(command[-4:] for command in commands if command[1] == "compose")
+        == (("up", "-d", "--wait", "--remove-orphans"),) * 3
+    )
 
 
 @pytest.mark.asyncio
@@ -1061,9 +1073,7 @@ async def test_remove_data_volume_treats_missing_volume_as_absent(tmp_path: Path
 async def test_disconnect_treats_missing_network_as_absent(tmp_path: Path) -> None:
     settings: Final = _settings(tmp_path)
 
-    async def missing_network_runner(
-        arguments: tuple[str, ...], environment: dict[str, str]
-    ) -> CompletedDockerProcess:
+    async def missing_network_runner(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
         return CompletedDockerProcess(
             returncode=1,
             stderr=b"Error response from daemon: network account-pool-x not found",
@@ -1151,9 +1161,11 @@ async def test_credential_writer_transmits_payload_through_real_subprocess_stdin
         # 使用真实子进程接收凭据，覆盖假进程无法发现的 stdin 管道缺失。
         return await run_docker(
             (
-                sys.executable, "-c",
+                sys.executable,
+                "-c",
                 "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
-                str(destination), "--interactive",
+                str(destination),
+                "--interactive",
             ),
             dict(os.environ),
         )
@@ -1172,13 +1184,19 @@ async def test_authorization_poll_error_is_visible_redacted_and_recovers(tmp_pat
     state: Final = bootstrap._callback_state(record)
     signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
     repository: Final = MemoryRepository(signed)
-    cli: Final = FakeCLIProxy(authorization_error=RuntimeError(
-        "credential save failed https://user:password@example.com/status?fingerprintHash=private-hash Bearer private-token"
-    ))
+    cli: Final = FakeCLIProxy(
+        authorization_error=RuntimeError(
+            "credential save failed https://user:password@example.com/status?fingerprintHash=private-hash Bearer private-token"
+        )
+    )
     runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
-        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
-        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
         channels=_fake_channels(runtime, cli),
     )
 
@@ -1213,8 +1231,12 @@ async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path:
     cli: Final = FakeCLIProxy(authorization_error=RuntimeError("old authorization failed"))
     runtime: Final = FakeRuntime()
     service: Final = EnvironmentService(
-        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
-        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
         channels=_fake_channels(runtime, cli),
     )
 
@@ -1223,90 +1245,12 @@ async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path:
 
 
 @pytest.mark.asyncio
-async def test_freebuff_startup_retry_preserves_saved_token_and_publishes_models(tmp_path: Path) -> None:
-    settings: Final = _settings(tmp_path)
-    secrets: Final = EnvironmentSecretDeriver("s" * 32)
-    destination: Final = tmp_path / "freebuff_credentials.json"
-    commands: Final[list[tuple[str, ...]]] = []
-    paths: Final[list[str]] = []
-    model_attempts: Final[list[str]] = []
-
-    async def runner(arguments: tuple[str, ...], environment: dict[str, str]):
-        commands.append(arguments)
-        if "--interactive" in arguments:
-            return await run_docker((
-                sys.executable, "-c",
-                "import pathlib,sys; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())",
-                str(destination), "--interactive",
-            ), dict(os.environ))
-        return CompletedDockerProcess()
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        paths.append(request.url.path)
-        if request.url.path == "/api/auth/cli/code":
-            return httpx.Response(200, json={
-                "loginUrl": "https://www.codebuff.com/oauth/login", "fingerprintHash": "test-hash",
-            })
-        if request.url.path == "/api/auth/cli/status":
-            return httpx.Response(200, json={"user": {"authToken": "test-only-token"}})
-        if request.url.path == "/v1/models":
-            model_attempts.append(request.url.path)
-            if len(model_attempts) == 1:
-                raise httpx.ConnectError("container is starting", request=request)
-            return httpx.Response(200, json={"data": [{"id": "test-model"}]})
-        if request.url.path == "/healthz":
-            return httpx.Response(200, json={"status": "ok", "accounts": 1, "unknown_accounts": 1})
-        return httpx.Response(404)
-
-    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
-    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(update={
-        "channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF,
-        "available_models": (), "enabled_models": (),
-    })
-    repository: Final = MemoryRepository(record)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        channel: Final = FreeBuff2APIChannel(
-            settings, secrets, runtime=runtime, client=HttpCodebuffClient(client), http_client=client,
-        )
-        channels: Final = ChannelRegistry(
-            definitions=ChannelRegistry.default().definitions,
-            implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),
-        )
-        service: Final = EnvironmentService(
-            settings, repository, runtime, FakeCLIProxy(), EmptyProfiles(), secrets, channels=channels,
-        )
-        operation: Final = await channel.start_authorization(record)
-        state: Final = service._callback_state(record)
-        signed: Final = record.model_copy(update={
-            "oauth_state": state, "oauth_state_signature": state.rpartition(".")[2],
-            "oauth_provider_state": operation.provider_state,
-        })
-        await repository.save(signed)
-
-        pending: Final = await service._refresh_authorization(signed)
-        assert pending.status is EnvironmentStatus.VALIDATING
-        assert json.loads(destination.read_text())["accounts"]["default"]["authToken"] == "test-only-token"
-        assert not channel.gateway(pending).routable
-        await service.reconcile_pending_authorizations()
-        recovered: Final = await repository.get(record.id)
-        assert recovered is not None
-        assert recovered.status is EnvironmentStatus.READY
-        gateway: Final = channel.gateway(recovered)
-        assert gateway.routable
-        assert gateway.enabled_models == ("test-model",)
-        assert gateway.api_key
-        assert recovered.last_error is None
-
-    assert paths.count("/api/auth/cli/status") == 1
-    assert sum("--interactive" in command for command in commands) == 1
-    assert sum(command[-1] == "restart" for command in commands) == 1
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("flow", ("poll", "callback"))
 @pytest.mark.parametrize("failure", ("models", "health", "health_exception"))
 async def test_authorization_waits_for_startup_and_recovers_in_background(
-    tmp_path: Path, flow: str, failure: str,
+    tmp_path: Path,
+    flow: str,
+    failure: str,
 ) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     error: Final = RuntimeError("connecting https://user:password@example.com/?token=private-token")
@@ -1353,8 +1297,12 @@ async def test_authorization_waits_for_startup_and_recovers_in_background(
     # 用新服务实例模拟 Manager 重启，并由实际后台循环推进，不依赖页面刷新。
     runtime: Final = FakeRuntime()
     restarted: Final = EnvironmentService(
-        settings=_settings(tmp_path), repository=service._repository, runtime=runtime, cli_proxy=cli,
-        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        settings=_settings(tmp_path),
+        repository=service._repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
         channels=_fake_channels(runtime, cli),
     )
     stopped: Final = asyncio.Event()
@@ -1379,10 +1327,12 @@ async def test_authorization_waits_for_startup_and_recovers_in_background(
 
 @pytest.mark.asyncio
 async def test_authorization_startup_timeout_is_bounded_and_returns_durable_error(tmp_path: Path) -> None:
-    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
-        "oauth_state_consumed_at": utc_now() - timedelta(minutes=3),
-        "updated_at": utc_now(),
-    })
+    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(
+        update={
+            "oauth_state_consumed_at": utc_now() - timedelta(minutes=3),
+            "updated_at": utc_now(),
+        }
+    )
     cli: Final = FakeCLIProxy(data_plane_healthy=False)
     service: Final = _service(record, cli, tmp_path)
 
@@ -1408,9 +1358,11 @@ async def test_startup_deadline_cancels_a_stuck_model_check(tmp_path: Path) -> N
                 cancelled.set()
             return record
 
-    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
-        "oauth_state_consumed_at": utc_now() - timedelta(seconds=119.8),
-    })
+    record: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(
+        update={
+            "oauth_state_consumed_at": utc_now() - timedelta(seconds=119.8),
+        }
+    )
     service: Final = _service(record, StuckCLI(), tmp_path)
 
     result: Final = await asyncio.wait_for(service._refresh_if_needed(record), timeout=2)
@@ -1423,13 +1375,19 @@ async def test_startup_deadline_cancels_a_stuck_model_check(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_startup_failure_cannot_overwrite_a_newer_authorization(tmp_path: Path) -> None:
-    stale: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(update={
-        "oauth_state_consumed_at": utc_now(),
-    })
-    newer: Final = stale.model_copy(update={
-        "version": stale.version + 1, "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-        "oauth_state": "new-authorization-state", "oauth_state_consumed_at": None,
-    })
+    stale: Final = _record(status=EnvironmentStatus.VALIDATING, auth_file_name=None).model_copy(
+        update={
+            "oauth_state_consumed_at": utc_now(),
+        }
+    )
+    newer: Final = stale.model_copy(
+        update={
+            "version": stale.version + 1,
+            "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
+            "oauth_state": "new-authorization-state",
+            "oauth_state_consumed_at": None,
+        }
+    )
     service: Final = _service(newer, FakeCLIProxy(data_plane_healthy=False), tmp_path)
 
     from account_pool.service import _AuthorizationConflict
@@ -3335,3 +3293,241 @@ async def test_repeated_operation_id_does_not_create_a_second_configuration_vers
     assert not isinstance(second, Failure)
     assert first.value.desired_configuration_version == 1
     assert second.value.desired_configuration_version == 1
+
+
+@pytest.mark.asyncio
+async def test_direct_credential_creation_retries_without_persisting_or_returning_secret(tmp_path: Path) -> None:
+    seed: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = RecordingRepository(seed)
+    cli: Final = FakeCLIProxy(read_failures_before_success=1, health_failures_before_success=1)
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        direct_credential_validation_timeout_seconds=1,
+        direct_credential_validation_interval_seconds=0,
+    )
+    secret: Final = "gemini-secret-value"
+
+    result: Final = await service.create_direct_credential_environment(
+        CreateDirectCredentialEnvironmentRequest(
+            name="Gemini account",
+            supplier=SupplierKind.GEMINI,
+            credential=DirectAPIKeyCredentialRequest(api_key=secret),
+        )
+    )
+
+    assert isinstance(result, Success)
+    assert result.value.status is EnvironmentStatus.READY
+    assert cli.read_calls == 3
+    assert cli.health_calls == 2
+    assert cli.direct_credentials[0][1].api_key == secret
+    assert all(secret not in payload for payload in repository.saved_payloads)
+    assert secret not in result.value.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_vertex_creation_failure_does_not_write_credential_json_to_state_or_logs(tmp_path: Path) -> None:
+    seed: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = RecordingRepository(seed)
+    content: Final = b'{"project_id":"secret-project","private_key":"private-secret-value"}'
+    cli: Final = FakeCLIProxy(vertex_write_error=RuntimeError(content.decode("utf-8")))
+    runtime: Final = FakeRuntime()
+    logs: Final = RecordingLogs()
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        error_logs=ErrorLogService(logs),
+        direct_credential_validation_timeout_seconds=0.01,
+        direct_credential_validation_interval_seconds=0,
+    )
+
+    result: Final = await service.create_vertex_environment(
+        CreateVertexEnvironmentRequest(name="Vertex account", location="asia-east1"),
+        "service-account.json",
+        content,
+    )
+
+    assert isinstance(result, Failure)
+    assert all(
+        "secret-project" not in payload and "private-secret-value" not in payload
+        for payload in repository.saved_payloads
+    )
+    assert logs.events
+    assert all("secret-project" not in event.model_dump_json() for event in logs.events)
+    assert all("private-secret-value" not in event.model_dump_json() for event in logs.events)
+
+
+@pytest.mark.asyncio
+async def test_direct_credential_validation_timeout_persists_generic_failure(tmp_path: Path) -> None:
+    seed: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(seed)
+    cli: Final = FakeCLIProxy(data_plane_healthy=False)
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        direct_credential_validation_timeout_seconds=0.01,
+        direct_credential_validation_interval_seconds=0,
+    )
+
+    result: Final = await service.create_direct_credential_environment(
+        CreateDirectCredentialEnvironmentRequest(
+            name="Gemini account",
+            supplier=SupplierKind.GEMINI,
+            credential=DirectAPIKeyCredentialRequest(api_key="secret-key"),
+        )
+    )
+
+    assert isinstance(result, Failure)
+    failed: Final = next(record for record in repository.records.values() if record.id != seed.id)
+    assert failed.status is EnvironmentStatus.ERROR
+    assert failed.last_error == "Direct credential validation failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "supplier",
+    (SupplierKind.GEMINI, SupplierKind.GEMINI_INTERACTIONS, SupplierKind.VERTEX),
+)
+async def test_direct_credential_supplier_rejects_oauth_creation_endpoint(
+    tmp_path: Path,
+    supplier: SupplierKind,
+) -> None:
+    seed: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(seed)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    result: Final = await service.create_environment(
+        CreateEnvironmentRequest(name="Direct credential account", supplier=supplier)
+    )
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.INVALID
+    assert result.message == "direct credential suppliers require the credential creation endpoint"
+    assert tuple(repository.records) == (seed.id,)
+
+
+@pytest.mark.asyncio
+async def test_direct_credential_card_rejects_oauth_reauthorization(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"authorization_flow": AuthorizationFlow.DIRECT_CREDENTIAL, "supplier": SupplierKind.GEMINI}
+    )
+    result: Final = await _service(record, FakeCLIProxy(), tmp_path).authorize_environment(record.id)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.INVALID
+    assert result.message == "direct credential cards do not use OAuth authorization"
+
+
+@pytest.mark.asyncio
+async def test_freebuff_retirement_disables_card_stops_runtime_and_forces_gateway_off(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF}
+    )
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    channel: Final = FakeChannel(runtime, FakeCLIProxy())
+    channels: Final = ChannelRegistry(
+        definitions=MappingProxyType(
+            {ChannelKind.FREEBUFF2API: ChannelRegistry.default().get(ChannelKind.FREEBUFF2API)}
+        ),
+        implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        FakeCLIProxy(),
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=channels,
+    )
+
+    failed_ids: Final = await service.retire_legacy_environments()
+    migrated: Final = await repository.get(record.id)
+
+    assert failed_ids == ()
+    assert migrated is not None
+    assert migrated.status is EnvironmentStatus.MIGRATION_REQUIRED
+    assert migrated.enabled is False
+    assert migrated.legacy_runtime_stopped is True
+    assert runtime.running_changes == [(record.id, False)]
+    assert service.gateway_environment(migrated).routable is False
+    assert service.gateway_environment(migrated).enabled_models == ()
+
+
+@pytest.mark.asyncio
+async def test_freebuff_retired_card_rejects_configuration_and_authorization(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.MIGRATION_REQUIRED).model_copy(
+        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF, "enabled": False}
+    )
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    channel: Final = FakeChannel(runtime, FakeCLIProxy())
+    channels: Final = ChannelRegistry(
+        definitions=MappingProxyType(
+            {ChannelKind.FREEBUFF2API: ChannelRegistry.default().get(ChannelKind.FREEBUFF2API)}
+        ),
+        implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        FakeCLIProxy(),
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=channels,
+    )
+    update: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        name=record.name,
+        concurrency_limit=record.concurrency_limit,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=record.proxy_mode,
+        proxy_profile_id=None,
+        enabled_models=record.enabled_models,
+    )
+
+    update_result: Final = await service.update_environment(record.id, update)
+    authorization_result: Final = await service.authorize_environment(record.id)
+
+    assert isinstance(update_result, Failure)
+    assert isinstance(authorization_result, Failure)
+    assert update_result.code is FailureCode.INVALID
+    assert authorization_result.code is FailureCode.INVALID
+
+
+def test_freebuff_retired_card_is_hidden_from_auth_file_list() -> None:
+    record: Final = _record(status=EnvironmentStatus.MIGRATION_REQUIRED).model_copy(
+        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF, "enabled": False}
+    )
+
+    assert _credential_views(record) == ()

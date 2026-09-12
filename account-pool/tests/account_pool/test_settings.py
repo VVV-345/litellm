@@ -12,6 +12,10 @@ from account_pool.settings import (
     AccountPoolSettingsHistoryEntry,
     AccountPoolSettingsUpdate,
     AccountPoolSettingsView,
+    OAuthRequestScopedErrorRule,
+    PayloadModelRule,
+    PayloadRule,
+    PayloadSettings,
     StreamingRule,
     settings_preview,
 )
@@ -145,6 +149,38 @@ def test_streaming_rules_reject_duplicate_card_assignments() -> None:
         assert "multiple streaming rules" in str(error)
     else:
         raise AssertionError("duplicate streaming rule assignments must be rejected")
+
+
+def test_payload_and_oauth_error_rules_use_cliproxy_wire_names() -> None:
+    settings: Final = AccountPoolSettings(
+        oauth_request_scoped_errors={
+            "codex": (
+                OAuthRequestScopedErrorRule(status=400, match_regexr=("context.*window",), action="stop"),
+            )
+        },
+        payload=PayloadSettings(
+            default_raw=(
+                PayloadRule(
+                    models=(PayloadModelRule(name="gpt-*", from_protocol="responses", not_exist=("metadata.skip",)),),
+                    params={"metadata.source": '"pool"'},
+                ),
+            )
+        ),
+    )
+
+    payload: Final = settings.model_dump(mode="json", by_alias=True)
+
+    assert payload["oauth_request_scoped_errors"]["codex"][0]["match-regexr"] == ["context.*window"]
+    assert payload["payload"]["default-raw"][0]["models"][0] == {
+        "name": "gpt-*",
+        "protocol": "",
+        "headers": {},
+        "from-protocol": "responses",
+        "match": [],
+        "not-match": [],
+        "exist": [],
+        "not-exist": ["metadata.skip"],
+    }
 
 
 def test_settings_management_api_supports_conflict_preview_history_and_rollback() -> None:

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+import yaml
 from account_pool.channels.cliproxyapi.client import AuthorizationStart, HttpCLIProxyClient
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import (
@@ -21,8 +22,15 @@ from account_pool.domain import (
     SupplierKind,
     utc_now,
 )
+from account_pool.policies import AccountPolicy, AntigravityPolicy, ClaudePolicy, CodexPolicy, KimiPolicy, XaiPolicy
 from account_pool.secrets import EnvironmentSecretDeriver
-from account_pool.settings import AccountPoolSettings
+from account_pool.settings import (
+    AccountPoolSettings,
+    OAuthRequestScopedErrorRule,
+    PayloadModelRule,
+    PayloadRule,
+    PayloadSettings,
+)
 
 
 def _record() -> EnvironmentRecord:
@@ -133,6 +141,8 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(200, text="host: 0.0.0.0\nport: 8317\n", request=request)
         return httpx.Response(204, request=request)
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -146,6 +156,112 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
     assert "/v0/management/concurrency-limit" not in tuple(request.url.path for request in requests)
     exclusion: Final = next(request for request in requests if request.url.path.endswith("oauth-excluded-models"))
     assert json.loads(exclusion.content) == {"claude": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "path"),
+    (
+        (SupplierKind.GEMINI, "/v0/management/gemini-api-key"),
+        (SupplierKind.GEMINI_INTERACTIONS, "/v0/management/interactions-api-key"),
+    ),
+)
+async def test_write_direct_api_key_uses_supplier_array_contract(kind: SupplierKind, path: str) -> None:
+    record: Final = _record().model_copy(update={"supplier": kind})
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.write_direct_api_key(
+        record,
+        SupplierRegistry.default().get(kind),
+        api_key="secret-key",
+        prefix="team/",
+        priority=4,
+        weight=7,
+        base_url="https://example.test/v1",
+        headers={"x-team": "alpha"},
+        proxy_url="http://proxy.test:7890",
+    )
+    await client.aclose()
+
+    assert requests[0].url.path == path
+    assert json.loads(requests[0].content) == [
+        {
+            "api-key": "secret-key",
+            "prefix": "team/",
+            "priority": 4,
+            "weight": 7,
+            "headers": {"x-team": "alpha"},
+            "base-url": "https://example.test/v1",
+            "proxy-url": "http://proxy.test:7890",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_apply_configuration_patches_direct_key_excluded_models() -> None:
+    record: Final = _record().model_copy(
+        update={
+            "supplier": SupplierKind.GEMINI,
+            "available_models": ("gemini-2.5-pro", "gemini-2.5-flash"),
+            "enabled_models": ("gemini-2.5-pro",),
+        }
+    )
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_configuration(
+        record,
+        SupplierRegistry.default().get(SupplierKind.GEMINI),
+        EnvironmentConfiguration(
+            name="test",
+            concurrency_limit=2,
+            enabled=True,
+            manual_cooldown=False,
+            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+            enabled_models=("gemini-2.5-pro",),
+        ),
+    )
+    await client.aclose()
+
+    patch: Final = next(request for request in requests if request.method == "PATCH")
+    assert patch.url.path == "/v0/management/gemini-api-key"
+    assert json.loads(patch.content) == {
+        "index": 0,
+        "value": {"excluded-models": ["gemini-2.5-flash"]},
+    }
+    assert not any(request.url.path.endswith("oauth-excluded-models") for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_import_vertex_credential_uses_file_and_location_fields() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.VERTEX})
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.import_vertex_credential(record, "service.json", b'{"project_id":"demo"}', "asia-east1")
+    await client.aclose()
+
+    request: Final = requests[0]
+    assert request.url.path == "/v0/management/vertex/import"
+    assert b'name="location"' in request.content
+    assert b"asia-east1" in request.content
+    assert b'name="file"; filename="service.json"' in request.content
 
 
 @pytest.mark.asyncio
@@ -184,6 +300,26 @@ async def test_auth_file_management_uses_cockpit_endpoints() -> None:
 
 
 @pytest.mark.asyncio
+async def test_install_plugin_uses_version_and_source_query() -> None:
+    record: Final = _record()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"status": "installed"}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    result: Final = await proxy.install_plugin(record, "example-plugin", "1.2.3", "official")
+    await client.aclose()
+
+    assert result == {"status": "installed"}
+    assert len(requests) == 1
+    assert requests[0].url.path == "/v0/management/plugin-store/example-plugin/install"
+    assert dict(requests[0].url.params) == {"version": "1.2.3", "source": "official"}
+
+
+@pytest.mark.asyncio
 async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> None:
     record: Final = _record()
     requests: list[httpx.Request] = []
@@ -199,6 +335,24 @@ async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> Non
         AccountPoolSettings(
             oauth_excluded_models=("gpt-4", "claude-3"),
             oauth_model_aliases={"codex": (("gpt-5", "gpt-5-codex"),)},
+            oauth_request_scoped_errors={
+                "codex": (
+                    OAuthRequestScopedErrorRule(
+                        status=400,
+                        match=("context_window_exceeded",),
+                        match_regexr=("context.*window",),
+                        action="stop",
+                    ),
+                )
+            },
+            payload=PayloadSettings(
+                override=(
+                    PayloadRule(
+                        models=(PayloadModelRule(name="gpt-*", protocol="responses"),),
+                        params={"stream": True},
+                    ),
+                )
+            ),
         ),
     )
     await client.aclose()
@@ -213,6 +367,37 @@ async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> Non
     }
     aliases: Final = next(request for request in requests if request.url.path.endswith("oauth-model-alias"))
     assert json.loads(aliases.content) == {"codex": [{"name": "gpt-5", "alias": "gpt-5-codex"}]}
+    errors: Final = next(request for request in requests if request.url.path.endswith("oauth-request-scoped-errors"))
+    assert json.loads(errors.content) == {
+        "codex": [
+            {
+                "status": 400,
+                "match": ["context_window_exceeded"],
+                "match-regexr": ["context.*window"],
+                "action": "stop",
+            }
+        ]
+    }
+    config: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    assert yaml.safe_load(config.content)["payload"]["override"] == [
+        {
+            "models": [
+                {
+                    "name": "gpt-*",
+                    "protocol": "responses",
+                    "headers": {},
+                    "from-protocol": "",
+                    "match": [],
+                    "not-match": [],
+                    "exist": [],
+                    "not-exist": [],
+                }
+            ],
+            "params": {"stream": True},
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -222,6 +407,8 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(200, text="host: 0.0.0.0\npayload:\n  override:\n    - params:\n        old: true\n", request=request)
         return httpx.Response(204, request=request)
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -231,3 +418,110 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
 
     aliases: Final = next(request for request in requests if request.url.path.endswith("oauth-model-alias"))
     assert json.loads(aliases.content) == {}
+    errors: Final = next(request for request in requests if request.url.path.endswith("oauth-request-scoped-errors"))
+    assert json.loads(errors.content) == {}
+    config: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    assert yaml.safe_load(config.content)["payload"] == {
+        "default": [],
+        "default-raw": [],
+        "override": [],
+        "override-raw": [],
+        "filter": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_apply_policy_syncs_yaml_settings_without_an_auth_file() -> None:
+    record: Final = _record()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(
+                200,
+                text=(
+                    "host: 0.0.0.0\n"
+                    "codex:\n  keep: unchanged\n"
+                    "xai:\n  api-key:\n    - api-key: hidden\n"
+                    "antigravity:\n  project-id: preserved\n"
+                ),
+                request=request,
+            )
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_policy(
+        record,
+        AccountPolicy(
+            codex=CodexPolicy(identity_confuse=True, disable_codex_cloaking=True),
+            xai=XaiPolicy(inject_x_search=True),
+            antigravity=AntigravityPolicy(
+                sensitive_words=(" alpha ", "beta", "alpha"),
+                signature_cache_enabled=False,
+                signature_bypass_strict=True,
+            ),
+        ),
+    )
+    await client.aclose()
+
+    config: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    document: Final = yaml.safe_load(config.content)
+    assert document["codex"] == {
+        "keep": "unchanged",
+        "identity-confuse": True,
+        "disable-codex-cloaking": True,
+    }
+    assert document["xai"] == {"api-key": [{"api-key": "hidden"}], "inject-x-search": True}
+    assert document["antigravity"] == {"project-id": "preserved", "sensitive-words": ["alpha", "beta"]}
+    assert document["antigravity-signature-cache-enabled"] is False
+    assert document["antigravity-signature-bypass-strict"] is True
+    assert not any(request.url.path.endswith("/auth-files/fields") for request in requests)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "policy,expected_fields",
+    (
+        (
+            AccountPolicy(
+                claude=ClaudePolicy(
+                    fingerprint_profile="claude-code-cli",
+                    cloak_mode="always",
+                    rebuild_mid_system_message=True,
+                )
+            ),
+            {
+                "fingerprint_profile": "claude-code-cli",
+                "cloak_mode": "always",
+                "rebuild_mid_system_message": True,
+            },
+        ),
+        (AccountPolicy(kimi=KimiPolicy(fingerprint_profile="claude-code-cli")), {"fingerprint_profile": "claude-code-cli"}),
+    ),
+)
+async def test_apply_policy_syncs_only_auth_file_metadata(
+    policy: AccountPolicy, expected_fields: dict[str, object]
+) -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "provider.json"})
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(200, text="host: 0.0.0.0\n", request=request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_policy(record, policy)
+    await client.aclose()
+
+    patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
+    assert json.loads(patch_request.content) == {"name": "provider.json", **expected_fields}
+    assert not any(request.url.path.endswith("/config.yaml") and request.method == "PUT" for request in requests)

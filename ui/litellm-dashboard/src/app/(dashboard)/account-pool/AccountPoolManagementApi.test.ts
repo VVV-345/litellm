@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { submitAccountPoolBatch, type AccountPolicy } from "./AccountPoolManagementApi";
+import { installCardAccountPoolPlugin, submitAccountPoolBatch, type AccountPolicy } from "./AccountPoolManagementApi";
 
 const postMock = vi.fn();
 
@@ -65,6 +65,18 @@ describe("submitAccountPoolBatch", () => {
         targets,
         policy,
       },
+    });
+  });
+
+  it("sends the selected plugin version and store source", async () => {
+    await installCardAccountPoolPlugin("token-123", "card-1", "plugin/with spaces", {
+      version: "1.2.3",
+      source: "official",
+    });
+
+    expect(postMock).toHaveBeenCalledWith("/account_pool/environments/card-1/plugins/plugin%2Fwith%20spaces/install", {
+      accessToken: "token-123",
+      body: { version: "1.2.3", source: "official" },
     });
   });
 });

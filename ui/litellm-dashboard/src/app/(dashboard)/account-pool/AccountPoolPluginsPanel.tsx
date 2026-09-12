@@ -15,6 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
@@ -28,51 +30,226 @@ import {
   setCardAccountPoolPluginEnabled,
   uninstallCardAccountPoolPlugin,
 } from "./AccountPoolManagementApi";
+import {
+  accountPoolPluginSourceErrors,
+  accountPoolRuntimePlugins,
+  type AccountPoolRuntimePlugin,
+} from "./AccountPoolPluginRuntime";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
-type RuntimePlugin = {
-  id: string;
-  name: string;
-  description: string;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+const pluginStateTranslationKey = (plugin: AccountPoolRuntimePlugin) => {
+  if (plugin.effectiveEnabled) return "accountPool.plugins.running";
+  if (plugin.installed) return "accountPool.plugins.installedState";
+  return "accountPool.plugins.available";
+};
+
+const resolveActiveCardId = (cards: AccountPoolEnvironment[], selectedCardId: string | null) =>
+  cards.find((card) => card.id === selectedCardId)?.id ?? cards[0]?.id ?? null;
+
+const runtimePluginsEnabled = (
+  store: Record<string, unknown> | undefined,
+  installed: Record<string, unknown> | undefined,
+) => store?.plugins_enabled === true || installed?.plugins_enabled === true;
+
+const formatPluginConfig = (config: Record<string, unknown> | undefined) =>
+  config ? JSON.stringify(config, null, 2) : "{}";
+
+const pluginDisplayName = (plugins: AccountPoolRuntimePlugin[], pluginId: string | null) =>
+  plugins.find((plugin) => plugin.id === pluginId)?.name ?? pluginId ?? "";
+
+type PluginCardProps = {
+  plugin: AccountPoolRuntimePlugin;
+  onInstall: (version: string) => void;
+  onSelectVersion: () => void;
+  onToggle: () => void;
+  onConfigure: () => void;
+  onUninstall: () => void;
+};
+
+function AccountPoolPluginCard({
+  plugin,
+  onInstall,
+  onSelectVersion,
+  onToggle,
+  onConfigure,
+  onUninstall,
+}: PluginCardProps) {
+  const { t } = useTranslation();
+  const stateLabel = t(pluginStateTranslationKey(plugin));
+  const details = [
+    [t("accountPool.plugins.storeVersion"), plugin.storeVersion || "-"],
+    [t("accountPool.plugins.installedVersion"), plugin.installedVersion || "-"],
+    [t("accountPool.plugins.source"), plugin.sourceName || plugin.sourceId || "-"],
+    [t("accountPool.plugins.installType"), plugin.installType],
+    [t("accountPool.plugins.configured"), plugin.configured],
+    [t("accountPool.plugins.registered"), plugin.registered],
+    [t("accountPool.plugins.enabled"), plugin.enabled],
+    [t("accountPool.plugins.effectiveEnabled"), plugin.effectiveEnabled],
+  ] as const;
+  const manageable = plugin.installed || plugin.configured;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base">{plugin.name}</CardTitle>
+          <Badge variant={plugin.effectiveEnabled ? "secondary" : "outline"}>{stateLabel}</Badge>
+        </div>
+        {plugin.description && <p className="text-sm text-muted-foreground">{plugin.description}</p>}
+      </CardHeader>
+      <CardContent className="grid gap-4 text-sm">
+        <div className="grid overflow-hidden rounded-md border sm:grid-cols-2 lg:grid-cols-4">
+          {details.map(([label, value]) => (
+            <div
+              key={String(label)}
+              className="grid gap-1 border-b p-3 last:border-b-0 sm:border-r lg:[&:nth-child(4n)]:border-r-0"
+            >
+              <span className="text-xs text-muted-foreground">{String(label)}</span>
+              <span className="font-medium">
+                {typeof value === "boolean"
+                  ? t(value ? "accountPool.plugins.yes" : "accountPool.plugins.no")
+                  : String(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {!plugin.installed && plugin.storeVersion && (
+            <Button size="sm" onClick={() => onInstall(plugin.storeVersion)}>
+              {t("accountPool.plugins.install")}
+            </Button>
+          )}
+          {plugin.updateAvailable && plugin.storeVersion && (
+            <Button size="sm" onClick={() => onInstall(plugin.storeVersion)}>
+              {t("accountPool.plugins.update")}
+            </Button>
+          )}
+          {plugin.installed && (
+            <Button size="sm" variant="outline" onClick={onSelectVersion}>
+              {t("accountPool.plugins.versionAction")}
+            </Button>
+          )}
+          {manageable && (
+            <Button size="sm" variant="outline" onClick={onToggle}>
+              {plugin.enabled ? t("accountPool.plugins.disable") : t("accountPool.plugins.enable")}
+            </Button>
+          )}
+          {manageable && (
+            <Button size="sm" variant="outline" onClick={onConfigure}>
+              {t("accountPool.plugins.configure")}
+            </Button>
+          )}
+          {manageable && (
+            <Button size="sm" variant="destructive" onClick={onUninstall}>
+              {t("accountPool.plugins.uninstall")}
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type PluginVersionDialogProps = {
+  plugin: AccountPoolRuntimePlugin | null;
   version: string;
-  installed: boolean;
-  enabled: boolean;
-  effectiveEnabled: boolean;
-  updateAvailable: boolean;
-  configured: boolean;
-  registered: boolean;
-  installType: string;
+  pending: boolean;
+  onVersionChange: (version: string) => void;
+  onInstall: () => void;
+  onClose: () => void;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+function PluginVersionDialog({
+  plugin,
+  version,
+  pending,
+  onVersionChange,
+  onInstall,
+  onClose,
+}: PluginVersionDialogProps) {
+  const { t } = useTranslation();
+  return (
+    <Dialog open={plugin !== null} onOpenChange={(open) => !open && !pending && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("accountPool.plugins.versionTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("accountPool.plugins.versionDescription", { name: plugin?.name ?? "" })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Label htmlFor="account-pool-plugin-version">{t("accountPool.plugins.version")}</Label>
+          <Input
+            id="account-pool-plugin-version"
+            value={version}
+            onChange={(event) => onVersionChange(event.target.value)}
+            placeholder={plugin?.storeVersion}
+            disabled={pending}
+          />
+        </div>
+        <DialogFooter>
+          <Button onClick={onInstall} disabled={pending || !version.trim()}>
+            {pending ? t("accountPool.plugins.installing") : t("accountPool.plugins.installVersion")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-const readString = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
-
-const readBoolean = (value: unknown, fallback = false) => (typeof value === "boolean" ? value : fallback);
-
-const runtimePlugins = (payload: Record<string, unknown> | undefined): RuntimePlugin[] => {
-  const values: unknown = payload?.plugins;
-  if (!Array.isArray(values)) return [];
-  return values.flatMap((value) => {
-    if (!isRecord(value) || typeof value.id !== "string") return [];
-    return [
-      {
-        id: value.id,
-        name: readString(value.name, value.id),
-        description: readString(value.description),
-        version: readString(value.version, "-"),
-        installed: readBoolean(value.installed),
-        enabled: readBoolean(value.enabled),
-        effectiveEnabled: readBoolean(value.effective_enabled),
-        updateAvailable: readBoolean(value.update_available),
-        configured: readBoolean(value.configured),
-        registered: readBoolean(value.registered),
-        installType: readString(value.install_type, "sidecar"),
-      },
-    ];
-  });
+type PluginConfigDialogProps = {
+  pluginName: string;
+  open: boolean;
+  text: string;
+  loading: boolean;
+  saving: boolean;
+  dirty: boolean;
+  failed: boolean;
+  onTextChange: (text: string) => void;
+  onSave: () => void;
+  onClose: () => void;
 };
+
+function PluginConfigDialog({
+  pluginName,
+  open,
+  text,
+  loading,
+  saving,
+  dirty,
+  failed,
+  onTextChange,
+  onSave,
+  onClose,
+}: PluginConfigDialogProps) {
+  const { t } = useTranslation();
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && !saving && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t("accountPool.plugins.configTitle")}</DialogTitle>
+          <DialogDescription>{t("accountPool.plugins.configDescription", { name: pluginName })}</DialogDescription>
+        </DialogHeader>
+        {failed && <p role="alert">{t("accountPool.plugins.configLoadFailed")}</p>}
+        <Textarea
+          value={text}
+          onChange={(event) => onTextChange(event.target.value)}
+          disabled={loading || saving}
+          className="min-h-64 font-mono text-xs"
+          aria-label={t("accountPool.plugins.configTitle")}
+          spellCheck={false}
+        />
+        <DialogFooter>
+          <Button onClick={onSave} disabled={loading || saving || !dirty}>
+            {saving ? t("accountPool.plugins.configSaving") : t("accountPool.plugins.configSave")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function AccountPoolPluginsPanel({
   accessToken,
@@ -91,35 +268,45 @@ export function AccountPoolPluginsPanel({
   const [configPluginId, setConfigPluginId] = useState<string | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configDirty, setConfigDirty] = useState(false);
-  const activeCardId = cards.some((card) => card.id === selectedCardId) ? selectedCardId : cards[0]?.id ?? null;
+  const [versionPlugin, setVersionPlugin] = useState<AccountPoolRuntimePlugin | null>(null);
+  const [versionText, setVersionText] = useState("");
+  const activeCardId = resolveActiveCardId(cards, selectedCardId);
   const selectedCard = cards.find((card) => card.id === activeCardId) ?? null;
-  const configQuery = useQuery({
+  const configQueryOptions = {
     queryKey: ["account-pool", "card-plugin-config", accessToken, activeCardId, configPluginId],
     queryFn: () => getCardAccountPoolPluginConfig(accessToken, activeCardId!, configPluginId!),
     enabled: activeCardId !== null && configPluginId !== null,
     retry: false,
-  });
-  const installed = useQuery({
+  } as const;
+  const installedQueryOptions = {
     queryKey: ["account-pool", "card-plugins", accessToken, activeCardId],
     queryFn: () => listCardAccountPoolPlugins(accessToken, activeCardId!),
     enabled: activeCardId !== null,
     retry: false,
-  });
-  const store = useQuery({
+  } as const;
+  const storeQueryOptions = {
     queryKey: ["account-pool", "card-plugin-store", accessToken, activeCardId],
     queryFn: () => listCardAccountPoolPluginStore(accessToken, activeCardId!),
     enabled: activeCardId !== null,
     retry: false,
-  });
+  } as const;
+  const configQuery = useQuery(configQueryOptions);
+  const installed = useQuery(installedQueryOptions);
+  const store = useQuery(storeQueryOptions);
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["account-pool", "card-plugins", accessToken, activeCardId] });
     void queryClient.invalidateQueries({ queryKey: ["account-pool", "card-plugin-store", accessToken, activeCardId] });
   };
   const install = useMutation({
-    mutationFn: (plugin: RuntimePlugin) =>
-      installCardAccountPoolPlugin(accessToken, activeCardId!, plugin.id, plugin.version),
+    mutationFn: ({ plugin, version }: { plugin: AccountPoolRuntimePlugin; version: string }) =>
+      installCardAccountPoolPlugin(accessToken, activeCardId!, plugin.id, {
+        version,
+        ...(plugin.sourceId ? { source: plugin.sourceId } : {}),
+      }),
     onSuccess: () => {
       toast.success(t("accountPool.plugins.installed"));
+      setVersionPlugin(null);
+      setVersionText("");
       invalidate();
     },
     onError: (error: Error) => toast.fromError(error),
@@ -153,18 +340,10 @@ export function AccountPoolPluginsPanel({
     },
     onError: (error: Error) => toast.fromError(error),
   });
-  const availablePlugins = useMemo(() => runtimePlugins(store.data), [store.data]);
-  const installedPlugins = useMemo(() => runtimePlugins(installed.data), [installed.data]);
-  const installedById = useMemo(
-    () => new Map(installedPlugins.map((plugin) => [plugin.id, plugin])),
-    [installedPlugins],
-  );
-  const plugins = useMemo(() => {
-    const merged = new Map(availablePlugins.map((plugin) => [plugin.id, plugin]));
-    installedPlugins.forEach((plugin) => merged.set(plugin.id, { ...merged.get(plugin.id), ...plugin }));
-    return [...merged.values()];
-  }, [availablePlugins, installedPlugins]);
-  const loadedConfigText = configQuery.data ? JSON.stringify(configQuery.data, null, 2) : "{}";
+  const plugins = useMemo(() => accountPoolRuntimePlugins(store.data, installed.data), [store.data, installed.data]);
+  const sourceErrors = useMemo(() => accountPoolPluginSourceErrors(store.data), [store.data]);
+  const pluginsEnabled = runtimePluginsEnabled(store.data, installed.data);
+  const loadedConfigText = formatPluginConfig(configQuery.data);
   const editorText = configDirty ? configText : loadedConfigText;
   const openConfig = (pluginId: string) => {
     setConfigPluginId(pluginId);
@@ -188,7 +367,7 @@ export function AccountPoolPluginsPanel({
       </div>
       <div className="flex flex-wrap items-center gap-3 rounded-md border p-4">
         <span className="text-sm font-medium">{t("accountPool.plugins.card")}</span>
-        <Select value={selectedCardId ?? undefined} onValueChange={setSelectedCardId}>
+        <Select value={activeCardId ?? undefined} onValueChange={setSelectedCardId}>
           <SelectTrigger className="w-full sm:w-80" aria-label={t("accountPool.plugins.card")}>
             <SelectValue placeholder={t("accountPool.plugins.selectCard")} />
           </SelectTrigger>
@@ -201,79 +380,58 @@ export function AccountPoolPluginsPanel({
           </SelectContent>
         </Select>
         {selectedCard && <Badge variant="outline">{selectedCard.status}</Badge>}
+        <Badge variant={pluginsEnabled ? "secondary" : "outline"}>
+          {pluginsEnabled ? t("accountPool.plugins.globalEnabled") : t("accountPool.plugins.globalDisabled")}
+        </Badge>
       </div>
       {installed.isError && <p role="alert">{t("accountPool.plugins.loadFailed")}</p>}
+      {sourceErrors.map((error) => (
+        <p key={`${error.sourceId}:${error.message}`} role="alert" className="text-sm text-destructive">
+          {error.sourceName || error.sourceId}: {error.message}
+        </p>
+      ))}
       <div className="grid gap-3">
-        {plugins.map((plugin) => {
-          const record = installedById.get(plugin.id);
-          const isInstalled = record !== undefined || plugin.installed;
-          const isEnabled = record?.effectiveEnabled ?? plugin.effectiveEnabled;
-          const stateLabel = (() => {
-            if (isEnabled) return t("accountPool.plugins.enable");
-            if (isInstalled) return t("accountPool.plugins.disable");
-            return t("accountPool.plugins.available");
-          })();
-          return (
-            <Card key={plugin.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">{plugin.name}</CardTitle>
-                  <Badge variant={isEnabled ? "secondary" : "outline"}>
-                    {stateLabel}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">v{plugin.version} · {plugin.installType}</span>
-                <div className="flex gap-2">
-                  {!isInstalled && <Button size="sm" onClick={() => install.mutate(plugin)}>{t("accountPool.plugins.install")}</Button>}
-                  {isInstalled && <Button size="sm" variant="outline" onClick={() => toggle.mutate({ pluginId: plugin.id, enabled: !isEnabled })}>{isEnabled ? t("accountPool.plugins.disable") : t("accountPool.plugins.enable")}</Button>}
-                  {isInstalled && <Button size="sm" variant="outline" onClick={() => openConfig(plugin.id)}>{t("accountPool.plugins.configure")}</Button>}
-                  {isInstalled && <Button size="sm" variant="destructive" onClick={() => uninstall.mutate(plugin.id)}>{t("accountPool.plugins.uninstall")}</Button>}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {plugins.map((plugin) => (
+          <AccountPoolPluginCard
+            key={plugin.key}
+            plugin={plugin}
+            onInstall={(version) => install.mutate({ plugin, version })}
+            onSelectVersion={() => {
+              setVersionPlugin(plugin);
+              setVersionText(plugin.installedVersion);
+            }}
+            onToggle={() => toggle.mutate({ pluginId: plugin.id, enabled: !plugin.enabled })}
+            onConfigure={() => openConfig(plugin.id)}
+            onUninstall={() => uninstall.mutate(plugin.id)}
+          />
+        ))}
       </div>
       {plugins.length === 0 && <p className="text-sm text-muted-foreground">{t("accountPool.plugins.storeEmpty")}</p>}
-      <Dialog
-        open={configPluginId !== null}
-        onOpenChange={(open) => {
-          if (!open && !configMutation.isPending) setConfigPluginId(null);
+      <PluginVersionDialog
+        plugin={versionPlugin}
+        version={versionText}
+        pending={install.isPending}
+        onVersionChange={setVersionText}
+        onInstall={() => {
+          if (versionPlugin) install.mutate({ plugin: versionPlugin, version: versionText.trim() });
         }}
-      >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{t("accountPool.plugins.configTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("accountPool.plugins.configDescription", {
-                name: plugins.find((plugin) => plugin.id === configPluginId)?.name ?? configPluginId,
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          {configQuery.isError && <p role="alert">{t("accountPool.plugins.configLoadFailed")}</p>}
-          <Textarea
-            value={editorText}
-            onChange={(event) => {
-              setConfigText(event.target.value);
-              setConfigDirty(true);
-            }}
-            disabled={configQuery.isPending || configMutation.isPending}
-            className="min-h-64 font-mono text-xs"
-            aria-label={t("accountPool.plugins.configTitle")}
-            spellCheck={false}
-          />
-          <DialogFooter>
-            <Button
-              onClick={() => configMutation.mutate()}
-              disabled={configQuery.isPending || configMutation.isPending || !configDirty}
-            >
-              {configMutation.isPending ? t("accountPool.plugins.configSaving") : t("accountPool.plugins.configSave")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onClose={() => setVersionPlugin(null)}
+      />
+      <PluginConfigDialog
+        pluginName={pluginDisplayName(plugins, configPluginId)}
+        open={configPluginId !== null}
+        text={editorText}
+        loading={configQuery.isPending}
+        saving={configMutation.isPending}
+        dirty={configDirty}
+        failed={configQuery.isError}
+        onTextChange={(text) => {
+          setConfigText(text);
+          setConfigDirty(true);
+        }}
+        onSave={() => configMutation.mutate()}
+        onClose={() => setConfigPluginId(null)}
+      />
     </div>
   );
 }

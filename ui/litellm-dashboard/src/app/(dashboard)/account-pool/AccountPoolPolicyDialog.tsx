@@ -16,43 +16,38 @@ type Routing = NonNullable<AccountPolicy["routing"]>;
 type Transport = NonNullable<AccountPolicy["transport"]>;
 type Codex = NonNullable<AccountPolicy["codex"]>;
 type Claude = NonNullable<AccountPolicy["claude"]>;
+type Kimi = NonNullable<AccountPolicy["kimi"]>;
 type Xai = NonNullable<AccountPolicy["xai"]>;
-type OpenAICompatible = NonNullable<AccountPolicy["openai_compatible"]>;
 type Antigravity = NonNullable<AccountPolicy["antigravity"]>;
-type FormPolicy = Omit<
-  AccountPolicy,
-  "routing" | "transport" | "codex" | "claude" | "xai" | "openai_compatible" | "antigravity"
-> & {
+type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claude" | "kimi" | "xai" | "antigravity"> & {
   routing: Routing;
   transport: Transport;
   codex: Codex | null;
   claude: Claude | null;
+  kimi: Kimi | null;
   xai: Xai | null;
-  openai_compatible: OpenAICompatible | null;
   antigravity: Antigravity | null;
 };
 
 const codexDefaults: Codex = {
-  identity_fingerprint_mode: "off",
   cli_only: false,
   allow_app_server: false,
   allow_app_server_clients: [],
   responses_compact_enabled: false,
-  compact_ui: "inherit",
-  experimental_context_management: false,
+  identity_confuse: false,
+  disable_codex_cloaking: false,
 };
 const claudeDefaults: Claude = {
   fingerprint_profile: "inherit",
-  experimental_cch_signing: false,
-  cloak: false,
+  cloak_mode: "auto",
   rebuild_mid_system_message: false,
 };
+const kimiDefaults: Kimi = { fingerprint_profile: "inherit" };
 const xaiDefaults: Xai = { inject_x_search: false };
-const openAICompatibleDefaults: OpenAICompatible = { support_prompt_cache_key: false };
 const antigravityDefaults: Antigravity = {
-  sensitive_word_filter: "inherit",
-  signature_cache: "inherit",
-  strict_bypass_signature: false,
+  sensitive_words: [],
+  signature_cache_enabled: true,
+  signature_bypass_strict: false,
 };
 const defaults: FormPolicy = {
   tags: [],
@@ -85,8 +80,8 @@ const defaults: FormPolicy = {
   },
   codex: null,
   claude: null,
+  kimi: null,
   xai: null,
-  openai_compatible: null,
   antigravity: null,
 };
 
@@ -165,8 +160,8 @@ function PolicyForm({
     transport: { ...defaults.transport, ...source.transport },
     codex: source.codex ?? null,
     claude: source.claude ?? null,
+    kimi: source.kimi ?? null,
     xai: source.xai ?? null,
-    openai_compatible: source.openai_compatible ?? null,
     antigravity: source.antigravity ?? null,
   };
   const [policy, setPolicy] = useState<FormPolicy>(initial);
@@ -179,32 +174,16 @@ function PolicyForm({
   const [statuses, setStatuses] = useState(policy.routing.retryable_statuses.join(", "));
   const codex = policy.codex ?? codexDefaults;
   const claude = policy.claude ?? claudeDefaults;
+  const kimi = policy.kimi ?? kimiDefaults;
   const xai = policy.xai ?? xaiDefaults;
-  const openAICompatible = policy.openai_compatible ?? openAICompatibleDefaults;
   const antigravity = policy.antigravity ?? antigravityDefaults;
   const [clients, setClients] = useState(codex.allow_app_server_clients.join(", "));
+  const [sensitiveWords, setSensitiveWords] = useState(antigravity.sensitive_words.join(", "));
   const providerFields = () => {
     switch (supplier) {
       case "openai_codex":
         return (
           <>
-            {select(
-              t("accountPool.policy.identity_fingerprint_mode"),
-              codex.identity_fingerprint_mode,
-              ["off", "device", "session", "full"],
-              (next) => updateCodex("identity_fingerprint_mode", next as Codex["identity_fingerprint_mode"]),
-            )}
-            {select(t("accountPool.policy.compact_ui"), codex.compact_ui, ["inherit", "enabled", "disabled"], (next) =>
-              updateCodex("compact_ui", next as Codex["compact_ui"]),
-            )}
-            {optionalNumber(t("accountPool.policy.model_context_window"), codex.model_context_window, (next) =>
-              updateCodex("model_context_window", next),
-            )}
-            {optionalNumber(
-              t("accountPool.policy.model_auto_compact_token_limit"),
-              codex.model_auto_compact_token_limit,
-              (next) => updateCodex("model_auto_compact_token_limit", next),
-            )}
             {text(t("accountPool.policy.allow_app_server_clients"), clients, setClients)}
             {toggle(t("accountPool.policy.cli_only"), codex.cli_only, (next) => updateCodex("cli_only", next))}
             {toggle(t("accountPool.policy.allow_app_server"), codex.allow_app_server, (next) =>
@@ -213,10 +192,11 @@ function PolicyForm({
             {toggle(t("accountPool.policy.responses_compact_enabled"), codex.responses_compact_enabled, (next) =>
               updateCodex("responses_compact_enabled", next),
             )}
-            {toggle(
-              t("accountPool.policy.experimental_context_management"),
-              codex.experimental_context_management,
-              (next) => updateCodex("experimental_context_management", next),
+            {toggle(t("accountPool.policy.identity_confuse"), codex.identity_confuse, (next) =>
+              updateCodex("identity_confuse", next),
+            )}
+            {toggle(t("accountPool.policy.disable_codex_cloaking"), codex.disable_codex_cloaking, (next) =>
+              updateCodex("disable_codex_cloaking", next),
             )}
           </>
         );
@@ -226,13 +206,12 @@ function PolicyForm({
             {select(
               t("accountPool.policy.fingerprint_profile"),
               claude.fingerprint_profile,
-              ["inherit", "disabled", "claude-code-cli", "oauth-cli"],
+              ["inherit", "claude-code-cli"],
               (next) => updateClaude("fingerprint_profile", next as Claude["fingerprint_profile"]),
             )}
-            {toggle(t("accountPool.policy.experimental_cch_signing"), claude.experimental_cch_signing, (next) =>
-              updateClaude("experimental_cch_signing", next),
+            {select(t("accountPool.policy.cloak_mode"), claude.cloak_mode, ["auto", "always", "never"], (next) =>
+              updateClaude("cloak_mode", next as Claude["cloak_mode"]),
             )}
-            {toggle(t("accountPool.policy.cloak"), claude.cloak, (next) => updateClaude("cloak", next))}
             {toggle(t("accountPool.policy.rebuild_mid_system_message"), claude.rebuild_mid_system_message, (next) =>
               updateClaude("rebuild_mid_system_message", next),
             )}
@@ -242,37 +221,29 @@ function PolicyForm({
         return toggle(t("accountPool.policy.inject_x_search"), xai.inject_x_search, (next) =>
           updateXai("inject_x_search", next),
         );
-      case "openai_compatible":
-        return toggle(
-          t("accountPool.policy.support_prompt_cache_key"),
-          openAICompatible.support_prompt_cache_key,
-          (next) => updateOpenAICompatible("support_prompt_cache_key", next),
-        );
       case "google_antigravity":
         return (
           <>
-            {select(
-              t("accountPool.policy.sensitive_word_filter"),
-              antigravity.sensitive_word_filter,
-              ["inherit", "enabled", "disabled"],
-              (next) => updateAntigravity("sensitive_word_filter", next as Antigravity["sensitive_word_filter"]),
+            {text(t("accountPool.policy.sensitive_words"), sensitiveWords, setSensitiveWords)}
+            {toggle(t("accountPool.policy.signature_cache_enabled"), antigravity.signature_cache_enabled, (next) =>
+              updateAntigravity("signature_cache_enabled", next),
             )}
-            {select(
-              t("accountPool.policy.signature_cache"),
-              antigravity.signature_cache,
-              ["inherit", "enabled", "disabled"],
-              (next) => updateAntigravity("signature_cache", next as Antigravity["signature_cache"]),
-            )}
-            {toggle(t("accountPool.policy.strict_bypass_signature"), antigravity.strict_bypass_signature, (next) =>
-              updateAntigravity("strict_bypass_signature", next),
+            {toggle(t("accountPool.policy.signature_bypass_strict"), antigravity.signature_bypass_strict, (next) =>
+              updateAntigravity("signature_bypass_strict", next),
             )}
           </>
         );
       case "kimi":
         return (
-          <p className="rounded-md border bg-muted/30 p-3 text-sm sm:col-span-2">
-            {t("accountPool.policy.kimiDeviceIdAuto")}
-          </p>
+          <>
+            {select(
+              t("accountPool.policy.fingerprint_profile"),
+              kimi.fingerprint_profile,
+              ["inherit", "claude-code-cli"],
+              (next) => updateKimi("fingerprint_profile", next as Kimi["fingerprint_profile"]),
+            )}
+            <p className="rounded-md border bg-muted/30 p-3 text-sm">{t("accountPool.policy.kimiDeviceIdAuto")}</p>
+          </>
         );
       default:
         return <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.policy.providerPending")}</p>;
@@ -291,13 +262,10 @@ function PolicyForm({
     setPolicy((current) => ({ ...current, codex: { ...(current.codex ?? codexDefaults), [field]: next } }));
   const updateClaude = <K extends keyof Claude>(field: K, next: Claude[K]) =>
     setPolicy((current) => ({ ...current, claude: { ...(current.claude ?? claudeDefaults), [field]: next } }));
+  const updateKimi = <K extends keyof Kimi>(field: K, next: Kimi[K]) =>
+    setPolicy((current) => ({ ...current, kimi: { ...(current.kimi ?? kimiDefaults), [field]: next } }));
   const updateXai = <K extends keyof Xai>(field: K, next: Xai[K]) =>
     setPolicy((current) => ({ ...current, xai: { ...(current.xai ?? xaiDefaults), [field]: next } }));
-  const updateOpenAICompatible = <K extends keyof OpenAICompatible>(field: K, next: OpenAICompatible[K]) =>
-    setPolicy((current) => ({
-      ...current,
-      openai_compatible: { ...(current.openai_compatible ?? openAICompatibleDefaults), [field]: next },
-    }));
   const updateAntigravity = <K extends keyof Antigravity>(field: K, next: Antigravity[K]) =>
     setPolicy((current) => ({
       ...current,
@@ -373,6 +341,7 @@ function PolicyForm({
       ...policy,
       account_ids: list(members),
       codex: { ...codex, allow_app_server_clients: list(clients) },
+      antigravity: { ...antigravity, sensitive_words: list(sensitiveWords) },
       tags: list(tags),
       excluded_models: list(excluded),
       model_aliases: aliasValues.map((item) => {
@@ -387,13 +356,13 @@ function PolicyForm({
     };
     setBusy(true);
     try {
-      const { codex, claude, xai, openai_compatible, antigravity, ...rest } = parsed;
+      const { codex, claude, kimi, xai, antigravity, ...rest } = parsed;
       await save({
         ...rest,
         ...(supplier === "openai_codex" && codex ? { codex } : {}),
         ...(supplier === "anthropic_claude" && claude ? { claude } : {}),
+        ...(supplier === "kimi" && kimi ? { kimi } : {}),
         ...(supplier === "xai" && xai ? { xai } : {}),
-        ...(supplier === "openai_compatible" && openai_compatible ? { openai_compatible } : {}),
         ...(supplier === "google_antigravity" && antigravity ? { antigravity } : {}),
       });
       toast.success(t("accountPool.policy.saved"));

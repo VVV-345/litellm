@@ -60,33 +60,59 @@ class TransportPolicy(BaseModel):
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity_fingerprint_mode: Literal["off", "device", "session", "full"] = "off"
     cli_only: bool = False
     allow_app_server: bool = False
     allow_app_server_clients: tuple[str, ...] = ()
     responses_compact_enabled: bool = False
-    compact_ui: Literal["inherit", "enabled", "disabled"] = "inherit"
-    model_context_window: int | None = Field(default=None, ge=1, le=10000000)
-    model_auto_compact_token_limit: int | None = Field(default=None, ge=1, le=10000000)
-    experimental_context_management: bool = False
     identity_confuse: bool = False
     disable_codex_cloaking: bool = False
 
-    @model_validator(mode="after")
-    def compact_limit_within_context(self) -> CodexPolicy:
-        if self.model_context_window and self.model_auto_compact_token_limit:
-            if self.model_auto_compact_token_limit > self.model_context_window:
-                raise ValueError("Compact token limit exceeds the context window")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_desktop_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        legacy: Final = frozenset(
+            (
+                "identity_fingerprint_mode",
+                "compact_ui",
+                "model_context_window",
+                "model_auto_compact_token_limit",
+                "experimental_context_management",
+            )
+        )
+        return {key: item for key, item in value.items() if key not in legacy}
 
 
 class ClaudePolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    fingerprint_profile: Literal["inherit", "disabled", "claude-code-cli", "oauth-cli"] = "inherit"
-    experimental_cch_signing: bool = False
-    cloak: bool = False
+    fingerprint_profile: Literal["inherit", "claude-code-cli"] = "inherit"
+    cloak_mode: Literal["auto", "always", "never"] = "auto"
     rebuild_mid_system_message: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        fingerprint: Final = value.get("fingerprint_profile", "inherit")
+        normalized_fingerprint: Final = (
+            "claude-code-cli" if fingerprint in ("claude-code-cli", "oauth-cli") else "inherit"
+        )
+        legacy_cloak: Final = value.get("cloak")
+        cloak_mode: Final = value.get("cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto")
+        return {
+            key: item
+            for key, item in {**value, "fingerprint_profile": normalized_fingerprint, "cloak_mode": cloak_mode}.items()
+            if key not in {"experimental_cch_signing", "cloak"}
+        }
+
+
+class KimiPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fingerprint_profile: Literal["inherit", "claude-code-cli"] = "inherit"
 
 
 class XaiPolicy(BaseModel):
@@ -95,18 +121,36 @@ class XaiPolicy(BaseModel):
     inject_x_search: bool = False
 
 
-class OpenAICompatiblePolicy(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    support_prompt_cache_key: bool = False
-
-
 class AntigravityPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    sensitive_word_filter: Literal["inherit", "enabled", "disabled"] = "inherit"
-    signature_cache: Literal["inherit", "enabled", "disabled"] = "inherit"
-    strict_bypass_signature: bool = False
+    sensitive_words: tuple[str, ...] = Field(default=(), max_length=100)
+    signature_cache_enabled: bool = True
+    signature_bypass_strict: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        legacy_cache: Final = value.get("signature_cache")
+        return {
+            key: item
+            for key, item in {
+                **value,
+                "sensitive_words": value.get("sensitive_words", ()),
+                "signature_cache_enabled": value.get("signature_cache_enabled", legacy_cache != "disabled"),
+                "signature_bypass_strict": value.get(
+                    "signature_bypass_strict", value.get("strict_bypass_signature", False)
+                ),
+            }.items()
+            if key not in {"sensitive_word_filter", "signature_cache", "strict_bypass_signature"}
+        }
+
+    @field_validator("sensitive_words")
+    @classmethod
+    def normalize_sensitive_words(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 class AccountPolicy(BaseModel):
@@ -121,9 +165,16 @@ class AccountPolicy(BaseModel):
     transport: TransportPolicy = Field(default_factory=TransportPolicy)
     codex: CodexPolicy | None = None
     claude: ClaudePolicy | None = None
+    kimi: KimiPolicy | None = None
     xai: XaiPolicy | None = None
-    openai_compatible: OpenAICompatiblePolicy | None = None
     antigravity: AntigravityPolicy | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_provider_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        return {key: item for key, item in value.items() if key != "openai_compatible"}
 
     @field_validator("tags")
     @classmethod
@@ -226,8 +277,8 @@ async def policy_validation_error(
         return "Codex settings apply only to Codex accounts"
     provider_policies: Final = (
         (SupplierKind.ANTHROPIC_CLAUDE, policy.claude),
+        (SupplierKind.KIMI, policy.kimi),
         (SupplierKind.XAI, policy.xai),
-        (SupplierKind.OPENAI_COMPATIBLE, policy.openai_compatible),
         (SupplierKind.GOOGLE_ANTIGRAVITY, policy.antigravity),
     )
     if any(value is not None and card.supplier is not supplier for supplier, value in provider_policies):

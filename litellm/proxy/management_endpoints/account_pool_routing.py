@@ -42,8 +42,6 @@ def protocol_policy(
     codex: Final = policy.codex
     if codex is None:
         return None
-    if codex.identity_fingerprint_mode != "off":
-        return Rejected(501, "The installed upstream adapter does not support the requested identity mode")
     if path == "/v1/responses/compact" and not codex.responses_compact_enabled:
         return Rejected(403, "Responses Compact is disabled for this account")
     if not codex.cli_only:

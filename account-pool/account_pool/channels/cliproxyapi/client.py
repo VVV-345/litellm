@@ -6,9 +6,10 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Final, TypeAlias
 
 import httpx
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
@@ -96,6 +97,7 @@ class _AuthFilesResponse(BaseModel):
 _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
+JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
 
 
 def _legacy_openai_supplier() -> SupplierDefinition:
@@ -351,6 +353,19 @@ class HttpCLIProxyClient:
         self, record: EnvironmentRecord, supplier: SupplierDefinition, enabled_models: Sequence[str]
     ) -> None:
         excluded: Final = tuple(model for model in record.available_models if model not in frozenset(enabled_models))
+        if supplier.authorization_flow.value == "direct_credential":
+            path: Final = {
+                SupplierKind.GEMINI: "/v0/management/gemini-api-key",
+                SupplierKind.GEMINI_INTERACTIONS: "/v0/management/interactions-api-key",
+            }.get(supplier.kind)
+            if path is not None:
+                await self._request(
+                    record,
+                    "PATCH",
+                    path,
+                    json={"index": 0, "value": {"excluded-models": list(excluded)}},
+                )
+            return
         await self._request(
             record,
             "PUT",
@@ -362,8 +377,83 @@ class HttpCLIProxyClient:
         excluded_models: Final = {
             definition.excluded_models_key: list(models)
             for definition in _DEFAULT_SUPPLIERS.definitions.values()
+            if definition.uses_oauth_model_exclusions
         }
         await self._request(record, "PUT", "/v0/management/oauth-excluded-models", json=excluded_models)
+
+    async def write_direct_api_key(
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition,
+        *,
+        api_key: str,
+        prefix: str,
+        priority: int,
+        weight: int,
+        base_url: str | None,
+        headers: Mapping[str, str],
+        proxy_url: str,
+    ) -> None:
+        path: Final = {
+            SupplierKind.GEMINI: "/v0/management/gemini-api-key",
+            SupplierKind.GEMINI_INTERACTIONS: "/v0/management/interactions-api-key",
+        }.get(supplier.kind)
+        if path is None:
+            raise ValueError("supplier does not accept a direct API key")
+        payload: Final[dict[str, JSONValue]] = {
+            "api-key": api_key,
+            "prefix": prefix,
+            "priority": priority,
+            "weight": weight,
+            "headers": dict(headers),
+            **({"base-url": base_url} if base_url else {}),
+            **({"proxy-url": proxy_url} if proxy_url else {}),
+        }
+        await self._request(record, "PUT", path, json=[payload])
+
+    async def import_vertex_credential(
+        self,
+        record: EnvironmentRecord,
+        filename: str,
+        content: bytes,
+        location: str,
+    ) -> None:
+        response: Final = await self._request_multipart(
+            record,
+            "POST",
+            "/v0/management/vertex/import",
+            filename,
+            content,
+            "application/json",
+            field_name="file",
+            fields={"location": location},
+        )
+        response.raise_for_status()
+
+    async def set_oauth_request_scoped_errors(
+        self, record: EnvironmentRecord, rules: Mapping[str, Sequence[object]]
+    ) -> None:
+        payload: Final = {
+            provider: [
+                rule.model_dump(mode="json", by_alias=True) if isinstance(rule, BaseModel) else rule
+                for rule in entries
+            ]
+            for provider, entries in rules.items()
+        }
+        await self._request(record, "PUT", "/v0/management/oauth-request-scoped-errors", json=payload)
+
+    async def get_config_yaml(self, record: EnvironmentRecord) -> str:
+        response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
+        return response.text
+
+    async def put_config_yaml(self, record: EnvironmentRecord, content: str) -> None:
+        await self._request(
+            record,
+            "PUT",
+            "/v0/management/config.yaml",
+            content=content,
+            headers={"Content-Type": "application/yaml"},
+        )
 
     async def apply_configuration(
         self,
@@ -420,6 +510,8 @@ class HttpCLIProxyClient:
                 for key, value in settings.oauth_model_aliases.items()
             },
         )
+        await self.set_oauth_request_scoped_errors(record, settings.oauth_request_scoped_errors)
+        await self._apply_payload_settings(record, settings)
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         route_strategy: Final = {
@@ -433,11 +525,25 @@ class HttpCLIProxyClient:
         }[policy.routing.strategy]
         await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
         await self._put_value(record, "/v0/management/request-retry", policy.routing.max_attempts)
+        yaml_document: Final = yaml.safe_load(await self.get_config_yaml(record)) or {}
+        if not isinstance(yaml_document, dict):
+            raise ValueError("CLIProxyAPI config is not a YAML mapping")
+        merged_document: Final = _policy_yaml_document(yaml_document, policy)
+        if merged_document != yaml_document:
+            await self.put_config_yaml(record, yaml.safe_dump(merged_document, sort_keys=False, allow_unicode=False))
         if record.auth_file_name is None:
             return
         fields: Final = _policy_auth_fields(policy)
         if fields:
             await self.patch_auth_file_fields(record, record.auth_file_name, fields)
+
+    async def _apply_payload_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+        payload: Final = settings.payload.model_dump(mode="json", by_alias=True)
+        document: Final = yaml.safe_load(await self.get_config_yaml(record)) or {}
+        if not isinstance(document, dict):
+            raise ValueError("CLIProxyAPI config is not a YAML mapping")
+        document["payload"] = payload
+        await self.put_config_yaml(record, yaml.safe_dump(document, sort_keys=False, allow_unicode=False))
 
     async def _put_value(self, record: EnvironmentRecord, path: str, value: object) -> None:
         await self._request(record, "PUT", path, json={"value": value})
@@ -450,11 +556,17 @@ class HttpCLIProxyClient:
             (await self._request(record, "GET", "/v0/management/plugin-store")).json()
         )
 
-    async def install_plugin(self, record: EnvironmentRecord, plugin_id: str, version: str) -> Mapping[str, object]:
+    async def install_plugin(
+        self, record: EnvironmentRecord, plugin_id: str, version: str, source: str | None
+    ) -> Mapping[str, object]:
+        params: Final = {"version": version, **({"source": source} if source else {})}
         return _JSON_OBJECT_ADAPTER.validate_python(
             (
                 await self._request(
-                    record, "POST", f"/v0/management/plugin-store/{plugin_id}/install", json={"version": version}
+                    record,
+                    "POST",
+                    f"/v0/management/plugin-store/{plugin_id}/install",
+                    params=params,
                 )
             ).json()
         )
@@ -496,24 +608,28 @@ class HttpCLIProxyClient:
         path: str,
         *,
         params: Mapping[str, str] | None = None,
-        json: Mapping[str, object] | None = None,
+        json: JSONValue | None = None,
+        content: str | None = None,
+        headers: Mapping[str, str] | None = None,
         management: bool = True,
         gateway: bool = False,
     ) -> httpx.Response:
         host: Final = f"cliproxy-{record.id.hex}"
-        headers: Final = (
+        auth_headers: Final = (
             {"X-Management-Key": self._secrets.derive(record.id, SecretPurpose.MANAGEMENT)}
             if management
             else {"Authorization": f"Bearer {self._secrets.derive(record.id, SecretPurpose.GATEWAY)}"}
             if gateway
             else None
         )
+        request_headers: Final = {**(auth_headers or {}), **(headers or {})}
         response: Final = await self._client.request(
             method,
             f"http://{host}:8317{path}",
-            headers=headers,
+            headers=request_headers,
             params=params,
             json=json,
+            content=content,
         )
         response.raise_for_status()
         return response
@@ -526,13 +642,17 @@ class HttpCLIProxyClient:
         filename: str,
         content: bytes,
         content_type: str | None,
+        *,
+        field_name: str = "files",
+        fields: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         headers: Final = {"X-Management-Key": self._secrets.derive(record.id, SecretPurpose.MANAGEMENT)}
         return await self._client.request(
             method,
             f"http://cliproxy-{record.id.hex}:8317{path}",
             headers=headers,
-            files={"files": (filename, content, content_type or "application/json")},
+            data=fields,
+            files={field_name: (filename, content, content_type or "application/json")},
         )
 
 
@@ -541,35 +661,54 @@ def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
 
 
 def _policy_auth_fields(policy: AccountPolicy) -> Mapping[str, object]:
-    fields: dict[str, object] = {}
-    if policy.codex is not None:
-        fields.update(
-            {
-                "codex_cli_only": policy.codex.cli_only,
-                "codex_cli_only_allow_app_server": policy.codex.allow_app_server,
-                "codex_cli_only_allow_app_server_clients": list(policy.codex.allow_app_server_clients),
-                "identity_confuse": policy.codex.identity_confuse,
-                "disable_codex_cloaking": policy.codex.disable_codex_cloaking,
-            }
-        )
     if policy.claude is not None:
-        fields.update(
+        return {
+            "fingerprint_profile": policy.claude.fingerprint_profile,
+            "cloak_mode": policy.claude.cloak_mode,
+            "rebuild_mid_system_message": policy.claude.rebuild_mid_system_message,
+        }
+    if policy.kimi is not None:
+        return {"fingerprint_profile": policy.kimi.fingerprint_profile}
+    return {}
+
+
+def _policy_yaml_document(document: Mapping[str, object], policy: AccountPolicy) -> dict[str, object]:
+    codex: Final = policy.codex
+    xai: Final = policy.xai
+    antigravity: Final = policy.antigravity
+    codex_section: Final = _yaml_section(document, "codex")
+    xai_section: Final = _yaml_section(document, "xai")
+    antigravity_section: Final = _yaml_section(document, "antigravity")
+    return {
+        **document,
+        **(
             {
-                "fingerprint_profile": policy.claude.fingerprint_profile,
-                "experimental_cch_signing": policy.claude.experimental_cch_signing,
-                "cloak": policy.claude.cloak,
-                "rebuild_mid_system_message": policy.claude.rebuild_mid_system_message,
+                "codex": {
+                    **codex_section,
+                    "identity-confuse": codex.identity_confuse,
+                    "disable-codex-cloaking": codex.disable_codex_cloaking,
+                }
             }
-        )
-    if policy.xai is not None:
-        fields["inject_x_search"] = policy.xai.inject_x_search
-    if policy.openai_compatible is not None:
-        fields["support_prompt_cache_key"] = policy.openai_compatible.support_prompt_cache_key
-    if policy.antigravity is not None:
-        fields.update(
+            if codex is not None
+            else {}
+        ),
+        **(
+            {"xai": {**xai_section, "inject-x-search": xai.inject_x_search}}
+            if xai is not None
+            else {}
+        ),
+        **(
             {
-                "signature_cache": policy.antigravity.signature_cache,
-                "strict_bypass_signature": policy.antigravity.strict_bypass_signature,
+                "antigravity": {**antigravity_section, "sensitive-words": list(antigravity.sensitive_words)},
+                "antigravity-signature-cache-enabled": antigravity.signature_cache_enabled,
+                "antigravity-signature-bypass-strict": antigravity.signature_bypass_strict,
             }
-        )
-    return fields
+            if antigravity is not None
+            else {}
+        ),
+    }
+
+
+def _yaml_section(document: Mapping[str, object], key: str) -> Mapping[str, object]:
+    value: Final = document.get(key)
+    return value if isinstance(value, dict) else {}

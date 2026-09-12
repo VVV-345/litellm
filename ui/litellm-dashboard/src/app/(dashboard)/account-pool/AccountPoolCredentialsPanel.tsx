@@ -8,7 +8,14 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -121,7 +128,8 @@ export const AccountPoolCredentialsPanel = ({
     let fields: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(editFields);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("fields must be an object");
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+        throw new Error("fields must be an object");
       fields = parsed as Record<string, unknown>;
     } catch (error) {
       toast.fromError(error);
@@ -157,25 +165,47 @@ export const AccountPoolCredentialsPanel = ({
     <div className="grid gap-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-        <h2 className="text-lg font-semibold">{t("accountPool.credentials.title")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.credentials.description")}</p>
+          <h2 className="text-lg font-semibold">{t("accountPool.credentials.title")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.credentials.description")}</p>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()} disabled={query.isFetching}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
             <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
             {t("accountPool.refresh")}
           </Button>
-          {environments.some((environment) => environment.channel === "cliproxyapi") && (
-            <Button type="button" size="sm" onClick={() => { setUploadCardId(environments.find((environment) => environment.channel === "cliproxyapi")?.id ?? ""); setUploadOpen(true); }}>
+          {environments.some(
+            (environment) => environment.channel === "cliproxyapi" && environment.status !== "migration_required",
+          ) && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setUploadCardId(
+                  environments.find(
+                    (environment) =>
+                      environment.channel === "cliproxyapi" && environment.status !== "migration_required",
+                  )?.id ?? "",
+                );
+                setUploadOpen(true);
+              }}
+            >
               <Plus />
               {t("accountPool.credentials.upload")}
             </Button>
           )}
           {environments.some((environment) => environment.channel === "openai_compatible") && (
             <Button
-            type="button"
-            size="sm"
-            onClick={() => setAddCard(environments.find((environment) => environment.channel === "openai_compatible") ?? null)}
+              type="button"
+              size="sm"
+              onClick={() =>
+                setAddCard(environments.find((environment) => environment.channel === "openai_compatible") ?? null)
+              }
             >
               <Plus />
               {t("accountPool.credentials.add")}
@@ -213,32 +243,65 @@ export const AccountPoolCredentialsPanel = ({
                 <span>{credential.kind}</span>
               </div>
               {credential.kind === "api_key" && (
-                <Button type="button" variant="ghost" size="sm" className="mt-2 justify-self-start" onClick={() => removeCredential(credential)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 justify-self-start"
+                  onClick={() => removeCredential(credential)}
+                >
                   <Trash2 />
                   {t("accountPool.credentials.remove")}
                 </Button>
               )}
-              {credential.kind === "oauth_file" && (() => {
-                const environment = environments.find((item) => item.id === credential.card_id);
-                return environment ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}>
-                      {environment.enabled ? t("accountPool.credentials.disable") : t("accountPool.credentials.enable")}
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => void downloadCredential(credential)}>
-                      <Download />
-                      {t("accountPool.credentials.download")}
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditCredential(credential); setEditFields("{}"); }}>
-                      {t("accountPool.credentials.editFields")}
-                    </Button>
-                    <Button type="button" variant="destructive" size="sm" onClick={() => void deleteAuthFile(credential)}>
-                      <Trash2 />
-                      {t("accountPool.credentials.remove")}
-                    </Button>
-                  </div>
-                ) : null;
-              })()}
+              {credential.kind === "oauth_file" &&
+                (() => {
+                  const environment = environments.find((item) => item.id === credential.card_id);
+                  return environment ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={toggleMutation.isPending}
+                        onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}
+                      >
+                        {environment.enabled
+                          ? t("accountPool.credentials.disable")
+                          : t("accountPool.credentials.enable")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void downloadCredential(credential)}
+                      >
+                        <Download />
+                        {t("accountPool.credentials.download")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditCredential(credential);
+                          setEditFields("{}");
+                        }}
+                      >
+                        {t("accountPool.credentials.editFields")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => void deleteAuthFile(credential)}
+                      >
+                        <Trash2 />
+                        {t("accountPool.credentials.remove")}
+                      </Button>
+                    </div>
+                  ) : null;
+                })()}
               <p className="text-xs text-muted-foreground">{t("accountPool.credentials.secretHint")}</p>
             </CardContent>
           </Card>
@@ -253,20 +316,49 @@ export const AccountPoolCredentialsPanel = ({
           <div className="grid gap-3">
             <div className="grid gap-1">
               <Label htmlFor="account-pool-api-key">{t("accountPool.credentials.apiKey")}</Label>
-              <Input id="account-pool-api-key" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" />
+              <Input
+                id="account-pool-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                autoComplete="off"
+              />
             </div>
             <div className="grid gap-1">
               <Label htmlFor="account-pool-key-weight">{t("accountPool.credentials.weight")}</Label>
-              <Input id="account-pool-key-weight" type="number" min={1} max={10000} value={weight} onChange={(event) => setWeight(event.target.value)} />
+              <Input
+                id="account-pool-key-weight"
+                type="number"
+                min={1}
+                max={10000}
+                value={weight}
+                onChange={(event) => setWeight(event.target.value)}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setAddCard(null)}>{t("accountPool.cancel")}</Button>
-            <Button type="button" onClick={() => addMutation.mutate()} disabled={addMutation.isPending || !apiKey.trim()}>{t("accountPool.save")}</Button>
+            <Button type="button" variant="outline" onClick={() => setAddCard(null)}>
+              {t("accountPool.cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => addMutation.mutate()}
+              disabled={addMutation.isPending || !apiKey.trim()}
+            >
+              {t("accountPool.save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={uploadOpen} onOpenChange={(open) => { if (!open && !uploadMutation.isPending) { setUploadOpen(false); setUploadFile(null); } }}>
+      <Dialog
+        open={uploadOpen}
+        onOpenChange={(open) => {
+          if (!open && !uploadMutation.isPending) {
+            setUploadOpen(false);
+            setUploadFile(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("accountPool.credentials.upload")}</DialogTitle>
@@ -275,18 +367,49 @@ export const AccountPoolCredentialsPanel = ({
           <div className="grid gap-3">
             <div className="grid gap-1">
               <Label>{t("accountPool.credentials.targetCard")}</Label>
-              <select className="h-9 rounded-md border bg-background px-3 text-sm" value={uploadCardId} onChange={(event) => setUploadCardId(event.target.value)}>
-                {environments.filter((environment) => environment.channel === "cliproxyapi").map((environment) => <option key={environment.id} value={environment.id}>{environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}</option>)}
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={uploadCardId}
+                onChange={(event) => setUploadCardId(event.target.value)}
+              >
+                {environments
+                  .filter(
+                    (environment) =>
+                      environment.channel === "cliproxyapi" && environment.status !== "migration_required",
+                  )
+                  .map((environment) => (
+                    <option key={environment.id} value={environment.id}>
+                      {environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="grid gap-1">
               <Label htmlFor="account-pool-auth-file">{t("accountPool.credentials.file")}</Label>
-              <Input id="account-pool-auth-file" type="file" accept=".json,.yaml,.yml" onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)} />
+              <Input
+                id="account-pool-auth-file"
+                type="file"
+                accept=".json,.yaml,.yml"
+                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setUploadOpen(false)} disabled={uploadMutation.isPending}>{t("accountPool.cancel")}</Button>
-            <Button type="button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending || uploadFile === null || !uploadCardId}>{uploadMutation.isPending ? t("accountPool.credentials.uploading") : t("accountPool.credentials.upload")}</Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setUploadOpen(false)}
+              disabled={uploadMutation.isPending}
+            >
+              {t("accountPool.cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => uploadMutation.mutate()}
+              disabled={uploadMutation.isPending || uploadFile === null || !uploadCardId}
+            >
+              {uploadMutation.isPending ? t("accountPool.credentials.uploading") : t("accountPool.credentials.upload")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -298,11 +421,21 @@ export const AccountPoolCredentialsPanel = ({
           </DialogHeader>
           <div className="grid gap-2">
             <Label htmlFor="account-pool-auth-fields">{t("accountPool.credentials.fieldsJson")}</Label>
-            <Textarea id="account-pool-auth-fields" value={editFields} onChange={(event) => setEditFields(event.target.value)} rows={8} className="font-mono text-xs" />
+            <Textarea
+              id="account-pool-auth-fields"
+              value={editFields}
+              onChange={(event) => setEditFields(event.target.value)}
+              rows={8}
+              className="font-mono text-xs"
+            />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setEditCredential(null)}>{t("accountPool.cancel")}</Button>
-            <Button type="button" onClick={() => void saveAuthFileFields()}>{t("accountPool.save")}</Button>
+            <Button type="button" variant="outline" onClick={() => setEditCredential(null)}>
+              {t("accountPool.cancel")}
+            </Button>
+            <Button type="button" onClick={() => void saveAuthFileFields()}>
+              {t("accountPool.save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

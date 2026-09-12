@@ -78,24 +78,36 @@ export const AccountPoolCard = ({
   const successRate =
     completedRequests === 0 ? null : ((requestStats?.succeeded_requests ?? 0) / completedRequests) * 100;
   const providerSummary = (() => {
-    if (environment.supplier === "kimi" && environment.status === "ready") {
+    if (environment.supplier === "kimi" && !policyValues?.kimi) {
       return t("accountPool.policy.kimiDeviceIdAuto");
     }
     if (!policyValues) return null;
+    if (environment.supplier === "openai_codex" && policyValues.codex) {
+      const enabled = [
+        policyValues.codex.identity_confuse && t("accountPool.policy.identity_confuse"),
+        policyValues.codex.disable_codex_cloaking && t("accountPool.policy.disable_codex_cloaking"),
+      ].filter(Boolean);
+      return enabled.length > 0 ? enabled.join(" / ") : t("accountPool.policy.options.disabled");
+    }
     if (environment.supplier === "anthropic_claude" && policyValues.claude) {
-      return t(`accountPool.policy.options.${policyValues.claude.fingerprint_profile}`);
+      return `${t(`accountPool.policy.options.${policyValues.claude.fingerprint_profile}`)} / ${t(
+        `accountPool.policy.options.${policyValues.claude.cloak_mode}`,
+      )}`;
+    }
+    if (environment.supplier === "kimi") {
+      if (!policyValues.kimi) return null;
+      return `${t(`accountPool.policy.options.${policyValues.kimi.fingerprint_profile}`)} / ${t(
+        "accountPool.policy.kimiDeviceIdAuto",
+      )}`;
     }
     if (environment.supplier === "xai" && policyValues.xai) {
       return t(`accountPool.policy.options.${policyValues.xai.inject_x_search ? "enabled" : "disabled"}`);
     }
-    if (environment.supplier === "openai_compatible" && policyValues.openai_compatible) {
-      return t(
-        `accountPool.policy.options.${policyValues.openai_compatible.support_prompt_cache_key ? "enabled" : "disabled"}`,
-      );
-    }
     if (environment.supplier === "google_antigravity" && policyValues.antigravity) {
-      return `${t(`accountPool.policy.options.${policyValues.antigravity.sensitive_word_filter}`)} / ${t(
-        `accountPool.policy.options.${policyValues.antigravity.signature_cache}`,
+      return `${t("accountPool.policy.sensitiveWordCount", {
+        count: policyValues.antigravity.sensitive_words.length,
+      })} / ${t(
+        `accountPool.policy.options.${policyValues.antigravity.signature_cache_enabled ? "enabled" : "disabled"}`,
       )}`;
     }
     return null;
@@ -105,11 +117,32 @@ export const AccountPoolCard = ({
     if (environment.status === "error") return t("accountPool.dashboard.unhealthy");
     return t("accountPool.dashboard.checking");
   })();
+  const retired = environment.status === "migration_required";
+  const exportRetiredCard = () => {
+    const payload = {
+      id: environment.id,
+      name: environment.name,
+      channel: environment.channel,
+      supplier: environment.supplier,
+      models: environment.available_models,
+      proxy_profile_id: environment.proxy_profile_id,
+      quota: environment.quota,
+      retired_at: environment.updated_at,
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${environment.name}-migration.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Card
       data-testid={`account-pool-card-${environment.id}`}
-      onDoubleClick={() => onManagePolicy(environment)}
+      onDoubleClick={() => {
+        if (!retired) onManagePolicy(environment);
+      }}
       title={t("accountPool.dashboard.doubleClickToConfigure")}
     >
       <CardHeader className="gap-3">
@@ -154,7 +187,7 @@ export const AccountPoolCard = ({
               variant="ghost"
               size="icon-sm"
               onClick={() => onManageKey(environment)}
-              disabled={disabled}
+              disabled={disabled || retired}
               aria-label={t("accountPool.keys.manage", { name: environment.name })}
               title={t("accountPool.keys.manageShort")}
             >
@@ -165,7 +198,7 @@ export const AccountPoolCard = ({
               variant="ghost"
               size="icon-sm"
               onClick={() => onManagePolicy(environment)}
-              disabled={disabled}
+              disabled={disabled || retired}
               aria-label={t("accountPool.policy.manage", { name: environment.name })}
               title={t("accountPool.policy.manageShort")}
             >
@@ -196,6 +229,11 @@ export const AccountPoolCard = ({
                 title={authorizationAction}
               >
                 <KeyRound />
+              </Button>
+            )}
+            {retired && (
+              <Button type="button" variant="ghost" size="sm" onClick={exportRetiredCard} disabled={disabled}>
+                {t("accountPool.exportMigration")}
               </Button>
             )}
             <Button
@@ -262,14 +300,6 @@ export const AccountPoolCard = ({
               <p className="text-xs text-muted-foreground">{t("accountPool.policy.weight")}</p>
               <p className="mt-1 font-medium">{policyValues.routing?.weight ?? 1}</p>
             </div>
-            {environment.supplier === "openai_codex" && policyValues.codex && (
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground">{t("accountPool.policy.identity_fingerprint_mode")}</p>
-                <p className="mt-1 font-medium">
-                  {t(`accountPool.policy.options.${policyValues.codex.identity_fingerprint_mode}`)}
-                </p>
-              </div>
-            )}
           </div>
         )}
         {providerSummary && (

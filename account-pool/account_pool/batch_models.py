@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
-from account_pool.domain import AuthorizationFlow
+from account_pool.domain import AuthorizationInstructionFlow
 from account_pool.policies import AccountPolicy
 
 BatchAction = Literal["refresh", "authorize", "enable", "disable", "cooldown", "release", "policy", "delete"]
@@ -38,7 +38,7 @@ class BatchRequest(BaseModel):
 
 class BatchAuthorization(BaseModel):
     model_config = ConfigDict(frozen=True)
-    flow: AuthorizationFlow
+    flow: AuthorizationInstructionFlow
     authorization_url: HttpUrl
     ssh_command: str | None
     user_code: str | None
