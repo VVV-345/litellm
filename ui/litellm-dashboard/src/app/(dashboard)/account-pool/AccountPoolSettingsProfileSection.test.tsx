@@ -3,9 +3,13 @@
 import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AccountPoolSettingsProfileSection, type SettingsProfile } from "./AccountPoolSettingsProfileSection";
+import {
+  AccountPoolSettingsProfileSection,
+  createSettingsProfileId,
+  type SettingsProfile,
+} from "./AccountPoolSettingsProfileSection";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 type Values = { enabled: boolean };
@@ -56,6 +60,16 @@ const Harness = () => {
 };
 
 describe("AccountPoolSettingsProfileSection", () => {
+  it("creates a configuration id when randomUUID is unavailable on an HTTP origin", () => {
+    const originalCrypto = globalThis.crypto;
+    try {
+      vi.stubGlobal("crypto", { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
+      expect(createSettingsProfileId()).toMatch(/^settings-[0-9a-f]{32}$/);
+    } finally {
+      vi.stubGlobal("crypto", originalCrypto);
+    }
+  });
+
   it("adds named configurations and prevents assigning a card twice in one module", async () => {
     const user = userEvent.setup();
     render(<Harness />);

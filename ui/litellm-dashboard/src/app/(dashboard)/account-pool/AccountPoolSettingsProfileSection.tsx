@@ -22,6 +22,14 @@ export type SettingsProfile<TValues> = {
   values: TValues;
 };
 
+export const createSettingsProfileId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const values = crypto.getRandomValues(new Uint32Array(4));
+    return `settings-${Array.from(values, (value) => value.toString(16).padStart(8, "0")).join("")}`;
+  }
+  return `settings-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
 type Props<TValues> = {
   moduleName: string;
   globalValues: TValues;
@@ -81,7 +89,7 @@ export const AccountPoolSettingsProfileSection = <TValues,>({
               onProfilesChange([
                 ...profiles,
                 {
-                  id: crypto.randomUUID(),
+                  id: createSettingsProfileId(),
                   name: `${moduleName} ${profiles.length + 1}`,
                   card_ids: [],
                   inherit_global: true,
