@@ -398,11 +398,15 @@ export default function AccountPoolPage() {
             <AccountPoolQuotaPanel
               environments={environments}
               onRefresh={() => {
-                if (accessToken) void refreshAccountPoolQuotas(accessToken).then((result) => {
-                  if (result.failed_card_ids.length) toast.error(t("accountPool.quotas.partialFailure", { count: result.failed_card_ids.length }));
-                  else toast.success(t("accountPool.quotas.refreshed"));
-                  return environmentsQuery.refetch();
-                }).catch((error: unknown) => toast.fromError(error));
+                if (accessToken)
+                  void refreshAccountPoolQuotas(accessToken)
+                    .then((result) => {
+                      if (result.failed_card_ids.length)
+                        toast.error(t("accountPool.quotas.partialFailure", { count: result.failed_card_ids.length }));
+                      else toast.success(t("accountPool.quotas.refreshed"));
+                      return environmentsQuery.refetch();
+                    })
+                    .catch((error: unknown) => toast.fromError(error));
               }}
               refreshing={environmentsQuery.isFetching}
             />

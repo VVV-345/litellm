@@ -317,8 +317,6 @@ def test_codebuff_client_translates_upstream_expiry_to_remaining_seconds() -> No
 
 
 def test_codebuff_client_returns_none_expiry_for_unparseable_expires_at() -> None:
-    from datetime import datetime, timedelta, timezone
-
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
