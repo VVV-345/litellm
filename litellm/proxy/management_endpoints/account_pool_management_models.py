@@ -367,6 +367,125 @@ class PayloadSettings(BaseModel):
     filter: tuple[PayloadFilterRule, ...] = Field(default=())
 
 
+class CommonSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default_route: Literal["auto", "priority", "random", "quota"] = "auto"
+    default_concurrency_limit: int = Field(default=1, ge=1, le=1000)
+    default_model_discovery: bool = True
+
+
+class AccessSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
+    oauth_model_aliases: dict[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
+    oauth_request_scoped_errors: dict[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)
+
+
+class NetworkSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default_proxy_profile_id: str | None = Field(default=None, max_length=120)
+    max_attempts: int = Field(default=1, ge=1, le=5)
+    request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    websocket_enabled: bool = False
+
+
+class QuotaSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
+
+
+class StreamingSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    enabled: bool = True
+
+
+class AdvancedSettingsValues(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    plugins_enabled: bool = False
+    websocket_auth_enabled: bool = False
+    force_model_prefix: bool = False
+    request_retry: int = Field(default=1, ge=0, le=20)
+    max_retry_credentials: int = Field(default=1, ge=0, le=100)
+    max_retry_interval: int = Field(default=0, ge=0, le=3600)
+
+
+class CommonSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: CommonSettingsValues = Field(default_factory=CommonSettingsValues)
+
+
+class AccessSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: AccessSettingsValues = Field(default_factory=AccessSettingsValues)
+
+
+class NetworkSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: NetworkSettingsValues = Field(default_factory=NetworkSettingsValues)
+
+
+class QuotaSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: QuotaSettingsValues = Field(default_factory=QuotaSettingsValues)
+
+
+class StreamingSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: StreamingSettingsValues = Field(default_factory=StreamingSettingsValues)
+
+
+class AdvancedSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: AdvancedSettingsValues = Field(default_factory=AdvancedSettingsValues)
+
+
+class PayloadSettingsProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    card_ids: tuple[UUID, ...] = Field(default=(), max_length=100)
+    inherit_global: bool = True
+    values: PayloadSettings = Field(default_factory=PayloadSettings)
+
+
 class AccountPoolSettings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -395,13 +514,39 @@ class AccountPoolSettings(BaseModel):
     oauth_request_scoped_errors: dict[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)
     payload: PayloadSettings = Field(default_factory=PayloadSettings)
     plugins_enabled: bool = False
+    streaming_enabled: bool = True
+    common_profiles: tuple[CommonSettingsProfile, ...] = Field(default=(), max_length=100)
+    access_profiles: tuple[AccessSettingsProfile, ...] = Field(default=(), max_length=100)
+    network_profiles: tuple[NetworkSettingsProfile, ...] = Field(default=(), max_length=100)
+    quota_profiles: tuple[QuotaSettingsProfile, ...] = Field(default=(), max_length=100)
+    streaming_profiles: tuple[StreamingSettingsProfile, ...] = Field(default=(), max_length=100)
+    advanced_profiles: tuple[AdvancedSettingsProfile, ...] = Field(default=(), max_length=100)
+    payload_profiles: tuple[PayloadSettingsProfile, ...] = Field(default=(), max_length=100)
     streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
 
     @model_validator(mode="after")
-    def unique_streaming_cards(self) -> AccountPoolSettings:
-        cards: Final = tuple(card_id for rule in self.streaming_rules for card_id in rule.card_ids)
-        if len(cards) != len(frozenset(cards)):
-            raise ValueError("A card cannot be assigned to multiple streaming rules")
+    def unique_profile_cards(self) -> AccountPoolSettings:
+        groups: Final = (
+            ("common profiles", self.common_profiles),
+            ("access profiles", self.access_profiles),
+            ("network profiles", self.network_profiles),
+            ("quota profiles", self.quota_profiles),
+            ("streaming profiles", self.streaming_profiles),
+            ("advanced profiles", self.advanced_profiles),
+            ("payload profiles", self.payload_profiles),
+            ("streaming rules", self.streaming_rules),
+        )
+        duplicate_category: Final = next(
+            (
+                category
+                for category, profiles in groups
+                if len(tuple(card_id for profile in profiles for card_id in profile.card_ids))
+                != len(frozenset(card_id for profile in profiles for card_id in profile.card_ids))
+            ),
+            None,
+        )
+        if duplicate_category is not None:
+            raise ValueError(f"A card cannot be assigned to multiple {duplicate_category}")
         return self
 
 

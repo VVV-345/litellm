@@ -23355,6 +23355,43 @@ export interface components {
             /** Description */
             description?: string | null;
         };
+        /** AccessSettingsProfile */
+        AccessSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["AccessSettingsValues"];
+        };
+        /** AccessSettingsValues */
+        AccessSettingsValues: {
+            /**
+             * Oauth Excluded Models
+             * @default []
+             */
+            oauth_excluded_models: string[];
+            /** Oauth Model Aliases */
+            oauth_model_aliases?: {
+                [key: string]: [
+                    string,
+                    string
+                ][];
+            };
+            /** Oauth Request Scoped Errors */
+            oauth_request_scoped_errors?: {
+                [key: string]: components["schemas"]["OAuthRequestScopedErrorRule"][];
+            };
+        };
         /** AccountPolicy */
         AccountPolicy: {
             /**
@@ -23877,6 +23914,21 @@ export interface components {
         /** AccountPoolSettings */
         AccountPoolSettings: {
             /**
+             * Access Profiles
+             * @default []
+             */
+            access_profiles: components["schemas"]["AccessSettingsProfile"][];
+            /**
+             * Advanced Profiles
+             * @default []
+             */
+            advanced_profiles: components["schemas"]["AdvancedSettingsProfile"][];
+            /**
+             * Common Profiles
+             * @default []
+             */
+            common_profiles: components["schemas"]["CommonSettingsProfile"][];
+            /**
              * Debug Logging Enabled
              * @default false
              */
@@ -23935,6 +23987,11 @@ export interface components {
              */
             max_retry_interval: number;
             /**
+             * Network Profiles
+             * @default []
+             */
+            network_profiles: components["schemas"]["NetworkSettingsProfile"][];
+            /**
              * Oauth Excluded Models
              * @default []
              */
@@ -23952,10 +24009,20 @@ export interface components {
             };
             payload?: components["schemas"]["PayloadSettings"];
             /**
+             * Payload Profiles
+             * @default []
+             */
+            payload_profiles: components["schemas"]["PayloadSettingsProfile"][];
+            /**
              * Plugins Enabled
              * @default false
              */
             plugins_enabled: boolean;
+            /**
+             * Quota Profiles
+             * @default []
+             */
+            quota_profiles: components["schemas"]["QuotaSettingsProfile"][];
             /**
              * Quota Switch Preview Model
              * @default false
@@ -23981,6 +24048,16 @@ export interface components {
              * @default 120
              */
             request_timeout_seconds: number;
+            /**
+             * Streaming Enabled
+             * @default true
+             */
+            streaming_enabled: boolean;
+            /**
+             * Streaming Profiles
+             * @default []
+             */
+            streaming_profiles: components["schemas"]["StreamingSettingsProfile"][];
             /**
              * Streaming Rules
              * @default []
@@ -24122,6 +24199,57 @@ export interface components {
             callback_vars: {
                 [key: string]: string;
             };
+        };
+        /** AdvancedSettingsProfile */
+        AdvancedSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["AdvancedSettingsValues"];
+        };
+        /** AdvancedSettingsValues */
+        AdvancedSettingsValues: {
+            /**
+             * Force Model Prefix
+             * @default false
+             */
+            force_model_prefix: boolean;
+            /**
+             * Max Retry Credentials
+             * @default 1
+             */
+            max_retry_credentials: number;
+            /**
+             * Max Retry Interval
+             * @default 0
+             */
+            max_retry_interval: number;
+            /**
+             * Plugins Enabled
+             * @default false
+             */
+            plugins_enabled: boolean;
+            /**
+             * Request Retry
+             * @default 1
+             */
+            request_retry: number;
+            /**
+             * Websocket Auth Enabled
+             * @default false
+             */
+            websocket_auth_enabled: boolean;
         };
         /**
          * AgentCapabilities
@@ -26871,6 +26999,43 @@ export interface components {
              * @default false
              */
             responses_compact_enabled: boolean;
+        };
+        /** CommonSettingsProfile */
+        CommonSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["CommonSettingsValues"];
+        };
+        /** CommonSettingsValues */
+        CommonSettingsValues: {
+            /**
+             * Default Concurrency Limit
+             * @default 1
+             */
+            default_concurrency_limit: number;
+            /**
+             * Default Model Discovery
+             * @default true
+             */
+            default_model_discovery: boolean;
+            /**
+             * Default Route
+             * @default auto
+             * @enum {string}
+             */
+            default_route: "auto" | "priority" | "random" | "quota";
         };
         /**
          * ComplexityRouterConfigValidationRequest
@@ -33315,6 +33480,44 @@ export interface components {
              */
             type: "mutualTLS";
         };
+        /** NetworkSettingsProfile */
+        NetworkSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["NetworkSettingsValues"];
+        };
+        /** NetworkSettingsValues */
+        NetworkSettingsValues: {
+            /** Default Proxy Profile Id */
+            default_proxy_profile_id?: string | null;
+            /**
+             * Max Attempts
+             * @default 1
+             */
+            max_attempts: number;
+            /**
+             * Request Timeout Seconds
+             * @default 120
+             */
+            request_timeout_seconds: number;
+            /**
+             * Websocket Enabled
+             * @default false
+             */
+            websocket_enabled: boolean;
+        };
         /**
          * NewCustomerRequest
          * @description Create a new customer, allocate a budget to them
@@ -34762,6 +34965,24 @@ export interface components {
              */
             "override-raw": components["schemas"]["PayloadRule"][];
         };
+        /** PayloadSettingsProfile */
+        PayloadSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["PayloadSettings"];
+        };
         /**
          * PerTestingCriteriaResult
          * @description Results for a specific testing criteria
@@ -36013,6 +36234,37 @@ export interface components {
                     [key: string]: unknown;
                 };
             } | null;
+        };
+        /** QuotaSettingsProfile */
+        QuotaSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["QuotaSettingsValues"];
+        };
+        /** QuotaSettingsValues */
+        QuotaSettingsValues: {
+            /**
+             * Quota Switch Preview Model
+             * @default false
+             */
+            quota_switch_preview_model: boolean;
+            /**
+             * Quota Switch Project
+             * @default false
+             */
+            quota_switch_project: boolean;
         };
         /** RawRequestTypedDict */
         RawRequestTypedDict: {
@@ -37864,6 +38116,32 @@ export interface components {
             mode: "enabled" | "disabled";
             /** Name */
             name: string;
+        };
+        /** StreamingSettingsProfile */
+        StreamingSettingsProfile: {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["StreamingSettingsValues"];
+        };
+        /** StreamingSettingsValues */
+        StreamingSettingsValues: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /**
          * SuccessfulKeyUpdate

@@ -51,6 +51,7 @@ from account_pool.domain import (
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, Success, _safe_error
+from account_pool.settings import AccountPoolSettings, CommonSettingsProfile, CommonSettingsValues
 
 
 @pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
@@ -450,6 +451,7 @@ class FakeCLIProxy:
         self.fail_proxy_once = False
         self.direct_credentials: list[tuple[UUID, DirectAPIKeyCredentialRequest, str]] = []
         self.vertex_credentials: list[tuple[UUID, str, bytes, str]] = []
+        self.global_settings_calls: list[tuple[UUID, AccountPoolSettings]] = []
 
     async def close(self) -> None:
         return None
@@ -530,6 +532,9 @@ class FakeCLIProxy:
         await self.set_enabled_models(record, configuration.enabled_models)
         await self.set_credential_enabled(record, configuration.credential_enabled)
         await self.set_concurrency_limit(record, configuration.concurrency_limit)
+
+    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+        self.global_settings_calls.append((record.id, settings))
 
 
 class InvalidAuthorizationURLCLI(FakeCLIProxy):
@@ -709,6 +714,32 @@ def _service(record: EnvironmentRecord, cli: FakeCLIProxy, tmp_path: Path) -> En
         secrets=EnvironmentSecretDeriver("s" * 32),
         channels=_fake_channels(runtime, cli),
     )
+
+
+@pytest.mark.asyncio
+async def test_global_settings_sync_applies_named_common_profile_to_the_bound_card(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    settings: Final = AccountPoolSettings(
+        default_concurrency_limit=3,
+        common_profiles=(
+            CommonSettingsProfile(
+                id="high-concurrency",
+                name="高并发",
+                card_ids=(record.id,),
+                inherit_global=False,
+                values=CommonSettingsValues(default_concurrency_limit=9),
+            ),
+        ),
+    )
+
+    failed: Final = await service.sync_global_settings(settings)
+
+    assert failed == ()
+    assert cli.concurrency_calls[-1] == 9
+    assert cli.global_settings_calls[0][0] == record.id
+    assert cli.global_settings_calls[0][1].default_concurrency_limit == 9
 
 
 def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import Callable
-from typing import Final, Literal
+from typing import Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -23,9 +23,14 @@ from account_pool.gateway_contracts import (
     ResolveRequest,
 )
 from account_pool.gateway_repository import LeaseRepository
-from account_pool.policies import PolicyRepository
+from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
-from account_pool.settings import AccountPoolSettingsRepository
+from account_pool.settings import (
+    AccountPoolSettings,
+    AccountPoolSettingsRepository,
+    settings_for_card,
+    streaming_mode_for_card,
+)
 
 
 class GatewayService:
@@ -61,13 +66,16 @@ class GatewayService:
         ):
             raise HTTPException(403, "Account pool card is disabled or unavailable")
         policy: Final = await self.policies.get(card.id)
+        global_settings: Final = None if self.settings is None else (await self.settings.get()).values
+        effective_settings: Final = None if global_settings is None else settings_for_card(global_settings, card.id)
+        effective_card_policy: Final = _policy_with_settings(policy.policy, effective_settings)
         ids: Final = tuple(dict.fromkeys((card.id, *policy.policy.account_ids)))
         records: Final = await asyncio.gather(*(self.environments.get(identifier) for identifier in ids))
         cooling: Final = await self.leases.cooling()
         candidates: Final = tuple(
             await asyncio.gather(
                 *(
-                    self.candidate(record)
+                    self.candidate(record, global_settings)
                     for record in records
                     if record is not None
                     and record.channel == card.channel
@@ -80,39 +88,41 @@ class GatewayService:
         binding: Final = (
             binding_hash(key.key_id, request.session_hash) if policy.policy.routing.session_affinity else None
         )
-        streaming_mode: Final = await self._streaming_mode(card.id)
+        streaming_mode: Final = (
+            "inherit" if global_settings is None else streaming_mode_for_card(global_settings, card.id)
+        )
         return Resolution(
             card_id=card.id,
             key_id=key.key_id,
             card_version=card.version,
             policy_version=policy.version,
-            policy=policy.policy,
+            policy=effective_card_policy,
             candidates=candidates,
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
         )
 
-    async def _streaming_mode(self, card_id: UUID) -> Literal["inherit", "enabled", "disabled"]:
-        if self.settings is None:
-            return "inherit"
-        return next(
-            (rule.mode for rule in (await self.settings.get()).values.streaming_rules if card_id in rule.card_ids),
-            "inherit",
-        )
-
-    async def candidate(self, record: EnvironmentRecord) -> Candidate:
+    async def candidate(
+        self,
+        record: EnvironmentRecord,
+        global_settings: AccountPoolSettings | None = None,
+    ) -> Candidate:
         endpoint: Final = self.gateway(record)
         policy: Final = await self.policies.get(record.id)
+        configured_policy: Final = _policy_with_settings(
+            policy.policy,
+            None if global_settings is None else settings_for_card(global_settings, record.id),
+        )
         effective_policy: Final = (
-            policy.policy.model_copy(
+            configured_policy.model_copy(
                 update={
-                    "routing": policy.policy.routing.model_copy(
+                    "routing": configured_policy.routing.model_copy(
                         update={"priority": record.openai_compatible.priority}
                     )
                 }
             )
             if policy.version == 0 and record.openai_compatible is not None
-            else policy.policy
+            else configured_policy
         )
         return Candidate(
             id=record.id,
@@ -233,6 +243,21 @@ def binding_hash(key_id: UUID, session_hash: str | None) -> str | None:
     if session_hash is None:
         return None
     return hashlib.sha256(f"{key_id}:{session_hash}".encode()).hexdigest()
+
+
+def _policy_with_settings(policy: AccountPolicy, settings: AccountPoolSettings | None) -> AccountPolicy:
+    if settings is None:
+        return policy
+    return policy.model_copy(
+        update={
+            "routing": policy.routing.model_copy(
+                update={"strategy": settings.default_route, "max_attempts": settings.max_attempts}
+            ),
+            "transport": policy.transport.model_copy(
+                update={"request_timeout_seconds": settings.request_timeout_seconds}
+            ),
+        }
+    )
 
 
 def create_gateway_router(service: GatewayService, authorize: Callable[..., None]) -> APIRouter:

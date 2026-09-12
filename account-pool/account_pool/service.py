@@ -62,7 +62,7 @@ from account_pool.ports import (
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
-from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
@@ -190,9 +190,44 @@ class EnvironmentService:
         return tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
 
     async def _sync_global_settings_for_record(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        if record.channel is not ChannelKind.CLIPROXYAPI or record.status is EnvironmentStatus.DELETING:
+        if record.status is EnvironmentStatus.DELETING:
             return
-        await self._cli_proxy.apply_global_settings(record, settings)
+        effective: Final = settings_for_card(settings, record.id)
+        configured: Final = await self._apply_settings_configuration(record, effective)
+        if configured.channel is ChannelKind.CLIPROXYAPI:
+            await self._cli_proxy.apply_global_settings(configured, effective)
+
+    async def _apply_settings_configuration(
+        self,
+        record: EnvironmentRecord,
+        settings: AccountPoolSettings,
+    ) -> EnvironmentRecord:
+        proxy_mode: Final = (
+            ProxyMode.DEFAULT_GATEWAY if settings.default_proxy_profile_id is None else ProxyMode.PROFILE
+        )
+        unchanged: Final = (
+            record.concurrency_limit == settings.default_concurrency_limit
+            and record.proxy_mode is proxy_mode
+            and record.proxy_profile_id == settings.default_proxy_profile_id
+        )
+        if unchanged:
+            return record
+        result: Final = await self.update_environment(
+            record.id,
+            UpdateEnvironmentRequest(
+                version=record.version,
+                name=record.name,
+                concurrency_limit=settings.default_concurrency_limit,
+                enabled=record.enabled,
+                manual_cooldown=record.manual_cooldown,
+                proxy_mode=proxy_mode,
+                proxy_profile_id=settings.default_proxy_profile_id,
+                enabled_models=record.enabled_models,
+            ),
+        )
+        if isinstance(result, Failure):
+            raise ValueError(result.message)
+        return await self._repository.get(record.id) or record
 
     async def sync_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         if record.channel is ChannelKind.CLIPROXYAPI and record.status is not EnvironmentStatus.DELETING:
