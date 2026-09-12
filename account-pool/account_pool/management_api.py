@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Final, TypeVar
+from typing import Annotated, Final, Literal, TypeVar, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -130,7 +130,10 @@ def create_management_router(
             try:
                 await sync_policy(record, saved.policy)
             except Exception as error:
+                await _set_policy_runtime_status(policies, saved, "failed", "policy runtime synchronization failed")
                 raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error
+            runtime_saved: Final = await _set_policy_runtime_status(policies, saved, "synced")
+            return runtime_saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
         return saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
 
     @router.get("/logs/{event_id}")
@@ -199,3 +202,21 @@ def unwrap(result: Result[T]) -> T:
     if isinstance(result, Failure):
         raise HTTPException(409, result.message)
     return result.value
+
+
+async def _set_policy_runtime_status(
+    policies: PolicyRepository,
+    policy: PolicyView,
+    status: Literal["partial", "synced", "failed"],
+    error: str | None = None,
+) -> PolicyView:
+    setter: Final = getattr(policies, "set_runtime_status", None)
+    if not callable(setter):
+        return policy
+    update: Final = cast(
+        Callable[[UUID, int, Literal["partial", "synced", "failed"], str | None], Awaitable[PolicyView | None]],
+        setter,
+    )
+    return (await update(policy.card_id, policy.version, status, error)) or policy.model_copy(
+        update={"runtime_status": status, "runtime_error": error}
+    )

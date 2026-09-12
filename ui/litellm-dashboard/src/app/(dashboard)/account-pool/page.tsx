@@ -421,7 +421,7 @@ export default function AccountPoolPage() {
             )}
           </TabsContent>
           <TabsContent value="plugins" className="pt-4">
-            {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} />}
+            {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
           </TabsContent>
         </Tabs>
       </div>

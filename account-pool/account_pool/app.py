@@ -79,7 +79,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         error_logs=logs,
         global_settings=settings_repository,
     )
-    batch_service: Final = BatchService(batches, environments, service, policies, logs, leases)
+    batch_service: Final = BatchService(
+        batches,
+        environments,
+        service,
+        policies,
+        logs,
+        leases,
+        sync_policy=service.sync_policy,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:

@@ -5867,7 +5867,10 @@
       "installed": "插件已安装",
       "uninstalled": "插件已卸载",
       "loadFailed": "插件列表加载失败",
-      "storeEmpty": "商城暂无可用插件"
+      "storeEmpty": "商城暂无可用插件",
+      "card": "号池卡片",
+      "selectCard": "选择要管理的号池卡片",
+      "noCards": "暂无支持插件的 CLIProxyAPI 号池卡片"
     },
     "scope": {
       "title": "配置面板",

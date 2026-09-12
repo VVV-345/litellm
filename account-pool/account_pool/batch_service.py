@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal, cast
 from uuid import UUID
 
 from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest
 from account_pool.batch_repository import BatchRepository
-from account_pool.domain import EnvironmentStatus, UpdateEnvironmentRequest, configuration_from_record, utc_now
+from account_pool.domain import EnvironmentRecord, EnvironmentStatus, UpdateEnvironmentRequest, configuration_from_record, utc_now
 from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.gateway_repository import CooldownRepository
-from account_pool.policies import PolicyRepository, PolicyUpdate, policy_validation_error
+from account_pool.policies import AccountPolicy, PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
 from account_pool.ports import EnvironmentRepository
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.service import EnvironmentService
@@ -33,6 +34,7 @@ class BatchService:
         policies: PolicyRepository,
         logs: ErrorLogService,
         leases: CooldownRepository | None = None,
+        sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     ) -> None:
         self.repository: Final = repository
         self.environments: Final = environments
@@ -40,6 +42,7 @@ class BatchService:
         self.policies: Final = policies
         self.logs: Final = logs
         self.leases: Final = leases
+        self.sync_policy: Final = sync_policy
 
     async def submit(self, request: BatchRequest) -> bool:
         records: Final = await asyncio.gather(*(self.environments.get(target.account_id) for target in request.targets))
@@ -144,6 +147,15 @@ class BatchService:
                 return Failure(FailureCode.INVALID, "Policy is required")
             current_policy: Final = await self.policies.get(record.id)
             if current_policy.policy == policy_request:
+                if self.sync_policy is not None:
+                    try:
+                        await self.sync_policy(record, policy_request)
+                    except Exception:
+                        await _set_policy_runtime_status(
+                            self.policies, current_policy, "failed", "policy runtime synchronization failed"
+                        )
+                        return Failure(FailureCode.UPSTREAM, "policy runtime synchronization failed")
+                    await _set_policy_runtime_status(self.policies, current_policy, "synced")
                 return Success(BatchExecution("Policy already updated"))
             validation_error: Final = await policy_validation_error(record, policy_request, self.environments)
             if validation_error is not None:
@@ -151,6 +163,15 @@ class BatchService:
             policy: Final = await self.policies.save(
                 record.id, PolicyUpdate(version=claim.target.policy_version, policy=policy_request)
             )
+            if policy is not None and self.sync_policy is not None:
+                try:
+                    await self.sync_policy(record, policy.policy)
+                except Exception:
+                    await _set_policy_runtime_status(
+                        self.policies, policy, "failed", "policy runtime synchronization failed"
+                    )
+                    return Failure(FailureCode.UPSTREAM, "policy runtime synchronization failed")
+                await _set_policy_runtime_status(self.policies, policy, "synced")
             return (
                 Success(BatchExecution("Policy updated"))
                 if policy is not None
@@ -187,3 +208,21 @@ class BatchService:
         if isinstance(run_result, Success):
             return True, run_result.value.message, run_result.value.authorization
         return False, run_result.message, None
+
+
+async def _set_policy_runtime_status(
+    policies: PolicyRepository,
+    policy: PolicyView,
+    status: Literal["partial", "synced", "failed"],
+    error: str | None = None,
+) -> PolicyView:
+    setter: Final = getattr(policies, "set_runtime_status", None)
+    if not callable(setter):
+        return policy
+    update: Final = cast(
+        Callable[[UUID, int, Literal["partial", "synced", "failed"], str | None], Awaitable[PolicyView | None]],
+        setter,
+    )
+    return (await update(policy.card_id, policy.version, status, error)) or policy.model_copy(
+        update={"runtime_status": status, "runtime_error": error}
+    )

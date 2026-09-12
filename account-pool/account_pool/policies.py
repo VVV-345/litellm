@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
@@ -189,7 +190,9 @@ class PolicyView(BaseModel):
     card_id: UUID
     version: int = 0
     policy: AccountPolicy = Field(default_factory=AccountPolicy)
-    runtime_status: Literal["partial"] = "partial"
+    runtime_status: Literal["partial", "synced", "failed"] = "partial"
+    runtime_error: str | None = None
+    runtime_updated_at: datetime | None = None
     capabilities: tuple[PolicyCapability, ...] = Field(default_factory=policy_capabilities)
     metadata_status: Literal["saved"] = "saved"
 
@@ -200,6 +203,14 @@ class PolicyRepository(Protocol):
     async def get(self, card_id: UUID) -> PolicyView: ...
 
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None: ...
+
+    async def set_runtime_status(
+        self,
+        card_id: UUID,
+        version: int,
+        status: Literal["partial", "synced", "failed"],
+        error: str | None = None,
+    ) -> PolicyView | None: ...
 
 
 class PolicyEnvironmentRepository(Protocol):
@@ -247,9 +258,21 @@ class PostgresPolicyRepository:
                 CREATE TABLE IF NOT EXISTS account_pool_policies (
                     card_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE,
                     version integer NOT NULL,
-                    policy jsonb NOT NULL
+                    policy jsonb NOT NULL,
+                    runtime_status text NOT NULL DEFAULT 'partial',
+                    runtime_error text,
+                    runtime_updated_at timestamptz
                 )
                 """
+            )
+            await connection.execute(
+                "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_status text NOT NULL DEFAULT 'partial'"
+            )
+            await connection.execute(
+                "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_error text"
+            )
+            await connection.execute(
+                "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_updated_at timestamptz"
             )
 
     async def get(self, card_id: UUID) -> PolicyView:
@@ -293,4 +316,20 @@ class PostgresPolicyRepository:
                 )
             )
             row: Final = await saved.fetchone()
+        return None if row is None else PolicyView.model_validate(row)
+
+    async def set_runtime_status(
+        self,
+        card_id: UUID,
+        version: int,
+        status: Literal["partial", "synced", "failed"],
+        error: str | None = None,
+    ) -> PolicyView | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "UPDATE account_pool_policies SET runtime_status = %s, runtime_error = %s, "
+                "runtime_updated_at = CURRENT_TIMESTAMP WHERE card_id = %s AND version = %s RETURNING *",
+                (status, error, card_id, version),
+            )
+            row: Final = await cursor.fetchone()
         return None if row is None else PolicyView.model_validate(row)

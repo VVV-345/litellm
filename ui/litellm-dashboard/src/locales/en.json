@@ -5867,7 +5867,10 @@
       "installed": "Plugin installed",
       "uninstalled": "Plugin uninstalled",
       "loadFailed": "Plugins failed to load",
-      "storeEmpty": "No plugins are available in the store"
+      "storeEmpty": "No plugins are available in the store",
+      "card": "Pool card",
+      "selectCard": "Select a pool card to manage",
+      "noCards": "No CLIProxyAPI pool cards support plugins"
     },
     "scope": {
       "title": "Configuration panel",

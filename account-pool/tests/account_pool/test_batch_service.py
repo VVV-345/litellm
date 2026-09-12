@@ -12,6 +12,7 @@ from account_pool.batch_service import BatchService
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationView,
+    EnvironmentRecord,
     EnvironmentStatus,
     SupplierKind,
     UpdateEnvironmentRequest,
@@ -364,6 +365,38 @@ async def test_reclaimed_policy_job_accepts_an_already_applied_policy() -> None:
     assert await service.run_once()
     assert batches.finished == (True, "Policy already updated", None)
     assert policies.records[record.id].version == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_policy_syncs_saved_policy_to_runtime() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    policy: Final = AccountPolicy(routing=RoutingPolicy(weight=4))
+    request: Final = BatchRequest(
+        job_id=uuid4(),
+        action="policy",
+        policy=policy,
+        targets=(BatchTarget(account_id=record.id, version=record.version, policy_version=0),),
+    )
+    batches: Final = MemoryBatches(BatchClaim(request=request, target=request.targets[0], token=uuid4()))
+    environments: Final = MemoryRepository(record)
+    policies: Final = MemoryPolicies()
+    synchronized: list[tuple[UUID, AccountPolicy]] = []
+
+    async def sync_policy(card: EnvironmentRecord, saved: AccountPolicy) -> None:
+        synchronized.append((card.id, saved))
+
+    service: Final = BatchService(
+        batches,
+        environments,
+        UpdatingService(environments),
+        policies,
+        ErrorLogService(MemoryLogs()),
+        sync_policy=sync_policy,
+    )
+
+    assert await service.run_once()
+    assert batches.finished == (True, "Policy updated", None)
+    assert synchronized == [(record.id, policy)]
 
 
 @pytest.mark.asyncio
