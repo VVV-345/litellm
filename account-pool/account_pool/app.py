@@ -101,7 +101,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
             await proxy_gateways.sync_profiles()
-        await service.retire_legacy_environments()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
@@ -132,7 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await network_retry_task
             except asyncio.CancelledError:
                 pass
-            for kind in (ChannelKind.OPENAI_COMPATIBLE, ChannelKind.CLIPROXYAPI, ChannelKind.FREEBUFF2API):
+            for kind in (ChannelKind.OPENAI_COMPATIBLE, ChannelKind.CLIPROXYAPI):
                 try:
                     await channels.channel(kind).close()
                 except UnsupportedChannelError:
@@ -166,7 +165,6 @@ async def _reconcile_pending_configurations_until_cancelled(
 ) -> None:
     while not stopped.is_set():
         try:
-            await service.retire_legacy_environments()
             await service.reconcile_pending_configurations()
             await service.reconcile_pending_authorizations()
         except Exception as error:

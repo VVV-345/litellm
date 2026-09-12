@@ -104,10 +104,11 @@ litellm/
 │   │   ├── compose.py                        Compose 功能的统一导出入口
 │   │   ├── channels/                         渠道抽象层
 │   │   │   ├── base.py                       渠道定义和拒绝语义
-│   │   │   ├── registry.py                   渠道注册表（CLIProxyAPI、FreeBuff2API 均正式）
+│   │   │   ├── registry.py                   渠道注册表
 │   │   │   ├── cliproxyapi/                  CLIProxyAPI 渠道实现
 │   │   │   │   ├── channel.py                渠道组合根（运行时、客户端、供应商）
 │   │   │   │   ├── client.py                 CLIProxyAPI 管理协议客户端
+│   │   │   │   ├── settings_sync.py          全局设置与单卡策略同步
 │   │   │   │   ├── runtime.py                Docker 渲染与执行封装
 │   │   │   │   └── suppliers/                五个供应商的静态契约
 │   │   │   │       ├── base.py               SupplierDefinition 数据结构
@@ -117,11 +118,6 @@ litellm/
 │   │   │   │       ├── google_antigravity.py Antigravity（浏览器授权，回调 51121）
 │   │   │   │       ├── kimi.py               Kimi（设备码授权）
 │   │   │   │       └── xai.py                xAI（设备码授权）
-│   │   │   └── freebuff2api/                 FreeBuff2API 渠道实现
-│   │   │       ├── channel.py                渠道组合根与授权状态编解码
-│   │   │       ├── client.py                 Codebuff 授权客户端与代理请求
-│   │   │       ├── runtime.py                FreeBuff 配置、凭据与公共 Compose 运行时适配
-│   │   │       └── suppliers.py              FreeBuff 供应商静态契约
 │   │   ├── cliproxy.py                       旧调用方的兼容导出层
 │   │   ├── quota.py                          解析额度和冷却时间
 │   │   ├── cleanup.py                        删除环境时记录清理进度

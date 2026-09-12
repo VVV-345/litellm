@@ -63,7 +63,7 @@ describe("AccountPoolCard", () => {
     expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
   });
 
-  it.each(["cliproxyapi", "freebuff2api"] as const)("shows the shared port and selected node for %s", (channel) => {
+  it("shows the shared port and selected node", () => {
     const proxyGateway: AccountPoolProxyGateway = {
       port: 7891,
       profile_id: "clash-gateway-7891",
@@ -71,7 +71,7 @@ describe("AccountPoolCard", () => {
       proxy_url: "http://host:7891",
       current_node: "美国01",
     };
-    renderCard({ channel, proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" }, proxyGateway);
+    renderCard({ channel: "cliproxyapi", proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" }, proxyGateway);
 
     expect(screen.getByText("端口 7891 · 美国01")).toBeInTheDocument();
   });

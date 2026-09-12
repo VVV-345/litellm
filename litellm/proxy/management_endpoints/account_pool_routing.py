@@ -171,10 +171,8 @@ def upstream_url(account: Candidate, path: str) -> str:
         normalized: Final = account.api_base.rstrip("/")
         suffix: Final = path.removeprefix("/v1") if base.path.rstrip("/").endswith("/v1") else path
         return f"{normalized}{suffix}"
-    prefix: Final = "cliproxy" if account.channel == "cliproxyapi" else "freebuff"
-    port: Final = 8317 if account.channel == "cliproxyapi" else 8787
-    if base.scheme != "http" or base.hostname != f"{prefix}-{account.id.hex}" or base.port != port:
+    if base.scheme != "http" or base.hostname != f"cliproxy-{account.id.hex}" or base.port != 8317:
         raise ValueError("Unexpected account pool target")
     if base.username or base.password or base.query or base.fragment or base.path not in ("", "/v1"):
         raise ValueError("Unexpected account pool target path")
-    return f"http://{prefix}-{account.id.hex}:{port}{path}"
+    return f"http://cliproxy-{account.id.hex}:8317{path}"

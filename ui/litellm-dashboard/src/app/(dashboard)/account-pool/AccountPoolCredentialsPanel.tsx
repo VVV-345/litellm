@@ -179,19 +179,12 @@ export const AccountPoolCredentialsPanel = ({
             <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
             {t("accountPool.refresh")}
           </Button>
-          {environments.some(
-            (environment) => environment.channel === "cliproxyapi" && environment.status !== "migration_required",
-          ) && (
+          {environments.some((environment) => environment.channel === "cliproxyapi") && (
             <Button
               type="button"
               size="sm"
               onClick={() => {
-                setUploadCardId(
-                  environments.find(
-                    (environment) =>
-                      environment.channel === "cliproxyapi" && environment.status !== "migration_required",
-                  )?.id ?? "",
-                );
+                setUploadCardId(environments.find((environment) => environment.channel === "cliproxyapi")?.id ?? "");
                 setUploadOpen(true);
               }}
             >
@@ -373,10 +366,7 @@ export const AccountPoolCredentialsPanel = ({
                 onChange={(event) => setUploadCardId(event.target.value)}
               >
                 {environments
-                  .filter(
-                    (environment) =>
-                      environment.channel === "cliproxyapi" && environment.status !== "migration_required",
-                  )
+                  .filter((environment) => environment.channel === "cliproxyapi")
                   .map((environment) => (
                     <option key={environment.id} value={environment.id}>
                       {environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}

@@ -66,10 +66,7 @@ export function AccountPoolBatchPanel({
       Awaited<ReturnType<typeof listAccountPoolBatches>>[number]["items"][number]["authorization"]
     >;
   } | null>(null);
-  const selectableEnvironments = useMemo(
-    () => environments.filter((environment) => action === "delete" || environment.status !== "migration_required"),
-    [action, environments],
-  );
+  const selectableEnvironments = useMemo(() => environments, [environments]);
   const jobsQuery = {
     queryKey: ["account-pool", "batches", accessToken],
     queryFn: () => listAccountPoolBatches(accessToken),

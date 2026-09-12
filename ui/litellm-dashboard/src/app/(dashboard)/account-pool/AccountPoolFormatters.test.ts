@@ -64,8 +64,6 @@ describe("account pool lifecycle controls", () => {
     expect(canDeleteEnvironment(deleting)).toBe(false);
     expect(canAuthorizeEnvironment(environment("awaiting_authorization"))).toBe(true);
     expect(canAuthorizeEnvironment({ ...environment("error"), authorization_flow: "direct_credential" })).toBe(false);
-    expect(canConfigureEnvironment(environment("migration_required"))).toBe(false);
-    expect(canToggleEnvironment(environment("migration_required"))).toBe(false);
   });
 
   it("rejects missing, removed, and unsafe proxy profiles before saving", () => {

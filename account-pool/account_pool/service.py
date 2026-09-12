@@ -396,10 +396,6 @@ class EnvironmentService:
         )
 
     async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
-        if request.channel is ChannelKind.FREEBUFF2API:
-            return Failure(
-                FailureCode.INVALID, "freebuff2api channel has been retired; create an OpenAI-compatible card"
-            )
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
@@ -974,8 +970,6 @@ class EnvironmentService:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.status is EnvironmentStatus.MIGRATION_REQUIRED or record.channel is ChannelKind.FREEBUFF2API:
-                return Failure(FailureCode.INVALID, "retired cards are read-only and can only be exported or deleted")
             if record.status is EnvironmentStatus.DELETING:
                 return Failure(FailureCode.CONFLICT, "environment is being deleted")
             if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
@@ -1333,8 +1327,6 @@ class EnvironmentService:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.status is EnvironmentStatus.MIGRATION_REQUIRED or record.channel is ChannelKind.FREEBUFF2API:
-                return Failure(FailureCode.INVALID, "retired cards are read-only and can only be exported or deleted")
             if request.operation_id is not None and record.operation_id == request.operation_id:
                 if (
                     record.configuration_pending
@@ -1435,80 +1427,6 @@ class EnvironmentService:
         await asyncio.gather(
             *(self._refresh_if_needed(record) for record in records if record.status is EnvironmentStatus.VALIDATING)
         )
-
-    async def retire_legacy_environments(self) -> tuple[UUID, ...]:
-        """将历史 FreeBuff 卡片摘出路由并停止其旧容器，保留删除所需元数据。"""
-        records: Final = await self._repository.list()
-        results: Final = await asyncio.gather(
-            *(
-                self._retire_legacy_environment(record)
-                for record in records
-                if record.channel is ChannelKind.FREEBUFF2API
-            )
-        )
-        return tuple(record.id for record in results if not record.legacy_runtime_stopped)
-
-    async def _retire_legacy_environment(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        lock: Final = await self._lock_for(record.id)
-        async with lock:
-            current: Final = await self._repository.get(record.id) or record
-            if current.channel is not ChannelKind.FREEBUFF2API or current.status is EnvironmentStatus.DELETING:
-                return current
-            requires_state_change: Final = (
-                current.status is not EnvironmentStatus.MIGRATION_REQUIRED
-                or current.desired_state is not EnvironmentStatus.MIGRATION_REQUIRED
-                or current.enabled
-                or current.configuration_pending
-            )
-            migrated: Final = (
-                current.model_copy(
-                    update={
-                        "version": current.version + 1,
-                        "status": EnvironmentStatus.MIGRATION_REQUIRED,
-                        "desired_state": EnvironmentStatus.MIGRATION_REQUIRED,
-                        "enabled": False,
-                        "manual_cooldown": False,
-                        "automatic_cooldown": False,
-                        "cooldown_until": None,
-                        "configuration_pending": False,
-                        "legacy_runtime_stopped": False,
-                        "last_error": "FreeBuff has been retired; export this card before deleting it",
-                        "updated_at": utc_now(),
-                    }
-                )
-                if requires_state_change
-                else current
-            )
-            durable: Final = (
-                await self._repository.save_if_version(migrated, current.version) if requires_state_change else current
-            )
-            if durable is None:
-                return await self._repository.get(record.id) or current
-            if durable.legacy_runtime_stopped:
-                return durable
-            try:
-                await self._channel(durable).set_running(durable, False)
-            except Exception as error:
-                failed: Final = durable.model_copy(
-                    update={
-                        "version": durable.version + 1,
-                        "configuration_last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                saved_failed: Final = await self._repository.save_if_version(failed, durable.version)
-                await self._log_event(saved_failed or failed, "cleanup", error, retryable=True)
-                return saved_failed or failed
-            stopped: Final = durable.model_copy(
-                update={
-                    "version": durable.version + 1,
-                    "legacy_runtime_stopped": True,
-                    "configuration_last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            saved: Final = await self._repository.save_if_version(stopped, durable.version)
-            return saved or await self._repository.get(record.id) or durable
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(record.id)
@@ -1702,8 +1620,6 @@ class EnvironmentService:
         return await channel.data_plane_health_check(record)
 
     async def _refresh_if_needed(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        if record.channel is ChannelKind.FREEBUFF2API:
-            return await self._retire_legacy_environment(record)
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
             EnvironmentStatus.VALIDATING,
@@ -1858,10 +1774,7 @@ class EnvironmentService:
         return Success(validated_url)
 
     def _gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
-        gateway: Final = self._channel(record).gateway(record)
-        if record.channel is ChannelKind.FREEBUFF2API or record.status is EnvironmentStatus.MIGRATION_REQUIRED:
-            return gateway.model_copy(update={"routable": False, "enabled_models": ()})
-        return gateway
+        return self._channel(record).gateway(record)
 
     async def _lock_for(self, environment_id: UUID) -> asyncio.Lock:
         async with self._locks_guard:

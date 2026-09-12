@@ -587,8 +587,6 @@ def _callback_page(title: str, message: str) -> str:
 
 
 def _credential_views(record: EnvironmentRecord) -> tuple[CredentialView, ...]:
-    if record.channel is ChannelKind.FREEBUFF2API:
-        return ()
     if record.channel is ChannelKind.OPENAI_COMPATIBLE and record.openai_compatible is not None:
         return tuple(
             CredentialView(

@@ -117,32 +117,10 @@ export const AccountPoolCard = ({
     if (environment.status === "error") return t("accountPool.dashboard.unhealthy");
     return t("accountPool.dashboard.checking");
   })();
-  const retired = environment.status === "migration_required";
-  const exportRetiredCard = () => {
-    const payload = {
-      id: environment.id,
-      name: environment.name,
-      channel: environment.channel,
-      supplier: environment.supplier,
-      models: environment.available_models,
-      proxy_profile_id: environment.proxy_profile_id,
-      quota: environment.quota,
-      retired_at: environment.updated_at,
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${environment.name}-migration.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <Card
       data-testid={`account-pool-card-${environment.id}`}
-      onDoubleClick={() => {
-        if (!retired) onManagePolicy(environment);
-      }}
+      onDoubleClick={() => onManagePolicy(environment)}
       title={t("accountPool.dashboard.doubleClickToConfigure")}
     >
       <CardHeader className="gap-3">
@@ -187,7 +165,7 @@ export const AccountPoolCard = ({
               variant="ghost"
               size="icon-sm"
               onClick={() => onManageKey(environment)}
-              disabled={disabled || retired}
+              disabled={disabled}
               aria-label={t("accountPool.keys.manage", { name: environment.name })}
               title={t("accountPool.keys.manageShort")}
             >
@@ -198,7 +176,7 @@ export const AccountPoolCard = ({
               variant="ghost"
               size="icon-sm"
               onClick={() => onManagePolicy(environment)}
-              disabled={disabled || retired}
+              disabled={disabled}
               aria-label={t("accountPool.policy.manage", { name: environment.name })}
               title={t("accountPool.policy.manageShort")}
             >
@@ -229,11 +207,6 @@ export const AccountPoolCard = ({
                 title={authorizationAction}
               >
                 <KeyRound />
-              </Button>
-            )}
-            {retired && (
-              <Button type="button" variant="ghost" size="sm" onClick={exportRetiredCard} disabled={disabled}>
-                {t("accountPool.exportMigration")}
               </Button>
             )}
             <Button

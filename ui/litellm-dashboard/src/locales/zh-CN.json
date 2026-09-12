@@ -5574,7 +5574,6 @@
     "enabled": "启用",
     "enableEnvironment": "启用 {{name}}",
     "configure": "配置",
-    "exportMigration": "导出迁移信息",
     "configureEnvironment": "配置 {{name}}",
     "continueAuthorization": "继续授权",
     "reauthorize": "重新授权",
@@ -5741,8 +5740,7 @@
     "channel": {
       "label": "渠道",
       "openai_compatible": "OpenAI 兼容",
-      "cliproxyapi": "CLIProxyAPI",
-      "freebuff2api": "FreeBuff2API"
+      "cliproxyapi": "CLIProxyAPI"
     },
     "supplier": {
       "label": "供应商",
@@ -5754,8 +5752,7 @@
       "xai": "xAI",
       "gemini": "Gemini",
       "gemini_interactions": "Gemini Interactions",
-      "vertex": "Google Vertex",
-      "freebuff": "FreeBuff (Codebuff)"
+      "vertex": "Google Vertex"
     },
     "proxyGateways": {
       "delayTarget": "延迟测试目标：www.gstatic.com",

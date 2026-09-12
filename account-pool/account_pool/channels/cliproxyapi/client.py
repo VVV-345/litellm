@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final, TypeAlias
 
 import httpx
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
@@ -23,12 +21,10 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
-from account_pool.policies import AccountPolicy
 from account_pool.quota import QuotaObservation
 from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.quota import parse_quota as parse_quota_snapshot
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
-from account_pool.settings import AccountPoolSettings
 
 _QuotaObservation = QuotaObservation
 
@@ -373,14 +369,6 @@ class HttpCLIProxyClient:
             json={supplier.excluded_models_key: excluded},
         )
 
-    async def set_oauth_excluded_models(self, record: EnvironmentRecord, models: Sequence[str]) -> None:
-        excluded_models: Final = {
-            definition.excluded_models_key: list(models)
-            for definition in _DEFAULT_SUPPLIERS.definitions.values()
-            if definition.uses_oauth_model_exclusions
-        }
-        await self._request(record, "PUT", "/v0/management/oauth-excluded-models", json=excluded_models)
-
     async def write_direct_api_key(
         self,
         record: EnvironmentRecord,
@@ -430,18 +418,6 @@ class HttpCLIProxyClient:
         )
         response.raise_for_status()
 
-    async def set_oauth_request_scoped_errors(
-        self, record: EnvironmentRecord, rules: Mapping[str, Sequence[object]]
-    ) -> None:
-        payload: Final = {
-            provider: [
-                rule.model_dump(mode="json", by_alias=True) if isinstance(rule, BaseModel) else rule
-                for rule in entries
-            ]
-            for provider, entries in rules.items()
-        }
-        await self._request(record, "PUT", "/v0/management/oauth-request-scoped-errors", json=payload)
-
     async def get_config_yaml(self, record: EnvironmentRecord) -> str:
         response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
         return response.text
@@ -454,6 +430,12 @@ class HttpCLIProxyClient:
             content=content,
             headers={"Content-Type": "application/yaml"},
         )
+
+    async def put_json(self, record: EnvironmentRecord, path: str, payload: JSONValue) -> None:
+        await self._request(record, "PUT", path, json=payload)
+
+    async def put_value(self, record: EnvironmentRecord, path: str, value: JSONValue) -> None:
+        await self.put_json(record, path, {"value": value})
 
     async def apply_configuration(
         self,
@@ -472,81 +454,6 @@ class HttpCLIProxyClient:
         await self.set_proxy_url(record, selected_configuration.proxy_url)
         await self.set_enabled_models(record, selected_supplier, selected_configuration.enabled_models)
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
-
-    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        route_strategy: Final = {
-            "auto": "round-robin",
-            "priority": "fill-first",
-            "random": "round-robin",
-            "quota": "weighted-round-robin",
-        }[settings.default_route]
-        bool_fields: Final = (
-            ("/v0/management/debug", settings.debug_logging_enabled),
-            ("/v0/management/logging-to-file", settings.file_logging_enabled),
-            ("/v0/management/usage-statistics-enabled", settings.usage_statistics_enabled),
-            ("/v0/management/request-log", settings.request_log_enabled),
-            ("/v0/management/ws-auth", settings.websocket_auth_enabled or settings.websocket_enabled),
-            ("/v0/management/quota-exceeded/switch-project", settings.quota_switch_project),
-            ("/v0/management/quota-exceeded/switch-preview-model", settings.quota_switch_preview_model),
-        )
-        await asyncio.gather(*(self._put_value(record, path, value) for path, value in bool_fields))
-        int_fields: Final = (
-            ("/v0/management/request-retry", settings.request_retry),
-            ("/v0/management/max-retry-credentials", settings.max_retry_credentials),
-            ("/v0/management/max-retry-interval", settings.max_retry_interval),
-            ("/v0/management/logs-max-total-size-mb", settings.logs_max_total_size_mb),
-            ("/v0/management/error-logs-max-files", settings.error_logs_max_files),
-        )
-        await asyncio.gather(*(self._put_value(record, path, value) for path, value in int_fields))
-        await self._put_value(record, "/v0/management/force-model-prefix", settings.force_model_prefix)
-        await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
-        await self.set_oauth_excluded_models(record, settings.oauth_excluded_models)
-        await self._request(
-            record,
-            "PUT",
-            "/v0/management/oauth-model-alias",
-            json={
-                key: [{"name": name, "alias": alias} for name, alias in value]
-                for key, value in settings.oauth_model_aliases.items()
-            },
-        )
-        await self.set_oauth_request_scoped_errors(record, settings.oauth_request_scoped_errors)
-        await self._apply_payload_settings(record, settings)
-
-    async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        route_strategy: Final = {
-            "auto": "round-robin",
-            "priority": "fill-first",
-            "random": "round-robin",
-            "quota": "weighted-round-robin",
-            "plan": "fill-first",
-            "expiry": "fill-first",
-            "custom": "round-robin",
-        }[policy.routing.strategy]
-        await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
-        await self._put_value(record, "/v0/management/request-retry", policy.routing.max_attempts)
-        yaml_document: Final = yaml.safe_load(await self.get_config_yaml(record)) or {}
-        if not isinstance(yaml_document, dict):
-            raise ValueError("CLIProxyAPI config is not a YAML mapping")
-        merged_document: Final = _policy_yaml_document(yaml_document, policy)
-        if merged_document != yaml_document:
-            await self.put_config_yaml(record, yaml.safe_dump(merged_document, sort_keys=False, allow_unicode=False))
-        if record.auth_file_name is None:
-            return
-        fields: Final = _policy_auth_fields(policy)
-        if fields:
-            await self.patch_auth_file_fields(record, record.auth_file_name, fields)
-
-    async def _apply_payload_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        payload: Final = settings.payload.model_dump(mode="json", by_alias=True)
-        document: Final = yaml.safe_load(await self.get_config_yaml(record)) or {}
-        if not isinstance(document, dict):
-            raise ValueError("CLIProxyAPI config is not a YAML mapping")
-        document["payload"] = payload
-        await self.put_config_yaml(record, yaml.safe_dump(document, sort_keys=False, allow_unicode=False))
-
-    async def _put_value(self, record: EnvironmentRecord, path: str, value: object) -> None:
-        await self._request(record, "PUT", path, json={"value": value})
 
     async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:
         return _JSON_OBJECT_ADAPTER.validate_python((await self._request(record, "GET", "/v0/management/plugins")).json())
@@ -658,57 +565,3 @@ class HttpCLIProxyClient:
 
 def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
     return parse_quota_snapshot(observation)
-
-
-def _policy_auth_fields(policy: AccountPolicy) -> Mapping[str, object]:
-    if policy.claude is not None:
-        return {
-            "fingerprint_profile": policy.claude.fingerprint_profile,
-            "cloak_mode": policy.claude.cloak_mode,
-            "rebuild_mid_system_message": policy.claude.rebuild_mid_system_message,
-        }
-    if policy.kimi is not None:
-        return {"fingerprint_profile": policy.kimi.fingerprint_profile}
-    return {}
-
-
-def _policy_yaml_document(document: Mapping[str, object], policy: AccountPolicy) -> dict[str, object]:
-    codex: Final = policy.codex
-    xai: Final = policy.xai
-    antigravity: Final = policy.antigravity
-    codex_section: Final = _yaml_section(document, "codex")
-    xai_section: Final = _yaml_section(document, "xai")
-    antigravity_section: Final = _yaml_section(document, "antigravity")
-    return {
-        **document,
-        **(
-            {
-                "codex": {
-                    **codex_section,
-                    "identity-confuse": codex.identity_confuse,
-                    "disable-codex-cloaking": codex.disable_codex_cloaking,
-                }
-            }
-            if codex is not None
-            else {}
-        ),
-        **(
-            {"xai": {**xai_section, "inject-x-search": xai.inject_x_search}}
-            if xai is not None
-            else {}
-        ),
-        **(
-            {
-                "antigravity": {**antigravity_section, "sensitive-words": list(antigravity.sensitive_words)},
-                "antigravity-signature-cache-enabled": antigravity.signature_cache_enabled,
-                "antigravity-signature-bypass-strict": antigravity.signature_bypass_strict,
-            }
-            if antigravity is not None
-            else {}
-        ),
-    }
-
-
-def _yaml_section(document: Mapping[str, object], key: str) -> Mapping[str, object]:
-    value: Final = document.get(key)
-    return value if isinstance(value, dict) else {}

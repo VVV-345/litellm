@@ -5574,7 +5574,6 @@
     "enabled": "Enabled",
     "enableEnvironment": "Enable {{name}}",
     "configure": "Configure",
-    "exportMigration": "Export migration data",
     "configureEnvironment": "Configure {{name}}",
     "continueAuthorization": "Continue authorization",
     "reauthorize": "Reauthorize",
@@ -5741,8 +5740,7 @@
     "channel": {
       "label": "Channel",
       "openai_compatible": "OpenAI-compatible",
-      "cliproxyapi": "CLIProxyAPI",
-      "freebuff2api": "FreeBuff2API"
+      "cliproxyapi": "CLIProxyAPI"
     },
     "supplier": {
       "label": "Supplier",
@@ -5754,8 +5752,7 @@
       "xai": "xAI",
       "gemini": "Gemini",
       "gemini_interactions": "Gemini Interactions",
-      "vertex": "Google Vertex",
-      "freebuff": "FreeBuff (Codebuff)"
+      "vertex": "Google Vertex"
     },
     "proxyGateways": {
       "delayTarget": "Latency test target: www.gstatic.com",

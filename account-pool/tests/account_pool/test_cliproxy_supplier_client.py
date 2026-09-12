@@ -10,6 +10,7 @@ import httpx
 import pytest
 import yaml
 from account_pool.channels.cliproxyapi.client import AuthorizationStart, HttpCLIProxyClient
+from account_pool.channels.cliproxyapi.settings_sync import CLIProxySettingsSynchronizer
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import (
     EnvironmentConfiguration,
@@ -330,7 +331,8 @@ async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> Non
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
-    await proxy.apply_global_settings(
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_global_settings(
         record,
         AccountPoolSettings(
             oauth_excluded_models=("gpt-4", "claude-3"),
@@ -413,7 +415,8 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
-    await proxy.apply_global_settings(record, AccountPoolSettings())
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_global_settings(record, AccountPoolSettings())
     await client.aclose()
 
     aliases: Final = next(request for request in requests if request.url.path.endswith("oauth-model-alias"))
@@ -454,7 +457,8 @@ async def test_apply_policy_syncs_yaml_settings_without_an_auth_file() -> None:
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
-    await proxy.apply_policy(
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_policy(
         record,
         AccountPolicy(
             codex=CodexPolicy(identity_confuse=True, disable_codex_cloaking=True),
@@ -519,7 +523,8 @@ async def test_apply_policy_syncs_only_auth_file_metadata(
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
-    await proxy.apply_policy(record, policy)
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_policy(record, policy)
     await client.aclose()
 
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))

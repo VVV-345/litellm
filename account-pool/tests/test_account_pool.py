@@ -15,7 +15,6 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import yaml
-from account_pool.api import _credential_views
 from account_pool.app import (
     _reconcile_pending_configurations_until_cancelled,
     _restore_control_plane_connections_until_cancelled,
@@ -24,8 +23,7 @@ from account_pool.channels.base import ChannelDefinition
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
-from account_pool.channels.freebuff2api.channel import FreeBuff2APIChannel
-from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
+from account_pool.channels.registry import ChannelRegistry
 from account_pool.cliproxy import HttpCLIProxyClient, _QuotaObservation, parse_quota
 from account_pool.compose import ComposeRuntime, _communicate_with_timeout, render_compose
 from account_pool.compose_runtime import run_docker
@@ -48,7 +46,6 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
     UpdateEnvironmentRequest,
-    configuration_from_record,
     utc_now,
 )
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
@@ -73,15 +70,6 @@ def test_create_environment_request_accepts_all_suppliers_for_cliproxyapi(suppli
 def test_create_environment_request_rejects_unknown_channel_and_supplier_values(field: str, value: str) -> None:
     with pytest.raises(ValueError):
         CreateEnvironmentRequest.model_validate({"name": "Test environment", field: value})
-
-
-def test_channel_registry_rejects_freebuff_supplier_mismatch() -> None:
-    registry: Final = ChannelRegistry.default()
-
-    with pytest.raises(UnsupportedChannelError, match="^freebuff2api channel is not configured$"):
-        registry.channel(ChannelKind.FREEBUFF2API)
-    with pytest.raises(UnsupportedChannelError, match="^freebuff2api does not support kimi$"):
-        registry.get(ChannelKind.FREEBUFF2API).supplier(SupplierKind.KIMI)
 
 
 def test_update_environment_request_has_no_channel_or_supplier_fields() -> None:
@@ -1017,43 +1005,6 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     )
     compose_text: Final = (runtime.environment_dir(record.id) / "compose.yaml").read_text(encoding="utf-8")
     assert "./" not in yaml.safe_load(compose_text)["services"]["cli-proxy-api"]["volumes"][0]
-
-
-@pytest.mark.asyncio
-async def test_freebuff_switch_and_clear_proxy_reuses_volume_and_applies_compose(tmp_path: Path) -> None:
-    settings: Final = _settings(tmp_path)
-    secrets: Final = EnvironmentSecretDeriver("s" * 32)
-    runner: Final = RecordingDockerRunner()
-    runtime: Final = ComposeRuntime(settings, secrets, runner=runner)
-    channel: Final = FreeBuff2APIChannel(settings, secrets, runtime=runtime)
-    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
-        update={
-            "channel": ChannelKind.FREEBUFF2API,
-            "supplier": SupplierKind.FREEBUFF,
-            "proxy_mode": ProxyMode.PROFILE,
-            "proxy_profile_id": "clash-gateway-7891",
-        }
-    )
-    try:
-        for proxy_url in ("http://host.docker.internal:7891", "http://host.docker.internal:7892", ""):
-            await channel.apply_configuration(record, configuration_from_record(record, proxy_url))
-            compose: Final = yaml.safe_load((runtime.environment_dir(record.id) / "compose.yaml").read_text("utf-8"))
-            assert compose["volumes"] == {"freebuff-data": {"name": f"account-pool-{record.id.hex}-data"}}
-            values: Final = compose["services"]["freebuff2api"]["environment"]
-            assert [value for value in values if value.startswith("FREEBUFF_PROXY_URL=")] == (
-                [f"FREEBUFF_PROXY_URL={proxy_url}"] if proxy_url else []
-            )
-        assert channel.environment_dir(record.id) == runtime.environment_dir(record.id)
-    finally:
-        await channel.close()
-
-    commands: Final = tuple(arguments for arguments, _ in runner.calls)
-    assert len(commands) == 9
-    assert all(command[1] in {"compose", "network"} for command in commands)
-    assert (
-        tuple(command[-4:] for command in commands if command[1] == "compose")
-        == (("up", "-d", "--wait", "--remove-orphans"),) * 3
-    )
 
 
 @pytest.mark.asyncio
@@ -3443,91 +3394,3 @@ async def test_direct_credential_card_rejects_oauth_reauthorization(tmp_path: Pa
     assert isinstance(result, Failure)
     assert result.code is FailureCode.INVALID
     assert result.message == "direct credential cards do not use OAuth authorization"
-
-
-@pytest.mark.asyncio
-async def test_freebuff_retirement_disables_card_stops_runtime_and_forces_gateway_off(tmp_path: Path) -> None:
-    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
-        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF}
-    )
-    repository: Final = MemoryRepository(record)
-    runtime: Final = FakeRuntime()
-    channel: Final = FakeChannel(runtime, FakeCLIProxy())
-    channels: Final = ChannelRegistry(
-        definitions=MappingProxyType(
-            {ChannelKind.FREEBUFF2API: ChannelRegistry.default().get(ChannelKind.FREEBUFF2API)}
-        ),
-        implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
-    )
-    service: Final = EnvironmentService(
-        _settings(tmp_path),
-        repository,
-        runtime,
-        FakeCLIProxy(),
-        EmptyProfiles(),
-        EnvironmentSecretDeriver("s" * 32),
-        channels=channels,
-    )
-
-    failed_ids: Final = await service.retire_legacy_environments()
-    migrated: Final = await repository.get(record.id)
-
-    assert failed_ids == ()
-    assert migrated is not None
-    assert migrated.status is EnvironmentStatus.MIGRATION_REQUIRED
-    assert migrated.enabled is False
-    assert migrated.legacy_runtime_stopped is True
-    assert runtime.running_changes == [(record.id, False)]
-    assert service.gateway_environment(migrated).routable is False
-    assert service.gateway_environment(migrated).enabled_models == ()
-
-
-@pytest.mark.asyncio
-async def test_freebuff_retired_card_rejects_configuration_and_authorization(tmp_path: Path) -> None:
-    record: Final = _record(status=EnvironmentStatus.MIGRATION_REQUIRED).model_copy(
-        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF, "enabled": False}
-    )
-    repository: Final = MemoryRepository(record)
-    runtime: Final = FakeRuntime()
-    channel: Final = FakeChannel(runtime, FakeCLIProxy())
-    channels: Final = ChannelRegistry(
-        definitions=MappingProxyType(
-            {ChannelKind.FREEBUFF2API: ChannelRegistry.default().get(ChannelKind.FREEBUFF2API)}
-        ),
-        implementations=MappingProxyType({ChannelKind.FREEBUFF2API: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
-    )
-    service: Final = EnvironmentService(
-        _settings(tmp_path),
-        repository,
-        runtime,
-        FakeCLIProxy(),
-        EmptyProfiles(),
-        EnvironmentSecretDeriver("s" * 32),
-        channels=channels,
-    )
-    update: Final = UpdateEnvironmentRequest(
-        version=record.version,
-        name=record.name,
-        concurrency_limit=record.concurrency_limit,
-        enabled=True,
-        manual_cooldown=False,
-        proxy_mode=record.proxy_mode,
-        proxy_profile_id=None,
-        enabled_models=record.enabled_models,
-    )
-
-    update_result: Final = await service.update_environment(record.id, update)
-    authorization_result: Final = await service.authorize_environment(record.id)
-
-    assert isinstance(update_result, Failure)
-    assert isinstance(authorization_result, Failure)
-    assert update_result.code is FailureCode.INVALID
-    assert authorization_result.code is FailureCode.INVALID
-
-
-def test_freebuff_retired_card_is_hidden_from_auth_file_list() -> None:
-    record: Final = _record(status=EnvironmentStatus.MIGRATION_REQUIRED).model_copy(
-        update={"channel": ChannelKind.FREEBUFF2API, "supplier": SupplierKind.FREEBUFF, "enabled": False}
-    )
-
-    assert _credential_views(record) == ()

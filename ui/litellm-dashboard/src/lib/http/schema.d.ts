@@ -23436,7 +23436,7 @@ export interface components {
              * @default cliproxyapi
              * @enum {string}
              */
-            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi";
             /** Name */
             name: string;
             openai_compatible?: components["schemas"]["AccountPoolOpenAICompatibleConfig"] | null;
@@ -23453,7 +23453,7 @@ export interface components {
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex";
         };
         /** AccountPoolCredential */
         AccountPoolCredential: {
@@ -23580,7 +23580,7 @@ export interface components {
              * @default cliproxyapi
              * @enum {string}
              */
-            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi";
             /** Concurrency Limit */
             concurrency_limit: number;
             /**
@@ -23643,13 +23643,13 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting" | "migration_required";
+            status: "provisioning" | "awaiting_authorization" | "validating" | "ready" | "cooling_down" | "disabled" | "error" | "deleting";
             /**
              * Supplier
              * @default openai_codex
              * @enum {string}
              */
-            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
+            supplier: "openai_codex" | "openai_compatible" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex";
             /** Updated At */
             updated_at: string;
             /** Version */
@@ -28481,7 +28481,7 @@ export interface components {
              * Channel
              * @enum {string}
              */
-            channel: "openai_compatible" | "cliproxyapi" | "freebuff2api";
+            channel: "openai_compatible" | "cliproxyapi";
             /** Cost Usd */
             cost_usd?: number | null;
             /** Detail */
@@ -28563,7 +28563,7 @@ export interface components {
              * Supplier
              * @enum {string}
              */
-            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff";
+            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex";
             /**
              * Switched Account
              * @default false
@@ -43046,8 +43046,8 @@ export interface operations {
             query?: {
                 occurred_from?: string | null;
                 occurred_to?: string | null;
-                channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff") | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
                 card_id?: string | null;
                 environment_id?: string | null;
                 account_id?: string | null;
@@ -43112,8 +43112,8 @@ export interface operations {
             query?: {
                 occurred_from?: string | null;
                 occurred_to?: string | null;
-                channel?: ("openai_compatible" | "cliproxyapi" | "freebuff2api") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex" | "freebuff") | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
                 card_id?: string | null;
                 environment_id?: string | null;
                 account_id?: string | null;

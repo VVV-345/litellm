@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-ChannelKind = Literal["openai_compatible", "cliproxyapi", "freebuff2api"]
+ChannelKind = Literal["openai_compatible", "cliproxyapi"]
 SupplierKind = Literal[
     "openai_compatible",
     "openai_codex",
@@ -19,7 +19,6 @@ SupplierKind = Literal[
     "gemini",
     "gemini_interactions",
     "vertex",
-    "freebuff",
 ]
 LogStage = Literal[
     "provisioning",

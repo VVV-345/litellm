@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 import { getAccountPolicy, saveAccountPolicy, type AccountPolicy, type PolicyView } from "./AccountPoolManagementApi";
+import { AccountPoolProviderPolicyFields } from "./AccountPoolProviderPolicyFields";
 
 type Routing = NonNullable<AccountPolicy["routing"]>;
 type Transport = NonNullable<AccountPolicy["transport"]>;
@@ -179,76 +180,6 @@ function PolicyForm({
   const antigravity = policy.antigravity ?? antigravityDefaults;
   const [clients, setClients] = useState(codex.allow_app_server_clients.join(", "));
   const [sensitiveWords, setSensitiveWords] = useState(antigravity.sensitive_words.join(", "));
-  const providerFields = () => {
-    switch (supplier) {
-      case "openai_codex":
-        return (
-          <>
-            {text(t("accountPool.policy.allow_app_server_clients"), clients, setClients)}
-            {toggle(t("accountPool.policy.cli_only"), codex.cli_only, (next) => updateCodex("cli_only", next))}
-            {toggle(t("accountPool.policy.allow_app_server"), codex.allow_app_server, (next) =>
-              updateCodex("allow_app_server", next),
-            )}
-            {toggle(t("accountPool.policy.responses_compact_enabled"), codex.responses_compact_enabled, (next) =>
-              updateCodex("responses_compact_enabled", next),
-            )}
-            {toggle(t("accountPool.policy.identity_confuse"), codex.identity_confuse, (next) =>
-              updateCodex("identity_confuse", next),
-            )}
-            {toggle(t("accountPool.policy.disable_codex_cloaking"), codex.disable_codex_cloaking, (next) =>
-              updateCodex("disable_codex_cloaking", next),
-            )}
-          </>
-        );
-      case "anthropic_claude":
-        return (
-          <>
-            {select(
-              t("accountPool.policy.fingerprint_profile"),
-              claude.fingerprint_profile,
-              ["inherit", "claude-code-cli"],
-              (next) => updateClaude("fingerprint_profile", next as Claude["fingerprint_profile"]),
-            )}
-            {select(t("accountPool.policy.cloak_mode"), claude.cloak_mode, ["auto", "always", "never"], (next) =>
-              updateClaude("cloak_mode", next as Claude["cloak_mode"]),
-            )}
-            {toggle(t("accountPool.policy.rebuild_mid_system_message"), claude.rebuild_mid_system_message, (next) =>
-              updateClaude("rebuild_mid_system_message", next),
-            )}
-          </>
-        );
-      case "xai":
-        return toggle(t("accountPool.policy.inject_x_search"), xai.inject_x_search, (next) =>
-          updateXai("inject_x_search", next),
-        );
-      case "google_antigravity":
-        return (
-          <>
-            {text(t("accountPool.policy.sensitive_words"), sensitiveWords, setSensitiveWords)}
-            {toggle(t("accountPool.policy.signature_cache_enabled"), antigravity.signature_cache_enabled, (next) =>
-              updateAntigravity("signature_cache_enabled", next),
-            )}
-            {toggle(t("accountPool.policy.signature_bypass_strict"), antigravity.signature_bypass_strict, (next) =>
-              updateAntigravity("signature_bypass_strict", next),
-            )}
-          </>
-        );
-      case "kimi":
-        return (
-          <>
-            {select(
-              t("accountPool.policy.fingerprint_profile"),
-              kimi.fingerprint_profile,
-              ["inherit", "claude-code-cli"],
-              (next) => updateKimi("fingerprint_profile", next as Kimi["fingerprint_profile"]),
-            )}
-            <p className="rounded-md border bg-muted/30 p-3 text-sm">{t("accountPool.policy.kimiDeviceIdAuto")}</p>
-          </>
-        );
-      default:
-        return <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.policy.providerPending")}</p>;
-    }
-  };
   const list = (input: string) =>
     input
       .split(",")
@@ -461,7 +392,24 @@ function PolicyForm({
       </fieldset>
       <fieldset className="grid gap-3 rounded-md border p-4 sm:grid-cols-2">
         <legend className="mb-3 font-medium">{t("accountPool.policy.provider")}</legend>
-        {providerFields()}
+        <AccountPoolProviderPolicyFields
+          supplier={supplier}
+          busy={busy}
+          codex={codex}
+          claude={claude}
+          kimi={kimi}
+          xai={xai}
+          antigravity={antigravity}
+          clients={clients}
+          sensitiveWords={sensitiveWords}
+          onClientsChange={setClients}
+          onSensitiveWordsChange={setSensitiveWords}
+          onCodexChange={updateCodex}
+          onClaudeChange={updateClaude}
+          onKimiChange={updateKimi}
+          onXaiChange={updateXai}
+          onAntigravityChange={updateAntigravity}
+        />
       </fieldset>
       <Button type="submit" disabled={busy}>
         {t(busy ? "accountPool.config.saving" : "accountPool.config.save")}

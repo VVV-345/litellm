@@ -40,18 +40,12 @@ const deviceAuthorization = {
   expires_at: "2026-01-01T00:05:00Z",
 };
 
-const linkOnlyAuthorization = {
-  environment: {
-    id: "env-3",
-    channel: "freebuff2api",
-    supplier: "freebuff",
-    version: 2,
-    status: "awaiting_authorization",
-  },
+const trackedAuthorization = {
+  environment: { id: "env-3", channel: "cliproxyapi", supplier: "kimi", version: 2 },
   flow: "device_code",
-  authorization_url: "https://www.codebuff.com/oauth/login?auth_code=one-time",
+  authorization_url: "https://auth.kimi.example/device",
   ssh_command: null,
-  user_code: null,
+  user_code: "EFGH-5678",
   expires_at: "2026-01-01T00:05:00Z",
 };
 
@@ -78,7 +72,7 @@ describe("AccountPoolCreateDialog", () => {
         open: true,
         onOpenChange,
         onCreated: vi.fn(),
-        initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+        initialAuthorization: trackedAuthorization as AccountPoolAuthorization,
       };
       const { rerender } = render(<AccountPoolCreateDialog {...props} />);
       expect(onOpenChange).not.toHaveBeenCalled();
@@ -88,7 +82,7 @@ describe("AccountPoolCreateDialog", () => {
           {...props}
           environments={[
             {
-              ...linkOnlyAuthorization.environment,
+              ...trackedAuthorization.environment,
               version: 3,
               status,
               configuration_pending: false,
@@ -110,7 +104,7 @@ describe("AccountPoolCreateDialog", () => {
   ] as const)("keeps authorization open for stale, unrelated or incomplete updates: %o", (environment) => {
     const onOpenChange = vi.fn();
     renderDialog({
-      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+      initialAuthorization: trackedAuthorization as AccountPoolAuthorization,
       environments: [environment as AccountPoolEnvironment],
       onOpenChange,
     });
@@ -121,10 +115,10 @@ describe("AccountPoolCreateDialog", () => {
   it("shows the current authorization failure without closing the dialog", () => {
     const onOpenChange = vi.fn();
     renderDialog({
-      initialAuthorization: linkOnlyAuthorization as AccountPoolAuthorization,
+      initialAuthorization: trackedAuthorization as AccountPoolAuthorization,
       environments: [
         {
-          ...linkOnlyAuthorization.environment,
+          ...trackedAuthorization.environment,
           version: 3,
           last_error: "credential save failed",
         } as AccountPoolEnvironment,
@@ -136,7 +130,7 @@ describe("AccountPoolCreateDialog", () => {
   });
 
   it("tracks completion for a newly created environment", async () => {
-    createMock.mockResolvedValue(linkOnlyAuthorization);
+    createMock.mockResolvedValue(trackedAuthorization);
     const onOpenChange = vi.fn();
     const props = { accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn() };
     const { rerender } = render(<AccountPoolCreateDialog {...props} />);
@@ -149,7 +143,7 @@ describe("AccountPoolCreateDialog", () => {
         {...props}
         environments={[
           {
-            ...linkOnlyAuthorization.environment,
+            ...trackedAuthorization.environment,
             version: 3,
             status: "ready",
             configuration_pending: false,
@@ -179,11 +173,6 @@ describe("AccountPoolCreateDialog", () => {
         expect.objectContaining({ channel: "cliproxyapi", supplier: "anthropic_claude" }),
       );
     });
-  });
-
-  it("does not offer retired FreeBuff as a provider", () => {
-    renderDialog();
-    expect(screen.queryByText(/FreeBuff/i)).not.toBeInTheDocument();
   });
 
   it("creates a Gemini card with a direct API key", async () => {
@@ -253,14 +242,5 @@ describe("AccountPoolCreateDialog", () => {
     expect(screen.getByTestId("account-pool-device-code")).toBeInTheDocument();
     expect(screen.getByDisplayValue(deviceAuthorization.user_code)).toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-browser-oauth")).not.toBeInTheDocument();
-  });
-
-  it("renders a link-only authorization panel for FreeBuff device-code results", async () => {
-    renderDialog({ initialAuthorization: linkOnlyAuthorization as never });
-
-    expect(screen.getByTestId("account-pool-authorization-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("account-pool-browser-oauth")).not.toBeInTheDocument();
-    expect(screen.getByText("https://www.codebuff.com/oauth/login?auth_code=one-time")).toBeInTheDocument();
   });
 });

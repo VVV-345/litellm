@@ -118,7 +118,7 @@ class AccountPoolEnvironment(BaseModel):
     observed_configuration_version: int = Field(default=0, ge=0)
     name: str
     provider: Literal["openai"]
-    channel: Literal["openai_compatible", "cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    channel: Literal["openai_compatible", "cliproxyapi"] = "cliproxyapi"
     supplier: Literal[
         "openai_codex",
         "openai_compatible",
@@ -129,7 +129,6 @@ class AccountPoolEnvironment(BaseModel):
         "gemini",
         "gemini_interactions",
         "vertex",
-        "freebuff",
     ] = "openai_codex"
     authorization_flow: Literal["browser_oauth", "device_code", "direct_credential"] = "browser_oauth"
     configuration_pending: bool = False
@@ -142,7 +141,6 @@ class AccountPoolEnvironment(BaseModel):
         "disabled",
         "error",
         "deleting",
-        "migration_required",
     ]
     enabled: bool
     manual_cooldown: bool
@@ -191,7 +189,7 @@ class AccountPoolCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=80)
     provider: Literal["openai"] = "openai"
-    channel: Literal["openai_compatible", "cliproxyapi", "freebuff2api"] = "cliproxyapi"
+    channel: Literal["openai_compatible", "cliproxyapi"] = "cliproxyapi"
     supplier: Literal[
         "openai_codex",
         "openai_compatible",
@@ -202,7 +200,6 @@ class AccountPoolCreateRequest(BaseModel):
         "gemini",
         "gemini_interactions",
         "vertex",
-        "freebuff",
     ] = "openai_codex"
     provider_family: str | None = Field(default=None, max_length=80)
     openai_compatible: AccountPoolOpenAICompatibleConfig | None = None

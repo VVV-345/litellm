@@ -8,6 +8,7 @@ from typing import Final
 from uuid import UUID
 
 from account_pool.channels.cliproxyapi.client import AuthorizationStart, HttpCLIProxyClient
+from account_pool.channels.cliproxyapi.settings_sync import CLIProxySettingsSynchronizer
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.compose_renderer import render_cli_proxy_config, render_compose
@@ -34,6 +35,7 @@ class CLIProxyAPIChannel:
         *,
         runtime: ComposeRuntime | None = None,
         client: HttpCLIProxyClient | None = None,
+        settings_sync: CLIProxySettingsSynchronizer | None = None,
         suppliers: SupplierRegistry | None = None,
     ) -> None:
         self._settings: Final = settings
@@ -41,6 +43,7 @@ class CLIProxyAPIChannel:
         self._runtime: Final = runtime or ComposeRuntime(settings, secrets)
         self._client: Final = client or HttpCLIProxyClient(secrets)
         self._suppliers: Final = suppliers or SupplierRegistry.default()
+        self._settings_sync: Final = settings_sync or CLIProxySettingsSynchronizer(self._client, self._suppliers)
 
     def supplier(self, kind: SupplierKind) -> SupplierDefinition:
         return self._suppliers.get(kind)
@@ -121,10 +124,10 @@ class CLIProxyAPIChannel:
         await self._client.apply_configuration(record, self.supplier(record.supplier), configuration)
 
     async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        await self._client.apply_global_settings(record, settings)
+        await self._settings_sync.apply_global_settings(record, settings)
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        await self._client.apply_policy(record, policy)
+        await self._settings_sync.apply_policy(record, policy)
 
     async def upload_auth_file(
         self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None

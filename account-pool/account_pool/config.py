@@ -12,7 +12,6 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 DEFAULT_CLI_PROXY_IMAGE: Final = (
     "eceasy/cli-proxy-api:v7.2.155@sha256:3990e4de484ac5caac80164ee3a60d0ba521320dcda193a2ef71a5ad2e2c768b"
 )
-DEFAULT_FREEBUFF2API_IMAGE: Final = "litellm-freebuff2api-proxy:1.0.0"
 
 
 DEFAULT_PROXY_GATEWAY_HOST: Final = "host.docker.internal"
@@ -42,7 +41,6 @@ class Settings(BaseSettings):
     docker_command_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
-    freebuff2api_image: str = DEFAULT_FREEBUFF2API_IMAGE
     clash_controller_url: str = ""
     clash_secret: str = ""
     clash_config_path: str = Field(default="", max_length=1024)

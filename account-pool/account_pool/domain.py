@@ -21,7 +21,6 @@ class EnvironmentStatus(StrEnum):
     DISABLED = "disabled"
     ERROR = "error"
     DELETING = "deleting"
-    MIGRATION_REQUIRED = "migration_required"
 
 
 class Provider(StrEnum):
@@ -31,7 +30,6 @@ class Provider(StrEnum):
 class ChannelKind(StrEnum):
     OPENAI_COMPATIBLE = "openai_compatible"
     CLIPROXYAPI = "cliproxyapi"
-    FREEBUFF2API = "freebuff2api"
 
 
 class SupplierKind(StrEnum):
@@ -44,7 +42,6 @@ class SupplierKind(StrEnum):
     GEMINI = "gemini"
     GEMINI_INTERACTIONS = "gemini_interactions"
     VERTEX = "vertex"
-    FREEBUFF = "freebuff"
 
 
 class AuthorizationFlow(StrEnum):
@@ -355,7 +352,6 @@ class EnvironmentRecord(BaseModel):
     oauth_authorization_url: str | None = None
     authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
     authorization_user_code: str | None = None
-    legacy_runtime_stopped: bool = False
     last_error: str | None
     created_at: datetime
     updated_at: datetime

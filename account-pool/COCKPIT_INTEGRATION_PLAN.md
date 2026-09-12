@@ -263,7 +263,7 @@ NewAPI 下游用户
 | 字段 | 说明 |
 | --- | --- |
 | `event_id`、`occurred_at`、`finished_at` | 事件唯一 ID、发生时间和结束时间，统一使用 UTC 存储 |
-| `channel`、`supplier` | 渠道和上游供应商，例如 CLIProxyAPI、FreeBuff2API、OpenAI Codex |
+| `channel`、`supplier` | 渠道和上游供应商，例如 CLIProxyAPI、OpenAI Codex |
 | `card_id`、`environment_id`、`account_id` | 号池卡片、隔离环境和实际使用的上游账号 |
 | `card_key_id` | 使用的卡片 Key，只记录内部 ID，不记录 Key 明文 |
 | `request_id`、`trace_id`、`attempt` | 请求链路、一次请求中的第几次尝试和关联日志 |

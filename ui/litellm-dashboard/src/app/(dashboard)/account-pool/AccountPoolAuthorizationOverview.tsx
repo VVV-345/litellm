@@ -62,10 +62,7 @@ export const AccountPoolAuthorizationOverview = ({
         <h3 className="mb-3 text-base font-semibold">{t("accountPool.oauth.cardsTitle")}</h3>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {environments
-            .filter(
-              (environment) =>
-                environment.authorization_flow !== "direct_credential" && environment.status !== "migration_required",
-            )
+            .filter((environment) => environment.authorization_flow !== "direct_credential")
             .map((environment) => (
               <Card key={environment.id}>
                 <CardHeader className="pb-3">

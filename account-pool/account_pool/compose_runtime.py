@@ -86,47 +86,6 @@ class ComposeRuntime:
         await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
 
-    async def provision_freebuff(self, record: EnvironmentRecord, *, compose: str) -> None:
-        environment_dir: Final = self.environment_dir(record.id)
-        environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _write_private(environment_dir / "compose.yaml", compose)
-        await self._create_data_volume(record.id)
-        await self._seed_freebuff_data_volume(record.id)
-        await self._compose(record.id, "up", "-d", "--wait", "--remove-orphans")
-        await self.ensure_control_plane_connections(record.id)
-
-    async def apply_freebuff_compose(self, record: EnvironmentRecord, *, compose: str) -> None:
-        """更新 FreeBuff 容器配置并复用原有数据卷。"""
-        environment_dir: Final = self.environment_dir(record.id)
-        environment_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _write_private(environment_dir / "compose.yaml", compose)
-        # Compose 自行比较配置；失败后再次执行会重试，不能仅因文件已写入就跳过。
-        await self._compose(record.id, "up", "-d", "--wait", "--remove-orphans")
-        await self.ensure_control_plane_connections(record.id)
-
-    async def _seed_freebuff_data_volume(self, environment_id: UUID) -> None:
-        volume: Final = data_volume_name(environment_id)
-        chown: Final = await self._runner(
-            (
-                "docker",
-                "run",
-                "--rm",
-                "--network",
-                "none",
-                "-v",
-                f"{volume}:/data:rw",
-                _CHOWN_IMAGE,
-                "chown",
-                "1000:1000",
-                "/data",
-            ),
-            self._docker_environment(),
-        )
-        chown_stdout, chown_stderr = await communicate_with_timeout(chown, self._settings.docker_command_timeout_seconds)
-        if chown.returncode != 0:
-            detail: Final = chown_stderr.decode("utf-8", errors="replace").strip() or chown_stdout.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"failed to chown {volume}: {detail[:500]}")
-
     async def _create_data_volume(self, environment_id: UUID) -> None:
         volume: Final = data_volume_name(environment_id)
         # 卷必须先于 compose up 存在，否则 compose 会把外部卷当成本项目资源，down 时一并删除。

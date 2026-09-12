@@ -93,8 +93,6 @@ class BatchService:
                 if claim.request.action == "delete"
                 else Failure(FailureCode.NOT_FOUND, "Account no longer exists")
             )
-        if record.status is EnvironmentStatus.MIGRATION_REQUIRED and claim.request.action != "delete":
-            return Failure(FailureCode.INVALID, "Retired cards are read-only and can only be exported or deleted")
         operation_id: Final = f"batch:{claim.request.job_id}:{record.id}"
         if claim.request.action == "delete":
             owns_cleanup: Final = record.status is EnvironmentStatus.DELETING and record.operation_id == operation_id

@@ -11,7 +11,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
-from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
+from account_pool.domain import EnvironmentRecord
 from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
 from account_pool.policies import (
     AccountPolicy,
@@ -120,8 +120,6 @@ def create_management_router(
     @router.put("/environments/{card_id}/policy")
     async def update_policy(card_id: UUID, request: PolicyUpdate) -> PolicyView:
         record: Final = await card(card_id)
-        if record.channel is ChannelKind.FREEBUFF2API or record.status is EnvironmentStatus.MIGRATION_REQUIRED:
-            raise HTTPException(422, "Retired cards are read-only and can only be exported or deleted")
         validation_error: Final = await policy_validation_error(record, request.policy, environments)
         if validation_error is not None:
             raise HTTPException(422, validation_error)
