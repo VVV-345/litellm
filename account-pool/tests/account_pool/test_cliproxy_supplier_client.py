@@ -22,6 +22,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.secrets import EnvironmentSecretDeriver
+from account_pool.settings import AccountPoolSettings
 
 
 def _record() -> EnvironmentRecord:
@@ -180,3 +181,53 @@ async def test_auth_file_management_uses_cockpit_endpoints() -> None:
     )
     assert json.loads(requests[1].content) == {"name": "codex.json", "auth_index": "1", "disabled": True}
     assert json.loads(requests[2].content) == {"name": "codex.json", "priority": 3}
+
+
+@pytest.mark.asyncio
+async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> None:
+    record: Final = _record()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_global_settings(
+        record,
+        AccountPoolSettings(
+            oauth_excluded_models=("gpt-4", "claude-3"),
+            oauth_model_aliases={"codex": (("gpt-5", "gpt-5-codex"),)},
+        ),
+    )
+    await client.aclose()
+
+    excluded: Final = next(request for request in requests if request.url.path.endswith("oauth-excluded-models"))
+    assert json.loads(excluded.content) == {
+        "codex": ["gpt-4", "claude-3"],
+        "claude": ["gpt-4", "claude-3"],
+        "antigravity": ["gpt-4", "claude-3"],
+        "kimi": ["gpt-4", "claude-3"],
+        "xai": ["gpt-4", "claude-3"],
+    }
+    aliases: Final = next(request for request in requests if request.url.path.endswith("oauth-model-alias"))
+    assert json.loads(aliases.content) == {"codex": [{"name": "gpt-5", "alias": "gpt-5-codex"}]}
+
+
+@pytest.mark.asyncio
+async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
+    record: Final = _record()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_global_settings(record, AccountPoolSettings())
+    await client.aclose()
+
+    aliases: Final = next(request for request in requests if request.url.path.endswith("oauth-model-alias"))
+    assert json.loads(aliases.content) == {}

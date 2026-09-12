@@ -358,6 +358,13 @@ class HttpCLIProxyClient:
             json={supplier.excluded_models_key: excluded},
         )
 
+    async def set_oauth_excluded_models(self, record: EnvironmentRecord, models: Sequence[str]) -> None:
+        excluded_models: Final = {
+            definition.excluded_models_key: list(models)
+            for definition in _DEFAULT_SUPPLIERS.definitions.values()
+        }
+        await self._request(record, "PUT", "/v0/management/oauth-excluded-models", json=excluded_models)
+
     async def apply_configuration(
         self,
         record: EnvironmentRecord,
@@ -403,16 +410,16 @@ class HttpCLIProxyClient:
         await asyncio.gather(*(self._put_value(record, path, value) for path, value in int_fields))
         await self._put_value(record, "/v0/management/force-model-prefix", settings.force_model_prefix)
         await self._put_value(record, "/v0/management/routing/strategy", route_strategy)
-        if settings.oauth_model_aliases:
-            await self._request(
-                record,
-                "PUT",
-                "/v0/management/oauth-model-alias",
-                json={
-                    key: [{"name": name, "alias": alias} for name, alias in value]
-                    for key, value in settings.oauth_model_aliases.items()
-                },
-            )
+        await self.set_oauth_excluded_models(record, settings.oauth_excluded_models)
+        await self._request(
+            record,
+            "PUT",
+            "/v0/management/oauth-model-alias",
+            json={
+                key: [{"name": name, "alias": alias} for name, alias in value]
+                for key, value in settings.oauth_model_aliases.items()
+            },
+        )
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         route_strategy: Final = {
