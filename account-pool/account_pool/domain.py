@@ -11,6 +11,59 @@ from uuid import UUID
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
+_BLOCKED_DESTINATION_HOSTS: Final = frozenset(
+    (
+        "localhost",
+        "localhost.localdomain",
+        "ip6-localhost",
+        "host.docker.internal",
+        "metadata",
+        "metadata.google.internal",
+        "instance-data.ec2.internal",
+    )
+)
+_DIRECT_API_ALLOWED_HOSTS: Final = frozenset(("generativelanguage.googleapis.com",))
+
+
+def _normalize_public_base_url(
+    value: AnyHttpUrl,
+    *,
+    https_only: bool,
+    allowed_hosts: frozenset[str] | None = None,
+) -> AnyHttpUrl:
+    normalized: Final = str(value).rstrip("/")
+    parsed: Final = urlsplit(normalized)
+    allowed_schemes: Final = frozenset(("https",)) if https_only else frozenset(("http", "https"))
+    if (
+        parsed.scheme not in allowed_schemes
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or not parsed.hostname
+    ):
+        protocol: Final = "HTTPS" if https_only else "HTTP(S)"
+        raise ValueError(f"base_url must be a credential-free {protocol} origin")
+    hostname: Final = parsed.hostname.rstrip(".").lower()
+    if hostname in _BLOCKED_DESTINATION_HOSTS:
+        raise ValueError("base_url targets a blocked local or metadata host")
+    if allowed_hosts is not None and hostname not in allowed_hosts:
+        raise ValueError("base_url host is not approved for this supplier")
+    try:
+        address: Final = ipaddress.ip_address(hostname)
+    except ValueError:
+        return AnyHttpUrl(normalized)
+    if (
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    ):
+        raise ValueError("base_url targets a blocked local network address")
+    return AnyHttpUrl(normalized)
+
 
 class EnvironmentStatus(StrEnum):
     PROVISIONING = "provisioning"
@@ -132,6 +185,13 @@ class DirectAPIKeyCredentialRequest(BaseModel):
     def strip_text(cls, value: str) -> str:
         return value.strip()
 
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
+        if value is None:
+            return None
+        return _normalize_public_base_url(value, https_only=True, allowed_hosts=_DIRECT_API_ALLOWED_HOSTS)
+
     @field_validator("headers")
     @classmethod
     def validate_headers(cls, values: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
@@ -223,42 +283,7 @@ class OpenAICompatibleCreateRequest(BaseModel):
     @field_validator("base_url")
     @classmethod
     def normalize_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
-        normalized: Final = str(value).rstrip("/")
-        parsed: Final = urlsplit(normalized)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-            or not parsed.hostname
-        ):
-            raise ValueError("base_url must be a credential-free HTTP(S) origin")
-        hostname: Final = parsed.hostname.rstrip(".").lower()
-        if hostname in {
-            "localhost",
-            "localhost.localdomain",
-            "ip6-localhost",
-            "host.docker.internal",
-            "metadata",
-            "metadata.google.internal",
-            "instance-data.ec2.internal",
-        }:
-            raise ValueError("base_url targets a blocked local or metadata host")
-        try:
-            address: Final = ipaddress.ip_address(hostname)
-        except ValueError:
-            address = None
-        if address is not None and (
-            address.is_loopback
-            or address.is_private
-            or address.is_link_local
-            or address.is_reserved
-            or address.is_multicast
-            or address.is_unspecified
-        ):
-            raise ValueError("base_url targets a blocked local network address")
-        return AnyHttpUrl(normalized)
+        return _normalize_public_base_url(value, https_only=False)
 
     @field_validator("headers")
     @classmethod

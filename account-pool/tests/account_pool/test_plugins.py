@@ -55,9 +55,25 @@ async def test_plugin_install_toggle_and_uninstall_are_idempotent() -> None:
     assert await service.uninstall("quota-viewer") is False
 
 
+@pytest.mark.asyncio
+async def test_plugin_install_rejects_manifest_not_in_registry() -> None:
+    repository: Final = MemoryPlugins()
+    approved: Final = manifest()
+    service: Final = PluginService(repository, (approved,))
+    tampered: Final = approved.model_copy(update={"entrypoint": "/tmp/unapproved"})
+
+    assert await service.install(tampered) is None
+    assert repository.records == {}
+
+
 def test_plugin_registry_rejects_invalid_hash_and_accepts_manifest() -> None:
-    parsed: Final = parse_plugin_registry("[{\"plugin_id\": \"quota-viewer\", \"display_name\": \"Quota viewer\", \"version\": \"1\", \"entrypoint\": \"sidecar\", \"sha256\": \"" + "a" * 64 + "\"}]")
+    parsed: Final = parse_plugin_registry(
+        '[{"plugin_id": "quota-viewer", "display_name": "Quota viewer", "version": "1", "entrypoint": "sidecar", "sha256": "'
+        + "a" * 64
+        + '"}]'
+    )
     assert parsed[0].plugin_id == "quota-viewer"
+    assert parsed[0].sha256 == "a" * 64
     with pytest.raises(ValueError):
         PluginManifest(
             plugin_id="quota-viewer",

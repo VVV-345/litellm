@@ -924,6 +924,10 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
     assert "chown -R 65532:65532 /var/lib/litellm-account-pool" in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert "FROM docker:29-cli@sha256:" in dockerfile
+    assert "FROM ghcr.io/astral-sh/uv:0.11.24@sha256:" in dockerfile
+    assert "FROM python:3.13.7-slim-bookworm@sha256:" in dockerfile
+    assert "COPY pyproject.toml uv.lock README.md" in dockerfile
+    assert "uv sync --frozen --no-dev --no-editable --no-cache" in dockerfile
     assert "COPY --from=docker-cli /usr/local/bin/docker" in dockerfile
     assert "COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose" in dockerfile
     assert proxy["image"].startswith("tecnativa/docker-socket-proxy@sha256:")
@@ -948,15 +952,25 @@ def test_manager_compose_uses_socket_proxy_and_hardens_manager() -> None:
         "TASKS": "0",
     }
     assert proxy["networks"] == ["account-pool-socket"]
-    assert manager["networks"] == {"account-pool-socket": None, "litellm-control": {"aliases": ["account-pool"]}}
+    assert manager["networks"] == {
+        "account-pool-public": None,
+        "account-pool-socket": None,
+        "account-pool-manager-db": None,
+        "litellm-control": {"aliases": ["account-pool"]},
+    }
+    database: Final = manager_compose["services"]["db"]
+    assert database["networks"] == ["account-pool-manager-db"]
+    assert manager_compose["networks"]["account-pool-manager-db"]["internal"] is True
+    assert manager_compose["networks"]["account-pool-public"]["internal"] is False
     assert manager["depends_on"]["docker-cli-check"]["condition"] == "service_completed_successfully"
     assert manager["user"] == "65532:65532"
     assert manager["read_only"] is True
     assert manager["cap_drop"] == ["ALL"]
     assert manager["security_opt"] == ["no-new-privileges:true"]
     assert manager["mem_limit"] == "512m"
-    assert "ACCOUNT_POOL_PROXY_GATEWAY_HOST" not in manager["environment"]
-    assert "ACCOUNT_POOL_CLASH_CONFIG_PATH" not in manager["environment"]
+    assert "env_file" not in manager
+    assert "ACCOUNT_POOL_PROXY_GATEWAY_HOST" in manager["environment"]
+    assert "ACCOUNT_POOL_CLASH_CONFIG_PATH" in manager["environment"]
     assert manager["cpus"] == "1.0"
     assert manager["pids_limit"] == 256
     assert manager["logging"] == {"driver": "json-file", "options": {"max-size": "10m", "max-file": "3"}}

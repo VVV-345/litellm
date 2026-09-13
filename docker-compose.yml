@@ -1,4 +1,4 @@
-# 本文件部署 LiteLLM 与共享控制网络，账号出站网络由 Account Pool 单独创建。
+# 本文件用于本地开发和部署参考。生产环境必须通过 HTTPS 反向代理访问回环端口。
 services:
   litellm:
     image: docker.litellm.ai/berriai/litellm:main-stable
@@ -11,17 +11,36 @@ services:
     #  - "--config=/app/config.yaml"
     ##############################################
     ports:
-      - "4000:4000" # Map the container port to the host, change the host port if necessary
+      - "127.0.0.1:4000:4000"
     environment:
-      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
+      DATABASE_URL: "postgresql://llmproxy:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/litellm"
       # Optional: route read-only queries (find_*, count, group_by, query_raw/_first)
       # to a separate reader endpoint, e.g. an Aurora reader. Leave unset for
       # single-DB deployments. With IAM_TOKEN_DB_AUTH enabled, the reader URL
       # is auto-refreshed alongside the writer.
       # DATABASE_URL_READ_REPLICA: "postgresql://llmproxy:dbpassword9090@db-reader:5432/litellm"
       STORE_MODEL_IN_DB: "True" # allows adding models to proxy via UI
-    env_file:
-      - .env # Load local .env file
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY}
+      UI_USERNAME: ${UI_USERNAME:-}
+      UI_PASSWORD: ${UI_PASSWORD:-}
+      ACCOUNT_POOL_MANAGER_URL: ${ACCOUNT_POOL_MANAGER_URL:-http://account-pool:8091}
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:-}
+      ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS: ${ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS:-5}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      OR_SITE_URL: ${OR_SITE_URL:-}
+      OR_APP_NAME: ${OR_APP_NAME:-}
+      OR_API_KEY: ${OR_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:-}
+      NOVITA_API_KEY: ${NOVITA_API_KEY:-}
+      INFINITY_API_KEY: ${INFINITY_API_KEY:-}
     depends_on:
       - db  # Indicates that this service depends on the 'db' service, ensuring 'db' starts first
     healthcheck:  # Defines the health check configuration for the container
@@ -34,18 +53,19 @@ services:
       start_period: 40s  # Wait 40 seconds after container start before beginning health checks
     networks:
       - default
+      - litellm-db
       - litellm-control
 
   db:
-    image: postgres:16
+    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
     restart: always
     container_name: litellm_db
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: llmproxy
-      POSTGRES_PASSWORD: dbpassword9090
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${LITELLM_DB_HOST_PORT:-15432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data # Persists Postgres data across container restarts
     healthcheck:
@@ -53,14 +73,16 @@ services:
       interval: 1s
       timeout: 5s
       retries: 10
+    networks:
+      - litellm-db
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     volumes:
       - prometheus_data:/prometheus
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -74,6 +96,8 @@ volumes:
     name: litellm_postgres_data # Named volume for Postgres data persistence
 
 networks:
+  litellm-db:
+    internal: true
   litellm-control:
     name: litellm-control
     internal: true

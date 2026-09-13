@@ -5,7 +5,7 @@
 services:
   db:
     container_name: litellm_db
-    image: postgres:16
+    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
     restart: unless-stopped
     environment:
       POSTGRES_DB: litellm
@@ -13,28 +13,46 @@ services:
       POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${LITELLM_DB_HOST_PORT:-15432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks:
-      - default
-      - litellm-control
+      - litellm-db
 
   litellm:
     container_name: litellm
-    image: ghcr.io/vvv-345/litellm:${DEPLOY_TAG}
+    image: ghcr.io/vvv-345/litellm:${DEPLOY_TAG:?set DEPLOY_TAG}
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     environment:
-      DATABASE_URL: postgresql://llmproxy:${LITELLM_DB_PASSWORD}@db:5432/litellm
+      DATABASE_URL: postgresql://llmproxy:${LITELLM_DB_PASSWORD:?set LITELLM_DB_PASSWORD}@db:5432/litellm
       STORE_MODEL_IN_DB: "True"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY}
+      UI_USERNAME: ${UI_USERNAME:-}
+      UI_PASSWORD: ${UI_PASSWORD:-}
       ACCOUNT_POOL_MANAGER_URL: http://account-pool:8091
-      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
-    env_file:
-      - .env
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:?set ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS: ${ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS:-5}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      COHERE_API_KEY: ${COHERE_API_KEY:-}
+      OR_SITE_URL: ${OR_SITE_URL:-}
+      OR_APP_NAME: ${OR_APP_NAME:-}
+      OR_API_KEY: ${OR_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:-}
+      NOVITA_API_KEY: ${NOVITA_API_KEY:-}
+      INFINITY_API_KEY: ${INFINITY_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -48,6 +66,7 @@ services:
       start_period: 40s
     networks:
       - default
+      - litellm-db
       - litellm-control
 
   docker-socket-proxy:
@@ -99,17 +118,17 @@ services:
 
   account-pool:
     container_name: litellm-account-pool
-    image: ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG}
+    image: ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG:?set DEPLOY_TAG}
     restart: unless-stopped
     environment:
-      ACCOUNT_POOL_DATABASE_URL: postgresql://account_pool:${ACCOUNT_POOL_DB_PASSWORD}@account-pool-db:5432/account_pool
-      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
-      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED}
+      ACCOUNT_POOL_DATABASE_URL: postgresql://account_pool:${ACCOUNT_POOL_DB_PASSWORD:?set ACCOUNT_POOL_DB_PASSWORD}@account-pool-db:5432/account_pool
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:?set ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED:?set ACCOUNT_POOL_SECRET_SEED}
       ACCOUNT_POOL_DATA_ROOT: /var/lib/litellm-account-pool/environments
       ACCOUNT_POOL_MANAGER_CONTAINER: litellm-account-pool
       ACCOUNT_POOL_GATEWAY_CONTAINER: litellm
-      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST}
-      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER}
+      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST:?set ACCOUNT_POOL_SSH_HOST}
+      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER:?set ACCOUNT_POOL_SSH_USER}
       ACCOUNT_POOL_CALLBACK_PORT: ${ACCOUNT_POOL_CALLBACK_PORT:-8091}
       ACCOUNT_POOL_CALLBACK_BIND_HOST: ${ACCOUNT_POOL_CALLBACK_BIND_HOST:-127.0.0.1}
       ACCOUNT_POOL_CLASH_CONTROLLER_URL: ${ACCOUNT_POOL_CLASH_CONTROLLER_URL:-}
@@ -119,7 +138,10 @@ services:
       ACCOUNT_POOL_DOCKER_HOST: tcp://docker-socket-proxy:2375
       ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
       ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
+      ACCOUNT_POOL_CLI_PROXY_IMAGE: ${ACCOUNT_POOL_CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:v7.2.155@sha256:3990e4de484ac5caac80164ee3a60d0ba521320dcda193a2ef71a5ad2e2c768b}
       ACCOUNT_POOL_PROXY_GATEWAY_HOST: ${ACCOUNT_POOL_PROXY_GATEWAY_HOST:-host.docker.internal}
+      ACCOUNT_POOL_PLUGIN_REGISTRY_JSON: ${ACCOUNT_POOL_PLUGIN_REGISTRY_JSON:-}
+      ACCOUNT_POOL_LOG_RETENTION_DAYS: ${ACCOUNT_POOL_LOG_RETENTION_DAYS:-30}
     user: "65532:65532"
     read_only: true
     cap_drop:
@@ -144,7 +166,9 @@ services:
       - account_pool_data:/var/lib/litellm-account-pool/environments
     networks:
       - account-pool-socket
+      - account-pool-manager-db
       - litellm-control
+      - account-pool-public
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
@@ -159,17 +183,16 @@ services:
 
   account-pool-db:
     container_name: litellm-account-pool-db
-    image: postgres:16
+    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
     restart: unless-stopped
     environment:
       POSTGRES_DB: account_pool
       POSTGRES_USER: account_pool
-      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD:?set ACCOUNT_POOL_DB_PASSWORD}
     volumes:
       - account_pool_db:/var/lib/postgresql/data
     networks:
-      - account-pool-socket
-      - litellm-control
+      - account-pool-manager-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U account_pool -d account_pool"]
       interval: 5s
@@ -177,11 +200,20 @@ services:
       retries: 10
 
 networks:
+  account-pool-public:
+    name: account-pool-public
+    internal: false
+  litellm-db:
+    name: litellm-db
+    internal: true
   litellm-control:
     name: litellm-control
     internal: true
   account-pool-socket:
     name: account-pool-socket
+    internal: true
+  account-pool-manager-db:
+    name: account-pool-manager-db
     internal: true
 
 volumes:

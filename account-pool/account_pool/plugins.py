@@ -30,6 +30,11 @@ class PluginManifest(BaseModel):
     def normalize_items(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
+    @field_validator("sha256")
+    @classmethod
+    def normalize_sha256(cls, value: str) -> str:
+        return value.lower()
+
 
 class PluginRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -64,13 +69,16 @@ class PluginService:
     def store(self) -> tuple[PluginManifest, ...]:
         return self._registry
 
-    async def install(self, manifest: PluginManifest) -> PluginRecord:
+    async def install(self, manifest: PluginManifest) -> PluginRecord | None:
+        approved: Final = next((candidate for candidate in self._registry if candidate == manifest), None)
+        if approved is None:
+            return None
         now: Final = datetime.now(timezone.utc)
-        current: Final = await self._repository.get(manifest.plugin_id)
+        current: Final = await self._repository.get(approved.plugin_id)
         installed_at: Final = current.installed_at if current is not None else now
-        state: Final = "installed" if manifest.runtime == "sidecar" else "incompatible"
+        state: Final = "installed" if approved.runtime == "sidecar" else "incompatible"
         record: Final = PluginRecord(
-            manifest=manifest,
+            manifest=approved,
             state=state,
             installed_at=installed_at,
             updated_at=now,
@@ -83,7 +91,9 @@ class PluginService:
         if current is None or current.state == "incompatible":
             return None
         return await self._repository.save(
-            current.model_copy(update={"state": "enabled" if enabled else "disabled", "updated_at": datetime.now(timezone.utc)})
+            current.model_copy(
+                update={"state": "enabled" if enabled else "disabled", "updated_at": datetime.now(timezone.utc)}
+            )
         )
 
     async def uninstall(self, plugin_id: str) -> bool:

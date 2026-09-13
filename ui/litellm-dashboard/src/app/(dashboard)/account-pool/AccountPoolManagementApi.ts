@@ -64,6 +64,17 @@ export type LogFilters = {
   offset?: number;
 };
 
+export const createAccountPoolJobId = (): string => {
+  const randomBytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const bytes = Uint8Array.from(randomBytes, (value, index) => {
+    if (index === 6) return (value & 0x0f) | 0x40;
+    if (index === 8) return (value & 0x3f) | 0x80;
+    return value;
+  });
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const cardPath = (cardId: string) => `/account_pool/cards/${encodeURIComponent(cardId)}/key`;
 const policyPath = (cardId: string) => `/account_pool/environments/${encodeURIComponent(cardId)}/policy`;
 
@@ -276,5 +287,5 @@ export const submitAccountPoolBatch = (
 ) =>
   apiClient.post<BatchJob>("/account_pool/batches", {
     accessToken,
-    body: { job_id: crypto.randomUUID(), action, targets, policy },
+    body: { job_id: createAccountPoolJobId(), action, targets, policy },
   });

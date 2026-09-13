@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from account_pool.api import create_router
+from account_pool.api import _validate_upload_filename, create_router
 from account_pool.card_keys import CardKeyRecord, CardKeyService, matches_card_key
 from account_pool.domain import EnvironmentStatus, utc_now
 from account_pool.error_logs import (
@@ -25,8 +25,8 @@ from account_pool.error_logs import (
 from account_pool.policies import PolicyUpdate, PolicyView
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
-from account_pool.service import EnvironmentService
-from fastapi import FastAPI
+from account_pool.service import EnvironmentService, _plugin_store_approves
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from test_account_pool import (
     EmptyProfiles,
@@ -37,6 +37,42 @@ from test_account_pool import (
     _record,
     _settings,
 )
+
+
+@pytest.mark.parametrize("filename", ("../service-account.json", "..\\service-account.json", ".."))
+def test_credential_upload_filename_rejects_path_components(filename: str) -> None:
+    with pytest.raises(HTTPException) as error:
+        _validate_upload_filename(filename)
+    assert error.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "plugin_id,version,source,approved",
+    (
+        ("sample", "1.2.3", "official", True),
+        ("sample", "1.2.3", None, False),
+        ("sample", "0.9.0", "official", True),
+        ("sample", "v1.2.3", "official", True),
+        ("sample", "../../plugin", "official", False),
+        ("missing", "1.2.3", "official", False),
+        ("sample", "1.2.3", "unknown", False),
+    ),
+)
+def test_card_plugin_install_requires_an_approved_id_source_and_safe_version(
+    plugin_id: str, version: str, source: str | None, approved: bool
+) -> None:
+    store: Final = {
+        "plugins": [
+            {"id": "sample", "version": "1.2.3", "source_id": "official"},
+            {"id": "sample", "version": "1.2.3", "source_id": "community"},
+        ]
+    }
+    assert _plugin_store_approves(store, plugin_id, version, source) is approved
+
+
+def test_card_plugin_install_allows_omitted_source_for_unique_plugin() -> None:
+    store: Final = {"plugins": [{"id": "sample", "version": "1.2.3", "source_id": "official"}]}
+    assert _plugin_store_approves(store, "sample", "0.9.0", None)
 
 
 class MemoryKeys:

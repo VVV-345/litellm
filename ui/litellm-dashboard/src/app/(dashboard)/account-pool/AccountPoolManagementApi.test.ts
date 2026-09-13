@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { installCardAccountPoolPlugin, submitAccountPoolBatch, type AccountPolicy } from "./AccountPoolManagementApi";
+import {
+  createAccountPoolJobId,
+  installCardAccountPoolPlugin,
+  submitAccountPoolBatch,
+  type AccountPolicy,
+} from "./AccountPoolManagementApi";
 
 const postMock = vi.fn();
 
@@ -66,6 +71,16 @@ describe("submitAccountPoolBatch", () => {
         policy,
       },
     });
+  });
+
+  it("creates a valid job id when randomUUID is unavailable on an HTTP origin", () => {
+    const originalCrypto = globalThis.crypto;
+    try {
+      vi.stubGlobal("crypto", { getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto) });
+      expect(createAccountPoolJobId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    } finally {
+      vi.stubGlobal("crypto", originalCrypto);
+    }
   });
 
   it("sends the selected plugin version and store source", async () => {

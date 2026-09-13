@@ -79,14 +79,19 @@ class AccountPoolGatewayMiddleware:
             await error_response(415, "Use application/json")(scope, receive, send)
             return
         try:
-            payload: Final = await read_payload(request)
-            model: Final = payload.get("model")
-            if not isinstance(model, str) or not model.strip() or len(model) > 256:
-                raise ValueError("Invalid model")
             async with self.client_factory() as client:
                 control: Final = self.control_factory(client)
+                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key.strip()))
+                payload: Final = await read_payload(request)
+                model: Final = payload.get("model")
+                if not isinstance(model, str) or not model.strip() or len(model) > 256:
+                    raise ValueError("Invalid model")
                 session: Final = session_hash(headers, model)
-                resolution: Final = await control.resolve(ResolveRequest(card_key=key.strip(), session_hash=session))
+                resolution: Final = (
+                    initial_resolution
+                    if session is None
+                    else await control.resolve(ResolveRequest(card_key=key.strip(), session_hash=session))
+                )
                 image_tools: Final = payload.get("tools")
                 has_images: Final = isinstance(image_tools, list) and any(
                     isinstance(item, dict) and item.get("type") == "image_generation" for item in image_tools

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 import secrets as token_secrets
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
@@ -14,7 +15,7 @@ from typing import Final, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
-from pydantic import HttpUrl, TypeAdapter
+from pydantic import BaseModel, ConfigDict, HttpUrl, TypeAdapter, ValidationError
 
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashProxyNode
@@ -66,6 +67,35 @@ from account_pool.settings import AccountPoolSettings, AccountPoolSettingsReposi
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
+_PLUGIN_VERSION_PATTERN: Final = re.compile(r"^[vV]?[0-9][0-9A-Za-z.+-]{0,63}$")
+
+
+class _PluginStoreEntry(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    id: str
+    version: str
+    source_id: str
+
+
+class _PluginStoreResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    plugins: tuple[_PluginStoreEntry, ...]
+
+
+def _plugin_store_approves(store: Mapping[str, object], plugin_id: str, version: str, source: str | None) -> bool:
+    if _PLUGIN_VERSION_PATTERN.fullmatch(version) is None:
+        return False
+    try:
+        response: Final = _PluginStoreResponse.model_validate(store)
+    except ValidationError:
+        return False
+    candidates: Final = tuple(entry for entry in response.plugins if entry.id == plugin_id)
+    if source is None:
+        return len(candidates) == 1
+    matches: Final = tuple(entry for entry in candidates if entry.source_id == source)
+    return len(matches) == 1
 
 
 async def _constant_async(value: T) -> T:
@@ -242,9 +272,19 @@ class EnvironmentService:
     async def install_card_plugin(
         self, environment_id: UUID, plugin_id: str, version: str, source: str | None
     ) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.install_plugin(record, plugin_id, version, source)
-        )
+        record: Final = await self._repository.get(environment_id)
+        if record is None:
+            return Failure(FailureCode.NOT_FOUND, "environment not found")
+        if record.channel is not ChannelKind.CLIPROXYAPI:
+            return Failure(FailureCode.INVALID, "plugins are supported by CLIProxyAPI cards only")
+        try:
+            store: Final = await self._cli_proxy.list_plugin_store(record)
+            if not _plugin_store_approves(store, plugin_id, version, source):
+                return Failure(FailureCode.INVALID, "plugin id, version, or source is not approved by the card plugin store")
+            return Success(await self._cli_proxy.install_plugin(record, plugin_id, version, source))
+        except Exception as error:
+            await self._log_event(record, "configuration", error)
+            return Failure(FailureCode.UPSTREAM, "plugin runtime operation failed")
 
     async def set_card_plugin_enabled(
         self, environment_id: UUID, plugin_id: str, enabled: bool

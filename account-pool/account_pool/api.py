@@ -124,7 +124,7 @@ class PluginConfigRequest(BaseModel):
 class PluginInstallRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    version: str = Field(min_length=1, max_length=64)
+    version: str = Field(min_length=1, max_length=64, pattern=r"^[vV]?[0-9][0-9A-Za-z.+-]*$")
     source: str | None = Field(default=None, min_length=1, max_length=120)
 
 
@@ -151,6 +151,18 @@ def _validate_vertex_credential(content: bytes) -> None:
         raise HTTPException(
             status_code=422, detail="Vertex credential is missing project_id, client_email, or private_key"
         )
+
+
+def _validate_upload_filename(filename: str) -> str:
+    if (
+        len(filename) > 256
+        or filename in {".", ".."}
+        or "\\" in filename
+        or "/" in filename
+        or any(ord(character) < 32 for character in filename)
+    ):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid credential file name")
+    return filename
 
 
 def create_router(
@@ -232,9 +244,7 @@ def create_router(
         card_id: Annotated[UUID, Form()],
         file: Annotated[UploadFile, File()],
     ) -> EnvironmentView:
-        filename: Final = file.filename or "auth.json"
-        if len(filename) > 256 or "\\" in filename or "/" in filename:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid auth file name")
+        filename: Final = _validate_upload_filename(file.filename or "auth.json")
         content: Final = await file.read(16 * 1024 * 1024 + 1)
         if len(content) > 16 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
@@ -302,7 +312,12 @@ def create_router(
 
         @router.post("/api/plugins", dependencies=[Depends(require_manager)])
         async def install_plugin(manifest: PluginManifest) -> PluginRecord:
-            return await plugins.install(manifest)
+            record: Final = await plugins.install(manifest)
+            if record is None:
+                raise HTTPException(
+                    status_code=422, detail="plugin manifest is not approved by the configured registry"
+                )
+            return record
 
         @router.post("/api/plugins/{plugin_id}/enable", dependencies=[Depends(require_manager)])
         async def enable_plugin(plugin_id: str) -> PluginRecord:
@@ -411,7 +426,7 @@ def create_router(
             )
         except ValidationError as error:
             raise HTTPException(status_code=422, detail="Vertex environment request is invalid") from error
-        filename: Final = file.filename or "vertex-service-account.json"
+        filename: Final = _validate_upload_filename(file.filename or "vertex-service-account.json")
         return _unwrap(await service.create_vertex_environment(request, filename, content))
 
     @router.get("/api/environments/{environment_id}", dependencies=[Depends(require_manager)])

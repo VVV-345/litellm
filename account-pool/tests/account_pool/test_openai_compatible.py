@@ -11,6 +11,7 @@ import pytest
 from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.domain import (
     ChannelKind,
+    DirectAPIKeyCredentialRequest,
     EnvironmentRecord,
     EnvironmentStatus,
     OpenAICompatibleConfiguration,
@@ -58,6 +59,28 @@ def test_openai_compatible_request_rejects_protected_headers() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "http://generativelanguage.googleapis.com/v1beta",
+        "https://127.0.0.1/v1beta",
+        "https://metadata.google.internal/v1beta",
+        "https://example.com/v1beta",
+    ),
+)
+def test_direct_api_key_base_url_requires_approved_https_host(base_url: str) -> None:
+    with pytest.raises(ValueError):
+        DirectAPIKeyCredentialRequest(api_key="secret", base_url=base_url)
+
+
+def test_direct_api_key_base_url_accepts_official_gemini_endpoint() -> None:
+    credential: Final = DirectAPIKeyCredentialRequest(
+        api_key="secret",
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+    )
+    assert credential.base_url is not None
+
+
 @pytest.mark.asyncio
 async def test_channel_rejects_hostname_that_resolves_to_private_network() -> None:
     secret_seed: Final = "s" * 32
@@ -73,9 +96,7 @@ async def test_channel_rejects_hostname_that_resolves_to_private_network() -> No
         openai_compatible=OpenAICompatibleConfiguration(
             base_url="https://api.example.com/v1",
             test_model="chat-model",
-            credentials=(
-                OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "secret-key")),
-            ),
+            credentials=(OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "secret-key")),),
         ),
         status=EnvironmentStatus.VALIDATING,
         enabled=True,
@@ -109,7 +130,7 @@ async def test_channel_discovers_prefixed_models_and_keeps_keys_out_of_record_re
     environment_id: Final = uuid4()
     cipher: Final = StateCipher(EnvironmentSecretDeriver(secret_seed))
     configuration: Final = OpenAICompatibleConfiguration(
-        base_url="https://api.example.com/v1",
+        base_url="http://api.example.com/v1",
         prefix="vendor/",
         test_model="chat-model",
         credentials=(
@@ -147,6 +168,8 @@ async def test_channel_discovers_prefixed_models_and_keeps_keys_out_of_record_re
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/models"
+        assert request.url.host == "93.184.216.34"
+        assert request.headers["host"] == "api.example.com"
         if request.headers["authorization"] == "Bearer secret-key":
             return httpx.Response(200, json={"data": [{"id": "chat-model"}]}, request=request)
         assert request.headers["authorization"] == "Bearer second-key"
@@ -185,9 +208,7 @@ async def test_custom_models_receive_the_prefix_once() -> None:
             base_url="https://api.example.com/v1",
             prefix="vendor/",
             test_model="chat-model",
-            credentials=(
-                OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "secret-key")),
-            ),
+            credentials=(OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "secret-key")),),
             custom_models=("chat-model",),
         ),
         status=EnvironmentStatus.VALIDATING,

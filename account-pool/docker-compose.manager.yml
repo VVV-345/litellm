@@ -73,22 +73,28 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      ACCOUNT_POOL_DATABASE_URL: ${ACCOUNT_POOL_DATABASE_URL}
-      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN}
-      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED}
+      ACCOUNT_POOL_DATABASE_URL: postgresql://account_pool:${ACCOUNT_POOL_DB_PASSWORD:?set ACCOUNT_POOL_DB_PASSWORD}@db:5432/account_pool
+      ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:?set ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_SECRET_SEED: ${ACCOUNT_POOL_SECRET_SEED:?set ACCOUNT_POOL_SECRET_SEED}
       ACCOUNT_POOL_DATA_ROOT: /var/lib/litellm-account-pool/environments
       ACCOUNT_POOL_MANAGER_CONTAINER: ${ACCOUNT_POOL_MANAGER_CONTAINER:-litellm-account-pool}
       ACCOUNT_POOL_GATEWAY_CONTAINER: ${ACCOUNT_POOL_GATEWAY_CONTAINER:-litellm}
-      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST}
-      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER}
+      ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST:?set ACCOUNT_POOL_SSH_HOST}
+      ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER:?set ACCOUNT_POOL_SSH_USER}
       ACCOUNT_POOL_CALLBACK_PORT: ${ACCOUNT_POOL_CALLBACK_PORT:-8091}
       ACCOUNT_POOL_CALLBACK_BIND_HOST: ${ACCOUNT_POOL_CALLBACK_BIND_HOST:-127.0.0.1}
       ACCOUNT_POOL_DOCKER_HOST: ${ACCOUNT_POOL_DOCKER_HOST:-tcp://docker-socket-proxy:2375}
       ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
       ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
+      ACCOUNT_POOL_CLI_PROXY_IMAGE: ${ACCOUNT_POOL_CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:v7.2.155@sha256:3990e4de484ac5caac80164ee3a60d0ba521320dcda193a2ef71a5ad2e2c768b}
+      ACCOUNT_POOL_PROXY_GATEWAY_HOST: ${ACCOUNT_POOL_PROXY_GATEWAY_HOST:-host.docker.internal}
+      ACCOUNT_POOL_CLASH_CONTROLLER_URL: ${ACCOUNT_POOL_CLASH_CONTROLLER_URL:-}
+      ACCOUNT_POOL_CLASH_SECRET: ${ACCOUNT_POOL_CLASH_SECRET:-}
+      ACCOUNT_POOL_CLASH_CONFIG_PATH: ${ACCOUNT_POOL_CLASH_CONFIG_PATH:-}
+      ACCOUNT_POOL_CLASH_GATEWAY_PORTS: ${ACCOUNT_POOL_CLASH_GATEWAY_PORTS:-}
+      ACCOUNT_POOL_PLUGIN_REGISTRY_JSON: ${ACCOUNT_POOL_PLUGIN_REGISTRY_JSON:-}
+      ACCOUNT_POOL_LOG_RETENTION_DAYS: ${ACCOUNT_POOL_LOG_RETENTION_DAYS:-30}
     user: "65532:65532"
     read_only: true
     cap_drop:
@@ -112,7 +118,9 @@ services:
     volumes:
       - account_pool_data:/var/lib/litellm-account-pool/environments
     networks:
+      account-pool-public: null
       account-pool-socket: null
+      account-pool-manager-db: null
       litellm-control:
         aliases:
           - account-pool
@@ -132,16 +140,16 @@ services:
 
   db:
     container_name: ${ACCOUNT_POOL_DB_CONTAINER:-litellm-account-pool-db}
-    image: postgres:16
+    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
     restart: unless-stopped
     environment:
       POSTGRES_DB: account_pool
       POSTGRES_USER: account_pool
-      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${ACCOUNT_POOL_DB_PASSWORD:?set ACCOUNT_POOL_DB_PASSWORD}
     volumes:
       - account_pool_db:/var/lib/postgresql/data
     networks:
-      - litellm-control
+      - account-pool-manager-db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U account_pool -d account_pool"]
       interval: 5s
@@ -149,7 +157,12 @@ services:
       retries: 10
 
 networks:
+  account-pool-public:
+    name: ${ACCOUNT_POOL_PUBLIC_NETWORK:-account-pool-public}
+    internal: false
   account-pool-socket:
+    internal: true
+  account-pool-manager-db:
     internal: true
   litellm-control:
     external: true

@@ -1,6 +1,6 @@
 # 号池单机部署指南
 
-五个基础容器一起起：LiteLLM 主服务、号池 Manager、两个独立数据库、Docker Socket Proxy。账号容器由 Manager 按需创建。镜像从 ghcr.io/vvv-345 拉取，不需要在服务器上构建
+五个基础容器一起起：LiteLLM 主服务、号池 Manager、两个独立数据库、Docker Socket Proxy。账号容器由 Manager 按需创建。镜像从 ghcr.io/vvv-345 拉取，不需要在服务器上构建。LiteLLM、数据库和 Manager 的宿主机端口只绑定回环地址，公网入口必须使用 HTTPS 反向代理
 
 ## 首次部署
 
@@ -16,7 +16,7 @@
 
    要填的值：
    - `DEPLOY_TAG`：镜像版本号，用 commit 号，本指南写的是 `47b84b0023`
-   - `LITELLM_DB_PASSWORD`、`ACCOUNT_POOL_DB_PASSWORD`：自己起强密码
+   - `LITELLM_MASTER_KEY`、`UI_PASSWORD`、`LITELLM_DB_PASSWORD`、`ACCOUNT_POOL_DB_PASSWORD`：使用 `openssl rand -hex 32` 分别生成
    - `ACCOUNT_POOL_MANAGER_TOKEN`：`openssl rand -hex 32` 生成
    - `ACCOUNT_POOL_SECRET_SEED`：`openssl rand -hex 32` 生成，**定了以后不能换**
    - `ACCOUNT_POOL_SSH_HOST`：服务器公网 IP 或域名
@@ -39,7 +39,7 @@
    curl http://127.0.0.1:4000/health/liveliness   # LiteLLM 就绪
    ```
 
-5. 浏览器打开 `http://<服务器IP>:4000/ui/`，进 号池 页面：
+5. 配置 Nginx、Caddy 等反向代理，把 HTTPS 域名转发到 `127.0.0.1:4000`，并让 80 端口只做 HTTPS 跳转。浏览器打开 `https://<域名>/ui/`，进 号池 页面：
    创建环境 → 卡片上点配置选好出站代理（非美区服务器必做）→ 点授权完成账号绑定
 
 ## 浏览器 OAuth 回调怎么到达服务器
@@ -87,6 +87,8 @@ CLIProxyAPI 账号共用这些网关。比如设置 7891 到 7910 共 20 个端�
 
 Clash 在宿主机上时设置 `ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`，监听地址须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。账号卡片显示所选端口与当前节点
 
+主机防火墙只应向公网开放 SSH、80 和 443。Clash/Mihomo 代理端口及控制器端口只允许 Docker 私网或明确的管理来源访问
+
 ## 日常操作
 
 ### 发布新版本
@@ -102,6 +104,8 @@ Clash 在宿主机上时设置 `ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.inte
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+拉取后使用 `docker image inspect` 记录两个 GHCR 镜像的仓库摘要和 `org.opencontainers.image.revision`，确认 revision 等于本次完整 commit。部署验收记录应保存摘要，回滚时使用已验证过的旧摘要
 
 这不会删除数据库或账号数据卷。需要回滚时，把 `DEPLOY_TAG` 改回之前已发布的提交号并重复同一命令
 

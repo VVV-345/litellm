@@ -266,6 +266,18 @@ def test_models_and_management_scope_are_separate_from_ordinary_keys() -> None:
         assert client.get("/v1/models", headers={"Authorization": "Bearer cpk_invalid"}).status_code == 401
 
 
+def test_invalid_card_key_is_rejected_before_json_body_is_parsed() -> None:
+    client, _ = setup_gateway(lambda _: pytest.fail("No upstream request expected"))
+    invalid_key: Final = "cpk_" + "invalid-key-material"
+    with client:
+        response: Final = client.post(
+            "/v1/chat/completions",
+            content=b"not-json",
+            headers={"Authorization": f"Bearer {invalid_key}", "Content-Type": "application/json"},
+        )
+    assert response.status_code == 401
+
+
 def test_models_include_account_aliases_and_card_aliases_that_target_them() -> None:
     client, control = setup_gateway(lambda _: pytest.fail("No upstream request expected"))
     account: Final = control.resolution.candidates[0]

@@ -8,7 +8,7 @@ import socket
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Final
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -71,27 +71,42 @@ async def _resolve_host(hostname: str, port: int) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(item[4][0]) for item in addresses))
 
 
-async def _validate_destination(base_url: str, resolver: HostResolver) -> None:
+def _validated_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    try:
+        address: Final = ipaddress.ip_address(value)
+    except ValueError as error:
+        raise ValueError("OpenAI-compatible destination resolved to an invalid address") from error
+    effective: Final = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) else None
+    checked: Final = effective or address
+    if not checked.is_global or checked.is_multicast or checked == _AZURE_WIRE_SERVER:
+        raise ValueError("OpenAI-compatible destination resolved to a blocked address")
+    return address
+
+
+async def _validate_destination(base_url: str, resolver: HostResolver) -> tuple[str, str | None]:
     parsed: Final = urlsplit(base_url)
     hostname: Final = parsed.hostname
-    if hostname is None:
+    if hostname is None or parsed.scheme not in {"http", "https"}:
         raise ValueError("OpenAI-compatible destination has no hostname")
-    port: Final = parsed.port or (443 if parsed.scheme == "https" else 80)
+    default_port: Final = 443 if parsed.scheme == "https" else 80
+    port: Final = parsed.port or default_port
     try:
         addresses: Final = await resolver(hostname, port)
     except OSError as error:
         raise ValueError("OpenAI-compatible destination cannot be resolved") from error
     if not addresses:
         raise ValueError("OpenAI-compatible destination cannot be resolved")
-    for value in addresses:
-        try:
-            address: Final = ipaddress.ip_address(value)
-        except ValueError as error:
-            raise ValueError("OpenAI-compatible destination resolved to an invalid address") from error
-        effective: Final = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) else None
-        checked: Final = effective or address
-        if not checked.is_global or checked.is_multicast or checked == _AZURE_WIRE_SERVER:
-            raise ValueError("OpenAI-compatible destination resolved to a blocked address")
+    validated: Final = tuple(_validated_address(value) for value in addresses)
+    if parsed.scheme == "https":
+        return base_url, None
+    selected: Final = validated[0]
+    ip_host: Final = f"[{selected.compressed}]" if isinstance(selected, ipaddress.IPv6Address) else selected.compressed
+    netloc: Final = ip_host if parsed.port is None else f"{ip_host}:{parsed.port}"
+    original_host: Final = f"[{hostname}]" if ":" in hostname else hostname
+    host_header: Final = (
+        original_host if parsed.port is None or parsed.port == default_port else f"{original_host}:{parsed.port}"
+    )
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, "")), host_header
 
 
 class OpenAICompatibleChannel:
@@ -150,9 +165,7 @@ class OpenAICompatibleChannel:
         if not models:
             raise RuntimeError("OpenAI-compatible upstream did not report any models")
         enabled: Final = (
-            tuple(model for model in record.enabled_models if model in models)
-            if record.enabled_models
-            else models
+            tuple(model for model in record.enabled_models if model in models) if record.enabled_models else models
         )
         status: Final = (
             EnvironmentStatus.DISABLED
@@ -214,21 +227,22 @@ class OpenAICompatibleChannel:
 
     async def _discover_models(self, record: EnvironmentRecord) -> tuple[str, ...]:
         configuration: Final = self._configuration(record)
-        await _validate_destination(configuration.base_url, self._resolver)
+        destination, host_header = await _validate_destination(configuration.base_url, self._resolver)
         headers: Final = (
             dict(_HEADERS.validate_json(self._cipher.open(record.id, configuration.headers_ciphertext)))
             if configuration.headers_ciphertext
             else {}
         )
         discoveries: Final = await asyncio.gather(
-            *(self._discover_models_for_credential(record, credential, headers) for credential in configuration.credentials)
+            *(
+                self._discover_models_for_credential(record, credential, headers, destination, host_header)
+                for credential in configuration.credentials
+            )
         )
         discovered: Final = tuple(dict.fromkeys(model for models in discoveries for model in models))
         raw: Final = configuration.custom_models or discovered
         return tuple(
-            dict.fromkeys(
-                f"{configuration.prefix}{model}" if configuration.prefix else model for model in raw
-            )
+            dict.fromkeys(f"{configuration.prefix}{model}" if configuration.prefix else model for model in raw)
         )
 
     async def _discover_models_for_credential(
@@ -236,8 +250,9 @@ class OpenAICompatibleChannel:
         record: EnvironmentRecord,
         credential: OpenAICompatibleCredential,
         headers: dict[str, str],
+        destination: str,
+        host_header: str | None,
     ) -> tuple[str, ...]:
-        configuration: Final = self._configuration(record)
         api_key: Final = self._cipher.open(record.id, credential.api_key_ciphertext)
         client: Final = (
             self._client
@@ -246,8 +261,12 @@ class OpenAICompatibleChannel:
         )
         try:
             response: Final = await client.get(
-                f"{configuration.base_url.rstrip('/')}/models",
-                headers={**headers, "Authorization": f"Bearer {api_key}"},
+                f"{destination.rstrip('/')}/models",
+                headers={
+                    **headers,
+                    **({"Host": host_header} if host_header is not None else {}),
+                    "Authorization": f"Bearer {api_key}",
+                },
             )
             response.raise_for_status()
             return tuple(model.id for model in _ModelList.model_validate(response.json()).data)
