@@ -561,6 +561,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     assert json.loads(patch_request.content) == {
         "name": "codex.json",
         "codex_fingerprint_mode": "session",
+        "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
         "codex_cli_only_allow_app_server": True,
     }

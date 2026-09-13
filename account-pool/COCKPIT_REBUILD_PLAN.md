@@ -256,7 +256,7 @@ OAuth 模型禁用和模型别名保留为二级面板，修改后明确显示�
 | Responses | Responses Compact 是否允许 | 默认关闭 | `/v1/responses/compact` 准入和转发 | 可执行 |
 | WebSocket | WebSocket 开关、Origin 规则、超时 | 默认关闭 | WebSocket 数据面 | 当前需实现适配器，不能静默生效 |
 | 客户端 | Codex CLI only、App Server、允许的客户端列表 | 默认关闭限制 | User-Agent 和 Originator 准入 | Codex 适用 |
-| 身份策略 | identity fingerprint mode：off/device/session/full | off | 供应商适配器请求标识改写 | 当前 Codex 以外需能力矩阵 |
+| 身份策略 | identity fingerprint mode：off/device/session/full | off | 供应商适配器请求标识改写 | Codex 已执行，其他供应商需能力矩阵 |
 | 供应商扩展 | Antigravity 敏感词、签名缓存、严格旁路签名 | 使用家族默认 | 对应供应商适配器 | 供应商特定 |
 | Header | Claude/Codex 默认 User-Agent、版本、OS、Arch、Timeout、Beta Features、稳定设备指纹 | 空值时使用家族默认 | 请求头投影层 | 供应商特定 |
 | 调试 | 卡片调试日志、敏感字段级别 | 默认关闭，始终脱敏 | 日志策略和适配器 | 需要补齐运行时 |

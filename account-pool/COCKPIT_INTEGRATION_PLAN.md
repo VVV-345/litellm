@@ -59,7 +59,7 @@
 | --- | --- | --- | --- |
 | Dashboard | 总账号数、可用数、冷却数、错误数、额度和请求概况 | 已有账号、可用、待授权、冷却和错误汇总，以及请求、失败、Token 和平均耗时统计 | 后续补充路由健康和更完整的配额概况 |
 | 账号卡片 | 邮箱或显示名、套餐、额度窗口、重置时间、状态、启用模型、标签 | 已有名称、配额窗口、重置时间、状态、模型、标签、分组和最近错误；套餐来自已观测的 `plan_type` | 优先级、权重和备用标记在策略页维护；会话绑定数和订阅到期元数据仍未提供 |
-| 账号详情 | OAuth 状态、授权时间、账号类型、模型、配额、配置和操作历史 | 已有授权、环境详情、版本化路由、模型、客户端、传输和 Codex 策略表单 | 身份/指纹和本机 Compact 字段当前仅保存并显示能力状态，尚未执行 |
+| 账号详情 | OAuth 状态、授权时间、账号类型、模型、配额、配置和操作历史 | 已有授权、环境详情、版本化路由、模型、客户端、传输和 Codex 策略表单 | Codex 请求标识策略已执行；其他供应商和本机 Compact 仍按能力状态处理 |
 | 创建账号 | 选择供应商和渠道，启动 OAuth 或设备码授权 | 已支持多渠道定义和授权流程 | 沿用现有流程，补充默认策略快照和权限归属初始化 |
 | 重新授权 | 重新打开授权流程、处理过期和失败 | 已有重新授权和 state 防重放 | 增加授权失败原因、最近一次成功授权和后台恢复状态 |
 | 导入导出 | 导出账号配置或批量导入账号 | 当前以 OAuth 环境为主 | 只允许导出非敏感元数据；凭据导入必须采用受控后台流程，禁止页面返回完整 token |
@@ -99,7 +99,7 @@
 | 重试 | `retryable_statuses`、`max_attempts`、`backoff` | 只重试明确可重试错误，默认 1 次切换 | 全局策略和账号覆盖 | 代理层请求编排 |
 | 故障切换 | `fallback_enabled`、`fallback_scope` | 开启文本请求的账号切换，关闭不可重试请求切换 | Key 或路由组配置 | 代理层 |
 | 客户端准入 | `codex_cli_only`、`codex_cli_only_allow_app_server`、`codex_cli_only_allow_app_server_clients` | 默认关闭限制 | 账号策略表 | 号池网关根据 User-Agent 和 Originator 判断，已实现 |
-| 上游身份或指纹策略 | `identity_fingerprint_mode` 和供应商扩展字段 | `off` | 账号策略表 | 当前适配器未实现；设置为非 `off` 时网关返回 501，不会静默套用 |
+| 上游身份或指纹策略 | `identity_fingerprint_mode` 和供应商扩展字段 | `off` | 账号策略表 | Codex 已实现稳定请求标识映射；其他供应商按能力矩阵执行或明确报告不支持 |
 | Codex Compact 投影 | `compact_ui`、`model_context_window`、`model_auto_compact_token_limit`、`context_management_experimental` | 分开设置，默认不强制打开 | 账号策略表 | 当前仅保存，等待本机客户端；不会影响服务端请求 |
 | Responses Compact | `responses_compact_enabled` | 关闭 | 账号策略表 | 号池网关控制 `/v1/responses/compact` 准入并按原路径转发，已实现；真实上游 E2E 待验证 |
 | 图片 | `image_generation_policy`、并发和图片账号范围 | 继承账号能力 | 卡片或账号策略 | 号池网关图片入口和账号候选准入，已实现 |
@@ -111,16 +111,18 @@
 
 前一版计划把指纹策略错误地收窄成了 Codex 专属，这是范围定义错误。整合目标是覆盖 Cockpit 中出现的全部设置，包括不同供应商的身份、指纹、客户端和连接策略。实现时采用统一的策略模型，但由供应商适配器决定字段、默认值和可执行能力
 
-目前已经详细核实的是 Cockpit 对 Codex 的请求标识改写。它实际改写的是请求中的一组标识字段，不是把三台设备的全部硬件特征统一。Codex 已核实的模式如下
+目前已经详细核实的是 Cockpit 对 Codex 的请求标识改写，以及 sub2api 用于识别 Codex 请求的 Header 和 Body 信号。本项目借鉴这些字段范围，但不复制会把不同会话合并到同一标识的行为，采用以下可稳定验证的运行时语义
 
-| 模式 | 已核实行为 |
+| 模式 | 本项目运行时行为 |
 | --- | --- |
 | `off` | 不改写 |
-| `device` | 改写 installation、工作区路径、Git remote、commit SHA，保留 session 和 thread |
-| `session` | 在 device 基础上，按账号和原始会话改写 session、thread、turn、window 及父子关系 |
-| `full` | 进一步把 thread 和父线程收敛到映射后的 session |
+| `device` | 只改写 installation 标识 |
+| `session` | 在 device 基础上改写 session 和 conversation 标识 |
+| `full` | 在 session 基础上继续改写 prompt cache、thread、turn、window 和 request 标识 |
 
-它只对符合条件的标准 Codex OAuth 账号自动启用。API Key、Agent Identity、Web Session 和 Access Token 不自动套用这套规则。账号没有设置时，Cockpit 投影层会对符合条件的 OAuth 账号下发 `session`；代理没有收到字段时，CLIProxyAPI 默认是 `off`
+映射使用卡片稳定 seed 和原始标识生成确定性 UUID。同一张卡片的同一客户端或会话保持稳定，不同客户端、会话和卡片不会被合并。策略只有显式选择时才启用，未配置、空值或非法值均按 `off` 处理
+
+该实现覆盖 Codex 的 HTTP、流式、WebSocket、图片和 Responses Compact 共用链路，并在返回客户端前恢复原始标识。它不修改 IP、TLS 指纹、操作系统、硬件、请求内容或并发节奏，也不保证上游把不同设备识别为同一实体
 
 其他供应商的相关能力必须按各自源码和协议继续核实，不能把 Codex 字段直接套到 Claude、Antigravity、Kimi、xAI 或其他渠道。计划中的统一字段只负责表达策略意图，具体执行由供应商能力清单映射到对应的 CLIProxyAPI 或代理适配器
 
@@ -445,7 +447,7 @@ AccountPolicy
 - 在对应 CLIProxyAPI 或代理适配层执行身份、指纹、客户端、连接和协议设置
 - 接入模型排除、别名、图片、WebSocket、Compact、超时和日志等数据面行为
 - 为入口鉴权、路由、连接、上游请求、响应解析、重试和切号写入结构化日志
-- Codex 先实现已核实的 `off`、`device`、`session`、`full`，其他供应商按核实结果实现
+- Codex 已实现 `off`、`device`、`session`、`full`，其他供应商按核实结果实现
 - 配置不支持时明确返回能力状态，不静默忽略
 
 验收：每个纳入清单的数据面设置都能改变真实请求或明确报告不支持；设置关闭时不改写请求；不同供应商不会错误套用其他供应商字段

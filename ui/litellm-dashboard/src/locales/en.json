@@ -6125,7 +6125,7 @@
       "subscriptionReadOnly": "Plan tier and expiry sync from authentication and quota refreshes and cannot be edited here",
       "kimiDeviceIdAuto": "Device ID is maintained automatically after authentication",
       "identity_fingerprint_mode": "Codex fingerprint convergence",
-      "identityFingerprintModeDescription": "Off preserves current behavior. Cockpit recommends Session. The value is stored in this card's authentication metadata for runtimes that support it",
+      "identityFingerprintModeDescription": "Off leaves identifiers unchanged. Device rewrites the installation ID. Session also rewrites session and conversation IDs. Full additionally rewrites cache, thread, turn, window, and request IDs",
       "fingerprint_profile": "Fingerprint profile",
       "claudeFingerprintDescription": "Choose the request fingerprint for this Claude card. CLIProxyAPI supports the Claude Code CLI profile",
       "kimiFingerprintDescription": "Choose the Claude Code CLI request fingerprint for this Kimi card. The runtime still manages its device ID",

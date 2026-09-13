@@ -78,7 +78,7 @@ class CLIProxySettingsSynchronizer:
             )
         if record.auth_file_name is None:
             return
-        fields: Final = _policy_auth_fields(policy)
+        fields: Final = _policy_auth_fields(record, policy)
         if fields:
             await self._client.patch_auth_file_fields(record, record.auth_file_name, fields)
 
@@ -116,10 +116,11 @@ def _yaml_document(content: str) -> dict[str, object]:
     return _YAML_DOCUMENT_ADAPTER.validate_python(yaml.safe_load(content) or {})
 
 
-def _policy_auth_fields(policy: AccountPolicy) -> Mapping[str, object]:
+def _policy_auth_fields(record: EnvironmentRecord, policy: AccountPolicy) -> Mapping[str, object]:
     if policy.codex is not None:
         return {
             "codex_fingerprint_mode": policy.codex.identity_fingerprint_mode,
+            "codex_fingerprint_seed": str(record.id),
             "codex_cli_only": policy.codex.cli_only,
             "codex_cli_only_allow_app_server": policy.codex.allow_app_server,
         }

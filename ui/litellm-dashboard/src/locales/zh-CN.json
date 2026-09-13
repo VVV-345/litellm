@@ -6125,7 +6125,7 @@
       "subscriptionReadOnly": "套餐档位和到期时间由认证文件与配额刷新同步，不能在这里手工修改",
       "kimiDeviceIdAuto": "设备 ID 认证后自动维护",
       "identity_fingerprint_mode": "Codex 指纹收敛模式",
-      "identityFingerprintModeDescription": "关闭保持现有行为；Cockpit 推荐会话模式。该值写入当前卡片认证元数据，由支持它的客户端运行时读取",
+      "identityFingerprintModeDescription": "关闭时不改写标识；仅设备会改写安装 ID；设备加会话还会改写会话和对话 ID；完整收敛会继续改写缓存、线程、轮次、窗口和请求 ID",
       "fingerprint_profile": "指纹配置",
       "claudeFingerprintDescription": "为当前 Claude 卡片选择请求指纹，CLIProxyAPI 已支持 Claude Code CLI 配置",
       "kimiFingerprintDescription": "为当前 Kimi 卡片选择 Claude Code CLI 请求指纹，设备 ID 仍由运行时自动维护",
