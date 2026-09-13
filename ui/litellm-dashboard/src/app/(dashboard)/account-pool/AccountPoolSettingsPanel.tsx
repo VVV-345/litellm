@@ -222,12 +222,14 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
     }
     setBusy(true);
     try {
-      await updateAccountPoolSettings(accessToken, { version, values });
+      const saved = await updateAccountPoolSettings(accessToken, { version, values });
       await settingsQuery.refetch();
       setDraft(null);
       setJsonTexts({});
       setInvalidEditorIds([]);
-      toast.success(t("accountPool.settings.saved"));
+      toast.success(
+        t(saved.requires_reload ? "accountPool.settings.savedReloadRequired" : "accountPool.settings.saved"),
+      );
     } catch (error) {
       toast.fromError(error);
     } finally {
@@ -501,13 +503,6 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
         value={current.request_timeout_seconds}
         disabled={disabled}
         onChange={(request_timeout_seconds) => onChange({ ...current, request_timeout_seconds })}
-      />
-      <ToggleSetting
-        id={`${editorId}-websocket`}
-        label={t("accountPool.settings.websocket")}
-        checked={current.websocket_enabled}
-        disabled={disabled}
-        onChange={(websocket_enabled) => onChange({ ...current, websocket_enabled })}
       />
     </div>
   );

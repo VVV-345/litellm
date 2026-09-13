@@ -12,6 +12,7 @@ import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 const getSettings = vi.fn();
 const updateSettings = vi.fn();
 const listProxyProfiles = vi.fn();
+const toastSuccess = vi.fn();
 
 vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
   const original = await importOriginal<typeof import("./AccountPoolManagementApi")>();
@@ -29,6 +30,14 @@ vi.mock("./AccountPoolApi", async (importOriginal) => {
     listAccountPoolProxyProfiles: (...args: unknown[]) => listProxyProfiles(...args),
   };
 });
+
+vi.mock("@/lib/toast", () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: vi.fn(),
+    fromError: vi.fn(),
+  },
+}));
 
 const settings: AccountPoolSettings = {
   access_profiles: [],
@@ -73,6 +82,12 @@ const card = {
   supplier: "openai_codex",
 } as AccountPoolEnvironment;
 
+const reloadRequiredSettingsView = {
+  version: 5,
+  values: settings,
+  requires_reload: true,
+};
+
 const renderPanel = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -111,5 +126,26 @@ describe("AccountPoolSettingsPanel", () => {
         values: { enabled: true },
       }),
     ]);
+  });
+
+  it("reports when saved settings require card runtimes to restart", async () => {
+    const user = userEvent.setup();
+    updateSettings.mockResolvedValue(reloadRequiredSettingsView);
+    renderPanel();
+
+    const saveButtons = await screen.findAllByRole("button", { name: /保存配置|Save configuration/i });
+    await user.click(saveButtons[0]);
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+    expect(toastSuccess.mock.calls[0][0]).toMatch(/重启|Restart/i);
+  });
+
+  it("does not expose the unsupported WebSocket transport setting", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole("tab", { name: /网络|Network/i }));
+
+    expect(screen.queryByRole("switch", { name: /启用 WebSocket|Enable WebSocket/i })).not.toBeInTheDocument();
   });
 });

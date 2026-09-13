@@ -37,12 +37,28 @@ from account_pool.settings import (
 def _record() -> EnvironmentRecord:
     now: Final = utc_now()
     return EnvironmentRecord(
-        id=uuid4(), name="test", provider=Provider.OPENAI, status=EnvironmentStatus.READY,
-        enabled=True, manual_cooldown=False, concurrency_limit=2, proxy_mode=ProxyMode.DEFAULT_GATEWAY,
-        proxy_profile_id=None, available_models=("model-a",), enabled_models=("model-a",),
-        auth_file_name=None, auth_index=None, quota=QuotaSnapshot(), cooldown_until=None,
-        oauth_state=None, oauth_expires_at=None, last_error=None, created_at=now, updated_at=now,
+        id=uuid4(),
+        name="test",
+        provider=Provider.OPENAI,
+        status=EnvironmentStatus.READY,
+        enabled=True,
+        manual_cooldown=False,
+        concurrency_limit=2,
+        proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+        proxy_profile_id=None,
+        available_models=("model-a",),
+        enabled_models=("model-a",),
+        auth_file_name=None,
+        auth_index=None,
+        quota=QuotaSnapshot(),
+        cooldown_until=None,
+        oauth_state=None,
+        oauth_expires_at=None,
+        last_error=None,
+        created_at=now,
+        updated_at=now,
     )
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -55,9 +71,7 @@ def _record() -> EnvironmentRecord:
         (SupplierKind.XAI, "/v0/management/xai-auth-url"),
     ),
 )
-async def test_start_authorization_uses_exact_supplier_endpoint(
-    kind: SupplierKind, expected_path: str
-) -> None:
+async def test_start_authorization_uses_exact_supplier_endpoint(kind: SupplierKind, expected_path: str) -> None:
     record: Final = _record()
     supplier: Final = SupplierRegistry.default().get(kind)
     paths: list[str] = []
@@ -65,8 +79,12 @@ async def test_start_authorization_uses_exact_supplier_endpoint(
     async def handler(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         if supplier.authorization_flow.value == "device_code":
-            return httpx.Response(200, json={"status": "ok", "state": "state", "user_code": "code", "expires_in": 600}, request=request)
-        return httpx.Response(200, json={"status": "ok", "url": "https://example.test/auth", "state": "state"}, request=request)
+            return httpx.Response(
+                200, json={"status": "ok", "state": "state", "user_code": "code", "expires_in": 600}, request=request
+            )
+        return httpx.Response(
+            200, json={"status": "ok", "url": "https://example.test/auth", "state": "state"}, request=request
+        )
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
@@ -90,10 +108,12 @@ async def test_read_account_selects_matching_type_and_model_file() -> None:
         if request.url.path == "/v0/management/auth-files":
             return httpx.Response(
                 200,
-                json={"files": [
-                    {"name": "wrong.json", "provider": "other", "type": "other"},
-                    {"name": "selected.json", "provider": "other", "type": "claude"},
-                ]},
+                json={
+                    "files": [
+                        {"name": "wrong.json", "provider": "other", "type": "other"},
+                        {"name": "selected.json", "provider": "other", "type": "claude"},
+                    ]
+                },
                 request=request,
             )
         model_names.append(request.url.params["name"])
@@ -189,10 +209,18 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
-    await proxy.apply_configuration(record, supplier, EnvironmentConfiguration(
-        name="test", concurrency_limit=2, enabled=True, manual_cooldown=False,
-        proxy_mode=ProxyMode.DEFAULT_GATEWAY, enabled_models=("model-a",),
-    ))
+    await proxy.apply_configuration(
+        record,
+        supplier,
+        EnvironmentConfiguration(
+            name="test",
+            concurrency_limit=2,
+            enabled=True,
+            manual_cooldown=False,
+            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+            enabled_models=("model-a",),
+        ),
+    )
     await client.aclose()
 
     assert "/v0/management/concurrency-limit" not in tuple(request.url.path for request in requests)
@@ -314,7 +342,9 @@ async def test_auth_file_management_uses_cockpit_endpoints() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path.endswith("/download"):
-            return httpx.Response(200, content=b'{"type":"codex"}', headers={"content-type": "application/json"}, request=request)
+            return httpx.Response(
+                200, content=b'{"type":"codex"}', headers={"content-type": "application/json"}, request=request
+            )
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
         return httpx.Response(204, request=request)
@@ -424,7 +454,9 @@ async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> Non
     config: Final = next(
         request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
     )
-    assert yaml.safe_load(config.content)["payload"]["override"] == [
+    document: Final = yaml.safe_load(config.content)
+    assert document["plugins"] == {"enabled": False, "dir": "/data/plugins"}
+    assert document["payload"]["override"] == [
         {
             "models": [
                 {
@@ -451,7 +483,9 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path.endswith("/config.yaml") and request.method == "GET":
-            return httpx.Response(200, text="host: 0.0.0.0\npayload:\n  override:\n    - params:\n        old: true\n", request=request)
+            return httpx.Response(
+                200, text="host: 0.0.0.0\npayload:\n  override:\n    - params:\n        old: true\n", request=request
+            )
         return httpx.Response(204, request=request)
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -467,12 +501,45 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
     config: Final = next(
         request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
     )
-    assert yaml.safe_load(config.content)["payload"] == {
+    document: Final = yaml.safe_load(config.content)
+    assert document["plugins"] == {"enabled": False, "dir": "/data/plugins"}
+    assert document["payload"] == {
         "default": [],
         "default-raw": [],
         "override": [],
         "override-raw": [],
         "filter": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_apply_global_settings_enables_plugins_in_the_writable_data_directory() -> None:
+    record: Final = _record()
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/config.yaml") and request.method == "GET":
+            return httpx.Response(
+                200,
+                text="plugins:\n  enabled: false\n  dir: /CLIProxyAPI/plugins\n  configs:\n    sample:\n      enabled: true\n",
+                request=request,
+            )
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    sync: Final = CLIProxySettingsSynchronizer(proxy)
+    await sync.apply_global_settings(record, AccountPoolSettings(plugins_enabled=True))
+    await client.aclose()
+
+    config: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    assert yaml.safe_load(config.content)["plugins"] == {
+        "enabled": True,
+        "dir": "/data/plugins",
+        "configs": {"sample": {"enabled": True}},
     }
 
 
@@ -593,7 +660,10 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
                 "rebuild_mid_system_message": True,
             },
         ),
-        (AccountPolicy(kimi=KimiPolicy(fingerprint_profile="claude-code-cli")), {"fingerprint_profile": "claude-code-cli"}),
+        (
+            AccountPolicy(kimi=KimiPolicy(fingerprint_profile="claude-code-cli")),
+            {"fingerprint_profile": "claude-code-cli"},
+        ),
     ),
 )
 async def test_apply_policy_syncs_only_auth_file_metadata(

@@ -55,7 +55,7 @@ class CLIProxySettingsSynchronizer:
             "/v0/management/oauth-request-scoped-errors",
             self._request_scoped_errors(settings),
         )
-        await self._apply_payload_settings(record, settings)
+        await self._apply_config_settings(record, settings)
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         route_strategy: Final = {
@@ -82,12 +82,21 @@ class CLIProxySettingsSynchronizer:
         if fields:
             await self._client.patch_auth_file_fields(record, record.auth_file_name, fields)
 
-    async def _apply_payload_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+    async def _apply_config_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
         payload: Final = _JSON_VALUE_ADAPTER.validate_json(settings.payload.model_dump_json(by_alias=True))
         document: Final = _yaml_document(await self._client.get_config_yaml(record))
+        plugins: Final = _yaml_section(document, "plugins")
         await self._client.put_config_yaml(
             record,
-            yaml.safe_dump({**document, "payload": payload}, sort_keys=False, allow_unicode=False),
+            yaml.safe_dump(
+                {
+                    **document,
+                    "payload": payload,
+                    "plugins": {**plugins, "enabled": settings.plugins_enabled, "dir": "/data/plugins"},
+                },
+                sort_keys=False,
+                allow_unicode=False,
+            ),
         )
 
     def _excluded_models(self, settings: AccountPoolSettings) -> JSONValue:

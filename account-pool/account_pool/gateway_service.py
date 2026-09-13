@@ -68,7 +68,10 @@ class GatewayService:
         policy: Final = await self.policies.get(card.id)
         global_settings: Final = None if self.settings is None else (await self.settings.get()).values
         effective_settings: Final = None if global_settings is None else settings_for_card(global_settings, card.id)
-        effective_card_policy: Final = _policy_with_settings(policy.policy, effective_settings)
+        effective_card_policy: Final = _policy_with_settings(
+            policy.policy,
+            effective_settings if policy.version == 0 else None,
+        )
         ids: Final = tuple(dict.fromkeys((card.id, *policy.policy.account_ids)))
         records: Final = await asyncio.gather(*(self.environments.get(identifier) for identifier in ids))
         cooling: Final = await self.leases.cooling()
@@ -111,7 +114,11 @@ class GatewayService:
         policy: Final = await self.policies.get(record.id)
         configured_policy: Final = _policy_with_settings(
             policy.policy,
-            None if global_settings is None else settings_for_card(global_settings, record.id),
+            (
+                settings_for_card(global_settings, record.id)
+                if global_settings is not None and policy.version == 0
+                else None
+            ),
         )
         effective_policy: Final = (
             configured_policy.model_copy(

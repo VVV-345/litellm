@@ -10,7 +10,8 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_CLI_PROXY_IMAGE: Final = (
-    "eceasy/cli-proxy-api:v7.2.155@sha256:3990e4de484ac5caac80164ee3a60d0ba521320dcda193a2ef71a5ad2e2c768b"
+    "ghcr.io/vvv-345/cliproxyapi:sha-92589ae0e0592e5469fb5f2e7859ab9664155419"
+    "@sha256:b775c0eea66d552c9d204eb501e0a8d656f181de594ef2aa9da81764863b706a"
 )
 
 

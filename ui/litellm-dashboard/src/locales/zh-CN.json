@@ -5931,6 +5931,7 @@
       "version": "配置版本 {{version}}",
       "previewReady": "配置预览已生成",
       "saved": "配置已保存并同步",
+      "savedReloadRequired": "配置已保存并同步，需要重启卡片运行时后完全生效",
       "globalConfiguration": "全局配置",
       "globalConfigurationHint": "未绑定独立配置的卡片使用这里的值",
       "namedConfigurations": "独立配置",
@@ -6086,6 +6087,11 @@
       "providerDescription": "套餐和额度来自认证结果，只读展示；下面的开关与下拉框保存为当前卡片策略",
       "providerPending": "该供应商当前没有可编辑的专属设置；认证后的套餐和额度由卡片自动同步",
       "saved": "策略已保存，下次卡片 Key 请求读取新版本；不支持的能力不会被标记为已生效",
+      "runtimeStatus": {
+        "partial": "运行配置正在等待同步",
+        "synced": "策略已在运行时生效",
+        "failed": "运行配置同步失败"
+      },
       "invalidAliases": "模型别名格式为 别名=模型，多项用逗号分隔",
       "tags": "标签",
       "group": "分组",

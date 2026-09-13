@@ -58,9 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     cli_proxy: Final = channel
     runtime: Final = channel
     controller: Final = (
-        ClashController(resolved.clash_controller_url, resolved.clash_secret)
-        if resolved.clash_controller_url
-        else None
+        ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
     proxy_gateways: Final = (
         ProxyGatewayService(resolved, profiles, controller)
@@ -78,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         proxy_gateways=proxy_gateways,
         error_logs=logs,
         global_settings=settings_repository,
+        policies=policies,
     )
     batch_service: Final = BatchService(
         batches,
@@ -103,6 +102,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await proxy_gateways.sync_profiles()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
+        # 旧卡片可能在新增运行配置前已创建，启动时补一次同步以迁移插件目录等持久配置。
+        try:
+            failed_settings_cards: Final = await service.sync_global_settings(
+                (await settings_repository.get()).values,
+                rollback_on_failure=False,
+            )
+            if failed_settings_cards:
+                _LOGGER.warning("Account pool startup settings sync failed for %d cards", len(failed_settings_cards))
+        except Exception as error:
+            _LOGGER.warning("Account pool startup settings sync failed: %s", error.__class__.__name__)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
@@ -140,17 +149,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await controller.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
-    app.include_router(create_router(
-        service, resolved.manager_token, keys=keys, logs=logs, environments=environments, policies=policies,
-        gateway_service=GatewayService(
-            keys, environments, policies, leases, logs, service.gateway_environment, settings_repository
-        ),
-        batch_service=batch_service,
-        settings=settings_repository,
-        plugins=plugin_service,
-        sync_settings=service.sync_global_settings,
-        sync_policy=service.sync_policy,
-    ))
+    app.include_router(
+        create_router(
+            service,
+            resolved.manager_token,
+            keys=keys,
+            logs=logs,
+            environments=environments,
+            policies=policies,
+            gateway_service=GatewayService(
+                keys, environments, policies, leases, logs, service.gateway_environment, settings_repository
+            ),
+            batch_service=batch_service,
+            settings=settings_repository,
+            plugins=plugin_service,
+            sync_settings=service.sync_global_settings,
+            sync_policy=service.sync_policy,
+        )
+    )
     return app
 
 
@@ -167,6 +183,7 @@ async def _reconcile_pending_configurations_until_cancelled(
         try:
             await service.reconcile_pending_configurations()
             await service.reconcile_pending_authorizations()
+            await service.reconcile_pending_deletions()
         except Exception as error:
             _LOGGER.warning("Account pool configuration reconcile failed: %s", error.__class__.__name__)
         try:

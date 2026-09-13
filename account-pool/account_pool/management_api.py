@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Final, Literal, TypeVar, cast
 from uuid import UUID
@@ -47,6 +48,7 @@ def create_management_router(
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
+    settings_update_lock: Final = asyncio.Lock()
 
     async def card(card_id: UUID) -> EnvironmentRecord:
         record: Final = await environments.get(card_id)
@@ -110,9 +112,7 @@ def create_management_router(
     async def list_policies() -> tuple[PolicyView, ...]:
         records: Final = {record.id: record for record in await environments.list()}
         return tuple(
-            policy.model_copy(
-                update={"capabilities": policy_capabilities(records[policy.card_id].supplier)}
-            )
+            policy.model_copy(update={"capabilities": policy_capabilities(records[policy.card_id].supplier)})
             for policy in await policies.list()
             if policy.card_id in records
         )
@@ -161,14 +161,16 @@ def create_management_router(
 
         @router.put("/settings")
         async def update_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView:
-            saved: Final = await settings.save(request)
-            if saved is None:
-                raise HTTPException(409, "Settings have changed; refresh before retrying")
-            if sync_settings is not None:
-                failed_card_ids: Final = await sync_settings(saved.values)
-                if failed_card_ids:
-                    raise HTTPException(status_code=502, detail="settings runtime synchronization failed")
-            return saved
+            async with settings_update_lock:
+                previous: Final = await settings.get()
+                saved: Final = await settings.save(request)
+                if saved is None:
+                    raise HTTPException(409, "Settings have changed; refresh before retrying")
+                if sync_settings is None:
+                    return saved
+                if await _sync_settings_or_restore(settings, sync_settings, saved, previous):
+                    return saved
+                raise HTTPException(status_code=502, detail="settings runtime synchronization failed")
 
         @router.post("/settings/preview")
         async def preview_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsPreview:
@@ -177,10 +179,16 @@ def create_management_router(
 
         @router.post("/settings/rollback")
         async def rollback_settings(request: SettingsRollbackRequest) -> AccountPoolSettingsView:
-            restored: Final = await settings.rollback(request.expected_version, request.target_version)
-            if restored is None:
-                raise HTTPException(409, "Settings have changed or the target version does not exist")
-            return restored
+            async with settings_update_lock:
+                previous: Final = await settings.get()
+                restored: Final = await settings.rollback(request.expected_version, request.target_version)
+                if restored is None:
+                    raise HTTPException(409, "Settings have changed or the target version does not exist")
+                if sync_settings is None:
+                    return restored
+                if await _sync_settings_or_restore(settings, sync_settings, restored, previous):
+                    return restored
+                raise HTTPException(status_code=502, detail="settings runtime synchronization failed")
 
     return router
 
@@ -202,6 +210,31 @@ def unwrap(result: Result[T]) -> T:
     if isinstance(result, Failure):
         raise HTTPException(409, result.message)
     return result.value
+
+
+async def _sync_settings_or_restore(
+    settings: AccountPoolSettingsRepository,
+    sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]],
+    applied: AccountPoolSettingsView,
+    previous: AccountPoolSettingsView,
+) -> bool:
+    if await _settings_runtime_sync_succeeded(sync_settings, applied.values):
+        return True
+    # 数据库配置和卡片运行时一起回退，避免同步异常后留下半生效状态。
+    restored: Final = await settings.rollback(applied.version, previous.version)
+    if restored is not None:
+        await _settings_runtime_sync_succeeded(sync_settings, previous.values)
+    return False
+
+
+async def _settings_runtime_sync_succeeded(
+    sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]],
+    values: AccountPoolSettings,
+) -> bool:
+    try:
+        return not await sync_settings(values)
+    except Exception:
+        return False
 
 
 async def _set_policy_runtime_status(

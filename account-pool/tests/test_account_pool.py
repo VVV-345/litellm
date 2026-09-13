@@ -9,7 +9,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import httpx
@@ -49,9 +49,16 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
+from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, RoutingPolicy
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, Failure, FailureCode, Success, _safe_error
-from account_pool.settings import AccountPoolSettings, CommonSettingsProfile, CommonSettingsValues
+from account_pool.settings import (
+    AccountPoolSettings,
+    CommonSettingsProfile,
+    CommonSettingsValues,
+    NetworkSettingsProfile,
+    NetworkSettingsValues,
+)
 
 
 @pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
@@ -302,6 +309,9 @@ class FakeChannel:
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         await self._cli.submit_callback(record, callback)
 
+    async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
+        await self._cli.cancel_oauth_session(record, state)
+
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         return await self._cli.read_account(record)
 
@@ -448,10 +458,14 @@ class FakeCLIProxy:
         self.health_calls = 0
         self.configuration_completed = asyncio.Event()
         self.submit_calls: list[OAuthCallback] = []
+        self.cancel_calls: list[tuple[UUID, str]] = []
         self.fail_proxy_once = False
         self.direct_credentials: list[tuple[UUID, DirectAPIKeyCredentialRequest, str]] = []
         self.vertex_credentials: list[tuple[UUID, str, bytes, str]] = []
         self.global_settings_calls: list[tuple[UUID, AccountPoolSettings]] = []
+        self.policy_calls: list[tuple[UUID, AccountPolicy]] = []
+        self.configuration_calls: list[tuple[UUID, EnvironmentConfiguration]] = []
+        self.runtime_sync_calls: list[tuple[str, UUID]] = []
 
     async def close(self) -> None:
         return None
@@ -473,6 +487,9 @@ class FakeCLIProxy:
 
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         self.submit_calls.append(callback)
+
+    async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
+        self.cancel_calls.append((record.id, state))
 
     async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
         self.read_calls += 1
@@ -528,6 +545,7 @@ class FakeCLIProxy:
         self.configuration_completed.set()
 
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
+        self.configuration_calls.append((record.id, configuration))
         await self.set_proxy_url(record, configuration.proxy_url)
         await self.set_enabled_models(record, configuration.enabled_models)
         await self.set_credential_enabled(record, configuration.credential_enabled)
@@ -535,6 +553,22 @@ class FakeCLIProxy:
 
     async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
         self.global_settings_calls.append((record.id, settings))
+        self.runtime_sync_calls.append(("settings", record.id))
+
+    async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
+        self.policy_calls.append((record.id, policy))
+        self.runtime_sync_calls.append(("policy", record.id))
+
+
+class FailingGlobalSettingsCLI(FakeCLIProxy):
+    def __init__(self, failing_card_id: UUID) -> None:
+        super().__init__()
+        self._failing_card_id: Final = failing_card_id
+
+    async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
+        await super().apply_global_settings(record, settings)
+        if record.id == self._failing_card_id:
+            raise RuntimeError("settings synchronization failed")
 
 
 class InvalidAuthorizationURLCLI(FakeCLIProxy):
@@ -609,13 +643,70 @@ class StaticProfiles:
         return self.proxy_url
 
 
+class RecordingPolicies:
+    def __init__(self, policy: PolicyView) -> None:
+        self.policy: PolicyView = policy
+
+    async def list(self) -> tuple[PolicyView, ...]:
+        return (self.policy,)
+
+    async def get(self, card_id: UUID) -> PolicyView:
+        return self.policy if self.policy.card_id == card_id else PolicyView(card_id=card_id)
+
+    async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None:
+        current: Final = await self.get(card_id)
+        if request.version != current.version:
+            return None
+        saved: Final = PolicyView(card_id=card_id, version=current.version + 1, policy=request.policy)
+        self.policy = saved
+        return saved
+
+    async def set_runtime_status(
+        self,
+        card_id: UUID,
+        version: int,
+        status: Literal["partial", "synced", "failed"],
+        error: str | None = None,
+    ) -> PolicyView | None:
+        if self.policy.card_id != card_id or self.policy.version != version:
+            return None
+        saved: Final = self.policy.model_copy(
+            update={"runtime_status": status, "runtime_error": error, "runtime_updated_at": utc_now()}
+        )
+        self.policy = saved
+        return saved
+
+
+class RecordingStdin:
+    def __init__(self, payloads: list[bytes]) -> None:
+        self._payloads: Final = payloads
+
+    def write(self, content: bytes) -> None:
+        self._payloads.append(content)
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    async def wait_closed(self) -> None:
+        return None
+
+
 class CompletedDockerProcess:
-    def __init__(self, returncode: int = 0, stdout: bytes = b"", stderr: bytes = b"") -> None:
+    def __init__(
+        self,
+        returncode: int = 0,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        stdin: RecordingStdin | None = None,
+    ) -> None:
         self._returncode: Final = returncode
         self._stdout: Final = stdout
         self._stderr: Final = stderr
         self.killed = False
-        self._stdin = None
+        self._stdin: Final = stdin
 
     @property
     def returncode(self) -> int:
@@ -635,10 +726,12 @@ class CompletedDockerProcess:
 class RecordingDockerRunner:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[str, ...], dict[str, str]]] = []
+        self.stdin_payloads: list[bytes] = []
 
     async def __call__(self, arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
         self.calls.append((arguments, environment))
-        return CompletedDockerProcess()
+        stdin: Final = RecordingStdin(self.stdin_payloads) if "--interactive" in arguments else None
+        return CompletedDockerProcess(stdin=stdin)
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -740,6 +833,123 @@ async def test_global_settings_sync_applies_named_common_profile_to_the_bound_ca
     assert cli.concurrency_calls[-1] == 9
     assert cli.global_settings_calls[0][0] == record.id
     assert cli.global_settings_calls[0][1].default_concurrency_limit == 9
+
+
+@pytest.mark.asyncio
+async def test_global_defaults_do_not_overwrite_existing_card_runtime_configuration(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 7})
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    failed: Final = await service.sync_global_settings(AccountPoolSettings(default_concurrency_limit=2))
+
+    assert failed == ()
+    assert cli.concurrency_calls == []
+    stored: Final = await service._repository.get(record.id)
+    assert stored is not None and stored.concurrency_limit == 7
+
+
+@pytest.mark.asyncio
+async def test_global_settings_partial_failure_restores_all_changed_card_configurations(tmp_path: Path) -> None:
+    first: Final = _record(status=EnvironmentStatus.READY)
+    second: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 4})
+    repository: Final = MemoryRepository(first)
+    await repository.save(second)
+    runtime: Final = FakeRuntime()
+    cli: Final = FailingGlobalSettingsCLI(second.id)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=StaticProfiles("http://proxy.example:8080"),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    settings: Final = AccountPoolSettings(
+        common_profiles=(
+            CommonSettingsProfile(
+                id="shared-common",
+                name="共享常用配置",
+                card_ids=(first.id, second.id),
+                inherit_global=False,
+                values=CommonSettingsValues(default_concurrency_limit=9),
+            ),
+        ),
+        network_profiles=(
+            NetworkSettingsProfile(
+                id="shared-network",
+                name="共享网络配置",
+                card_ids=(first.id, second.id),
+                inherit_global=False,
+                values=NetworkSettingsValues(default_proxy_profile_id="proxy-profile"),
+            ),
+        ),
+    )
+
+    failed: Final = await service.sync_global_settings(settings)
+
+    assert failed == (second.id,)
+    restored_first: Final = await repository.get(first.id)
+    restored_second: Final = await repository.get(second.id)
+    assert restored_first is not None
+    assert restored_second is not None
+    assert (restored_first.concurrency_limit, restored_first.proxy_mode, restored_first.proxy_profile_id) == (
+        2,
+        ProxyMode.DEFAULT_GATEWAY,
+        None,
+    )
+    assert (restored_second.concurrency_limit, restored_second.proxy_mode, restored_second.proxy_profile_id) == (
+        4,
+        ProxyMode.DEFAULT_GATEWAY,
+        None,
+    )
+    first_configurations: Final = tuple(
+        configuration for card_id, configuration in cli.configuration_calls if card_id == first.id
+    )
+    second_configurations: Final = tuple(
+        configuration for card_id, configuration in cli.configuration_calls if card_id == second.id
+    )
+    assert tuple((item.concurrency_limit, item.proxy_url) for item in first_configurations) == (
+        (9, "http://proxy.example:8080"),
+        (2, ""),
+    )
+    assert tuple((item.concurrency_limit, item.proxy_url) for item in second_configurations) == (
+        (9, "http://proxy.example:8080"),
+        (4, ""),
+    )
+
+
+@pytest.mark.asyncio
+async def test_global_settings_reapply_saved_policy_after_cli_runtime_defaults(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    policy: Final = PolicyView(
+        card_id=record.id,
+        version=3,
+        policy=AccountPolicy(routing=RoutingPolicy(strategy="priority", max_attempts=4)),
+    )
+    policies: Final = RecordingPolicies(policy)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        policies=policies,
+    )
+
+    failed: Final = await service.sync_global_settings(AccountPoolSettings(default_route="quota", request_retry=2))
+
+    assert failed == ()
+    assert cli.runtime_sync_calls == [("settings", record.id), ("policy", record.id)]
+    assert cli.policy_calls == [(record.id, policy.policy)]
+    assert policies.policy.runtime_status == "synced"
+    assert policies.policy.runtime_error is None
 
 
 def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> None:
@@ -1039,9 +1249,12 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     seed: Final = arguments[2]
     assert seed[0] == "docker" and seed[:4] == ("docker", "run", "--rm", "--name")
     assert "--user" in seed and seed[seed.index("--user") + 1] == "65532:65532"
-    assert seed[-1].startswith("mkdir -p /data/config /data/auths")
+    assert "--interactive" in seed
+    assert seed[-1].startswith("umask 077 && mkdir -p /data/config /data/auths /data/plugins")
     assert f"{volume}:/data:rw" in seed
     assert "config.yaml" in seed[-1]
+    assert not any("secret-key" in argument for argument in seed)
+    assert runner.stdin_payloads and b"secret-key" in runner.stdin_payloads[0]
     assert arguments[3][:6] == (
         "docker",
         "compose",
@@ -2740,12 +2953,35 @@ async def test_delete_environment_can_retry_after_runtime_failure(tmp_path: Path
     assert failed_record is not None
     assert failed_record.status == EnvironmentStatus.DELETING
 
-    retried: Final = await service.delete_environment(record.id)
+    await service.reconcile_pending_deletions()
 
-    assert not isinstance(retried, Failure)
     assert await repository.get(record.id) is None
     assert runtime.attempts == 2
     assert len(runtime.removed) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_oauth_reports_a_conflict_when_the_state_change_loses_cas(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    repository: Final = RejectingVersionRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    result: Final = await service.cancel_oauth_session(record.id)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.CONFLICT
+    assert cli.cancel_calls == [(record.id, "state-for-test-1234")]
+    assert await repository.get(record.id) == record
 
 
 @pytest.mark.asyncio

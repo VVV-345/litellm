@@ -51,13 +51,13 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
 
 号池按两层组织上游账号。渠道是承载账号的反代程序，供应商是渠道内提供模型的订阅来源
 
-- CLIProxyAPI（正式实现）：镜像固定为 `eceasy/cli-proxy-api:v7.2.155`。支持 OAuth、设备码、API Key 和 Vertex 服务账号供应商，均通过 CLIProxyAPI 的 OpenAI-compatible 数据面对外提供模型：
+- CLIProxyAPI（正式实现）：默认使用 `ghcr.io/vvv-345/cliproxyapi` 的提交 SHA 镜像，并同时固定多架构 digest。支持 OAuth、设备码、API Key 和 Vertex 服务账号供应商，均通过 CLIProxyAPI 的 OpenAI-compatible 数据面对外提供模型：
   - OpenAI Codex：浏览器 OAuth，回调端口 1455，路径 `/auth/callback`
   - Anthropic Claude：浏览器 OAuth，回调端口 54545，路径 `/callback`
   - Google Antigravity：浏览器 OAuth，回调端口 51121，路径 `/oauth-callback`
   - Kimi：设备码授权，返回用户码，无 SSH 隧道
   - xAI：设备码授权，返回用户码，无 SSH 隧道
-所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，CLIProxyAPI v7.2.155 没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
+所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，当前 CLIProxyAPI 镜像没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
 
 授权结果接收后，账号先进入“验证中”。容器启动或模型读取暂时失败时，后台默认每 5 秒重试，关闭页面或重启 Manager 也会继续。启动等待期限为授权结果接收后的 2 分钟，持续失败时显示超时原因；成功后才进入可用状态并交给 LiteLLM 同步模型。重试验证不会重复领取授权、写入凭据或重启容器
 

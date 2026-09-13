@@ -372,3 +372,39 @@ def test_settings_management_api_supports_conflict_preview_history_and_rollback(
         assert rollback.status_code == 200
         assert rollback.json()["version"] == 2
         assert rollback.json()["values"]["default_route"] == "auto"
+
+
+def test_settings_management_api_restores_database_and_runtime_when_sync_raises() -> None:
+    repository: Final = MemorySettingsRepository()
+    synchronized: list[AccountPoolSettings] = []
+
+    async def sync(values: AccountPoolSettings) -> tuple[UUID, ...]:
+        synchronized.append(values)
+        if len(synchronized) == 1:
+            raise RuntimeError("runtime unavailable")
+        return ()
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(),
+            object(),
+            MemoryEnvironments(),
+            lambda: None,
+            object(),
+            repository,
+            sync_settings=sync,
+        )
+    )
+
+    with TestClient(app) as client:
+        response: Final = client.put(
+            "/api/settings",
+            json={"version": 0, "values": {"default_route": "priority"}},
+        )
+        current: Final = client.get("/api/settings")
+
+    assert response.status_code == 502
+    assert current.json()["version"] == 2
+    assert current.json()["values"]["default_route"] == "auto"
+    assert [values.default_route for values in synchronized] == ["priority", "auto"]

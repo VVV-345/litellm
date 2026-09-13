@@ -101,7 +101,9 @@ class ClaudePolicy(BaseModel):
             "claude-code-cli" if fingerprint in ("claude-code-cli", "oauth-cli") else "inherit"
         )
         legacy_cloak: Final = value.get("cloak")
-        cloak_mode: Final = value.get("cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto")
+        cloak_mode: Final = value.get(
+            "cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto"
+        )
         return {
             key: item
             for key, item in {**value, "fingerprint_profile": normalized_fingerprint, "cloak_mode": cloak_mode}.items()
@@ -225,11 +227,8 @@ def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCap
             PolicyCapability(name=name, status="gateway")
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
-        PolicyCapability(name="identity", status="metadata" if supplier is SupplierKind.OPENAI_CODEX else "unsupported"),
-        *(
-            PolicyCapability(name=name, status="unsupported")
-            for name in ("websocket", "plan_expiry", "debug")
-        ),
+        PolicyCapability(name="identity", status="gateway" if supplier is SupplierKind.OPENAI_CODEX else "unsupported"),
+        *(PolicyCapability(name=name, status="unsupported") for name in ("websocket", "plan_expiry", "debug")),
         PolicyCapability(name="provider_settings", status=provider_status),
         PolicyCapability(name="desktop_compact", status="desktop"),
     )
@@ -273,6 +272,12 @@ async def policy_validation_error(
     policy: AccountPolicy,
     environments: PolicyEnvironmentRepository,
 ) -> str | None:
+    if policy.routing.strategy in ("plan", "expiry"):
+        return "Plan and subscription expiry routing are not supported"
+    if policy.transport.websocket != "inherit":
+        return "Card WebSocket transport is not supported"
+    if policy.transport.debug_log_enabled:
+        return "Card debug logging is not supported"
     if policy.codex is not None and card.supplier is not SupplierKind.OPENAI_CODEX:
         return "Codex settings apply only to Codex accounts"
     provider_policies: Final = (
@@ -319,9 +324,7 @@ class PostgresPolicyRepository:
             await connection.execute(
                 "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_status text NOT NULL DEFAULT 'partial'"
             )
-            await connection.execute(
-                "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_error text"
-            )
+            await connection.execute("ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_error text")
             await connection.execute(
                 "ALTER TABLE account_pool_policies ADD COLUMN IF NOT EXISTS runtime_updated_at timestamptz"
             )

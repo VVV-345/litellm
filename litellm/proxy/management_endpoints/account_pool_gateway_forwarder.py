@@ -8,7 +8,7 @@ import json
 import math
 import re
 from collections.abc import AsyncIterator, Mapping, Sequence
-from functools import cache
+from functools import cache, reduce
 from typing import Final, Protocol, cast
 from uuid import UUID, uuid4
 
@@ -19,7 +19,7 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
 
-from litellm._logging import verbose_proxy_logger
+from litellm._logging import redact_secrets, verbose_proxy_logger
 from litellm.litellm_core_utils import token_counter as token_counter_module
 from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
@@ -65,8 +65,57 @@ class _ResponsesRequestTransformer(Protocol):
         responses_api_request: ResponsesAPIOptionalRequestParams,
     ) -> Mapping[str, object]: ...
 
+
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
-_HEADERS: Final = frozenset(("content-type", "accept", "user-agent", "originator", "openai-beta", "anthropic-version"))
+_HEADERS: Final = frozenset(
+    (
+        "content-type",
+        "accept",
+        "user-agent",
+        "originator",
+        "openai-beta",
+        "anthropic-version",
+        "anthropic-beta",
+        "x-app",
+        "x-client-request-id",
+        "x-claude-code-session-id",
+        "x-claude-remote-session-id",
+        "x-session-id",
+        "x-session-affinity",
+        "session-id",
+        "session_id",
+        "conversation_id",
+        "x-codex-turn-metadata",
+        "x-stainless-arch",
+        "x-stainless-async",
+        "x-stainless-lang",
+        "x-stainless-os",
+        "x-stainless-package-version",
+        "x-stainless-read-timeout",
+        "x-stainless-retry-count",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "x-stainless-timeout",
+    )
+)
+_RESPONSE_HEADERS: Final = frozenset(
+    (
+        "cache-control",
+        "retry-after",
+        "retry-after-ms",
+        "request-id",
+        "x-request-id",
+        "openai-request-id",
+        "anthropic-request-id",
+        "openai-processing-ms",
+        "openai-version",
+        "x-should-retry",
+    )
+)
+_RESPONSE_HEADER_PREFIXES: Final = ("x-ratelimit-", "ratelimit-", "anthropic-ratelimit-")
+_SENSITIVE_ERROR_FIELDS: Final = frozenset(
+    ("authorization", "api-key", "api_key", "token", "access_token", "refresh_token", "secret", "cookie")
+)
 _SAFE_CONNECT_FAILURES: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 _MESSAGES: Final = TypeAdapter(list[AllMessageValues])
 _CHAT_TOOLS: Final = TypeAdapter(list[ChatCompletionToolParam])
@@ -108,8 +157,18 @@ class Attempt:
     async def emit(self, message: Message) -> None:
         if message["type"] == "http.response.start":
             self.started = True
+            response_headers: Final = cast(Sequence[tuple[bytes, bytes]], message.get("headers", ()))
+            header_names: Final = frozenset(name.lower() for name, _ in response_headers)
+            request_id: Final = str(self.request_id).encode()
             await self.send(
-                {**message, "headers": [*message.get("headers", []), (b"x-request-id", str(self.request_id).encode())]}
+                {
+                    **message,
+                    "headers": [
+                        *response_headers,
+                        *(((b"x-request-id", request_id),) if b"x-request-id" not in header_names else ()),
+                        (b"x-account-pool-request-id", request_id),
+                    ],
+                }
             )
             return
         await self.send(message)
@@ -327,6 +386,7 @@ async def execute(
             upstream: Final = selected_client.build_request(
                 "POST",
                 validated_destination,
+                params=tuple(request.query_params.multi_items()),
                 headers={
                     **headers,
                     **provider_headers,
@@ -342,7 +402,7 @@ async def execute(
                 cost_usd: Final = upstream_response_cost(response.headers)
                 attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
-                    code: Final = await error_code(response)
+                    error_payload, code = await upstream_error_payload(response, (credential.api_key,))
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None and response.status_code in resolution.policy.routing.retryable_statuses
@@ -360,8 +420,9 @@ async def execute(
                     if retry:
                         return False
                     await JSONResponse(
-                        {"error": {"message": attempt.result.message, "code": code, "type": "upstream_error"}},
+                        error_payload,
                         status_code=public_status,
+                        headers=public_response_headers(response.headers),
                     )(request.scope, request.receive, attempt.emit)
                     return True
                 if payload.get("stream") is True:
@@ -380,9 +441,11 @@ async def execute(
                         cost_usd=cost_usd,
                     )
                     public: Final = {**parsed, **({"model": payload["model"]} if "model" in parsed else {})}
-                    await JSONResponse(public, status_code=response.status_code)(
-                        request.scope, request.receive, attempt.emit
-                    )
+                    await JSONResponse(
+                        public,
+                        status_code=response.status_code,
+                        headers=public_response_headers(response.headers),
+                    )(request.scope, request.receive, attempt.emit)
                 return True
             finally:
                 await response.aclose()
@@ -453,14 +516,45 @@ async def bounded_body(response: httpx.Response, limit: int) -> bytes:
     return buffer.getvalue()
 
 
-async def error_code(response: httpx.Response) -> str | None:
+async def upstream_error_payload(
+    response: httpx.Response,
+    secrets: tuple[str, ...],
+) -> tuple[dict[str, JsonValue], str | None]:
     try:
         data: Final = _JSON.validate_json(await bounded_body(response, 65536))
     except ValueError:
-        return None
-    error: Final = data.get("error")
+        return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
+    safe: Final = _safe_error_value(data, secrets)
+    if not isinstance(safe, dict):
+        return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
+    error: Final = safe.get("error")
     code: Final = error.get("code") if isinstance(error, dict) else None
-    return code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
+    normalized_code: Final = code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
+    return safe, normalized_code
+
+
+def _safe_error_value(value: JsonValue, secrets: tuple[str, ...], key: str | None = None) -> JsonValue:
+    if key is not None and key.lower() in _SENSITIVE_ERROR_FIELDS:
+        return "[REDACTED]"
+    if isinstance(value, str):
+        return reduce(
+            lambda redacted, secret: redacted.replace(secret, "[REDACTED]") if secret else redacted,
+            secrets,
+            redact_secrets(value),
+        )
+    if isinstance(value, list):
+        return [_safe_error_value(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {name: _safe_error_value(item, secrets, name) for name, item in value.items()}
+    return value
+
+
+def public_response_headers(headers: httpx.Headers) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in headers.multi_items()
+        if name in _RESPONSE_HEADERS or name.startswith(_RESPONSE_HEADER_PREFIXES)
+    }
 
 
 def upstream_response_cost(headers: httpx.Headers) -> float | None:
@@ -510,7 +604,9 @@ def estimate_chat_input_tokens(payload: Mapping[str, JsonValue], model: str) -> 
     messages: Final = _MESSAGES.validate_python(payload.get("messages", ()))
     tools: Final = _CHAT_TOOLS.validate_python(payload.get("tools")) if payload.get("tools") is not None else None
     tool_choice_value: Final = payload.get("tool_choice")
-    tool_choice: Final = _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    tool_choice: Final = (
+        _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    )
     return _TOKEN_COUNTER(
         model=model,
         messages=messages,
@@ -532,7 +628,9 @@ def estimate_responses_input_tokens(payload: Mapping[str, JsonValue], model: str
     tools_value: Final = chat_request.get("tools")
     tools: Final = _CHAT_TOOLS.validate_python(tools_value) if tools_value is not None else None
     tool_choice_value: Final = chat_request.get("tool_choice")
-    tool_choice: Final = _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    tool_choice: Final = (
+        _TOOL_CHOICE.validate_python(tool_choice_value) if isinstance(tool_choice_value, dict) else None
+    )
     return _TOKEN_COUNTER(
         model=model,
         messages=messages,
@@ -543,9 +641,13 @@ def estimate_responses_input_tokens(payload: Mapping[str, JsonValue], model: str
 
 
 def requested_output_tokens(path: str, payload: Mapping[str, JsonValue]) -> int:
-    fields: Final = ("max_output_tokens",) if path.startswith("/v1/responses") else (
-        "max_completion_tokens",
-        "max_tokens",
+    fields: Final = (
+        ("max_output_tokens",)
+        if path.startswith("/v1/responses")
+        else (
+            "max_completion_tokens",
+            "max_tokens",
+        )
     )
     explicit: Final = tuple(
         value for field in fields for value in (payload.get(field),) if type(value) is int and value >= 0
@@ -592,5 +694,9 @@ async def stream_response(
         chunks(),
         status_code=response.status_code,
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        headers={
+            **public_response_headers(response.headers),
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
     )(request.scope, request.receive, attempt.emit)

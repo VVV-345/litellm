@@ -5931,6 +5931,7 @@
       "version": "Configuration version {{version}}",
       "previewReady": "Configuration preview is ready",
       "saved": "Configuration saved and synchronized",
+      "savedReloadRequired": "Configuration saved and synchronized. Restart card runtimes to complete the change",
       "globalConfiguration": "Global configuration",
       "globalConfigurationHint": "Cards without a named configuration use these values.",
       "namedConfigurations": "Named configurations",
@@ -6086,6 +6087,11 @@
       "providerDescription": "Plan and quota values come from authentication and are read-only. Controls below are saved for this card",
       "providerPending": "This provider has no editable provider-specific settings yet. Plans and quotas sync to the card after authentication",
       "saved": "Policy saved for subsequent card-key requests. Unsupported settings are not marked active",
+      "runtimeStatus": {
+        "partial": "Runtime synchronization is pending",
+        "synced": "Policy is active in the runtime",
+        "failed": "Runtime synchronization failed"
+      },
       "invalidAliases": "Use alias=model, separated by commas",
       "tags": "Tags",
       "group": "Group",

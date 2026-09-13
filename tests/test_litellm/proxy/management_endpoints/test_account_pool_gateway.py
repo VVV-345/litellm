@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
-from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
+from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware, session_hash
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
@@ -63,36 +63,66 @@ class Control:
             return AcquireRejected(reason="token_budget")
         if request.account_id in self.unavailable_account_ids:
             return AcquireRejected(reason="concurrency")
-        return Lease(lease_id=uuid4(), card_id=self.resolution.card_id, key_id=self.resolution.key_id,
-                     account_id=request.account_id, request_id=request.request_id, model=request.model,
-                     channel="cliproxyapi", supplier="openai_codex", started_at=datetime.now(timezone.utc),
-                     attempt=request.attempt, routing_reason=request.routing_reason)
+        return Lease(
+            lease_id=uuid4(),
+            card_id=self.resolution.card_id,
+            key_id=self.resolution.key_id,
+            account_id=request.account_id,
+            request_id=request.request_id,
+            model=request.model,
+            channel="cliproxyapi",
+            supplier="openai_codex",
+            started_at=datetime.now(timezone.utc),
+            attempt=request.attempt,
+            routing_reason=request.routing_reason,
+        )
 
     async def finish(self, request: FinishRequest) -> None:
         self.finished.append(request)
 
 
 def candidate(identifier: UUID, priority: int = 0) -> Candidate:
-    return Candidate(id=identifier, channel="cliproxyapi", supplier="openai_codex", environment_version=2,
-                     policy_version=1, enabled_models=("model-a",), api_base=f"http://cliproxy-{identifier.hex}:8317/v1",
-                     api_key="internal-secret", concurrency_limit=1,
-                     policy=AccountPolicy(routing=RoutingPolicy(priority=priority)))
+    return Candidate(
+        id=identifier,
+        channel="cliproxyapi",
+        supplier="openai_codex",
+        environment_version=2,
+        policy_version=1,
+        enabled_models=("model-a",),
+        api_base=f"http://cliproxy-{identifier.hex}:8317/v1",
+        api_key="internal-secret",
+        concurrency_limit=1,
+        policy=AccountPolicy(routing=RoutingPolicy(priority=priority)),
+    )
 
 
 def setup_gateway(handler: Callable[[httpx.Request], httpx.Response], *, retry: bool = False):
     card: Final = uuid4()
-    policy: Final = AccountPolicy(model_aliases=(ModelAlias(alias="public-model", target="model-a"),),
-                                 routing=RoutingPolicy(fallback_enabled=retry, max_attempts=2, backoff_ms=0))
-    control: Final = Control(Resolution(card_id=card, key_id=uuid4(), card_version=1, policy_version=1,
-                                       policy=policy, candidates=(candidate(card, 10), candidate(uuid4()))))
+    policy: Final = AccountPolicy(
+        model_aliases=(ModelAlias(alias="public-model", target="model-a"),),
+        routing=RoutingPolicy(fallback_enabled=retry, max_attempts=2, backoff_ms=0),
+    )
+    control: Final = Control(
+        Resolution(
+            card_id=card,
+            key_id=uuid4(),
+            card_version=1,
+            policy_version=1,
+            policy=policy,
+            candidates=(candidate(card, 10), candidate(uuid4())),
+        )
+    )
     app: Final = FastAPI()
 
     @app.post("/v1/chat/completions")
     async def ordinary() -> dict[str, str]:
         return {"route": "ordinary"}
 
-    app.add_middleware(AccountPoolGatewayMiddleware, control_factory=lambda _: control,
-                       client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
     return TestClient(app), control
 
 
@@ -175,25 +205,92 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
         assert request.headers["authorization"] == "Bearer internal-secret"
         assert "x-api-key" not in request.headers and "cookie" not in request.headers
         assert "x-account-pool-card-id" not in request.headers
+        assert request.headers["session-id"] == "codex-session"
+        assert request.headers["x-claude-code-session-id"] == "claude-session"
+        assert request.headers["anthropic-beta"] == "context-1m"
+        assert request.headers["x-codex-turn-metadata"] == '{"turn_id":"turn-1"}'
+        assert request.url.query == b"api-version=2026-09-01&feature=one&feature=two"
         assert json.loads(request.content)["model"] == "model-a"
         return httpx.Response(
             200,
-            headers={"x-litellm-response-cost": "0.00042"},
+            headers={
+                "x-litellm-response-cost": "0.00042",
+                "x-request-id": "upstream-request",
+                "x-ratelimit-remaining-requests": "7",
+            },
             json={"model": "model-a", "choices": [], "usage": {"prompt_tokens": 4, "completion_tokens": 2}},
         )
 
     client, control = setup_gateway(upstream)
     with client:
-        response: Final = client.post("/v1/chat/completions", json={"model": "public-model", "messages": []},
-                                      headers={"Authorization": f"Bearer {_KEY}", "Cookie": "token=private",
-                                               "x-api-key": "downstream-key", "x-account-pool-card-id": str(uuid4())})
+        response: Final = client.post(
+            "/v1/chat/completions?api-version=2026-09-01&feature=one&feature=two",
+            json={"model": "public-model", "messages": []},
+            headers={
+                "Authorization": f"Bearer {_KEY}",
+                "Cookie": "token=private",
+                "x-api-key": "downstream-key",
+                "x-account-pool-card-id": str(uuid4()),
+                "Session-Id": "codex-session",
+                "X-Claude-Code-Session-Id": "claude-session",
+                "Anthropic-Beta": "context-1m",
+                "X-Codex-Turn-Metadata": '{"turn_id":"turn-1"}',
+            },
+        )
     assert response.status_code == 200 and response.json()["model"] == "public-model"
     assert seen[0].url.host == f"cliproxy-{control.resolution.card_id.hex}"
     assert len(control.finished) == 1 and control.finished[0].input_tokens == 4
     assert control.finished[0].cost_usd == 0.00042
     assert control.acquisitions[0].routing_reason == "automatic"
     assert control.acquisitions[0].estimated_tokens == 0
+    assert response.headers["x-request-id"] == "upstream-request"
+    assert response.headers["x-ratelimit-remaining-requests"] == "7"
+    assert response.headers["x-account-pool-request-id"]
     assert _KEY not in response.text and "internal-secret" not in response.text
+
+
+def test_session_hash_recognizes_codex_and_claude_session_headers() -> None:
+    codex: Final = session_hash(Headers({"Session-Id": "codex-session"}), "gpt-5")
+    claude: Final = session_hash(Headers({"X-Claude-Code-Session-Id": "claude-session"}), "claude")
+
+    assert codex is not None
+    assert claude is not None
+    assert codex != claude
+
+
+def test_upstream_error_preserves_safe_json_and_rate_limit_headers() -> None:
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={"retry-after": "12", "x-request-id": "provider-request"},
+            json={
+                "error": {
+                    "message": "quota exceeded for Bearer internal-secret",
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                    "authorization": "Bearer internal-secret",
+                }
+            },
+        )
+
+    client, _ = setup_gateway(upstream)
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 429
+    assert response.json()["error"] == {
+        "message": "quota exceeded for REDACTED",
+        "type": "rate_limit_error",
+        "code": "rate_limit_exceeded",
+        "authorization": "[REDACTED]",
+    }
+    assert response.headers["retry-after"] == "12"
+    assert response.headers["x-request-id"] == "provider-request"
+    assert response.headers["x-account-pool-request-id"]
 
 
 def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted_key(
@@ -245,7 +342,11 @@ def test_explicit_output_cap_is_included_in_token_reservation() -> None:
     client, control = setup_gateway(lambda _: httpx.Response(200, json={"output": []}))
     budget_policy: Final = AccountPolicy(routing=RoutingPolicy(token_budget_limit=10000))
     control.resolution = control.resolution.model_copy(
-        update={"candidates": tuple(item.model_copy(update={"policy": budget_policy}) for item in control.resolution.candidates)}
+        update={
+            "candidates": tuple(
+                item.model_copy(update={"policy": budget_policy}) for item in control.resolution.candidates
+            )
+        }
     )
     with client:
         response: Final = client.post(
@@ -260,9 +361,14 @@ def test_explicit_output_cap_is_included_in_token_reservation() -> None:
 def test_models_and_management_scope_are_separate_from_ordinary_keys() -> None:
     client, _ = setup_gateway(lambda _: pytest.fail("No upstream request expected"))
     with client:
-        assert client.get("/v1/models", headers={"Authorization": f"Bearer {_KEY}"}).json()["data"][1]["id"] == "public-model"
+        assert (
+            client.get("/v1/models", headers={"Authorization": f"Bearer {_KEY}"}).json()["data"][1]["id"]
+            == "public-model"
+        )
         assert client.get("/account_pool/environments", headers={"Authorization": f"Bearer {_KEY}"}).status_code == 403
-        assert client.post("/v1/chat/completions", json={"model": "model-a"}, headers={"Authorization": "Bearer ordinary"}).json() == {"route": "ordinary"}
+        assert client.post(
+            "/v1/chat/completions", json={"model": "model-a"}, headers={"Authorization": "Bearer ordinary"}
+        ).json() == {"route": "ordinary"}
         assert client.get("/v1/models", headers={"Authorization": "Bearer cpk_invalid"}).status_code == 401
 
 
@@ -361,13 +467,16 @@ def test_upstream_redirect_is_reported_as_gateway_failure() -> None:
 
 
 @pytest.mark.parametrize("revoked,exhausted,expected", [(True, False, 401), (False, True, 503)])
-def test_revocation_and_concurrency_are_checked_before_forwarding(revoked: bool, exhausted: bool, expected: int) -> None:
+def test_revocation_and_concurrency_are_checked_before_forwarding(
+    revoked: bool, exhausted: bool, expected: int
+) -> None:
     client, control = setup_gateway(lambda _: pytest.fail("No upstream request expected"))
     control.revoked = revoked
     control.exhausted = exhausted
     with client:
-        response: Final = client.post("/v1/responses", json={"model": "model-a"},
-                                      headers={"Authorization": f"Bearer {_KEY}"})
+        response: Final = client.post(
+            "/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
     assert response.status_code == expected
 
 
@@ -418,8 +527,9 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
 
     client, control = setup_gateway(upstream, retry=True)
     with client:
-        response: Final = client.post("/v1/responses", json={"model": "model-a"},
-                                      headers={"Authorization": f"Bearer {_KEY}"})
+        response: Final = client.post(
+            "/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
     assert response.status_code == 200 and len(set(calls)) == 2
     assert len({request.request_id for request in control.acquisitions}) == 1
     assert control.finished[0].next_account_id == control.acquisitions[1].account_id
@@ -433,8 +543,11 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
 def test_failover_requires_permission_and_does_not_replay_stateful_requests(previous_response_id, retry) -> None:
     client, control = setup_gateway(lambda _: httpx.Response(503, json={"error": {"code": "unavailable"}}), retry=retry)
     with client:
-        response: Final = client.post("/v1/responses", json={"model": "model-a", "previous_response_id": previous_response_id},
-                                      headers={"Authorization": f"Bearer {_KEY}"})
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "previous_response_id": previous_response_id},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
     assert response.status_code == 503 and len(control.acquisitions) == 1
     assert not control.finished[0].retryable
 
@@ -445,18 +558,24 @@ def test_read_timeout_is_not_retried_even_with_fallback_enabled() -> None:
 
     client, control = setup_gateway(upstream, retry=True)
     with client:
-        response: Final = client.post("/v1/responses", json={"model": "model-a"},
-                                      headers={"Authorization": f"Bearer {_KEY}"})
+        response: Final = client.post(
+            "/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
     assert response.status_code == 504 and len(control.acquisitions) == 1
     assert control.finished[0].http_status == 504 and not control.finished[0].retryable
 
 
 def test_stream_keeps_sse_and_releases_lease_after_consumption() -> None:
     stream: Final = 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: [DONE]\n\n'
-    client, control = setup_gateway(lambda _: httpx.Response(200, content=stream, headers={"content-type": "text/event-stream"}))
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+    )
     with client:
-        response: Final = client.post("/v1/chat/completions", json={"model": "model-a", "stream": True},
-                                      headers={"Authorization": f"Bearer {_KEY}"})
+        response: Final = client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
     assert response.status_code == 200 and response.text == stream
     assert control.finished[0].http_status == 200
 
@@ -492,7 +611,8 @@ def test_truncated_stream_is_logged_as_failure_and_never_replayed() -> None:
     )
     with client:
         response: Final = client.post(
-            "/v1/chat/completions", json={"model": "model-a", "stream": True},
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert response.status_code == 200

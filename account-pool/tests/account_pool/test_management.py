@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import datetime, timedelta
-from typing import Final
+from datetime import datetime, timedelta, timezone
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from account_pool.api import _validate_upload_filename, create_router
 from account_pool.card_keys import CardKeyRecord, CardKeyService, matches_card_key
-from account_pool.domain import EnvironmentStatus, utc_now
+from account_pool.domain import EnvironmentRecord, EnvironmentStatus, utc_now
 from account_pool.error_logs import (
     MODEL_REQUEST_OPERATION,
     ErrorLogDetail,
@@ -22,7 +22,8 @@ from account_pool.error_logs import (
     ErrorLogService,
     ErrorStats,
 )
-from account_pool.policies import PolicyUpdate, PolicyView
+from account_pool.management_api import create_management_router
+from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, _plugin_store_approves
@@ -179,6 +180,26 @@ class MemoryPolicies:
         self.records[card_id] = saved
         return saved
 
+    async def set_runtime_status(
+        self,
+        card_id: UUID,
+        version: int,
+        status: Literal["partial", "synced", "failed"],
+        error: str | None = None,
+    ) -> PolicyView | None:
+        current: Final = self.records.get(card_id)
+        if current is None or current.version != version:
+            return None
+        saved: Final = current.model_copy(
+            update={
+                "runtime_status": status,
+                "runtime_error": error,
+                "runtime_updated_at": datetime.now(timezone.utc),
+            }
+        )
+        self.records[card_id] = saved
+        return saved
+
 
 @pytest.mark.asyncio
 async def test_key_rotation_rejects_stale_and_cross_card_changes() -> None:
@@ -269,7 +290,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     capabilities: Final = {item["name"]: item["status"] for item in first.json()["capabilities"]}
     assert capabilities["responses_compact"] == "gateway"
     assert capabilities["desktop_compact"] == "desktop"
-    assert capabilities["identity"] == "metadata"
+    assert capabilities["identity"] == "gateway"
     assert capabilities["provider_settings"] == "gateway"
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409
     assert client.get(path).json()["policy"]["routing"]["weight"] == 4
@@ -288,6 +309,11 @@ def test_policy_versions_and_supplier_scope(management) -> None:
         ).status_code
         == 422
     )
+    assert client.put(path, json={"version": 2, "policy": {"routing": {"strategy": "plan"}}}).status_code == 422
+    assert client.put(path, json={"version": 2, "policy": {"transport": {"websocket": "enabled"}}}).status_code == 422
+    assert (
+        client.put(path, json={"version": 2, "policy": {"transport": {"debug_log_enabled": True}}}).status_code == 422
+    )
     assert client.put(path, json={"version": 2, "policy": {"account_ids": [str(uuid4())]}}).status_code == 422
     assert (
         client.put(
@@ -301,6 +327,48 @@ def test_policy_versions_and_supplier_scope(management) -> None:
         ).status_code
         == 422
     )
+
+
+@pytest.mark.parametrize(
+    ("sync_fails", "expected_status_code", "expected_runtime_status"),
+    ((False, 200, "synced"), (True, 502, "failed")),
+)
+def test_policy_update_persists_runtime_synchronization_status(
+    sync_fails: bool,
+    expected_status_code: int,
+    expected_runtime_status: str,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(record)
+    policies: Final = MemoryPolicies()
+
+    async def sync_policy(_: EnvironmentRecord, __: AccountPolicy) -> None:
+        if sync_fails:
+            raise RuntimeError("runtime synchronization failed")
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(),
+            object(),
+            environments,
+            lambda: None,
+            policies,
+            sync_policy=sync_policy,
+        )
+    )
+
+    with TestClient(app) as client:
+        response: Final = client.put(
+            f"/api/environments/{record.id}/policy",
+            json={"version": 0, "policy": {"routing": {"strategy": "priority"}}},
+        )
+
+    assert response.status_code == expected_status_code
+    stored: Final = policies.records[record.id]
+    assert stored.runtime_status == expected_runtime_status
+    assert stored.runtime_error == ("policy runtime synchronization failed" if sync_fails else None)
+    assert stored.runtime_updated_at is not None
 
 
 @pytest.mark.parametrize(

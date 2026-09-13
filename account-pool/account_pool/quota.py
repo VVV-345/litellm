@@ -44,9 +44,7 @@ def parse_provider_quota(
     signals: Final = {key.lower(): value.strip() for key, value in observation.signals.items()}
     plan_type: Final = next((signals[key] for key in plan_keys if signals.get(key)), None)
     windows: Final = tuple(
-        window
-        for prefix in prefixes
-        for window in _provider_windows(prefix, signals, observation.observed_at)
+        window for prefix in prefixes for window in _provider_windows(prefix, signals, observation.observed_at)
     )
     return QuotaSnapshot(observed_at=observation.observed_at, plan_type=plan_type, windows=windows)
 
@@ -62,11 +60,7 @@ def _provider_windows(
         if key.startswith(prefix)
         and (key.endswith("-utilization") or key.endswith("-used-percent") or key.endswith("-used_percent"))
     )
-    return tuple(
-        window
-        for key in candidates
-        if (window := _provider_window(key, signals, observed_at)) is not None
-    )
+    return tuple(window for key in candidates if (window := _provider_window(key, signals, observed_at)) is not None)
 
 
 def _provider_window(
@@ -81,7 +75,11 @@ def _provider_window(
     used: Final = raw_used * 100 if usage_key.endswith("utilization") and raw_used <= 1 else raw_used
     if used < 0 or used > 100:
         return None
-    stem: Final = usage_key.rsplit("-", 1)[0].removesuffix("_used").removesuffix("_used")
+    stem: Final = next(
+        usage_key.removesuffix(suffix)
+        for suffix in ("-utilization", "-used-percent", "-used_percent")
+        if usage_key.endswith(suffix)
+    )
     minutes: Final = _window_minutes(stem, signals)
     if minutes is None:
         minutes = _window_length_from_name(stem)

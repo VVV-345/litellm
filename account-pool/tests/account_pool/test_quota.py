@@ -72,6 +72,23 @@ def test_parse_provider_quota_reads_unified_rate_limit_utilization() -> None:
     assert snapshot.windows[0].window_minutes == 300
 
 
+def test_parse_provider_quota_removes_the_complete_used_percent_suffix() -> None:
+    snapshot: Final = parse_provider_quota(
+        QuotaObservation(
+            observed_at=datetime(2026, 9, 4, tzinfo=timezone.utc),
+            signals={
+                "x-provider-5h-used-percent": "40",
+                "x-provider-5h-window-minutes": "300",
+            },
+        ),
+        ("x-provider-",),
+    )
+
+    assert len(snapshot.windows) == 1
+    assert snapshot.windows[0].name == "5H"
+    assert snapshot.windows[0].used_percent == 40
+
+
 def test_effective_cooldown_preserves_manual_cooldown_when_upstream_value_elapsed() -> None:
     record: Final = _record(manual_cooldown=True)
     now: Final = utc_now()

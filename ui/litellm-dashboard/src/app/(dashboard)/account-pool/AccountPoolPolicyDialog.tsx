@@ -193,11 +193,16 @@ function PolicyForm({
 }) {
   const { t } = useTranslation();
   const source = value.policy ?? defaults;
+  const sourceRouting = { ...defaults.routing, ...source.routing };
   const initial: FormPolicy = {
     ...defaults,
     ...source,
-    routing: { ...defaults.routing, ...source.routing },
-    transport: { ...defaults.transport, ...source.transport },
+    routing: {
+      ...sourceRouting,
+      strategy:
+        sourceRouting.strategy === "plan" || sourceRouting.strategy === "expiry" ? "auto" : sourceRouting.strategy,
+    },
+    transport: { ...defaults.transport, ...source.transport, websocket: "inherit", debug_log_enabled: false },
     codex: source.codex ?? null,
     claude: source.claude ?? null,
     kimi: source.kimi ?? null,
@@ -433,6 +438,13 @@ function PolicyForm({
           <h3 className="font-medium">{t("accountPool.policy.capabilityTitle")}</h3>
           <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.pending")}</p>
         </div>
+        <div
+          className={`rounded-lg border p-3 text-sm ${value.runtime_status === "failed" ? "border-destructive/40 bg-destructive/5" : "bg-muted/20"}`}
+          role={value.runtime_status === "failed" ? "alert" : "status"}
+        >
+          <p className="font-medium">{t(`accountPool.policy.runtimeStatus.${value.runtime_status ?? "partial"}`)}</p>
+          {value.runtime_error && <p className="mt-1 text-xs text-muted-foreground">{value.runtime_error}</p>}
+        </div>
         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {value.capabilities?.map((capability) => (
             <div key={capability.name} className="min-w-0 rounded-lg border border-border p-3">
@@ -482,7 +494,7 @@ function PolicyForm({
           {selectField(
             t("accountPool.policy.strategy"),
             policy.routing.strategy,
-            ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
+            ["auto", "random", "priority", "quota", "custom"],
             (next) => updateRouting("strategy", next as Routing["strategy"]),
           )}
           {numberField(t("accountPool.policy.priority"), policy.routing.priority, (next) =>
@@ -541,19 +553,10 @@ function PolicyForm({
             ["inherit", "enabled", "disabled"],
             (next) => updateTransport("image_generation", next as Transport["image_generation"]),
           )}
-          {selectField(
-            t("accountPool.policy.websocket"),
-            policy.transport.websocket,
-            ["inherit", "enabled", "disabled"],
-            (next) => updateTransport("websocket", next as Transport["websocket"]),
-          )}
           {numberField(
             t("accountPool.policy.request_timeout_seconds"),
             policy.transport.request_timeout_seconds,
             (next) => updateTransport("request_timeout_seconds", next),
-          )}
-          {toggleField(t("accountPool.policy.debug_log_enabled"), policy.transport.debug_log_enabled, (next) =>
-            updateTransport("debug_log_enabled", next),
           )}
         </div>
       </section>

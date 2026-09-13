@@ -69,3 +69,4 @@ def test_renderer_generates_private_management_and_gateway_configuration() -> No
 
     assert rendered["remote-management"]["secret-key"] == "management"
     assert rendered["api-keys"] == ["gateway"]
+    assert rendered["plugins"] == {"enabled": False, "dir": "/data/plugins"}

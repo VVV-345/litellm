@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import shlex
 import shutil
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -96,7 +95,9 @@ class ComposeRuntime:
         )
         stdout, stderr = await communicate_with_timeout(create, self._settings.docker_command_timeout_seconds)
         if create.returncode != 0:
-            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            detail: Final = (
+                stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            )
             raise RuntimeError(f"failed to create {volume}: {detail[:500]}")
         chown: Final = await self._runner(
             (
@@ -114,36 +115,28 @@ class ComposeRuntime:
             ),
             self._docker_environment(),
         )
-        chown_stdout, chown_stderr = await communicate_with_timeout(chown, self._settings.docker_command_timeout_seconds)
+        chown_stdout, chown_stderr = await communicate_with_timeout(
+            chown, self._settings.docker_command_timeout_seconds
+        )
         if chown.returncode != 0:
-            detail: Final = chown_stderr.decode("utf-8", errors="replace").strip() or chown_stdout.decode("utf-8", errors="replace").strip()
+            detail: Final = (
+                chown_stderr.decode("utf-8", errors="replace").strip()
+                or chown_stdout.decode("utf-8", errors="replace").strip()
+            )
             raise RuntimeError(f"failed to chown {volume}: {detail[:500]}")
 
     async def _write_data_volume(self, environment_id: UUID, config: str) -> None:
-        volume: Final = data_volume_name(environment_id)
-        # 用一次性容器经受控 Docker API 写入，Manager 自身不挂载宿主机数据路径。
-        arguments: Final = (
-            "docker",
-            "run",
-            "--rm",
-            "--name",
-            f"account-pool-{environment_id.hex}-seed",
-            "--network",
-            "none",
-            "--user",
-            self._settings.cli_proxy_user,
-            "-v",
-            f"{volume}:/data:rw",
-            self._settings.cli_proxy_image,
-            "sh",
-            "-c",
-            f"mkdir -p /data/config /data/auths && printf '%s' {shlex.quote(config)} > /data/config/config.yaml && chmod 700 /data/config /data/auths && chmod 600 /data/config/config.yaml",
+        await self.write_volume_files(
+            environment_id,
+            image=self._settings.cli_proxy_image,
+            script=(
+                "umask 077 && mkdir -p /data/config /data/auths /data/plugins "
+                "&& cat > /data/config/config.yaml "
+                "&& chmod 700 /data/config /data/auths /data/plugins "
+                "&& chmod 600 /data/config/config.yaml"
+            ),
+            stdin_content=config,
         )
-        process: Final = await self._runner(arguments, self._docker_environment())
-        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
-        if process.returncode != 0:
-            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(f"failed to seed {volume}: {detail[:500]}")
 
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
@@ -190,7 +183,9 @@ class ComposeRuntime:
             raise RuntimeError(f"failed to write {volume} seed files: {error}") from error
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         if process.returncode != 0:
-            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            detail: Final = (
+                stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            )
             raise RuntimeError(f"failed to write {volume} seed files: {detail[:500]}")
 
     async def restart(self, environment_id: UUID) -> None:
@@ -229,7 +224,9 @@ class ComposeRuntime:
             self._docker_environment(),
         )
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
-        detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        detail: Final = (
+            stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        )
         absent: Final = "no such volume" in detail.lower()
         if process.returncode != 0 and not absent:
             raise RuntimeError(f"failed to remove {volume}: {detail[:500]}")
@@ -249,18 +246,26 @@ class ComposeRuntime:
 
     async def _connect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"
-        process: Final = await self._runner(("docker", "network", "connect", network, container), self._docker_environment())
+        process: Final = await self._runner(
+            ("docker", "network", "connect", network, container), self._docker_environment()
+        )
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
-        detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        detail: Final = (
+            stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        )
         already_connected: Final = "already exists in network" in detail.lower()
         if process.returncode != 0 and not already_connected:
             raise RuntimeError(f"failed to attach {container} to {network}: {detail[:500]}")
 
     async def _disconnect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"
-        process: Final = await self._runner(("docker", "network", "disconnect", network, container), self._docker_environment())
+        process: Final = await self._runner(
+            ("docker", "network", "disconnect", network, container), self._docker_environment()
+        )
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
-        detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        detail: Final = (
+            stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        )
         absent: Final = (
             "is not connected" in detail.lower()
             or "no such container" in detail.lower()
@@ -283,7 +288,9 @@ class ComposeRuntime:
         )
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         if process.returncode != 0:
-            detail: Final = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            detail: Final = (
+                stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            )
             raise RuntimeError(f"docker compose failed: {detail[:500]}")
 
     def _docker_environment(self) -> dict[str, str]:

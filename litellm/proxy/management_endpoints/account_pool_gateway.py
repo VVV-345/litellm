@@ -24,6 +24,14 @@ from litellm.proxy.management_endpoints.account_pool_routing import Rejected, ro
 _BODY: Final = TypeAdapter(dict[str, JsonValue])
 _PATHS: Final = frozenset(("/v1/chat/completions", "/v1/responses", "/v1/responses/compact", "/v1/images/generations"))
 _MAX_BODY: Final = 16 * 1024 * 1024
+_SESSION_HEADERS: Final = (
+    "x-claude-code-session-id",
+    "x-session-id",
+    "session-id",
+    "session_id",
+    "x-session-affinity",
+    "x-client-request-id",
+)
 
 
 def http_client() -> httpx.AsyncClient:
@@ -145,7 +153,7 @@ async def read_payload(request: Request) -> dict[str, JsonValue]:
 
 
 def session_hash(headers: Headers, model: str) -> str | None:
-    session: Final = headers.get("x-session-id") or headers.get("session_id")
+    session: Final = next((value for name in _SESSION_HEADERS if (value := headers.get(name))), None)
     if not session:
         return None
     if len(session) > 512:

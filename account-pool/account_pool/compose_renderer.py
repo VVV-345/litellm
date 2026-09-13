@@ -26,6 +26,7 @@ def render_cli_proxy_config(management_key: str, gateway_key: str) -> str:
         "save-cooldown-status": True,
         "proxy-url": "",
         "ws-auth": True,
+        "plugins": {"enabled": False, "dir": "/data/plugins"},
     }
     return yaml.safe_dump(config, sort_keys=False, allow_unicode=False)
 

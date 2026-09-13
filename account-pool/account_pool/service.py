@@ -11,7 +11,7 @@ import secrets as token_secrets
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Final, TypeVar
+from typing import Final, Literal, TypeVar
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
@@ -47,12 +47,13 @@ from account_pool.domain import (
     SupplierKind,
     UpdateEnvironmentRequest,
     configuration_from_record,
+    configured_proxy_url,
     to_view,
     utc_now,
 )
 from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.error_safety import safe_error
-from account_pool.policies import AccountPolicy
+from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentChannel,
@@ -135,6 +136,7 @@ class EnvironmentService:
         proxy_gateways: ProxyGatewayService | None = None,
         error_logs: ErrorLogService | None = None,
         global_settings: AccountPoolSettingsRepository | None = None,
+        policies: PolicyRepository | None = None,
         direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
         direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
@@ -150,6 +152,7 @@ class EnvironmentService:
         self._locks_guard: Final = asyncio.Lock()
         self._error_logs: Final = error_logs
         self._global_settings: Final = global_settings
+        self._policies: Final = policies
         self._direct_credential_validation_timeout_seconds: Final = direct_credential_validation_timeout_seconds
         self._direct_credential_validation_interval_seconds: Final = direct_credential_validation_interval_seconds
 
@@ -211,53 +214,237 @@ class EnvironmentService:
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
-    async def sync_global_settings(self, settings: AccountPoolSettings) -> tuple[UUID, ...]:
+    async def sync_global_settings(
+        self,
+        settings: AccountPoolSettings,
+        *,
+        rollback_on_failure: bool = True,
+    ) -> tuple[UUID, ...]:
         records: Final = await self._repository.list()
+        policies: Final = () if self._policies is None else await self._policies.list()
+        policies_by_card: Final = {policy.card_id: policy for policy in policies}
+        requests: Final = tuple(self._explicit_profile_update_request(record, settings) for record in records)
         results: Final = await asyncio.gather(
-            *(self._sync_global_settings_for_record(record, settings) for record in records),
+            *(
+                self._sync_global_settings_for_record(
+                    record,
+                    settings,
+                    request,
+                    policies_by_card.get(record.id),
+                )
+                for record, request in zip(records, requests)
+            ),
             return_exceptions=True,
         )
-        return tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
+        failed: Final = tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
+        if not failed or not rollback_on_failure:
+            return failed
+        rollback_targets: Final = tuple(
+            (record, request.operation_id)
+            for record, request in zip(records, requests)
+            if request is not None and request.operation_id is not None
+        )
+        rollback_results: Final = await asyncio.gather(
+            *(self._restore_settings_configuration(record, operation_id) for record, operation_id in rollback_targets),
+            return_exceptions=True,
+        )
+        rollback_failed: Final = tuple(
+            record.id
+            for (record, _), result in zip(rollback_targets, rollback_results)
+            if isinstance(result, Exception)
+        )
+        return tuple(dict.fromkeys((*failed, *rollback_failed)))
 
-    async def _sync_global_settings_for_record(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        if record.status is EnvironmentStatus.DELETING:
-            return
-        effective: Final = settings_for_card(settings, record.id)
-        configured: Final = await self._apply_settings_configuration(record, effective)
-        if configured.channel is ChannelKind.CLIPROXYAPI:
-            await self._cli_proxy.apply_global_settings(configured, effective)
-
-    async def _apply_settings_configuration(
+    async def _sync_global_settings_for_record(
         self,
         record: EnvironmentRecord,
         settings: AccountPoolSettings,
-    ) -> EnvironmentRecord:
-        proxy_mode: Final = (
-            ProxyMode.DEFAULT_GATEWAY if settings.default_proxy_profile_id is None else ProxyMode.PROFILE
+        request: UpdateEnvironmentRequest | None,
+        policy: PolicyView | None,
+    ) -> None:
+        if record.status is EnvironmentStatus.DELETING:
+            return
+        effective: Final = settings_for_card(settings, record.id)
+        configured: Final = await self._apply_explicit_profile_configuration(record, request)
+        if configured.channel is not ChannelKind.CLIPROXYAPI:
+            return
+        await self._cli_proxy.apply_global_settings(configured, effective)
+        if policy is None:
+            return
+        try:
+            await self._cli_proxy.apply_policy(configured, policy.policy)
+        except Exception:
+            await self._set_policy_runtime_status(
+                policy,
+                "failed",
+                "policy runtime synchronization failed",
+                require_current=False,
+            )
+            raise
+        await self._set_policy_runtime_status(policy, "synced")
+
+    def _explicit_profile_update_request(
+        self,
+        record: EnvironmentRecord,
+        settings: AccountPoolSettings,
+    ) -> UpdateEnvironmentRequest | None:
+        common: Final = next(
+            (
+                profile
+                for profile in settings.common_profiles
+                if record.id in profile.card_ids and not profile.inherit_global
+            ),
+            None,
         )
+        network: Final = next(
+            (
+                profile
+                for profile in settings.network_profiles
+                if record.id in profile.card_ids and not profile.inherit_global
+            ),
+            None,
+        )
+        if common is None and network is None:
+            return None
+        concurrency_limit: Final = (
+            record.concurrency_limit if common is None else common.values.default_concurrency_limit
+        )
+        proxy_profile_id: Final = (
+            record.proxy_profile_id if network is None else network.values.default_proxy_profile_id
+        )
+        proxy_mode: Final = ProxyMode.DEFAULT_GATEWAY if proxy_profile_id is None else ProxyMode.PROFILE
         unchanged: Final = (
-            record.concurrency_limit == settings.default_concurrency_limit
+            record.concurrency_limit == concurrency_limit
             and record.proxy_mode is proxy_mode
-            and record.proxy_profile_id == settings.default_proxy_profile_id
+            and record.proxy_profile_id == proxy_profile_id
         )
         if unchanged:
-            return record
-        result: Final = await self.update_environment(
-            record.id,
-            UpdateEnvironmentRequest(
-                version=record.version,
-                name=record.name,
-                concurrency_limit=settings.default_concurrency_limit,
-                enabled=record.enabled,
-                manual_cooldown=record.manual_cooldown,
-                proxy_mode=proxy_mode,
-                proxy_profile_id=settings.default_proxy_profile_id,
-                enabled_models=record.enabled_models,
-            ),
+            return None
+        return UpdateEnvironmentRequest(
+            version=record.version,
+            operation_id=f"settings-sync-{uuid4()}",
+            name=record.name,
+            concurrency_limit=concurrency_limit,
+            enabled=record.enabled,
+            manual_cooldown=record.manual_cooldown,
+            proxy_mode=proxy_mode,
+            proxy_profile_id=proxy_profile_id,
+            enabled_models=record.enabled_models,
         )
+
+    async def _apply_explicit_profile_configuration(
+        self,
+        record: EnvironmentRecord,
+        request: UpdateEnvironmentRequest | None,
+    ) -> EnvironmentRecord:
+        if request is None:
+            return record
+        result: Final = await self.update_environment(record.id, request)
         if isinstance(result, Failure):
             raise ValueError(result.message)
         return await self._repository.get(record.id) or record
+
+    async def _restore_settings_configuration(self, snapshot: EnvironmentRecord, operation_id: str) -> None:
+        lock: Final = await self._lock_for(snapshot.id)
+        async with lock:
+            current: Final = await self._repository.get(snapshot.id)
+            if current is None:
+                raise ValueError("environment not found during settings rollback")
+            # 只撤销本次设置同步写入，不能覆盖同步期间发生的其他卡片编辑。
+            if current.operation_id != operation_id:
+                return
+            desired: Final = await self._configuration_for_snapshot(snapshot)
+            pending: Final = current.model_copy(
+                update={
+                    "version": current.version + 1,
+                    "name": snapshot.name,
+                    "concurrency_limit": snapshot.concurrency_limit,
+                    "enabled": snapshot.enabled,
+                    "manual_cooldown": snapshot.manual_cooldown,
+                    "proxy_mode": snapshot.proxy_mode,
+                    "proxy_profile_id": snapshot.proxy_profile_id,
+                    "enabled_models": snapshot.enabled_models,
+                    "status": snapshot.status,
+                    "desired_state": snapshot.status,
+                    "operation_id": snapshot.operation_id,
+                    "desired_configuration_version": current.desired_configuration_version + 1,
+                    "desired_configuration": desired,
+                    "configuration_pending": True,
+                    "configuration_last_error": None,
+                    "cooldown_until": snapshot.cooldown_until,
+                    "automatic_cooldown": snapshot.automatic_cooldown,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            claimed: Final = await self._repository.save_if_version(pending, current.version)
+            if claimed is None:
+                raise ValueError("environment changed during settings rollback")
+            applied: Final = await self._apply_and_persist_configuration(claimed, desired)
+            if isinstance(applied, Failure):
+                raise ValueError(applied.message)
+            completed: Final = await self._repository.get(snapshot.id)
+            if completed is None:
+                raise ValueError("environment disappeared during settings rollback")
+            normalized: Final = completed.model_copy(
+                update={
+                    "version": completed.version + 1,
+                    "desired_state": snapshot.desired_state,
+                    "operation_id": snapshot.operation_id,
+                    "status": snapshot.status,
+                    "configuration_last_error": snapshot.configuration_last_error,
+                    "last_error": snapshot.last_error,
+                    "updated_at": utc_now(),
+                }
+            )
+            if await self._repository.save_if_version(normalized, completed.version) is None:
+                raise ValueError("environment changed while finalizing settings rollback")
+
+    async def _configuration_for_snapshot(self, snapshot: EnvironmentRecord) -> EnvironmentConfiguration:
+        proxy_url: Final = await self._proxy_url_for_snapshot(snapshot)
+        previous: Final = snapshot.desired_configuration
+        return EnvironmentConfiguration(
+            name=snapshot.name,
+            concurrency_limit=snapshot.concurrency_limit,
+            enabled=snapshot.enabled,
+            manual_cooldown=snapshot.manual_cooldown,
+            proxy_mode=snapshot.proxy_mode,
+            proxy_profile_id=snapshot.proxy_profile_id,
+            enabled_models=snapshot.enabled_models,
+            proxy_url=proxy_url,
+            credential_enabled=(
+                previous.credential_enabled
+                if previous is not None
+                else snapshot.enabled and not snapshot.manual_cooldown and not snapshot.automatic_cooldown
+            ),
+        )
+
+    async def _proxy_url_for_snapshot(self, snapshot: EnvironmentRecord) -> str:
+        if snapshot.proxy_mode is ProxyMode.DEFAULT_GATEWAY:
+            return ""
+        stored_proxy_url: Final = configured_proxy_url(snapshot)
+        if stored_proxy_url:
+            return validate_proxy_profile_url(stored_proxy_url)
+        if snapshot.proxy_profile_id is None:
+            raise ValueError("proxy profile is missing during settings rollback")
+        profile_url: Final = await self._proxy_profiles.get_url(snapshot.proxy_profile_id)
+        if profile_url is None:
+            raise ValueError("proxy profile is unavailable during settings rollback")
+        return validate_proxy_profile_url(profile_url)
+
+    async def _set_policy_runtime_status(
+        self,
+        policy: PolicyView,
+        status: Literal["synced", "failed"],
+        error: str | None = None,
+        *,
+        require_current: bool = True,
+    ) -> None:
+        if self._policies is None:
+            return
+        saved: Final = await self._policies.set_runtime_status(policy.card_id, policy.version, status, error)
+        if require_current and saved is None:
+            raise ValueError("policy changed during runtime synchronization")
 
     async def sync_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         if record.channel is ChannelKind.CLIPROXYAPI and record.status is not EnvironmentStatus.DELETING:
@@ -280,7 +467,9 @@ class EnvironmentService:
         try:
             store: Final = await self._cli_proxy.list_plugin_store(record)
             if not _plugin_store_approves(store, plugin_id, version, source):
-                return Failure(FailureCode.INVALID, "plugin id, version, or source is not approved by the card plugin store")
+                return Failure(
+                    FailureCode.INVALID, "plugin id, version, or source is not approved by the card plugin store"
+                )
             return Success(await self._cli_proxy.install_plugin(record, plugin_id, version, source))
         except Exception as error:
             await self._log_event(record, "configuration", error)
@@ -1092,43 +1281,47 @@ class EnvironmentService:
             return Success(self._authorization_view(saved))
 
     async def cancel_oauth_session(self, environment_id: UUID) -> Result[EnvironmentView]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        state: Final = record.oauth_provider_state or record.oauth_state
-        if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION or state is None:
-            return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
-        try:
-            await self._channel(record).cancel_oauth_session(record, state)
-        except Exception as error:
-            await self._log_event(record, "authorization", error)
-            return Failure(FailureCode.UPSTREAM, "OAuth session cancellation failed")
-        restored_status: Final = (
-            EnvironmentStatus.READY
-            if record.auth_file_name is not None and record.enabled and not record.manual_cooldown
-            else EnvironmentStatus.COOLING_DOWN
-            if record.manual_cooldown
-            else EnvironmentStatus.DISABLED
-            if not record.enabled
-            else EnvironmentStatus.AWAITING_AUTHORIZATION
-        )
-        cancelled: Final = record.model_copy(
-            update={
-                "version": record.version + 1,
-                "status": restored_status,
-                "desired_state": restored_status,
-                "oauth_state": None,
-                "oauth_expires_at": None,
-                "oauth_state_signature": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "authorization_user_code": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        saved: Final = await self._repository.save_if_version(cancelled, record.version)
-        return Success(to_view(saved or cancelled))
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            state: Final = record.oauth_provider_state or record.oauth_state
+            if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION or state is None:
+                return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
+            try:
+                await self._channel(record).cancel_oauth_session(record, state)
+            except Exception as error:
+                await self._log_event(record, "authorization", error)
+                return Failure(FailureCode.UPSTREAM, "OAuth session cancellation failed")
+            restored_status: Final = (
+                EnvironmentStatus.READY
+                if record.auth_file_name is not None and record.enabled and not record.manual_cooldown
+                else EnvironmentStatus.COOLING_DOWN
+                if record.manual_cooldown
+                else EnvironmentStatus.DISABLED
+                if not record.enabled
+                else EnvironmentStatus.AWAITING_AUTHORIZATION
+            )
+            cancelled: Final = record.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "status": restored_status,
+                    "desired_state": restored_status,
+                    "oauth_state": None,
+                    "oauth_expires_at": None,
+                    "oauth_state_signature": None,
+                    "oauth_provider_state": None,
+                    "oauth_authorization_url": None,
+                    "authorization_user_code": None,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            saved: Final = await self._repository.save_if_version(cancelled, record.version)
+            if saved is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            return Success(to_view(saved))
 
     async def submit_oauth_callback(
         self,
@@ -1501,6 +1694,17 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         await asyncio.gather(
             *(self._refresh_if_needed(record) for record in records if record.status is EnvironmentStatus.VALIDATING)
+        )
+
+    async def reconcile_pending_deletions(self) -> None:
+        """后台重试已进入删除态但尚未完成资源回收的卡片。"""
+        records: Final = await self._repository.list()
+        await asyncio.gather(
+            *(
+                self.delete_environment(record.id, record.operation_id)
+                for record in records
+                if record.status is EnvironmentStatus.DELETING
+            )
         )
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
