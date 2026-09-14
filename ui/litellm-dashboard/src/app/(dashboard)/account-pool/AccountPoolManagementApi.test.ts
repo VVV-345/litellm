@@ -1,16 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  analyzeAccountPoolUpstream,
   createAccountPoolJobId,
+  getAccountPoolCodexReview,
+  getAccountPoolUpstreamSync,
   installCardAccountPoolPlugin,
+  promoteAccountPoolUpstream,
   submitAccountPoolBatch,
   type AccountPolicy,
 } from "./AccountPoolManagementApi";
 
+const getMock = vi.fn();
 const postMock = vi.fn();
 
 vi.mock("@/components/networking", () => ({
   apiClient: {
+    get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
   },
 }));
@@ -47,6 +53,8 @@ const policy: AccountPolicy = {
 
 describe("submitAccountPoolBatch", () => {
   beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue({});
     postMock.mockReset();
     postMock.mockResolvedValue({});
   });
@@ -92,6 +100,24 @@ describe("submitAccountPoolBatch", () => {
     expect(postMock).toHaveBeenCalledWith("/account_pool/environments/card-1/plugins/plugin%2Fwith%20spaces/install", {
       accessToken: "token-123",
       body: { version: "1.2.3", source: "official" },
+    });
+  });
+
+  it("uses the dedicated upstream status, review, analysis, and promotion routes", async () => {
+    await getAccountPoolUpstreamSync("token-123");
+    await getAccountPoolCodexReview("token-123");
+    await analyzeAccountPoolUpstream("token-123");
+    await promoteAccountPoolUpstream("token-123");
+
+    expect(getMock).toHaveBeenNthCalledWith(1, "/account_pool/upstream-sync", { accessToken: "token-123" });
+    expect(getMock).toHaveBeenNthCalledWith(2, "/account_pool/upstream-sync/codex-review", {
+      accessToken: "token-123",
+    });
+    expect(postMock).toHaveBeenNthCalledWith(1, "/account_pool/upstream-sync/analyze", {
+      accessToken: "token-123",
+    });
+    expect(postMock).toHaveBeenNthCalledWith(2, "/account_pool/upstream-sync/promote", {
+      accessToken: "token-123",
     });
   });
 });

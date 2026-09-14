@@ -731,6 +731,55 @@ class PolicyView(BaseModel):
 BatchRequest.model_rebuild()
 
 
+class UpstreamSyncReport(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    state: Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted"] = "idle"
+    action: Literal["none", "analyze", "promote"] = "none"
+    request_id: UUID | None = None
+    target_tag: str | None = None
+    base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    candidate_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    conflict_files: tuple[str, ...] = ()
+    failed_steps: tuple[str, ...] = ()
+    message: str = ""
+    workflow_url: HttpUrl | None = None
+    updated_at: AwareDatetime | None = None
+
+
+class UpstreamSyncView(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    upstream_repository: str
+    fork_repository: str
+    sync_branch: str
+    current_tag: str
+    latest_tag: str
+    latest_release_url: HttpUrl
+    update_available: bool
+    dispatch_configured: bool
+    report: UpstreamSyncReport
+
+
+class UpstreamSyncDispatch(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    request_id: UUID
+    action: Literal["analyze", "promote"]
+    target_tag: str
+    state: Literal["queued"] = "queued"
+
+
+class CodexReviewPackage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    filename: str
+    branch: str
+    target_tag: str | None = None
+    content: str
+
+
 class ErrorLogRecord(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

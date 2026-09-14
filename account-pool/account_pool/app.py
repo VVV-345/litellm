@@ -36,6 +36,7 @@ from account_pool.repository import PostgresEnvironmentRepository, PostgresProxy
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
 from account_pool.settings import PostgresAccountPoolSettingsRepository
+from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
     plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
     logs: Final = ErrorLogService(PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days)
+    upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     channels: Final = ChannelRegistry.default(resolved, secrets)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
@@ -147,6 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     continue
             if controller is not None:
                 await controller.aclose()
+            await upstream_sync.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
@@ -165,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             plugins=plugin_service,
             sync_settings=service.sync_global_settings,
             sync_policy=service.sync_policy,
+            upstream_sync=upstream_sync,
         )
     )
     return app

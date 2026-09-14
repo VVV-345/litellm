@@ -641,3 +641,90 @@ def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None
     assert [node["name"] for node in nodes.json()] == ["美国01", "日本02"]
     assert broken.status_code == 502
     assert broken.json()["detail"] == "clash controller returned status 502"
+
+
+def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
+    requested: list[tuple[str, str]] = []
+    report: Final = {
+        "schema_version": 1,
+        "state": "passed",
+        "action": "analyze",
+        "request_id": "af094d6b-f0da-4ad6-aa59-7704393a81a4",
+        "target_tag": "v7.3.2",
+        "base_sha": "e851070a0d08fb631d5ee7c64ecfab9a30ecbd2a",
+        "candidate_sha": "92589ae0e0592e5469fb5f2e7859ab9664155419",
+        "conflict_files": [],
+        "failed_steps": [],
+        "message": "passed",
+        "workflow_url": "https://github.com/VVV-345/CLIProxyAPI/actions/runs/1",
+        "updated_at": "2026-09-14T12:00:00Z",
+    }
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            requested.append((request.method, request.url.path))
+            if request.url.path == "/api/upstream-sync":
+                return httpx.Response(
+                    200,
+                    json={
+                        "upstream_repository": "router-for-me/CLIProxyAPI",
+                        "fork_repository": "VVV-345/CLIProxyAPI",
+                        "sync_branch": "codex/upstream-sync",
+                        "current_tag": "v7.2.146",
+                        "latest_tag": "v7.3.2",
+                        "latest_release_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                        "update_available": True,
+                        "dispatch_configured": True,
+                        "report": report,
+                    },
+                    request=request,
+                )
+            if request.url.path == "/api/upstream-sync/codex-review":
+                return httpx.Response(
+                    200,
+                    json={
+                        "filename": "codex-upstream-review-v7.3.2.md",
+                        "branch": "codex/upstream-sync",
+                        "target_tag": "v7.3.2",
+                        "content": "# Review\n",
+                    },
+                    request=request,
+                )
+            return httpx.Response(
+                202,
+                json={
+                    "request_id": "c24d4fcb-ff4a-424e-b86e-e3fe7a9ce649",
+                    "action": "promote" if request.url.path.endswith("promote") else "analyze",
+                    "target_tag": "v7.3.2",
+                    "state": "queued",
+                },
+                request=request,
+            )
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+
+    with TestClient(app) as client:
+        status_response: Final = client.get("/account_pool/upstream-sync")
+        analysis_response: Final = client.post("/account_pool/upstream-sync/analyze")
+        promotion_response: Final = client.post("/account_pool/upstream-sync/promote")
+        review_response: Final = client.get("/account_pool/upstream-sync/codex-review")
+
+    assert status_response.status_code == 200
+    assert status_response.json()["report"]["state"] == "passed"
+    assert analysis_response.status_code == 202
+    assert analysis_response.json()["action"] == "analyze"
+    assert promotion_response.status_code == 202
+    assert promotion_response.json()["action"] == "promote"
+    assert review_response.json()["branch"] == "codex/upstream-sync"
+    assert requested == [
+        ("GET", "/api/upstream-sync"),
+        ("POST", "/api/upstream-sync/analyze"),
+        ("POST", "/api/upstream-sync/promote"),
+        ("GET", "/api/upstream-sync/codex-review"),
+    ]

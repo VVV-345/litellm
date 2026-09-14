@@ -1562,6 +1562,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/upstream-sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Upstream Sync Status */
+        get: operations["upstream_sync_status_account_pool_upstream_sync_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Analyze Upstream */
+        post: operations["analyze_upstream_account_pool_upstream_sync_analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/codex-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Codex Review Package */
+        get: operations["codex_review_package_account_pool_upstream_sync_codex_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Upstream */
+        post: operations["promote_upstream_account_pool_upstream_sync_promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/vertex": {
         parameters: {
             query?: never;
@@ -27000,6 +27068,17 @@ export interface components {
              */
             responses_compact_enabled: boolean;
         };
+        /** CodexReviewPackage */
+        CodexReviewPackage: {
+            /** Branch */
+            branch: string;
+            /** Content */
+            content: string;
+            /** Filename */
+            filename: string;
+            /** Target Tag */
+            target_tag?: string | null;
+        };
         /** CommonSettingsProfile */
         CommonSettingsProfile: {
             /**
@@ -40142,6 +40221,98 @@ export interface components {
             /** User Role */
             user_role?: ("proxy_admin" | "proxy_admin_viewer" | "internal_user" | "internal_user_viewer") | null;
         };
+        /** UpstreamSyncDispatch */
+        UpstreamSyncDispatch: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "analyze" | "promote";
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * State
+             * @default queued
+             * @constant
+             */
+            state: "queued";
+            /** Target Tag */
+            target_tag: string;
+        };
+        /** UpstreamSyncReport */
+        UpstreamSyncReport: {
+            /**
+             * Action
+             * @default none
+             * @enum {string}
+             */
+            action: "none" | "analyze" | "promote";
+            /** Base Sha */
+            base_sha?: string | null;
+            /** Candidate Sha */
+            candidate_sha?: string | null;
+            /**
+             * Conflict Files
+             * @default []
+             */
+            conflict_files: string[];
+            /**
+             * Failed Steps
+             * @default []
+             */
+            failed_steps: string[];
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Request Id */
+            request_id?: string | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * State
+             * @default idle
+             * @enum {string}
+             */
+            state: "idle" | "queued" | "running" | "conflict" | "failed" | "passed" | "promoted";
+            /** Target Tag */
+            target_tag?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Workflow Url */
+            workflow_url?: string | null;
+        };
+        /** UpstreamSyncView */
+        UpstreamSyncView: {
+            /** Current Tag */
+            current_tag: string;
+            /** Dispatch Configured */
+            dispatch_configured: boolean;
+            /** Fork Repository */
+            fork_repository: string;
+            /**
+             * Latest Release Url
+             * Format: uri
+             */
+            latest_release_url: string;
+            /** Latest Tag */
+            latest_tag: string;
+            report: components["schemas"]["UpstreamSyncReport"];
+            /** Sync Branch */
+            sync_branch: string;
+            /** Update Available */
+            update_available: boolean;
+            /** Upstream Repository */
+            upstream_repository: string;
+        };
         /** UsageAIChatRequest */
         UsageAIChatRequest: {
             /**
@@ -44028,6 +44199,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upstream_sync_status_account_pool_upstream_sync_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncView"];
+                };
+            };
+        };
+    };
+    analyze_upstream_account_pool_upstream_sync_analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncDispatch"];
+                };
+            };
+        };
+    };
+    codex_review_package_account_pool_upstream_sync_codex_review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodexReviewPackage"];
+                };
+            };
+        };
+    };
+    promote_upstream_account_pool_upstream_sync_promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncDispatch"];
                 };
             };
         };

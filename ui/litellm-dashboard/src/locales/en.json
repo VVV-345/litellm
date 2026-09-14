@@ -5787,7 +5787,8 @@
       "accounts": "Account management",
       "proxyLayer": "Proxy layer",
       "logs": "Operation and error logs",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "upstreamSync": "Upstream updates"
     },
     "providers": {
       "title": "AI provider families",
@@ -6199,6 +6200,58 @@
         "gateway": "Gateway enforced",
         "unsupported": "Unsupported by current adapter",
         "metadata": "Saved to card policy, awaiting adapter execution"
+      }
+    },
+    "upstreamSync": {
+      "title": "CLIProxyAPI upstream updates",
+      "description": "Check official releases, test a merge on the fixed compatibility branch, and promote only a validated result.",
+      "versionStatus": "Version status",
+      "updateAvailable": "Update available",
+      "upToDate": "Up to date",
+      "currentVersion": "Deployed baseline",
+      "latestVersion": "Latest official release",
+      "fixedBranch": "Compatibility branch",
+      "reportState": "Latest result",
+      "checkUpdates": "Check for updates",
+      "analyze": "Test merge compatibility",
+      "codexReview": "Download Codex review task",
+      "promote": "Merge validated update",
+      "authorizationMissing": "Checking public releases works now. Configure a fine-grained GitHub token with Actions write access before running tests or promotion.",
+      "safetyNote": "Compatibility tests only replace the fixed branch. Promotion updates main and starts the image build, but it does not deploy the image to the server automatically.",
+      "compatibilityReport": "Compatibility report",
+      "waitingForReport": "The workflow is queued or running. This page checks the fixed branch every 10 seconds.",
+      "targetTag": "Target: {{tag}}",
+      "updatedAt": "Updated: {{time}}",
+      "baseCommit": "Base commit: {{sha}}",
+      "candidateCommit": "Candidate commit: {{sha}}",
+      "conflicts": "Conflicting files",
+      "failedSteps": "Failed checks",
+      "openRelease": "Open official release",
+      "openWorkflow": "Open GitHub Actions run",
+      "confirmPromotionTitle": "Merge the validated upstream update?",
+      "confirmPromotionDescription": "This reruns all checks for {{tag}}, updates the fork main branch only if they pass, and starts the CLIProxyAPI image build. It does not update the running server containers.",
+      "confirmPromotion": "Merge and build",
+      "analysisQueued": "Compatibility analysis queued",
+      "promotionQueued": "Promotion validation queued",
+      "reviewDownloaded": "Codex review task downloaded",
+      "loadFailed": "Unable to check CLIProxyAPI upstream updates",
+      "states": {
+        "idle": "Not checked",
+        "queued": "Queued",
+        "running": "Running",
+        "conflict": "Merge conflict",
+        "failed": "Checks failed",
+        "passed": "Checks passed",
+        "promoted": "Merged to main"
+      },
+      "stateDescriptions": {
+        "idle": "No compatibility analysis has been started.",
+        "queued": "The compatibility workflow is waiting to run.",
+        "running": "The compatibility workflow is running.",
+        "conflict": "The official release conflicts with fork changes. Main was not changed. Download the Codex review task to repair the fixed branch.",
+        "failed": "The merge completed, but tests or the server build failed. Main was not changed.",
+        "passed": "The fixed branch contains the official release and passed the full Go test and build checks.",
+        "promoted": "The validated branch was merged into main and the CLIProxyAPI image build was started. Server deployment is still separate."
       }
     },
     "logs": {

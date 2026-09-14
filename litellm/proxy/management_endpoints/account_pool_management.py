@@ -31,12 +31,15 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     CardKeyChange,
     CardKeyIssue,
     CardKeyStatus,
+    CodexReviewPackage,
     ErrorLogDetail,
     ErrorLogPage,
     ErrorLogQuery,
     ErrorStats,
     PolicyUpdate,
     PolicyView,
+    UpstreamSyncDispatch,
+    UpstreamSyncView,
 )
 
 ManagementRequest = Callable[
@@ -223,6 +226,43 @@ def create_management_router(
     async def get_batch(job_id: UUID, response: Response) -> BatchJob:
         response.headers["Cache-Control"] = "no-store"
         return parse_response(await call("GET", f"/api/batches/{job_id}"), TypeAdapter(BatchJob))
+
+    @router.get("/upstream-sync", response_model=UpstreamSyncView)
+    async def upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncView:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(await call("GET", "/api/upstream-sync"), TypeAdapter(UpstreamSyncView))
+
+    @router.post("/upstream-sync/analyze", response_model=UpstreamSyncDispatch, status_code=202)
+    async def analyze_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/analyze"),
+            TypeAdapter(UpstreamSyncDispatch),
+        )
+
+    @router.post("/upstream-sync/promote", response_model=UpstreamSyncDispatch, status_code=202)
+    async def promote_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/promote"),
+            TypeAdapter(UpstreamSyncDispatch),
+        )
+
+    @router.get("/upstream-sync/codex-review", response_model=CodexReviewPackage)
+    async def codex_review_package(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> CodexReviewPackage:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("GET", "/api/upstream-sync/codex-review"),
+            TypeAdapter(CodexReviewPackage),
+        )
 
     @router.get("/stats", response_model=ErrorStats)
     async def stats(

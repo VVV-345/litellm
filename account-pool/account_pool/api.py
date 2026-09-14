@@ -41,6 +41,7 @@ from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
+from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _BEARER: Final = HTTPBearer(auto_error=False)
 T = TypeVar("T")
@@ -179,6 +180,7 @@ def create_router(
     plugins: PluginService | None = None,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
+    upstream_sync: GitHubUpstreamSyncService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -538,6 +540,7 @@ def create_router(
                 settings,
                 sync_settings,
                 sync_policy,
+                upstream_sync,
             )
         )
     if gateway_service is not None:

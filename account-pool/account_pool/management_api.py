@@ -33,6 +33,13 @@ from account_pool.settings import (
     AccountPoolSettingsView,
     settings_preview,
 )
+from account_pool.upstream_sync import (
+    CodexReviewPackage,
+    GitHubUpstreamSyncService,
+    UpstreamSyncDispatch,
+    UpstreamSyncError,
+    UpstreamSyncView,
+)
 
 T = TypeVar("T")
 
@@ -46,6 +53,7 @@ def create_management_router(
     settings: AccountPoolSettingsRepository | None = None,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
+    upstream_sync: GitHubUpstreamSyncService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
     settings_update_lock: Final = asyncio.Lock()
@@ -190,6 +198,28 @@ def create_management_router(
                     return restored
                 raise HTTPException(status_code=502, detail="settings runtime synchronization failed")
 
+    if upstream_sync is not None:
+
+        @router.get("/upstream-sync", response_model=UpstreamSyncView)
+        async def upstream_sync_status(response: Response) -> UpstreamSyncView:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(upstream_sync.status)
+
+        @router.post("/upstream-sync/analyze", response_model=UpstreamSyncDispatch, status_code=202)
+        async def analyze_upstream(response: Response) -> UpstreamSyncDispatch:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(upstream_sync.analyze)
+
+        @router.post("/upstream-sync/promote", response_model=UpstreamSyncDispatch, status_code=202)
+        async def promote_upstream(response: Response) -> UpstreamSyncDispatch:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(upstream_sync.promote)
+
+        @router.get("/upstream-sync/codex-review", response_model=CodexReviewPackage)
+        async def codex_review_package(response: Response) -> CodexReviewPackage:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(upstream_sync.codex_review_package)
+
     return router
 
 
@@ -204,6 +234,13 @@ class LogClearResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     deleted: int = Field(ge=0)
+
+
+async def _upstream_sync_call(operation: Callable[[], Awaitable[T]]) -> T:
+    try:
+        return await operation()
+    except UpstreamSyncError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
 
 
 def unwrap(result: Result[T]) -> T:

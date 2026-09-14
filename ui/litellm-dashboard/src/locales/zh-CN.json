@@ -5787,7 +5787,8 @@
       "accounts": "账号管理",
       "proxyLayer": "代理层设置",
       "logs": "操作与错误日志",
-      "plugins": "插件管理"
+      "plugins": "插件管理",
+      "upstreamSync": "上游更新"
     },
     "providers": {
       "title": "AI 供应商家族",
@@ -6199,6 +6200,58 @@
         "gateway": "网关执行",
         "unsupported": "当前适配器不支持",
         "metadata": "已保存到卡片配置，等待适配器执行"
+      }
+    },
+    "upstreamSync": {
+      "title": "CLIProxyAPI 上游更新",
+      "description": "检查官方版本，在固定兼容分支中测试合并，只有验证通过后才能正式合并。",
+      "versionStatus": "版本状态",
+      "updateAvailable": "发现新版本",
+      "upToDate": "已是最新版本",
+      "currentVersion": "服务器基线版本",
+      "latestVersion": "官方最新版本",
+      "fixedBranch": "固定兼容分支",
+      "reportState": "最近检测结果",
+      "checkUpdates": "检查上游更新",
+      "analyze": "检测合并效果",
+      "codexReview": "生成 Codex 审查任务",
+      "promote": "正式合并更新",
+      "authorizationMissing": "目前可以检查公开版本。执行检测或正式合并前，需要配置一个仅对本仓库开放、具有 Actions 写权限的细粒度 GitHub Token。",
+      "safetyNote": "兼容性检测只会更新固定分支。正式合并才会更新 main 并启动镜像构建，但不会自动替换服务器正在运行的容器。",
+      "compatibilityReport": "兼容性报告",
+      "waitingForReport": "工作流正在排队或执行，本页面每 10 秒检查一次固定分支报告。",
+      "targetTag": "目标版本：{{tag}}",
+      "updatedAt": "更新时间：{{time}}",
+      "baseCommit": "基线提交：{{sha}}",
+      "candidateCommit": "候选提交：{{sha}}",
+      "conflicts": "冲突文件",
+      "failedSteps": "失败检查",
+      "openRelease": "查看官方版本",
+      "openWorkflow": "查看 GitHub Actions",
+      "confirmPromotionTitle": "正式合并已经验证的上游更新？",
+      "confirmPromotionDescription": "系统会再次测试 {{tag}}，全部通过后才更新 fork 的 main 分支并启动 CLIProxyAPI 镜像构建。服务器运行中的容器不会自动更新。",
+      "confirmPromotion": "确认合并并构建",
+      "analysisQueued": "兼容性检测已进入队列",
+      "promotionQueued": "正式合并前复测已进入队列",
+      "reviewDownloaded": "Codex 审查任务已下载",
+      "loadFailed": "无法检查 CLIProxyAPI 上游更新",
+      "states": {
+        "idle": "尚未检测",
+        "queued": "排队中",
+        "running": "执行中",
+        "conflict": "存在合并冲突",
+        "failed": "检查未通过",
+        "passed": "检查通过",
+        "promoted": "已合并到 main"
+      },
+      "stateDescriptions": {
+        "idle": "还没有执行兼容性检测。",
+        "queued": "兼容性工作流正在等待执行。",
+        "running": "兼容性工作流正在执行。",
+        "conflict": "官方版本与定制代码发生冲突，main 没有改变。请生成 Codex 审查任务，在固定分支中处理冲突。",
+        "failed": "代码已完成合并，但测试或服务端构建失败，main 没有改变。",
+        "passed": "固定分支已包含官方版本，并通过完整 Go 测试和构建检查。",
+        "promoted": "验证后的分支已合并到 main，并启动 CLIProxyAPI 镜像构建；服务器部署仍需单独执行。"
       }
     },
     "logs": {

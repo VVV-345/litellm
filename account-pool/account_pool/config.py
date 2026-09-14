@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Final
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_CLI_PROXY_IMAGE: Final = (
@@ -42,6 +42,19 @@ class Settings(BaseSettings):
     docker_command_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
+    upstream_sync_github_token: SecretStr | None = None
+    upstream_sync_current_tag: str = Field(
+        default="v7.2.146", pattern=r"^v[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"
+    )
+    upstream_sync_fork_repository: str = Field(
+        default="VVV-345/CLIProxyAPI", pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    )
+    upstream_sync_upstream_repository: str = Field(
+        default="router-for-me/CLIProxyAPI", pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    )
+    upstream_sync_branch: str = Field(default="codex/upstream-sync", pattern=r"^[A-Za-z0-9._/-]+$")
+    upstream_sync_workflow: str = Field(default="upstream-sync.yml", pattern=r"^[A-Za-z0-9._-]+\.ya?ml$")
+    upstream_sync_workflow_ref: str = Field(default="main", pattern=r"^[A-Za-z0-9._/-]+$")
     clash_controller_url: str = ""
     clash_secret: str = ""
     clash_config_path: str = Field(default="", max_length=1024)
@@ -98,6 +111,17 @@ class Settings(BaseSettings):
     @classmethod
     def validate_proxy_gateway_host(cls, value: str) -> str:
         return _validate_hostname(value.strip())
+
+    @field_validator(
+        "upstream_sync_fork_repository",
+        "upstream_sync_upstream_repository",
+        "upstream_sync_branch",
+        "upstream_sync_workflow",
+        "upstream_sync_workflow_ref",
+    )
+    @classmethod
+    def normalize_upstream_sync_value(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("ssh_host")
     @classmethod

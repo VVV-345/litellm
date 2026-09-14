@@ -37,6 +37,7 @@ import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOver
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
 import { AccountPoolSettingsPanel } from "./AccountPoolSettingsPanel";
+import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
 import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
@@ -326,6 +327,9 @@ export default function AccountPoolPage() {
             <TabsTrigger value="plugins" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.plugins")}
             </TabsTrigger>
+            <TabsTrigger value="upstream-sync" className="flex-none rounded-none px-4 py-2">
+              {t("accountPool.tabs.upstreamSync")}
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="pt-4">
             {environmentsQuery.isLoading || environmentsQuery.isError ? (
@@ -426,6 +430,9 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="plugins" className="pt-4">
             {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
+          </TabsContent>
+          <TabsContent value="upstream-sync" className="pt-4">
+            {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
           </TabsContent>
         </Tabs>
       </div>

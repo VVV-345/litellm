@@ -28,6 +28,9 @@ export type AccountPoolQuotaRefreshResult = components["schemas"]["AccountPoolQu
 export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
 export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
 export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
+export type UpstreamSyncView = components["schemas"]["UpstreamSyncView"];
+export type UpstreamSyncDispatch = components["schemas"]["UpstreamSyncDispatch"];
+export type CodexReviewPackage = components["schemas"]["CodexReviewPackage"];
 export type AccountPoolPluginRuntimeResponse = Record<string, unknown>;
 export type AccountPoolCredentialRequest = {
   version: number;
@@ -289,3 +292,15 @@ export const submitAccountPoolBatch = (
     accessToken,
     body: { job_id: createAccountPoolJobId(), action, targets, policy },
   });
+
+export const getAccountPoolUpstreamSync = (accessToken: string) =>
+  apiClient.get<UpstreamSyncView>("/account_pool/upstream-sync", { accessToken });
+
+export const analyzeAccountPoolUpstream = (accessToken: string) =>
+  apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/analyze", { accessToken });
+
+export const promoteAccountPoolUpstream = (accessToken: string) =>
+  apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/promote", { accessToken });
+
+export const getAccountPoolCodexReview = (accessToken: string) =>
+  apiClient.get<CodexReviewPackage>("/account_pool/upstream-sync/codex-review", { accessToken });
