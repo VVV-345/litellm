@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Cockpit Tools | v1.3.47，commit `deacbe44` | 页面、桌面客户端和账号策略的参考实现 |
 | Cockpit 内嵌 CLIProxyAPI | v7.2.155，commit `7fac6b15` | Cockpit 当前绑定的上游代理版本 |
-| 当前号池 CLIProxyAPI | 自定义镜像，commit `92589ae0` | 基于已核实能力并加入 Codex 请求标识收敛，镜像按提交 SHA 和 digest 固定 |
+| 当前号池 CLIProxyAPI | 自定义镜像，commit `e851070a` | 基于已核实能力并加入 Codex 请求标识收敛和令牌预刷新，镜像按提交 SHA 和 digest 固定 |
 | LiteLLM Responses Compact | 已有 `/v1/responses/compact` 支持 | 需要验证号池链路是否完整转发 |
 | 当前号池 | 已有环境生命周期、卡片 Key、卡片内路由、并发租约、会话粘性、故障切换、流式转发、结构化日志、统计和持久化批量任务 | 服务端闭环已经进入可验证状态；仍缺真实 Docker、PostgreSQL、NewAPI 和上游端到端验证 |
 
