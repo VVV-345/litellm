@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -189,21 +189,21 @@ class CodexPolicy(BaseModel):
     responses_compact_enabled: bool = False
     identity_confuse: bool = False
     disable_codex_cloaking: bool = False
+    compact_ui: bool = False
+    model_context_window: int | None = Field(default=None, ge=1024, le=10_000_000)
+    model_auto_compact_token_limit: int | None = Field(default=None, ge=1024, le=10_000_000)
+    experimental_context_management: bool = False
 
-    @model_validator(mode="before")
-    @classmethod
-    def discard_legacy_desktop_fields(cls, value: object) -> object:
-        if not isinstance(value, dict):
-            return value
-        legacy: Final = frozenset(
-            (
-                "compact_ui",
-                "model_context_window",
-                "model_auto_compact_token_limit",
-                "experimental_context_management",
-            )
-        )
-        return {key: item for key, item in value.items() if key not in legacy}
+    @model_validator(mode="after")
+    def compact_limit_precedes_context_window(self) -> CodexPolicy:
+        if (
+            self.compact_ui
+            and self.model_context_window is not None
+            and self.model_auto_compact_token_limit is not None
+            and self.model_auto_compact_token_limit >= self.model_context_window
+        ):
+            raise ValueError("model_auto_compact_token_limit must be lower than model_context_window")
+        return self
 
 
 class ClaudePolicy(BaseModel):
@@ -644,6 +644,123 @@ class AccountPoolLogClearResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     deleted: int = Field(ge=0)
+
+
+class DesktopStatusAction(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["status"] = "status"
+
+
+class DesktopInstanceAction(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["start_instance", "stop_instance"]
+    application: Literal["codex", "cursor"]
+    instance_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class DesktopCodexCompactAction(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["apply_codex_compact"] = "apply_codex_compact"
+    instance_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$")
+    enabled: bool = True
+    model_context_window: int | None = Field(default=None, ge=1024, le=10_000_000)
+    auto_compact_token_limit: int | None = Field(default=None, ge=1024, le=10_000_000)
+    experimental_context_management: bool = False
+
+    @model_validator(mode="after")
+    def compact_limit_precedes_context_window(self) -> DesktopCodexCompactAction:
+        if (
+            self.enabled
+            and self.model_context_window is not None
+            and self.auto_compact_token_limit is not None
+            and self.auto_compact_token_limit >= self.model_context_window
+        ):
+            raise ValueError("auto_compact_token_limit must be lower than model_context_window")
+        return self
+
+
+class DesktopCodexWslAction(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["configure_codex_wsl"] = "configure_codex_wsl"
+    enabled: bool
+    config_dir: str = Field(default="", max_length=1024)
+
+    @model_validator(mode="after")
+    def enabled_sync_requires_a_directory(self) -> DesktopCodexWslAction:
+        if self.enabled and not self.config_dir.strip():
+            raise ValueError("config_dir is required when WSL synchronization is enabled")
+        return self
+
+
+DesktopAction = Annotated[
+    DesktopStatusAction | DesktopInstanceAction | DesktopCodexCompactAction | DesktopCodexWslAction,
+    Field(discriminator="kind"),
+]
+DesktopTicketStatus = Literal["pending", "claimed", "succeeded", "failed", "cancelled", "expired"]
+DesktopCompletionStatus = Literal["succeeded", "failed", "cancelled"]
+
+
+class DesktopTicketCreateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    action: DesktopAction
+
+
+class DesktopTicketCreated(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    ticket_id: UUID
+    secret: str = Field(min_length=40, max_length=128, pattern=r"^[A-Za-z0-9_-]+$", repr=False)
+    expires_at: AwareDatetime
+
+
+class DesktopTicketView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    ticket_id: UUID
+    action: DesktopAction
+    status: DesktopTicketStatus
+    created_at: AwareDatetime
+    expires_at: AwareDatetime
+    claimed_at: AwareDatetime | None = None
+    completed_at: AwareDatetime | None = None
+    result: dict[str, object] | None = None
+    error: str | None = None
+
+
+class DesktopTicketClaimRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    secret: str = Field(min_length=40, max_length=128, pattern=r"^[A-Za-z0-9_-]+$", repr=False)
+
+
+class DesktopTicketClaim(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    ticket_id: UUID
+    action: DesktopAction
+    expires_at: AwareDatetime
+
+
+class DesktopTicketCompleteRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    secret: str = Field(min_length=40, max_length=128, pattern=r"^[A-Za-z0-9_-]+$", repr=False)
+    status: DesktopCompletionStatus
+    result: dict[str, object] | None = None
+    error: str | None = Field(default=None, max_length=2048)
+
+    @model_validator(mode="after")
+    def failed_completion_requires_an_error(self) -> DesktopTicketCompleteRequest:
+        if self.status == "failed" and not (self.error or "").strip():
+            raise ValueError("error is required for failed desktop operations")
+        if self.status != "failed" and self.error is not None:
+            raise ValueError("error is only accepted for failed desktop operations")
+        return self
 
 
 class AccountPoolPluginManifest(BaseModel):

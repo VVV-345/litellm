@@ -59,6 +59,10 @@ const codexDefaults: Codex = {
   responses_compact_enabled: false,
   identity_confuse: false,
   disable_codex_cloaking: false,
+  compact_ui: false,
+  model_context_window: null,
+  model_auto_compact_token_limit: null,
+  experimental_context_management: false,
 };
 const claudeDefaults: Claude = {
   fingerprint_profile: "inherit",

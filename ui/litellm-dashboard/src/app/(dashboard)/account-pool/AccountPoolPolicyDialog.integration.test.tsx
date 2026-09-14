@@ -1,5 +1,3 @@
-/** 本文件验证策略编辑器保留已实现策略并过滤仍未支持的运行选项。 */
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -31,6 +29,8 @@ const environment = {
   authorization_flow: "browser_oauth",
   status: "ready",
   configuration_pending: false,
+  desired_configuration_version: 1,
+  observed_configuration_version: 1,
   enabled: true,
   manual_cooldown: false,
   concurrency_limit: 2,
@@ -81,7 +81,7 @@ describe("AccountPoolPolicyDialog", () => {
     savePolicy.mockResolvedValue(policyView);
   });
 
-  it("shows runtime failures, keeps supported routing, and normalizes unsupported transport settings", async () => {
+  it("shows runtime failures and preserves supported routing and transport settings", async () => {
     const user = userEvent.setup();
     renderDialog();
 

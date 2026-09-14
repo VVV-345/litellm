@@ -31,6 +31,9 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     CardKeyChange,
     CardKeyIssue,
     CardKeyStatus,
+    DesktopTicketCreated,
+    DesktopTicketCreateRequest,
+    DesktopTicketView,
     ErrorLogDetail,
     ErrorLogPage,
     ErrorLogQuery,
@@ -39,7 +42,9 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     PolicyView,
 )
 
-ManagementRequest = Callable[[Literal["GET", "POST", "PUT", "DELETE", "PATCH"], str, bytes | None], Awaitable[httpx.Response]]
+ManagementRequest = Callable[
+    [Literal["GET", "POST", "PUT", "DELETE", "PATCH"], str, bytes | None], Awaitable[httpx.Response]
+]
 
 
 def create_management_router(
@@ -51,7 +56,9 @@ def create_management_router(
 
     router: Final = APIRouter(dependencies=[Depends(authorize)])
 
-    async def call(method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None) -> bytes:
+    async def call(
+        method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None
+    ) -> bytes:
         response: Final = await request_manager(method, path, body)
         if response.is_error:
             raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")
@@ -98,20 +105,51 @@ def create_management_router(
     async def clear_logs() -> AccountPoolLogClearResult:
         return parse_response(await call("DELETE", "/api/logs"), TypeAdapter(AccountPoolLogClearResult))
 
+    async def create_desktop_ticket(request: DesktopTicketCreateRequest, response: Response) -> DesktopTicketCreated:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/desktop/tickets", request.model_dump_json().encode()),
+            TypeAdapter(DesktopTicketCreated),
+        )
+
+    async def get_desktop_ticket(ticket_id: UUID, response: Response) -> DesktopTicketView:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("GET", f"/api/desktop/tickets/{ticket_id}"),
+            TypeAdapter(DesktopTicketView),
+        )
+
+    router.add_api_route(
+        "/desktop/tickets",
+        create_desktop_ticket,
+        methods=["POST"],
+        response_model=DesktopTicketCreated,
+    )
+    router.add_api_route(
+        "/desktop/tickets/{ticket_id}",
+        get_desktop_ticket,
+        methods=["GET"],
+        response_model=DesktopTicketView,
+    )
+
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
     async def credentials() -> tuple[AccountPoolCredential, ...]:
         return parse_response(await call("GET", "/api/auth-files"), TypeAdapter(tuple[AccountPoolCredential, ...]))
 
     @router.post("/environments/{card_id}/credentials")
-    async def add_credential(card_id: UUID, request: AccountPoolCredentialRequest) -> AccountPoolCredentialMutationResult:
+    async def add_credential(
+        card_id: UUID, request: AccountPoolCredentialRequest
+    ) -> AccountPoolCredentialMutationResult:
         return parse_response(
             await call("POST", f"/api/environments/{card_id}/credentials", request.model_dump_json().encode()),
             TypeAdapter(AccountPoolCredentialMutationResult),
         )
 
     @router.delete("/environments/{card_id}/credentials")
-    async def delete_credential(card_id: UUID, request: AccountPoolCredentialDeleteRequest) -> AccountPoolCredentialMutationResult:
+    async def delete_credential(
+        card_id: UUID, request: AccountPoolCredentialDeleteRequest
+    ) -> AccountPoolCredentialMutationResult:
         return parse_response(
             await call("DELETE", f"/api/environments/{card_id}/credentials", request.model_dump_json().encode()),
             TypeAdapter(AccountPoolCredentialMutationResult),
@@ -123,7 +161,9 @@ def create_management_router(
 
     @router.get("/plugin-store", response_model=tuple[AccountPoolPluginManifest, ...])
     async def plugin_store() -> tuple[AccountPoolPluginManifest, ...]:
-        return parse_response(await call("GET", "/api/plugin-store"), TypeAdapter(tuple[AccountPoolPluginManifest, ...]))
+        return parse_response(
+            await call("GET", "/api/plugin-store"), TypeAdapter(tuple[AccountPoolPluginManifest, ...])
+        )
 
     @router.post("/plugins", response_model=AccountPoolPluginRecord)
     async def install_plugin(manifest: AccountPoolPluginManifest) -> AccountPoolPluginRecord:
@@ -134,11 +174,15 @@ def create_management_router(
 
     @router.post("/plugins/{plugin_id}/enable", response_model=AccountPoolPluginRecord)
     async def enable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
-        return parse_response(await call("POST", f"/api/plugins/{plugin_id}/enable"), TypeAdapter(AccountPoolPluginRecord))
+        return parse_response(
+            await call("POST", f"/api/plugins/{plugin_id}/enable"), TypeAdapter(AccountPoolPluginRecord)
+        )
 
     @router.post("/plugins/{plugin_id}/disable", response_model=AccountPoolPluginRecord)
     async def disable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
-        return parse_response(await call("POST", f"/api/plugins/{plugin_id}/disable"), TypeAdapter(AccountPoolPluginRecord))
+        return parse_response(
+            await call("POST", f"/api/plugins/{plugin_id}/disable"), TypeAdapter(AccountPoolPluginRecord)
+        )
 
     @router.delete("/plugins/{plugin_id}", status_code=204)
     async def uninstall_plugin(plugin_id: str) -> None:

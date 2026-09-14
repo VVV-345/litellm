@@ -19,6 +19,11 @@ from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
+from account_pool.desktop_companion import DesktopTicketService
+from account_pool.desktop_companion_repository import (
+    PostgresDesktopTicketRepository,
+    initialize_desktop_companion_schema,
+)
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.gateway_repository import PostgresLeaseRepository
@@ -52,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
     plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
     logs: Final = ErrorLogService(PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days)
+    desktop_tickets: Final = DesktopTicketService(PostgresDesktopTicketRepository(resolved.database_url))
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     channels: Final = ChannelRegistry.default(resolved, secrets)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
@@ -93,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
         await initialize_management_schema(resolved.database_url)
+        await initialize_desktop_companion_schema(resolved.database_url)
         await policies.initialize()
         await leases.initialize()
         await batches.initialize()
@@ -165,6 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             plugins=plugin_service,
             sync_settings=service.sync_global_settings,
             sync_policy=service.sync_policy,
+            desktop_tickets=desktop_tickets,
         )
     )
     return app

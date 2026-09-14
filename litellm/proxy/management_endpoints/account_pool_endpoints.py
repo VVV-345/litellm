@@ -18,7 +18,13 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
-from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    DesktopTicketClaim,
+    DesktopTicketClaimRequest,
+    DesktopTicketCompleteRequest,
+    DesktopTicketView,
+    ErrorStats,
+)
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
@@ -355,9 +361,7 @@ class AccountPoolManagerClient:
         try:
             headers: Final = {"Authorization": f"Bearer {self._token}"}
             files: Final = {"file": (filename, content, content_type or "application/octet-stream")}
-            return await self._client.post(
-                f"{self._base_url}{path}", headers=headers, data=fields, files=files
-            )
+            return await self._client.post(f"{self._base_url}{path}", headers=headers, data=fields, files=files)
         except httpx.HTTPError as error:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -481,9 +485,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             content=response.content,
             media_type=response.headers.get("content-type", "application/json"),
             headers={
-                "Content-Disposition": response.headers.get(
-                    "content-disposition", 'attachment; filename="auth.json"'
-                )
+                "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="auth.json"')
             },
         )
 
@@ -732,7 +734,9 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> dict[str, object]:
         safe_plugin_id: Final = quote(plugin_id, safe=".-_")
-        return await _card_plugin_request(environment_id, "PATCH", f"/{safe_plugin_id}/enabled", user_api_key_dict, request)
+        return await _card_plugin_request(
+            environment_id, "PATCH", f"/{safe_plugin_id}/enabled", user_api_key_dict, request
+        )
 
     @router.delete("/environments/{environment_id}/plugins/{plugin_id}", response_model=dict[str, object])
     async def uninstall_card_plugin(
@@ -760,7 +764,9 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> dict[str, object]:
         safe_plugin_id: Final = quote(plugin_id, safe=".-_")
-        return await _card_plugin_request(environment_id, "PUT", f"/{safe_plugin_id}/config", user_api_key_dict, request)
+        return await _card_plugin_request(
+            environment_id, "PUT", f"/{safe_plugin_id}/config", user_api_key_dict, request
+        )
 
     @router.delete("/environments/{environment_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_environment(
@@ -832,6 +838,43 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             request.model_dump_json().encode("utf-8"),
         )
         return _validate_response(response, _GATEWAY_ADAPTER)
+
+    async def claim_desktop_ticket(
+        ticket_id: UUID, request: DesktopTicketClaimRequest, outgoing_response: Response
+    ) -> DesktopTicketClaim:
+        outgoing_response.headers["Cache-Control"] = "no-store"
+        manager_response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            f"/api/desktop/tickets/{ticket_id}/claim",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(manager_response, TypeAdapter(DesktopTicketClaim))
+
+    async def complete_desktop_ticket(
+        ticket_id: UUID, request: DesktopTicketCompleteRequest, outgoing_response: Response
+    ) -> DesktopTicketView:
+        outgoing_response.headers["Cache-Control"] = "no-store"
+        manager_response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            f"/api/desktop/tickets/{ticket_id}/complete",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(manager_response, TypeAdapter(DesktopTicketView))
+
+    router.add_api_route(
+        "/desktop/tickets/{ticket_id}/claim",
+        claim_desktop_ticket,
+        methods=["POST"],
+        response_model=DesktopTicketClaim,
+    )
+    router.add_api_route(
+        "/desktop/tickets/{ticket_id}/complete",
+        complete_desktop_ticket,
+        methods=["POST"],
+        response_model=DesktopTicketView,
+    )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     return router

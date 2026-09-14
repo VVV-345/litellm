@@ -29,6 +29,9 @@ export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogCle
 export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
 export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
 export type AccountPoolPluginRuntimeResponse = Record<string, unknown>;
+export type DesktopAction = components["schemas"]["DesktopTicketCreateRequest"]["action"];
+export type DesktopTicketCreated = components["schemas"]["DesktopTicketCreated"];
+export type DesktopTicketView = components["schemas"]["DesktopTicketView"];
 export type AccountPoolCredentialRequest = {
   version: number;
   api_key: string;
@@ -179,6 +182,12 @@ export const refreshAccountPoolQuotas = (accessToken: string) =>
 
 export const clearAccountPoolLogs = (accessToken: string) =>
   apiClient.delete<AccountPoolLogClearResult>("/account_pool/logs", { accessToken });
+
+export const createDesktopTicket = (accessToken: string, action: DesktopAction) =>
+  apiClient.post<DesktopTicketCreated>("/account_pool/desktop/tickets", { accessToken, body: { action } });
+
+export const getDesktopTicket = (accessToken: string, ticketId: string) =>
+  apiClient.get<DesktopTicketView>(`/account_pool/desktop/tickets/${encodeURIComponent(ticketId)}`, { accessToken });
 
 export const listAccountPoolPlugins = (accessToken: string) =>
   apiClient.get<AccountPoolPluginRecord[]>("/account_pool/plugins", { accessToken });
