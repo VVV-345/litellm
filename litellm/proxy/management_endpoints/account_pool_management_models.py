@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, TypeAlias
 from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -20,6 +20,9 @@ SupplierKind = Literal[
     "gemini_interactions",
     "vertex",
 ]
+# 历史日志是审计数据，退役渠道值必须保持可读，但不能重新加入可配置渠道类型。
+LogChannelKind: TypeAlias = ChannelKind | Literal["freebuff2api"]
+LogSupplierKind: TypeAlias = SupplierKind | Literal["freebuff"]
 LogStage = Literal[
     "provisioning",
     "authorization",
@@ -852,8 +855,8 @@ class ErrorLogRecord(BaseModel):
     event_id: UUID = Field(default_factory=uuid4)
     occurred_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: AwareDatetime | None = None
-    channel: ChannelKind
-    supplier: SupplierKind
+    channel: LogChannelKind
+    supplier: LogSupplierKind
     card_id: UUID
     environment_id: UUID
     account_id: UUID

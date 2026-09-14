@@ -18,9 +18,33 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     AccountPoolManagerClient,
     create_account_pool_router,
 )
+from litellm.proxy.management_endpoints.account_pool_management_models import ErrorLogRecord
 
 _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
+
+
+def test_retired_channel_logs_remain_parseable_at_the_proxy_boundary() -> None:
+    current: Final = ErrorLogRecord(
+        channel="cliproxyapi",
+        supplier="openai_codex",
+        card_id=_ENVIRONMENT_ID,
+        environment_id=_ENVIRONMENT_ID,
+        account_id=_ENVIRONMENT_ID,
+        operation="configuration",
+        stage="configuration",
+        message="Historical event",
+    )
+    payload: Final = {
+        **current.model_dump(mode="json"),
+        "channel": "freebuff2api",
+        "supplier": "freebuff",
+    }
+
+    restored: Final = ErrorLogRecord.model_validate(payload)
+
+    assert restored.channel == "freebuff2api"
+    assert restored.supplier == "freebuff"
 
 
 class _ManagerEnvironment(TypedDict):
