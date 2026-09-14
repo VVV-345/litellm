@@ -5,7 +5,15 @@ from typing import Final
 from uuid import uuid4
 
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, Provider, ProxyMode, QuotaSnapshot, utc_now
-from account_pool.quota import QuotaObservation, effective_cooldown_until, parse_provider_quota, parse_quota
+from account_pool.quota import (
+    QuotaObservation,
+    effective_cooldown_until,
+    parse_antigravity_assist,
+    parse_antigravity_quota,
+    parse_provider_quota,
+    parse_quota,
+    parse_xai_billing_quota,
+)
 
 
 def _record(*, manual_cooldown: bool = False, enabled: bool = True):
@@ -94,3 +102,81 @@ def test_effective_cooldown_preserves_manual_cooldown_when_upstream_value_elapse
     now: Final = utc_now()
 
     assert effective_cooldown_until(record, now - timedelta(seconds=1), now) == record.cooldown_until
+
+
+def test_parse_xai_billing_quota_keeps_weekly_and_monthly_windows() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    refreshed: Final = parse_xai_billing_quota(
+        """
+        {
+          "config": {
+            "currentPeriod": {
+              "type": "WEEKLY",
+              "start": "2026-09-10T00:00:00Z",
+              "end": "2026-09-17T00:00:00Z"
+            },
+            "creditUsagePercent": 25
+          }
+        }
+        """,
+        """
+        {
+          "config": {
+            "monthlyLimit": {"val": "15000"},
+            "used": {"val": 6000},
+            "billingPeriodStart": "2026-09-01T00:00:00Z",
+            "billingPeriodEnd": "2026-10-01T00:00:00Z"
+          }
+        }
+        """,
+        observed_at,
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.plan_type == "supergrok"
+    assert tuple(window.name for window in refreshed.quota.windows) == ("Weekly", "Monthly")
+    assert tuple(window.remaining_percent for window in refreshed.quota.windows) == (75, 60)
+    assert refreshed.quota.windows[0].window_minutes == 10080
+    assert refreshed.quota.windows[1].resets_at == datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def test_parse_antigravity_quota_keeps_real_model_percentages_and_reset_times() -> None:
+    observed_at: Final = datetime(2026, 9, 14, 0, 0, tzinfo=timezone.utc)
+    assist: Final = parse_antigravity_assist(
+        """
+        {
+          "cloudaicompanionProject": {"id": "project-a"},
+          "currentTier": {"id": "free-tier"},
+          "paidTier": {"id": "pro-tier"}
+        }
+        """
+    )
+    refreshed: Final = parse_antigravity_quota(
+        """
+        {
+          "models": {
+            "gemini-2.5-pro": {
+              "quotaInfo": {
+                "remainingFraction": 0.375,
+                "resetTime": "2026-09-14T05:00:00Z"
+              }
+            },
+            "model-without-quota": {}
+          }
+        }
+        """,
+        assist,
+        observed_at,
+    )
+
+    assert assist is not None
+    assert assist.project_id == "project-a"
+    assert refreshed is not None
+    assert refreshed.quota.plan_type == "pro-tier"
+    assert len(refreshed.model_quotas) == 1
+    window: Final = refreshed.model_quotas[0].quota.windows[0]
+    assert refreshed.model_quotas[0].model == "gemini-2.5-pro"
+    assert window.used_percent == 62.5
+    assert window.remaining_percent == 37.5
+    assert window.window_minutes == 300
+    assert window.resets_at == datetime(2026, 9, 14, 5, 0, tzinfo=timezone.utc)

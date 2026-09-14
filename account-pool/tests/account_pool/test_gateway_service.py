@@ -7,7 +7,15 @@ from uuid import UUID, uuid4
 
 import pytest
 from account_pool.card_keys import CardKeyService
-from account_pool.domain import EnvironmentRecord, EnvironmentStatus, GatewayEnvironment, utc_now
+from account_pool.domain import (
+    EnvironmentRecord,
+    EnvironmentStatus,
+    GatewayEnvironment,
+    ModelQuotaSnapshot,
+    QuotaSnapshot,
+    QuotaWindow,
+    utc_now,
+)
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
 from account_pool.gateway_contracts import (
     AcquireRejected,
@@ -147,6 +155,47 @@ def gateway(record: EnvironmentRecord) -> GatewayEnvironment:
         api_base=f"http://cliproxy-{record.id.hex}:8317/v1",
         api_key="internal-only",
     )
+
+
+@pytest.mark.asyncio
+async def test_candidate_preserves_per_model_quota_for_gateway_routing() -> None:
+    observed_at: Final = utc_now()
+    card: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "model_quotas": (
+                ModelQuotaSnapshot(
+                    model="gpt-5",
+                    quota=QuotaSnapshot(
+                        observed_at=observed_at,
+                        windows=(
+                            QuotaWindow(
+                                name="Model",
+                                used_percent=75,
+                                remaining_percent=25,
+                                window_minutes=300,
+                                resets_at=observed_at,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+    )
+    service: Final = GatewayService(
+        CardKeyService(MemoryKeys()),
+        MemoryRepository(card),
+        MemoryPolicies(),
+        MemoryLeases(),
+        ErrorLogService(MemoryLogs()),
+        gateway,
+    )
+
+    candidate: Final = await service.candidate(card)
+
+    assert len(candidate.model_quotas) == 1
+    assert candidate.model_quotas[0].model == "gpt-5"
+    assert candidate.model_quotas[0].remaining_percent == 25
+    assert candidate.model_quotas[0].observed_at == observed_at
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Final
 from uuid import uuid4
 
@@ -167,6 +168,141 @@ async def test_read_codex_account_exposes_subscription_and_auth_file_plan(
     assert observed.quota.auth_file_plan_type == expected_auth_file_plan_type
     assert observed.quota.subscription_active_until is not None
     assert observed.quota.subscription_active_until.isoformat() == "2090-01-02T03:04:05+00:00"
+
+
+@pytest.mark.asyncio
+async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.XAI})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.XAI)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={"files": [{"name": "xai.json", "provider": "xai", "auth_index": "xai-index"}]},
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "grok-code-fast-1"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        body: Final = (
+            {
+                "config": {
+                    "currentPeriod": {
+                        "type": "WEEKLY",
+                        "start": "2026-09-10T00:00:00Z",
+                        "end": "2026-09-17T00:00:00Z",
+                    },
+                    "creditUsagePercent": 20,
+                }
+            }
+            if "format=credits" in str(payload["url"])
+            else {
+                "config": {
+                    "monthlyLimit": {"val": 150000},
+                    "used": {"val": 30000},
+                    "billingPeriodStart": "2026-09-01T00:00:00Z",
+                    "billingPeriodEnd": "2026-10-01T00:00:00Z",
+                }
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"status_code": 200, "header": {}, "body": json.dumps(body)},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert observed.quota.plan_type == "supergrok-heavy"
+    assert tuple(window.remaining_percent for window in observed.quota.windows) == (80, 80)
+    assert tuple(call["auth_index"] for call in api_calls) == ("xai-index", "xai-index")
+    assert tuple(call["url"] for call in api_calls) == (
+        "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+        "https://cli-chat-proxy.grok.com/v1/billing",
+    )
+    assert all(call["header"]["Authorization"] == "Bearer $TOKEN$" for call in api_calls)
+    assert all(call["header"]["x-grok-client-version"] == "0.2.120" for call in api_calls)
+    assert all(call["header"]["x-authenticateresponse"] == "authenticate-response" for call in api_calls)
+
+
+@pytest.mark.asyncio
+async def test_antigravity_quota_refresh_reads_tier_and_per_model_windows() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.GOOGLE_ANTIGRAVITY})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.GOOGLE_ANTIGRAVITY)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "antigravity.json",
+                            "provider": "antigravity",
+                            "auth_index": "antigravity-index",
+                            "project_id": "project-a",
+                            "quota": {
+                                "observed_at": "2026-09-01T00:00:00Z",
+                                "signals": {
+                                    "antigravity-week-used-percent": "10",
+                                    "antigravity-week-window-minutes": "10080",
+                                },
+                            },
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gemini-2.5-pro"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        body: Final = (
+            {
+                "cloudaicompanionProject": "project-a",
+                "paidTier": {"id": "pro-tier"},
+            }
+            if str(payload["url"]).endswith("loadCodeAssist")
+            else {
+                "models": {
+                    "gemini-2.5-pro": {
+                        "quotaInfo": {
+                            "remainingFraction": 0.42,
+                            "resetTime": "2090-01-02T03:04:05Z",
+                        }
+                    }
+                }
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"status_code": 200, "header": {}, "body": json.dumps(body)},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert observed.quota.plan_type == "pro-tier"
+    assert observed.quota.observed_at == datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assert observed.quota.windows[0].remaining_percent == 90
+    assert observed.model_quotas[0].model == "gemini-2.5-pro"
+    assert observed.model_quotas[0].quota.windows[0].remaining_percent == 42
+    assert tuple(call["auth_index"] for call in api_calls) == ("antigravity-index", "antigravity-index")
+    load_payload: Final = json.loads(str(api_calls[0]["data"]))
+    models_payload: Final = json.loads(str(api_calls[1]["data"]))
+    assert load_payload == {"metadata": {"ideType": "ANTIGRAVITY"}}
+    assert models_payload == {"project": "project-a"}
+    assert all(call["header"]["Authorization"] == "Bearer $TOKEN$" for call in api_calls)
 
 
 @pytest.mark.asyncio

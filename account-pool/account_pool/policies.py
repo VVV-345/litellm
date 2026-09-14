@@ -228,7 +228,9 @@ def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCap
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
         PolicyCapability(name="identity", status="gateway" if supplier is SupplierKind.OPENAI_CODEX else "unsupported"),
-        *(PolicyCapability(name=name, status="unsupported") for name in ("websocket", "plan_expiry", "debug")),
+        PolicyCapability(name="plan_expiry", status="gateway"),
+        PolicyCapability(name="websocket", status="gateway"),
+        PolicyCapability(name="debug", status="gateway"),
         PolicyCapability(name="provider_settings", status=provider_status),
         PolicyCapability(name="desktop_compact", status="desktop"),
     )
@@ -272,12 +274,6 @@ async def policy_validation_error(
     policy: AccountPolicy,
     environments: PolicyEnvironmentRepository,
 ) -> str | None:
-    if policy.routing.strategy in ("plan", "expiry"):
-        return "Plan and subscription expiry routing are not supported"
-    if policy.transport.websocket != "inherit":
-        return "Card WebSocket transport is not supported"
-    if policy.transport.debug_log_enabled:
-        return "Card debug logging is not supported"
     if policy.codex is not None and card.supplier is not SupplierKind.OPENAI_CODEX:
         return "Codex settings apply only to Codex accounts"
     provider_policies: Final = (

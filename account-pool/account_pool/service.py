@@ -27,6 +27,7 @@ from account_pool.domain import (
     AuthorizationView,
     ChannelKind,
     CleanupProgress,
+    CommonSettingsProfileBaseline,
     CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
     CreateVertexEnvironmentRequest,
@@ -35,6 +36,7 @@ from account_pool.domain import (
     EnvironmentStatus,
     EnvironmentView,
     GatewayEnvironment,
+    NetworkSettingsProfileBaseline,
     OAuthCallback,
     OpenAICompatibleConfiguration,
     OpenAICompatibleCredential,
@@ -44,6 +46,7 @@ from account_pool.domain import (
     ProxyMode,
     ProxyProfile,
     QuotaSnapshot,
+    SettingsProfileBaselines,
     SupplierKind,
     UpdateEnvironmentRequest,
     configuration_from_record,
@@ -83,6 +86,13 @@ class _PluginStoreResponse(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     plugins: tuple[_PluginStoreEntry, ...]
+
+
+class _ExplicitProfileUpdate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    request: UpdateEnvironmentRequest
+    baselines: SettingsProfileBaselines
 
 
 def _plugin_store_approves(store: Mapping[str, object], plugin_id: str, version: str, source: str | None) -> bool:
@@ -208,7 +218,10 @@ class EnvironmentService:
         record: Final = await self._repository.get(environment_id)
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
-        refreshed: Final = await self._refresh_if_needed(record)
+        try:
+            refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
+        except Exception:
+            return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
         return Success(to_view(refreshed))
 
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
@@ -223,16 +236,16 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         policies: Final = () if self._policies is None else await self._policies.list()
         policies_by_card: Final = {policy.card_id: policy for policy in policies}
-        requests: Final = tuple(self._explicit_profile_update_request(record, settings) for record in records)
+        updates: Final = tuple(self._explicit_profile_update(record, settings) for record in records)
         results: Final = await asyncio.gather(
             *(
                 self._sync_global_settings_for_record(
                     record,
                     settings,
-                    request,
+                    update,
                     policies_by_card.get(record.id),
                 )
-                for record, request in zip(records, requests)
+                for record, update in zip(records, updates)
             ),
             return_exceptions=True,
         )
@@ -240,9 +253,9 @@ class EnvironmentService:
         if not failed or not rollback_on_failure:
             return failed
         rollback_targets: Final = tuple(
-            (record, request.operation_id)
-            for record, request in zip(records, requests)
-            if request is not None and request.operation_id is not None
+            (record, update.request.operation_id)
+            for record, update in zip(records, updates)
+            if update is not None and update.request.operation_id is not None
         )
         rollback_results: Final = await asyncio.gather(
             *(self._restore_settings_configuration(record, operation_id) for record, operation_id in rollback_targets),
@@ -259,13 +272,13 @@ class EnvironmentService:
         self,
         record: EnvironmentRecord,
         settings: AccountPoolSettings,
-        request: UpdateEnvironmentRequest | None,
+        update: _ExplicitProfileUpdate | None,
         policy: PolicyView | None,
     ) -> None:
         if record.status is EnvironmentStatus.DELETING:
             return
         effective: Final = settings_for_card(settings, record.id)
-        configured: Final = await self._apply_explicit_profile_configuration(record, request)
+        configured: Final = await self._apply_explicit_profile_configuration(record, update)
         if configured.channel is not ChannelKind.CLIPROXYAPI:
             return
         await self._cli_proxy.apply_global_settings(configured, effective)
@@ -283,11 +296,11 @@ class EnvironmentService:
             raise
         await self._set_policy_runtime_status(policy, "synced")
 
-    def _explicit_profile_update_request(
+    def _explicit_profile_update(
         self,
         record: EnvironmentRecord,
         settings: AccountPoolSettings,
-    ) -> UpdateEnvironmentRequest | None:
+    ) -> _ExplicitProfileUpdate | None:
         common: Final = next(
             (
                 profile
@@ -304,42 +317,87 @@ class EnvironmentService:
             ),
             None,
         )
-        if common is None and network is None:
-            return None
+        baselines: Final = record.settings_profile_baselines
         concurrency_limit: Final = (
-            record.concurrency_limit if common is None else common.values.default_concurrency_limit
+            baselines.common.concurrency_limit
+            if common is None and baselines.common is not None
+            else record.concurrency_limit
+            if common is None
+            else common.values.default_concurrency_limit
+        )
+        common_baseline: Final = (
+            None
+            if common is None
+            else CommonSettingsProfileBaseline(
+                profile_id=common.id,
+                concurrency_limit=(
+                    record.concurrency_limit if baselines.common is None else baselines.common.concurrency_limit
+                ),
+            )
         )
         proxy_profile_id: Final = (
-            record.proxy_profile_id if network is None else network.values.default_proxy_profile_id
+            baselines.network.proxy_profile_id
+            if network is None and baselines.network is not None
+            else record.proxy_profile_id
+            if network is None
+            else network.values.default_proxy_profile_id
         )
-        proxy_mode: Final = ProxyMode.DEFAULT_GATEWAY if proxy_profile_id is None else ProxyMode.PROFILE
+        proxy_mode: Final = (
+            baselines.network.proxy_mode
+            if network is None and baselines.network is not None
+            else record.proxy_mode
+            if network is None
+            else ProxyMode.DEFAULT_GATEWAY
+            if proxy_profile_id is None
+            else ProxyMode.PROFILE
+        )
+        network_baseline: Final = (
+            None
+            if network is None
+            else NetworkSettingsProfileBaseline(
+                profile_id=network.id,
+                proxy_mode=record.proxy_mode if baselines.network is None else baselines.network.proxy_mode,
+                proxy_profile_id=(
+                    record.proxy_profile_id if baselines.network is None else baselines.network.proxy_profile_id
+                ),
+            )
+        )
+        next_baselines: Final = SettingsProfileBaselines(common=common_baseline, network=network_baseline)
         unchanged: Final = (
             record.concurrency_limit == concurrency_limit
             and record.proxy_mode is proxy_mode
             and record.proxy_profile_id == proxy_profile_id
+            and baselines == next_baselines
         )
         if unchanged:
             return None
-        return UpdateEnvironmentRequest(
-            version=record.version,
-            operation_id=f"settings-sync-{uuid4()}",
-            name=record.name,
-            concurrency_limit=concurrency_limit,
-            enabled=record.enabled,
-            manual_cooldown=record.manual_cooldown,
-            proxy_mode=proxy_mode,
-            proxy_profile_id=proxy_profile_id,
-            enabled_models=record.enabled_models,
+        return _ExplicitProfileUpdate(
+            request=UpdateEnvironmentRequest(
+                version=record.version,
+                operation_id=f"settings-sync-{uuid4()}",
+                name=record.name,
+                concurrency_limit=concurrency_limit,
+                enabled=record.enabled,
+                manual_cooldown=record.manual_cooldown,
+                proxy_mode=proxy_mode,
+                proxy_profile_id=proxy_profile_id,
+                enabled_models=record.enabled_models,
+            ),
+            baselines=next_baselines,
         )
 
     async def _apply_explicit_profile_configuration(
         self,
         record: EnvironmentRecord,
-        request: UpdateEnvironmentRequest | None,
+        update: _ExplicitProfileUpdate | None,
     ) -> EnvironmentRecord:
-        if request is None:
+        if update is None:
             return record
-        result: Final = await self.update_environment(record.id, request)
+        result: Final = await self.update_environment(
+            record.id,
+            update.request,
+            settings_profile_baselines=update.baselines,
+        )
         if isinstance(result, Failure):
             raise ValueError(result.message)
         return await self._repository.get(record.id) or record
@@ -364,6 +422,7 @@ class EnvironmentService:
                     "proxy_mode": snapshot.proxy_mode,
                     "proxy_profile_id": snapshot.proxy_profile_id,
                     "enabled_models": snapshot.enabled_models,
+                    "settings_profile_baselines": snapshot.settings_profile_baselines,
                     "status": snapshot.status,
                     "desired_state": snapshot.status,
                     "operation_id": snapshot.operation_id,
@@ -1589,6 +1648,8 @@ class EnvironmentService:
         self,
         environment_id: UUID,
         request: UpdateEnvironmentRequest,
+        *,
+        settings_profile_baselines: SettingsProfileBaselines | Literal["preserve"] = "preserve",
     ) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(environment_id)
         async with lock:
@@ -1661,6 +1722,11 @@ class EnvironmentService:
                     "proxy_mode": request.proxy_mode,
                     "proxy_profile_id": request.proxy_profile_id,
                     "enabled_models": request.enabled_models,
+                    "settings_profile_baselines": (
+                        record.settings_profile_baselines
+                        if settings_profile_baselines == "preserve"
+                        else settings_profile_baselines
+                    ),
                     "status": status,
                     "cooldown_until": cooldown_until,
                     "automatic_cooldown": automatic_cooldown
@@ -1898,7 +1964,12 @@ class EnvironmentService:
         channel: Final = self._channel(record)
         return await channel.data_plane_health_check(record)
 
-    async def _refresh_if_needed(self, record: EnvironmentRecord) -> EnvironmentRecord:
+    async def _refresh_if_needed(
+        self,
+        record: EnvironmentRecord,
+        *,
+        refresh_quota: bool = False,
+    ) -> EnvironmentRecord:
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
             EnvironmentStatus.VALIDATING,
@@ -1941,9 +2012,11 @@ class EnvironmentService:
             if _cooldown_elapsed(current) and not await channel.data_plane_health_check(current):
                 return current
             try:
-                observed: Final = await channel.read_account(current)
+                observed: Final = await channel.read_account(current, refresh_quota=refresh_quota)
             except Exception as error:
                 await self._log_event(current, "quota", error)
+                if refresh_quota:
+                    raise
                 return current
             refreshed: Final = observed.model_copy(
                 update={

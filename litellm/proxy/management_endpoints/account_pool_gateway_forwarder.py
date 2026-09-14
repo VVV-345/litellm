@@ -7,9 +7,10 @@ import io
 import json
 import math
 import re
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from functools import cache, reduce
-from typing import Final, Protocol, cast
+from types import MappingProxyType
+from typing import Final, Protocol, TypedDict, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -18,6 +19,7 @@ from pydantic import JsonValue, TypeAdapter
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
+from typing_extensions import ReadOnly
 
 from litellm._logging import redact_secrets, verbose_proxy_logger
 from litellm.litellm_core_utils import token_counter as token_counter_module
@@ -131,6 +133,24 @@ _CONFIGURATION_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(
 _TOKEN_BUDGET_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("token_budget",))
 
 
+class _DebugDetail(TypedDict):
+    transport: ReadOnly[str]
+    account_id: ReadOnly[str]
+    supplier: ReadOnly[str]
+    query_fields: ReadOnly[tuple[str, ...]]
+    request_fields: ReadOnly[tuple[str, ...]]
+    stream: ReadOnly[bool]
+
+
+class _GatewayErrorDetail(TypedDict):
+    message: ReadOnly[str]
+    type: ReadOnly[str]
+
+
+class _GatewayErrorEnvelope(TypedDict):
+    error: ReadOnly[_GatewayErrorDetail]
+
+
 @cache
 def _responses_input_adapter() -> TypeAdapter[str | ResponseInputParam]:
     return TypeAdapter(str | ResponseInputParam)
@@ -142,13 +162,14 @@ def _responses_request_adapter() -> TypeAdapter[ResponsesAPIOptionalRequestParam
 
 
 class Attempt:
-    def __init__(self, lease: Lease, endpoint: str, send: Send) -> None:
+    def __init__(self, lease: Lease, endpoint: str, send: Send, detail: str | None = None) -> None:
         self.result = FinishRequest(
             lease_id=lease.lease_id,
             endpoint=endpoint,
             http_status=499,
             stage="response",
             message="Downstream disconnected",
+            detail=detail,
         )
         self.started = False
         self.send: Final = send
@@ -160,21 +181,20 @@ class Attempt:
             response_headers: Final = cast(Sequence[tuple[bytes, bytes]], message.get("headers", ()))
             header_names: Final = frozenset(name.lower() for name, _ in response_headers)
             request_id: Final = str(self.request_id).encode()
-            await self.send(
-                {
-                    **message,
-                    "headers": [
-                        *response_headers,
-                        *(((b"x-request-id", request_id),) if b"x-request-id" not in header_names else ()),
-                        (b"x-account-pool-request-id", request_id),
-                    ],
-                }
-            )
+            outbound: Final[Message] = {
+                **message,
+                "headers": (
+                    *response_headers,
+                    *(((b"x-request-id", request_id),) if b"x-request-id" not in header_names else ()),
+                    (b"x-account-pool-request-id", request_id),
+                ),
+            }
+            await self.send(outbound)
             return
         await self.send(message)
 
     def outcome(self, status: int, message: str, **values: JsonValue) -> None:
-        self.result = FinishRequest.model_validate(
+        updated: Final = MappingProxyType(
             {
                 **self.result.model_dump(mode="json"),
                 "http_status": status,
@@ -182,10 +202,11 @@ class Attempt:
                 **values,
             }
         )
+        self.result = FinishRequest.model_validate(updated)
 
     def record_cost(self, cost_usd: float | None) -> None:
         if cost_usd is not None:
-            self.result = self.result.model_copy(update={"cost_usd": cost_usd})
+            self.result = self.result.model_copy(update=MappingProxyType({"cost_usd": cost_usd}))
 
 
 async def report(control: GatewayControl, result: FinishRequest) -> None:
@@ -242,10 +263,14 @@ async def forward(
         if budget_only
         else "No bound account is currently available"
     )
+    content: Final[_GatewayErrorEnvelope] = {
+        "error": {"message": message, "type": "account_pool_error"},
+    }
+    response_headers: Final = MappingProxyType({"x-request-id": str(request_id)})
     await JSONResponse(
-        {"error": {"message": message, "type": "account_pool_error"}},
+        content,
         status_code=status,
-        headers={"x-request-id": str(request_id)},
+        headers=response_headers,
     )(request.scope, request.receive, send)
 
 
@@ -320,7 +345,10 @@ async def forward_candidate(
         if attempt_number < max_attempts and route_index + 1 < len(selected)
         else None
     )
-    attempt: Final = Attempt(lease, request.url.path, send)
+    debug_detail: Final = (
+        safe_debug_detail(request, payload, route) if resolution.policy.transport.debug_log_enabled else None
+    )
+    attempt: Final = Attempt(lease, request.url.path, send, debug_detail)
     try:
         completed: Final = await execute(request, payload, route, resolution, client, attempt, next_id, seconds)
     finally:
@@ -356,13 +384,18 @@ async def execute(
     next_id: UUID | None,
     seconds: int,
 ) -> bool:
-    headers: Final = {name: value for name, value in request.headers.items() if name in _HEADERS}
+    provider_header_names: Final = frozenset(name.lower() for name, _ in route.account.headers)
+    client_headers: Final = tuple(
+        (name, value)
+        for name, value in upstream_request_headers(request.headers)
+        if name.lower() not in provider_header_names
+    )
     upstream_model: Final = (
         route.model.removeprefix(route.account.model_prefix)
         if route.account.model_prefix and route.model.startswith(route.account.model_prefix)
         else route.model
     )
-    body: Final = {**payload, "model": upstream_model}
+    body: Final = {**payload, "model": upstream_model}  # mutable-ok: JSON encoding requires a concrete object
     credential: Final = select_gateway_credential(route.account.credentials, attempt.request_id, route.account.api_key)
     selected_client: Final = (
         client
@@ -381,19 +414,25 @@ async def execute(
             if route.account.supplier == "openai_compatible"
             else (destination, None)
         )
-        provider_headers: Final = dict(route.account.headers)
+        provider_headers: Final = tuple(
+            (name, value)
+            for name, value in route.account.headers
+            if name.lower() not in ("authorization", "host", "accept-encoding")
+        )
+        host_headers: Final = (("host", host_header),) if host_header is not None else ()
+        headers: Final = (
+            *client_headers,
+            *provider_headers,
+            *host_headers,
+            ("authorization", f"Bearer {credential.api_key}"),
+            ("accept-encoding", "identity"),
+        )
         async with asyncio.timeout(seconds):
             upstream: Final = selected_client.build_request(
                 "POST",
                 validated_destination,
                 params=tuple(request.query_params.multi_items()),
-                headers={
-                    **headers,
-                    **provider_headers,
-                    **({"host": host_header} if host_header is not None else {}),
-                    "authorization": f"Bearer {credential.api_key}",
-                    "accept-encoding": "identity",
-                },
+                headers=headers,
                 content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode(),
                 timeout=seconds,
             )
@@ -440,7 +479,11 @@ async def execute(
                         output_tokens=usage_out,
                         cost_usd=cost_usd,
                     )
-                    public: Final = {**parsed, **({"model": payload["model"]} if "model" in parsed else {})}
+                    public: Final = (
+                        {**parsed, "model": payload["model"]}  # mutable-ok: JSON response requires a concrete object
+                        if "model" in parsed
+                        else parsed
+                    )
                     await JSONResponse(
                         public,
                         status_code=response.status_code,
@@ -505,6 +548,37 @@ def select_gateway_credential(
         if selected < boundary:
             return credential
     return credentials[-1]
+
+
+def upstream_request_headers(headers: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    return tuple((name, value) for name, value in headers.items() if name.lower() in _HEADERS)
+
+
+def safe_debug_detail(request: Request, payload: Mapping[str, JsonValue], route: Route) -> str:
+    def safe_names(values: Iterable[str]) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                frozenset(
+                    name[:80]
+                    for name in values
+                    if name.lower() not in _SENSITIVE_ERROR_FIELDS and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name)
+                )
+            )
+        )
+
+    detail: Final[_DebugDetail] = {
+        "transport": "http",
+        "account_id": str(route.account.id),
+        "supplier": route.account.supplier,
+        "query_fields": safe_names(request.query_params),
+        "request_fields": safe_names(payload),
+        "stream": payload.get("stream") is True,
+    }
+    return json.dumps(
+        detail,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 async def bounded_body(response: httpx.Response, limit: int) -> bytes:

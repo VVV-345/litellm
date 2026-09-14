@@ -160,6 +160,36 @@ class EnvironmentConfiguration(BaseModel):
         return self
 
 
+class CommonSettingsProfileBaseline(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: str = Field(min_length=1, max_length=80)
+    concurrency_limit: int = Field(ge=1, le=1000)
+
+
+class NetworkSettingsProfileBaseline(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: str = Field(min_length=1, max_length=80)
+    proxy_mode: ProxyMode
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_proxy_profile(self) -> NetworkSettingsProfileBaseline:
+        if self.proxy_mode is ProxyMode.PROFILE and self.proxy_profile_id is None:
+            raise ValueError("proxy_profile_id is required for profile mode")
+        if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
+            return self.model_copy(update={"proxy_profile_id": None})
+        return self
+
+
+class SettingsProfileBaselines(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    common: CommonSettingsProfileBaseline | None = None
+    network: NetworkSettingsProfileBaseline | None = None
+
+
 class OpenAICompatibleKeyRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -351,6 +381,7 @@ class EnvironmentRecord(BaseModel):
     observed_configuration_version: int = Field(default=0, ge=0)
     desired_configuration: EnvironmentConfiguration | None = None
     configuration_last_error: str | None = None
+    settings_profile_baselines: SettingsProfileBaselines = Field(default_factory=SettingsProfileBaselines)
     name: str
     provider: Provider
     channel: ChannelKind = ChannelKind.CLIPROXYAPI

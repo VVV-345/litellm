@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Final, TypeAlias
 
 import httpx
@@ -21,7 +22,13 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
-from account_pool.quota import QuotaObservation
+from account_pool.quota import (
+    ProviderQuotaRefresh,
+    QuotaObservation,
+    parse_antigravity_assist,
+    parse_antigravity_quota,
+    parse_xai_billing_quota,
+)
 from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.quota import parse_quota as parse_quota_snapshot
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
@@ -88,6 +95,7 @@ class _AuthFile(BaseModel):
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
+    project_id: str | None = None
     id_token: _CodexIdentity | None = None
     metadata: Mapping[str, object] = Field(default_factory=dict)
     attributes: Mapping[str, object] = Field(default_factory=dict)
@@ -97,6 +105,13 @@ class _AuthFilesResponse(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     files: tuple[_AuthFile, ...] = ()
+
+
+class _APICallResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    status_code: int
+    body: str
 
 
 _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
@@ -144,9 +159,7 @@ class HttpCLIProxyClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def start_authorization(
-        self, record: EnvironmentRecord, supplier: SupplierDefinition
-    ) -> AuthorizationStart:
+    async def start_authorization(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> AuthorizationStart:
         response: Final = await self._request(record, "GET", supplier.authorization_path)
         payload: Final = _AuthorizationResponse.model_validate(response.json())
         return AuthorizationStart(
@@ -219,7 +232,11 @@ class HttpCLIProxyClient:
         return True
 
     async def read_account(
-        self, record: EnvironmentRecord, supplier: SupplierDefinition | None = None
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition | None = None,
+        *,
+        refresh_quota: bool = False,
     ) -> EnvironmentRecord:
         selected_supplier: Final = supplier or _legacy_openai_supplier()
         auth_response: Final = await self._request(record, "GET", "/v0/management/auth-files")
@@ -258,11 +275,30 @@ class HttpCLIProxyClient:
             update={"signals": {**metadata_signals, **auth_file.quota.signals}}
         )
         parsed_quota: Final = selected_supplier.quota_parser(observed_quota)
+        refreshed_quota: Final = (
+            await self._refresh_provider_quota(record, selected_supplier, auth_file) if refresh_quota else None
+        )
+        refreshed_windows: Final = (
+            refreshed_quota.quota.windows
+            if refreshed_quota is not None and refreshed_quota.quota.windows
+            else parsed_quota.windows
+        )
+        quota_observed_at: Final = (
+            refreshed_quota.quota.observed_at
+            if refreshed_quota is not None and refreshed_quota.quota.windows
+            else parsed_quota.observed_at
+        )
         identity: Final = auth_file.id_token if selected_supplier.kind is SupplierKind.OPENAI_CODEX else None
         plan_type: Final = auth_file.plan_type or (identity.plan_type if identity is not None else None)
         quota: Final = parsed_quota.model_copy(
             update={
-                **({"plan_type": plan_type} if parsed_quota.plan_type is None and plan_type is not None else {}),
+                "observed_at": quota_observed_at,
+                "plan_type": (
+                    refreshed_quota.quota.plan_type
+                    if refreshed_quota is not None and refreshed_quota.quota.plan_type is not None
+                    else parsed_quota.plan_type or plan_type
+                ),
+                "windows": refreshed_windows,
                 **(
                     {
                         "auth_file_plan_type": _codex_auth_file_plan_type(auth_file),
@@ -275,9 +311,14 @@ class HttpCLIProxyClient:
                 ),
             }
         )
-        model_quotas: Final = tuple(
+        passive_model_quotas: Final = tuple(
             ModelQuotaSnapshot(model=model, quota=selected_supplier.quota_parser(observation))
             for model, observation in sorted(auth_file.model_quotas.items())
+        )
+        model_quotas: Final = (
+            refreshed_quota.model_quotas
+            if refreshed_quota is not None and refreshed_quota.model_quotas
+            else passive_model_quotas
         )
         now: Final = datetime.now().astimezone()
         cooldown_until: Final = effective_cooldown_until_value(record, auth_file.next_retry_after, now)
@@ -308,6 +349,132 @@ class HttpCLIProxyClient:
 
     async def read_account_legacy(self, record: EnvironmentRecord) -> EnvironmentRecord:
         return await self.read_account(record, _legacy_openai_supplier())
+
+    async def _refresh_provider_quota(
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition,
+        auth_file: _AuthFile,
+    ) -> ProviderQuotaRefresh | None:
+        if supplier.kind is SupplierKind.XAI:
+            return await self._refresh_xai_quota(record, auth_file)
+        if supplier.kind is SupplierKind.GOOGLE_ANTIGRAVITY:
+            return await self._refresh_antigravity_quota(record, auth_file)
+        return None
+
+    async def _refresh_xai_quota(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+    ) -> ProviderQuotaRefresh:
+        headers: Final = {
+            "Authorization": "Bearer $TOKEN$",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-XAI-Token-Auth": "xai-grok-cli",
+            "x-grok-client-version": "0.2.120",
+            "x-grok-client-identifier": "grok-shell",
+            "x-authenticateresponse": "authenticate-response",
+            "User-Agent": "xai-grok-workspace/0.2.120",
+        }
+        weekly_body: Final = await self._optional_provider_api_call(
+            record,
+            auth_file,
+            "GET",
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            headers,
+        )
+        monthly_body: Final = await self._optional_provider_api_call(
+            record,
+            auth_file,
+            "GET",
+            "https://cli-chat-proxy.grok.com/v1/billing",
+            headers,
+        )
+        refreshed: Final = parse_xai_billing_quota(weekly_body, monthly_body, datetime.now(timezone.utc))
+        if refreshed is None:
+            raise RuntimeError("xAI quota endpoints did not return usable quota data")
+        return refreshed
+
+    async def _refresh_antigravity_quota(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+    ) -> ProviderQuotaRefresh:
+        headers: Final = {
+            "Authorization": "Bearer $TOKEN$",
+            "Accept": "*/*",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.9.1 darwin/arm64",
+        }
+        assist_body: Final = await self._optional_provider_api_call(
+            record,
+            auth_file,
+            "POST",
+            "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+            headers,
+            data={"metadata": {"ideType": "ANTIGRAVITY"}},
+        )
+        assist: Final = parse_antigravity_assist(assist_body)
+        project_id: Final = auth_file.project_id or (None if assist is None else assist.project_id)
+        if project_id is None:
+            raise RuntimeError("Antigravity quota refresh requires a project ID")
+        models_body: Final = await self._provider_api_call(
+            record,
+            auth_file,
+            "POST",
+            "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+            headers,
+            data={"project": project_id},
+        )
+        refreshed: Final = parse_antigravity_quota(models_body, assist, datetime.now(timezone.utc))
+        if refreshed is None:
+            raise RuntimeError("Antigravity quota endpoint did not return usable quota data")
+        return refreshed
+
+    async def _optional_provider_api_call(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        *,
+        data: JSONValue | None = None,
+    ) -> str | None:
+        try:
+            return await self._provider_api_call(record, auth_file, method, url, headers, data=data)
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            return None
+
+    async def _provider_api_call(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        *,
+        data: JSONValue | None = None,
+    ) -> str:
+        if auth_file.auth_index is None:
+            raise RuntimeError("CLIProxyAPI credential is missing auth_index")
+        response: Final = await self._request(
+            record,
+            "POST",
+            "/v0/management/api-call",
+            json={
+                "auth_index": auth_file.auth_index,
+                "method": method,
+                "url": url,
+                "header": dict(headers),
+                "data": "" if data is None else json.dumps(data, separators=(",", ":")),
+            },
+        )
+        payload: Final = _APICallResponse.model_validate(response.json())
+        if payload.status_code < 200 or payload.status_code >= 300:
+            raise RuntimeError(f"provider quota endpoint returned HTTP {payload.status_code}")
+        return payload.body
 
     async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None:
         if record.auth_file_name is None:
@@ -498,7 +665,9 @@ class HttpCLIProxyClient:
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
 
     async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:
-        return _JSON_OBJECT_ADAPTER.validate_python((await self._request(record, "GET", "/v0/management/plugins")).json())
+        return _JSON_OBJECT_ADAPTER.validate_python(
+            (await self._request(record, "GET", "/v0/management/plugins")).json()
+        )
 
     async def list_plugin_store(self, record: EnvironmentRecord) -> Mapping[str, object]:
         return _JSON_OBJECT_ADAPTER.validate_python(
@@ -545,9 +714,7 @@ class HttpCLIProxyClient:
         self, record: EnvironmentRecord, plugin_id: str, config: Mapping[str, object]
     ) -> Mapping[str, object]:
         return _JSON_OBJECT_ADAPTER.validate_python(
-            (
-                await self._request(record, "PUT", f"/v0/management/plugins/{plugin_id}/config", json=config)
-            ).json()
+            (await self._request(record, "PUT", f"/v0/management/plugins/{plugin_id}/config", json=config)).json()
         )
 
     async def _request(

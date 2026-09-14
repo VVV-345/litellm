@@ -83,7 +83,7 @@ class EnvironmentChannel(EnvironmentRuntime, Protocol):
 
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None: ...
 
-    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord: ...
+    async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord: ...
 
     async def write_direct_api_key(
         self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
@@ -95,9 +95,7 @@ class EnvironmentChannel(EnvironmentRuntime, Protocol):
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool: ...
 
-    async def apply_configuration(
-        self, record: EnvironmentRecord, configuration: EnvironmentConfiguration
-    ) -> None: ...
+    async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None: ...
 
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment: ...
 
@@ -105,8 +103,9 @@ class EnvironmentChannel(EnvironmentRuntime, Protocol):
 class CLIProxyClient(Protocol):
     async def close(self) -> None: ...
 
-    async def start_authorization(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> AuthorizationStart: ...
-
+    async def start_authorization(
+        self, record: EnvironmentRecord, supplier: SupplierDefinition
+    ) -> AuthorizationStart: ...
 
     async def authorization_status(self, record: EnvironmentRecord, state: str) -> str: ...
 
@@ -114,7 +113,13 @@ class CLIProxyClient(Protocol):
         self, record: EnvironmentRecord, supplier: SupplierDefinition, callback: OAuthCallback
     ) -> None: ...
 
-    async def read_account(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> EnvironmentRecord: ...
+    async def read_account(
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition,
+        *,
+        refresh_quota: bool = False,
+    ) -> EnvironmentRecord: ...
 
     async def write_direct_api_key(
         self,

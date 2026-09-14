@@ -312,8 +312,8 @@ class FakeChannel:
     async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
         await self._cli.cancel_oauth_session(record, state)
 
-    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        return await self._cli.read_account(record)
+    async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
+        return await self._cli.read_account(record, refresh_quota=refresh_quota)
 
     async def write_direct_api_key(
         self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str
@@ -451,6 +451,7 @@ class FakeCLIProxy:
         self.data_plane_healthy = data_plane_healthy
         self.observed_status = observed_status
         self.read_calls = 0
+        self.refresh_quota_calls: list[bool] = []
         self.status_calls: list[bool] = []
         self.proxy_calls: list[str] = []
         self.model_calls: list[tuple[str, ...]] = []
@@ -491,8 +492,9 @@ class FakeCLIProxy:
     async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
         self.cancel_calls.append((record.id, state))
 
-    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
+    async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
         self.read_calls += 1
+        self.refresh_quota_calls.append(refresh_quota)
         if self.read_calls <= self.read_failures_before_success:
             raise RuntimeError("credential is not visible yet")
         if self.read_error is not None:
@@ -810,6 +812,31 @@ def _service(record: EnvironmentRecord, cli: FakeCLIProxy, tmp_path: Path) -> En
 
 
 @pytest.mark.asyncio
+async def test_explicit_refresh_requests_live_quota_but_environment_listing_does_not(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    await service.list_environments()
+    refreshed: Final = await service.refresh_environment(record.id)
+
+    assert isinstance(refreshed, Success)
+    assert cli.refresh_quota_calls == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy(read_error=RuntimeError("provider quota unavailable"))
+    service: Final = _service(record, cli, tmp_path)
+
+    refreshed: Final = await service.refresh_environment(record.id)
+
+    assert refreshed == Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
+    assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_global_settings_sync_applies_named_common_profile_to_the_bound_card(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy()
@@ -847,6 +874,75 @@ async def test_global_defaults_do_not_overwrite_existing_card_runtime_configurat
     assert cli.concurrency_calls == []
     stored: Final = await service._repository.get(record.id)
     assert stored is not None and stored.concurrency_limit == 7
+
+
+@pytest.mark.asyncio
+async def test_named_profiles_restore_the_original_card_configuration_after_unbinding(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 7})
+    repository: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=StaticProfiles("http://proxy.example:8080"),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    first_binding: Final = AccountPoolSettings(
+        common_profiles=(
+            CommonSettingsProfile(
+                id="first-common",
+                name="首个常用配置",
+                card_ids=(record.id,),
+                inherit_global=False,
+                values=CommonSettingsValues(default_concurrency_limit=9),
+            ),
+        ),
+        network_profiles=(
+            NetworkSettingsProfile(
+                id="named-network",
+                name="命名网络配置",
+                card_ids=(record.id,),
+                inherit_global=False,
+                values=NetworkSettingsValues(default_proxy_profile_id="proxy-profile"),
+            ),
+        ),
+    )
+    second_binding: Final = first_binding.model_copy(
+        update={
+            "common_profiles": (
+                CommonSettingsProfile(
+                    id="second-common",
+                    name="第二个常用配置",
+                    card_ids=(record.id,),
+                    inherit_global=False,
+                    values=CommonSettingsValues(default_concurrency_limit=11),
+                ),
+            )
+        }
+    )
+
+    assert await service.sync_global_settings(first_binding) == ()
+    assert await service.sync_global_settings(second_binding) == ()
+    assert await service.sync_global_settings(AccountPoolSettings()) == ()
+
+    restored: Final = await repository.get(record.id)
+    assert restored is not None
+    assert (restored.concurrency_limit, restored.proxy_mode, restored.proxy_profile_id) == (
+        7,
+        ProxyMode.DEFAULT_GATEWAY,
+        None,
+    )
+    assert restored.settings_profile_baselines.common is None
+    assert restored.settings_profile_baselines.network is None
+    assert tuple((item.concurrency_limit, item.proxy_url) for _, item in cli.configuration_calls) == (
+        (9, "http://proxy.example:8080"),
+        (11, "http://proxy.example:8080"),
+        (7, ""),
+    )
 
 
 @pytest.mark.asyncio
@@ -1562,7 +1658,13 @@ async def test_startup_deadline_cancels_a_stuck_model_check(tmp_path: Path) -> N
     cancelled: Final = asyncio.Event()
 
     class StuckCLI(FakeCLIProxy):
-        async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        async def read_account(
+            self,
+            record: EnvironmentRecord,
+            *,
+            refresh_quota: bool = False,
+        ) -> EnvironmentRecord:
+            _ = refresh_quota
             try:
                 await asyncio.Event().wait()
             finally:

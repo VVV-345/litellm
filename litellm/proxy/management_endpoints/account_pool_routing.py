@@ -59,18 +59,56 @@ def target_model(policy: AccountPolicy, model: str) -> str:
     return next((item.target for item in policy.model_aliases if item.alias == model), model)
 
 
-def quota_available(account: Candidate, policy: AccountPolicy) -> bool:
+def quota_state(account: Candidate, model: str) -> tuple[float | None, datetime | None]:
+    model_quota: Final = next((quota for quota in account.model_quotas if quota.model == model), None)
+    return (
+        (model_quota.remaining_percent, model_quota.observed_at)
+        if model_quota is not None
+        else (account.remaining_percent, account.quota_observed_at)
+    )
+
+
+def quota_available(account: Candidate, policy: AccountPolicy, model: str) -> bool:
+    remaining_percent, observed_at = quota_state(account, model)
     reserve: Final = max(policy.routing.quota_reserve_percent, account.policy.routing.quota_reserve_percent)
-    if account.remaining_percent is not None and account.remaining_percent <= reserve:
+    if remaining_percent is not None and remaining_percent <= reserve:
         return False
     if reserve == 0:
         return True
     max_age: Final = min(policy.routing.quota_snapshot_max_age, account.policy.routing.quota_snapshot_max_age)
     return (
-        account.remaining_percent is not None
-        and account.quota_observed_at is not None
-        and (datetime.now(timezone.utc) - account.quota_observed_at).total_seconds() <= max_age
+        remaining_percent is not None
+        and observed_at is not None
+        and (datetime.now(timezone.utc) - observed_at).total_seconds() <= max_age
     )
+
+
+def plan_rank(account: Candidate) -> int | None:
+    raw_plan: Final = (account.plan_type or "").strip().lower()
+    if not raw_plan:
+        return None
+    normalized_auth_plan: Final = (account.auth_file_plan_type or "").strip().lower().replace("_", "-")
+    if "enterprise" in raw_plan or any(token in raw_plan for token in ("edu", "health", "gov", "teacher")):
+        return 700
+    if "ultra" in raw_plan or "heavy" in raw_plan:
+        return 650
+    if "max" in raw_plan:
+        return 600
+    if "supergrok" in raw_plan:
+        return 500
+    if "pro" in raw_plan:
+        return 600 if normalized_auth_plan in ("promax", "pro-max") else 500
+    if any(token in raw_plan for token in ("business", "team", "plus")):
+        return 300
+    if "go" in raw_plan:
+        return 200
+    if "free" in raw_plan:
+        return 100
+    return None
+
+
+def subscription_active(account: Candidate, now: datetime) -> bool:
+    return account.subscription_active_until is None or account.subscription_active_until > now
 
 
 def routes(
@@ -80,7 +118,10 @@ def routes(
     headers: Headers,
     image_generation: bool = False,
     stream: bool = False,
+    websocket: bool = False,
 ) -> tuple[Route, ...] | Rejected:
+    if websocket and not resolution.websocket_enabled:
+        return Rejected(403, "WebSocket transport is disabled for this card")
     card_codex: Final = resolution.policy.codex
     if path == "/v1/responses/compact" and (card_codex is None or not card_codex.responses_compact_enabled):
         return Rejected(403, "Responses Compact is disabled for this card")
@@ -89,11 +130,10 @@ def routes(
     )
     if rejected:
         return rejected
-    if resolution.policy.routing.strategy in ("plan", "expiry"):
-        return Rejected(501, "Plan and subscription expiry routing require verified provider metadata")
     target: Final = target_model(resolution.policy, model)
     if model in resolution.policy.excluded_models or target in resolution.policy.excluded_models:
         return Rejected(403, "Model is excluded by the card policy")
+    now: Final = datetime.now(timezone.utc)
     eligible: Final = tuple(
         Route(account, mapped, "automatic")
         for account in resolution.candidates
@@ -101,28 +141,51 @@ def routes(
         and model not in account.policy.excluded_models
         and target not in account.policy.excluded_models
         and mapped not in account.policy.excluded_models
-        and quota_available(account, resolution.policy)
+        and quota_available(account, resolution.policy, mapped)
+        and subscription_active(account, now)
+        and (not websocket or account.websocket_enabled)
         and protocol_policy(account.policy, path, headers, image_generation, stream, resolution.streaming_mode) is None
     )
     if not eligible:
         return Rejected(503, "No bound account currently supports this model and policy")
     preferred: Final = resolution.policy.routing.preferred_account_ids
 
-    def rank(route: Route) -> tuple[bool, bool, int, float]:
+    def rank(route: Route) -> tuple[bool, bool, int, float, float, float]:
         account: Final = route.account
         priority: Final = float(-account.policy.routing.priority)
+        remaining_percent, observed_at = quota_state(account, route.model)
         fresh: Final = (
-            account.quota_observed_at is not None
-            and (datetime.now(timezone.utc) - account.quota_observed_at).total_seconds()
-            <= resolution.policy.routing.quota_snapshot_max_age
+            observed_at is not None
+            and (now - observed_at).total_seconds() <= resolution.policy.routing.quota_snapshot_max_age
         )
-        quota: Final = -account.remaining_percent if fresh and account.remaining_percent is not None else 1.0
+        quota: Final = -remaining_percent if fresh and remaining_percent is not None else 1.0
+        account_plan_rank: Final = plan_rank(account)
+        plan: Final = -float(account_plan_rank) if account_plan_rank is not None else float("inf")
+        expiry: Final = (
+            account.subscription_active_until.timestamp()
+            if account.subscription_active_until is not None
+            else float("inf")
+        )
+        strategy: Final = resolution.policy.routing.strategy
+        strategy_rank: Final = (
+            quota
+            if strategy == "quota"
+            else plan
+            if strategy == "plan"
+            else expiry
+            if strategy == "expiry"
+            else priority
+        )
+        secondary_rank: Final = quota if strategy == "plan" else plan if strategy == "expiry" else 0.0
+        tertiary_rank: Final = quota if strategy == "expiry" else 0.0
         preference: Final = preferred.index(account.id) if account.id in preferred else len(preferred)
         return (
             account.id != resolution.sticky_account_id,
             account.policy.routing.is_backup,
             preference,
-            quota if resolution.policy.routing.strategy == "quota" else priority,
+            strategy_rank,
+            secondary_rank,
+            tertiary_rank,
         )
 
     ranked: Final = tuple(sorted(eligible, key=rank))
@@ -154,6 +217,10 @@ def route_with_reason(resolution: Resolution, route: Route, eligible_count: int,
         if route.account.policy.routing.is_backup
         else "quota"
         if policy.strategy == "quota"
+        else "plan"
+        if policy.strategy == "plan"
+        else "expiry"
+        if policy.strategy == "expiry"
         else "custom_order"
         if policy.strategy == "custom"
         else "priority"

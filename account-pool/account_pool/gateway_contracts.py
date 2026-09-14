@@ -18,6 +18,8 @@ RoutingReason: TypeAlias = Literal[
     "preferred_account",
     "priority",
     "quota",
+    "plan",
+    "expiry",
     "random_weighted",
     "custom_order",
     "backup_account",
@@ -26,15 +28,21 @@ RoutingReason: TypeAlias = Literal[
     "retry_failover",
 ]
 
-AcquireRejectionReason: TypeAlias = Literal[
-    "concurrency", "configuration", "cooldown", "session", "token_budget"
-]
+AcquireRejectionReason: TypeAlias = Literal["concurrency", "configuration", "cooldown", "session", "token_budget"]
 
 
 class ResolveRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     card_key: str = Field(min_length=16, max_length=256, repr=False)
     session_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class CandidateModelQuota(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    remaining_percent: float = Field(ge=0, le=100)
+    observed_at: AwareDatetime | None = None
 
 
 class Candidate(BaseModel):
@@ -54,6 +62,11 @@ class Candidate(BaseModel):
     policy: AccountPolicy
     remaining_percent: float | None = None
     quota_observed_at: AwareDatetime | None = None
+    model_quotas: tuple[CandidateModelQuota, ...] = ()
+    plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    subscription_active_until: AwareDatetime | None = None
+    websocket_enabled: bool = False
 
 
 class Resolution(BaseModel):
@@ -66,6 +79,7 @@ class Resolution(BaseModel):
     candidates: tuple[Candidate, ...]
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
+    websocket_enabled: bool = False
 
 
 class AcquireRequest(ResolveRequest):
@@ -113,6 +127,8 @@ class FinishRequest(BaseModel):
     switched_account: bool = False
     next_account_id: UUID | None = None
     endpoint: str = Field(max_length=256)
+    method: Literal["GET", "POST"] = "POST"
+    detail: str | None = Field(default=None, max_length=2000)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)

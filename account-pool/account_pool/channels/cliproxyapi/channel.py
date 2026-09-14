@@ -94,8 +94,12 @@ class CLIProxyAPIChannel:
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         await self._client.submit_callback(record, self.supplier(record.supplier), callback)
 
-    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        return await self._client.read_account(record, self.supplier(record.supplier))
+    async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
+        return await self._client.read_account(
+            record,
+            self.supplier(record.supplier),
+            refresh_quota=refresh_quota,
+        )
 
     async def write_direct_api_key(
         self, record: EnvironmentRecord, credential: DirectAPIKeyCredentialRequest, proxy_url: str

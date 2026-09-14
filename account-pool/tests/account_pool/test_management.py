@@ -292,6 +292,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     assert capabilities["desktop_compact"] == "desktop"
     assert capabilities["identity"] == "gateway"
     assert capabilities["provider_settings"] == "gateway"
+    assert capabilities["plan_expiry"] == "gateway"
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409
     assert client.get(path).json()["policy"]["routing"]["weight"] == 4
     assert client.put(path, json={"version": 1, "policy": {"unknown_setting": True}}).status_code == 422
@@ -309,17 +310,17 @@ def test_policy_versions_and_supplier_scope(management) -> None:
         ).status_code
         == 422
     )
-    assert client.put(path, json={"version": 2, "policy": {"routing": {"strategy": "plan"}}}).status_code == 422
-    assert client.put(path, json={"version": 2, "policy": {"transport": {"websocket": "enabled"}}}).status_code == 422
+    assert client.put(path, json={"version": 2, "policy": {"routing": {"strategy": "plan"}}}).status_code == 200
+    assert client.put(path, json={"version": 3, "policy": {"transport": {"websocket": "enabled"}}}).status_code == 200
     assert (
-        client.put(path, json={"version": 2, "policy": {"transport": {"debug_log_enabled": True}}}).status_code == 422
+        client.put(path, json={"version": 4, "policy": {"transport": {"debug_log_enabled": True}}}).status_code == 200
     )
-    assert client.put(path, json={"version": 2, "policy": {"account_ids": [str(uuid4())]}}).status_code == 422
+    assert client.put(path, json={"version": 5, "policy": {"account_ids": [str(uuid4())]}}).status_code == 422
     assert (
         client.put(
             path,
             json={
-                "version": 2,
+                "version": 5,
                 "policy": {
                     "routing": {"preferred_account_ids": [str(uuid4())]},
                 },

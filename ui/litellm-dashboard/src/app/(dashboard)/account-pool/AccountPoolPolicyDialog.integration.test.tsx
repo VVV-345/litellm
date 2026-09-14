@@ -1,4 +1,4 @@
-/** 本文件验证策略编辑器不会继续提交未实现的运行选项。 */
+/** 本文件验证策略编辑器保留已实现策略并过滤仍未支持的运行选项。 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -81,20 +81,20 @@ describe("AccountPoolPolicyDialog", () => {
     savePolicy.mockResolvedValue(policyView);
   });
 
-  it("shows runtime failures and normalizes unsupported legacy settings before saving", async () => {
+  it("shows runtime failures, keeps supported routing, and normalizes unsupported transport settings", async () => {
     const user = userEvent.setup();
     renderDialog();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("runtime sync failed");
-    expect(screen.queryByRole("switch", { name: /调试日志|Debug logging/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: /^WebSocket$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /调试日志|Debug logging/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^WebSocket$/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
     const saved = savePolicy.mock.calls[0][3] as AccountPolicy;
 
-    expect(saved.routing?.strategy).toBe("auto");
-    expect(saved.transport?.websocket).toBe("inherit");
-    expect(saved.transport?.debug_log_enabled).toBe(false);
+    expect(saved.routing?.strategy).toBe("plan");
+    expect(saved.transport?.websocket).toBe("enabled");
+    expect(saved.transport?.debug_log_enabled).toBe(true);
   });
 });

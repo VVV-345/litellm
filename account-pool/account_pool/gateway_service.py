@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from collections.abc import Callable
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -17,6 +17,7 @@ from account_pool.gateway_contracts import (
     AcquireRejected,
     AcquireRequest,
     Candidate,
+    CandidateModelQuota,
     FinishRequest,
     Lease,
     Resolution,
@@ -94,6 +95,10 @@ class GatewayService:
         streaming_mode: Final = (
             "inherit" if global_settings is None else streaming_mode_for_card(global_settings, card.id)
         )
+        websocket_enabled: Final = _websocket_enabled(
+            policy.policy.transport.websocket,
+            effective_settings.websocket_enabled if effective_settings is not None else False,
+        )
         return Resolution(
             card_id=card.id,
             key_id=key.key_id,
@@ -103,6 +108,7 @@ class GatewayService:
             candidates=candidates,
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
+            websocket_enabled=websocket_enabled,
         )
 
     async def candidate(
@@ -131,6 +137,9 @@ class GatewayService:
             if policy.version == 0 and record.openai_compatible is not None
             else configured_policy
         )
+        effective_settings: Final = (
+            settings_for_card(global_settings, record.id) if global_settings is not None else None
+        )
         return Candidate(
             id=record.id,
             channel=record.channel,
@@ -147,6 +156,22 @@ class GatewayService:
             policy=effective_policy,
             remaining_percent=min((window.remaining_percent for window in record.quota.windows), default=None),
             quota_observed_at=record.quota.observed_at,
+            model_quotas=tuple(
+                CandidateModelQuota(
+                    model=item.model,
+                    remaining_percent=min(window.remaining_percent for window in item.quota.windows),
+                    observed_at=item.quota.observed_at,
+                )
+                for item in record.model_quotas
+                if item.quota.windows
+            ),
+            plan_type=record.quota.plan_type,
+            auth_file_plan_type=record.quota.auth_file_plan_type,
+            subscription_active_until=record.quota.subscription_active_until,
+            websocket_enabled=_websocket_enabled(
+                policy.policy.transport.websocket,
+                effective_settings.websocket_enabled if effective_settings is not None else False,
+            ),
         )
 
     async def acquire(self, request: AcquireRequest) -> Lease:
@@ -212,7 +237,7 @@ class GatewayService:
             stage=request.stage,
             model=lease.model,
             endpoint=request.endpoint,
-            method="POST",
+            method=request.method,
             error_category=category,
             severity="error" if failed else "info",
             http_status=request.http_status,
@@ -222,6 +247,7 @@ class GatewayService:
             switched_account=request.switched_account,
             next_account_id=request.next_account_id,
             message=request.message,
+            detail=request.detail,
             duration_ms=max(0, int((now - lease.started_at).total_seconds() * 1000)),
             final_status="retrying" if request.retryable else "failed" if failed else "succeeded",
             input_tokens=request.input_tokens,
@@ -265,6 +291,10 @@ def _policy_with_settings(policy: AccountPolicy, settings: AccountPoolSettings |
             ),
         }
     )
+
+
+def _websocket_enabled(mode: Literal["inherit", "enabled", "disabled"], inherited: bool) -> bool:
+    return inherited if mode == "inherit" else mode == "enabled"
 
 
 def create_gateway_router(service: GatewayService, authorize: Callable[..., None]) -> APIRouter:

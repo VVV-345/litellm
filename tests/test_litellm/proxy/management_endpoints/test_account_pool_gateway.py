@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
-from typing import Final
+from contextlib import AbstractAsyncContextManager
+from datetime import datetime, timedelta, timezone
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import httpx
@@ -20,6 +22,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
     AcquireRequest,
     Candidate,
+    CandidateModelQuota,
     FinishRequest,
     GatewayCredential,
     Lease,
@@ -33,7 +36,11 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     RoutingPolicy,
     TransportPolicy,
 )
-from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
+from litellm.proxy.management_endpoints.account_pool_routing import Rejected, plan_rank, routes
+from litellm.proxy.management_endpoints.account_pool_websocket import (
+    UpstreamWebSocket,
+    WebSocketDialRequest,
+)
 
 _KEY: Final = "cpk_" + "test-only-" * 5
 
@@ -81,7 +88,65 @@ class Control:
         self.finished.append(request)
 
 
-def candidate(identifier: UUID, priority: int = 0) -> Candidate:
+class FakeUpstreamWebSocket:
+    def __init__(self) -> None:
+        self.subprotocol: str | None = None
+        self.sent: list[str | bytes] = []
+        self.responses: asyncio.Queue[str | bytes] = asyncio.Queue()
+
+    async def send(self, message: str | bytes) -> None:
+        self.sent.append(message)
+        payload: Final = json.loads(message)
+        await self.responses.put(
+            json.dumps(
+                {
+                    "type": "response.completed",
+                    "response": {"id": "resp_1", "model": payload["model"]},
+                }
+            )
+        )
+
+    async def recv(self) -> str | bytes:
+        return await self.responses.get()
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        return None
+
+
+class FakeUpstreamContext(AbstractAsyncContextManager[UpstreamWebSocket]):
+    def __init__(self, upstream: FakeUpstreamWebSocket) -> None:
+        self.upstream: Final = upstream
+
+    async def __aenter__(self) -> UpstreamWebSocket:
+        return self.upstream
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> None:
+        return None
+
+
+class FakeWebSocketDialer:
+    def __init__(self) -> None:
+        self.upstream: Final = FakeUpstreamWebSocket()
+        self.requests: list[WebSocketDialRequest] = []
+
+    def connect(self, request: WebSocketDialRequest) -> AbstractAsyncContextManager[UpstreamWebSocket]:
+        self.requests.append(request)
+        return FakeUpstreamContext(self.upstream)
+
+
+def candidate(
+    identifier: UUID,
+    priority: int = 0,
+    *,
+    plan_type: str | None = None,
+    auth_file_plan_type: str | None = None,
+    subscription_active_until: datetime | None = None,
+) -> Candidate:
     return Candidate(
         id=identifier,
         channel="cliproxyapi",
@@ -93,10 +158,18 @@ def candidate(identifier: UUID, priority: int = 0) -> Candidate:
         api_key="internal-secret",
         concurrency_limit=1,
         policy=AccountPolicy(routing=RoutingPolicy(priority=priority)),
+        plan_type=plan_type,
+        auth_file_plan_type=auth_file_plan_type,
+        subscription_active_until=subscription_active_until,
     )
 
 
-def setup_gateway(handler: Callable[[httpx.Request], httpx.Response], *, retry: bool = False):
+def setup_gateway(
+    handler: Callable[[httpx.Request], httpx.Response],
+    *,
+    retry: bool = False,
+    websocket_dialer: FakeWebSocketDialer | None = None,
+):
     card: Final = uuid4()
     policy: Final = AccountPolicy(
         model_aliases=(ModelAlias(alias="public-model", target="model-a"),),
@@ -122,6 +195,7 @@ def setup_gateway(handler: Callable[[httpx.Request], httpx.Response], *, retry: 
         AccountPoolGatewayMiddleware,
         control_factory=lambda _: control,
         client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        websocket_dialer=websocket_dialer,
     )
     return TestClient(app), control
 
@@ -132,6 +206,8 @@ def setup_gateway(handler: Callable[[httpx.Request], httpx.Response], *, retry: 
         (RoutingPolicy(), "automatic"),
         (RoutingPolicy(strategy="priority"), "priority"),
         (RoutingPolicy(strategy="quota"), "quota"),
+        (RoutingPolicy(strategy="plan"), "plan"),
+        (RoutingPolicy(strategy="expiry"), "expiry"),
         (RoutingPolicy(strategy="custom"), "custom_order"),
     ],
 )
@@ -160,6 +236,8 @@ def test_route_reason_matches_the_active_selection_strategy(policy: RoutingPolic
         RoutingPolicy(strategy="random"),
         RoutingPolicy(strategy="priority"),
         RoutingPolicy(strategy="quota"),
+        RoutingPolicy(strategy="plan"),
+        RoutingPolicy(strategy="expiry"),
         RoutingPolicy(strategy="custom"),
     ],
 )
@@ -180,6 +258,121 @@ def test_single_account_route_reason_is_explicit(routing: RoutingPolicy) -> None
     assert selected[0].reason == "single_account"
 
 
+def test_plan_routing_prefers_verified_higher_tiers_and_uses_quota_as_a_tiebreaker() -> None:
+    observed_at: Final = datetime.now(timezone.utc)
+    plus: Final = candidate(uuid4(), plan_type="plus").model_copy(
+        update={"remaining_percent": 90, "quota_observed_at": observed_at}
+    )
+    pro_lite: Final = candidate(uuid4(), plan_type="pro", auth_file_plan_type="prolite").model_copy(
+        update={"remaining_percent": 30, "quota_observed_at": observed_at}
+    )
+    pro_max: Final = candidate(uuid4(), plan_type="pro", auth_file_plan_type="promax").model_copy(
+        update={"remaining_percent": 10, "quota_observed_at": observed_at}
+    )
+    unknown: Final = candidate(uuid4())
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(strategy="plan")),
+        candidates=(unknown, plus, pro_lite, pro_max),
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+
+    assert not isinstance(selected, Rejected)
+    assert tuple(route.account.id for route in selected) == (pro_max.id, pro_lite.id, plus.id, unknown.id)
+
+
+@pytest.mark.parametrize(
+    ("plan_type", "expected"),
+    (("enterprise", 700), ("ultra-tier", 650), ("supergrok-heavy", 650), ("max", 600), ("supergrok", 500)),
+)
+def test_plan_rank_supports_verified_non_codex_tiers(plan_type: str, expected: int) -> None:
+    assert plan_rank(candidate(uuid4(), plan_type=plan_type)) == expected
+
+
+def test_model_quota_applies_only_to_the_routed_model() -> None:
+    observed_at: Final = datetime.now(timezone.utc)
+    account: Final = candidate(uuid4()).model_copy(
+        update={
+            "enabled_models": ("model-a", "model-b"),
+            "remaining_percent": 90,
+            "quota_observed_at": observed_at,
+            "model_quotas": (CandidateModelQuota(model="model-a", remaining_percent=0, observed_at=observed_at),),
+        }
+    )
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(strategy="quota")),
+        candidates=(account,),
+    )
+
+    exhausted: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+    available: Final = routes(resolution, "model-b", "/v1/responses", Headers())
+
+    assert exhausted == Rejected(503, "No bound account currently supports this model and policy")
+    assert not isinstance(available, Rejected)
+    assert available[0].account.id == account.id
+
+
+def test_expiry_routing_prefers_soonest_active_subscription_and_skips_expired_accounts() -> None:
+    now: Final = datetime.now(timezone.utc)
+    expired: Final = candidate(uuid4(), plan_type="enterprise", subscription_active_until=now - timedelta(days=1))
+    sooner: Final = candidate(uuid4(), plan_type="plus", subscription_active_until=now + timedelta(days=30))
+    later: Final = candidate(uuid4(), plan_type="pro", subscription_active_until=now + timedelta(days=60))
+    unknown: Final = candidate(uuid4(), plan_type="enterprise")
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(strategy="expiry")),
+        candidates=(expired, unknown, later, sooner),
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+
+    assert not isinstance(selected, Rejected)
+    assert tuple(route.account.id for route in selected) == (sooner.id, later.id, unknown.id)
+
+
+@pytest.mark.parametrize("strategy", ("auto", "random", "priority", "quota", "plan", "expiry", "custom"))
+def test_expired_subscription_is_never_routable_for_any_strategy(
+    strategy: Literal["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
+) -> None:
+    now: Final = datetime.now(timezone.utc)
+    expired: Final = candidate(
+        uuid4(),
+        priority=100,
+        plan_type="enterprise",
+        subscription_active_until=now - timedelta(seconds=1),
+    ).model_copy(update={"remaining_percent": 100, "quota_observed_at": now})
+    active: Final = candidate(
+        uuid4(),
+        priority=-100,
+        plan_type="free",
+        subscription_active_until=now + timedelta(days=1),
+    ).model_copy(update={"remaining_percent": 1, "quota_observed_at": now})
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(strategy=strategy)),
+        candidates=(expired, active),
+    )
+
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers())
+
+    assert not isinstance(selected, Rejected)
+    assert tuple(route.account.id for route in selected) == (active.id,)
+
+
 def test_streaming_rule_can_disable_stream_requests() -> None:
     account: Final = candidate(uuid4())
     resolution: Final = Resolution(
@@ -195,6 +388,150 @@ def test_streaming_rule_can_disable_stream_requests() -> None:
     selected: Final = routes(resolution, "model-a", "/v1/chat/completions", Headers(), stream=True)
 
     assert selected == Rejected(403, "Streaming is disabled for this account")
+
+
+def test_websocket_route_requires_card_and_candidate_enablement() -> None:
+    account: Final = candidate(uuid4())
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(),
+        candidates=(account,),
+    )
+
+    disabled: Final = routes(resolution, "model-a", "/v1/responses", Headers(), websocket=True)
+    card_enabled: Final = resolution.model_copy(update={"websocket_enabled": True})
+    no_candidate: Final = routes(card_enabled, "model-a", "/v1/responses", Headers(), websocket=True)
+
+    assert disabled == Rejected(403, "WebSocket transport is disabled for this card")
+    assert no_candidate == Rejected(503, "No bound account currently supports this model and policy")
+
+
+def test_card_websocket_forwards_frames_with_internal_auth_and_releases_the_lease() -> None:
+    dialer: Final = FakeWebSocketDialer()
+    client, control = setup_gateway(lambda _: httpx.Response(500), websocket_dialer=dialer)
+    enabled_policy: Final = control.resolution.policy.model_copy(
+        update={"transport": TransportPolicy(websocket="enabled", debug_log_enabled=True)}
+    )
+    enabled_candidate: Final = control.resolution.candidates[0].model_copy(
+        update={
+            "policy": control.resolution.candidates[0].policy.model_copy(
+                update={"transport": TransportPolicy(websocket="enabled")}
+            ),
+            "websocket_enabled": True,
+            "credentials": (
+                GatewayCredential(
+                    api_key="internal-secret",
+                    proxy_url="http://proxy-user:proxy-secret@proxy.test:8080",
+                ),
+            ),
+        }
+    )
+    control.resolution = control.resolution.model_copy(
+        update={
+            "policy": enabled_policy,
+            "candidates": (enabled_candidate,),
+            "websocket_enabled": True,
+        }
+    )
+
+    with client.websocket_connect(
+        "/v1/responses?model=public-model&trace=query-secret&token=query-token-secret",
+        headers={"Authorization": f"Bearer {_KEY}"},
+    ) as socket:
+        socket.send_json({"type": "response.create", "model": "public-model", "input": "hello"})
+        response: Final = socket.receive_json()
+
+    assert response["response"]["model"] == "public-model"
+    assert json.loads(dialer.upstream.sent[0])["model"] == "model-a"
+    assert dialer.requests[0].url.endswith("/v1/responses?model=model-a&trace=query-secret&token=query-token-secret")
+    headers: Final = dict(dialer.requests[0].headers)
+    assert headers["authorization"] == "Bearer internal-secret"
+    request_repr: Final = str(dialer.requests)
+    assert _KEY not in request_repr
+    assert "internal-secret" not in request_repr
+    assert "proxy-secret" not in request_repr
+    assert len(control.acquisitions) == 1
+    assert len(control.finished) == 1
+    assert control.finished[0].method == "GET"
+    assert json.loads(control.finished[0].detail or "{}") == {
+        "account_id": str(enabled_candidate.id),
+        "query_fields": ["model", "trace"],
+        "supplier": "openai_codex",
+        "transport": "websocket",
+    }
+    assert all(
+        secret not in (control.finished[0].detail or "")
+        for secret in (_KEY, "internal-secret", "proxy-secret", "query-secret", "query-token-secret")
+    )
+
+
+def test_websocket_model_change_releases_the_lease_and_closes_the_connection() -> None:
+    dialer: Final = FakeWebSocketDialer()
+    client, control = setup_gateway(lambda _: httpx.Response(500), websocket_dialer=dialer)
+    enabled_candidate: Final = control.resolution.candidates[0].model_copy(
+        update={
+            "policy": control.resolution.candidates[0].policy.model_copy(
+                update={"transport": TransportPolicy(websocket="enabled")}
+            ),
+            "websocket_enabled": True,
+        }
+    )
+    control.resolution = control.resolution.model_copy(
+        update={
+            "policy": control.resolution.policy.model_copy(update={"transport": TransportPolicy(websocket="enabled")}),
+            "candidates": (enabled_candidate,),
+            "websocket_enabled": True,
+        }
+    )
+
+    with client.websocket_connect(
+        "/v1/responses?model=public-model",
+        headers={"Authorization": f"Bearer {_KEY}"},
+    ) as socket:
+        socket.send_json({"type": "response.create", "model": "different-model", "input": "hello"})
+        closed: Final = socket.receive()
+
+    assert closed["type"] == "websocket.close"
+    assert closed["code"] == 1008
+    assert len(control.finished) == 1
+    assert control.finished[0].http_status == 400
+    assert control.finished[0].message == "WebSocket frame changes the routed model"
+
+
+def test_http_debug_detail_records_structure_without_secret_values() -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(200, json={"output": []}))
+    control.resolution = control.resolution.model_copy(
+        update={
+            "policy": control.resolution.policy.model_copy(
+                update={"transport": TransportPolicy(debug_log_enabled=True)}
+            )
+        }
+    )
+
+    with client:
+        response: Final = client.post(
+            "/v1/responses?trace=enabled&token=query-secret",
+            json={"model": "public-model", "input": "body-secret", "api_key": "body-key-secret"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 200
+    detail: Final = control.finished[0].detail or ""
+    assert json.loads(detail) == {
+        "account_id": str(control.resolution.candidates[0].id),
+        "query_fields": ["trace"],
+        "request_fields": ["input", "model"],
+        "stream": False,
+        "supplier": "openai_codex",
+        "transport": "http",
+    }
+    assert all(
+        secret not in detail
+        for secret in (_KEY, "internal-secret", "query-secret", "body-secret", "body-key-secret", "enabled")
+    )
 
 
 def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> None:
@@ -306,7 +643,8 @@ def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted
         seen.append(request)
         assert request.headers["host"] == "api.example.com"
         assert request.headers["x-provider-feature"] == "enabled"
-        assert request.headers["authorization"] in {"Bearer first-key", "Bearer second-key"}
+        assert request.headers.get_list("authorization") in (["Bearer first-key"], ["Bearer second-key"])
+        assert request.headers["accept-encoding"] == "identity"
         assert json.loads(request.content)["model"] == "chat-model"
         return httpx.Response(200, json={"model": "chat-model", "choices": []})
 
@@ -322,7 +660,12 @@ def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted
                 GatewayCredential(api_key="first-key", weight=2),
                 GatewayCredential(api_key="second-key", weight=1),
             ),
-            "headers": (("x-provider-feature", "enabled"),),
+            "headers": (
+                ("x-provider-feature", "enabled"),
+                ("Authorization", "Bearer provider-override"),
+                ("Host", "attacker.example"),
+                ("Accept-Encoding", "gzip"),
+            ),
             "model_prefix": "vendor/",
         }
     )

@@ -6,7 +6,8 @@ import hashlib
 import io
 import os
 from collections.abc import Callable
-from typing import Final
+from types import MappingProxyType
+from typing import Final, TypedDict
 
 import httpx
 from pydantic import JsonValue, TypeAdapter
@@ -15,15 +16,23 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocket
+from typing_extensions import ReadOnly
 
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl, ManagerControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Resolution, ResolveRequest
 from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
 from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
+from litellm.proxy.management_endpoints.account_pool_websocket import (
+    DefaultWebSocketDialer,
+    WebSocketDialer,
+    forward_websocket,
+)
 
 _BODY: Final = TypeAdapter(dict[str, JsonValue])
 _PATHS: Final = frozenset(("/v1/chat/completions", "/v1/responses", "/v1/responses/compact", "/v1/images/generations"))
+_WEBSOCKET_PATHS: Final = frozenset(("/v1/responses", "/v1/realtime"))
 _MAX_BODY: Final = 16 * 1024 * 1024
+_NO_STORE_HEADERS: Final = MappingProxyType({"Cache-Control": "no-store"})
 _SESSION_HEADERS: Final = (
     "x-claude-code-session-id",
     "x-session-id",
@@ -32,6 +41,27 @@ _SESSION_HEADERS: Final = (
     "x-session-affinity",
     "x-client-request-id",
 )
+
+
+class _ModelEntry(TypedDict):
+    id: ReadOnly[str]
+    object: ReadOnly[str]
+    created: ReadOnly[int]
+    owned_by: ReadOnly[str]
+
+
+class _ModelList(TypedDict):
+    object: ReadOnly[str]
+    data: ReadOnly[tuple[_ModelEntry, ...]]
+
+
+class _ErrorDetail(TypedDict):
+    message: ReadOnly[str]
+    type: ReadOnly[str]
+
+
+class _ErrorEnvelope(TypedDict):
+    error: ReadOnly[_ErrorDetail]
 
 
 def http_client() -> httpx.AsyncClient:
@@ -51,10 +81,12 @@ class AccountPoolGatewayMiddleware:
         app: ASGIApp,
         control_factory: Callable[[httpx.AsyncClient], GatewayControl] = manager_control,
         client_factory: Callable[[], httpx.AsyncClient] = http_client,
+        websocket_dialer: WebSocketDialer | None = None,
     ) -> None:
         self.app: Final = app
         self.control_factory: Final = control_factory
         self.client_factory: Final = client_factory
+        self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
@@ -66,15 +98,26 @@ class AccountPoolGatewayMiddleware:
             await self.app(scope, receive, send)
             return
         if scope["type"] == "websocket":
-            await WebSocket(scope, receive, send).close(code=1008, reason="Card WebSocket transport is not supported")
+            await self._dispatch_websocket(scope, receive, send, key.strip())
             return
-        request: Final = Request(scope, receive)
-        if not 16 <= len(key.strip()) <= 256:
+        await self._dispatch_http(scope, receive, send, key.strip())
+
+    async def _dispatch_websocket(self, scope: Scope, receive: Receive, send: Send, key: str) -> None:
+        websocket: Final = WebSocket(scope, receive, send)
+        if not 16 <= len(key) <= 256:
+            await websocket.close(code=1008, reason="Invalid account pool key")
+            return
+        await self.websocket(websocket, key)
+
+    async def _dispatch_http(self, scope: Scope, receive: Receive, send: Send, key: str) -> None:
+        if not 16 <= len(key) <= 256:
             await error_response(401, "Invalid account pool key")(scope, receive, send)
             return
+        request: Final = Request(scope, receive)
+        headers: Final = request.headers
         path: Final = request.url.path
         if path == "/v1/models" and request.method == "GET":
-            await self.models(request, key.strip(), send)
+            await self.models(request, key, send)
             return
         # 卡片 Key 不可降级到普通鉴权或管理接口，只允许明确支持的协议路径。
         if path not in _PATHS or request.method != "POST":
@@ -89,7 +132,7 @@ class AccountPoolGatewayMiddleware:
         try:
             async with self.client_factory() as client:
                 control: Final = self.control_factory(client)
-                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key.strip()))
+                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key))
                 payload: Final = await read_payload(request)
                 model: Final = payload.get("model")
                 if not isinstance(model, str) or not model.strip() or len(model) > 256:
@@ -98,7 +141,7 @@ class AccountPoolGatewayMiddleware:
                 resolution: Final = (
                     initial_resolution
                     if session is None
-                    else await control.resolve(ResolveRequest(card_key=key.strip(), session_hash=session))
+                    else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
                 )
                 image_tools: Final = payload.get("tools")
                 has_images: Final = isinstance(image_tools, list) and any(
@@ -109,7 +152,7 @@ class AccountPoolGatewayMiddleware:
                 if isinstance(selected, Rejected):
                     await error_response(selected.status, selected.message)(scope, receive, send)
                     return
-                await forward(request, payload, key.strip(), session, resolution, selected, control, client, send)
+                await forward(request, payload, key, session, resolution, selected, control, client, send)
         except ClientDisconnect:
             return
         except ControlError as error:
@@ -121,19 +164,58 @@ class AccountPoolGatewayMiddleware:
         except httpx.HTTPError:
             await error_response(503, "Account pool control plane is unavailable")(scope, receive, send)
 
+    async def websocket(self, websocket: WebSocket, key: str) -> None:
+        if websocket.url.path not in _WEBSOCKET_PATHS:
+            await websocket.close(code=1008, reason="This endpoint is not available to account pool keys")
+            return
+        model: Final = websocket.query_params.get("model", "").strip()
+        if not model or len(model) > 256:
+            await websocket.close(code=1008, reason="A valid model query parameter is required")
+            return
+        try:
+            async with self.client_factory() as client:
+                control: Final = self.control_factory(client)
+                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key))
+                session: Final = session_hash(websocket.headers, model)
+                resolution: Final = (
+                    initial_resolution
+                    if session is None
+                    else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
+                )
+                selected: Final = routes(
+                    resolution,
+                    model,
+                    websocket.url.path,
+                    websocket.headers,
+                    websocket=True,
+                )
+                if isinstance(selected, Rejected):
+                    await websocket.close(code=1008, reason=selected.message)
+                    return
+                await forward_websocket(
+                    websocket,
+                    key,
+                    model,
+                    session,
+                    resolution,
+                    selected,
+                    control,
+                    self.websocket_dialer,
+                )
+        except ControlError:
+            await websocket.close(code=1013, reason="Account pool control plane is unavailable")
+        except (ValueError, httpx.HTTPError):
+            await websocket.close(code=1011, reason="Account pool WebSocket request failed")
+
     async def models(self, request: Request, key: str, send: Send) -> None:
         try:
             async with self.client_factory() as client:
                 resolution: Final = await self.control_factory(client).resolve(ResolveRequest(card_key=key))
+            models: Final = tuple(model_entry(name) for name in model_names(resolution))
+            content: Final[_ModelList] = {"object": "list", "data": models}
             response: Final = JSONResponse(
-                {
-                    "object": "list",
-                    "data": [
-                        {"id": name, "object": "model", "created": 0, "owned_by": "account-pool"}
-                        for name in model_names(resolution)
-                    ],
-                },
-                headers={"Cache-Control": "no-store"},
+                content,
+                headers=_NO_STORE_HEADERS,
             )
             await response(request.scope, request.receive, send)
         except (ControlError, httpx.HTTPError, ValueError) as error:
@@ -186,9 +268,17 @@ def model_names(resolution: Resolution) -> tuple[str, ...]:
     return tuple(sorted(underlying | account_aliases | aliases))
 
 
+def model_entry(name: str) -> _ModelEntry:
+    entry: Final[_ModelEntry] = {"id": name, "object": "model", "created": 0, "owned_by": "account-pool"}
+    return entry
+
+
 def error_response(status: int, message: str) -> JSONResponse:
+    content: Final[_ErrorEnvelope] = {
+        "error": {"message": message, "type": "account_pool_error"},
+    }
     return JSONResponse(
-        {"error": {"message": message, "type": "account_pool_error"}},
+        content,
         status_code=status,
-        headers={"Cache-Control": "no-store"},
+        headers=_NO_STORE_HEADERS,
     )

@@ -53,6 +53,8 @@ RoutingReason = Literal[
     "preferred_account",
     "priority",
     "quota",
+    "plan",
+    "expiry",
     "random_weighted",
     "custom_order",
     "backup_account",
@@ -221,7 +223,9 @@ class ClaudePolicy(BaseModel):
             "claude-code-cli" if fingerprint in ("claude-code-cli", "oauth-cli") else "inherit"
         )
         legacy_cloak: Final = value.get("cloak")
-        cloak_mode: Final = value.get("cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto")
+        cloak_mode: Final = value.get(
+            "cloak_mode", "always" if legacy_cloak is True else "never" if legacy_cloak is False else "auto"
+        )
         return {
             key: item
             for key, item in {**value, "fingerprint_profile": normalized_fingerprint, "cloak_mode": cloak_mode}.items()
@@ -701,7 +705,9 @@ def policy_capabilities(supplier: str | None = None) -> tuple[PolicyCapability, 
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
         PolicyCapability(name="identity", status="metadata" if supplier == "openai_codex" else "unsupported"),
-        *(PolicyCapability(name=name, status="unsupported") for name in ("websocket", "plan_expiry", "debug")),
+        PolicyCapability(name="plan_expiry", status="gateway"),
+        PolicyCapability(name="websocket", status="gateway"),
+        PolicyCapability(name="debug", status="gateway"),
         PolicyCapability(name="provider_settings", status=provider_status),
         PolicyCapability(name="desktop_compact", status="desktop"),
     )

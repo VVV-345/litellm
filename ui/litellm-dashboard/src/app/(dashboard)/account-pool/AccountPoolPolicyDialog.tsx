@@ -197,12 +197,8 @@ function PolicyForm({
   const initial: FormPolicy = {
     ...defaults,
     ...source,
-    routing: {
-      ...sourceRouting,
-      strategy:
-        sourceRouting.strategy === "plan" || sourceRouting.strategy === "expiry" ? "auto" : sourceRouting.strategy,
-    },
-    transport: { ...defaults.transport, ...source.transport, websocket: "inherit", debug_log_enabled: false },
+    routing: sourceRouting,
+    transport: { ...defaults.transport, ...source.transport },
     codex: source.codex ?? null,
     claude: source.claude ?? null,
     kimi: source.kimi ?? null,
@@ -494,7 +490,7 @@ function PolicyForm({
           {selectField(
             t("accountPool.policy.strategy"),
             policy.routing.strategy,
-            ["auto", "random", "priority", "quota", "custom"],
+            ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
             (next) => updateRouting("strategy", next as Routing["strategy"]),
           )}
           {numberField(t("accountPool.policy.priority"), policy.routing.priority, (next) =>
@@ -553,10 +549,19 @@ function PolicyForm({
             ["inherit", "enabled", "disabled"],
             (next) => updateTransport("image_generation", next as Transport["image_generation"]),
           )}
+          {selectField(
+            t("accountPool.policy.websocket"),
+            policy.transport.websocket,
+            ["inherit", "enabled", "disabled"],
+            (next) => updateTransport("websocket", next as Transport["websocket"]),
+          )}
           {numberField(
             t("accountPool.policy.request_timeout_seconds"),
             policy.transport.request_timeout_seconds,
             (next) => updateTransport("request_timeout_seconds", next),
+          )}
+          {toggleField(t("accountPool.policy.debug_log_enabled"), policy.transport.debug_log_enabled, (next) =>
+            updateTransport("debug_log_enabled", next),
           )}
         </div>
       </section>

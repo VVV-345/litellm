@@ -60,7 +60,7 @@ def cost_calculator(
     fal.ai image generation cost calculator
     """
     if not isinstance(image_response, ImageResponse):
-        raise ValueError(f"image_response must be of type ImageResponse got type={type(image_response)}")
+        raise TypeError(f"image_response must be of type ImageResponse got type={type(image_response)}")
     # the proxy cost path passes the provider-prefixed model name
     model = model.removeprefix(f"{litellm.LlmProviders.FAL_AI.value}/")
     num_images: Final[int] = len(image_response.data) if image_response.data else 0

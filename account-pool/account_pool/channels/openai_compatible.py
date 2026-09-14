@@ -160,7 +160,8 @@ class OpenAICompatibleChannel:
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         raise RuntimeError("OpenAI-compatible cards do not accept OAuth callbacks")
 
-    async def read_account(self, record: EnvironmentRecord) -> EnvironmentRecord:
+    async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
+        _ = refresh_quota
         models: Final = await self._discover_models(record)
         if not models:
             raise RuntimeError("OpenAI-compatible upstream did not report any models")
