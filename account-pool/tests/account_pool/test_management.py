@@ -401,6 +401,30 @@ def test_logs_redact_credentials_in_every_free_text_field(secret_text: str, secr
     assert "[redacted]" in event.model_dump_json()
 
 
+def test_logs_keep_retired_channel_records_readable() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    current: Final = ErrorLogRecord(
+        channel=record.channel,
+        supplier=record.supplier,
+        card_id=record.id,
+        environment_id=record.id,
+        account_id=record.id,
+        operation="configuration",
+        stage="configuration",
+        message="Historical event",
+    )
+    payload: Final = {
+        **current.model_dump(mode="json"),
+        "channel": "freebuff2api",
+        "supplier": "freebuff",
+    }
+
+    restored: Final = ErrorLogRecord.model_validate(payload)
+
+    assert restored.channel == "freebuff2api"
+    assert restored.supplier == "freebuff"
+
+
 @pytest.mark.asyncio
 async def test_error_capture_preserves_context_and_http_status(management) -> None:
     client, record, _, logs, service = management

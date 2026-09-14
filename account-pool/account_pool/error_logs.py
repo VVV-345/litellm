@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Final, Literal, Protocol
+from typing import Final, Literal, Protocol, TypeAlias
 from uuid import UUID, uuid4
 
 import httpx
@@ -40,6 +40,9 @@ ErrorCategory = Literal[
     "configuration",
     "unknown",
 ]
+# 历史日志是审计数据，退役渠道值必须保持可读，但不能重新加入可创建渠道枚举。
+LogChannelKind: TypeAlias = ChannelKind | Literal["freebuff2api"]
+LogSupplierKind: TypeAlias = SupplierKind | Literal["freebuff"]
 _LOGGER: Final = logging.getLogger(__name__)
 MODEL_REQUEST_OPERATION: Final = "model_request"
 
@@ -50,8 +53,8 @@ class ErrorLogRecord(BaseModel):
     event_id: UUID = Field(default_factory=uuid4)
     occurred_at: AwareDatetime = Field(default_factory=utc_now)
     finished_at: AwareDatetime | None = None
-    channel: ChannelKind
-    supplier: SupplierKind
+    channel: LogChannelKind
+    supplier: LogSupplierKind
     card_id: UUID
     environment_id: UUID
     account_id: UUID
