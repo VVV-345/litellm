@@ -18,13 +18,7 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
-from litellm.proxy.management_endpoints.account_pool_management_models import (
-    DesktopTicketClaim,
-    DesktopTicketClaimRequest,
-    DesktopTicketCompleteRequest,
-    DesktopTicketView,
-    ErrorStats,
-)
+from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
@@ -838,43 +832,6 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             request.model_dump_json().encode("utf-8"),
         )
         return _validate_response(response, _GATEWAY_ADAPTER)
-
-    async def claim_desktop_ticket(
-        ticket_id: UUID, request: DesktopTicketClaimRequest, outgoing_response: Response
-    ) -> DesktopTicketClaim:
-        outgoing_response.headers["Cache-Control"] = "no-store"
-        manager_response: Final = await _manager_request(
-            client_factory,
-            "POST",
-            f"/api/desktop/tickets/{ticket_id}/claim",
-            request.model_dump_json().encode("utf-8"),
-        )
-        return _validate_response(manager_response, TypeAdapter(DesktopTicketClaim))
-
-    async def complete_desktop_ticket(
-        ticket_id: UUID, request: DesktopTicketCompleteRequest, outgoing_response: Response
-    ) -> DesktopTicketView:
-        outgoing_response.headers["Cache-Control"] = "no-store"
-        manager_response: Final = await _manager_request(
-            client_factory,
-            "POST",
-            f"/api/desktop/tickets/{ticket_id}/complete",
-            request.model_dump_json().encode("utf-8"),
-        )
-        return _validate_response(manager_response, TypeAdapter(DesktopTicketView))
-
-    router.add_api_route(
-        "/desktop/tickets/{ticket_id}/claim",
-        claim_desktop_ticket,
-        methods=["POST"],
-        response_model=DesktopTicketClaim,
-    )
-    router.add_api_route(
-        "/desktop/tickets/{ticket_id}/complete",
-        complete_desktop_ticket,
-        methods=["POST"],
-        response_model=DesktopTicketView,
-    )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     return router

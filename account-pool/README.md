@@ -69,14 +69,6 @@ Manager 发起的授权请求从最新账号记录读取同一代理地址；等
 
 Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`；Manager 和账号容器均设置宿主机地址映射。Clash 的监听地址必须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。Clash 在其他主机上时，填所有账号容器和 Manager 都可访问的主机名或 IP
 
-## Cockpit 桌面联动
-
-Dashboard 的“桌面联动”标签通过 `cockpit-tools://account-pool/execute` 深链接连接本机 Cockpit Tools。管理员创建一次性票据后，票据密钥只放在深链接 fragment 中，Manager 数据库只保存 SHA-256，票据五分钟后过期并且只能领取、完成一次。Cockpit 在执行每项本机操作前显示确认框，服务端号池在 Cockpit 未安装或离线时仍可独立运行
-
-当前桌面联动支持读取 Codex 和 Cursor 实例状态、启动或停止实例、把卡片中的 Codex Compact 设置写入指定本机实例，以及配置和立即同步受限的 WSL `.codex` UNC 目录。WSL 路径只接受 `\\wsl$` 或 `\\wsl.localhost`，同步失败时恢复原配置
-
-本机账号切换、会话 JSONL、DCP 页面注入和窗口位置管理仍属于后续桌面能力，不由 Linux Manager 假装执行
-
 ## 当前边界
 
 CLIProxyAPI 的额度来自最近一次上游响应的被动观测，因此账号完成授权但尚未产生请求时，页面会显示“尚未观测”。额度窗口按响应中的分钟数解析，不假设固定周限或月限。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键

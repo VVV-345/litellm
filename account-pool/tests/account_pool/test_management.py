@@ -289,7 +289,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     assert first.json()["runtime_status"] == "partial"
     capabilities: Final = {item["name"]: item["status"] for item in first.json()["capabilities"]}
     assert capabilities["responses_compact"] == "gateway"
-    assert capabilities["desktop_compact"] == "desktop"
+    assert "desktop_compact" not in capabilities
     assert capabilities["identity"] == "gateway"
     assert capabilities["provider_settings"] == "gateway"
     assert capabilities["plan_expiry"] == "gateway"
@@ -298,10 +298,31 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     assert client.put(path, json={"version": 1, "policy": {"unknown_setting": True}}).status_code == 422
     migrated: Final = client.put(
         path,
-        json={"version": 1, "policy": {"openai_compatible": {"support_prompt_cache_key": True}}},
+        json={
+            "version": 1,
+            "policy": {
+                "openai_compatible": {"support_prompt_cache_key": True},
+                "codex": {
+                    "responses_compact_enabled": True,
+                    "compact_ui": True,
+                    "model_context_window": 200000,
+                    "model_auto_compact_token_limit": 180000,
+                    "experimental_context_management": True,
+                },
+            },
+        },
     )
     assert migrated.status_code == 200
     assert "openai_compatible" not in migrated.json()["policy"]
+    assert migrated.json()["policy"]["codex"] == {
+        "identity_fingerprint_mode": "off",
+        "cli_only": False,
+        "allow_app_server": False,
+        "allow_app_server_clients": [],
+        "responses_compact_enabled": True,
+        "identity_confuse": False,
+        "disable_codex_cloaking": False,
+    }
     for provider_field in ("claude", "kimi", "xai", "antigravity"):
         assert client.put(path, json={"version": 2, "policy": {provider_field: {}}}).status_code == 422
     assert (

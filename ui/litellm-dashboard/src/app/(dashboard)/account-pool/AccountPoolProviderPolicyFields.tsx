@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -61,14 +60,6 @@ interface MultiFieldProps {
   value: string[];
   options: AccountPoolPolicyOption[];
   onChange: (next: string[]) => void;
-}
-
-interface NumberFieldProps {
-  label: string;
-  description: string;
-  value: number | null;
-  onChange: (next: number | null) => void;
-  disabled?: boolean;
 }
 
 const FieldCard = ({ children }: { children: ReactNode }) => (
@@ -159,28 +150,6 @@ export function AccountPoolProviderPolicyFields({
       </div>
     </FieldCard>
   );
-  const numberField = ({ label, description, value, onChange, disabled = false }: NumberFieldProps) => (
-    <FieldCard>
-      <div className="grid min-w-0 gap-2">
-        <div className="space-y-1">
-          <Label className="block break-words leading-5">{label}</Label>
-          <p className="break-words text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
-        <Input
-          type="number"
-          min={1024}
-          max={10_000_000}
-          value={value ?? ""}
-          disabled={busy || disabled}
-          aria-label={label}
-          onChange={(event) => {
-            const next = event.target.value.trim();
-            onChange(next === "" ? null : Number(next));
-          }}
-        />
-      </div>
-    </FieldCard>
-  );
   const summary = (
     <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-3 lg:col-span-2">
       <div className="min-w-0">
@@ -255,32 +224,6 @@ export function AccountPoolProviderPolicyFields({
             description: t("accountPool.policy.disableCodexCloakingDescription"),
             checked: codex.disable_codex_cloaking,
             onChange: (next) => onCodexChange("disable_codex_cloaking", next),
-          })}
-          {toggleField({
-            label: t("accountPool.policy.compact_ui"),
-            description: t("accountPool.policy.compactUiDescription"),
-            checked: codex.compact_ui,
-            onChange: (next) => onCodexChange("compact_ui", next),
-          })}
-          {numberField({
-            label: t("accountPool.policy.model_context_window"),
-            description: t("accountPool.policy.modelContextWindowDescription"),
-            value: codex.model_context_window ?? null,
-            disabled: !codex.compact_ui,
-            onChange: (next) => onCodexChange("model_context_window", next),
-          })}
-          {numberField({
-            label: t("accountPool.policy.model_auto_compact_token_limit"),
-            description: t("accountPool.policy.modelAutoCompactTokenLimitDescription"),
-            value: codex.model_auto_compact_token_limit ?? null,
-            disabled: !codex.compact_ui,
-            onChange: (next) => onCodexChange("model_auto_compact_token_limit", next),
-          })}
-          {toggleField({
-            label: t("accountPool.policy.experimental_context_management"),
-            description: t("accountPool.policy.experimentalContextManagementDescription"),
-            checked: codex.experimental_context_management,
-            onChange: (next) => onCodexChange("experimental_context_management", next),
           })}
         </>
       );

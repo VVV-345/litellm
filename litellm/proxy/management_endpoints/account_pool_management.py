@@ -31,9 +31,6 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     CardKeyChange,
     CardKeyIssue,
     CardKeyStatus,
-    DesktopTicketCreated,
-    DesktopTicketCreateRequest,
-    DesktopTicketView,
     ErrorLogDetail,
     ErrorLogPage,
     ErrorLogQuery,
@@ -104,33 +101,6 @@ def create_management_router(
     @router.delete("/logs", response_model=AccountPoolLogClearResult)
     async def clear_logs() -> AccountPoolLogClearResult:
         return parse_response(await call("DELETE", "/api/logs"), TypeAdapter(AccountPoolLogClearResult))
-
-    async def create_desktop_ticket(request: DesktopTicketCreateRequest, response: Response) -> DesktopTicketCreated:
-        response.headers["Cache-Control"] = "no-store"
-        return parse_response(
-            await call("POST", "/api/desktop/tickets", request.model_dump_json().encode()),
-            TypeAdapter(DesktopTicketCreated),
-        )
-
-    async def get_desktop_ticket(ticket_id: UUID, response: Response) -> DesktopTicketView:
-        response.headers["Cache-Control"] = "no-store"
-        return parse_response(
-            await call("GET", f"/api/desktop/tickets/{ticket_id}"),
-            TypeAdapter(DesktopTicketView),
-        )
-
-    router.add_api_route(
-        "/desktop/tickets",
-        create_desktop_ticket,
-        methods=["POST"],
-        response_model=DesktopTicketCreated,
-    )
-    router.add_api_route(
-        "/desktop/tickets/{ticket_id}",
-        get_desktop_ticket,
-        methods=["GET"],
-        response_model=DesktopTicketView,
-    )
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])

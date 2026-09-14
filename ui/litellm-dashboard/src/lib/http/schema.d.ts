@@ -839,74 +839,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account_pool/desktop/tickets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Desktop Ticket */
-        post: operations["create_desktop_ticket_account_pool_desktop_tickets_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/desktop/tickets/{ticket_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Desktop Ticket */
-        get: operations["get_desktop_ticket_account_pool_desktop_tickets__ticket_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/desktop/tickets/{ticket_id}/claim": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Claim Desktop Ticket */
-        post: operations["claim_desktop_ticket_account_pool_desktop_tickets__ticket_id__claim_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/desktop/tickets/{ticket_id}/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Complete Desktop Ticket */
-        post: operations["complete_desktop_ticket_account_pool_desktop_tickets__ticket_id__complete_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/account_pool/direct-credentials": {
         parameters: {
             query?: never;
@@ -27047,20 +26979,10 @@ export interface components {
              */
             cli_only: boolean;
             /**
-             * Compact Ui
-             * @default false
-             */
-            compact_ui: boolean;
-            /**
              * Disable Codex Cloaking
              * @default false
              */
             disable_codex_cloaking: boolean;
-            /**
-             * Experimental Context Management
-             * @default false
-             */
-            experimental_context_management: boolean;
             /**
              * Identity Confuse
              * @default false
@@ -27072,10 +26994,6 @@ export interface components {
              * @enum {string}
              */
             identity_fingerprint_mode: "off" | "device" | "session" | "full";
-            /** Model Auto Compact Token Limit */
-            model_auto_compact_token_limit?: number | null;
-            /** Model Context Window */
-            model_context_window?: number | null;
             /**
              * Responses Compact Enabled
              * @default false
@@ -28461,159 +28379,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** DesktopCodexCompactAction */
-        DesktopCodexCompactAction: {
-            /** Auto Compact Token Limit */
-            auto_compact_token_limit?: number | null;
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /**
-             * Experimental Context Management
-             * @default false
-             */
-            experimental_context_management: boolean;
-            /** Instance Id */
-            instance_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "apply_codex_compact";
-            /** Model Context Window */
-            model_context_window?: number | null;
-        };
-        /** DesktopCodexWslAction */
-        DesktopCodexWslAction: {
-            /**
-             * Config Dir
-             * @default
-             */
-            config_dir: string;
-            /** Enabled */
-            enabled: boolean;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "configure_codex_wsl";
-        };
-        /** DesktopInstanceAction */
-        DesktopInstanceAction: {
-            /**
-             * Application
-             * @enum {string}
-             */
-            application: "codex" | "cursor";
-            /** Instance Id */
-            instance_id: string;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "start_instance" | "stop_instance";
-        };
-        /** DesktopStatusAction */
-        DesktopStatusAction: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "status";
-        };
-        /** DesktopTicketClaim */
-        DesktopTicketClaim: {
-            /** Action */
-            action: components["schemas"]["DesktopStatusAction"] | components["schemas"]["DesktopInstanceAction"] | components["schemas"]["DesktopCodexCompactAction"] | components["schemas"]["DesktopCodexWslAction"];
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /**
-             * Ticket Id
-             * Format: uuid
-             */
-            ticket_id: string;
-        };
-        /** DesktopTicketClaimRequest */
-        DesktopTicketClaimRequest: {
-            /** Secret */
-            secret: string;
-        };
-        /** DesktopTicketCompleteRequest */
-        DesktopTicketCompleteRequest: {
-            /** Error */
-            error?: string | null;
-            /** Result */
-            result?: {
-                [key: string]: unknown;
-            } | null;
-            /** Secret */
-            secret: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "succeeded" | "failed" | "cancelled";
-        };
-        /** DesktopTicketCreateRequest */
-        DesktopTicketCreateRequest: {
-            /** Action */
-            action: components["schemas"]["DesktopStatusAction"] | components["schemas"]["DesktopInstanceAction"] | components["schemas"]["DesktopCodexCompactAction"] | components["schemas"]["DesktopCodexWslAction"];
-        };
-        /** DesktopTicketCreated */
-        DesktopTicketCreated: {
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Secret */
-            secret: string;
-            /**
-             * Ticket Id
-             * Format: uuid
-             */
-            ticket_id: string;
-        };
-        /** DesktopTicketView */
-        DesktopTicketView: {
-            /** Action */
-            action: components["schemas"]["DesktopStatusAction"] | components["schemas"]["DesktopInstanceAction"] | components["schemas"]["DesktopCodexCompactAction"] | components["schemas"]["DesktopCodexWslAction"];
-            /** Claimed At */
-            claimed_at?: string | null;
-            /** Completed At */
-            completed_at?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Error */
-            error?: string | null;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Result */
-            result?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "pending" | "claimed" | "succeeded" | "failed" | "cancelled" | "expired";
-            /**
-             * Ticket Id
-             * Format: uuid
-             */
-            ticket_id: string;
-        };
         /** DiscoverAgentRequest */
         DiscoverAgentRequest: {
             /**
@@ -28887,11 +28652,8 @@ export interface components {
             card_id: string;
             /** Card Key Id */
             card_key_id?: string | null;
-            /**
-             * Channel
-             * @enum {string}
-             */
-            channel: "openai_compatible" | "cliproxyapi";
+            /** Channel */
+            channel: ("openai_compatible" | "cliproxyapi") | "freebuff2api";
             /** Cost Usd */
             cost_usd?: number | null;
             /** Detail */
@@ -28969,11 +28731,8 @@ export interface components {
              * @enum {string}
              */
             stage: "provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key";
-            /**
-             * Supplier
-             * @enum {string}
-             */
-            supplier: "openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex";
+            /** Supplier */
+            supplier: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | "freebuff";
             /**
              * Switched Account
              * @default false
@@ -35554,12 +35313,12 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "routing" | "models" | "quota" | "retry" | "timeout" | "client" | "responses_compact" | "image" | "identity" | "websocket" | "plan_expiry" | "desktop_compact" | "debug" | "provider_settings";
+            name: "routing" | "models" | "quota" | "retry" | "timeout" | "client" | "responses_compact" | "image" | "identity" | "websocket" | "plan_expiry" | "debug" | "provider_settings";
             /**
              * Status
              * @enum {string}
              */
-            status: "gateway" | "unsupported" | "desktop" | "metadata";
+            status: "gateway" | "unsupported" | "metadata";
         };
         /**
          * PolicyConditionRequest
@@ -42725,140 +42484,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolDashboardStats"];
-                };
-            };
-        };
-    };
-    create_desktop_ticket_account_pool_desktop_tickets_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DesktopTicketCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DesktopTicketCreated"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_desktop_ticket_account_pool_desktop_tickets__ticket_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                ticket_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DesktopTicketView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    claim_desktop_ticket_account_pool_desktop_tickets__ticket_id__claim_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                ticket_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DesktopTicketClaimRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DesktopTicketClaim"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    complete_desktop_ticket_account_pool_desktop_tickets__ticket_id__complete_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                ticket_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DesktopTicketCompleteRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DesktopTicketView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

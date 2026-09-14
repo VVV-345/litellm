@@ -20,7 +20,6 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
-from account_pool.desktop_companion import DesktopTicketService
 from account_pool.domain import (
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
@@ -180,7 +179,6 @@ def create_router(
     plugins: PluginService | None = None,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
-    desktop_tickets: DesktopTicketService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -540,7 +538,6 @@ def create_router(
                 settings,
                 sync_settings,
                 sync_policy,
-                desktop_tickets,
             )
         )
     if gateway_service is not None:

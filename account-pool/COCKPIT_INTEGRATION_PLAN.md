@@ -6,13 +6,13 @@
 
 本文的目标使用场景是：管理员在 LiteLLM 号池中维护多个上游账号，为每张号池卡片生成一个卡片 Key；NewAPI 保存这些卡片 Key 并负责下游用户、权限、额度和限流，号池负责卡片 Key 校验、账号配置、配额、切换和上游转发
 
-本文不把本机 Codex、Cursor 的桌面进程管理当作服务端号池的必要条件。首批桌面联动已经通过一次性票据接入 Cockpit，服务端号池仍可独立运行
+本文只覆盖 Linux 服务端号池的管理面和数据面能力
 
 ## 2. 已核实版本与现有项目基线
 
 | 项目 | 已核实版本或状态 | 结论 |
 | --- | --- | --- |
-| Cockpit Tools | v1.3.47，commit `deacbe44` | 页面、桌面客户端和账号策略的参考实现 |
+| Cockpit Tools | v1.3.47，commit `deacbe44` | 页面和账号策略的参考实现 |
 | Cockpit 内嵌 CLIProxyAPI | v7.2.155，commit `7fac6b15` | Cockpit 当前绑定的上游代理版本 |
 | 当前号池 CLIProxyAPI | 自定义镜像，commit `e851070a` | 基于已核实能力并加入 Codex 请求标识收敛和令牌预刷新，镜像按提交 SHA 和 digest 固定 |
 | LiteLLM Responses Compact | 已有 `/v1/responses/compact` 支持 | 需要验证号池链路是否完整转发 |
@@ -59,7 +59,7 @@
 | --- | --- | --- | --- |
 | Dashboard | 总账号数、可用数、冷却数、错误数、额度和请求概况 | 已有账号、可用、待授权、冷却和错误汇总，以及请求、失败、Token 和平均耗时统计 | 后续补充路由健康和更完整的配额概况 |
 | 账号卡片 | 邮箱或显示名、套餐、额度窗口、重置时间、状态、启用模型、标签 | 已有名称、配额窗口、重置时间、状态、模型、标签、分组和最近错误；套餐来自已观测的 `plan_type` | 优先级、权重和备用标记在策略页维护；会话绑定数和订阅到期元数据仍未提供 |
-| 账号详情 | OAuth 状态、授权时间、账号类型、模型、配额、配置和操作历史 | 已有授权、环境详情、版本化路由、模型、客户端、传输和 Codex 策略表单 | Codex 请求标识策略已执行；桌面 Compact 可经 Cockpit 应用，其他供应商仍按能力状态处理 |
+| 账号详情 | OAuth 状态、授权时间、账号类型、模型、配额、配置和操作历史 | 已有授权、环境详情、版本化路由、模型、客户端、传输和 Codex 策略表单 | Codex 请求标识策略已执行；其他供应商仍按能力状态处理 |
 | 创建账号 | 选择供应商和渠道，启动 OAuth 或设备码授权 | 已支持多渠道定义和授权流程 | 沿用现有流程，补充默认策略快照和权限归属初始化 |
 | 重新授权 | 重新打开授权流程、处理过期和失败 | 已有重新授权和 state 防重放 | 增加授权失败原因、最近一次成功授权和后台恢复状态 |
 | 导入导出 | 导出账号配置或批量导入账号 | 当前以 OAuth 环境为主 | 只允许导出非敏感元数据；凭据导入必须采用受控后台流程，禁止页面返回完整 token |
@@ -100,7 +100,6 @@
 | 故障切换 | `fallback_enabled`、`fallback_scope` | 开启文本请求的账号切换，关闭不可重试请求切换 | Key 或路由组配置 | 代理层 |
 | 客户端准入 | `codex_cli_only`、`codex_cli_only_allow_app_server`、`codex_cli_only_allow_app_server_clients` | 默认关闭限制 | 账号策略表 | 号池网关根据 User-Agent 和 Originator 判断，已实现 |
 | 上游身份或指纹策略 | `identity_fingerprint_mode` 和供应商扩展字段 | `off` | 账号策略表 | Codex 已实现稳定请求标识映射；其他供应商按能力矩阵执行或明确报告不支持 |
-| Codex Compact 投影 | `compact_ui`、`model_context_window`、`model_auto_compact_token_limit`、`context_management_experimental` | 分开设置，默认不强制打开 | 账号策略表 | Dashboard 创建一次性票据，Cockpit 经本机确认后写入指定 Codex 实例，已实现 |
 | Responses Compact | `responses_compact_enabled` | 关闭 | 账号策略表 | 号池网关控制 `/v1/responses/compact` 准入并按原路径转发，已实现；真实上游 E2E 待验证 |
 | 图片 | `image_generation_policy`、并发和图片账号范围 | 继承账号能力 | 卡片或账号策略 | 号池网关图片入口和账号候选准入，已实现 |
 | WebSocket | `websocket_enabled`、超时和 Origin 策略 | 按供应商默认 | 账号策略表 | 号池网关执行卡片和账号准入、模型固定、双向转发、大小限制和关闭码映射，已实现 |
@@ -132,31 +131,25 @@
 
 “全部设置都要应用”表示每个 Cockpit 设置都必须进入本项目的功能清单，并有明确的保存位置、适用范围、执行位置、能力状态和验收项。它不表示所有设置都用同一种方式作用于所有供应商
 
-每个设置都登记到供应商能力矩阵中，并分为四种情况
+每个设置都登记到供应商能力矩阵中，并分为三种情况
 
 - 全局设置：所有渠道都适用，例如管理权限、日志、默认超时和公共路由默认值
 - 账号或供应商设置：只对支持该协议的账号生效，例如某供应商的身份策略、模型能力、WebSocket 或图片策略
 - 数据面设置：必须在请求代理时执行，例如账号选择、Key 作用域、模型改写、重试、冷却和会话粘性
-- 桌面端设置：必须在本机客户端执行，例如 Codex 或 Cursor 进程、窗口、配置文件、WSL 和本机会话
 
 对当前版本暂不支持的设置，页面不能静默保存后显示成功。应显示“已保存但当前渠道不支持”或阻止保存，并在能力矩阵中记录后续适配任务
 
-当前页面通过能力清单把运行时状态拆开显示：`gateway` 表示卡片 Key 网关执行，`unsupported` 表示字段可保存但当前适配器不执行，`desktop` 表示只能由后续本机客户端应用。服务端总体状态保持 `partial`，避免把已保存字段误报为全部生效
+当前页面通过能力清单把运行时状态拆开显示：`gateway` 表示卡片 Key 网关执行，`unsupported` 表示字段可保存但当前适配器不执行。服务端总体状态保持 `partial`，避免把已保存字段误报为全部生效
 
-### 5.3 Compact 必须拆分
+### 5.3 Responses Compact 是独立服务端能力
 
-产品中不能只设计一个“Compact 模式”开关，因为它对应多个不同层次
+Responses Compact 控制的是网关是否允许并转发 `/v1/responses/compact`，与 Dashboard 的显示模式无关
 
 | 名称 | 作用 | 所属层 |
 | --- | --- | --- |
-| 紧凑视图 | 页面显示方式 | Dashboard UI |
-| `model_context_window` | 本机模型上下文窗口 | Codex `config.toml` |
-| `model_auto_compact_token_limit` | 本机自动压缩阈值 | Codex `config.toml` |
-| `features.context_management.experimental_mode` | 官方客户端实验开关 | Codex 客户端配置 |
 | `/v1/responses/compact` | 对话压缩数据面接口 | LiteLLM、CLIProxyAPI 和上游适配 |
-| DCP 额度注入 | 本机页面或会话辅助能力 | 桌面端 |
 
-## 6. 三类功能边界
+## 6. 两类功能边界
 
 ### 6.1 可以直接放进服务端控制面
 
@@ -189,16 +182,6 @@
 - 账号级、卡片 Key 级和模型级用量事件记录
 
 如果只在页面保存这些字段，而没有在请求进入代理时执行，它们只是假配置，不会影响真实请求
-
-### 6.3 桌面端边界与当前实现
-
-- 已实现：读取 Codex、Cursor 实例状态并启动或停止已有实例
-- 已实现：把卡片的 Compact、上下文窗口和实验性上下文管理设置应用到指定 Codex 实例
-- 已实现：校验并保存 `\\wsl$` 或 `\\wsl.localhost` 下的 `.codex` 目录，立即同步当前 Codex 账号
-- 已实现：管理员创建和查询一次性票据，Cockpit 用高熵密钥领取和回传，执行前必须本机确认
-- 仍待实现：本机账号切换、会话 JSONL、DCP 页面注入和窗口位置管理
-
-桌面端可以调用服务端的账号和策略 API，但不能把桌面进程能力硬塞进 Linux 号池 Manager。服务端部署不需要安装完整 Cockpit
 
 ## 7. 号池卡片和卡片 Key 模型
 
@@ -331,7 +314,7 @@ NewAPI 使用卡片 Key 请求模型
   -> 更新配额、统计、会话和冷却状态
 ```
 
-“切号”在服务端场景不是修改用户电脑上的登录账号，而是下一次请求或故障切换时选择另一个上游账号。只有桌面端切号才会写入本机 Codex 或 Cursor 配置文件
+“切号”在服务端场景不是修改用户电脑上的登录账号，而是下一次请求或故障切换时选择另一个上游账号
 
 ### 8.4 Compact 请求
 
@@ -376,10 +359,8 @@ AccountPolicy
   codex_cli_only
   codex_cli_only_allow_app_server
   codex_cli_only_allow_app_server_clients
-  compact_projection
+  responses_compact_enabled
 ```
-
-`compact_projection` 内部继续拆成 `ui_mode`、`model_context_window`、`model_auto_compact_token_limit`、`experimental_context_management` 和 `responses_compact_enabled`
 
 ### 9.2 管理接口
 
@@ -407,13 +388,13 @@ AccountPolicy
 
 ## 10. 分阶段实施计划
 
-按你的使用方式，计划调整为 **6 个阶段**。NewAPI 已负责下游用户、下游 Key、用户额度和下游权限，因此删除 LiteLLM 内部的多用户账号授权阶段
+按你的使用方式，计划调整为 **5 个阶段**。NewAPI 已负责下游用户、下游 Key、用户额度和下游权限，因此删除 LiteLLM 内部的多用户账号授权阶段
 
 ### 阶段 1：核实 Cockpit 全部能力并建立映射
 
-- 逐项登记 Cockpit 页面、全局设置、账号设置、供应商设置、代理设置和桌面设置
+- 逐项登记 Cockpit 页面、全局设置、账号设置、供应商设置和代理设置
 - 为每项设置记录字段、默认值、适用供应商、保存位置、执行位置、当前状态和验收方式
-- 区分通用设置、供应商专属设置、数据面设置和桌面端设置
+- 区分通用设置、供应商专属设置和数据面设置
 - 固定 CLIProxyAPI 版本、Cockpit 行为审计版本和许可证边界
 - 同时确定日志事件字典、错误分类、处理阶段、严重级别、脱敏规则和保留期限
 
@@ -464,16 +445,6 @@ AccountPolicy
 
 验收：卡片内部可以按配额和状态自动切号；冷却或失效账号不会继续被选中；路由结果可解释；NewAPI 的下游用户不需要感知上游账号切换
 
-### 阶段 6：实现本机 Codex、Cursor 多开和桌面联动（部分完成）
-
-- 已接入 Codex、Cursor 实例状态和进程启停
-- 已接入 WSL 同步和 Compact 配置
-- 已通过一次性票据让桌面端读取卡片策略，票据密钥不进入 HTTP 查询参数或数据库明文
-- 桌面端功能与服务端号池解耦，桌面端不可用时不影响 NewAPI 到号池的请求
-- 后续补本机账号切换、会话 JSONL、DCP 页面注入和窗口位置管理
-
-验收：服务端不安装 Cockpit 也能运行；桌面端可以复用卡片和策略；本机切号不会改变 NewAPI 的卡片 Key 绑定
-
 ## 11. 更新和同步策略
 
 不能把 Cockpit 整个源码复制进每个账号隔离环境。正确的更新边界如下
@@ -508,8 +479,7 @@ Cockpit 新增页面功能时，不直接复制 UI 源码。先把功能拆成�
 | LiteLLM | 当前部署版本 | 号池 API 版本 | 由代理能力决定 | 是或否 | 上一个可用版本 |
 | Account Pool Manager | 当前部署版本 | Manager schema | 期望字段 | 路由能力 | 上一个可用版本 |
 | CLIProxyAPI | 固定镜像版本 | 配置 schema | off/device/session/full | 是或否 | 上一个镜像 |
-| Dashboard | 当前部署版本 | 页面 contract | 展示并保存策略 | 创建和查询桌面票据 | 上一个构建 |
-| Cockpit Tools | 当前桌面版本 | 深链接票据 contract | 执行本机设置 | 本机 Compact、实例启停和 WSL | 上一个桌面构建 |
+| Dashboard | 当前部署版本 | 页面 contract | 展示并保存策略 | Responses Compact 开关 | 上一个构建 |
 
 启动或升级时，如果 Manager 要求的字段高于 CLIProxyAPI 实际支持能力，必须显示不兼容并阻止错误配置下发，不能静默忽略
 
@@ -565,6 +535,6 @@ Cockpit 新增页面功能时，不直接复制 UI 源码。先把功能拆成�
 
 ## 14. 当前最合理的落地顺序
 
-账号卡片、卡片 Key、路由、会话、冷却、故障切换、WebSocket、调试详情和首批桌面联动已经进入验证阶段。下一步优先完成真实 Docker、PostgreSQL、NewAPI、上游和桌面深链接 E2E，再补本机账号切换、会话 JSONL、DCP 页面注入和窗口位置管理
+账号卡片、卡片 Key、路由、会话、冷却、故障切换、WebSocket 和调试详情已经进入验证阶段。下一步优先完成真实 Docker、PostgreSQL、NewAPI 和上游 E2E，再补其他供应商适配
 
-服务端目标仍是让 NewAPI 的多个下游用户通过各自权限使用号池卡片。桌面联动使用独立的一次性票据和本机确认，不扩大 Manager 权限，也不会阻塞服务端号池上线
+这样可以实现服务端目标：NewAPI 的多个下游用户通过各自的下游权限使用号池卡片，NewAPI 使用卡片 Key 访问指定的上游账号或账号集合，号池统一管理账号、配额和切换

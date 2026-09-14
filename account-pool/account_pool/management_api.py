@@ -12,15 +12,6 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
-from account_pool.desktop_companion import (
-    DesktopTicketClaim,
-    DesktopTicketClaimRequest,
-    DesktopTicketCompleteRequest,
-    DesktopTicketCreated,
-    DesktopTicketCreateRequest,
-    DesktopTicketService,
-    DesktopTicketView,
-)
 from account_pool.domain import EnvironmentRecord
 from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
 from account_pool.policies import (
@@ -55,7 +46,6 @@ def create_management_router(
     settings: AccountPoolSettingsRepository | None = None,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
-    desktop_tickets: DesktopTicketService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
     settings_update_lock: Final = asyncio.Lock()
@@ -111,43 +101,6 @@ def create_management_router(
     @router.delete("/logs", response_model=LogClearResult)
     async def clear_logs() -> LogClearResult:
         return LogClearResult(deleted=await logs.repository.clear())
-
-    if desktop_tickets is not None:
-
-        @router.post("/desktop/tickets")
-        async def create_desktop_ticket(
-            request: DesktopTicketCreateRequest, response: Response
-        ) -> DesktopTicketCreated:
-            response.headers["Cache-Control"] = "no-store"
-            return await desktop_tickets.issue(request.action)
-
-        @router.get("/desktop/tickets/{ticket_id}")
-        async def get_desktop_ticket(ticket_id: UUID, response: Response) -> DesktopTicketView:
-            response.headers["Cache-Control"] = "no-store"
-            ticket: Final = await desktop_tickets.get(ticket_id)
-            if ticket is None:
-                raise HTTPException(404, "Desktop ticket not found")
-            return ticket
-
-        @router.post("/desktop/tickets/{ticket_id}/claim")
-        async def claim_desktop_ticket(
-            ticket_id: UUID, request: DesktopTicketClaimRequest, response: Response
-        ) -> DesktopTicketClaim:
-            response.headers["Cache-Control"] = "no-store"
-            ticket: Final = await desktop_tickets.claim(ticket_id, request.secret)
-            if ticket is None:
-                raise HTTPException(409, "Desktop ticket is invalid, expired, or already claimed")
-            return ticket
-
-        @router.post("/desktop/tickets/{ticket_id}/complete")
-        async def complete_desktop_ticket(
-            ticket_id: UUID, request: DesktopTicketCompleteRequest, response: Response
-        ) -> DesktopTicketView:
-            response.headers["Cache-Control"] = "no-store"
-            ticket: Final = await desktop_tickets.complete(ticket_id, request)
-            if ticket is None:
-                raise HTTPException(409, "Desktop ticket is invalid or is not claimed")
-            return ticket
 
     @router.get("/environments/{card_id}/policy")
     async def get_policy(card_id: UUID) -> PolicyView:

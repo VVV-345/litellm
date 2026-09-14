@@ -8,7 +8,7 @@ from typing import Final, Literal, Protocol
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from account_pool.domain import EnvironmentRecord, SupplierKind
 from account_pool.repository import database_connection
@@ -67,21 +67,22 @@ class CodexPolicy(BaseModel):
     responses_compact_enabled: bool = False
     identity_confuse: bool = False
     disable_codex_cloaking: bool = False
-    compact_ui: bool = False
-    model_context_window: int | None = Field(default=None, ge=1024, le=10_000_000)
-    model_auto_compact_token_limit: int | None = Field(default=None, ge=1024, le=10_000_000)
-    experimental_context_management: bool = False
 
-    @model_validator(mode="after")
-    def compact_limit_precedes_context_window(self) -> CodexPolicy:
-        if (
-            self.compact_ui
-            and self.model_context_window is not None
-            and self.model_auto_compact_token_limit is not None
-            and self.model_auto_compact_token_limit >= self.model_context_window
-        ):
-            raise ValueError("model_auto_compact_token_limit must be lower than model_context_window")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_desktop_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        policy: Final = TypeAdapter(dict[str, object]).validate_python(value)
+        legacy: Final = frozenset(
+            (
+                "compact_ui",
+                "model_context_window",
+                "model_auto_compact_token_limit",
+                "experimental_context_management",
+            )
+        )
+        return {key: item for key, item in policy.items() if key not in legacy}
 
 
 class ClaudePolicy(BaseModel):
@@ -213,11 +214,10 @@ class PolicyCapability(BaseModel):
         "identity",
         "websocket",
         "plan_expiry",
-        "desktop_compact",
         "debug",
         "provider_settings",
     ]
-    status: Literal["gateway", "unsupported", "desktop", "metadata"]
+    status: Literal["gateway", "unsupported", "metadata"]
 
 
 def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCapability, ...]:
@@ -232,7 +232,6 @@ def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCap
         PolicyCapability(name="websocket", status="gateway"),
         PolicyCapability(name="debug", status="gateway"),
         PolicyCapability(name="provider_settings", status=provider_status),
-        PolicyCapability(name="desktop_compact", status="desktop"),
     )
 
 

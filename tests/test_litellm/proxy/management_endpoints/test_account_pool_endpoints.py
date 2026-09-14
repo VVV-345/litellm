@@ -18,7 +18,7 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     AccountPoolManagerClient,
     create_account_pool_router,
 )
-from litellm.proxy.management_endpoints.account_pool_management_models import ErrorLogRecord
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord
 
 _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
@@ -45,6 +45,32 @@ def test_retired_channel_logs_remain_parseable_at_the_proxy_boundary() -> None:
 
     assert restored.channel == "freebuff2api"
     assert restored.supplier == "freebuff"
+
+
+def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> None:
+    policy: Final = AccountPolicy.model_validate(
+        {
+            "codex": {
+                "responses_compact_enabled": True,
+                "compact_ui": True,
+                "model_context_window": 200000,
+                "model_auto_compact_token_limit": 180000,
+                "experimental_context_management": True,
+            }
+        }
+    )
+
+    assert policy.codex is not None
+    assert policy.codex.responses_compact_enabled is True
+    assert set(policy.codex.model_dump()) == {
+        "identity_fingerprint_mode",
+        "cli_only",
+        "allow_app_server",
+        "allow_app_server_clients",
+        "responses_compact_enabled",
+        "identity_confuse",
+        "disable_codex_cloaking",
+    }
 
 
 class _ManagerEnvironment(TypedDict):
@@ -299,113 +325,6 @@ def test_proxy_admin_can_read_dashboard_stats_from_one_manager_endpoint() -> Non
 
     assert response.status_code == 200
     assert response.json()["summary"]["total_requests"] == 4
-
-
-def test_proxy_admin_can_create_and_poll_a_desktop_ticket() -> None:
-    ticket_id: Final = uuid4()
-    forwarded: Final[list[dict[str, object]]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/api/desktop/tickets" and request.method == "POST":
-            forwarded.append(json.loads(request.content))
-            return httpx.Response(
-                200,
-                json={
-                    "ticket_id": str(ticket_id),
-                    "secret": "s" * 43,
-                    "expires_at": "2026-09-14T00:05:00Z",
-                },
-                request=request,
-            )
-        if request.url.path == f"/api/desktop/tickets/{ticket_id}" and request.method == "GET":
-            return httpx.Response(
-                200,
-                json={
-                    "ticket_id": str(ticket_id),
-                    "action": {"kind": "status"},
-                    "status": "pending",
-                    "created_at": "2026-09-14T00:00:00Z",
-                    "expires_at": "2026-09-14T00:05:00Z",
-                },
-                request=request,
-            )
-        return httpx.Response(404, request=request)
-
-    app: Final = _app(
-        UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN),
-        _gateway_factory(handler),
-    )
-    with TestClient(app) as client:
-        created: Final = client.post("/account_pool/desktop/tickets", json={"action": {"kind": "status"}})
-        polled: Final = client.get(f"/account_pool/desktop/tickets/{ticket_id}")
-
-    assert created.status_code == 200 and created.headers["cache-control"] == "no-store"
-    assert polled.status_code == 200 and polled.headers["cache-control"] == "no-store"
-    assert forwarded == [{"action": {"kind": "status"}}]
-
-
-def test_desktop_companion_can_claim_and_complete_without_a_dashboard_session() -> None:
-    ticket_id: Final = uuid4()
-    forwarded: Final[list[tuple[str, dict[str, object]]]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        forwarded.append((request.url.path, json.loads(request.content)))
-        if request.url.path.endswith("/claim"):
-            return httpx.Response(
-                200,
-                json={
-                    "ticket_id": str(ticket_id),
-                    "action": {
-                        "kind": "start_instance",
-                        "application": "codex",
-                        "instance_id": "__default__",
-                    },
-                    "expires_at": "2026-09-14T00:05:00Z",
-                },
-                request=request,
-            )
-        return httpx.Response(
-            200,
-            json={
-                "ticket_id": str(ticket_id),
-                "action": {
-                    "kind": "start_instance",
-                    "application": "codex",
-                    "instance_id": "__default__",
-                },
-                "status": "succeeded",
-                "created_at": "2026-09-14T00:00:00Z",
-                "expires_at": "2026-09-14T00:05:00Z",
-                "claimed_at": "2026-09-14T00:00:01Z",
-                "completed_at": "2026-09-14T00:00:02Z",
-                "result": {"running": True},
-            },
-            request=request,
-        )
-
-    app: Final = FastAPI()
-    app.include_router(create_account_pool_router(_gateway_factory(handler)))
-    with TestClient(app) as client:
-        claimed: Final = client.post(
-            f"/account_pool/desktop/tickets/{ticket_id}/claim",
-            json={"secret": "s" * 43},
-        )
-        completed: Final = client.post(
-            f"/account_pool/desktop/tickets/{ticket_id}/complete",
-            json={"secret": "s" * 43, "status": "succeeded", "result": {"running": True}},
-        )
-
-    assert claimed.status_code == 200
-    assert claimed.headers["cache-control"] == "no-store"
-    assert completed.status_code == 200
-    assert completed.headers["cache-control"] == "no-store"
-    assert forwarded == [
-        (f"/api/desktop/tickets/{ticket_id}/claim", {"secret": "s" * 43}),
-        (
-            f"/api/desktop/tickets/{ticket_id}/complete",
-            {"secret": "s" * 43, "status": "succeeded", "result": {"running": True}, "error": None},
-        ),
-    ]
 
 
 def test_malformed_manager_environment_response_is_rejected() -> None:
