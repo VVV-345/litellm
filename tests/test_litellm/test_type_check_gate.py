@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "type_check_gate.py"
@@ -40,35 +41,38 @@ def test_basedpyright_counts_per_rule_from_json_not_warnings():
 
 
 def test_basedpyright_error_without_a_rule_is_bucketed():
-    payload = json.dumps(
-        {"generalDiagnostics": [_bpr(f"{ROOT}/litellm/x.py", "error", None)]}
-    )
+    payload = json.dumps({"generalDiagnostics": [_bpr(f"{ROOT}/litellm/x.py", "error", None)]})
     assert gate.count_basedpyright(payload) == {gate.UNCODED: 1}
 
 
 def test_paths_outside_repo_are_skipped():
-    payload = json.dumps(
-        {
-            "generalDiagnostics": [
-                _bpr("/tmp/elsewhere.py", "error", "reportArgumentType")
-            ]
-        }
-    )
+    payload = json.dumps({"generalDiagnostics": [_bpr("/tmp/elsewhere.py", "error", "reportArgumentType")]})
     assert gate.count_basedpyright(payload) == {}
 
 
+def test_subprocess_output_is_decoded_as_utf8(tmp_path):
+    output = gate._run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(bytes((0xe2, 0x80, 0xa6)))",
+        ],
+        cwd=tmp_path,
+    )
+    assert output == "…"
+
+
 def test_symlinked_root_keeps_diagnostics_in_tree(tmp_path):
+    import pytest
+
     real = tmp_path / "real"
     real.mkdir()
     link = tmp_path / "link"
-    link.symlink_to(real)
-    payload = json.dumps(
-        {
-            "generalDiagnostics": [
-                _bpr(link / "litellm" / "x.py", "error", "reportArgumentType")
-            ]
-        }
-    )
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks are unavailable: {error}")
+    payload = json.dumps({"generalDiagnostics": [_bpr(link / "litellm" / "x.py", "error", "reportArgumentType")]})
     assert gate.count_basedpyright(payload, root=link) == {"reportArgumentType": 1}
 
 
@@ -79,31 +83,46 @@ def test_node_options_with_heap_sets_the_flag_in_a_bare_env():
 def test_node_options_with_heap_appends_after_caller_flags_so_it_wins():
     # node resolves a repeated --max-old-space-size last-wins, so ours must come
     # after any caller-set value while keeping their other flags.
-    merged = gate.node_options_with_heap(
-        {"NODE_OPTIONS": "--max-old-space-size=4096 --no-warnings"}
-    )
+    merged = gate.node_options_with_heap({"NODE_OPTIONS": "--max-old-space-size=4096 --no-warnings"})
     assert merged == f"--max-old-space-size=4096 --no-warnings {gate.NODE_HEAP_OPTION}"
 
 
+def test_typecheck_executable_uses_unix_virtualenv_layout(tmp_path):
+    assert gate.typecheck_executable(tmp_path, "python", platform="posix") == (tmp_path / "bin" / "python")
+
+
+def test_typecheck_executable_uses_windows_virtualenv_layout(tmp_path):
+    assert gate.typecheck_executable(tmp_path, "python", platform="nt") == (tmp_path / "Scripts" / "python.exe")
+
+
+def test_typecheck_executable_accepts_an_existing_alternate_layout(tmp_path):
+    (tmp_path / "bin").mkdir()
+    assert gate.typecheck_executable(tmp_path, "python", platform="nt") == (tmp_path / "bin" / "python")
+
+
 def _stub_env(tmp_path, script_body):
-    bin_dir = tmp_path / "bin"
+    bin_dir = tmp_path / ("Scripts" if os.name == "nt" else "bin")
     bin_dir.mkdir(exist_ok=True)
-    stub = bin_dir / "basedpyright"
-    stub.write_text(f"#!/bin/sh\n{script_body}\n")
+    stub = bin_dir / ("basedpyright.cmd" if os.name == "nt" else "basedpyright")
+    prefix = "@echo off" if os.name == "nt" else "#!/bin/sh"
+    stub.write_text(f"{prefix}\n{script_body}\n")
     stub.chmod(0o755)
     return tmp_path
 
 
 def test_run_basedpyright_exports_the_raised_heap_to_the_child(tmp_path, monkeypatch):
     captured = tmp_path / "node_options.txt"
+    body = (
+        f'echo %NODE_OPTIONS% > "{captured}"\necho {{"generalDiagnostics": []}}'
+        if os.name == "nt"
+        else f'echo "$NODE_OPTIONS" > "{captured}"\necho \'{{"generalDiagnostics": []}}\''
+    )
     env_dir = _stub_env(
         tmp_path,
-        f'echo "$NODE_OPTIONS" > "{captured}"\necho \'{{"generalDiagnostics": []}}\'',
+        body,
     )
     monkeypatch.delenv("NODE_OPTIONS", raising=False)
-    assert json.loads(gate.run_basedpyright(cwd=tmp_path, env_dir=env_dir)) == {
-        "generalDiagnostics": []
-    }
+    assert json.loads(gate.run_basedpyright(cwd=tmp_path, env_dir=env_dir)) == {"generalDiagnostics": []}
     assert captured.read_text().strip() == gate.NODE_HEAP_OPTION
 
 
@@ -113,13 +132,18 @@ def test_run_basedpyright_pins_import_resolution_to_the_owned_env(tmp_path):
     # caller's fatter venv (whose extra typed packages flip diagnostics vs CI)
     # out of the measurement.
     captured = tmp_path / "argv.txt"
+    body = (
+        f'echo %* > "{captured}"\necho {{"generalDiagnostics": []}}'
+        if os.name == "nt"
+        else f'echo "$@" > "{captured}"\necho \'{{"generalDiagnostics": []}}\''
+    )
     env_dir = _stub_env(
         tmp_path,
-        f'echo "$@" > "{captured}"\necho \'{{"generalDiagnostics": []}}\'',
+        body,
     )
     gate.run_basedpyright(cwd=tmp_path, env_dir=env_dir)
     argv = captured.read_text().split()
-    assert argv[argv.index("--pythonpath") + 1] == str(env_dir / "bin" / "python")
+    assert argv[argv.index("--pythonpath") + 1] == str(gate.typecheck_executable(env_dir, "python"))
 
 
 def test_run_basedpyright_fails_loudly_on_a_crash_exit_code(tmp_path):
@@ -139,17 +163,13 @@ def test_at_or_under_ceiling_passes():
 
 def test_one_more_error_than_ceiling_fails():
     budget = {"no-any-return": {"limit": 5}}
-    assert gate.evaluate({"no-any-return": 6}, {}, budget) == [
-        gate.Breach("no-any-return", 6, 5, 6)
-    ]
+    assert gate.evaluate({"no-any-return": 6}, {}, budget) == [gate.Breach("no-any-return", 6, 5, 6)]
 
 
 def test_limit_absorbs_increase_up_to_it_then_fails_past_it():
     budget = {"arg-type": {"limit": 10}}
     assert gate.evaluate({"arg-type": 10}, {}, budget) == []
-    assert gate.evaluate({"arg-type": 11}, {}, budget) == [
-        gate.Breach("arg-type", 11, 10, 11)
-    ]
+    assert gate.evaluate({"arg-type": 11}, {}, budget) == [gate.Breach("arg-type", 11, 10, 11)]
 
 
 def test_unbudgeted_new_code_uses_default_limit():
@@ -176,9 +196,7 @@ def test_change_that_grows_an_over_cap_rule_is_blamed_for_only_what_it_added():
     # Over limit AND above base: blamed, and `added` is the delta vs base, not the
     # whole overage, so the message points at this change's contribution.
     budget = {"arg-type": {"limit": 10}}
-    assert gate.evaluate({"arg-type": 14}, {"arg-type": 12}, budget) == [
-        gate.Breach("arg-type", 14, 10, 2)
-    ]
+    assert gate.evaluate({"arg-type": 14}, {"arg-type": 12}, budget) == [gate.Breach("arg-type", 14, 10, 2)]
 
 
 def test_reducing_an_over_cap_rule_below_base_passes():
@@ -195,9 +213,7 @@ def test_no_output_against_a_nonempty_budget_is_a_vacuous_run():
 def test_genuine_zero_and_empty_budget_are_not_vacuous():
     assert gate.is_vacuous_run({}, {}) is False
     assert gate.is_vacuous_run({}, {"no-untyped-def": {"limit": 0}}) is False
-    assert (
-        gate.is_vacuous_run({"arg-type": 1}, {"arg-type": {"limit": 10}}) is False
-    )
+    assert gate.is_vacuous_run({"arg-type": 1}, {"arg-type": {"limit": 10}}) is False
 
 
 def test_update_ratchets_a_limit_down_by_what_the_branch_fixed():
@@ -205,24 +221,18 @@ def test_update_ratchets_a_limit_down_by_what_the_branch_fixed():
     # limit of 100 falls to 90 -- the granted headroom (60) is preserved, not the
     # raw count.
     budget = {"reportAny": {"limit": 100}}
-    assert gate.ratcheted_budget(budget, {"reportAny": 30}, {"reportAny": 40}) == {
-        "reportAny": {"limit": 90}
-    }
+    assert gate.ratcheted_budget(budget, {"reportAny": 30}, {"reportAny": 40}) == {"reportAny": {"limit": 90}}
 
 
 def test_update_never_raises_a_limit_when_a_rule_grows():
     # Adding violations must not loosen the ceiling; the limit holds flat.
     budget = {"reportAny": {"limit": 100}}
-    assert gate.ratcheted_budget(budget, {"reportAny": 55}, {"reportAny": 40}) == {
-        "reportAny": {"limit": 100}
-    }
+    assert gate.ratcheted_budget(budget, {"reportAny": 55}, {"reportAny": 40}) == {"reportAny": {"limit": 100}}
 
 
 def test_update_clamps_a_limit_at_zero_never_negative():
     budget = {"reportAny": {"limit": 5}}
-    assert gate.ratcheted_budget(budget, {"reportAny": 0}, {"reportAny": 40}) == {
-        "reportAny": {"limit": 0}
-    }
+    assert gate.ratcheted_budget(budget, {"reportAny": 0}, {"reportAny": 40}) == {"reportAny": {"limit": 0}}
 
 
 def test_malformed_basedpyright_json_exits_loudly_not_as_zero_errors():
@@ -247,16 +257,12 @@ def test_over_ceiling_flags_only_rules_above_their_limit():
 
 def test_over_ceiling_holds_unbudgeted_rules_to_the_default_limit():
     assert gate.over_ceiling({"brand-new": gate.DEFAULT_LIMIT}, {}) == frozenset()
-    assert gate.over_ceiling({"brand-new": gate.DEFAULT_LIMIT + 1}, {}) == frozenset(
-        {"brand-new"}
-    )
+    assert gate.over_ceiling({"brand-new": gate.DEFAULT_LIMIT + 1}, {}) == frozenset({"brand-new"})
 
 
 def test_over_ceiling_is_independent_across_rules():
     budget = {"reportAny": {"limit": 10}, "reportArgumentType": {"limit": 5}}
-    assert gate.over_ceiling(
-        {"reportAny": 9, "reportArgumentType": 6}, budget
-    ) == frozenset({"reportArgumentType"})
+    assert gate.over_ceiling({"reportAny": 9, "reportArgumentType": 6}, budget) == frozenset({"reportArgumentType"})
 
 
 def test_cache_key_changes_with_base_point_and_each_fingerprint():
@@ -272,12 +278,10 @@ def test_fingerprints_carry_the_dependency_group_set():
     # another's: the fingerprint difference re-keys every cache entry and
     # artifact name, so a changed canonical set falls back to recompute.
     assert gate.environment_fingerprints() == gate.environment_fingerprints()
-    assert gate.environment_fingerprints(
-        dep_groups=("proxy-dev",)
-    ) != gate.environment_fingerprints(dep_groups=("proxy-dev", "e2e-dev"))
-    assert gate.environment_fingerprints()[-1] == "groups:" + ",".join(
-        gate.TYPECHECK_DEP_GROUPS
+    assert gate.environment_fingerprints(dep_groups=("proxy-dev",)) != gate.environment_fingerprints(
+        dep_groups=("proxy-dev", "e2e-dev")
     )
+    assert gate.environment_fingerprints()[-1] == "groups:" + ",".join(gate.TYPECHECK_DEP_GROUPS)
 
 
 def test_fingerprints_cover_the_prisma_schema():
@@ -292,15 +296,13 @@ def test_env_commands_sync_the_canonical_groups_then_generate_prisma():
     for group in gate.TYPECHECK_DEP_GROUPS:
         assert ("--group", group) in adjacent
     assert generate == (
-        str(Path("/envdir") / "bin" / "python"),
+        str(gate.typecheck_executable(Path("/envdir"), "python")),
         str(gate.PRISMA_GENERATE_SCRIPT),
     )
 
 
 def test_env_interpreter_pin_tracks_pyrightconfigs_python_version():
-    configured = json.loads((ROOT / "pyrightconfig.json").read_text())[
-        "pythonVersion"
-    ]
+    configured = json.loads((ROOT / "pyrightconfig.json").read_text())["pythonVersion"]
     assert gate.typecheck_python_version() == configured
     sync = gate.typecheck_env_commands()[0]
     assert sync[sync.index("--python") + 1] == configured
@@ -316,7 +318,10 @@ def test_ensure_env_targets_the_owned_dir_and_runs_sync_then_generate(tmp_path):
     assert gate.ensure_typecheck_env(env_dir=tmp_path, run=runner) == tmp_path
     assert calls == [
         (("uv", "sync"), str(tmp_path)),
-        ((str(tmp_path / "bin" / "python"), str(gate.PRISMA_GENERATE_SCRIPT)), str(tmp_path)),
+        (
+            (str(gate.typecheck_executable(tmp_path, "python")), str(gate.PRISMA_GENERATE_SCRIPT)),
+            str(tmp_path),
+        ),
     ]
 
 
@@ -398,10 +403,7 @@ def test_store_keeps_a_concurrent_worktrees_entry_for_another_branch_point(tmp_p
 
 
 def test_store_evicts_only_the_oldest_entries_beyond_the_cap(tmp_path):
-    aged = [
-        gate.cache_path(tmp_path, f"base{i}", ("f",))
-        for i in range(gate.CACHE_KEEP_ENTRIES)
-    ]
+    aged = [gate.cache_path(tmp_path, f"base{i}", ("f",)) for i in range(gate.CACHE_KEEP_ENTRIES)]
     for age, path in enumerate(aged):
         gate.store_counts(tmp_path, path, f"base{age}", {"reportAny": age})
         os.utime(path, (age, age))
@@ -413,10 +415,7 @@ def test_store_evicts_only_the_oldest_entries_beyond_the_cap(tmp_path):
 
 
 def test_store_never_evicts_the_entry_it_just_wrote_even_on_mtime_ties(tmp_path):
-    others = [
-        gate.cache_path(tmp_path, f"base{i}", ("f",))
-        for i in range(gate.CACHE_KEEP_ENTRIES + 2)
-    ]
+    others = [gate.cache_path(tmp_path, f"base{i}", ("f",)) for i in range(gate.CACHE_KEEP_ENTRIES + 2)]
     for path in others:
         gate.store_counts(tmp_path, path, path.name, {"reportAny": 1})
         os.utime(path, (9_999_999_999, 9_999_999_999))
@@ -457,12 +456,8 @@ def test_base_counts_cached_computes_once_then_hits(tmp_path):
         calls.append(ref)
         return {"reportAny": 4}
 
-    first = gate.base_counts_cached(
-        "abc123", cache_dir=tmp_path, compute=fake, fetch=_no_fetch
-    )
-    second = gate.base_counts_cached(
-        "abc123", cache_dir=tmp_path, compute=fake, fetch=_no_fetch
-    )
+    first = gate.base_counts_cached("abc123", cache_dir=tmp_path, compute=fake, fetch=_no_fetch)
+    second = gate.base_counts_cached("abc123", cache_dir=tmp_path, compute=fake, fetch=_no_fetch)
     assert first == second == {"reportAny": 4}
     assert calls == ["abc123"]
 
@@ -474,18 +469,8 @@ def test_an_empty_base_pass_is_never_cached(tmp_path):
         calls.append(ref)
         return {}
 
-    assert (
-        gate.base_counts_cached(
-            "abc123", cache_dir=tmp_path, compute=crashed, fetch=_no_fetch
-        )
-        == {}
-    )
-    assert (
-        gate.base_counts_cached(
-            "abc123", cache_dir=tmp_path, compute=crashed, fetch=_no_fetch
-        )
-        == {}
-    )
+    assert gate.base_counts_cached("abc123", cache_dir=tmp_path, compute=crashed, fetch=_no_fetch) == {}
+    assert gate.base_counts_cached("abc123", cache_dir=tmp_path, compute=crashed, fetch=_no_fetch) == {}
     assert calls == ["abc123", "abc123"]
     assert list(tmp_path.iterdir()) == []
 
@@ -515,9 +500,7 @@ def test_base_counts_cached_falls_back_to_compute_on_a_fetch_miss(tmp_path):
         calls.append(ref)
         return {"reportAny": 4}
 
-    assert gate.base_counts_cached(
-        "abc123", cache_dir=tmp_path, compute=local, fetch=_no_fetch
-    ) == {"reportAny": 4}
+    assert gate.base_counts_cached("abc123", cache_dir=tmp_path, compute=local, fetch=_no_fetch) == {"reportAny": 4}
     assert calls == ["abc123"]
 
 
@@ -567,65 +550,35 @@ def _gh_stub(listing, zip_bytes):
 
 
 def _live_listing():
-    return {
-        "artifacts": [
-            {"expired": False, "archive_download_url": "https://api.github.com/x/zip"}
-        ]
-    }
+    return {"artifacts": [{"expired": False, "archive_download_url": "https://api.github.com/x/zip"}]}
 
 
 def test_fetcher_returns_counts_from_a_matching_artifact(capsys):
     payload = {"base_point": "abc123", "counts": {"reportAny": 3}}
-    fetched = gate.fetch_ci_base_counts(
-        "abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload))
-    )
+    fetched = gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload)))
     assert fetched == {"reportAny": 3}
     assert "fetched from CI artifact" in capsys.readouterr().err
 
 
 def test_fetcher_rejects_an_artifact_for_a_different_base_point():
     payload = {"base_point": "someothersha", "counts": {"reportAny": 3}}
-    assert (
-        gate.fetch_ci_base_counts(
-            "abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload))
-        )
-        is None
-    )
+    assert gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload))) is None
 
 
 def test_fetcher_rejects_empty_or_misshapen_artifact_counts():
     for counts in ({}, {"reportAny": "three"}, {"reportAny": True}):
         payload = {"base_point": "abc123", "counts": counts}
-        assert (
-            gate.fetch_ci_base_counts(
-                "abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload))
-            )
-            is None
-        )
+        assert gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub(_live_listing(), _artifact_zip(payload))) is None
 
 
 def test_fetcher_rejects_an_expired_artifact():
-    listing = {
-        "artifacts": [
-            {"expired": True, "archive_download_url": "https://api.github.com/x/zip"}
-        ]
-    }
+    listing = {"artifacts": [{"expired": True, "archive_download_url": "https://api.github.com/x/zip"}]}
     payload = {"base_point": "abc123", "counts": {"reportAny": 3}}
-    assert (
-        gate.fetch_ci_base_counts(
-            "abc123", gh_output=_gh_stub(listing, _artifact_zip(payload))
-        )
-        is None
-    )
+    assert gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub(listing, _artifact_zip(payload))) is None
 
 
 def test_fetcher_misses_when_no_artifact_is_published():
-    assert (
-        gate.fetch_ci_base_counts(
-            "abc123", gh_output=_gh_stub({"artifacts": []}, b"")
-        )
-        is None
-    )
+    assert gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub({"artifacts": []}, b"")) is None
 
 
 def test_fetcher_misses_when_gh_is_unusable(capsys):
@@ -634,12 +587,7 @@ def test_fetcher_misses_when_gh_is_unusable(capsys):
 
 
 def test_fetcher_misses_on_a_corrupt_artifact_archive():
-    assert (
-        gate.fetch_ci_base_counts(
-            "abc123", gh_output=_gh_stub(_live_listing(), b"not a zip")
-        )
-        is None
-    )
+    assert gate.fetch_ci_base_counts("abc123", gh_output=_gh_stub(_live_listing(), b"not a zip")) is None
 
 
 def test_emit_writes_the_artifact_json_named_by_the_head_key(tmp_path, capsys):

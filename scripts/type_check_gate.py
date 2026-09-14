@@ -140,7 +140,7 @@ def count_basedpyright(payload: str, root: Path = REPO_ROOT) -> dict[str, int]:
 
 
 def _run(cmd: list[str], cwd: Path = REPO_ROOT) -> str:
-    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8")
     if proc.returncode not in (0, 1):
         sys.stderr.write(proc.stderr)
         raise SystemExit(f"{cmd[0]} exited {proc.returncode}")
@@ -163,6 +163,25 @@ def typecheck_python_version() -> str | None:
     return version if isinstance(version, str) else None
 
 
+def typecheck_executable_dir(env_dir: Path, platform: str | None = None) -> Path:
+    selected_platform: Final = os.name if platform is None else platform
+    expected: Final = env_dir / ("Scripts" if selected_platform == "nt" else "bin")
+    alternate: Final = env_dir / ("bin" if selected_platform == "nt" else "Scripts")
+    return expected if expected.is_dir() or not alternate.is_dir() else alternate
+
+
+def typecheck_executable(env_dir: Path, name: str, platform: str | None = None) -> Path:
+    selected_platform: Final = os.name if platform is None else platform
+    executable_dir: Final = typecheck_executable_dir(env_dir, selected_platform)
+    candidates: Final = (
+        tuple(executable_dir / f"{name}{suffix}" for suffix in (".exe", ".cmd", ""))
+        if selected_platform == "nt" and executable_dir.name == "Scripts"
+        else (executable_dir / name,)
+    )
+    existing: Final = next((candidate for candidate in candidates if candidate.is_file()), None)
+    return candidates[0] if existing is None else existing
+
+
 def typecheck_env_commands(env_dir: Path = TYPECHECK_ENV_DIR) -> tuple[tuple[str, ...], ...]:
     python_pin: Final = typecheck_python_version()
     sync: Final = (
@@ -172,14 +191,12 @@ def typecheck_env_commands(env_dir: Path = TYPECHECK_ENV_DIR) -> tuple[tuple[str
         *(("--python", python_pin) if python_pin else ()),
         *(flag for group in TYPECHECK_DEP_GROUPS for flag in ("--group", group)),
     )
-    generate: Final = (str(env_dir / "bin" / "python"), str(PRISMA_GENERATE_SCRIPT))
+    generate: Final = (str(typecheck_executable(env_dir, "python")), str(PRISMA_GENERATE_SCRIPT))
     return (sync, generate)
 
 
 def _run_provision_step(cmd: tuple[str, ...], env: Mapping[str, str]) -> int:
-    proc = subprocess.run(
-        list(cmd), cwd=REPO_ROOT, env=dict(env), capture_output=True, text=True
-    )
+    proc = subprocess.run(list(cmd), cwd=REPO_ROOT, env=dict(env), capture_output=True, text=True, encoding="utf-8")
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout)
         sys.stderr.write(proc.stderr)
@@ -202,10 +219,7 @@ def ensure_typecheck_env(
     env: Final = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(env_dir)}
     for cmd in typecheck_env_commands(env_dir):
         if run(cmd, env) != 0:
-            raise SystemExit(
-                f"could not provision the type-check environment at {env_dir}: "
-                f"`{' '.join(cmd)}` failed"
-            )
+            raise SystemExit(f"could not provision the type-check environment at {env_dir}: `{' '.join(cmd)}` failed")
     return env_dir
 
 
@@ -220,17 +234,19 @@ def run_basedpyright(cwd: Path = REPO_ROOT, env_dir: Path = TYPECHECK_ENV_DIR) -
     diagnostics) whenever the repo has one. Exit 0 (clean) and 1 (errors
     found) are both output-bearing runs; anything else is a crash and fails
     loudly instead of reading as zero errors."""
-    bin_dir: Final = env_dir / "bin"
+    basedpyright: Final = typecheck_executable(env_dir, "basedpyright")
+    python: Final = typecheck_executable(env_dir, "python")
     proc = subprocess.run(
         [
-            str(bin_dir / "basedpyright"),
+            str(basedpyright),
             "--outputjson",
             "--pythonpath",
-            str(bin_dir / "python"),
+            str(python),
         ],
         cwd=cwd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env={**os.environ, "NODE_OPTIONS": node_options_with_heap(os.environ)},
     )
     if proc.returncode not in (0, 1):
@@ -271,6 +287,7 @@ def _temp_worktree(ref: str) -> Iterator[Path]:
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         shutil.rmtree(parent, ignore_errors=True)
 
@@ -284,18 +301,14 @@ def base_counts(ref: str) -> dict[str, int]:
         return count_basedpyright(run_basedpyright(worktree), root=worktree)
 
 
-def over_ceiling(
-    head: Mapping[str, int], budget: Mapping[str, Mapping[str, int]]
-) -> frozenset[str]:
+def over_ceiling(head: Mapping[str, int], budget: Mapping[str, Mapping[str, int]]) -> frozenset[str]:
     """Rules whose head count already exceeds their limit.
 
     A rule can only breach when it is over its limit, so when none are the base
     comparison cannot change the verdict and the base worktree pass can be skipped.
     """
     return frozenset(
-        code
-        for code, total in head.items()
-        if total > (budget[code]["limit"] if code in budget else DEFAULT_LIMIT)
+        code for code, total in head.items() if total > (budget[code]["limit"] if code in budget else DEFAULT_LIMIT)
     )
 
 
@@ -313,14 +326,10 @@ def environment_fingerprints(
 
 
 def cache_key(base_point: str, fingerprints: tuple[str, ...]) -> str:
-    return hashlib.sha256("|".join((base_point, *fingerprints)).encode()).hexdigest()[
-        :16
-    ]
+    return hashlib.sha256("|".join((base_point, *fingerprints)).encode()).hexdigest()[:16]
 
 
-def cache_path(
-    directory: Path, base_point: str, fingerprints: tuple[str, ...]
-) -> Path:
+def cache_path(directory: Path, base_point: str, fingerprints: tuple[str, ...]) -> Path:
     return directory / f"{CACHE_FILE_PREFIX}{cache_key(base_point, fingerprints)}.json"
 
 
@@ -380,16 +389,12 @@ def evicted_beyond_cap(entries: Sequence[Path], keep: int) -> tuple[Path, ...]:
     return tuple(newest_first[keep:])
 
 
-def store_counts(
-    directory: Path, path: Path, base_point: str, counts: Mapping[str, int]
-) -> None:
+def store_counts(directory: Path, path: Path, base_point: str, counts: Mapping[str, int]) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     scratch = scratch_path(path)
     scratch.write_text(counts_payload(base_point, counts))
     scratch.replace(path)
-    siblings: Final = tuple(
-        entry for entry in directory.glob(f"{CACHE_FILE_PREFIX}*.json") if entry != path
-    )
+    siblings: Final = tuple(entry for entry in directory.glob(f"{CACHE_FILE_PREFIX}*.json") if entry != path)
     for stale in evicted_beyond_cap(siblings, CACHE_KEEP_ENTRIES - 1):
         stale.unlink(missing_ok=True)
 
@@ -408,6 +413,7 @@ def origin_slug() -> str | None:
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if proc.returncode != 0:
         return None
@@ -420,9 +426,7 @@ def artifact_name(base_point: str) -> str:
 
 def _gh_output(args: list[str]) -> bytes | None:
     try:
-        proc = subprocess.run(
-            ["gh", *args], capture_output=True, timeout=GH_TIMEOUT_SECONDS
-        )
+        proc = subprocess.run(["gh", *args], capture_output=True, timeout=GH_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
         return None
     return proc.stdout if proc.returncode == 0 else None
@@ -449,9 +453,7 @@ def _artifact_download_url(listing: object) -> str | None:
 def _counts_json_from_zip(zip_bytes: bytes) -> object | None:
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
-            members: Final = [
-                name for name in archive.namelist() if name.endswith(".json")
-            ]
+            members: Final = [name for name in archive.namelist() if name.endswith(".json")]
             if len(members) != 1:
                 return None
             return json.loads(archive.read(members[0]))
@@ -484,9 +486,7 @@ def fetch_ci_base_counts(
     if slug is None:
         return _fetch_fallback("origin remote is not a github.com URL")
     name: Final = artifact_name(base_point)
-    listing: Final = gh_output(
-        ["api", f"repos/{slug}/actions/artifacts?name={name}&per_page=1"]
-    )
+    listing: Final = gh_output(["api", f"repos/{slug}/actions/artifacts?name={name}&per_page=1"])
     if listing is None:
         return _fetch_fallback(f"could not list CI artifacts named {name}")
     url: Final = _artifact_download_url(_parsed_json(listing))
@@ -497,9 +497,7 @@ def fetch_ci_base_counts(
         return _fetch_fallback(f"download failed for CI artifact {name}")
     counts: Final = counts_for_base(_counts_json_from_zip(zip_bytes), base_point)
     if counts is None:
-        return _fetch_fallback(
-            f"CI artifact {name} is not valid base counts for {base_point[:12]}"
-        )
+        return _fetch_fallback(f"CI artifact {name} is not valid base counts for {base_point[:12]}")
     sys.stderr.write(f"base counts fetched from CI artifact {name}\n")
     return counts
 
@@ -546,9 +544,7 @@ def evaluate(
     return sorted(breaches)
 
 
-def is_vacuous_run(
-    counts: Mapping[str, int], budget: Mapping[str, Mapping[str, int]]
-) -> bool:
+def is_vacuous_run(counts: Mapping[str, int], budget: Mapping[str, Mapping[str, int]]) -> bool:
     """True when nothing was parsed but the budget expects errors -- the
     signature of a type checker that produced no output. `run_basedpyright`
     already fails crash exit codes, so this guards the remaining case: a run
@@ -571,9 +567,7 @@ def ratcheted_budget(
     not on update.
     """
     return {
-        code: {
-            "limit": max(0, spec["limit"] - max(0, base.get(code, 0) - current.get(code, 0)))
-        }
+        code: {"limit": max(0, spec["limit"] - max(0, base.get(code, 0) - current.get(code, 0)))}
         for code, spec in sorted(budget.items())
     }
 
@@ -591,10 +585,7 @@ def cmd_update(current: Mapping[str, int], base_ref: str = DEFAULT_BASE) -> None
     updated = ratcheted_budget(budget, current, base_counts_cached(base_point))
     BUDGET_PATH.write_text(json.dumps(updated, indent=2, sort_keys=True) + "\n")
     cleared = sum(budget[code]["limit"] - updated[code]["limit"] for code in updated)
-    print(
-        f"Ratcheted basedpyright limits down by {cleared} errors this branch fixed "
-        f"across {len(updated)} rules"
-    )
+    print(f"Ratcheted basedpyright limits down by {cleared} errors this branch fixed across {len(updated)} rules")
 
 
 def cmd_emit_counts(head: Mapping[str, int], directory: Path, head_sha: str) -> None:
@@ -614,10 +605,7 @@ def cmd_emit_counts(head: Mapping[str, int], directory: Path, head_sha: str) -> 
     name: Final = artifact_name(head_sha)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{name}.json").write_text(counts_payload(head_sha, head))
-    print(
-        f"Emitted base counts for {head_sha} as {name}.json "
-        f"({sum(head.values())} errors total)"
-    )
+    print(f"Emitted base counts for {head_sha} as {name}.json ({sum(head.values())} errors total)")
 
 
 def cmd_check(head: Mapping[str, int], base_ref: str) -> None:
@@ -631,9 +619,7 @@ def cmd_check(head: Mapping[str, int], base_ref: str) -> None:
         )
         raise SystemExit(1)
     if not over_ceiling(head, budget):
-        print(
-            f"OK: every rule is within its basedpyright limit ({sum(head.values())} errors total)"
-        )
+        print(f"OK: every rule is within its basedpyright limit ({sum(head.values())} errors total)")
         return
     base_point = resolve_base_point(base_ref)
     base = base_counts_cached(base_point)
@@ -652,9 +638,7 @@ def cmd_check(head: Mapping[str, int], base_ref: str) -> None:
         return
     print("FAIL: basedpyright errors exceed the per-rule limit:")
     for breach in breaches:
-        print(
-            f"  {breach.code}: total {breach.total} over limit {breach.cap} (this change added {breach.added})"
-        )
+        print(f"  {breach.code}: total {breach.total} over limit {breach.cap} (this change added {breach.added})")
     print(
         "Reduce the new errors or remove an equal number elsewhere; the ceiling is "
         "the limit in basedpyright-code-budget.json."
@@ -676,9 +660,7 @@ def main() -> None:
         ensure_typecheck_env()
         head = count_basedpyright(run_basedpyright())
         if args.emit_counts_dir is not None:
-            cmd_emit_counts(
-                head, args.emit_counts_dir, _run(["git", "rev-parse", "HEAD"]).strip()
-            )
+            cmd_emit_counts(head, args.emit_counts_dir, _run(["git", "rev-parse", "HEAD"]).strip())
         elif args.update:
             cmd_update(head, args.base)
         else:

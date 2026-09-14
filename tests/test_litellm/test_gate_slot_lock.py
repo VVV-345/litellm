@@ -1,6 +1,6 @@
-import fcntl
 import importlib.util
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -43,12 +43,15 @@ RECORD_INTERVAL = (
 
 
 def _env(lock_dir: Path, slots: str) -> dict[str, str]:
-    return {
-        "PATH": os.environ["PATH"],
-        "HOME": str(lock_dir.parent),
-        "LITELLM_GATE_SLOT_DIR": str(lock_dir),
-        "LITELLM_GATE_SLOTS": slots,
-    }
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(lock_dir.parent),
+            "LITELLM_GATE_SLOT_DIR": str(lock_dir),
+            "LITELLM_GATE_SLOTS": slots,
+        }
+    )
+    return env
 
 
 def _wrapped(payload: Sequence[str]) -> list[str]:
@@ -65,6 +68,10 @@ def _wait_until(predicate: Callable[[], bool], timeout_seconds: float) -> bool:
 
 
 def _terminate_group(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        with suppress(ProcessLookupError, PermissionError):
+            process.kill()
+        return
     with suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal.SIGKILL)
 
@@ -79,16 +86,17 @@ def _reap(process: subprocess.Popen[bytes]) -> None:
 
 def test_six_contenders_never_exceed_two_slots_and_all_complete(tmp_path: Path) -> None:
     lock_dir = tmp_path / "locks"
-    events_file = tmp_path / "events.log"
+    events_dir = tmp_path / "events"
+    events_dir.mkdir()
     env = _env(lock_dir, "2")
     procs = [
         subprocess.Popen(
-            _wrapped([RECORD_INTERVAL, str(events_file)]),
+            _wrapped([RECORD_INTERVAL, str(events_dir / f"{index}.log")]),
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        for _ in range(6)
+        for index in range(6)
     ]
     try:
         assert [proc.wait(timeout=60) for proc in procs] == [0] * 6
@@ -99,6 +107,7 @@ def test_six_contenders_never_exceed_two_slots_and_all_complete(tmp_path: Path) 
                 proc.wait(timeout=10)
     events = sorted(
         (float(stamp), 1 if kind == "start" else -1)
+        for events_file in events_dir.iterdir()
         for kind, stamp in (line.split() for line in events_file.read_text().splitlines())
     )
     assert len(events) == 12
@@ -198,6 +207,7 @@ def test_missing_command_exits_127_and_no_command_exits_2(tmp_path: Path) -> Non
     assert bare.returncode == 2
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not report POSIX signal exit codes")
 def test_wrapped_command_killed_by_signal_maps_to_128_plus_signal(tmp_path: Path) -> None:
     proc = subprocess.run(
         _wrapped(["import os, signal\nos.kill(os.getpid(), signal.SIGTERM)\n"]),
@@ -277,12 +287,10 @@ def test_acquire_slot_holds_marks_and_releases_in_process(tmp_path: Path, monkey
     assert handle is not None
     assert os.environ["LITELLM_GATE_SLOT_HELD"] == "1"
     assert gate_slot_lock.acquire_slot() is None
-    with (lock_dir / "slot-0.lock").open("wb") as probe:
-        with pytest.raises(BlockingIOError):
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with (lock_dir / "slot-0.lock").open("a+b") as probe:
+        assert gate_slot_lock._try_lock(probe) is False
         handle.close()
-        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(probe, fcntl.LOCK_UN)
+        assert gate_slot_lock._try_lock(probe) is True
 
 
 def test_held_slot_context_manager_releases_on_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,13 +300,11 @@ def test_held_slot_context_manager_releases_on_exit(tmp_path: Path, monkeypatch:
     monkeypatch.setenv("LITELLM_GATE_SLOTS", "1")
     with gate_slot_lock.held_slot():
         assert os.environ["LITELLM_GATE_SLOT_HELD"] == "1"
-        with (lock_dir / "slot-0.lock").open("wb") as probe:
-            with pytest.raises(BlockingIOError):
-                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with (lock_dir / "slot-0.lock").open("a+b") as probe:
+            assert gate_slot_lock._try_lock(probe) is False
     assert not os.environ.get("LITELLM_GATE_SLOT_HELD")
-    with (lock_dir / "slot-0.lock").open("wb") as probe:
-        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        fcntl.flock(probe, fcntl.LOCK_UN)
+    with (lock_dir / "slot-0.lock").open("a+b") as probe:
+        assert gate_slot_lock._try_lock(probe) is True
 
 
 def _make_rule(target: str) -> tuple[list[str], list[str]]:
@@ -324,6 +330,7 @@ def _make_rule(target: str) -> tuple[list[str], list[str]]:
     raise AssertionError(f"target {target} not found in make database")
 
 
+@pytest.mark.skipif(shutil.which("make") is None, reason="make is unavailable")
 def test_direct_make_lint_takes_a_slot_before_any_setup() -> None:
     lint_prerequisites, lint_recipe = _make_rule("lint")
     assert lint_prerequisites == []
