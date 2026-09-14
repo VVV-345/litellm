@@ -5735,6 +5735,7 @@
       "reauthorizeUnavailable": "This environment cannot be reauthorized in its current state.",
       "authorizationGenerated": "New authorization details generated",
       "deleteUnavailable": "This environment cannot be deleted in its current state.",
+      "deleteFailed": "Environment deletion failed. Please try again.",
       "deleteRequested": "Environment deletion requested"
     },
     "channel": {

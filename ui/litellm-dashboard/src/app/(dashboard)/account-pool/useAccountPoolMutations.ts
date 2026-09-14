@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast";
 import {
   authorizeAccountPoolEnvironment,
   deleteAccountPoolEnvironment,
+  listAccountPoolEnvironments,
   updateAccountPoolEnvironment,
 } from "./AccountPoolApi";
 import { canAuthorizeEnvironment, canDeleteEnvironment, canToggleEnvironment } from "./AccountPoolPermissions";
@@ -21,6 +22,17 @@ const isSavedWithPendingReconcile = (error: unknown): boolean =>
   error.status === 503 &&
   /saved|保存/i.test(error.message) &&
   /gateway|网关|synchron|同步/i.test(error.message);
+
+const GATEWAY_ERROR_STATUSES = [502, 503, 504] as const;
+
+const isGatewayError = (error: unknown): error is ApiError =>
+  error instanceof ApiError && GATEWAY_ERROR_STATUSES.some((status) => status === error.status);
+
+const isHtmlGatewayError = (error: unknown): boolean => {
+  if (!isGatewayError(error)) return false;
+  const errorText = typeof error.body === "string" ? error.body : error.message;
+  return /<!doctype html|<html/i.test(errorText);
+};
 
 export const useAccountPoolMutations = (
   accessToken: string | null,
@@ -69,11 +81,17 @@ export const useAccountPoolMutations = (
     onError: (error: Error) => toast.fromError(error),
   });
   const deleteMutation = useMutation({
-    mutationFn: (environment: AccountPoolEnvironment) => {
+    mutationFn: async (environment: AccountPoolEnvironment) => {
       if (!accessToken) throw new Error("Access token required");
       if (!canManage || !canDeleteEnvironment(environment))
         throw new Error(t("accountPool.mutation.deleteUnavailable"));
-      return deleteAccountPoolEnvironment(accessToken, environment.id);
+      try {
+        await deleteAccountPoolEnvironment(accessToken, environment.id);
+      } catch (error) {
+        if (!isGatewayError(error)) throw error;
+        const environments = await listAccountPoolEnvironments(accessToken).catch(() => null);
+        if (environments === null || environments.some(({ id }) => id === environment.id)) throw error;
+      }
     },
     onSuccess: () => {
       onDeleted();
@@ -81,7 +99,11 @@ export const useAccountPoolMutations = (
       invalidate();
     },
     onError: (error: Error) => {
-      toast.fromError(error);
+      if (isHtmlGatewayError(error)) {
+        toast.error(t("accountPool.mutation.deleteFailed"));
+      } else {
+        toast.fromError(error);
+      }
       invalidate();
     },
   });
