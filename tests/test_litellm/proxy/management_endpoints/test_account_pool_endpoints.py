@@ -288,6 +288,34 @@ def test_create_rejects_unknown_channel_and_supplier_values() -> None:
     assert bad_supplier.status_code == 422
 
 
+def test_vertex_creation_forwards_idempotency_key_to_manager() -> None:
+    forwarded_key: list[str | None] = []
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            forwarded_key.append(request.headers.get("Idempotency-Key"))
+            return httpx.Response(200, json=_ENVIRONMENT_FIXTURE, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+
+    with TestClient(app) as client:
+        response: Final = client.post(
+            "/account_pool/vertex",
+            data={"name": "Vertex account", "location": "us-central1"},
+            files={"file": ("service-account.json", b'{"project_id":"demo"}', "application/json")},
+            headers={"Idempotency-Key": "operation-123"},
+        )
+
+    assert response.status_code == 200
+    assert forwarded_key == ["operation-123"]
+
+
 def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)
 

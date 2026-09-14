@@ -346,6 +346,7 @@ class AccountPoolManagerClient:
         filename: str,
         content: bytes,
         content_type: str | None,
+        idempotency_key: str | None = None,
     ) -> httpx.Response:
         if self._token is None or len(self._token) < 32:
             raise HTTPException(
@@ -353,7 +354,10 @@ class AccountPoolManagerClient:
                 detail="Account Pool Manager is not configured",
             )
         try:
-            headers: Final = {"Authorization": f"Bearer {self._token}"}
+            headers: Final = {
+                "Authorization": f"Bearer {self._token}",
+                **({"Idempotency-Key": idempotency_key} if idempotency_key is not None else {}),
+            }
             files: Final = {"file": (filename, content, content_type or "application/octet-stream")}
             return await self._client.post(f"{self._base_url}{path}", headers=headers, data=fields, files=files)
         except httpx.HTTPError as error:
@@ -387,10 +391,11 @@ async def _manager_request_multipart(
     filename: str,
     content: bytes,
     content_type: str | None,
+    idempotency_key: str | None = None,
 ) -> httpx.Response:
     client: Final = client_factory()
     try:
-        return await client.request_multipart(path, fields, filename, content, content_type)
+        return await client.request_multipart(path, fields, filename, content, content_type, idempotency_key)
     finally:
         await client.close()
 
@@ -595,6 +600,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         file: Annotated[UploadFile, File()],
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
         location: Annotated[str, Form(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")] = "us-central1",
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> AccountPoolEnvironment:
         _require_proxy_admin(user_api_key_dict)
         content: Final = await file.read(1024 * 1024 + 1)
@@ -607,6 +613,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             file.filename or "vertex-service-account.json",
             content,
             file.content_type,
+            idempotency_key,
         )
         return _validate_response(response, _ENVIRONMENT)
 

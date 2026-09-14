@@ -44286,7 +44286,9 @@ export interface operations {
     create_vertex_account_pool_vertex_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
