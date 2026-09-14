@@ -247,7 +247,7 @@ class ComposeRuntime:
     async def _connect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"
         process: Final = await self._runner(
-            ("docker", "network", "connect", network, container), self._docker_environment()
+            ("docker", "network", "connect", "--gw-priority=-1", network, container), self._docker_environment()
         )
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         detail: Final = (

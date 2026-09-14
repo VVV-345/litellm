@@ -5736,7 +5736,7 @@
       "authorizationGenerated": "已生成新的授权信息",
       "deleteUnavailable": "当前状态不支持删除",
       "deleteFailed": "环境删除失败，请稍后重试",
-      "deleteRequested": "环境删除请求已完成"
+      "deleteRequested": "环境已删除"
     },
     "channel": {
       "label": "渠道",

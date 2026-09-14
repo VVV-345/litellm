@@ -1,6 +1,9 @@
 /** 本文件封装号池管理请求，页面组件不直接处理 URL、鉴权头或传输细节。 */
 
+import { v4 as uuidv4 } from "uuid";
+
 import { apiClient } from "@/components/networking";
+import { ApiError } from "@/lib/http/client";
 
 import type {
   AccountPoolAuthorization,
@@ -24,6 +27,19 @@ export interface AccountPoolProviderFamily {
   card_count: number;
 }
 
+const isRetryableGatewayError = (error: unknown): error is ApiError =>
+  error instanceof ApiError && (error.status === 502 || error.status === 504);
+
+const runIdempotentMutation = async <T>(request: (idempotencyKey: string) => Promise<T>): Promise<T> => {
+  const idempotencyKey = uuidv4();
+  try {
+    return await request(idempotencyKey);
+  } catch (error) {
+    if (!isRetryableGatewayError(error)) throw error;
+    return request(idempotencyKey);
+  }
+};
+
 export const listAccountPoolProviderFamilies = (accessToken: string): Promise<AccountPoolProviderFamily[]> =>
   apiClient.get<AccountPoolProviderFamily[]>("/account_pool/provider-families", { accessToken });
 
@@ -42,10 +58,13 @@ export const createAccountPoolEnvironment = (
   accessToken: string,
   request: AccountPoolCreateRequest,
 ): Promise<AccountPoolAuthorization> =>
-  apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
-    accessToken,
-    body: request,
-  });
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
+      accessToken,
+      body: request,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 
 export interface AccountPoolOpenAICompatibleCreateRequest {
   name: string;
@@ -68,7 +87,13 @@ export const createOpenAICompatibleAccountPoolEnvironment = (
   accessToken: string,
   request: AccountPoolOpenAICompatibleCreateRequest,
 ): Promise<AccountPoolEnvironment> =>
-  apiClient.post<AccountPoolEnvironment>("/account_pool/openai-compatible", { accessToken, body: request });
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.post<AccountPoolEnvironment>("/account_pool/openai-compatible", {
+      accessToken,
+      body: request,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 
 export interface AccountPoolDirectCredentialCreateRequest {
   name: string;
@@ -87,7 +112,13 @@ export const createDirectCredentialAccountPoolEnvironment = (
   accessToken: string,
   request: AccountPoolDirectCredentialCreateRequest,
 ): Promise<AccountPoolEnvironment> =>
-  apiClient.post<AccountPoolEnvironment>("/account_pool/direct-credentials", { accessToken, body: request });
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.post<AccountPoolEnvironment>("/account_pool/direct-credentials", {
+      accessToken,
+      body: request,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 
 export const createVertexAccountPoolEnvironment = (
   accessToken: string,
@@ -99,7 +130,13 @@ export const createVertexAccountPoolEnvironment = (
   form.append("name", name);
   form.append("location", location);
   form.append("file", file, file.name);
-  return apiClient.post<AccountPoolEnvironment>("/account_pool/vertex", { accessToken, rawBody: form });
+  return runIdempotentMutation((idempotencyKey) =>
+    apiClient.post<AccountPoolEnvironment>("/account_pool/vertex", {
+      accessToken,
+      rawBody: form,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 };
 
 export const updateAccountPoolEnvironment = (
@@ -107,22 +144,32 @@ export const updateAccountPoolEnvironment = (
   environmentId: string,
   request: AccountPoolUpdateRequest,
 ): Promise<AccountPoolEnvironment> =>
-  apiClient.put<AccountPoolEnvironment>(`/account_pool/environments/${encodeURIComponent(environmentId)}`, {
-    accessToken,
-    body: request,
-  });
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.put<AccountPoolEnvironment>(`/account_pool/environments/${encodeURIComponent(environmentId)}`, {
+      accessToken,
+      body: request,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 
 export const authorizeAccountPoolEnvironment = (
   accessToken: string,
   environmentId: string,
 ): Promise<AccountPoolAuthorization> =>
-  apiClient.post<AccountPoolAuthorization>(
-    `/account_pool/environments/${encodeURIComponent(environmentId)}/authorize`,
-    { accessToken },
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.post<AccountPoolAuthorization>(
+      `/account_pool/environments/${encodeURIComponent(environmentId)}/authorize`,
+      { accessToken, headers: { "Idempotency-Key": idempotencyKey } },
+    ),
   );
 
 export const deleteAccountPoolEnvironment = (accessToken: string, environmentId: string): Promise<void> =>
-  apiClient.delete<void>(`/account_pool/environments/${encodeURIComponent(environmentId)}`, { accessToken });
+  runIdempotentMutation((idempotencyKey) =>
+    apiClient.delete<void>(`/account_pool/environments/${encodeURIComponent(environmentId)}`, {
+      accessToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
 
 export const listAccountPoolProxyProfiles = (accessToken: string): Promise<AccountPoolProxyProfile[]> =>
   apiClient.get<AccountPoolProxyProfile[]>("/account_pool/proxy-profiles", { accessToken });

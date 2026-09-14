@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
@@ -48,8 +48,12 @@ describe("useAccountPoolMutations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(authorizeAccountPoolEnvironment).mockReset();
+    deleteEnvironmentMock.mockReset();
+    listEnvironmentsMock.mockReset();
     vi.mocked(updateAccountPoolEnvironment).mockReset();
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("treats a gateway error as success when the environment is already deleted", async () => {
     const gatewayError = new ApiError("<html>Bad Gateway</html>", 502, "<html>Bad Gateway</html>");
@@ -71,19 +75,55 @@ describe("useAccountPoolMutations", () => {
   });
 
   it("shows a short error when the environment still exists after a gateway error", async () => {
+    vi.useFakeTimers();
     const gatewayError = new ApiError("<html>Bad Gateway</html>", 502, "<html>Bad Gateway</html>");
     const onDeleted = vi.fn();
     deleteEnvironmentMock.mockRejectedValueOnce(gatewayError);
-    listEnvironmentsMock.mockResolvedValueOnce([environment]);
+    listEnvironmentsMock.mockResolvedValue([environment]);
 
     const { result } = renderHook(() => useAccountPoolMutations("token", true, vi.fn(), onDeleted), {
       wrapper: createWrapper(),
     });
-    result.current.deleteMutation.mutate(environment);
+    const mutationResult = result.current.deleteMutation.mutateAsync(environment).catch((error: unknown) => error);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listEnvironmentsMock).toHaveBeenCalledOnce();
+    await act(async () => {
+      for (const _ of Array.from({ length: 44 })) await vi.advanceTimersByTimeAsync(1000);
+      expect(await mutationResult).toBe(gatewayError);
+    });
 
-    await waitFor(() => expect(result.current.deleteMutation.isError).toBe(true));
+    expect(listEnvironmentsMock).toHaveBeenCalledTimes(45);
     expect(onDeleted).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith("accountPool.mutation.deleteFailed");
     expect(toast.fromError).not.toHaveBeenCalled();
+  });
+
+  it("keeps checking after a gateway error until the deleting environment disappears", async () => {
+    vi.useFakeTimers();
+    const gatewayError = new ApiError("<html>Bad Gateway</html>", 502, "<html>Bad Gateway</html>");
+    const onDeleted = vi.fn();
+    deleteEnvironmentMock.mockRejectedValueOnce(gatewayError);
+    listEnvironmentsMock.mockResolvedValueOnce([environment]).mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() => useAccountPoolMutations("token", true, vi.fn(), onDeleted), {
+      wrapper: createWrapper(),
+    });
+    const mutationResult = result.current.deleteMutation.mutateAsync(environment);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listEnvironmentsMock).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      await mutationResult;
+    });
+
+    expect(listEnvironmentsMock).toHaveBeenCalledTimes(2);
+    expect(onDeleted).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith("accountPool.mutation.deleteRequested");
   });
 });

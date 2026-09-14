@@ -1311,7 +1311,7 @@ async def test_compose_runtime_uses_exact_docker_commands_and_allowlisted_enviro
             "always",
             "--remove-orphans",
         ),
-        ("docker", "network", "connect", network, settings.manager_container),
+        ("docker", "network", "connect", "--gw-priority=-1", network, settings.manager_container),
         ("docker", "network", "disconnect", network, settings.gateway_container),
     )
     assert tuple(environment for _, environment in runner.calls) == (

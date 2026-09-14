@@ -24,6 +24,8 @@ const isSavedWithPendingReconcile = (error: unknown): boolean =>
   /gateway|网关|synchron|同步/i.test(error.message);
 
 const GATEWAY_ERROR_STATUSES = [502, 503, 504] as const;
+const DELETE_CONFIRMATION_INTERVAL_MS = 1000;
+const DELETE_CONFIRMATION_ATTEMPTS = 45;
 
 const isGatewayError = (error: unknown): error is ApiError =>
   error instanceof ApiError && GATEWAY_ERROR_STATUSES.some((status) => status === error.status);
@@ -32,6 +34,18 @@ const isHtmlGatewayError = (error: unknown): boolean => {
   if (!isGatewayError(error)) return false;
   const errorText = typeof error.body === "string" ? error.body : error.message;
   return /<!doctype html|<html/i.test(errorText);
+};
+
+const confirmEnvironmentDeleted = async (
+  accessToken: string,
+  environmentId: string,
+  attemptsRemaining = DELETE_CONFIRMATION_ATTEMPTS,
+): Promise<boolean> => {
+  const environments = await listAccountPoolEnvironments(accessToken).catch(() => null);
+  if (environments !== null && environments.every(({ id }) => id !== environmentId)) return true;
+  if (attemptsRemaining <= 1) return false;
+  await new Promise((resolve) => setTimeout(resolve, DELETE_CONFIRMATION_INTERVAL_MS));
+  return confirmEnvironmentDeleted(accessToken, environmentId, attemptsRemaining - 1);
 };
 
 export const useAccountPoolMutations = (
@@ -89,8 +103,8 @@ export const useAccountPoolMutations = (
         await deleteAccountPoolEnvironment(accessToken, environment.id);
       } catch (error) {
         if (!isGatewayError(error)) throw error;
-        const environments = await listAccountPoolEnvironments(accessToken).catch(() => null);
-        if (environments === null || environments.some(({ id }) => id === environment.id)) throw error;
+        const deleted = await confirmEnvironmentDeleted(accessToken, environment.id);
+        if (!deleted) throw error;
       }
     },
     onSuccess: () => {
