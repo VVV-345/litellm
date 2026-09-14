@@ -17,7 +17,7 @@ from typing import Any, Final, NamedTuple, Protocol, Union, cast
 
 import fastapi
 import orjson
-from fastapi import HTTPException, Request, WebSocket, status
+from fastapi import HTTPException, Request, WebSocket, WebSocketException, status
 from fastapi.security.api_key import APIKeyHeader
 
 import litellm
@@ -524,13 +524,14 @@ async def user_api_key_auth_websocket(websocket: WebSocket):
                     api_key = protocol[len("openai-insecure-api-key.") :]
                     break
         if not api_key:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            raise HTTPException(status_code=403, detail="No API key provided")
+            raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="No API key provided")
     else:
         # Extract the API key from the Bearer token
         if not authorization.startswith("Bearer "):
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            raise HTTPException(status_code=403, detail="Invalid Authorization header format")
+            raise WebSocketException(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason="Invalid Authorization header format",
+            )
 
         api_key = authorization[len("Bearer ") :].strip()
 
@@ -538,10 +539,9 @@ async def user_api_key_auth_websocket(websocket: WebSocket):
     # Note: You'll need to modify this to work with WebSocket context if needed
     try:
         return await user_api_key_auth(request=request, api_key=f"Bearer {api_key}")
-    except Exception as e:
-        verbose_proxy_logger.exception(e)
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as error:
+        verbose_proxy_logger.warning("WebSocket authentication failed: %s", error.__class__.__name__)
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication failed") from None
 
 
 def update_valid_token_with_end_user_params(valid_token: UserAPIKeyAuth, end_user_params: dict) -> UserAPIKeyAuth:

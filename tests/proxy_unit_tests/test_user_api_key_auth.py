@@ -18,7 +18,7 @@ from litellm.proxy.auth.user_api_key_auth import (
     UserAPIKeyAuth,
     get_api_key_from_custom_header,
 )
-from fastapi import WebSocket, HTTPException, status
+from fastapi import HTTPException, WebSocket, WebSocketException, status
 
 from litellm.proxy._types import LiteLLM_UserTable, LitellmUserRoles
 
@@ -900,6 +900,55 @@ async def test_user_api_key_auth_websocket_carries_asgi_path():
         request_arg = mock_user_api_key_auth.call_args.kwargs["request"]
         assert request_arg.scope.get("path") == "/v1/realtime"
         assert request_arg.scope.get("root_path") == ""
+
+
+@pytest.mark.parametrize(
+    "headers",
+    ({}, {"authorization": "Basic invalid"}),
+)
+@pytest.mark.asyncio
+async def test_user_api_key_auth_websocket_rejects_before_accept_without_double_close(headers: dict[str, str]):
+    from litellm.proxy.auth.user_api_key_auth import user_api_key_auth_websocket
+
+    mock_websocket = MagicMock(spec=WebSocket)
+    mock_websocket.query_params = {"model": "some_model"}
+    mock_websocket.headers = headers
+    mock_websocket.scope = {"type": "websocket", "path": "/v1/realtime", "headers": []}
+    mock_websocket.url = URL(url="/v1/realtime")
+
+    with pytest.raises(WebSocketException) as error:
+        await user_api_key_auth_websocket(mock_websocket)
+
+    assert error.value.code == status.WS_1008_POLICY_VIOLATION
+    mock_websocket.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_api_key_auth_websocket_converts_auth_failure_without_double_close():
+    from litellm.proxy.auth.user_api_key_auth import user_api_key_auth_websocket
+
+    mock_websocket = MagicMock(spec=WebSocket)
+    mock_websocket.query_params = {"model": "some_model"}
+    mock_websocket.headers = {"authorization": "Bearer invalid"}
+    mock_websocket.scope = {
+        "type": "websocket",
+        "path": "/v1/realtime",
+        "headers": [(b"authorization", b"Bearer invalid")],
+    }
+    mock_websocket.url = URL(url="/v1/realtime")
+
+    with (
+        patch(
+            "litellm.proxy.auth.user_api_key_auth.user_api_key_auth",
+            autospec=True,
+            side_effect=HTTPException(status_code=401, detail="invalid key"),
+        ),
+        pytest.raises(WebSocketException) as error,
+    ):
+        await user_api_key_auth_websocket(mock_websocket)
+
+    assert error.value.code == status.WS_1008_POLICY_VIOLATION
+    mock_websocket.close.assert_not_awaited()
 
 
 @pytest.mark.parametrize("enforce_rbac", [True, False])
