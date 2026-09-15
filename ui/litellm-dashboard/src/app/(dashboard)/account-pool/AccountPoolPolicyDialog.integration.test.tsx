@@ -97,4 +97,15 @@ describe("AccountPoolPolicyDialog", () => {
     expect(saved.transport?.websocket).toBe("enabled");
     expect(saved.transport?.debug_log_enabled).toBe(true);
   });
+
+  it("explains routing and transport settings in user-facing language", async () => {
+    renderDialog();
+
+    expect(
+      await screen.findByText(/同一会话会优先继续使用之前选中的账号|Prefer the account previously selected/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/数值越大越先被选择|higher values are selected first/i)).toBeInTheDocument();
+    expect(screen.getByText(/剩余额度达到或低于|remaining quota reaches/i)).toBeInTheDocument();
+    expect(screen.getByText(/认证信息与敏感内容仍会脱敏|credentials and sensitive data redacted/i)).toBeInTheDocument();
+  });
 });

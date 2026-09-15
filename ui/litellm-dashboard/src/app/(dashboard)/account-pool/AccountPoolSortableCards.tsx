@@ -1,8 +1,16 @@
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { GripVertical } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const mergeCardOrder = (order: readonly string[], cardIds: readonly string[]): readonly string[] => [
+  ...new Set([...order, ...cardIds]),
+];
+
+const sameCardOrder = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
 
 export function AccountPoolSortableCards<T extends { id: string; name: string }>({
   supplier,
@@ -34,12 +42,26 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
   const [target, setTarget] = useState<string | null>(null);
   const [storageFailed, setStorageFailed] = useState(false);
 
-  const effectiveOrder = hydrated ? order : [];
-  const ordered = [...cards].sort((left, right) => {
-    const leftIndex = effectiveOrder.indexOf(left.id);
-    const rightIndex = effectiveOrder.indexOf(right.id);
-    return (leftIndex < 0 ? effectiveOrder.length : leftIndex) - (rightIndex < 0 ? effectiveOrder.length : rightIndex);
-  });
+  const cardIds = useMemo(() => cards.map((card) => card.id), [cards]);
+  const resolvedOrder = useMemo(() => (hydrated ? mergeCardOrder(order, cardIds) : []), [cardIds, hydrated, order]);
+  if (hydrated && !sameCardOrder(resolvedOrder, order)) setOrder(resolvedOrder);
+  const orderIndex = useMemo(() => new Map(resolvedOrder.map((id, index) => [id, index])), [resolvedOrder]);
+  const ordered = useMemo(
+    () =>
+      [...cards].sort(
+        (left, right) =>
+          (orderIndex.get(left.id) ?? resolvedOrder.length) - (orderIndex.get(right.id) ?? resolvedOrder.length),
+      ),
+    [cards, orderIndex, resolvedOrder.length],
+  );
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(order));
+    } catch {
+      return;
+    }
+  }, [hydrated, order, storageKey]);
   const move = (sourceId: string, targetId: string) => {
     const sourceIndex = ordered.findIndex((card) => card.id === sourceId);
     const targetIndex = ordered.findIndex((card) => card.id === targetId);
@@ -51,9 +73,10 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
       ...withoutSource.slice(targetIndex),
     ].map((card) => card.id);
     const visibleIds = new Set(cards.map((card) => card.id));
-    const previous = [...new Set([...order, ...cards.map((card) => card.id)])];
+    const previous = mergeCardOrder(order, cardIds);
     const visibleSlots = previous.filter((id) => visibleIds.has(id));
-    const next = previous.map((id) => (visibleIds.has(id) ? nextVisible[visibleSlots.indexOf(id)] : id));
+    const replacements = new Map(visibleSlots.map((id, index) => [id, nextVisible[index] ?? id]));
+    const next = previous.map((id) => replacements.get(id) ?? id);
     setOrder(next);
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(next));
@@ -98,31 +121,38 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
         </p>
       )}
       <ul className="m-0 grid list-none grid-cols-1 items-start gap-4 p-0 md:grid-cols-2 2xl:grid-cols-3">
-        {ordered.map((card, index) => (
-          <li
-            key={card.id}
-            className={`relative min-w-0 rounded-xl transition-shadow ${dragged === card.id ? "opacity-50" : ""} ${target === card.id && dragged !== card.id ? "ring-2 ring-primary" : ""}`}
-            onDragOver={(event) => handleDragOver(event, card.id)}
-            onDrop={(event) => handleDrop(event, card.id)}
-          >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="absolute right-3 top-3 z-raised cursor-grab touch-none active:cursor-grabbing"
-              draggable
-              aria-label={t("accountPool.dashboard.reorderCard", { name: card.name })}
-              title={t("accountPool.dashboard.reorderHint")}
-              onDoubleClick={(event) => event.stopPropagation()}
-              onDragStart={(event) => handleDragStart(event, card.id)}
-              onDragEnd={finishDrag}
-              onKeyDown={(event) => handleKeyDown(event, card.id, index)}
+        {!hydrated &&
+          cards.map((card) => (
+            <li key={card.id} aria-hidden="true">
+              <Skeleton className="h-72 w-full rounded-xl" />
+            </li>
+          ))}
+        {hydrated &&
+          ordered.map((card, index) => (
+            <li
+              key={card.id}
+              className={`relative min-w-0 rounded-xl transition-shadow ${dragged === card.id ? "opacity-50" : ""} ${target === card.id && dragged !== card.id ? "ring-2 ring-primary" : ""}`}
+              onDragOver={(event) => handleDragOver(event, card.id)}
+              onDrop={(event) => handleDrop(event, card.id)}
             >
-              <GripVertical className="size-4" />
-            </Button>
-            {children(card)}
-          </li>
-        ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute right-3 top-3 z-raised cursor-grab touch-none active:cursor-grabbing"
+                draggable
+                aria-label={t("accountPool.dashboard.reorderCard", { name: card.name })}
+                title={t("accountPool.dashboard.reorderHint")}
+                onDoubleClick={(event) => event.stopPropagation()}
+                onDragStart={(event) => handleDragStart(event, card.id)}
+                onDragEnd={finishDrag}
+                onKeyDown={(event) => handleKeyDown(event, card.id, index)}
+              >
+                <GripVertical className="size-4" />
+              </Button>
+              {children(card)}
+            </li>
+          ))}
       </ul>
     </div>
   );

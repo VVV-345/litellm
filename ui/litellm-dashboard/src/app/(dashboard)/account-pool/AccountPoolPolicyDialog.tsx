@@ -36,10 +36,13 @@ type Antigravity = NonNullable<AccountPolicy["antigravity"]>;
 
 interface MultiFieldProps {
   label: string;
+  description: string;
   selected: string[];
-  entries: MultiSelectOption[];
-  change: (next: string[]) => void;
-  allowCustomValues?: boolean;
+  control: {
+    entries: MultiSelectOption[];
+    change: (next: string[]) => void;
+    allowCustomValues?: boolean;
+  };
 }
 type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claude" | "kimi" | "xai" | "antigravity"> & {
   routing: Routing;
@@ -245,18 +248,25 @@ function PolicyForm({
       ...current,
       antigravity: { ...(current.antigravity ?? antigravityDefaults), [field]: next },
     }));
-  const textField = (label: string, current: string, change: (next: string) => void) => (
+  const description = (field: string) => t(`accountPool.policy.descriptions.${field}`);
+  const textField = (label: string, descriptionText: string, current: string, change: (next: string) => void) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
-        <Label className="break-words leading-5">{label}</Label>
+        <div className="space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
         <Input aria-label={label} value={current} disabled={busy} onChange={(event) => change(event.target.value)} />
       </div>
     </FieldCard>
   );
-  const toggleField = (label: string, checked: boolean, change: (next: boolean) => void) => (
+  const toggleField = (label: string, descriptionText: string, checked: boolean, change: (next: boolean) => void) => (
     <FieldCard>
-      <div className="flex min-w-0 items-center justify-between gap-4">
-        <Label className="min-w-0 break-words leading-5">{label}</Label>
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="min-w-0 space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
         <Switch
           aria-label={label}
           checked={checked}
@@ -266,10 +276,13 @@ function PolicyForm({
       </div>
     </FieldCard>
   );
-  const numberField = (label: string, current: number, change: (next: number) => void) => (
+  const numberField = (label: string, descriptionText: string, current: number, change: (next: number) => void) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
-        <Label className="break-words leading-5">{label}</Label>
+        <div className="space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
         <Input
           aria-label={label}
           type="number"
@@ -282,12 +295,16 @@ function PolicyForm({
   );
   const optionalNumberField = (
     label: string,
+    descriptionText: string,
     current: number | null | undefined,
     change: (next: number | null) => void,
   ) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
-        <Label className="break-words leading-5">{label}</Label>
+        <div className="space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
         <Input
           aria-label={label}
           type="number"
@@ -298,16 +315,24 @@ function PolicyForm({
       </div>
     </FieldCard>
   );
-  const selectField = (label: string, current: string, entries: readonly string[], change: (next: string) => void) => (
+  const selectField = (
+    label: string,
+    descriptionText: string,
+    current: string,
+    control: { entries: readonly string[]; change: (next: string) => void },
+  ) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
-        <Label className="break-words leading-5">{label}</Label>
-        <Select value={current} disabled={busy} onValueChange={(next) => next !== null && change(next)}>
+        <div className="space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
+        <Select value={current} disabled={busy} onValueChange={(next) => next !== null && control.change(next)}>
           <SelectTrigger aria-label={label} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {entries.map((option) => (
+            {control.entries.map((option) => (
               <SelectItem key={option} value={option}>
                 {t(`accountPool.policy.options.${option}`)}
               </SelectItem>
@@ -317,22 +342,75 @@ function PolicyForm({
       </div>
     </FieldCard>
   );
-  const multiField = ({ label, selected, entries, change, allowCustomValues = false }: MultiFieldProps) => (
+  const multiField = ({ label, description: descriptionText, selected, control }: MultiFieldProps) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
-        <Label className="break-words leading-5">{label}</Label>
+        <div className="space-y-1">
+          <Label className="block break-words leading-5">{label}</Label>
+          <p className="break-words text-xs leading-5 text-muted-foreground">{descriptionText}</p>
+        </div>
         <MultiSelect
           value={selected}
-          options={entries}
-          onValueChange={change}
-          allowCustomValues={allowCustomValues}
+          options={control.entries}
+          onValueChange={control.change}
+          allowCustomValues={control.allowCustomValues ?? false}
           disabled={busy}
-          placeholder={t(allowCustomValues ? "accountPool.policy.selectOrCreate" : "accountPool.policy.selectOptions")}
+          placeholder={t(
+            control.allowCustomValues ? "accountPool.policy.selectOrCreate" : "accountPool.policy.selectOptions",
+          )}
           emptyText={t("accountPool.policy.noMatchingOptions")}
         />
       </div>
     </FieldCard>
   );
+  const tagsField: MultiFieldProps = {
+    label: t("accountPool.policy.tags"),
+    description: description("tags"),
+    selected: policy.tags,
+    control: {
+      entries: options.tags,
+      change: (tags) => setPolicy((current) => ({ ...current, tags })),
+      allowCustomValues: true,
+    },
+  };
+  const accountIdsField: MultiFieldProps = {
+    label: t("accountPool.policy.account_ids"),
+    description: description("account_ids"),
+    selected: policy.account_ids ?? [],
+    control: {
+      entries: options.accounts,
+      change: (accountIds) =>
+        setPolicy((current) => ({
+          ...current,
+          account_ids: accountIds,
+          routing: {
+            ...current.routing,
+            preferred_account_ids: current.routing.preferred_account_ids.filter(
+              (accountId) => accountId === environment.id || accountIds.includes(accountId),
+            ),
+          },
+        })),
+    },
+  };
+  const preferredAccountIdsField: MultiFieldProps = {
+    label: t("accountPool.policy.preferred_account_ids"),
+    description: description("preferred_account_ids"),
+    selected: policy.routing.preferred_account_ids,
+    control: {
+      entries: preferredAccountOptions,
+      change: (preferredAccountIds) => updateRouting("preferred_account_ids", preferredAccountIds),
+    },
+  };
+  const excludedModelsField: MultiFieldProps = {
+    label: t("accountPool.policy.excluded_models"),
+    description: description("excluded_models"),
+    selected: policy.excluded_models,
+    control: {
+      entries: options.models,
+      change: (models) => setPolicy((current) => ({ ...current, excluded_models: models })),
+      allowCustomValues: true,
+    },
+  };
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const aliasValues = list(aliases);
@@ -382,16 +460,13 @@ function PolicyForm({
   return (
     <form className="grid gap-6 pt-5" onSubmit={handleSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
-        {multiField({
-          label: t("accountPool.policy.tags"),
-          selected: policy.tags,
-          entries: options.tags,
-          change: (tags) => setPolicy((current) => ({ ...current, tags })),
-          allowCustomValues: true,
-        })}
+        {multiField(tagsField)}
         <FieldCard>
           <div className="grid min-w-0 gap-2">
-            <Label className="break-words leading-5">{t("accountPool.policy.group")}</Label>
+            <div className="space-y-1">
+              <Label className="block break-words leading-5">{t("accountPool.policy.group")}</Label>
+              <p className="break-words text-xs leading-5 text-muted-foreground">{description("group")}</p>
+            </div>
             <Combobox
               items={groupOptions}
               value={selectedGroup}
@@ -460,83 +535,87 @@ function PolicyForm({
           <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.accountScopeDescription")}</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          {multiField({
-            label: t("accountPool.policy.account_ids"),
-            selected: policy.account_ids ?? [],
-            entries: options.accounts,
-            change: (accountIds) =>
-              setPolicy((current) => ({
-                ...current,
-                account_ids: accountIds,
-                routing: {
-                  ...current.routing,
-                  preferred_account_ids: current.routing.preferred_account_ids.filter(
-                    (accountId) => accountId === environment.id || accountIds.includes(accountId),
-                  ),
-                },
-              })),
-          })}
-          {multiField({
-            label: t("accountPool.policy.preferred_account_ids"),
-            selected: policy.routing.preferred_account_ids,
-            entries: preferredAccountOptions,
-            change: (preferredAccountIds) => updateRouting("preferred_account_ids", preferredAccountIds),
-          })}
+          {multiField(accountIdsField)}
+          {multiField(preferredAccountIdsField)}
         </div>
       </section>
       <section className="grid gap-3">
         <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {selectField(
-            t("accountPool.policy.strategy"),
-            policy.routing.strategy,
-            ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
-            (next) => updateRouting("strategy", next as Routing["strategy"]),
-          )}
-          {numberField(t("accountPool.policy.priority"), policy.routing.priority, (next) =>
+          {selectField(t("accountPool.policy.strategy"), description("strategy"), policy.routing.strategy, {
+            entries: ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
+            change: (next) => updateRouting("strategy", next as Routing["strategy"]),
+          })}
+          {numberField(t("accountPool.policy.priority"), description("priority"), policy.routing.priority, (next) =>
             updateRouting("priority", next),
           )}
-          {numberField(t("accountPool.policy.weight"), policy.routing.weight, (next) => updateRouting("weight", next))}
-          {numberField(t("accountPool.policy.session_affinity_ttl"), policy.routing.session_affinity_ttl, (next) =>
-            updateRouting("session_affinity_ttl", next),
+          {numberField(t("accountPool.policy.weight"), description("weight"), policy.routing.weight, (next) =>
+            updateRouting("weight", next),
           )}
-          {numberField(t("accountPool.policy.quota_reserve_percent"), policy.routing.quota_reserve_percent, (next) =>
-            updateRouting("quota_reserve_percent", next),
+          {numberField(
+            t("accountPool.policy.session_affinity_ttl"),
+            description("session_affinity_ttl"),
+            policy.routing.session_affinity_ttl,
+            (next) => updateRouting("session_affinity_ttl", next),
           )}
-          {numberField(t("accountPool.policy.quota_snapshot_max_age"), policy.routing.quota_snapshot_max_age, (next) =>
-            updateRouting("quota_snapshot_max_age", next),
+          {numberField(
+            t("accountPool.policy.quota_reserve_percent"),
+            description("quota_reserve_percent"),
+            policy.routing.quota_reserve_percent,
+            (next) => updateRouting("quota_reserve_percent", next),
           )}
-          {optionalNumberField(t("accountPool.policy.token_budget_limit"), policy.routing.token_budget_limit, (next) =>
-            updateRouting("token_budget_limit", next),
+          {numberField(
+            t("accountPool.policy.quota_snapshot_max_age"),
+            description("quota_snapshot_max_age"),
+            policy.routing.quota_snapshot_max_age,
+            (next) => updateRouting("quota_snapshot_max_age", next),
+          )}
+          {optionalNumberField(
+            t("accountPool.policy.token_budget_limit"),
+            description("token_budget_limit"),
+            policy.routing.token_budget_limit,
+            (next) => updateRouting("token_budget_limit", next),
           )}
           {numberField(
             t("accountPool.policy.token_budget_window_seconds"),
+            description("token_budget_window_seconds"),
             policy.routing.token_budget_window_seconds,
             (next) => updateRouting("token_budget_window_seconds", next),
           )}
-          {numberField(t("accountPool.policy.max_attempts"), policy.routing.max_attempts, (next) =>
-            updateRouting("max_attempts", next),
+          {numberField(
+            t("accountPool.policy.max_attempts"),
+            description("max_attempts"),
+            policy.routing.max_attempts,
+            (next) => updateRouting("max_attempts", next),
           )}
-          {numberField(t("accountPool.policy.backoff_ms"), policy.routing.backoff_ms, (next) =>
-            updateRouting("backoff_ms", next),
+          {numberField(
+            t("accountPool.policy.backoff_ms"),
+            description("backoff_ms"),
+            policy.routing.backoff_ms,
+            (next) => updateRouting("backoff_ms", next),
           )}
-          {textField(t("accountPool.policy.retryable_statuses"), statuses, setStatuses)}
-          {multiField({
-            label: t("accountPool.policy.excluded_models"),
-            selected: policy.excluded_models,
-            entries: options.models,
-            change: (models) => setPolicy((current) => ({ ...current, excluded_models: models })),
-            allowCustomValues: true,
-          })}
-          {textField(t("accountPool.policy.model_aliases"), aliases, setAliases)}
-          {toggleField(t("accountPool.policy.is_backup"), policy.routing.is_backup, (next) =>
+          {textField(
+            t("accountPool.policy.retryable_statuses"),
+            description("retryable_statuses"),
+            statuses,
+            setStatuses,
+          )}
+          {multiField(excludedModelsField)}
+          {textField(t("accountPool.policy.model_aliases"), description("model_aliases"), aliases, setAliases)}
+          {toggleField(t("accountPool.policy.is_backup"), description("is_backup"), policy.routing.is_backup, (next) =>
             updateRouting("is_backup", next),
           )}
-          {toggleField(t("accountPool.policy.session_affinity"), policy.routing.session_affinity, (next) =>
-            updateRouting("session_affinity", next),
+          {toggleField(
+            t("accountPool.policy.session_affinity"),
+            description("session_affinity"),
+            policy.routing.session_affinity,
+            (next) => updateRouting("session_affinity", next),
           )}
-          {toggleField(t("accountPool.policy.fallback_enabled"), policy.routing.fallback_enabled, (next) =>
-            updateRouting("fallback_enabled", next),
+          {toggleField(
+            t("accountPool.policy.fallback_enabled"),
+            description("fallback_enabled"),
+            policy.routing.fallback_enabled,
+            (next) => updateRouting("fallback_enabled", next),
           )}
         </div>
       </section>
@@ -545,23 +624,28 @@ function PolicyForm({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {selectField(
             t("accountPool.policy.image_generation"),
+            description("image_generation"),
             policy.transport.image_generation,
-            ["inherit", "enabled", "disabled"],
-            (next) => updateTransport("image_generation", next as Transport["image_generation"]),
+            {
+              entries: ["inherit", "enabled", "disabled"],
+              change: (next) => updateTransport("image_generation", next as Transport["image_generation"]),
+            },
           )}
-          {selectField(
-            t("accountPool.policy.websocket"),
-            policy.transport.websocket,
-            ["inherit", "enabled", "disabled"],
-            (next) => updateTransport("websocket", next as Transport["websocket"]),
-          )}
+          {selectField(t("accountPool.policy.websocket"), description("websocket"), policy.transport.websocket, {
+            entries: ["inherit", "enabled", "disabled"],
+            change: (next) => updateTransport("websocket", next as Transport["websocket"]),
+          })}
           {numberField(
             t("accountPool.policy.request_timeout_seconds"),
+            description("request_timeout_seconds"),
             policy.transport.request_timeout_seconds,
             (next) => updateTransport("request_timeout_seconds", next),
           )}
-          {toggleField(t("accountPool.policy.debug_log_enabled"), policy.transport.debug_log_enabled, (next) =>
-            updateTransport("debug_log_enabled", next),
+          {toggleField(
+            t("accountPool.policy.debug_log_enabled"),
+            description("debug_log_enabled"),
+            policy.transport.debug_log_enabled,
+            (next) => updateTransport("debug_log_enabled", next),
           )}
         </div>
       </section>
