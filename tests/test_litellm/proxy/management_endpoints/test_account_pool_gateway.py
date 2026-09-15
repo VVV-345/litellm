@@ -908,6 +908,48 @@ def test_read_timeout_is_not_retried_even_with_fallback_enabled() -> None:
     assert control.finished[0].http_status == 504 and not control.finished[0].retryable
 
 
+@pytest.mark.parametrize("streaming", (False, True))
+@pytest.mark.parametrize("responses_api", (False, True))
+def test_gateway_preserves_cache_usage_in_completion_logs(streaming: bool, responses_api: bool) -> None:
+    usage: Final = (
+        {"input_tokens": 120, "output_tokens": 9, "input_tokens_details": {"cached_tokens": 80},
+         "cache_creation_input_tokens": 0}
+        if responses_api
+        else {"prompt_tokens": 120, "completion_tokens": 9, "prompt_tokens_details": {"cached_tokens": 80},
+              "cache_creation_input_tokens": 0}
+    )
+    payload: Final = {"type": "response.completed", "response": {"usage": usage}} if responses_api else {"usage": usage}
+    body: Final = f"data: {json.dumps(payload)}\n\ndata: [DONE]\n\n"
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        if streaming else httpx.Response(200, json=payload)
+    )
+    with client:
+        response: Final = client.post(
+            "/v1/responses" if responses_api else "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_KEY}"},
+            json={"model": "model-a", "stream": streaming},
+        )
+    assert response.status_code == 200
+    result: Final = control.finished[0].model_dump()
+    assert result["input_tokens"] == 120
+    assert result["output_tokens"] == 9
+    assert result.get("cache_read_input_tokens") == 80
+    assert result.get("cache_creation_input_tokens") == 0
+
+
+def test_stream_cache_usage_preserves_zero_and_missing_fields() -> None:
+    from litellm.proxy.management_endpoints.account_pool_stream import EventStream
+
+    state: Final = EventStream()
+    state.observe_payload({"usage": {"input_tokens": 12, "cache_read_input_tokens": 0}})
+    state.observe_payload({"usage": {"output_tokens": 3}})
+    assert getattr(state, "cache_read_input_tokens", None) == 0
+    assert getattr(state, "cache_creation_input_tokens", None) is None
+    assert state.input_tokens == 12
+    assert state.output_tokens == 3
+
+
 def test_stream_keeps_sse_and_releases_lease_after_consumption() -> None:
     stream: Final = 'data: {"choices":[{"delta":{"content":"hello"}}]}\n\ndata: [DONE]\n\n'
     client, control = setup_gateway(

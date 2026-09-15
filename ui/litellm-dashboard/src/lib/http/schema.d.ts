@@ -28766,6 +28766,10 @@ export interface components {
              * @default 1
              */
             attempt: number;
+            /** Cache Creation Input Tokens */
+            cache_creation_input_tokens?: number | null;
+            /** Cache Read Input Tokens */
+            cache_read_input_tokens?: number | null;
             /**
              * Card Id
              * Format: uuid

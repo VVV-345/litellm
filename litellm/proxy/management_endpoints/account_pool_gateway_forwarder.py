@@ -36,7 +36,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     RoutingReason,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
-from litellm.proxy.management_endpoints.account_pool_stream import EventStream, usage_tokens
+from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
 from litellm.types.llms.openai import (
     AllMessageValues,
@@ -472,11 +472,14 @@ async def execute(
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
                     parsed: Final = _JSON.validate_json(data)
                     usage_in, usage_out = usage_tokens(parsed)
+                    cache_read, cache_created = cache_usage_tokens(parsed)
                     attempt.outcome(
                         response.status_code,
                         "Request completed",
                         input_tokens=usage_in,
                         output_tokens=usage_out,
+                        cache_read_input_tokens=cache_read,
+                        cache_creation_input_tokens=cache_created,
                         cost_usd=cost_usd,
                     )
                     public: Final = (
@@ -761,6 +764,8 @@ async def stream_response(
                 stage="response",
                 input_tokens=state.input_tokens,
                 output_tokens=state.output_tokens,
+                cache_read_input_tokens=state.cache_read_input_tokens,
+                cache_creation_input_tokens=state.cache_creation_input_tokens,
                 cost_usd=cost_usd,
             )
 

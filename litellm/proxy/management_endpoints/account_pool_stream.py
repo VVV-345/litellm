@@ -25,6 +25,22 @@ def usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | None]:
     )
 
 
+def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | None]:
+    response: Final = data.get("response")
+    usage: Final = response.get("usage") if isinstance(response, dict) else data.get("usage")
+    if not isinstance(usage, dict):
+        return None, None
+    details: Final = usage.get("input_tokens_details", usage.get("prompt_tokens_details"))
+    read: Final = usage.get(
+        "cache_read_input_tokens", details.get("cached_tokens") if isinstance(details, dict) else None
+    )
+    created: Final = usage.get("cache_creation_input_tokens")
+    return (
+        read if type(read) is int and read >= 0 else None,
+        created if type(created) is int and created >= 0 else None,
+    )
+
+
 class EventStream:
     def __init__(self) -> None:
         self.pending = b""
@@ -32,6 +48,8 @@ class EventStream:
         self.failed = False
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
+        self.cache_read_input_tokens: int | None = None
+        self.cache_creation_input_tokens: int | None = None
 
     def feed(self, chunk: bytes) -> tuple[bytes, ...]:
         parts: Final = _DELIMITER.split(self.pending + chunk)
@@ -63,6 +81,11 @@ class EventStream:
             self.input_tokens = input_count
         if output_count is not None:
             self.output_tokens = output_count
+        cache_read, cache_created = cache_usage_tokens(event)
+        if cache_read is not None:
+            self.cache_read_input_tokens = cache_read
+        if cache_created is not None:
+            self.cache_creation_input_tokens = cache_created
         if event.get("type") in ("response.completed", "response.incomplete"):
             self.terminal = True
         if event.get("type") in ("error", "response.failed", "response.incomplete") or event.get("error") is not None:

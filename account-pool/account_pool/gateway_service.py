@@ -252,6 +252,8 @@ class GatewayService:
             final_status="retrying" if request.retryable else "failed" if failed else "succeeded",
             input_tokens=request.input_tokens,
             output_tokens=request.output_tokens,
+            cache_read_input_tokens=request.cache_read_input_tokens,
+            cache_creation_input_tokens=request.cache_creation_input_tokens,
             routing_reason=lease.routing_reason,
             cost_usd=request.cost_usd,
         )

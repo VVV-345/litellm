@@ -24,6 +24,7 @@ import {
 import type { ErrorStats } from "./AccountPoolManagementApi";
 import type { PolicyView } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
+import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "./accountPoolDashboardSelectors";
 
@@ -126,12 +127,13 @@ export const AccountPoolCard = ({
   })();
   return (
     <Card
+      className="min-w-0 gap-4 [--card-spacing:--spacing(4)]"
       data-testid={`account-pool-card-${environment.id}`}
       onDoubleClick={() => onManagePolicy(environment)}
       title={t("accountPool.dashboard.doubleClickToConfigure")}
     >
       <CardHeader className="gap-3">
-        <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
           <div className="flex min-w-0 items-start gap-3">
             <AccountPoolSupplierLogo supplier={environment.supplier} className="mt-0.5 size-6 shrink-0" />
             <div className="min-w-0">
@@ -235,7 +237,9 @@ export const AccountPoolCard = ({
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
         <div className="flex flex-wrap gap-1.5">
-          {environment.quota.plan_type && <Badge variant="outline">{environment.quota.plan_type}</Badge>}
+          {environment.supplier !== "openai_codex" && environment.quota.plan_type && (
+            <Badge variant="outline">{environment.quota.plan_type}</Badge>
+          )}
           {group && <Badge variant="secondary">{group}</Badge>}
           {tags.map((tag) => (
             <Badge key={tag} variant="outline">
@@ -268,14 +272,18 @@ export const AccountPoolCard = ({
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
             <p className="mt-1 font-medium">{healthLabel}</p>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
-            <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
-            <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
-          </div>
+          {environment.supplier !== "openai_codex" && (
+            <>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
+                <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
+                <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
+              </div>
+            </>
+          )}
           {environment.supplier === "xai" &&
             environment.quota.has_grok_code_access !== null &&
             environment.quota.has_grok_code_access !== undefined && (
@@ -287,6 +295,7 @@ export const AccountPoolCard = ({
               </div>
             )}
         </div>
+        {environment.supplier === "openai_codex" && <AccountPoolCardQuota quota={environment.quota} />}
         {policyValues && (
           <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
             <div>

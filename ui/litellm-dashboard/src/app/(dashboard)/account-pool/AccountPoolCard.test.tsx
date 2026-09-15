@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
@@ -57,6 +57,56 @@ const renderCard = (
 };
 
 describe("AccountPoolCard", () => {
+  it("shows every Codex quota window with its own remaining meter and reset, including zero credits", () => {
+    renderCard({
+      supplier: "openai_codex",
+      quota: {
+        observed_at: "2026-09-15T08:00:00Z",
+        plan_type: "chatgptplusplan",
+        reset_credits_available: 0,
+        windows: [
+          {
+            name: "5 hour",
+            used_percent: 3,
+            remaining_percent: 97,
+            window_minutes: 300,
+            resets_at: "2090-09-15T13:04:00Z",
+          },
+          {
+            name: "Weekly",
+            used_percent: 22,
+            remaining_percent: 78,
+            window_minutes: 10080,
+            resets_at: "2090-09-22T08:04:00Z",
+          },
+          {
+            name: "gpt-reserve Weekly",
+            used_percent: 100,
+            remaining_percent: 0,
+            window_minutes: 10080,
+            resets_at: null,
+          },
+        ],
+        balances: [],
+      },
+    });
+    expect(screen.getByText("Plus")).toBeInTheDocument();
+    expect(screen.getByText(/可用重置次数.*0/)).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "5 小时额度" })).toHaveAttribute("aria-valuenow", "97");
+    expect(screen.getByRole("meter", { name: "周额度" })).toHaveAttribute("aria-valuenow", "78");
+    expect(screen.getByRole("meter", { name: "gpt-reserve 周额度" })).toHaveAttribute("aria-valuenow", "0");
+    expect(within(screen.getByRole("group", { name: "5 小时额度" })).getByText(/09.*15/)).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "周额度" })).getByText(/09.*22/)).toBeInTheDocument();
+    expect(screen.queryByText("chatgptplusplan")).not.toBeInTheDocument();
+  });
+
+  it("does not invent quota or reset credits when the provider has not returned them", () => {
+    renderCard({ supplier: "openai_codex" });
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    expect(screen.getByText("尚未观测")).toBeInTheDocument();
+    expect(screen.getByText(/可用重置次数.*暂无数据/)).toBeInTheDocument();
+  });
+
   it("allows choosing a proxy after the initial authorization fails", () => {
     renderCard({ status: "error", available_models: [], enabled_models: [] });
     expect(screen.getByRole("button", { name: /配置|Configure/i })).toBeEnabled();

@@ -131,6 +131,8 @@ class FinishRequest(BaseModel):
     detail: str | None = Field(default=None, max_length=2000)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_input_tokens: int | None = Field(default=None, ge=0)
+    cache_creation_input_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 

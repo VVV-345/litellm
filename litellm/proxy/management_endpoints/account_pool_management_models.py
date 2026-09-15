@@ -814,6 +814,8 @@ class ErrorLogRecord(BaseModel):
     duration_ms: int | None = Field(default=None, ge=0)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_input_tokens: int | None = Field(default=None, ge=0)
+    cache_creation_input_tokens: int | None = Field(default=None, ge=0)
     routing_reason: RoutingReason | None = None
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"

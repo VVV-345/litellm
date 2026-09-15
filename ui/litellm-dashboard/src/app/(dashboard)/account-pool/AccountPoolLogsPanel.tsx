@@ -4,6 +4,7 @@ import { Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,10 @@ type DetailField =
   | "http_status"
   | "upstream_code"
   | "duration_ms"
+  | "input_tokens"
+  | "output_tokens"
+  | "cache_read_input_tokens"
+  | "cache_creation_input_tokens"
   | "routing_reason"
   | "cost_usd";
 
@@ -309,12 +314,30 @@ export function AccountPoolLogsPanel({
       {query.isPending && <p role="status">{t("accountPool.management.loading")}</p>}
       {query.isError && <p role="alert">{t("accountPool.logs.loadFailed")}</p>}
       {query.data && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-left text-xs">
+            <caption className="px-3 py-2 text-left text-xs text-muted-foreground">
+              {t("accountPool.logs.usageHint")}
+            </caption>
+            <thead className="bg-muted/60 text-muted-foreground">
               <tr>
-                {["time", "card_id", "channel", "stage", "message", "result"].map((field) => (
-                  <th key={field} className="p-2">
+                {[
+                  "time",
+                  "card_id",
+                  "model",
+                  "input_tokens",
+                  "output_tokens",
+                  "cache_read_input_tokens",
+                  "cache_creation_input_tokens",
+                  "duration_ms",
+                  "result",
+                  "message",
+                ].map((field) => (
+                  <th
+                    key={field}
+                    className={`whitespace-nowrap px-3 py-3 font-medium ${field.endsWith("tokens") || field === "duration_ms" ? "text-right" : ""}`}
+                    scope="col"
+                  >
                     {t(`accountPool.logs.${field}`)}
                   </th>
                 ))}
@@ -322,26 +345,56 @@ export function AccountPoolLogsPanel({
             </thead>
             <tbody>
               {query.data.items.map((event) => (
-                <tr key={event.event_id} className="border-t">
-                  <td className="p-2 whitespace-nowrap">{formatDateTime(event.occurred_at, i18n.language)}</td>
-                  <td className="p-2">
-                    {environments.find((item) => item.id === event.card_id)?.name ?? event.card_id}
+                <tr
+                  key={event.event_id}
+                  className={`border-t align-top transition-colors hover:bg-muted/40 ${event.final_status === "failed" ? "bg-destructive/5" : ""}`}
+                >
+                  <td className="whitespace-nowrap px-3 py-3 tabular-nums">
+                    {formatDateTime(event.occurred_at, i18n.language)}
                   </td>
-                  <td className="p-2">
-                    {t(`accountPool.channel.${event.channel}`)} / {t(`accountPool.supplier.${event.supplier}`)}
+                  <td className="min-w-28 max-w-48 px-3 py-3">
+                    <p className="break-words font-medium">
+                      {environments.find((item) => item.id === event.card_id)?.name ?? event.card_id}
+                    </p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {t(`accountPool.supplier.${event.supplier}`)}
+                    </p>
                   </td>
-                  <td className="p-2">{t(`accountPool.logs.stages.${event.stage}`)}</td>
-                  <td className="p-2">
+                  <td className="min-w-36 max-w-56 break-words px-3 py-3 font-mono">
+                    {event.model ?? t("accountPool.dashboard.unknown")}
+                  </td>
+                  {(
+                    ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"] as const
+                  ).map((field) => (
+                    <td key={field} className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">
+                      {event[field] == null ? (
+                        <span className="text-muted-foreground">{t("accountPool.dashboard.unknown")}</span>
+                      ) : (
+                        new Intl.NumberFormat(i18n.language).format(event[field])
+                      )}
+                    </td>
+                  ))}
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    {event.duration_ms == null ? t("accountPool.dashboard.unknown") : `${event.duration_ms} ms`}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3">
+                    <Badge variant={event.final_status === "failed" ? "destructive" : "secondary"}>
+                      {t(`accountPool.logs.results.${event.final_status}`)}
+                    </Badge>
+                    <p className="mt-1 text-muted-foreground">{event.http_status}</p>
+                  </td>
+                  <td className="min-w-48 max-w-80 px-3 py-3">
                     <Button
                       variant="link"
-                      className="h-auto whitespace-normal text-left"
+                      className="h-auto max-w-full justify-start p-0 text-left text-xs"
+                      title={event.message}
                       onClick={() => setEventId(String(event.event_id))}
                     >
-                      {event.message}
+                      <span className="line-clamp-2 whitespace-normal break-words">{event.message}</span>
                     </Button>
-                  </td>
-                  <td className="p-2">
-                    {t(`accountPool.logs.results.${event.final_status}`)} {event.http_status}
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {t(`accountPool.logs.stages.${event.stage}`)}
+                    </p>
                   </td>
                 </tr>
               ))}
@@ -404,6 +457,10 @@ export function AccountPoolLogsPanel({
                     "http_status",
                     "upstream_code",
                     "duration_ms",
+                    "input_tokens",
+                    "output_tokens",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
                     "routing_reason",
                     "cost_usd",
                   ] as const

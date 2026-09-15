@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import type { ErrorStats } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { AccountPoolSortableCards } from "./AccountPoolSortableCards";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import { groupAccountPoolEnvironments, summarizeAccountPoolDashboard } from "./accountPoolDashboardSelectors";
 
@@ -137,9 +138,9 @@ export const AccountPoolDashboard = ({
               </h2>
               <Badge variant="secondary">{group.environments.length}</Badge>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {group.environments.map((environment) => renderCard(environment, statsByCard.get(environment.id)))}
-            </div>
+            <AccountPoolSortableCards supplier={group.supplier} cards={group.environments}>
+              {(environment) => renderCard(environment, statsByCard.get(environment.id))}
+            </AccountPoolSortableCards>
           </section>
         ))
       )}

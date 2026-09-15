@@ -1,7 +1,7 @@
 /** 本文件验证号池日志页面展示可信成本覆盖率和显式路由原因。 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,6 +66,30 @@ describe("AccountPoolLogsPanel", () => {
     listLogs.mockResolvedValue({ items: [log], has_more: false });
     getLog.mockResolvedValue({ event: log, attempts: [log], has_more: false });
     getStats.mockResolvedValue(stats);
+  });
+
+  it("shows per-request model, tokens and cache usage without treating missing usage as zero", async () => {
+    listLogs.mockResolvedValue({
+      items: [
+        { ...log, cache_read_input_tokens: 8, cache_creation_input_tokens: 0 },
+        { ...log, event_id: "unknown", message: "No usage reported", input_tokens: null, output_tokens: null },
+      ],
+      has_more: false,
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+    const row = await screen.findByRole("row", { name: /Request completed/ });
+    expect(within(row).getByText(log.model)).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "10" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "5" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "8" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "0" })).toBeInTheDocument();
+    expect(within(row).getByText("50 ms")).toBeInTheDocument();
+    const unknown = screen.getByRole("row", { name: /No usage reported/ });
+    expect(within(unknown).getAllByRole("cell", { name: "暂无数据" })).toHaveLength(4);
   });
 
   it("shows reported cost coverage and the selected route reason", async () => {
