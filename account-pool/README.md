@@ -57,7 +57,7 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
   - Google Antigravity：浏览器 OAuth，回调端口 51121，路径 `/oauth-callback`
   - Kimi：设备码授权，返回用户码，无 SSH 隧道
   - xAI：设备码授权，返回用户码，无 SSH 隧道
-所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，当前 CLIProxyAPI 镜像没有并发管理端点。额度仍来自上游响应的被动观测：Codex 解析结构化窗口，其他供应商暂只记录观测时间，不伪造百分比或窗口。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
+所有生命周期操作（创建、授权、读取、配置、删除）都按环境记录中持久化的渠道与供应商分派。旧数据缺省为 CLIProxyAPI + OpenAI Codex，无需迁移。环境级并发由 LiteLLM 的 `max_parallel_requests` 承担，当前 CLIProxyAPI 镜像没有并发管理端点。额度刷新会通过 CLIProxyAPI 的受控管理调用读取供应商真实接口：Codex 包含 5 小时、周、Code Review、附加窗口和重置次数，Claude 包含 5 小时、7 天、模型窗口及 Extra Usage，xAI 包含周、月、产品、任务、按量和余额，Antigravity 包含模型、额度桶、积分及套餐。Kimi、Gemini API Key 和 Vertex 没有可用的真实个人订阅额度接口时会明确标记为不支持，不使用固定套餐估算。Docker 项目、网络、别名和数据卷的名称继续只由环境 UUID 派生，升级不重建既有资源
 
 授权结果接收后，账号先进入“验证中”。容器启动或模型读取暂时失败时，后台默认每 5 秒重试，关闭页面或重启 Manager 也会继续。启动等待期限为授权结果接收后的 2 分钟，持续失败时显示超时原因；成功后才进入可用状态并交给 LiteLLM 同步模型。重试验证不会重复领取授权、写入凭据或重启容器
 
@@ -71,6 +71,6 @@ Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.dock
 
 ## 当前边界
 
-CLIProxyAPI 的额度来自最近一次上游响应的被动观测，因此账号完成授权但尚未产生请求时，页面会显示“尚未观测”。额度窗口按响应中的分钟数解析，不假设固定周限或月限。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键
+额度页支持主动刷新，并保留最近一次被动观测作为上游接口失败时的回退。页面只展示供应商实际返回的窗口、金额、重置时间和订阅字段，不假设固定周限或月限；部分端点失败会保留已成功获取的数据并写入结构化日志。并发配置表示整个账号环境的总并发，所有模型 Deployment 使用同一个环境级限流键
 
 NewAPI 使用卡片 Key 接入 LiteLLM 公共模型入口，配置方法和当前协议边界见 [NEWAPI_INTEGRATION.md](NEWAPI_INTEGRATION.md)

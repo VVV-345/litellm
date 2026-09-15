@@ -29,7 +29,7 @@ const environment = (id: string, supplier: AccountPoolEnvironment["supplier"]): 
     proxy_profile_id: null,
     available_models: ["model-a"],
     enabled_models: ["model-a"],
-    quota: { observed_at: null, plan_type: null, windows: [] },
+    quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
     model_quotas: [],
     cooldown_until: null,
     automatic_cooldown: false,

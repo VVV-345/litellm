@@ -23940,6 +23940,17 @@ export interface components {
             /** Protocol */
             protocol?: string | null;
         };
+        /** AccountPoolQuotaBalance */
+        AccountPoolQuotaBalance: {
+            /** Available */
+            available: number;
+            /** Minimum Required */
+            minimum_required?: number | null;
+            /** Name */
+            name: string;
+            /** Unit */
+            unit?: string | null;
+        };
         /** AccountPoolQuotaRefreshResult */
         AccountPoolQuotaRefreshResult: {
             /**
@@ -23954,12 +23965,31 @@ export interface components {
         AccountPoolQuotaSnapshot: {
             /** Auth File Plan Type */
             auth_file_plan_type?: string | null;
+            /**
+             * Balances
+             * @default []
+             */
+            balances: components["schemas"]["AccountPoolQuotaBalance"][];
+            /** Extra Usage Enabled */
+            extra_usage_enabled?: boolean | null;
             /** Observed At */
             observed_at?: string | null;
             /** Plan Type */
             plan_type?: string | null;
+            /** Prepaid Balance */
+            prepaid_balance?: number | null;
+            /** Refresh Error */
+            refresh_error?: string | null;
+            /** Refresh Status */
+            refresh_status?: ("complete" | "partial" | "unsupported") | null;
+            /** Reset Credits Available */
+            reset_credits_available?: number | null;
+            /** Subscription Active Start */
+            subscription_active_start?: string | null;
             /** Subscription Active Until */
             subscription_active_until?: string | null;
+            /** Subscription Status */
+            subscription_status?: string | null;
             /**
              * Windows
              * @default []
@@ -23970,10 +24000,20 @@ export interface components {
         AccountPoolQuotaWindow: {
             /** Name */
             name: string;
+            /** Remaining */
+            remaining?: number | null;
             /** Remaining Percent */
             remaining_percent: number;
             /** Resets At */
             resets_at?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Total */
+            total?: number | null;
+            /** Unit */
+            unit?: string | null;
+            /** Used */
+            used?: number | null;
             /** Used Percent */
             used_percent: number;
             /** Window Minutes */
@@ -28821,6 +28861,8 @@ export interface components {
             trace_id?: string | null;
             /** Upstream Code */
             upstream_code?: string | null;
+            /** Upstream Request Id */
+            upstream_request_id?: string | null;
         };
         /** ErrorResponse */
         ErrorResponse: {

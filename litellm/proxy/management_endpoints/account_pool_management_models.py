@@ -793,6 +793,7 @@ class ErrorLogRecord(BaseModel):
     account_id: UUID
     card_key_id: UUID | None = None
     request_id: UUID = Field(default_factory=uuid4)
+    upstream_request_id: str | None = Field(default=None, max_length=256)
     trace_id: UUID | None = None
     attempt: int = Field(default=1, ge=1)
     operation: str = Field(max_length=160)

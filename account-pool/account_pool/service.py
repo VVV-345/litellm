@@ -65,6 +65,7 @@ from account_pool.ports import (
     ProxyProfileRepository,
 )
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
+from account_pool.quota import ProviderQuotaError
 from account_pool.result import Failure, FailureCode, Result, Success
 from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
@@ -2014,7 +2015,15 @@ class EnvironmentService:
             try:
                 observed: Final = await channel.read_account(current, refresh_quota=refresh_quota)
             except Exception as error:
-                await self._log_event(current, "quota", error)
+                if isinstance(error, ProviderQuotaError) and error.failures:
+                    for failure in error.failures:
+                        await self._log_event(
+                            current,
+                            "quota",
+                            ProviderQuotaError((failure,), "Provider quota refresh failed"),
+                        )
+                else:
+                    await self._log_event(current, "quota", error)
                 if refresh_quota:
                     raise
                 return current
@@ -2031,7 +2040,21 @@ class EnvironmentService:
                     "updated_at": utc_now(),
                 }
             )
-            return await self._repository.save(refreshed)
+            refresh_failures: Final = refreshed.quota.refresh_failures
+            saved: Final = await self._repository.save(refreshed)
+            if refresh_quota and saved.quota.refresh_status == "partial" and saved.quota.refresh_error:
+                if refresh_failures:
+                    for failure in refresh_failures:
+                        await self._log_event(
+                            saved,
+                            "quota",
+                            ProviderQuotaError((failure,), "Provider quota refresh partially failed"),
+                        )
+                else:
+                    await self._log_event(saved, "quota", RuntimeError(saved.quota.refresh_error), retryable=True)
+            elif refresh_quota and saved.quota.refresh_status == "complete":
+                await self._log_event(saved, "quota", None)
+            return saved
 
     async def _reloaded_consumed_state(
         self,

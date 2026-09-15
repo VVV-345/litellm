@@ -5870,7 +5870,49 @@
       "minimumRemaining": "Most constrained window",
       "reset": "Resets {{time}}",
       "refreshed": "Quotas refreshed",
-      "partialFailure": "Some cards failed to refresh ({{count}})"
+      "partialFailure": "Some cards failed to refresh ({{count}})",
+      "plan": "Plan",
+      "subscriptionStatus": "Subscription status",
+      "activeFrom": "Subscription starts",
+      "expiresAt": "Subscription expires",
+      "resetCredits": "Reset credits available",
+      "prepaidBalance": "Prepaid balance",
+      "availableBalance": "{{name}} available balance",
+      "minimumRequired": "Minimum required: {{amount}}",
+      "extraUsageEnabled": "Extra usage",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "usedAmount": "Used / total: {{amount}}",
+      "period": "Period {{start}} to {{end}}",
+      "refreshStatus": {
+        "complete": "Complete refresh",
+        "partial": "Partial refresh",
+        "unsupported": "Provider has no quota API"
+      },
+      "window": {
+        "fiveHour": "5-hour allowance",
+        "weekly": "Weekly allowance",
+        "codeReviewFiveHour": "Code review 5-hour allowance",
+        "codeReviewWeekly": "Code review weekly allowance",
+        "sevenDay": "7-day allowance",
+        "sevenDaySonnet": "Sonnet 7-day allowance",
+        "sevenDayFable": "Fable 7-day allowance",
+        "extraUsage": "Extra usage",
+        "monthly": "Monthly allowance",
+        "onDemand": "On-demand allowance",
+        "frequentTasks": "Frequent task allowance",
+        "occasionalTasks": "Occasional task allowance",
+        "model": "Model allowance",
+        "quotaBucket": "Quota bucket",
+        "featureFiveHour": "{{feature}} 5-hour allowance",
+        "featureWeekly": "{{feature}} weekly allowance",
+        "product": "Product allowance: {{product}}"
+      },
+      "unit": {
+        "cents": "cents",
+        "credits": "credits",
+        "tasks": "tasks"
+      }
     },
     "plugins": {
       "title": "Plugin management and store",
@@ -6266,6 +6308,7 @@
       "environment_id": "Environment ID",
       "card_key_id": "Key ID",
       "request_id": "Request ID",
+      "upstream_request_id": "Upstream request ID",
       "trace_id": "Trace ID",
       "model": "Model",
       "endpoint": "Endpoint",

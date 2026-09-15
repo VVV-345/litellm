@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, TypeAlias
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -118,7 +118,45 @@ class QuotaWindow(BaseModel):
     used_percent: float = Field(ge=0, le=100)
     remaining_percent: float = Field(ge=0, le=100)
     window_minutes: int = Field(gt=0)
+    starts_at: datetime | None = None
     resets_at: datetime | None = None
+    used: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    total: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    remaining: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    unit: str | None = Field(default=None, max_length=32)
+
+
+ProviderHTTPMethod: TypeAlias = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
+
+
+class ProviderEndpointFailure(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    method: ProviderHTTPMethod
+    endpoint: str
+    message: str
+    status_code: int | None = None
+    request_id: str | None = None
+    upstream_code: str | None = None
+
+    @property
+    def retryable(self) -> bool:
+        return self.status_code is None or self.status_code == 429 or self.status_code >= 500
+
+    def summary(self) -> str:
+        status: Final = "transport error" if self.status_code is None else f"HTTP {self.status_code}"
+        request_id: Final = "" if self.request_id is None else f", request_id={self.request_id}"
+        code: Final = "" if self.upstream_code is None else f", code={self.upstream_code}"
+        return f"{self.method} {self.endpoint}: {status}{request_id}{code}, {self.message}"
+
+
+class QuotaBalance(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    available: float = Field(ge=0, allow_inf_nan=False)
+    minimum_required: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    unit: str | None = Field(default=None, max_length=32)
 
 
 class QuotaSnapshot(BaseModel):
@@ -127,8 +165,17 @@ class QuotaSnapshot(BaseModel):
     observed_at: datetime | None = None
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
+    subscription_status: str | None = None
+    subscription_active_start: datetime | None = None
     subscription_active_until: datetime | None = None
+    reset_credits_available: int | None = Field(default=None, ge=0)
+    prepaid_balance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    extra_usage_enabled: bool | None = None
+    refresh_status: Literal["complete", "partial", "unsupported"] | None = None
+    refresh_error: str | None = Field(default=None, max_length=500)
+    refresh_failures: tuple[ProviderEndpointFailure, ...] = Field(default=(), exclude=True, repr=False)
     windows: tuple[QuotaWindow, ...] = ()
+    balances: tuple[QuotaBalance, ...] = ()
 
 
 class ModelQuotaSnapshot(BaseModel):

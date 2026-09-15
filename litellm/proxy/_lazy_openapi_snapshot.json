@@ -17131,6 +17131,586 @@
   "mcp_discoverable": {
     "components": {
       "schemas": {
+        "AccountPoolAuthorization": {
+          "properties": {
+            "authorization_url": {
+              "format": "uri",
+              "maxLength": 2083,
+              "minLength": 1,
+              "title": "Authorization Url",
+              "type": "string"
+            },
+            "environment": {
+              "$ref": "#/components/schemas/AccountPoolEnvironment"
+            },
+            "expires_at": {
+              "title": "Expires At",
+              "type": "string"
+            },
+            "flow": {
+              "enum": [
+                "browser_oauth",
+                "device_code"
+              ],
+              "title": "Flow",
+              "type": "string"
+            },
+            "ssh_command": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ssh Command"
+            },
+            "user_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Code"
+            }
+          },
+          "required": [
+            "environment",
+            "flow",
+            "authorization_url",
+            "ssh_command",
+            "user_code",
+            "expires_at"
+          ],
+          "title": "AccountPoolAuthorization",
+          "type": "object"
+        },
+        "AccountPoolEnvironment": {
+          "properties": {
+            "authorization_flow": {
+              "default": "browser_oauth",
+              "enum": [
+                "browser_oauth",
+                "device_code",
+                "direct_credential"
+              ],
+              "title": "Authorization Flow",
+              "type": "string"
+            },
+            "automatic_cooldown": {
+              "default": false,
+              "title": "Automatic Cooldown",
+              "type": "boolean"
+            },
+            "available_models": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Available Models",
+              "type": "array"
+            },
+            "channel": {
+              "default": "cliproxyapi",
+              "enum": [
+                "openai_compatible",
+                "cliproxyapi"
+              ],
+              "title": "Channel",
+              "type": "string"
+            },
+            "concurrency_limit": {
+              "title": "Concurrency Limit",
+              "type": "integer"
+            },
+            "configuration_pending": {
+              "default": false,
+              "title": "Configuration Pending",
+              "type": "boolean"
+            },
+            "cooldown_until": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cooldown Until"
+            },
+            "created_at": {
+              "title": "Created At",
+              "type": "string"
+            },
+            "desired_configuration_version": {
+              "default": 0,
+              "minimum": 0.0,
+              "title": "Desired Configuration Version",
+              "type": "integer"
+            },
+            "desired_state": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desired State"
+            },
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "enabled_models": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Enabled Models",
+              "type": "array"
+            },
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "last_error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Error"
+            },
+            "manual_cooldown": {
+              "title": "Manual Cooldown",
+              "type": "boolean"
+            },
+            "model_quotas": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/AccountPoolModelQuotaSnapshot"
+              },
+              "title": "Model Quotas",
+              "type": "array"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "observed_configuration_version": {
+              "default": 0,
+              "minimum": 0.0,
+              "title": "Observed Configuration Version",
+              "type": "integer"
+            },
+            "operation_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation Id"
+            },
+            "provider": {
+              "const": "openai",
+              "title": "Provider",
+              "type": "string"
+            },
+            "proxy_mode": {
+              "enum": [
+                "default_gateway",
+                "profile"
+              ],
+              "title": "Proxy Mode",
+              "type": "string"
+            },
+            "proxy_profile_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Proxy Profile Id"
+            },
+            "quota": {
+              "$ref": "#/components/schemas/AccountPoolQuotaSnapshot"
+            },
+            "status": {
+              "enum": [
+                "provisioning",
+                "awaiting_authorization",
+                "validating",
+                "ready",
+                "cooling_down",
+                "disabled",
+                "error",
+                "deleting"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "supplier": {
+              "default": "openai_codex",
+              "enum": [
+                "openai_codex",
+                "openai_compatible",
+                "anthropic_claude",
+                "google_antigravity",
+                "kimi",
+                "xai",
+                "gemini",
+                "gemini_interactions",
+                "vertex"
+              ],
+              "title": "Supplier",
+              "type": "string"
+            },
+            "updated_at": {
+              "title": "Updated At",
+              "type": "string"
+            },
+            "version": {
+              "minimum": 0.0,
+              "title": "Version",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "name",
+            "provider",
+            "status",
+            "enabled",
+            "manual_cooldown",
+            "concurrency_limit",
+            "proxy_mode",
+            "proxy_profile_id",
+            "available_models",
+            "enabled_models",
+            "quota",
+            "cooldown_until",
+            "last_error",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AccountPoolEnvironment",
+          "type": "object"
+        },
+        "AccountPoolModelQuotaSnapshot": {
+          "properties": {
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "quota": {
+              "$ref": "#/components/schemas/AccountPoolQuotaSnapshot"
+            }
+          },
+          "required": [
+            "model",
+            "quota"
+          ],
+          "title": "AccountPoolModelQuotaSnapshot",
+          "type": "object"
+        },
+        "AccountPoolQuotaBalance": {
+          "properties": {
+            "available": {
+              "title": "Available",
+              "type": "number"
+            },
+            "minimum_required": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Minimum Required"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "unit": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unit"
+            }
+          },
+          "required": [
+            "name",
+            "available"
+          ],
+          "title": "AccountPoolQuotaBalance",
+          "type": "object"
+        },
+        "AccountPoolQuotaSnapshot": {
+          "properties": {
+            "auth_file_plan_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth File Plan Type"
+            },
+            "balances": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/AccountPoolQuotaBalance"
+              },
+              "title": "Balances",
+              "type": "array"
+            },
+            "extra_usage_enabled": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Extra Usage Enabled"
+            },
+            "observed_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Observed At"
+            },
+            "plan_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Plan Type"
+            },
+            "prepaid_balance": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prepaid Balance"
+            },
+            "refresh_error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Error"
+            },
+            "refresh_status": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "complete",
+                    "partial",
+                    "unsupported"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Status"
+            },
+            "reset_credits_available": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reset Credits Available"
+            },
+            "subscription_active_start": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subscription Active Start"
+            },
+            "subscription_active_until": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subscription Active Until"
+            },
+            "subscription_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subscription Status"
+            },
+            "windows": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/AccountPoolQuotaWindow"
+              },
+              "title": "Windows",
+              "type": "array"
+            }
+          },
+          "title": "AccountPoolQuotaSnapshot",
+          "type": "object"
+        },
+        "AccountPoolQuotaWindow": {
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "remaining": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Remaining"
+            },
+            "remaining_percent": {
+              "title": "Remaining Percent",
+              "type": "number"
+            },
+            "resets_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resets At"
+            },
+            "starts_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Starts At"
+            },
+            "total": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Total"
+            },
+            "unit": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unit"
+            },
+            "used": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Used"
+            },
+            "used_percent": {
+              "title": "Used Percent",
+              "type": "number"
+            },
+            "window_minutes": {
+              "title": "Window Minutes",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "used_percent",
+            "remaining_percent",
+            "window_minutes"
+          ],
+          "title": "AccountPoolQuotaWindow",
+          "type": "object"
+        },
         "Body_authorize_complete_authorize_complete_post": {
           "properties": {
             "decision": {
@@ -19351,6 +19931,71 @@
             }
           },
           "summary": "Openid Configuration",
+          "tags": [
+            "mcp_discoverable"
+          ]
+        }
+      },
+      "/account_pool/environments/{environment_id}/authorize": {
+        "post": {
+          "operationId": "authorize_environment_account_pool_environments__environment_id__authorize_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "environment_id",
+              "required": true,
+              "schema": {
+                "format": "uuid",
+                "title": "Environment Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "header",
+              "name": "Idempotency-Key",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "maxLength": 160,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Idempotency-Key"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AccountPoolAuthorization"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "APIKeyHeader": []
+            }
+          ],
+          "summary": "Authorize Environment",
           "tags": [
             "mcp_discoverable"
           ]

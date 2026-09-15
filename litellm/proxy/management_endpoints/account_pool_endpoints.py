@@ -31,7 +31,21 @@ class AccountPoolQuotaWindow(BaseModel):
     used_percent: float
     remaining_percent: float
     window_minutes: int
+    starts_at: str | None = None
     resets_at: str | None = None
+    used: float | None = None
+    total: float | None = None
+    remaining: float | None = None
+    unit: str | None = None
+
+
+class AccountPoolQuotaBalance(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    available: float
+    minimum_required: float | None = None
+    unit: str | None = None
 
 
 class AccountPoolProviderFamily(BaseModel):
@@ -98,8 +112,16 @@ class AccountPoolQuotaSnapshot(BaseModel):
     observed_at: str | None = None
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
+    subscription_status: str | None = None
+    subscription_active_start: str | None = None
     subscription_active_until: str | None = None
+    reset_credits_available: int | None = None
+    prepaid_balance: float | None = None
+    extra_usage_enabled: bool | None = None
+    refresh_status: Literal["complete", "partial", "unsupported"] | None = None
+    refresh_error: str | None = None
     windows: tuple[AccountPoolQuotaWindow, ...] = ()
+    balances: tuple[AccountPoolQuotaBalance, ...] = ()
 
 
 class AccountPoolModelQuotaSnapshot(BaseModel):

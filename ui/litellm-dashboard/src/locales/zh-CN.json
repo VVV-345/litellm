@@ -5870,7 +5870,49 @@
       "minimumRemaining": "最紧张窗口",
       "reset": "重置时间 {{time}}",
       "refreshed": "配额已刷新",
-      "partialFailure": "部分卡片刷新失败（{{count}} 张）"
+      "partialFailure": "部分卡片刷新失败（{{count}} 张）",
+      "plan": "套餐",
+      "subscriptionStatus": "订阅状态",
+      "activeFrom": "订阅开始",
+      "expiresAt": "订阅到期",
+      "resetCredits": "可用重置次数",
+      "prepaidBalance": "预付余额",
+      "availableBalance": "{{name}} 可用余额",
+      "minimumRequired": "最低使用门槛：{{amount}}",
+      "extraUsageEnabled": "额外用量",
+      "enabled": "已启用",
+      "disabled": "未启用",
+      "usedAmount": "已用 / 总量：{{amount}}",
+      "period": "周期 {{start}} 至 {{end}}",
+      "refreshStatus": {
+        "complete": "完整刷新",
+        "partial": "部分刷新",
+        "unsupported": "供应商未提供接口"
+      },
+      "window": {
+        "fiveHour": "5 小时额度",
+        "weekly": "周额度",
+        "codeReviewFiveHour": "代码审查 5 小时额度",
+        "codeReviewWeekly": "代码审查周额度",
+        "sevenDay": "7 天额度",
+        "sevenDaySonnet": "Sonnet 7 天额度",
+        "sevenDayFable": "Fable 7 天额度",
+        "extraUsage": "额外用量",
+        "monthly": "月额度",
+        "onDemand": "按量额度",
+        "frequentTasks": "高频任务额度",
+        "occasionalTasks": "低频任务额度",
+        "model": "模型额度",
+        "quotaBucket": "额度桶",
+        "featureFiveHour": "{{feature}} 5 小时额度",
+        "featureWeekly": "{{feature}} 周额度",
+        "product": "产品额度：{{product}}"
+      },
+      "unit": {
+        "cents": "美分",
+        "credits": "点数",
+        "tasks": "次"
+      }
     },
     "plugins": {
       "title": "插件管理与商城",
@@ -6266,6 +6308,7 @@
       "environment_id": "环境 ID",
       "card_key_id": "Key ID",
       "request_id": "请求 ID",
+      "upstream_request_id": "上游请求 ID",
       "trace_id": "Trace ID",
       "model": "模型",
       "endpoint": "接口",

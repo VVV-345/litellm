@@ -14,6 +14,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
 from account_pool.error_safety import safe_error
 from account_pool.gateway_contracts import RoutingReason
+from account_pool.quota import ProviderQuotaError
 
 LogStage = Literal[
     "provisioning",
@@ -60,6 +61,7 @@ class ErrorLogRecord(BaseModel):
     account_id: UUID
     card_key_id: UUID | None = None
     request_id: UUID = Field(default_factory=uuid4)
+    upstream_request_id: str | None = Field(default=None, max_length=256)
     trace_id: UUID | None = None
     attempt: int = Field(default=1, ge=1)
     operation: str = Field(max_length=160)
@@ -84,7 +86,15 @@ class ErrorLogRecord(BaseModel):
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
-    @field_validator("message", "detail", "model", "endpoint", "upstream_code", "operation")
+    @field_validator(
+        "message",
+        "detail",
+        "model",
+        "endpoint",
+        "upstream_request_id",
+        "upstream_code",
+        "operation",
+    )
     @classmethod
     def redact_text(cls, value: str | None) -> str | None:
         return None if value is None else safe_error(RuntimeError(value))
@@ -179,7 +189,15 @@ class ErrorLogService:
         started_at: datetime | None = None,
     ) -> None:
         now: Final = utc_now()
-        status: Final = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+        provider_error: Final = error if isinstance(error, ProviderQuotaError) else None
+        effective_retryable: Final = retryable or (provider_error is not None and provider_error.retryable)
+        status: Final = (
+            error.response.status_code
+            if isinstance(error, httpx.HTTPStatusError)
+            else None
+            if provider_error is None
+            else provider_error.status_code
+        )
         category: Final[ErrorCategory | None] = (
             None
             if error is None
@@ -212,15 +230,19 @@ class ErrorLogService:
             environment_id=record.id,
             account_id=record.id,
             request_id=request_id,
+            upstream_request_id=None if provider_error is None else provider_error.request_id,
             operation=stage,
             stage=stage,
+            endpoint=None if provider_error is None else provider_error.endpoint,
+            method=None if provider_error is None else provider_error.method,
             http_status=status,
+            upstream_code=None if provider_error is None else provider_error.upstream_code,
             error_category=category,
             severity="info" if error is None else "error",
-            retryable=retryable,
+            retryable=effective_retryable,
             message="Operation completed" if error is None else safe_error(error),
             duration_ms=None if started_at is None else max(0, int((now - started_at).total_seconds() * 1000)),
-            final_status="succeeded" if error is None else "retrying" if retryable else "failed",
+            final_status="succeeded" if error is None else "retrying" if effective_retryable else "failed",
         )
         try:
             await self.repository.append(event)

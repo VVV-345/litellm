@@ -5,6 +5,11 @@ from typing import Final
 from uuid import uuid4
 
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, Provider, ProxyMode, QuotaSnapshot, utc_now
+from account_pool.provider_quota import (
+    parse_claude_usage_quota,
+    parse_codex_account_info,
+    parse_codex_usage_quota,
+)
 from account_pool.quota import (
     QuotaObservation,
     effective_cooldown_until,
@@ -133,11 +138,377 @@ def test_parse_xai_billing_quota_keeps_weekly_and_monthly_windows() -> None:
     )
 
     assert refreshed is not None
-    assert refreshed.quota.plan_type == "supergrok"
+    assert refreshed.quota.plan_type == "SuperGrok"
     assert tuple(window.name for window in refreshed.quota.windows) == ("Weekly", "Monthly")
     assert tuple(window.remaining_percent for window in refreshed.quota.windows) == (75, 60)
     assert refreshed.quota.windows[0].window_minutes == 10080
     assert refreshed.quota.windows[1].resets_at == datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def test_parse_codex_usage_keeps_session_weekly_review_and_reset_credits() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    refreshed: Final = parse_codex_usage_quota(
+        """
+        {
+          "plan_type": "pro",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "limit_window_seconds": 18000,
+              "reset_after_seconds": 3600
+            },
+            "secondary_window": {
+              "used_percent": 35,
+              "limit_window_seconds": 604800,
+              "reset_at": 1790000000
+            }
+          },
+          "code_review_rate_limit": {
+            "primary_window": {
+              "used_percent": 50,
+              "limit_window_seconds": 18000,
+              "reset_after_seconds": 1800
+            }
+          },
+          "rate_limit_reset_credits": {"available_count": 2}
+        }
+        """,
+        observed_at,
+        subscription_body="""
+        {
+          "subscription_plan": "pro",
+          "active_start": "2026-09-01T00:00:00Z",
+          "active_until": "2026-10-01T00:00:00Z",
+          "status": "active"
+        }
+        """,
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.reset_credits_available == 2
+    assert refreshed.quota.subscription_status == "active"
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "5 hour",
+        "Weekly",
+        "Code review 5 hour",
+    )
+    assert refreshed.quota.windows[0].window_minutes == 300
+    assert refreshed.quota.windows[0].remaining_percent == 80
+
+
+def test_parse_codex_account_info_skips_unusable_accounts_and_matches_workspace() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    selected: Final = parse_codex_account_info(
+        """
+        {
+          "accounts": {
+            "org-expired": {
+              "account": {"account_id": "expired", "plan_type": "team", "is_default": true},
+              "entitlement": {"expires_at": "2026-09-01T00:00:00Z"}
+            },
+            "org-disabled": {
+              "account": {"account_id": "disabled", "plan_type": "pro", "is_deactivated": true}
+            },
+            "org-team": {
+              "account": {"account_id": "account-team", "plan_type": "team"},
+              "entitlement": {
+                "subscription_plan": "team",
+                "status": "active",
+                "active_start": "2026-08-01T00:00:00Z",
+                "expires_at": "2027-08-01T00:00:00Z"
+              }
+            }
+          }
+        }
+        """,
+        "org-team",
+        observed_at,
+    )
+
+    assert selected is not None
+    assert selected.account_id == "account-team"
+    assert selected.plan_type == "team"
+    assert selected.subscription_status == "active"
+    assert selected.subscription_active_until == datetime(2027, 8, 1, tzinfo=timezone.utc)
+
+
+def test_parse_codex_usage_reads_additional_limits_and_authoritative_reset_credit_details() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    refreshed: Final = parse_codex_usage_quota(
+        """
+        {
+          "plan_type": "pro",
+          "rate_limit": {
+            "primary_window": {"used_percent": 20, "limit_window_seconds": 18000}
+          },
+          "additional_rate_limits": [
+            {
+              "metered_feature": "codex_bengalfox",
+              "rate_limit": {
+                "primary_window": {"used_percent": 30, "limit_window_seconds": 18000},
+                "secondary_window": {"used_percent": 40, "limit_window_seconds": 604800}
+              }
+            }
+          ],
+          "rate_limit_reset_credits": {"available_count": 7}
+        }
+        """,
+        observed_at,
+        subscription_body="""
+        {
+          "subscriptionPlan": "pro",
+          "currentPeriodStart": "2026-09-01T00:00:00Z",
+          "currentPeriodEnd": "2026-10-01T00:00:00Z",
+          "subscriptionStatus": "active"
+        }
+        """,
+        reset_credits_body="""
+        {
+          "credits": [
+            {"type": "rate_limit_reset", "status": "available", "expiresAt": "2090-01-01T00:00:00Z"},
+            {"resetType": "codex_rate_limits", "status": "granted", "expiresAt": "2090-01-01T00:00:00Z"},
+            {"reset_type": "codex_rate_limits", "status": "redeemed", "expires_at": "2090-01-01T00:00:00Z"},
+            {"status": "used", "expires_at": "2090-01-01T00:00:00Z"},
+            {"status": "consumed", "expires_at": "2090-01-01T00:00:00Z"},
+            {"status": "expired", "expires_at": "2090-01-01T00:00:00Z"},
+            {"reset_type": "other", "expires_at": "2090-01-01T00:00:00Z"},
+            {"status": "available", "expires_at": "2020-01-01T00:00:00Z"}
+          ]
+        }
+        """,
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.reset_credits_available == 3
+    assert refreshed.quota.subscription_active_start == datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assert refreshed.quota.subscription_active_until == datetime(2026, 10, 1, tzinfo=timezone.utc)
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "5 hour",
+        "Codex Spark 5 hour",
+        "Codex Spark Weekly",
+    )
+
+
+def test_parse_codex_usage_accepts_websocket_additional_limit_object() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    refreshed: Final = parse_codex_usage_quota(
+        """
+        {
+          "plan_type": "pro",
+          "rate_limit": {
+            "primary_window": {"used_percent": 20, "limit_window_seconds": 18000}
+          },
+          "additional_rate_limits": {
+            "GPT-5.3-Codex-Spark": {
+              "primary": {"used_percent": 3, "window_minutes": 300, "reset_at": 1787231961},
+              "secondary": {"used_percent": 63, "window_minutes": 10080, "reset_at": 1787290791}
+            }
+          }
+        }
+        """,
+        observed_at,
+    )
+
+    assert refreshed is not None
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "5 hour",
+        "Gpt 5.3 Codex Spark 5 hour",
+        "Gpt 5.3 Codex Spark Weekly",
+    )
+    assert refreshed.quota.windows[1].remaining_percent == 97
+    assert refreshed.quota.windows[1].window_minutes == 300
+    assert refreshed.quota.windows[2].remaining_percent == 37
+    assert refreshed.quota.windows[2].window_minutes == 10080
+
+
+def test_parse_claude_usage_keeps_all_windows_and_profile_plan() -> None:
+    refreshed: Final = parse_claude_usage_quota(
+        """
+        {
+          "five_hour": {"utilization": 12, "resets_at": "2026-09-14T05:00:00Z"},
+          "seven_day": {"utilization": 34, "resets_at": "2026-09-21T00:00:00Z"},
+          "seven_day_sonnet_4": {"utilization": 56, "resets_at": "2026-09-21T01:00:00Z"},
+          "extra_usage": {
+            "is_enabled": true,
+            "utilization": 25,
+            "used_credits": 500,
+            "monthly_limit": 2000,
+            "resets_at": "2026-10-01T00:00:00Z"
+          }
+        }
+        """,
+        """
+        {
+          "account": {"has_claude_max": true},
+          "organization": {
+            "organization_type": "claude_max",
+            "rate_limit_tier": "default_claude_max_20x",
+            "subscription_created_at": "2026-01-01T00:00:00Z",
+            "has_extra_usage_enabled": true
+          }
+        }
+        """,
+        datetime(2026, 9, 14, tzinfo=timezone.utc),
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.plan_type == "Max"
+    assert refreshed.quota.extra_usage_enabled is True
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "5 hour",
+        "7 day",
+        "7 day Sonnet",
+        "Extra usage",
+    )
+    assert refreshed.quota.windows[-1].used == 500
+    assert refreshed.quota.windows[-1].total == 2000
+
+
+def test_parse_claude_usage_reads_dynamic_limits_fable_and_zero_extra_usage() -> None:
+    refreshed: Final = parse_claude_usage_quota(
+        """
+        {
+          "limits": [
+            {"kind": "session", "percent": 0.2, "resets_at": "2026-09-14T05:00:00Z"},
+            {
+              "group": "weekly",
+              "percent": 35,
+              "resets_at": "2026-09-21T00:00:00Z",
+              "scope": {"model": {"display_name": "Sonnet"}}
+            },
+            {
+              "group": "weekly",
+              "percent": 45,
+              "resets_at": "2026-09-21T01:00:00Z",
+              "scope": {"surface": {"display_name": "Fable"}}
+            }
+          ],
+          "extra_usage": {
+            "is_enabled": true,
+            "utilization": 0,
+            "used_credits": 0,
+            "used_cents": 500,
+            "limit_cents": 2000,
+            "resets_at": "2026-10-01T00:00:00Z"
+          }
+        }
+        """,
+        None,
+        datetime(2026, 9, 14, tzinfo=timezone.utc),
+    )
+
+    assert refreshed is not None
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "5 hour",
+        "7 day Sonnet",
+        "7 day Fable",
+        "Extra usage",
+    )
+    assert refreshed.quota.windows[0].used_percent == 20
+    assert refreshed.quota.windows[-1].used == 0
+    assert refreshed.quota.windows[-1].total == 2000
+    assert refreshed.quota.windows[-1].used_percent == 0
+
+
+def test_parse_xai_billing_keeps_credit_bags_products_tasks_and_subscription() -> None:
+    refreshed: Final = parse_xai_billing_quota(
+        """
+        {
+          "config": {
+            "currentPeriod": {
+              "start": "2026-09-10T00:00:00Z",
+              "end": "2026-09-17T00:00:00Z"
+            },
+            "weeklyCredits": {"used": 120, "total": 1000},
+            "productUsage": [
+              {"product": "coding", "used": 40, "total": 200},
+              {"product": "image", "usagePercent": 30}
+            ],
+            "onDemandUsed": 50,
+            "onDemandCap": 500,
+            "prepaidBalance": 700
+          }
+        }
+        """,
+        """
+        {
+          "config": {
+            "monthlyLimit": {"val": 150000},
+            "used": {"val": 30000},
+            "billingPeriodStart": "2026-09-01T00:00:00Z",
+            "billingPeriodEnd": "2026-10-01T00:00:00Z"
+          }
+        }
+        """,
+        datetime(2026, 9, 14, tzinfo=timezone.utc),
+        user_body="""
+        {
+          "user": {
+            "id": "user-1",
+            "subscription": {
+              "tier": "SuperGrok Heavy",
+              "status": "SUBSCRIPTION_STATUS_ACTIVE",
+              "currentPeriodStart": "2026-09-01T00:00:00Z",
+              "currentPeriodEnd": "2026-10-01T00:00:00Z"
+            }
+          }
+        }
+        """,
+        task_usage_body="""
+        {
+          "usage": {
+            "frequentUsage": 2,
+            "frequentLimit": 20,
+            "occasionalUsage": 3,
+            "occasionalLimit": 10
+          }
+        }
+        """,
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.plan_type == "SuperGrok Heavy"
+    assert refreshed.quota.subscription_status == "SUBSCRIPTION_STATUS_ACTIVE"
+    assert refreshed.quota.prepaid_balance == 700
+    assert tuple(window.name for window in refreshed.quota.windows) == (
+        "Weekly",
+        "Monthly",
+        "Product: coding",
+        "Product: image",
+        "On-demand",
+        "Tasks: Frequent",
+        "Tasks: Occasional",
+    )
+    assert refreshed.quota.windows[0].used == 120
+    assert refreshed.quota.windows[0].total == 1000
+    assert refreshed.quota.windows[-1].remaining == 7
+
+
+def test_parse_xai_billing_uses_monthly_fields_from_weekly_response_when_monthly_probe_fails() -> None:
+    refreshed: Final = parse_xai_billing_quota(
+        """
+        {
+          "config": {
+            "currentPeriod": {
+              "type": "WEEKLY",
+              "start": "2026-09-10T00:00:00Z",
+              "end": "2026-09-17T00:00:00Z"
+            },
+            "creditUsagePercent": 20,
+            "monthlyLimit": {"val": 15000},
+            "used": {"val": 3000},
+            "billingPeriodStart": "2026-09-01T00:00:00Z",
+            "billingPeriodEnd": "2026-10-01T00:00:00Z"
+          }
+        }
+        """,
+        None,
+        datetime(2026, 9, 14, tzinfo=timezone.utc),
+    )
+
+    assert refreshed is not None
+    assert tuple(window.name for window in refreshed.quota.windows) == ("Weekly", "Monthly")
+    assert refreshed.quota.windows[1].remaining_percent == 80
 
 
 def test_parse_antigravity_quota_keeps_real_model_percentages_and_reset_times() -> None:
@@ -180,3 +551,89 @@ def test_parse_antigravity_quota_keeps_real_model_percentages_and_reset_times() 
     assert window.remaining_percent == 37.5
     assert window.window_minutes == 300
     assert window.resets_at == datetime(2026, 9, 14, 5, 0, tzinfo=timezone.utc)
+
+
+def test_parse_antigravity_quota_prefers_summary_buckets_and_keeps_paid_credits() -> None:
+    observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    assist: Final = parse_antigravity_assist(
+        """
+        {
+          "cloudaicompanionProject": "project-a",
+          "paidTier": {
+            "id": "pro-tier",
+            "availableCredits": [
+              {
+                "creditType": "GOOGLE_ONE_AI",
+                "creditAmount": "25000",
+                "minimumCreditAmountForUsage": "50"
+              }
+            ]
+          }
+        }
+        """
+    )
+    refreshed: Final = parse_antigravity_quota(
+        """
+        {
+          "models": {
+            "gemini-2.5-pro": {
+              "quotaInfo": {"remainingFraction": 0.1, "resetTime": "2026-09-14T05:00:00Z"}
+            }
+          }
+        }
+        """,
+        assist,
+        observed_at,
+        summary_body="""
+        {
+          "groups": [
+            {
+              "displayName": "5 hour",
+              "buckets": [
+                {
+                  "bucketId": "gemini-2.5-pro",
+                  "displayName": "Gemini 2.5 Pro",
+                  "remainingFraction": 0.7,
+                  "resetTime": "2026-09-14T05:00:00Z"
+                }
+              ]
+            },
+            {
+              "displayName": "Weekly",
+              "buckets": [
+                {
+                  "bucketId": "gemini-2.5-pro",
+                  "displayName": "Gemini 2.5 Pro",
+                  "remainingFraction": 0.4,
+                  "resetTime": "2026-09-21T00:00:00Z"
+                }
+              ]
+            }
+          ]
+        }
+        """,
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.balances[0].name == "GOOGLE_ONE_AI"
+    assert refreshed.quota.balances[0].available == 25000
+    assert refreshed.quota.balances[0].minimum_required == 50
+    assert len(refreshed.model_quotas) == 1
+    assert tuple(window.name for window in refreshed.model_quotas[0].quota.windows) == ("5 hour", "Weekly")
+    assert tuple(window.remaining_percent for window in refreshed.model_quotas[0].quota.windows) == (70, 40)
+
+
+def test_parse_antigravity_assist_detects_gcp_tos_from_tiers() -> None:
+    current: Final = parse_antigravity_assist(
+        '{"cloudaicompanionProject":"project-a","currentTier":{"id":"standard-tier","usesGcpTos":true}}'
+    )
+    default: Final = parse_antigravity_assist(
+        '{"allowedTiers":[{"id":"standard-tier","isDefault":true,"usesGcpTos":true}]}'
+    )
+    mixed: Final = parse_antigravity_assist(
+        '{"paidTier":{"id":"pro-tier"},"currentTier":{"id":"standard-tier","usesGcpTos":true}}'
+    )
+
+    assert current is not None and current.uses_gcp_tos is True
+    assert default is not None and default.uses_gcp_tos is True
+    assert mixed is not None and mixed.uses_gcp_tos is True

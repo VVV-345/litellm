@@ -21,6 +21,7 @@ from account_pool.domain import (
     Provider,
     ProxyMode,
     QuotaSnapshot,
+    QuotaWindow,
     SupplierKind,
     utc_now,
 )
@@ -131,6 +132,42 @@ async def test_read_account_selects_matching_type_and_model_file() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_account_preserves_last_active_quota_when_passive_metadata_is_empty() -> None:
+    previous_quota: Final = QuotaSnapshot(
+        observed_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
+        refresh_status="complete",
+        windows=(
+            QuotaWindow(
+                name="Weekly",
+                used_percent=25,
+                remaining_percent=75,
+                window_minutes=10080,
+            ),
+        ),
+    )
+    record: Final = _record().model_copy(
+        update={"supplier": SupplierKind.XAI, "quota": previous_quota, "auth_file_name": "xai.json"}
+    )
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.XAI)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={"files": [{"name": "xai.json", "provider": "xai", "auth_index": "xai-index"}]},
+                request=request,
+            )
+        return httpx.Response(200, json={"models": [{"id": "grok-code-fast-1"}]}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier)
+    await client.aclose()
+
+    assert observed.quota == previous_quota
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("name", "auth_file_plan_type", "expected_auth_file_plan_type"),
     (
@@ -171,6 +208,212 @@ async def test_read_codex_account_exposes_subscription_and_auth_file_plan(
 
 
 @pytest.mark.asyncio
+async def test_codex_quota_refresh_reads_wham_windows_and_reset_credits() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.OPENAI_CODEX})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "codex.json",
+                            "provider": "codex",
+                            "auth_index": "codex-index",
+                            "id_token": {
+                                "chatgpt_account_id": "account-1",
+                                "plan_type": "pro",
+                                "chatgpt_subscription_active_start": "2026-09-01T00:00:00Z",
+                                "chatgpt_subscription_active_until": "2026-10-01T00:00:00Z",
+                            },
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        url: Final = str(payload["url"])
+        body: Final = (
+            {
+                "accounts": {
+                    "workspace-1": {
+                        "account": {"account_id": "account-1", "plan_type": "pro", "is_default": True},
+                        "entitlement": {
+                            "subscription_plan": "pro",
+                            "active_start": "2026-09-01T00:00:00Z",
+                            "expires_at": "2090-10-01T00:00:00Z",
+                        },
+                    }
+                }
+            }
+            if "/accounts/check/" in url
+            else {"available_count": 4}
+            if url.endswith("/rate-limit-reset-credits")
+            else {
+                "plan_type": "pro",
+                "rate_limit": {
+                    "primary_window": {"used_percent": 10, "limit_window_seconds": 18000},
+                    "secondary_window": {"used_percent": 20, "limit_window_seconds": 604800},
+                },
+                "code_review_rate_limit": {"primary_window": {"used_percent": 30, "limit_window_seconds": 18000}},
+                "rate_limit_reset_credits": {"available_count": 3},
+            }
+        )
+        return httpx.Response(
+            200,
+            json={
+                "status_code": 200,
+                "header": {"request-id": ["req-1"]},
+                "body": json.dumps(body),
+            },
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert tuple(window.name for window in observed.quota.windows) == ("5 hour", "Weekly", "Code review 5 hour")
+    assert observed.quota.reset_credits_available == 4
+    assert observed.quota.subscription_active_start is not None
+    assert observed.quota.subscription_active_until is not None
+    assert observed.quota.refresh_status == "complete"
+    assert str(api_calls[0]["url"]).startswith(
+        "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min="
+    )
+    assert tuple(call["url"] for call in api_calls[1:]) == (
+        "https://chatgpt.com/backend-api/wham/usage",
+        "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+    )
+    assert api_calls[1]["header"]["ChatGPT-Account-Id"] == "account-1"
+    assert api_calls[1]["header"]["User-Agent"].endswith("Chrome/147.0.0.0 Safari/537.36")
+    assert "OpenAI-Beta" not in api_calls[0]["header"]
+    assert "Content-Type" not in api_calls[0]["header"]
+
+
+@pytest.mark.asyncio
+async def test_codex_quota_refresh_falls_back_to_subscriptions_when_account_expiry_is_missing() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.OPENAI_CODEX})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "codex.json",
+                            "provider": "codex",
+                            "auth_index": "codex-index",
+                            "id_token": {"chatgpt_account_id": "account-1", "plan_type": "pro"},
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        url: Final = str(payload["url"])
+        body: Final = (
+            {
+                "accounts": {
+                    "workspace-1": {"account": {"account_id": "account-1", "plan_type": "pro", "is_default": True}}
+                }
+            }
+            if "/accounts/check/" in url
+            else {
+                "subscriptionPlan": "pro",
+                "currentPeriodStart": "2026-09-01T00:00:00Z",
+                "currentPeriodEnd": "2090-10-01T00:00:00Z",
+                "subscriptionStatus": "active",
+            }
+            if "/subscriptions?" in url
+            else {"available_count": 2}
+            if url.endswith("/rate-limit-reset-credits")
+            else {"rate_limit": {"primary_window": {"used_percent": 10, "limit_window_seconds": 18000}}}
+        )
+        return httpx.Response(
+            200,
+            json={"status_code": 200, "header": {}, "body": json.dumps(body)},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert observed.quota.subscription_status == "active"
+    assert observed.quota.subscription_active_until == datetime(2090, 10, 1, tzinfo=timezone.utc)
+    assert observed.quota.reset_credits_available == 2
+    assert any("/backend-api/subscriptions?account_id=account-1" in str(call["url"]) for call in api_calls)
+    subscription_call: Final = next(call for call in api_calls if "/backend-api/subscriptions?" in str(call["url"]))
+    assert subscription_call["header"]["ChatGPT-Account-Id"] == "account-1"
+    assert subscription_call["header"]["x-openai-target-path"] == "/backend-api/subscriptions"
+    assert "OpenAI-Beta" not in subscription_call["header"]
+    assert "Content-Type" not in subscription_call["header"]
+
+
+@pytest.mark.asyncio
+async def test_claude_quota_refresh_keeps_usage_when_profile_is_rejected() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.ANTHROPIC_CLAUDE})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.ANTHROPIC_CLAUDE)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={"files": [{"name": "claude.json", "provider": "claude", "auth_index": "claude-index"}]},
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "claude-sonnet-4"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        if str(payload["url"]).endswith("/profile"):
+            return httpx.Response(
+                200,
+                json={"status_code": 403, "header": {"request-id": ["req-profile"]}, "body": "{}"},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "status_code": 200,
+                "header": {},
+                "body": json.dumps(
+                    {
+                        "five_hour": {"utilization": 25, "resets_at": "2090-01-01T05:00:00Z"},
+                        "seven_day": {"utilization": 40, "resets_at": "2090-01-08T00:00:00Z"},
+                    }
+                ),
+            },
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert tuple(window.name for window in observed.quota.windows) == ("5 hour", "7 day")
+    assert observed.quota.refresh_status == "partial"
+    assert observed.quota.refresh_error is not None
+    assert "HTTP 403" in observed.quota.refresh_error
+    assert "req-profile" in observed.quota.refresh_error
+
+
+@pytest.mark.asyncio
 async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> None:
     record: Final = _record().model_copy(update={"supplier": SupplierKind.XAI})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.XAI)
@@ -187,6 +430,7 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
             return httpx.Response(200, json={"models": [{"id": "grok-code-fast-1"}]}, request=request)
         payload: Final = json.loads(request.content)
         api_calls.append(payload)
+        url: Final = str(payload["url"])
         body: Final = (
             {
                 "config": {
@@ -198,7 +442,7 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
                     "creditUsagePercent": 20,
                 }
             }
-            if "format=credits" in str(payload["url"])
+            if "format=credits" in url
             else {
                 "config": {
                     "monthlyLimit": {"val": 150000},
@@ -207,6 +451,17 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
                     "billingPeriodEnd": "2026-10-01T00:00:00Z",
                 }
             }
+            if url.endswith("/v1/billing")
+            else {
+                "user": {
+                    "id": "user-1",
+                    "subscription": {"tier": "SuperGrok Heavy", "status": "SUBSCRIPTION_STATUS_ACTIVE"},
+                }
+            }
+            if "include=subscription" in url
+            else {"subscriptions": [{"tier": "SuperGrok Heavy", "status": "SUBSCRIPTION_STATUS_ACTIVE"}]}
+            if url.endswith("/rest/subscriptions")
+            else {"usage": {"frequentUsage": 1, "frequentLimit": 10}}
         )
         return httpx.Response(
             200,
@@ -219,16 +474,21 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
     observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
     await client.aclose()
 
-    assert observed.quota.plan_type == "supergrok-heavy"
-    assert tuple(window.remaining_percent for window in observed.quota.windows) == (80, 80)
-    assert tuple(call["auth_index"] for call in api_calls) == ("xai-index", "xai-index")
+    assert observed.quota.plan_type == "SuperGrok Heavy"
+    assert tuple(window.remaining_percent for window in observed.quota.windows[:2]) == (80, 80)
+    assert observed.quota.subscription_status == "SUBSCRIPTION_STATUS_ACTIVE"
+    assert observed.quota.refresh_status == "complete"
+    assert tuple(call["auth_index"] for call in api_calls) == ("xai-index",) * 5
     assert tuple(call["url"] for call in api_calls) == (
         "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
         "https://cli-chat-proxy.grok.com/v1/billing",
+        "https://cli-chat-proxy.grok.com/v1/user?include=subscription",
+        "https://grok.com/rest/tasks/usage",
+        "https://grok.com/rest/subscriptions",
     )
     assert all(call["header"]["Authorization"] == "Bearer $TOKEN$" for call in api_calls)
     assert all(call["header"]["x-grok-client-version"] == "0.2.120" for call in api_calls)
-    assert all(call["header"]["x-authenticateresponse"] == "authenticate-response" for call in api_calls)
+    assert api_calls[-1]["header"]["x-userid"] == "user-1"
 
 
 @pytest.mark.asyncio
@@ -264,12 +524,38 @@ async def test_antigravity_quota_refresh_reads_tier_and_per_model_windows() -> N
             return httpx.Response(200, json={"models": [{"id": "gemini-2.5-pro"}]}, request=request)
         payload: Final = json.loads(request.content)
         api_calls.append(payload)
+        url: Final = str(payload["url"])
         body: Final = (
             {
                 "cloudaicompanionProject": "project-a",
-                "paidTier": {"id": "pro-tier"},
+                "paidTier": {
+                    "id": "pro-tier",
+                    "availableCredits": [
+                        {
+                            "creditType": "GOOGLE_ONE_AI",
+                            "creditAmount": "25000",
+                            "minimumCreditAmountForUsage": "50",
+                        }
+                    ],
+                },
             }
-            if str(payload["url"]).endswith("loadCodeAssist")
+            if url.endswith("loadCodeAssist")
+            else {
+                "groups": [
+                    {
+                        "displayName": "5 hour",
+                        "buckets": [
+                            {
+                                "bucketId": "gemini-2.5-pro",
+                                "displayName": "Gemini 2.5 Pro",
+                                "remainingFraction": 0.52,
+                                "resetTime": "2090-01-02T03:04:05Z",
+                            }
+                        ],
+                    }
+                ]
+            }
+            if url.endswith("retrieveUserQuotaSummary")
             else {
                 "models": {
                     "gemini-2.5-pro": {
@@ -293,16 +579,102 @@ async def test_antigravity_quota_refresh_reads_tier_and_per_model_windows() -> N
     await client.aclose()
 
     assert observed.quota.plan_type == "pro-tier"
-    assert observed.quota.observed_at == datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assert observed.quota.observed_at is not None
+    assert observed.quota.observed_at > datetime(2026, 9, 1, tzinfo=timezone.utc)
     assert observed.quota.windows[0].remaining_percent == 90
     assert observed.model_quotas[0].model == "gemini-2.5-pro"
-    assert observed.model_quotas[0].quota.windows[0].remaining_percent == 42
-    assert tuple(call["auth_index"] for call in api_calls) == ("antigravity-index", "antigravity-index")
+    assert observed.model_quotas[0].quota.windows[0].remaining_percent == 52
+    assert observed.quota.balances[0].available == 25000
+    assert observed.quota.refresh_status == "complete"
+    assert tuple(call["auth_index"] for call in api_calls) == (
+        "antigravity-index",
+        "antigravity-index",
+        "antigravity-index",
+    )
     load_payload: Final = json.loads(str(api_calls[0]["data"]))
     models_payload: Final = json.loads(str(api_calls[1]["data"]))
-    assert load_payload == {"metadata": {"ideType": "ANTIGRAVITY"}}
+    summary_payload: Final = json.loads(str(api_calls[2]["data"]))
+    assert load_payload["mode"] == "FULL_ELIGIBILITY_CHECK"
+    assert load_payload["metadata"]["ideType"] == "ANTIGRAVITY"
+    assert load_payload["cloudaicompanionProject"] == "project-a"
     assert models_payload == {"project": "project-a"}
+    assert summary_payload == {"project": "project-a"}
+    assert tuple(call["url"] for call in api_calls) == (
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    )
     assert all(call["header"]["Authorization"] == "Bearer $TOKEN$" for call in api_calls)
+    assert api_calls[0]["header"]["User-Agent"] == ("antigravity/1.20.5 windows/amd64 google-api-nodejs-client/10.3.0")
+    assert api_calls[0]["header"]["Accept-Encoding"] == "gzip, deflate, br"
+    assert api_calls[0]["header"]["x-goog-api-client"] == "gl-node/22.21.1"
+
+
+@pytest.mark.asyncio
+async def test_antigravity_quota_refresh_falls_back_to_prod_and_keeps_gcp_tos_endpoint() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.GOOGLE_ANTIGRAVITY})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.GOOGLE_ANTIGRAVITY)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "antigravity.json",
+                            "provider": "antigravity",
+                            "auth_index": "antigravity-index",
+                            "project_id": "project-a",
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gemini-2.5-pro"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        url: Final = str(payload["url"])
+        if url == "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":
+            return httpx.Response(
+                200,
+                json={"status_code": 403, "header": {"x-request-id": ["daily-denied"]}, "body": "{}"},
+                request=request,
+            )
+        body: Final = (
+            {
+                "cloudaicompanionProject": "project-a",
+                "currentTier": {"id": "standard-tier", "usesGcpTos": True},
+            }
+            if url.endswith("loadCodeAssist")
+            else {"groups": []}
+            if url.endswith("retrieveUserQuotaSummary")
+            else {
+                "models": {
+                    "gemini-2.5-pro": {"quotaInfo": {"remainingFraction": 0.5, "resetTime": "2090-01-02T03:04:05Z"}}
+                }
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"status_code": 200, "header": {}, "body": json.dumps(body)},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert observed.quota.plan_type == "standard-tier"
+    assert tuple(call["url"] for call in api_calls) == (
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    )
 
 
 @pytest.mark.asyncio

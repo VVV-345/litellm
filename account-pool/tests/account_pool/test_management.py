@@ -24,6 +24,7 @@ from account_pool.error_logs import (
 )
 from account_pool.management_api import create_management_router
 from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView
+from account_pool.quota import ProviderEndpointFailure, ProviderQuotaError
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, _plugin_store_approves
@@ -504,3 +505,33 @@ async def test_error_capture_preserves_context_and_http_status(management) -> No
     assert (
         client.get("/api/logs?occurred_from=2026-09-11T00:00:00Z&occurred_to=2026-09-10T00:00:00Z").status_code == 422
     )
+
+
+@pytest.mark.asyncio
+async def test_provider_quota_error_logs_safe_endpoint_status_and_request_id(management) -> None:
+    _, record, _, logs, service = management
+    error: Final = ProviderQuotaError(
+        (
+            ProviderEndpointFailure(
+                method="GET",
+                endpoint="https://api.anthropic.com/api/oauth/usage",
+                message="provider quota endpoint rejected the request",
+                status_code=429,
+                request_id="req-safe",
+                upstream_code="rate_limit_error",
+            ),
+        ),
+        "Claude quota refresh failed",
+    )
+
+    await service._log_event(record, "quota", error)
+
+    event: Final = logs.events[-1]
+    assert event.endpoint == "https://api.anthropic.com/api/oauth/usage"
+    assert event.method == "GET"
+    assert event.http_status == 429
+    assert event.upstream_request_id == "req-safe"
+    assert event.upstream_code == "rate_limit_error"
+    assert event.error_category == "rate_limit"
+    assert event.retryable is True
+    assert "req-safe" in event.message

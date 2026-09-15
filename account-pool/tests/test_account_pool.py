@@ -41,6 +41,7 @@ from account_pool.domain import (
     GatewayEnvironment,
     OAuthCallback,
     Provider,
+    ProviderEndpointFailure,
     ProxyMode,
     ProxyProfile,
     QuotaSnapshot,
@@ -467,6 +468,7 @@ class FakeCLIProxy:
         self.policy_calls: list[tuple[UUID, AccountPolicy]] = []
         self.configuration_calls: list[tuple[UUID, EnvironmentConfiguration]] = []
         self.runtime_sync_calls: list[tuple[str, UUID]] = []
+        self.read_result: EnvironmentRecord | None = None
 
     async def close(self) -> None:
         return None
@@ -499,6 +501,8 @@ class FakeCLIProxy:
             raise RuntimeError("credential is not visible yet")
         if self.read_error is not None:
             raise self.read_error
+        if self.read_result is not None:
+            return self.read_result
         return record.model_copy(
             update={
                 "auth_file_name": record.auth_file_name or "codex.json",
@@ -632,6 +636,12 @@ class RecordingRepository(MemoryRepository):
     ) -> EnvironmentRecord | None:
         self.saved_payloads.append(json.dumps(record.model_dump(mode="json"), sort_keys=True))
         return await super().save_if_version(record, expected_version)
+
+
+class SerializingRepository(MemoryRepository):
+    async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        restored: Final = EnvironmentRecord.model_validate_json(record.model_dump_json())
+        return await super().save(restored)
 
 
 class StaticProfiles:
@@ -834,6 +844,49 @@ async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -
 
     assert refreshed == Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_partial_quota_refresh_logs_transient_failures_after_repository_serialization(tmp_path: Path) -> None:
+    failure: Final = ProviderEndpointFailure(
+        method="GET",
+        endpoint="https://api.anthropic.com/api/oauth/profile",
+        message="provider quota endpoint rejected the request",
+        status_code=503,
+        request_id="upstream-request-1",
+    )
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = SerializingRepository(record)
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    logs: Final = RecordingLogs()
+    cli.read_result = record.model_copy(
+        update={
+            "quota": QuotaSnapshot(
+                refresh_status="partial",
+                refresh_error=failure.summary(),
+                refresh_failures=(failure,),
+            )
+        }
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        error_logs=ErrorLogService(logs),
+    )
+
+    refreshed: Final = await service.refresh_environment(record.id)
+
+    assert isinstance(refreshed, Success)
+    assert refreshed.value.quota.refresh_status == "partial"
+    assert logs.events[-1].endpoint == failure.endpoint
+    assert logs.events[-1].http_status == 503
+    assert logs.events[-1].upstream_request_id == "upstream-request-1"
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,7 @@ type DetailField =
   | "account_id"
   | "card_key_id"
   | "request_id"
+  | "upstream_request_id"
   | "trace_id"
   | "model"
   | "endpoint"
@@ -395,6 +396,7 @@ export function AccountPoolLogsPanel({
                     "account_id",
                     "card_key_id",
                     "request_id",
+                    "upstream_request_id",
                     "trace_id",
                     "model",
                     "endpoint",

@@ -38,7 +38,7 @@ const environment = {
   proxy_profile_id: null,
   available_models: ["gpt-5"],
   enabled_models: ["gpt-5"],
-  quota: { observed_at: null, plan_type: null, windows: [] },
+  quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
   model_quotas: [],
   cooldown_until: null,
   automatic_cooldown: false,

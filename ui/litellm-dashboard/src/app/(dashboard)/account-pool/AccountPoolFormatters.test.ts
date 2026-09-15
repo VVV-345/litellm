@@ -8,7 +8,14 @@ import {
   canManageAccountPool,
   canToggleEnvironment,
 } from "./AccountPoolPermissions";
-import { concurrencyLimitLabel, formatQuota, mostConstrainedWindow, statusLabel } from "./AccountPoolFormatters";
+import {
+  concurrencyLimitLabel,
+  formatQuota,
+  formatQuotaAmounts,
+  mostConstrainedWindow,
+  quotaWindowLabel,
+  statusLabel,
+} from "./AccountPoolFormatters";
 import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
 import { toUpdateRequest } from "./AccountPoolTypes";
 import type { AccountPoolEnvironment, AccountPoolProxyProfile } from "./AccountPoolTypes";
@@ -33,7 +40,7 @@ const environment = (status: AccountPoolEnvironment["status"]): AccountPoolEnvir
   proxy_profile_id: null,
   available_models: ["gpt-4o"],
   enabled_models: ["gpt-4o"],
-  quota: { observed_at: null, plan_type: null, windows: [] },
+  quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
   model_quotas: [],
   cooldown_until: null,
   last_error: null,
@@ -119,6 +126,7 @@ describe("account pool lifecycle controls", () => {
             resets_at: "2026-02-01T00:00:00Z",
           },
         ],
+        balances: [],
       },
     };
 
@@ -131,5 +139,26 @@ describe("account pool lifecycle controls", () => {
     expect(statusLabel(chinese, "ready")).toBe("可用");
     expect(formatQuota(english, null)).toBe("Not observed yet");
     expect(formatQuota(chinese, null)).toBe("尚未观测");
+  });
+
+  it("formats exact quota amounts and provider window names", () => {
+    const window = {
+      name: "Tasks: Frequent",
+      used_percent: 10,
+      remaining_percent: 90,
+      window_minutes: 10080,
+      starts_at: "2026-01-01T00:00:00Z",
+      resets_at: "2026-01-08T00:00:00Z",
+      used: 2,
+      total: 20,
+      remaining: 18,
+      unit: "tasks",
+    };
+
+    expect(formatQuotaAmounts(chinese, window, "zh-CN")).toBe("2 / 20 次");
+    expect(quotaWindowLabel(chinese, window.name)).toBe("高频任务额度");
+    expect(quotaWindowLabel(chinese, "Product: coding")).toBe("产品额度：coding");
+    expect(quotaWindowLabel(chinese, "7 day Fable")).toBe("Fable 7 天额度");
+    expect(quotaWindowLabel(chinese, "Codex Spark Weekly")).toBe("Codex Spark 周额度");
   });
 });

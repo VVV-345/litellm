@@ -6,11 +6,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import ceil
-from typing import Final, TypeAlias
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from account_pool.domain import EnvironmentRecord, ModelQuotaSnapshot, QuotaSnapshot, QuotaWindow
+from account_pool.domain import (
+    EnvironmentRecord,
+    ModelQuotaSnapshot,
+    ProviderEndpointFailure,
+    QuotaBalance,
+    QuotaSnapshot,
+    QuotaWindow,
+)
 
 
 class QuotaObservation(BaseModel):
@@ -26,44 +33,26 @@ class ProviderQuotaRefresh:
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
 
 
+class ProviderQuotaError(RuntimeError):
+    def __init__(self, failures: tuple[ProviderEndpointFailure, ...], message: str) -> None:
+        self.failures: Final = failures
+        primary: Final = failures[0] if failures else None
+        self.endpoint: Final = None if primary is None else primary.endpoint
+        self.method: Final = None if primary is None else primary.method
+        self.status_code: Final = None if primary is None else primary.status_code
+        self.request_id: Final = None if primary is None else primary.request_id
+        self.upstream_code: Final = None if primary is None else primary.upstream_code
+        self.retryable: Final = any(failure.retryable for failure in failures)
+        detail: Final = "; ".join(failure.summary() for failure in failures)
+        super().__init__(message if not detail else f"{message}: {detail}")
+
+
 @dataclass(frozen=True, slots=True)
 class AntigravityAssist:
     project_id: str | None
     plan_type: str | None
-
-
-class _XAIBillingPeriod(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    type: str = ""
-    start: datetime | None = None
-    end: datetime | None = None
-
-
-class _XAIMoney(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    val: float | int | str | None = None
-
-
-_XAIMoneyValue: TypeAlias = float | int | str | _XAIMoney | None
-
-
-class _XAIBillingConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    current_period: _XAIBillingPeriod | None = Field(default=None, alias="currentPeriod")
-    credit_usage_percent: float | None = Field(default=None, alias="creditUsagePercent")
-    monthly_limit: _XAIMoneyValue = Field(default=None, alias="monthlyLimit")
-    used: _XAIMoneyValue = None
-    billing_period_start: datetime | None = Field(default=None, alias="billingPeriodStart")
-    billing_period_end: datetime | None = Field(default=None, alias="billingPeriodEnd")
-
-
-class _XAIBillingPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    config: _XAIBillingConfig | None = None
+    balances: tuple[QuotaBalance, ...] = ()
+    uses_gcp_tos: bool | None = None
 
 
 class _AntigravityProject(BaseModel):
@@ -72,10 +61,31 @@ class _AntigravityProject(BaseModel):
     id: str | None = None
 
 
+class _AntigravityCredit(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    credit_type: str | None = Field(default=None, alias="creditType")
+    credit_amount: float | int | str | None = Field(default=None, alias="creditAmount")
+    minimum_credit_amount_for_usage: float | int | str | None = Field(
+        default=None,
+        alias="minimumCreditAmountForUsage",
+    )
+
+
 class _AntigravityTier(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     id: str | None = None
+    uses_gcp_tos: bool | None = Field(default=None, alias="usesGcpTos")
+    available_credits: tuple[_AntigravityCredit, ...] = Field(default=(), alias="availableCredits")
+
+
+class _AntigravityAllowedTier(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    id: str | None = None
+    is_default: bool | None = Field(default=None, alias="isDefault")
+    uses_gcp_tos: bool | None = Field(default=None, alias="usesGcpTos")
 
 
 class _AntigravityAssistPayload(BaseModel):
@@ -84,6 +94,7 @@ class _AntigravityAssistPayload(BaseModel):
     project: str | _AntigravityProject | None = Field(default=None, alias="cloudaicompanionProject")
     current_tier: _AntigravityTier | None = Field(default=None, alias="currentTier")
     paid_tier: _AntigravityTier | None = Field(default=None, alias="paidTier")
+    allowed_tiers: tuple[_AntigravityAllowedTier, ...] = Field(default=(), alias="allowedTiers")
 
 
 class _AntigravityQuotaInfo(BaseModel):
@@ -103,6 +114,30 @@ class _AntigravityModelsPayload(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     models: Mapping[str, _AntigravityModelInfo] = Field(default_factory=dict)
+
+
+class _AntigravitySummaryBucket(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    bucket_id: str | None = Field(default=None, alias="bucketId")
+    display_name: str | None = Field(default=None, alias="displayName")
+    remaining_fraction: float | None = Field(default=None, alias="remainingFraction")
+    reset_time: datetime | None = Field(default=None, alias="resetTime")
+
+
+class _AntigravitySummaryGroup(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    group_id: str | None = Field(default=None, alias="groupId")
+    display_name: str | None = Field(default=None, alias="displayName")
+    name: str | None = None
+    buckets: tuple[_AntigravitySummaryBucket, ...] = ()
+
+
+class _AntigravitySummaryPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    groups: tuple[_AntigravitySummaryGroup, ...] = ()
 
 
 def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
@@ -140,16 +175,21 @@ def parse_xai_billing_quota(
     weekly_body: str | None,
     monthly_body: str | None,
     observed_at: datetime,
+    *,
+    user_body: str | None = None,
+    subscriptions_body: str | None = None,
+    task_usage_body: str | None = None,
 ) -> ProviderQuotaRefresh | None:
-    weekly: Final = _xai_payload(weekly_body)
-    monthly: Final = _xai_payload(monthly_body)
-    weekly_window: Final = _xai_weekly_window(weekly)
-    monthly_window: Final = _xai_monthly_window(monthly)
-    windows: Final = tuple(window for window in (weekly_window, monthly_window) if window is not None)
-    plan_type: Final = _xai_plan_type(monthly)
-    if not windows and plan_type is None:
-        return None
-    return ProviderQuotaRefresh(quota=QuotaSnapshot(observed_at=observed_at, plan_type=plan_type, windows=windows))
+    from account_pool.provider_quota import parse_xai_quota
+
+    return parse_xai_quota(
+        weekly_body,
+        monthly_body,
+        observed_at,
+        user_body=user_body,
+        subscriptions_body=subscriptions_body,
+        task_usage_body=task_usage_body,
+    )
 
 
 def parse_antigravity_assist(body: str | None) -> AntigravityAssist | None:
@@ -170,13 +210,42 @@ def parse_antigravity_assist(body: str | None) -> AntigravityAssist | None:
     )
     paid_tier: Final = payload.paid_tier.id.strip() if payload.paid_tier and payload.paid_tier.id else None
     current_tier: Final = payload.current_tier.id.strip() if payload.current_tier and payload.current_tier.id else None
-    return AntigravityAssist(project_id=project_id, plan_type=paid_tier or current_tier)
+    selected_tier: Final = payload.paid_tier or payload.current_tier
+    default_tier: Final = next((tier for tier in payload.allowed_tiers if tier.is_default is True), None)
+    current_tier_id: Final = None if payload.current_tier is None or current_tier is None else current_tier.casefold()
+    paid_tier_id: Final = None if payload.paid_tier is None or paid_tier is None else paid_tier.casefold()
+    uses_gcp_tos: Final = (
+        payload.current_tier.uses_gcp_tos
+        if payload.current_tier is not None and payload.current_tier.uses_gcp_tos is not None
+        else default_tier.uses_gcp_tos
+        if default_tier is not None and default_tier.uses_gcp_tos is not None
+        else True
+        if "standard-tier" in (current_tier_id, paid_tier_id)
+        else None
+    )
+    balances: Final = (
+        ()
+        if selected_tier is None
+        else tuple(
+            balance
+            for credit in selected_tier.available_credits
+            if (balance := _antigravity_credit_balance(credit)) is not None
+        )
+    )
+    return AntigravityAssist(
+        project_id=project_id,
+        plan_type=paid_tier or current_tier,
+        balances=balances,
+        uses_gcp_tos=uses_gcp_tos,
+    )
 
 
 def parse_antigravity_quota(
     models_body: str,
     assist: AntigravityAssist | None,
     observed_at: datetime,
+    *,
+    summary_body: str | None = None,
 ) -> ProviderQuotaRefresh | None:
     try:
         payload: Final = _AntigravityModelsPayload.model_validate_json(models_body)
@@ -187,99 +256,100 @@ def parse_antigravity_quota(
         for model, info in sorted(payload.models.items())
         if (model_quota := _antigravity_model_quota(model, info, observed_at)) is not None
     )
+    summary_quotas: Final = _antigravity_summary_quotas(summary_body, observed_at)
+    summary_names: Final = frozenset(item.model for item in summary_quotas)
+    combined_model_quotas: Final = (
+        *summary_quotas,
+        *(item for item in model_quotas if item.model not in summary_names),
+    )
     plan_type: Final = None if assist is None else assist.plan_type
-    if not model_quotas and plan_type is None:
+    balances: Final = () if assist is None else assist.balances
+    if not combined_model_quotas and plan_type is None and not balances:
         return None
     return ProviderQuotaRefresh(
-        quota=QuotaSnapshot(observed_at=observed_at, plan_type=plan_type),
-        model_quotas=model_quotas,
+        quota=QuotaSnapshot(observed_at=observed_at, plan_type=plan_type, balances=balances),
+        model_quotas=combined_model_quotas,
     )
 
 
-def _xai_payload(body: str | None) -> _XAIBillingPayload | None:
-    if body is None:
+def _antigravity_credit_balance(credit: _AntigravityCredit) -> QuotaBalance | None:
+    name: Final = (credit.credit_type or "").strip()
+    available: Final = _nonnegative_float(credit.credit_amount)
+    minimum: Final = _nonnegative_float(credit.minimum_credit_amount_for_usage)
+    if not name or available is None:
+        return None
+    return QuotaBalance(name=name, available=available, minimum_required=minimum, unit="credits")
+
+
+def _nonnegative_float(value: float | str | None) -> float | None:
+    if value is None or isinstance(value, bool):
         return None
     try:
-        return _XAIBillingPayload.model_validate_json(body)
-    except ValidationError:
-        return None
-
-
-def _xai_weekly_window(payload: _XAIBillingPayload | None) -> QuotaWindow | None:
-    if payload is None or payload.config is None:
-        return None
-    config: Final = payload.config
-    period: Final = config.current_period
-    if config.credit_usage_percent is None:
-        return None
-    return _observed_window(
-        "Weekly",
-        config.credit_usage_percent,
-        None if period is None else period.start,
-        None if period is None else period.end,
-        10080,
-    )
-
-
-def _xai_monthly_window(payload: _XAIBillingPayload | None) -> QuotaWindow | None:
-    if payload is None or payload.config is None:
-        return None
-    config: Final = payload.config
-    limit: Final = _xai_money(config.monthly_limit)
-    used: Final = _xai_money(config.used)
-    if limit is None or limit <= 0 or used is None:
-        return None
-    return _observed_window(
-        "Monthly",
-        min(used, limit) / limit * 100,
-        config.billing_period_start,
-        config.billing_period_end,
-        43200,
-    )
-
-
-def _xai_plan_type(payload: _XAIBillingPayload | None) -> str | None:
-    if payload is None or payload.config is None:
-        return None
-    limit: Final = _xai_money(payload.config.monthly_limit)
-    if limit is None:
-        return None
-    rounded: Final = round(limit)
-    return "supergrok" if rounded == 15000 else "supergrok-heavy" if rounded == 150000 else None
-
-
-def _xai_money(value: _XAIMoneyValue) -> float | None:
-    raw: Final = value.val if isinstance(value, _XAIMoney) else value
-    if raw is None or isinstance(raw, bool):
-        return None
-    try:
-        parsed: Final = float(raw)
+        parsed: Final = float(value)
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
 
 
-def _observed_window(
-    name: str,
-    used_percent: float,
-    starts_at: datetime | None,
-    resets_at: datetime | None,
-    fallback_minutes: int,
-) -> QuotaWindow | None:
-    if used_percent < 0 or used_percent > 100:
-        return None
-    duration: Final = (
-        int((resets_at - starts_at).total_seconds() / 60)
-        if starts_at is not None and resets_at is not None and resets_at > starts_at
-        else fallback_minutes
+def _antigravity_summary_quotas(body: str | None, observed_at: datetime) -> tuple[ModelQuotaSnapshot, ...]:
+    if body is None:
+        return ()
+    try:
+        payload: Final = _AntigravitySummaryPayload.model_validate_json(body)
+    except ValidationError:
+        return ()
+    entries: Final = tuple(
+        entry
+        for group in payload.groups
+        for bucket in group.buckets
+        if (entry := _antigravity_summary_entry(group, bucket, observed_at)) is not None
     )
-    return QuotaWindow(
-        name=name,
-        used_percent=used_percent,
-        remaining_percent=100 - used_percent,
-        window_minutes=max(1, duration),
+    models: Final = tuple(dict.fromkeys(model for model, _ in entries))
+    return tuple(
+        ModelQuotaSnapshot(
+            model=model,
+            quota=QuotaSnapshot(
+                observed_at=observed_at,
+                windows=tuple(window for candidate, window in entries if candidate == model),
+            ),
+        )
+        for model in models
+    )
+
+
+def _antigravity_summary_entry(
+    group: _AntigravitySummaryGroup,
+    bucket: _AntigravitySummaryBucket,
+    observed_at: datetime,
+) -> tuple[str, QuotaWindow] | None:
+    remaining_fraction: Final = bucket.remaining_fraction
+    if remaining_fraction is None or remaining_fraction < 0 or remaining_fraction > 1:
+        return None
+    identifier: Final = (bucket.bucket_id or "").strip()
+    display_name: Final = (bucket.display_name or "").strip()
+    model: Final = identifier or display_name
+    if not model:
+        return None
+    remaining: Final = remaining_fraction * 100
+    resets_at: Final = bucket.reset_time
+    group_label: Final = (group.display_name or group.name or group.group_id or "").strip()
+    window_name, fallback_minutes = _antigravity_summary_window(group_label, display_name, identifier)
+    return model, QuotaWindow(
+        name=window_name,
+        used_percent=100 - remaining,
+        remaining_percent=remaining,
+        window_minutes=fallback_minutes,
         resets_at=resets_at,
     )
+
+
+def _antigravity_summary_window(group: str, display_name: str, identifier: str) -> tuple[str, int]:
+    value: Final = " ".join((group, display_name, identifier)).casefold().replace("_", "-")
+    if "5-hour" in value or "5 hour" in value or "5h" in value or "session" in value:
+        return "5 hour", 300
+    if "weekly" in value or "7-day" in value or "7 day" in value or "7d" in value or "week" in value:
+        return "Weekly", 10080
+    return "Quota bucket", 1
 
 
 def _antigravity_model_quota(
@@ -347,9 +417,7 @@ def _provider_window(
         for suffix in ("-utilization", "-used-percent", "-used_percent")
         if usage_key.endswith(suffix)
     )
-    minutes: Final = _window_minutes(stem, signals)
-    if minutes is None:
-        minutes = _window_length_from_name(stem)
+    minutes: Final = _window_minutes(stem, signals) or _window_length_from_name(stem)
     if minutes is None:
         return None
     reset: Final = _provider_reset_at(stem, signals, observed_at)
@@ -364,15 +432,21 @@ def _provider_window(
 
 
 def _window_minutes(stem: str, signals: Mapping[str, str]) -> int | None:
-    for key in (f"{stem}-window-minutes", f"{stem}-window_minutes", f"{stem}-minutes"):
-        raw: Final = signals.get(key)
-        if raw is not None:
-            try:
-                value: Final = int(raw)
-            except ValueError:
-                return None
-            return value if value > 0 else None
-    return None
+    raw: Final = next(
+        (
+            signals[key]
+            for key in (f"{stem}-window-minutes", f"{stem}-window_minutes", f"{stem}-minutes")
+            if key in signals
+        ),
+        None,
+    )
+    if raw is None:
+        return None
+    try:
+        value: Final = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def _window_length_from_name(stem: str) -> int | None:
