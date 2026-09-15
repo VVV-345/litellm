@@ -63,6 +63,8 @@ class _CodexUsagePayload(BaseModel):
     @field_validator("additional_rate_limits", mode="before")
     @classmethod
     def normalize_additional_rate_limits(cls, value: object) -> object:
+        if value is None:
+            return ()
         if not isinstance(value, Mapping):
             return value
         if "rate_limit" in value or "rateLimit" in value:

@@ -197,6 +197,27 @@ def test_parse_codex_usage_keeps_session_weekly_review_and_reset_credits() -> No
     assert refreshed.quota.windows[0].remaining_percent == 80
 
 
+def test_parse_codex_usage_accepts_null_additional_limits() -> None:
+    refreshed: Final = parse_codex_usage_quota(
+        """
+        {
+          "plan_type": "plus",
+          "rate_limit": {
+            "primary_window": {"used_percent": 0, "limit_window_seconds": 18000},
+            "secondary_window": {"used_percent": 11, "limit_window_seconds": 604800}
+          },
+          "additional_rate_limits": null,
+          "rate_limit_reset_credits": {"available_count": 0}
+        }
+        """,
+        datetime(2026, 9, 16, tzinfo=timezone.utc),
+    )
+
+    assert refreshed is not None
+    assert refreshed.quota.reset_credits_available == 0
+    assert tuple(window.remaining_percent for window in refreshed.quota.windows) == (100, 89)
+
+
 def test_parse_codex_account_info_skips_unusable_accounts_and_matches_workspace() -> None:
     observed_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
     selected: Final = parse_codex_account_info(
