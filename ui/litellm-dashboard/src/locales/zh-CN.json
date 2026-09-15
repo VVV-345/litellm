@@ -5696,6 +5696,9 @@
       "lifecycleDisabled": "当前状态暂不支持修改配置，请等待生命周期操作完成。",
       "name": "名称",
       "concurrencyLimit": "环境总并发",
+      "unlimited": "无限制",
+      "unlimitedConcurrency": "不限制并发",
+      "unlimitedConcurrencyHint": "开启后不设置卡片并发上限；上游服务自身限制仍然有效。",
       "environmentSwitch": "环境开关",
       "environmentSwitchDescription": "关闭后不会进入网关路由。",
       "manualCooldown": "人工冷却",
@@ -5730,7 +5733,7 @@
       "proxyProfileInvalid": "代理 Profile URL 无效",
       "proxyProfileProtocol": "代理 Profile URL 仅支持 HTTP 或 HTTPS",
       "nameRequired": "请输入环境名称",
-      "concurrencyRange": "并发数必须是 1 到 1000 之间的整数",
+      "concurrencyRange": "并发数必须是 0 到 1000 之间的整数，0 表示不限制",
       "modelUnavailable": "模型 {{model}} 当前不可用"
     },
     "mutation": {
@@ -6012,6 +6015,7 @@
       "rollback": "恢复",
       "defaultRoute": "默认路由策略",
       "defaultConcurrency": "默认并发上限",
+      "unlimitedConcurrency": "默认不限制并发",
       "modelDiscovery": "自动发现模型",
       "defaultProxy": "默认代理档案",
       "maxAttempts": "最大尝试次数",

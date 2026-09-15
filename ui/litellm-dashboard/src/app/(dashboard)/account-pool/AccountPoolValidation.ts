@@ -48,7 +48,7 @@ export const validateAccountPoolUpdate = (
   profiles: readonly AccountPoolProxyProfile[],
 ): string | null => {
   if (!form.name.trim()) return t("accountPool.validation.nameRequired");
-  if (!Number.isInteger(form.concurrency_limit) || form.concurrency_limit < 1 || form.concurrency_limit > 1000) {
+  if (!Number.isInteger(form.concurrency_limit) || form.concurrency_limit < 0 || form.concurrency_limit > 1000) {
     return t("accountPool.validation.concurrencyRange");
   }
   const unsupportedModel = form.enabled_models.find((model) => !environment.available_models.includes(model));

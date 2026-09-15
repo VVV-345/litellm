@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import {
   addAccountPoolCredential,
   deleteAccountPoolAuthFile,
@@ -216,7 +217,8 @@ export const AccountPoolCredentialsPanel = ({
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <FileKey2 className="size-5 shrink-0 text-primary" />
+                  <AccountPoolSupplierLogo supplier={credential.supplier} className="size-5 shrink-0" />
+                  <FileKey2 className="size-4 shrink-0 text-muted-foreground" />
                   <CardTitle className="truncate text-base">{credential.card_name}</CardTitle>
                 </div>
                 <Badge variant={credential.enabled ? "secondary" : "outline"}>{credential.status}</Badge>

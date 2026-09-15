@@ -2,7 +2,7 @@
 
 "use client";
 
-import { Boxes, CircleAlert, Plus, RefreshCw } from "lucide-react";
+import { CircleAlert, Plus, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { listAccountPoolProviderFamilies, type AccountPoolProviderFamily } from "./AccountPoolApi";
 import type { AccountPoolSupplier } from "./AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 
 interface AccountPoolProviderFamiliesProps {
   accessToken: string | null;
@@ -89,7 +90,13 @@ export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPo
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
-                    <Boxes className="mt-0.5 size-5 shrink-0 text-primary" />
+                    {supplier ? (
+                      <AccountPoolSupplierLogo supplier={supplier} className="mt-0.5 size-6 shrink-0" />
+                    ) : (
+                      <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-border text-xs">
+                        {family.display_name.charAt(0)}
+                      </div>
+                    )}
                     <div className="min-w-0">
                       <CardTitle className="truncate text-base">{family.display_name}</CardTitle>
                       <p className="mt-1 text-xs text-muted-foreground">{family.authentication}</p>

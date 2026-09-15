@@ -11,6 +11,7 @@ import { canAuthorizeEnvironment } from "./AccountPoolPermissions";
 import { statusLabel, statusVariant } from "./AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import type { AccountPoolSupplier } from "./AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 
 const OAUTH_PROVIDERS: readonly AccountPoolSupplier[] = [
   "kimi",
@@ -42,7 +43,10 @@ export const AccountPoolAuthorizationOverview = ({
           return (
             <Card key={supplier} className="flex flex-col">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">{t(`accountPool.supplier.${supplier}`)}</CardTitle>
+                <div className="flex items-center gap-2">
+                  <AccountPoolSupplierLogo supplier={supplier} />
+                  <CardTitle className="text-base">{t(`accountPool.supplier.${supplier}`)}</CardTitle>
+                </div>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col justify-between gap-3 text-sm">
                 <div className="flex items-center justify-between border-b pb-2">
@@ -67,7 +71,10 @@ export const AccountPoolAuthorizationOverview = ({
               <Card key={environment.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-3">
-                    <CardTitle className="truncate text-base">{environment.name}</CardTitle>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <AccountPoolSupplierLogo supplier={environment.supplier} />
+                      <CardTitle className="truncate text-base">{environment.name}</CardTitle>
+                    </div>
                     <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
                   </div>
                 </CardHeader>

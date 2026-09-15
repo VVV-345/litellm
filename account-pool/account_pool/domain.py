@@ -192,7 +192,7 @@ class EnvironmentConfiguration(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: Annotated[str, Field(min_length=1, max_length=80)]
-    concurrency_limit: int = Field(ge=1, le=1000)
+    concurrency_limit: int = Field(ge=0, le=1000)
     enabled: bool
     manual_cooldown: bool
     proxy_mode: ProxyMode
@@ -212,7 +212,7 @@ class CommonSettingsProfileBaseline(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     profile_id: str = Field(min_length=1, max_length=80)
-    concurrency_limit: int = Field(ge=1, le=1000)
+    concurrency_limit: int = Field(ge=0, le=1000)
 
 
 class NetworkSettingsProfileBaseline(BaseModel):
@@ -445,7 +445,7 @@ class EnvironmentRecord(BaseModel):
     configuration_pending: bool = False
     enabled: bool
     manual_cooldown: bool
-    concurrency_limit: int
+    concurrency_limit: int = Field(ge=0, le=1000)
     proxy_mode: ProxyMode
     proxy_profile_id: str | None
     available_models: tuple[str, ...]
@@ -488,7 +488,7 @@ class EnvironmentView(BaseModel):
     configuration_pending: bool
     enabled: bool
     manual_cooldown: bool
-    concurrency_limit: int
+    concurrency_limit: int = Field(ge=0, le=1000)
     proxy_mode: ProxyMode
     proxy_profile_id: str | None
     available_models: tuple[str, ...]
@@ -515,7 +515,7 @@ class GatewayEnvironment(BaseModel):
 
     id: UUID
     routable: bool
-    concurrency_limit: int
+    concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str = Field(repr=False)
@@ -559,7 +559,7 @@ class UpdateEnvironmentRequest(BaseModel):
     version: int = Field(ge=0)
     operation_id: str | None = Field(default=None, max_length=160)
     name: Annotated[str, Field(min_length=1, max_length=80)]
-    concurrency_limit: int = Field(ge=1, le=1000)
+    concurrency_limit: int = Field(ge=0, le=1000)
     enabled: bool
     manual_cooldown: bool
     proxy_mode: ProxyMode

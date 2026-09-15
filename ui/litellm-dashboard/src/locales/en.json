@@ -5696,6 +5696,9 @@
       "lifecycleDisabled": "This environment cannot be changed until its lifecycle operation finishes.",
       "name": "Name",
       "concurrencyLimit": "Environment-wide concurrency",
+      "unlimited": "Unlimited",
+      "unlimitedConcurrency": "No concurrency limit",
+      "unlimitedConcurrencyHint": "Removes the card-level limit. Provider-side limits still apply.",
       "environmentSwitch": "Environment switch",
       "environmentSwitchDescription": "Disabled environments are not used for gateway routing.",
       "manualCooldown": "Manual cooldown",
@@ -5730,7 +5733,7 @@
       "proxyProfileInvalid": "The proxy profile URL is invalid.",
       "proxyProfileProtocol": "The proxy profile URL must use HTTP or HTTPS.",
       "nameRequired": "Enter an environment name",
-      "concurrencyRange": "Concurrency must be an integer from 1 to 1000.",
+      "concurrencyRange": "Concurrency must be an integer from 0 to 1000. Zero means unlimited.",
       "modelUnavailable": "Model {{model}} is not currently available."
     },
     "mutation": {
@@ -6012,6 +6015,7 @@
       "rollback": "Restore",
       "defaultRoute": "Default routing strategy",
       "defaultConcurrency": "Default concurrency",
+      "unlimitedConcurrency": "Unlimited concurrency by default",
       "modelDiscovery": "Discover models automatically",
       "defaultProxy": "Default proxy profile",
       "maxAttempts": "Maximum attempts",

@@ -379,7 +379,7 @@ class CommonSettingsValues(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     default_route: Literal["auto", "priority", "random", "quota"] = "auto"
-    default_concurrency_limit: int = Field(default=1, ge=1, le=1000)
+    default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
     default_model_discovery: bool = True
 
 
@@ -498,7 +498,7 @@ class AccountPoolSettings(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     default_route: Literal["auto", "priority", "random", "quota"] = "auto"
-    default_concurrency_limit: int = Field(default=1, ge=1, le=1000)
+    default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
     default_model_discovery: bool = True
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
     max_attempts: int = Field(default=1, ge=1, le=5)

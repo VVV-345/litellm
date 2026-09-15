@@ -589,17 +589,65 @@ class EnvironmentService:
     async def upload_auth_file(
         self, environment_id: UUID, filename: str, content: bytes, content_type: str | None
     ) -> Result[EnvironmentView]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        if record.channel is not ChannelKind.CLIPROXYAPI:
-            return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
-        try:
-            await self._cli_proxy.upload_auth_file(record, filename, content, content_type)
-        except Exception as error:
-            await self._log_event(record, "authentication", error)
-            return Failure(FailureCode.UPSTREAM, "auth file upload failed")
-        return await self.refresh_environment(environment_id)
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.channel is not ChannelKind.CLIPROXYAPI:
+                return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
+            channel: Final = self._channel(record)
+            pending_state: Final = record.oauth_provider_state or record.oauth_state
+            try:
+                await self._cli_proxy.upload_auth_file(record, filename, content, content_type)
+                uploaded: Final = record.model_copy(update={"auth_file_name": filename})
+                observed: Final = await self._wait_for_direct_credential(channel, uploaded)
+            except Exception as error:
+                await self._log_event(record, "authentication", error)
+                return Failure(FailureCode.UPSTREAM, f"auth file validation failed: {_safe_error(error)}")
+            completed: Final = observed.model_copy(
+                update={
+                    "version": record.version + 1,
+                    "desired_state": observed.status,
+                    "oauth_state": None,
+                    "oauth_expires_at": None,
+                    "oauth_state_consumed_at": None,
+                    "oauth_state_signature": None,
+                    "oauth_provider_state": None,
+                    "oauth_authorization_url": None,
+                    "authorization_user_code": None,
+                    "last_error": None,
+                    "updated_at": utc_now(),
+                }
+            )
+            initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
+            desired: Final = initial_desired.model_copy(update={"enabled_models": completed.enabled_models})
+            pending: Final = completed.model_copy(
+                update={
+                    "configuration_pending": True,
+                    "desired_configuration_version": completed.desired_configuration_version + 1,
+                    "desired_configuration": desired,
+                    "configuration_last_error": None,
+                }
+            )
+            claimed: Final = await self._repository.save_if_version(pending, record.version)
+            if claimed is None:
+                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            reconciled: Final = await self._apply_and_persist_configuration(claimed, desired)
+            if isinstance(reconciled, Failure):
+                return reconciled
+            persisted: Final = await self._repository.get(environment_id)
+            if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
+                return Failure(FailureCode.CONFLICT, "auth file validation did not reach a usable state")
+            if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
+                return Failure(FailureCode.CONFLICT, "auth file validation is still being reconciled")
+            if pending_state is not None:
+                try:
+                    await channel.cancel_oauth_session(persisted, pending_state)
+                except Exception as error:
+                    await self._log_event(persisted, "authentication", error)
+            await self._log_event(persisted, "authentication", None)
+            return Success(to_view(persisted))
 
     async def download_auth_file(self, environment_id: UUID) -> Result[tuple[bytes, str, str]]:
         record: Final = await self._repository.get(environment_id)

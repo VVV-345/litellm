@@ -164,17 +164,27 @@ export const AccountPoolConfigDialog = ({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="account-pool-concurrency">{concurrencyLimitLabel(t)}</Label>
+                <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                  <span className="text-sm">{t("accountPool.config.unlimitedConcurrency")}</span>
+                  <Switch
+                    id="account-pool-unlimited-concurrency"
+                    checked={form.concurrency_limit === 0}
+                    onCheckedChange={(checked) => update("concurrency_limit", checked === true ? 0 : 1)}
+                    disabled={saving || lifecycleDisabled}
+                  />
+                </div>
                 <Input
                   id="account-pool-concurrency"
                   type="number"
                   min={1}
                   max={1000}
-                  value={form.concurrency_limit}
+                  value={form.concurrency_limit === 0 ? 1 : form.concurrency_limit}
                   onChange={(event) =>
                     update("concurrency_limit", Math.max(1, Math.min(1000, Number(event.target.value) || 1)))
                   }
-                  disabled={saving || lifecycleDisabled}
+                  disabled={saving || lifecycleDisabled || form.concurrency_limit === 0}
                 />
+                <p className="text-xs text-muted-foreground">{t("accountPool.config.unlimitedConcurrencyHint")}</p>
               </div>
               <div className="flex items-end justify-between gap-3 rounded-md border border-border px-3 py-2">
                 <div>

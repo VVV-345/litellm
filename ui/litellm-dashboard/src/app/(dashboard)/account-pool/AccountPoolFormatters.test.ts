@@ -89,6 +89,7 @@ describe("account pool lifecycle controls", () => {
 
     expect(request.version).toBe(4);
     expect(validateAccountPoolUpdate(chinese, request, current, profiles)).toBeNull();
+    expect(validateAccountPoolUpdate(chinese, { ...request, concurrency_limit: 0 }, current, profiles)).toBeNull();
     expect(
       validateAccountPoolUpdate(
         chinese,

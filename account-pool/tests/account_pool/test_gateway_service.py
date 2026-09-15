@@ -75,7 +75,8 @@ class MemoryLeases:
         ):
             return AcquireRejected(reason="session")
         if (
-            len(tuple(item for item in self.leases.values() if item.account_id == candidate.id))
+            candidate.concurrency_limit > 0
+            and len(tuple(item for item in self.leases.values() if item.account_id == candidate.id))
             >= candidate.concurrency_limit
         ):
             return AcquireRejected(reason="concurrency")
@@ -481,6 +482,44 @@ async def test_full_sticky_account_can_rebind_to_next_candidate() -> None:
     rebound: Final = await service.resolve(ResolveRequest(card_key=issued.value.key, session_hash=session_hash))
     assert lease.account_id == other.id
     assert rebound.sticky_account_id == other.id
+
+
+@pytest.mark.asyncio
+async def test_zero_concurrency_limit_allows_multiple_active_leases() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 0})
+    environments: Final = MemoryRepository(card)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    leases: Final = MemoryLeases()
+    service: Final = GatewayService(
+        keys, environments, MemoryPolicies(), leases, ErrorLogService(MemoryLogs()), gateway
+    )
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    candidate: Final = resolution.candidates[0]
+
+    async def acquire() -> Lease:
+        return await service.acquire(
+            AcquireRequest(
+                card_key=issued.value.key,
+                account_id=candidate.id,
+                request_id=uuid4(),
+                model="gpt-5",
+                card_version=resolution.card_version,
+                policy_version=resolution.policy_version,
+                account_version=candidate.environment_version,
+                account_policy_version=candidate.policy_version,
+                timeout_seconds=30,
+                attempt=1,
+            )
+        )
+
+    first: Final = await acquire()
+    second: Final = await acquire()
+
+    assert first.account_id == card.id
+    assert second.account_id == card.id
+    assert len(leases.leases) == 2
 
 
 @pytest.mark.asyncio

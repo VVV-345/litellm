@@ -52,7 +52,7 @@ class Candidate(BaseModel):
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)
     headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
     model_prefix: str = ""
-    concurrency_limit: int
+    concurrency_limit: int = Field(ge=0, le=1000)
     policy: AccountPolicy
     remaining_percent: float | None = None
     quota_observed_at: AwareDatetime | None = None

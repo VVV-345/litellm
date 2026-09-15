@@ -27,7 +27,7 @@ class GatewayEnvironment(BaseModel):
 
     id: UUID
     routable: bool
-    concurrency_limit: int = Field(ge=1, le=1000)
+    concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
     api_base: str
     api_key: str = Field(min_length=1)
@@ -45,7 +45,7 @@ class ManagedDeployment:
     provider_model: str
     api_base: str
     api_key: str
-    max_parallel_requests: int
+    max_parallel_requests: int | None
     custom_llm_provider: Literal["openai"] = "openai"
     blocked: bool = False
 
@@ -233,7 +233,7 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         provider_model=f"openai/{model_name}",
         api_base=environment.api_base,
         api_key=environment.api_key,
-        max_parallel_requests=environment.concurrency_limit,
+        max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
     )
 
@@ -255,7 +255,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         and isinstance(provider_model, str)
         and isinstance(api_base, str)
         and isinstance(api_key, str)
-        and isinstance(max_parallel_requests, int)
+        and (max_parallel_requests is None or isinstance(max_parallel_requests, int))
         and custom_llm_provider == "openai"
         and isinstance(blocked, bool)
     ):

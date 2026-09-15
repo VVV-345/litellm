@@ -490,14 +490,18 @@ class HttpCLIProxyClient:
         selected_supplier: Final = supplier or _legacy_openai_supplier()
         auth_response: Final = await self._request(record, "GET", "/v0/management/auth-files")
         auth_files: Final = _AUTH_FILES_ADAPTER.validate_python(auth_response.json())
-        auth_file: Final = next(
-            (
-                item
-                for item in auth_files.files
-                if (item.provider is not None and item.provider.lower() == selected_supplier.auth_file_provider_key)
-                or (item.type is not None and item.type.lower() == selected_supplier.auth_file_provider_key)
-            ),
-            None,
+        matching_auth_files: Final = tuple(
+            item
+            for item in auth_files.files
+            if (item.provider is not None and item.provider.lower() == selected_supplier.auth_file_provider_key)
+            or (item.type is not None and item.type.lower() == selected_supplier.auth_file_provider_key)
+        )
+        auth_file: Final = (
+            next((item for item in matching_auth_files if item.name == record.auth_file_name), None)
+            if record.auth_file_name is not None
+            else matching_auth_files[-1]
+            if matching_auth_files
+            else None
         )
         if auth_file is None:
             raise RuntimeError(f"CLIProxyAPI did not persist a {selected_supplier.kind.value} credential")

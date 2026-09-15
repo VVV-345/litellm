@@ -86,6 +86,15 @@ def test_non_routable_snapshots_produce_no_deployments() -> None:
     assert deployments == ()
 
 
+def test_zero_concurrency_limit_removes_litellm_parallel_request_limit() -> None:
+    environment: Final = _environment(routable=True).model_copy(update={"concurrency_limit": 0})
+
+    deployment: Final = desired_deployments((environment,))[0]
+
+    assert deployment.max_parallel_requests is None
+    assert deployment.litellm_params["max_parallel_requests"] is None
+
+
 @pytest.mark.asyncio
 async def test_reconcile_only_exposes_routable_models_and_removes_stale_deployments() -> None:
     environment: Final = _environment(routable=True, models=("gpt-5", "gpt-4.1"))

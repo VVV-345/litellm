@@ -468,6 +468,7 @@ class FakeCLIProxy:
         self.policy_calls: list[tuple[UUID, AccountPolicy]] = []
         self.configuration_calls: list[tuple[UUID, EnvironmentConfiguration]] = []
         self.runtime_sync_calls: list[tuple[str, UUID]] = []
+        self.upload_calls: list[tuple[UUID, str, bytes, str | None]] = []
         self.read_result: EnvironmentRecord | None = None
 
     async def close(self) -> None:
@@ -564,6 +565,11 @@ class FakeCLIProxy:
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         self.policy_calls.append((record.id, policy))
         self.runtime_sync_calls.append(("policy", record.id))
+
+    async def upload_auth_file(
+        self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
+    ) -> None:
+        self.upload_calls.append((record.id, filename, content, content_type))
 
 
 class FailingGlobalSettingsCLI(FakeCLIProxy):
@@ -799,6 +805,47 @@ def _fake_channels(runtime: FakeRuntime, cli: FakeCLIProxy) -> ChannelRegistry:
         definitions=MappingProxyType({ChannelKind.CLIPROXYAPI: _FAKE_CLIPROXY_DEFINITION}),
         implementations=MappingProxyType({ChannelKind.CLIPROXYAPI: channel}),  # type: ignore[dict-item]  # test double satisfies the channel protocol
     )
+
+
+@pytest.mark.asyncio
+async def test_upload_auth_file_binds_credential_and_clears_pending_oauth_session(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+
+    result: Final = await service.upload_auth_file(record.id, "account.json", b"{}", "application/json")
+    durable: Final = await service._repository.get(record.id)
+
+    assert not isinstance(result, Failure)
+    assert durable is not None
+    assert durable.status is EnvironmentStatus.READY
+    assert durable.auth_file_name == "account.json"
+    assert durable.enabled_models == ("gpt-5",)
+    assert durable.oauth_state is None
+    assert durable.oauth_expires_at is None
+    assert durable.oauth_state_signature is None
+    assert durable.oauth_provider_state is None
+    assert durable.oauth_authorization_url is None
+    assert durable.authorization_user_code is None
+    assert durable.configuration_pending is False
+    assert service._cli_proxy.upload_calls == [(record.id, "account.json", b"{}", "application/json")]
+    assert service._cli_proxy.cancel_calls == [(record.id, "state-for-test-1234")]
+    assert service._cli_proxy.authorization_status_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_upload_auth_file_reports_validation_failure_without_claiming_success(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli: Final = FakeCLIProxy(read_error=RuntimeError("invalid access_token=secret-value"))
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.upload_auth_file(record.id, "account.json", b"{}", "application/json")
+    durable: Final = await service._repository.get(record.id)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.UPSTREAM
+    assert "secret-value" not in result.message
+    assert durable == record
+    assert cli.authorization_status_calls == 0
 
 
 _FAKE_CLIPROXY_DEFINITION: Final = ChannelDefinition(

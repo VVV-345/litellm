@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import type { ErrorStats } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import { groupAccountPoolEnvironments, summarizeAccountPoolDashboard } from "./accountPoolDashboardSelectors";
 
 interface AccountPoolDashboardProps {
@@ -130,6 +131,7 @@ export const AccountPoolDashboard = ({
             aria-labelledby={`account-pool-family-${group.supplier}`}
           >
             <div className="flex items-center gap-2">
+              <AccountPoolSupplierLogo supplier={group.supplier} />
               <h2 id={`account-pool-family-${group.supplier}`} className="text-base font-semibold">
                 {t(`accountPool.supplier.${group.supplier}`)}
               </h2>

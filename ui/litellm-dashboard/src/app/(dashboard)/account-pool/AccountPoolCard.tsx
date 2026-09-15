@@ -24,6 +24,7 @@ import {
 import type { ErrorStats } from "./AccountPoolManagementApi";
 import type { PolicyView } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "./AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "./accountPoolDashboardSelectors";
 
 interface AccountPoolCardProps {
@@ -131,27 +132,30 @@ export const AccountPoolCard = ({
     >
       <CardHeader className="gap-3">
         <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="truncate text-base">{environment.name}</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
-            </p>
-            {environment.configuration_pending && (
-              <p className="mt-1 text-xs text-muted-foreground" role="status">
-                {t("accountPool.configurationSyncing")}
+          <div className="flex min-w-0 items-start gap-3">
+            <AccountPoolSupplierLogo supplier={environment.supplier} className="mt-0.5 size-6 shrink-0" />
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base">{environment.name}</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
               </p>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("accountPool.config.versions", {
-                desired: environment.desired_configuration_version ?? 0,
-                observed: environment.observed_configuration_version ?? 0,
-              })}
-            </p>
-            {environment.status === "awaiting_authorization" && (
-              <p className="mt-1 text-xs text-muted-foreground" role="status">
-                {t("accountPool.preAuthorizationProxyHint")}
+              {environment.configuration_pending && (
+                <p className="mt-1 text-xs text-muted-foreground" role="status">
+                  {t("accountPool.configurationSyncing")}
+                </p>
+              )}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("accountPool.config.versions", {
+                  desired: environment.desired_configuration_version ?? 0,
+                  observed: environment.observed_configuration_version ?? 0,
+                })}
               </p>
-            )}
+              {environment.status === "awaiting_authorization" && (
+                <p className="mt-1 text-xs text-muted-foreground" role="status">
+                  {t("accountPool.preAuthorizationProxyHint")}
+                </p>
+              )}
+            </div>
           </div>
           <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
         </div>
@@ -251,6 +255,12 @@ export const AccountPoolCard = ({
             <p className="mt-1 font-medium">{requestStats?.total_requests ?? "-"}</p>
           </div>
           <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
+            <p className="mt-1 font-medium">
+              {environment.concurrency_limit === 0 ? t("accountPool.config.unlimited") : environment.concurrency_limit}
+            </p>
+          </div>
+          <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
             <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
           </div>
@@ -266,7 +276,8 @@ export const AccountPoolCard = ({
             <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
             <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
           </div>
-          {environment.supplier === "xai" && environment.quota.has_grok_code_access !== null &&
+          {environment.supplier === "xai" &&
+            environment.quota.has_grok_code_access !== null &&
             environment.quota.has_grok_code_access !== undefined && (
               <div>
                 <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>

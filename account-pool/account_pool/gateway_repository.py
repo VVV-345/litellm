@@ -148,7 +148,10 @@ class PostgresLeaseRepository:
             counted_row: Final = await counted.fetchone()
             if (
                 counted_row is None
-                or TypeAdapter(int).validate_python(counted_row["used"]) >= candidate.concurrency_limit
+                or (
+                    candidate.concurrency_limit > 0
+                    and TypeAdapter(int).validate_python(counted_row["used"]) >= candidate.concurrency_limit
+                )
             ):
                 return AcquireRejected(reason="concurrency")
             budget_limit: Final = candidate.policy.routing.token_budget_limit

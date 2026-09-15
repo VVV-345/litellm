@@ -132,6 +132,36 @@ async def test_read_account_selects_matching_type_and_model_file() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_account_prefers_the_auth_file_already_bound_to_the_card() -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "uploaded.json"})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    model_names: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {"name": "older.json", "provider": "codex", "type": "codex"},
+                        {"name": "uploaded.json", "provider": "codex", "type": "codex"},
+                    ]
+                },
+                request=request,
+            )
+        model_names.append(request.url.params["name"])
+        return httpx.Response(200, json={"models": [{"id": "gpt-5"}]}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier)
+    await client.aclose()
+
+    assert observed.auth_file_name == "uploaded.json"
+    assert model_names == ["uploaded.json"]
+
+
+@pytest.mark.asyncio
 async def test_read_account_preserves_last_active_quota_when_passive_metadata_is_empty() -> None:
     previous_quota: Final = QuotaSnapshot(
         observed_at=datetime(2026, 9, 14, tzinfo=timezone.utc),

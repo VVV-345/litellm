@@ -11,7 +11,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
@@ -29,6 +28,7 @@ import {
   type QuotaSettingsValues,
   type StreamingSettingsValues,
 } from "./AccountPoolManagementApi";
+import { NumberSetting, ToggleSetting } from "./AccountPoolSettingsFields";
 import { AccountPoolSettingsProfileSection, type SettingsProfile } from "./AccountPoolSettingsProfileSection";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
@@ -86,12 +86,6 @@ type Props = {
   environments: readonly AccountPoolEnvironment[];
 };
 
-type FieldProps = {
-  id: string;
-  label: string;
-  disabled: boolean;
-};
-
 type JsonEditorProps<TValue> = {
   editorId: string;
   label: string;
@@ -101,40 +95,6 @@ type JsonEditorProps<TValue> = {
   placeholder: string;
   className: string;
 };
-
-const NumberSetting = ({
-  id,
-  label,
-  value,
-  disabled,
-  onChange,
-}: FieldProps & { value: number; onChange: (value: number) => void }) => (
-  <div className="grid gap-2 rounded-md border p-3">
-    <Label htmlFor={id}>{label}</Label>
-    <Input
-      id={id}
-      type="number"
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(Number(event.target.value))}
-    />
-  </div>
-);
-
-const ToggleSetting = ({
-  id,
-  label,
-  checked,
-  disabled,
-  onChange,
-}: FieldProps & { checked: boolean; onChange: (checked: boolean) => void }) => (
-  <div className="flex min-h-16 items-center justify-between gap-4 rounded-md border p-3">
-    <Label htmlFor={id} className="leading-5">
-      {label}
-    </Label>
-    <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={(value) => onChange(value === true)} />
-  </div>
-);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -346,8 +306,15 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
         id={`${editorId}-concurrency`}
         label={t("accountPool.settings.defaultConcurrency")}
         value={current.default_concurrency_limit}
-        disabled={disabled}
+        disabled={disabled || current.default_concurrency_limit === 0}
         onChange={(default_concurrency_limit) => onChange({ ...current, default_concurrency_limit })}
+      />
+      <ToggleSetting
+        id={`${editorId}-unlimited-concurrency`}
+        label={t("accountPool.settings.unlimitedConcurrency")}
+        checked={current.default_concurrency_limit === 0}
+        disabled={disabled}
+        onChange={(unlimited) => onChange({ ...current, default_concurrency_limit: unlimited ? 0 : 1 })}
       />
       <ToggleSetting
         id={`${editorId}-model-discovery`}
