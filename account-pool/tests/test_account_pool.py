@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import yaml
+from account_pool.api import _credential_views
 from account_pool.app import (
     _reconcile_pending_configurations_until_cancelled,
     _refresh_ready_quotas_until_cancelled,
@@ -454,6 +455,8 @@ class FakeCLIProxy:
         self.read_calls = 0
         self.refresh_quota_calls: list[bool] = []
         self.status_calls: list[bool] = []
+        self.auth_file_status_calls: list[bool] = []
+        self.auth_file_disabled = False
         self.proxy_calls: list[str] = []
         self.model_calls: list[tuple[str, ...]] = []
         self.concurrency_calls: list[int] = []
@@ -507,9 +510,11 @@ class FakeCLIProxy:
         return record.model_copy(
             update={
                 "auth_file_name": record.auth_file_name or "codex.json",
-                "available_models": ("gpt-5",),
-                "enabled_models": ("gpt-5",),
-                "status": self.observed_status,
+                "auth_file_disabled": self.auth_file_disabled,
+                "available_models": () if self.auth_file_disabled else ("gpt-5",),
+                "enabled_models": () if self.auth_file_disabled else ("gpt-5",),
+                "automatic_cooldown": self.auth_file_disabled,
+                "status": EnvironmentStatus.COOLING_DOWN if self.auth_file_disabled else self.observed_status,
             }
         )
 
@@ -570,6 +575,13 @@ class FakeCLIProxy:
         self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
     ) -> None:
         self.upload_calls.append((record.id, filename, content, content_type))
+
+    async def patch_auth_file_status(
+        self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
+    ) -> None:
+        _ = (record, filename, auth_index)
+        self.auth_file_status_calls.append(disabled)
+        self.auth_file_disabled = disabled
 
 
 class FailingGlobalSettingsCLI(FakeCLIProxy):
@@ -846,6 +858,29 @@ async def test_upload_auth_file_reports_validation_failure_without_claiming_succ
     assert "secret-value" not in result.message
     assert durable == record
     assert cli.authorization_status_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_auth_file_status_update_does_not_require_live_quota_refresh(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(
+        update={"automatic_cooldown": True, "auth_file_disabled": True}
+    )
+    cli: Final = FakeCLIProxy(data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.patch_auth_file_status(record.id, disabled=False)
+    durable: Final = await service._repository.get(record.id)
+
+    assert isinstance(result, Success)
+    assert durable is not None
+    assert durable.status is EnvironmentStatus.READY
+    assert durable.auth_file_disabled is False
+    assert cli.auth_file_status_calls == [False]
+    assert cli.refresh_quota_calls == [False]
+    assert cli.health_calls == 0
+    credential: Final = _credential_views(durable)[0]
+    assert credential.enabled is True
+    assert credential.status == "ready"
 
 
 _FAKE_CLIPROXY_DEFINITION: Final = ChannelDefinition(
@@ -2311,7 +2346,7 @@ async def test_manual_cooldown_blocks_automatic_recovery_until_disabled(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_releasing_manual_cooldown_health_checks_a_ready_environment(tmp_path: Path) -> None:
+async def test_releasing_manual_cooldown_reenables_the_disabled_credential(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy(data_plane_healthy=True)
     service: Final = _service(record, cli, tmp_path)
@@ -2334,7 +2369,7 @@ async def test_releasing_manual_cooldown_health_checks_a_ready_environment(tmp_p
     assert not isinstance(resumed_result, Failure)
     assert resumed_result.value.status == EnvironmentStatus.READY
     assert cli.status_calls == [False, True]
-    assert cli.health_calls == 1
+    assert cli.health_calls == 0
 
 
 @pytest.mark.asyncio
@@ -3234,7 +3269,7 @@ async def test_cancel_oauth_reports_a_conflict_when_the_state_change_loses_cas(t
 
 
 @pytest.mark.asyncio
-async def test_releasing_manual_cooldown_keeps_environment_cooling_when_unhealthy(tmp_path: Path) -> None:
+async def test_releasing_manual_cooldown_does_not_preflight_the_disabled_credential(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy(data_plane_healthy=False)
     service: Final = _service(record, cli, tmp_path)
@@ -3255,9 +3290,9 @@ async def test_releasing_manual_cooldown_keeps_environment_cooling_when_unhealth
     resumed_result: Final = await service.update_environment(record.id, resume_request)
 
     assert not isinstance(resumed_result, Failure)
-    assert resumed_result.value.status == EnvironmentStatus.COOLING_DOWN
-    assert cli.status_calls == [False, False]
-    assert cli.health_calls == 1
+    assert resumed_result.value.status == EnvironmentStatus.READY
+    assert cli.status_calls == [False, True]
+    assert cli.health_calls == 0
 
 
 @pytest.mark.asyncio

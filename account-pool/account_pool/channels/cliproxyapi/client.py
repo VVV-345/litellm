@@ -579,6 +579,7 @@ class HttpCLIProxyClient:
             update={
                 "auth_file_name": auth_file.name,
                 "auth_index": auth_file.auth_index,
+                "auth_file_disabled": auth_file.disabled,
                 "available_models": available_models,
                 "enabled_models": enabled_models,
                 "quota": quota,

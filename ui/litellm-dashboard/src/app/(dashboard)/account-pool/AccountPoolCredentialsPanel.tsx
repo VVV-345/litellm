@@ -259,9 +259,9 @@ export const AccountPoolCredentialsPanel = ({
                         variant="outline"
                         size="sm"
                         disabled={toggleMutation.isPending}
-                        onClick={() => toggleMutation.mutate({ environment, enabled: !environment.enabled })}
+                        onClick={() => toggleMutation.mutate({ environment, enabled: !credential.enabled })}
                       >
-                        {environment.enabled
+                        {credential.enabled
                           ? t("accountPool.credentials.disable")
                           : t("accountPool.credentials.enable")}
                       </Button>

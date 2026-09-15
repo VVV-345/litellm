@@ -681,6 +681,7 @@ class EnvironmentService:
                 "configuration_pending": False,
                 "auth_file_name": None,
                 "auth_index": None,
+                "auth_file_disabled": False,
                 "available_models": (),
                 "enabled_models": (),
                 "quota": QuotaSnapshot(),
@@ -704,7 +705,8 @@ class EnvironmentService:
         except Exception as error:
             await self._log_event(record, "authentication", error)
             return Failure(FailureCode.UPSTREAM, "auth file status update failed")
-        return await self.refresh_environment(environment_id)
+        refreshed: Final = await self._refresh_if_needed(record, credential_state_changed=True)
+        return Success(to_view(refreshed))
 
     async def patch_auth_file_fields(
         self, environment_id: UUID, fields: Mapping[str, object]
@@ -721,7 +723,8 @@ class EnvironmentService:
         except Exception as error:
             await self._log_event(record, "authentication", error)
             return Failure(FailureCode.UPSTREAM, "auth file fields update failed")
-        return await self.refresh_environment(environment_id)
+        refreshed: Final = await self._refresh_if_needed(record)
+        return Success(to_view(refreshed))
 
     async def get_auth_file_models(self, environment_id: UUID) -> Result[tuple[str, ...]]:
         record: Final = await self._repository.get(environment_id)
@@ -1784,6 +1787,11 @@ class EnvironmentService:
                     "proxy_mode": request.proxy_mode,
                     "proxy_profile_id": request.proxy_profile_id,
                     "enabled_models": request.enabled_models,
+                    "auth_file_disabled": (
+                        not credential_enabled
+                        if record.channel is ChannelKind.CLIPROXYAPI and record.auth_file_name is not None
+                        else record.auth_file_disabled
+                    ),
                     "settings_profile_baselines": (
                         record.settings_profile_baselines
                         if settings_profile_baselines == "preserve"
@@ -2011,11 +2019,7 @@ class EnvironmentService:
                 else _AutomaticCooldownState.BLOCKED
             )
         if record.manual_cooldown:
-            return (
-                _AutomaticCooldownState.RECOVERED
-                if await self._data_plane_health_check(record)
-                else _AutomaticCooldownState.BLOCKED
-            )
+            return _AutomaticCooldownState.RECOVERED
         return (
             _AutomaticCooldownState.ACTIVE
             if record.status == EnvironmentStatus.COOLING_DOWN
@@ -2031,6 +2035,7 @@ class EnvironmentService:
         record: EnvironmentRecord,
         *,
         refresh_quota: bool = False,
+        credential_state_changed: bool = False,
     ) -> EnvironmentRecord:
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -2067,12 +2072,13 @@ class EnvironmentService:
             if current.auth_file_name is None and current.channel is not ChannelKind.OPENAI_COMPATIBLE:
                 return current
             channel: Final = self._channel(current)
-            if current.automatic_cooldown and not await channel.data_plane_health_check(current):
-                return current
-            if _cooldown_active(current):
-                return current
-            if _cooldown_elapsed(current) and not await channel.data_plane_health_check(current):
-                return current
+            if not credential_state_changed:
+                if current.automatic_cooldown and not await channel.data_plane_health_check(current):
+                    return current
+                if _cooldown_active(current):
+                    return current
+                if _cooldown_elapsed(current) and not await channel.data_plane_health_check(current):
+                    return current
             try:
                 observed: Final = await channel.read_account(current, refresh_quota=refresh_quota)
             except Exception as error:

@@ -452,6 +452,7 @@ class EnvironmentRecord(BaseModel):
     enabled_models: tuple[str, ...]
     auth_file_name: str | None
     auth_index: str | None
+    auth_file_disabled: bool = False
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     cooldown_until: datetime | None
