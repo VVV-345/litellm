@@ -198,6 +198,58 @@ async def test_read_account_preserves_last_active_quota_when_passive_metadata_is
 
 
 @pytest.mark.asyncio
+async def test_read_account_keeps_active_quota_ahead_of_older_cliproxy_cache() -> None:
+    previous_quota: Final = QuotaSnapshot(
+        observed_at=datetime(2026, 9, 15, 14, 0, tzinfo=timezone.utc),
+        source="provider_api",
+        refresh_status="complete",
+        windows=(
+            QuotaWindow(
+                name="5 hour",
+                used_percent=10,
+                remaining_percent=90,
+                window_minutes=300,
+            ),
+        ),
+    )
+    record: Final = _record().model_copy(
+        update={"supplier": SupplierKind.OPENAI_CODEX, "quota": previous_quota, "auth_file_name": "codex.json"}
+    )
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "codex.json",
+                            "provider": "codex",
+                            "quota": {
+                                "observed_at": "2026-09-15T13:00:00Z",
+                                "signals": {
+                                    "x-codex-five-hour-used-percent": "69",
+                                    "x-codex-five-hour-window-minutes": "300",
+                                },
+                            },
+                        }
+                    ]
+                },
+                request=request,
+            )
+        return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier)
+    await client.aclose()
+
+    assert tuple(window.remaining_percent for window in observed.quota.windows) == (90.0,)
+    assert observed.quota.source == "provider_api"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("name", "auth_file_plan_type", "expected_auth_file_plan_type"),
     (
@@ -326,6 +378,57 @@ async def test_codex_quota_refresh_reads_wham_windows_and_reset_credits() -> Non
     assert api_calls[1]["header"]["User-Agent"].endswith("Chrome/147.0.0.0 Safari/537.36")
     assert "OpenAI-Beta" not in api_calls[0]["header"]
     assert "Content-Type" not in api_calls[0]["header"]
+
+
+@pytest.mark.asyncio
+async def test_codex_quota_refresh_falls_back_to_cliproxy_cache_when_provider_refresh_fails() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.OPENAI_CODEX})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "codex.json",
+                            "provider": "codex",
+                            "auth_index": "codex-index",
+                            "quota": {
+                                "observed_at": "2026-09-15T13:00:00Z",
+                                "signals": {
+                                    "x-codex-plan-type": "plus",
+                                    "x-codex-five-hour-used-percent": "69",
+                                    "x-codex-five-hour-window-minutes": "300",
+                                },
+                            },
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        status_code: Final = 403 if "/accounts/check/" in str(payload["url"]) else 200
+        return httpx.Response(
+            200,
+            json={"status_code": status_code, "header": {}, "body": "{}"},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert tuple(window.remaining_percent for window in observed.quota.windows) == (31.0,)
+    assert observed.quota.source == "cliproxyapi_cache"
+    assert observed.quota.refresh_status == "failed"
+    assert observed.quota.refresh_attempted_at is not None
+    assert observed.quota.refresh_error is not None
+    assert "wham/usage" in observed.quota.refresh_error
 
 
 @pytest.mark.asyncio

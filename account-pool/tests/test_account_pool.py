@@ -47,6 +47,7 @@ from account_pool.domain import (
     ProxyMode,
     ProxyProfile,
     QuotaSnapshot,
+    QuotaWindow,
     SupplierKind,
     UpdateEnvironmentRequest,
     utc_now,
@@ -926,6 +927,40 @@ async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -
 
     assert refreshed == Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_background_quota_refresh_reports_cached_fallback_as_failed_attempt(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    cli.read_result = record.model_copy(
+        update={
+            "quota": QuotaSnapshot(
+                observed_at=utc_now(),
+                refresh_attempted_at=utc_now(),
+                source="cliproxyapi_cache",
+                refresh_status="failed",
+                refresh_error="provider quota endpoint rejected the request",
+                windows=(
+                    QuotaWindow(
+                        name="5 hour",
+                        used_percent=69,
+                        remaining_percent=31,
+                        window_minutes=300,
+                    ),
+                ),
+            )
+        }
+    )
+    service: Final = _service(record, cli, tmp_path)
+
+    failed: Final = await service.refresh_ready_quotas(max_concurrency=3)
+    durable: Final = await service._repository.get(record.id)
+
+    assert failed == (record.id,)
+    assert durable is not None
+    assert durable.quota.source == "cliproxyapi_cache"
+    assert durable.quota.windows[0].remaining_percent == 31
 
 
 @pytest.mark.asyncio

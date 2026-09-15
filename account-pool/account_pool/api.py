@@ -230,7 +230,11 @@ def create_router(
         records: Final = await environments.list()
         results: Final = await asyncio.gather(*(service.refresh_environment(record.id) for record in records))
         refreshed: Final = tuple(result.value for result in results if not isinstance(result, Failure))
-        failed: Final = tuple(record.id for record, result in zip(records, results) if isinstance(result, Failure))
+        failed: Final = tuple(
+            record.id
+            for record, result in zip(records, results)
+            if isinstance(result, Failure) or result.value.quota.refresh_status == "failed"
+        )
         return QuotaRefreshResult(refreshed=refreshed, failed_card_ids=failed)
 
     @router.get("/api/credentials", dependencies=[Depends(require_manager)])

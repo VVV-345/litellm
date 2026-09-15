@@ -5887,6 +5887,18 @@
       "awaitingRefresh": "已到重置时间，等待刷新",
       "remainingValue": "剩余 {{percent}}",
       "updatedAt": "额度更新于 {{time}}",
+      "updatedAtLabel": "额度更新时间",
+      "refreshAttemptedAt": "最近尝试刷新于 {{time}}",
+      "refreshAttemptedAtLabel": "最近刷新尝试",
+      "proxy": "额度出口：{{proxy}}",
+      "proxyLabel": "额度出口",
+      "proxyPort": "Clash 端口 {{port}}",
+      "sourceLabel": "额度来源",
+      "source": {
+        "provider_api": "供应商主动接口",
+        "cliproxyapi_cache": "CLIProxyAPI 缓存",
+        "stored_cache": "已保存快照"
+      },
       "prepaidBalance": "预付余额",
       "availableBalance": "{{name}} 可用余额",
       "minimumRequired": "最低使用门槛：{{amount}}",
@@ -5898,6 +5910,7 @@
       "refreshStatus": {
         "complete": "完整刷新",
         "partial": "部分刷新",
+        "failed": "主动刷新失败，已回退缓存",
         "unsupported": "供应商未提供接口"
       },
       "window": {
@@ -6143,7 +6156,7 @@
       "capabilityTitle": "能力执行状态",
       "accountScope": "账号范围",
       "accountScopeDescription": "只显示相同渠道和供应商的其他卡片，避免把不兼容账号绑定到一起",
-      "providerDescription": "套餐和额度来自认证结果，只读展示；下面的开关与下拉框保存为当前卡片策略",
+      "providerDescription": "额度通过当前卡片的 CLIProxyAPI 和绑定代理刷新，只读展示；下面的开关与下拉框保存为当前卡片策略",
       "providerPending": "该供应商当前没有可编辑的专属设置；认证后的套餐和额度由卡片自动同步",
       "saved": "策略已保存，下次卡片 Key 请求读取新版本；不支持的能力不会被标记为已生效",
       "runtimeStatus": {
@@ -6213,7 +6226,7 @@
       "subscriptionTier": "认证套餐",
       "remainingQuota": "剩余额度",
       "subscriptionExpiry": "订阅到期",
-      "subscriptionReadOnly": "套餐档位和到期时间由认证文件与配额刷新同步，不能在这里手工修改",
+      "subscriptionReadOnly": "套餐、额度来源和更新时间由当前卡片的 CLIProxyAPI 与供应商接口同步，不能在这里手工修改",
       "kimiDeviceIdAuto": "设备 ID 认证后自动维护",
       "identity_fingerprint_mode": "Codex 指纹收敛模式",
       "identityFingerprintModeDescription": "关闭时不改写标识；仅设备会改写安装 ID；设备加会话还会改写会话和对话 ID；完整收敛会继续改写缓存、线程、轮次、窗口和请求 ID",

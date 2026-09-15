@@ -110,6 +110,8 @@ class AccountPoolQuotaSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     observed_at: str | None = None
+    refresh_attempted_at: str | None = None
+    source: Literal["provider_api", "cliproxyapi_cache", "stored_cache"] | None = None
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
     subscription_status: str | None = None
@@ -119,7 +121,7 @@ class AccountPoolQuotaSnapshot(BaseModel):
     prepaid_balance: float | None = None
     extra_usage_enabled: bool | None = None
     has_grok_code_access: bool | None = None
-    refresh_status: Literal["complete", "partial", "unsupported"] | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
     refresh_error: str | None = None
     windows: tuple[AccountPoolQuotaWindow, ...] = ()
     balances: tuple[AccountPoolQuotaBalance, ...] = ()

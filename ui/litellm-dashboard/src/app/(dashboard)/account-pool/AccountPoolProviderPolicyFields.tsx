@@ -4,15 +4,13 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { MultiSelect } from "@/components/shared/MultiSelect";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-import { formatDateTime, formatQuota, mostConstrainedWindow } from "./AccountPoolFormatters";
+import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import type { AccountPolicy } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
-import { accountPoolPlanLabel } from "./accountPoolCodexPlan";
 import type { AccountPoolPolicyOption } from "./accountPoolPolicyOptions";
 
 type Codex = NonNullable<AccountPolicy["codex"]>;
@@ -82,13 +80,7 @@ export function AccountPoolProviderPolicyFields({
   onXaiChange,
   onAntigravityChange,
 }: AccountPoolProviderPolicyFieldsProps) {
-  const { t, i18n } = useTranslation();
-  const quotaWindow = mostConstrainedWindow(environment);
-  const quota = environment.quota;
-  const planLabel =
-    environment.supplier === "openai_codex"
-      ? accountPoolPlanLabel(quota.plan_type, quota.auth_file_plan_type)
-      : quota.plan_type || "-";
+  const { t } = useTranslation();
   const toggleField = ({ label, description, checked, onChange, disabled = false }: ToggleFieldProps) => (
     <FieldCard>
       <div className="flex min-w-0 items-start justify-between gap-4">
@@ -151,24 +143,9 @@ export function AccountPoolProviderPolicyFields({
     </FieldCard>
   );
   const summary = (
-    <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-3 lg:col-span-2">
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{t("accountPool.policy.subscriptionTier")}</p>
-        <Badge className="mt-2 max-w-full truncate" variant="secondary">
-          {planLabel}
-        </Badge>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{t("accountPool.policy.remainingQuota")}</p>
-        <p className="mt-2 break-words font-medium">{formatQuota(t, quotaWindow)}</p>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{t("accountPool.policy.subscriptionExpiry")}</p>
-        <p className="mt-2 break-words font-medium">{formatDateTime(quota.subscription_active_until, i18n.language)}</p>
-      </div>
-      <p className="text-xs leading-5 text-muted-foreground sm:col-span-3">
-        {t("accountPool.policy.subscriptionReadOnly")}
-      </p>
+    <div className="grid gap-2 lg:col-span-2">
+      <AccountPoolCardQuota environment={environment} />
+      <p className="text-xs leading-5 text-muted-foreground">{t("accountPool.policy.subscriptionReadOnly")}</p>
     </div>
   );
 

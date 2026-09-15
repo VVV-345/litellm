@@ -23976,6 +23976,8 @@ export interface components {
             has_grok_code_access?: boolean | null;
             /** Observed At */
             observed_at?: string | null;
+            /** Refresh Attempted At */
+            refresh_attempted_at?: string | null;
             /** Plan Type */
             plan_type?: string | null;
             /** Prepaid Balance */
@@ -23983,7 +23985,7 @@ export interface components {
             /** Refresh Error */
             refresh_error?: string | null;
             /** Refresh Status */
-            refresh_status?: ("complete" | "partial" | "unsupported") | null;
+            refresh_status?: ("complete" | "partial" | "failed" | "unsupported") | null;
             /** Reset Credits Available */
             reset_credits_available?: number | null;
             /** Subscription Active Start */
@@ -23992,6 +23994,8 @@ export interface components {
             subscription_active_until?: string | null;
             /** Subscription Status */
             subscription_status?: string | null;
+            /** Source */
+            source?: ("provider_api" | "cliproxyapi_cache" | "stored_cache") | null;
             /**
              * Windows
              * @default []

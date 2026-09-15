@@ -163,6 +163,8 @@ class QuotaSnapshot(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     observed_at: datetime | None = None
+    refresh_attempted_at: datetime | None = None
+    source: Literal["provider_api", "cliproxyapi_cache", "stored_cache"] | None = None
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
     subscription_status: str | None = None
@@ -172,7 +174,7 @@ class QuotaSnapshot(BaseModel):
     prepaid_balance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     extra_usage_enabled: bool | None = None
     has_grok_code_access: bool | None = None
-    refresh_status: Literal["complete", "partial", "unsupported"] | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
     refresh_error: str | None = Field(default=None, max_length=500)
     refresh_failures: tuple[ProviderEndpointFailure, ...] = Field(default=(), exclude=True, repr=False)
     windows: tuple[QuotaWindow, ...] = ()

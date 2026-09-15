@@ -30,6 +30,14 @@ export const formatQuota = (t: TFunction, window: AccountPoolQuotaWindow | null)
     ? t("accountPool.config.notObserved")
     : `${window.remaining_percent.toFixed(window.remaining_percent % 1 ? 1 : 0)}%`;
 
+export const quotaProxyLabel = (t: TFunction, environment: AccountPoolEnvironment): string => {
+  if (environment.proxy_mode === "default_gateway") return t("accountPool.config.defaultGateway");
+  const port = environment.proxy_profile_id?.match(/^clash-gateway-(\d+)$/)?.[1];
+  return port
+    ? t("accountPool.quotas.proxyPort", { port })
+    : environment.proxy_profile_id || t("accountPool.dashboard.unknown");
+};
+
 export const formatQuotaAmounts = (t: TFunction, window: AccountPoolQuotaWindow, locale: string): string | null => {
   const formatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
   const units: Record<string, string> = {

@@ -5887,6 +5887,18 @@
       "awaitingRefresh": "Reset due, awaiting refresh",
       "remainingValue": "{{percent}} remaining",
       "updatedAt": "Quota updated {{time}}",
+      "updatedAtLabel": "Quota updated",
+      "refreshAttemptedAt": "Last refresh attempt {{time}}",
+      "refreshAttemptedAtLabel": "Last refresh attempt",
+      "proxy": "Quota route: {{proxy}}",
+      "proxyLabel": "Quota route",
+      "proxyPort": "Clash port {{port}}",
+      "sourceLabel": "Quota source",
+      "source": {
+        "provider_api": "Provider API",
+        "cliproxyapi_cache": "CLIProxyAPI cache",
+        "stored_cache": "Stored snapshot"
+      },
       "prepaidBalance": "Prepaid balance",
       "availableBalance": "{{name}} available balance",
       "minimumRequired": "Minimum required: {{amount}}",
@@ -5898,6 +5910,7 @@
       "refreshStatus": {
         "complete": "Complete refresh",
         "partial": "Partial refresh",
+        "failed": "Active refresh failed, using cache",
         "unsupported": "Provider has no quota API"
       },
       "window": {
@@ -6143,7 +6156,7 @@
       "capabilityTitle": "Capability enforcement",
       "accountScope": "Account scope",
       "accountScopeDescription": "Only cards with the same channel and provider are offered, preventing incompatible account bindings",
-      "providerDescription": "Plan and quota values come from authentication and are read-only. Controls below are saved for this card",
+      "providerDescription": "Quota is refreshed through this card's CLIProxyAPI and assigned proxy. Controls below are saved for this card",
       "providerPending": "This provider has no editable provider-specific settings yet. Plans and quotas sync to the card after authentication",
       "saved": "Policy saved for subsequent card-key requests. Unsupported settings are not marked active",
       "runtimeStatus": {
@@ -6213,7 +6226,7 @@
       "subscriptionTier": "Authenticated plan",
       "remainingQuota": "Remaining quota",
       "subscriptionExpiry": "Subscription expiry",
-      "subscriptionReadOnly": "Plan tier and expiry sync from authentication and quota refreshes and cannot be edited here",
+      "subscriptionReadOnly": "Plan, quota source, and timestamps sync through this card's CLIProxyAPI and provider endpoints and cannot be edited here",
       "kimiDeviceIdAuto": "Device ID is maintained automatically after authentication",
       "identity_fingerprint_mode": "Codex fingerprint convergence",
       "identityFingerprintModeDescription": "Off leaves identifiers unchanged. Device rewrites the installation ID. Session also rewrites session and conversation IDs. Full additionally rewrites cache, thread, turn, window, and request IDs",

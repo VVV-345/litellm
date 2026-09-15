@@ -3,18 +3,23 @@ import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { accountPoolPlanLabel } from "./accountPoolCodexPlan";
-import { formatDateTime, formatQuota, quotaWindowLabel } from "./AccountPoolFormatters";
-import type { AccountPoolQuotaSnapshot } from "./AccountPoolTypes";
+import { formatDateTime, formatQuota, quotaProxyLabel, quotaWindowLabel } from "./AccountPoolFormatters";
+import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
-export function AccountPoolCardQuota({ quota }: { quota: AccountPoolQuotaSnapshot }) {
+export function AccountPoolCardQuota({ environment }: { environment: AccountPoolEnvironment }) {
   const { t, i18n } = useTranslation();
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-  const plan = accountPoolPlanLabel(quota.plan_type, quota.auth_file_plan_type);
+  const quota = environment.quota;
+  const plan =
+    environment.supplier === "openai_codex"
+      ? accountPoolPlanLabel(quota.plan_type, quota.auth_file_plan_type)
+      : quota.plan_type || "-";
   const planLabel = plan === "PLUS" ? "Plus" : plan;
+  const proxyLabel = quotaProxyLabel(t, environment);
   const resetDistance = (value: string | null | undefined) => {
     if (!value) return null;
     const difference = new Date(value).getTime() - now;
@@ -38,6 +43,12 @@ export function AccountPoolCardQuota({ quota }: { quota: AccountPoolQuotaSnapsho
             countText: quota.reset_credits_available ?? t("accountPool.dashboard.unknown"),
           })}
         </span>
+        {quota.source && <Badge variant="secondary">{t(`accountPool.quotas.source.${quota.source}`)}</Badge>}
+        {quota.refresh_status && (
+          <Badge variant={quota.refresh_status === "failed" ? "destructive" : "secondary"}>
+            {t(`accountPool.quotas.refreshStatus.${quota.refresh_status}`)}
+          </Badge>
+        )}
       </div>
       {quota.windows.length === 0 && (
         <p className="text-xs text-muted-foreground">{t("accountPool.config.notObserved")}</p>
@@ -73,8 +84,16 @@ export function AccountPoolCardQuota({ quota }: { quota: AccountPoolQuotaSnapsho
           </div>
         );
       })}
-      <div className="border-t pt-2 text-[11px] text-muted-foreground">
-        {t("accountPool.quotas.updatedAt", { time: formatDateTime(quota.observed_at, i18n.language) })}
+      <div className="grid gap-1 border-t pt-2 text-[11px] text-muted-foreground sm:grid-cols-2">
+        <span>{t("accountPool.quotas.proxy", { proxy: proxyLabel })}</span>
+        <span>{t("accountPool.quotas.updatedAt", { time: formatDateTime(quota.observed_at, i18n.language) })}</span>
+        {quota.refresh_attempted_at && (
+          <span className="sm:col-span-2">
+            {t("accountPool.quotas.refreshAttemptedAt", {
+              time: formatDateTime(quota.refresh_attempted_at, i18n.language),
+            })}
+          </span>
+        )}
       </div>
       {quota.refresh_error && (
         <p role="status" className="break-words text-xs text-destructive">

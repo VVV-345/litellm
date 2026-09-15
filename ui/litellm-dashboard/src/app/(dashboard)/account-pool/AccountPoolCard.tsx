@@ -295,7 +295,7 @@ export const AccountPoolCard = ({
               </div>
             )}
         </div>
-        {environment.supplier === "openai_codex" && <AccountPoolCardQuota quota={environment.quota} />}
+        {environment.supplier === "openai_codex" && <AccountPoolCardQuota environment={environment} />}
         {policyValues && (
           <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
             <div>

@@ -27,6 +27,8 @@ const environment: AccountPoolEnvironment = {
   enabled_models: ["grok-code-fast-1"],
   quota: {
     observed_at: "2026-09-14T00:00:00Z",
+    refresh_attempted_at: "2026-09-14T00:05:00Z",
+    source: "cliproxyapi_cache",
     plan_type: "SuperGrok Heavy",
     subscription_status: "SUBSCRIPTION_STATUS_ACTIVE",
     subscription_active_start: "2026-09-01T00:00:00Z",
@@ -82,5 +84,9 @@ describe("AccountPoolQuotaPanel", () => {
     expect(screen.getByText("25,000 点数")).toBeInTheDocument();
     expect(screen.getByText("最低使用门槛：50")).toBeInTheDocument();
     expect(screen.getByText(/HTTP 503/)).toBeInTheDocument();
+    expect(screen.getByText(/CLIProxyAPI 缓存|CLIProxyAPI cache/i)).toBeInTheDocument();
+    expect(screen.getByText(/默认网关|Default gateway/i)).toBeInTheDocument();
+    expect(screen.getByText("09/14 08:00")).toBeInTheDocument();
+    expect(screen.getByText("09/14 08:05")).toBeInTheDocument();
   });
 });

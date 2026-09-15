@@ -12,6 +12,7 @@ import {
   formatQuota,
   formatQuotaAmounts,
   mostConstrainedWindow,
+  quotaProxyLabel,
   quotaRows,
   quotaWindowLabel,
 } from "./AccountPoolFormatters";
@@ -77,6 +78,17 @@ export const AccountPoolQuotaPanel = ({
                     quota.extra_usage_enabled ? t("accountPool.quotas.enabled") : t("accountPool.quotas.disabled"),
                   ]
                 : null,
+              quota.source
+                ? [t("accountPool.quotas.sourceLabel"), t(`accountPool.quotas.source.${quota.source}`)]
+                : null,
+              [t("accountPool.quotas.proxyLabel"), quotaProxyLabel(t, environment)],
+              [t("accountPool.quotas.updatedAtLabel"), formatDateTime(quota.observed_at, i18n.language)],
+              quota.refresh_attempted_at
+                ? [
+                    t("accountPool.quotas.refreshAttemptedAtLabel"),
+                    formatDateTime(quota.refresh_attempted_at, i18n.language),
+                  ]
+                : null,
             ].filter((item): item is string[] => item !== null);
 
             return (
@@ -87,7 +99,13 @@ export const AccountPoolQuotaPanel = ({
                     <div className="flex flex-wrap gap-2">
                       <Badge variant="outline">{t(`accountPool.supplier.${environment.supplier}`)}</Badge>
                       {quota.refresh_status ? (
-                        <Badge variant={quota.refresh_status === "partial" ? "destructive" : "secondary"}>
+                        <Badge
+                          variant={
+                            quota.refresh_status === "partial" || quota.refresh_status === "failed"
+                              ? "destructive"
+                              : "secondary"
+                          }
+                        >
                           {t(`accountPool.quotas.refreshStatus.${quota.refresh_status}`)}
                         </Badge>
                       ) : null}

@@ -182,6 +182,8 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "enabled_models": [],
             "quota": {
                 "observed_at": None,
+                "refresh_attempted_at": None,
+                "source": None,
                 "plan_type": None,
                 "auth_file_plan_type": None,
                 "subscription_status": None,
@@ -190,6 +192,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
                 "reset_credits_available": None,
                 "prepaid_balance": None,
                 "extra_usage_enabled": None,
+                "has_grok_code_access": None,
                 "refresh_status": None,
                 "refresh_error": None,
                 "windows": [],

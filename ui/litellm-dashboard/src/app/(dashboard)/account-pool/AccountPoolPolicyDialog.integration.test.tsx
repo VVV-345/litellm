@@ -34,11 +34,28 @@ const environment = {
   enabled: true,
   manual_cooldown: false,
   concurrency_limit: 2,
-  proxy_mode: "default_gateway",
-  proxy_profile_id: null,
+  proxy_mode: "profile",
+  proxy_profile_id: "clash-gateway-7891",
   available_models: ["gpt-5"],
   enabled_models: ["gpt-5"],
-  quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
+  quota: {
+    observed_at: "2026-09-15T13:00:00Z",
+    refresh_attempted_at: "2026-09-15T13:05:00Z",
+    source: "cliproxyapi_cache",
+    plan_type: "plus",
+    refresh_status: "failed",
+    refresh_error: "provider quota endpoint rejected the request",
+    windows: [
+      {
+        name: "5 hour",
+        used_percent: 69,
+        remaining_percent: 31,
+        window_minutes: 300,
+        resets_at: "2090-09-15T18:00:00Z",
+      },
+    ],
+    balances: [],
+  },
   model_quotas: [],
   cooldown_until: null,
   automatic_cooldown: false,
@@ -107,5 +124,17 @@ describe("AccountPoolPolicyDialog", () => {
     expect(screen.getByText(/数值越大越先被选择|higher values are selected first/i)).toBeInTheDocument();
     expect(screen.getByText(/剩余额度达到或低于|remaining quota reaches/i)).toBeInTheDocument();
     expect(screen.getByText(/认证信息与敏感内容仍会脱敏|credentials and sensitive data redacted/i)).toBeInTheDocument();
+  });
+
+  it("shows the same quota detail and route diagnostics as the dashboard card", async () => {
+    renderDialog();
+
+    expect(await screen.findByRole("meter", { name: /5 小时额度|5-hour allowance/i })).toHaveAttribute(
+      "aria-valuenow",
+      "31",
+    );
+    expect(screen.getByText(/CLIProxyAPI 缓存|CLIProxyAPI cache/i)).toBeInTheDocument();
+    expect(screen.getByText(/Clash 端口 7891|Clash port 7891/i)).toBeInTheDocument();
+    expect(screen.getByText(/provider quota endpoint rejected/i)).toBeInTheDocument();
   });
 });

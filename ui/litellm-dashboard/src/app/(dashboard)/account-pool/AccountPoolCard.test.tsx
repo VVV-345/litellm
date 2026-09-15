@@ -62,7 +62,10 @@ describe("AccountPoolCard", () => {
       supplier: "openai_codex",
       quota: {
         observed_at: "2026-09-15T08:00:00Z",
+        refresh_attempted_at: "2026-09-15T08:05:00Z",
+        source: "provider_api",
         plan_type: "chatgptplusplan",
+        refresh_status: "complete",
         reset_credits_available: 0,
         windows: [
           {
@@ -98,6 +101,9 @@ describe("AccountPoolCard", () => {
     expect(within(screen.getByRole("group", { name: "5 小时额度" })).getByText(/09.*15/)).toBeInTheDocument();
     expect(within(screen.getByRole("group", { name: "周额度" })).getByText(/09.*22/)).toBeInTheDocument();
     expect(screen.queryByText("chatgptplusplan")).not.toBeInTheDocument();
+    expect(screen.getByText(/供应商主动接口|Provider API/i)).toBeInTheDocument();
+    expect(screen.getByText(/额度出口：默认网关|Quota route: Default gateway/i)).toBeInTheDocument();
+    expect(screen.getByText(/最近尝试刷新于|Last refresh attempt/i)).toBeInTheDocument();
   });
 
   it("does not invent quota or reset credits when the provider has not returned them", () => {

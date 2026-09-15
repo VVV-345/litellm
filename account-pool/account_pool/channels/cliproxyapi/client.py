@@ -24,7 +24,9 @@ from account_pool.domain import (
     OAuthCallback,
     ProviderEndpointFailure,
     ProviderHTTPMethod,
+    QuotaBalance,
     QuotaSnapshot,
+    QuotaWindow,
     SupplierKind,
 )
 from account_pool.provider_quota import (
@@ -191,12 +193,30 @@ def _merge_quota_snapshots(
     passive: QuotaSnapshot,
     active: QuotaSnapshot | None,
 ) -> QuotaSnapshot:
+    active_has_payload: Final = active is not None and _has_quota_payload(active)
+    source: Final = (
+        "provider_api"
+        if active_has_payload
+        else previous.source
+        if active is None and previous.source == "provider_api" and _has_quota_payload(previous)
+        else "cliproxyapi_cache"
+        if _has_quota_payload(passive)
+        else "stored_cache"
+        if active is not None
+        else previous.source
+    )
     return QuotaSnapshot(
         observed_at=(
             active.observed_at
             if active is not None and active.observed_at is not None
             else passive.observed_at or previous.observed_at
         ),
+        refresh_attempted_at=(
+            active.refresh_attempted_at
+            if active is not None and active.refresh_attempted_at is not None
+            else previous.refresh_attempted_at
+        ),
+        source=source,
         plan_type=(
             active.plan_type
             if active is not None and active.plan_type is not None
@@ -255,20 +275,41 @@ def _merge_quota_snapshots(
             active.refresh_error if active is not None and active.refresh_status is not None else previous.refresh_error
         ),
         refresh_failures=() if active is None else active.refresh_failures,
-        windows=(
-            active.windows
-            if active is not None and active.windows
-            else passive.windows
-            if passive.windows
-            else previous.windows
-        ),
-        balances=(
-            active.balances
-            if active is not None and active.balances
-            else passive.balances
-            if passive.balances
-            else previous.balances
-        ),
+        windows=_select_quota_windows(previous, passive, active),
+        balances=_select_quota_balances(previous, passive, active),
+    )
+
+
+def _select_quota_windows(
+    previous: QuotaSnapshot,
+    passive: QuotaSnapshot,
+    active: QuotaSnapshot | None,
+) -> tuple[QuotaWindow, ...]:
+    if active is not None and active.windows:
+        return active.windows
+    if active is None and previous.source == "provider_api" and previous.windows:
+        return previous.windows
+    return passive.windows or previous.windows
+
+
+def _select_quota_balances(
+    previous: QuotaSnapshot,
+    passive: QuotaSnapshot,
+    active: QuotaSnapshot | None,
+) -> tuple[QuotaBalance, ...]:
+    if active is not None and active.balances:
+        return active.balances
+    if active is None and previous.source == "provider_api" and previous.balances:
+        return previous.balances
+    return passive.balances or previous.balances
+
+
+def _has_quota_payload(quota: QuotaSnapshot) -> bool:
+    return bool(
+        quota.windows
+        or quota.balances
+        or quota.reset_credits_available is not None
+        or quota.prepaid_balance is not None
     )
 
 
@@ -280,7 +321,13 @@ def _annotate_refresh(
     status: Final = "partial" if failures else "complete"
     return ProviderQuotaRefresh(
         quota=refreshed.quota.model_copy(
-            update={"refresh_status": status, "refresh_error": message, "refresh_failures": failures}
+            update={
+                "refresh_attempted_at": datetime.now(timezone.utc),
+                "source": "provider_api",
+                "refresh_status": status,
+                "refresh_error": message,
+                "refresh_failures": failures,
+            }
         ),
         model_quotas=refreshed.model_quotas,
     )
@@ -532,6 +579,7 @@ class HttpCLIProxyClient:
         auth_plan_type: Final = auth_file.plan_type or (identity.plan_type if identity is not None else None)
         passive_quota: Final = parsed_quota.model_copy(
             update={
+                "source": "cliproxyapi_cache",
                 "plan_type": parsed_quota.plan_type or auth_plan_type,
                 **(
                     {
@@ -545,7 +593,7 @@ class HttpCLIProxyClient:
             }
         )
         refreshed_quota: Final = (
-            await self._refresh_provider_quota(record, selected_supplier, auth_file) if refresh_quota else None
+            await self._quota_refresh_with_fallback(record, selected_supplier, auth_file) if refresh_quota else None
         )
         quota: Final = _merge_quota_snapshots(
             record.quota,
@@ -589,6 +637,34 @@ class HttpCLIProxyClient:
                 "status": status,
                 "last_error": None,
             }
+        )
+
+    async def _quota_refresh_with_fallback(
+        self,
+        record: EnvironmentRecord,
+        supplier: SupplierDefinition,
+        auth_file: _AuthFile,
+    ) -> ProviderQuotaRefresh | None:
+        attempted_at: Final = datetime.now(timezone.utc)
+        try:
+            refreshed: Final = await self._refresh_provider_quota(record, supplier, auth_file)
+        except ProviderQuotaError as error:
+            message: Final = "; ".join(failure.summary() for failure in error.failures)[:500] or str(error)[:500]
+            return ProviderQuotaRefresh(
+                quota=QuotaSnapshot(
+                    refresh_attempted_at=attempted_at,
+                    refresh_status="failed",
+                    refresh_error=message,
+                    refresh_failures=error.failures,
+                )
+            )
+        if refreshed is None:
+            return None
+        return ProviderQuotaRefresh(
+            quota=refreshed.quota.model_copy(
+                update={"refresh_attempted_at": refreshed.quota.refresh_attempted_at or attempted_at}
+            ),
+            model_quotas=refreshed.model_quotas,
         )
 
     async def read_account_legacy(self, record: EnvironmentRecord) -> EnvironmentRecord:

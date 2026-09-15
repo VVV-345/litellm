@@ -233,7 +233,11 @@ class EnvironmentService:
         async def refresh(record: EnvironmentRecord) -> UUID | None:
             async with semaphore:
                 result: Final = await self.refresh_environment(record.id)
-                return record.id if isinstance(result, Failure) else None
+                return (
+                    record.id
+                    if isinstance(result, Failure) or result.value.quota.refresh_status == "failed"
+                    else None
+                )
 
         failed: Final = await asyncio.gather(*(refresh(record) for record in ready))
         return tuple(card_id for card_id in failed if card_id is not None)
@@ -2109,7 +2113,7 @@ class EnvironmentService:
             )
             refresh_failures: Final = refreshed.quota.refresh_failures
             saved: Final = await self._repository.save(refreshed)
-            if refresh_quota and saved.quota.refresh_status == "partial" and saved.quota.refresh_error:
+            if refresh_quota and saved.quota.refresh_status in ("partial", "failed") and saved.quota.refresh_error:
                 if refresh_failures:
                     for failure in refresh_failures:
                         await self._log_event(
