@@ -61,11 +61,11 @@ class PostgresEnvironmentRepository:
     async def list(self) -> tuple[EnvironmentRecord, ...]:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                "SELECT payload FROM account_pool_environments "
-                "ORDER BY payload->>'created_at' ASC NULLS LAST, id ASC"
+                "SELECT payload FROM account_pool_environments"
             )
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        return tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
+        records: Final = tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
+        return tuple(sorted(records, key=lambda record: (record.created_at, record.id.int)))
 
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None:
         async with database_connection(self._database_url) as connection:

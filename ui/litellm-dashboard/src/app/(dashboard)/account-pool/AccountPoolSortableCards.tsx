@@ -9,9 +9,6 @@ const mergeCardOrder = (order: readonly string[], cardIds: readonly string[]): r
   ...new Set([...order, ...cardIds]),
 ];
 
-const sameCardOrder = (left: readonly string[], right: readonly string[]): boolean =>
-  left.length === right.length && left.every((id, index) => id === right[index]);
-
 export function AccountPoolSortableCards<T extends { id: string; name: string }>({
   supplier,
   cards,
@@ -32,7 +29,12 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
       return [];
     }
   };
-  const [order, setOrder] = useState<readonly string[]>(readOrder);
+  const [order, setOrder] = useState<readonly string[]>(() =>
+    mergeCardOrder(
+      readOrder(),
+      cards.map((card) => card.id),
+    ),
+  );
   const hydrated = useSyncExternalStore(
     () => () => undefined,
     () => true,
@@ -44,7 +46,6 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
 
   const cardIds = useMemo(() => cards.map((card) => card.id), [cards]);
   const resolvedOrder = useMemo(() => (hydrated ? mergeCardOrder(order, cardIds) : []), [cardIds, hydrated, order]);
-  if (hydrated && !sameCardOrder(resolvedOrder, order)) setOrder(resolvedOrder);
   const orderIndex = useMemo(() => new Map(resolvedOrder.map((id, index) => [id, index])), [resolvedOrder]);
   const ordered = useMemo(
     () =>
@@ -57,11 +58,11 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(order));
+      window.localStorage.setItem(storageKey, JSON.stringify(resolvedOrder));
     } catch {
       return;
     }
-  }, [hydrated, order, storageKey]);
+  }, [hydrated, resolvedOrder, storageKey]);
   const move = (sourceId: string, targetId: string) => {
     const sourceIndex = ordered.findIndex((card) => card.id === sourceId);
     const targetIndex = ordered.findIndex((card) => card.id === targetId);
@@ -123,8 +124,9 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
       <ul className="m-0 grid list-none grid-cols-1 items-start gap-4 p-0 md:grid-cols-2 2xl:grid-cols-3">
         {!hydrated &&
           cards.map((card) => (
-            <li key={card.id} aria-hidden="true">
-              <Skeleton className="h-72 w-full rounded-xl" />
+            <li key={card.id} aria-hidden="true" className="relative min-w-0 rounded-xl">
+              <div className="invisible">{children(card)}</div>
+              <Skeleton className="absolute inset-0 h-full w-full rounded-xl" />
             </li>
           ))}
         {hydrated &&
