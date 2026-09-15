@@ -17,6 +17,7 @@ DEFINITION: Final = SupplierDefinition(
     excluded_models_key="gemini",
     callback_port=None,
     callback_path=None,
+    accepts_direct_api_key=True,
     quota_parser=lambda observation: parse_provider_quota(
         observation, ("gemini-",), ("gemini-plan-type", "plan_type", "plan-type")
     ),

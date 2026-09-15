@@ -17,6 +17,7 @@ import pytest
 import yaml
 from account_pool.app import (
     _reconcile_pending_configurations_until_cancelled,
+    _refresh_ready_quotas_until_cancelled,
     _restore_control_plane_connections_until_cancelled,
 )
 from account_pool.channels.base import ChannelDefinition
@@ -294,8 +295,7 @@ class FakeChannel:
         self._cli: Final = cli
 
     def supplier(self, kind: SupplierKind) -> SupplierDefinition:
-        _ = kind
-        return SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+        return SupplierRegistry.default().get(kind)
 
     async def close(self) -> None:
         return None
@@ -844,6 +844,53 @@ async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -
 
     assert refreshed == Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_background_quota_refresh_only_reads_ready_cards_and_preserves_last_success(tmp_path: Path) -> None:
+    ready: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"quota": QuotaSnapshot(plan_type="SuperGrok")}
+    )
+    disabled: Final = _record(status=EnvironmentStatus.DISABLED)
+    repository: Final = MemoryRepository(ready)
+    repository.records[disabled.id] = disabled
+    cli: Final = FakeCLIProxy(read_error=RuntimeError("provider quota unavailable"))
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        repository,
+        FakeRuntime(),
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(FakeRuntime(), cli),
+    )
+
+    failed: Final = await service.refresh_ready_quotas(max_concurrency=3)
+    durable: Final = await repository.get(ready.id)
+
+    assert failed == (ready.id,)
+    assert cli.refresh_quota_calls == [True]
+    assert durable is not None
+    assert durable.quota.plan_type == "SuperGrok"
+
+
+@pytest.mark.asyncio
+async def test_background_quota_refresh_waits_for_interval_before_first_run(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    stopped: Final = asyncio.Event()
+    task: Final = asyncio.create_task(
+        _refresh_ready_quotas_until_cancelled(service, stopped, refresh_seconds=0.01, max_concurrency=3)
+    )
+    try:
+        await asyncio.wait_for(asyncio.sleep(0.03), timeout=1)
+    finally:
+        stopped.set()
+        await task
+
+    assert cli.refresh_quota_calls
+    assert all(cli.refresh_quota_calls)
 
 
 @pytest.mark.asyncio

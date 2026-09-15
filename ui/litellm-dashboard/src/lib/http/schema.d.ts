@@ -23663,7 +23663,7 @@ export interface components {
              * Supplier
              * @enum {string}
              */
-            supplier: "gemini" | "gemini_interactions";
+            supplier: "gemini" | "gemini_interactions" | "xai";
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
@@ -23972,6 +23972,8 @@ export interface components {
             balances: components["schemas"]["AccountPoolQuotaBalance"][];
             /** Extra Usage Enabled */
             extra_usage_enabled?: boolean | null;
+            /** Has Grok Code Access */
+            has_grok_code_access?: boolean | null;
             /** Observed At */
             observed_at?: string | null;
             /** Plan Type */

@@ -95,7 +95,7 @@ class AccountPoolDirectCredentialCreateRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str = Field(min_length=1, max_length=80)
-    supplier: Literal["gemini", "gemini_interactions"]
+    supplier: Literal["gemini", "gemini_interactions", "xai"]
     credential: AccountPoolDirectAPIKey
 
 
@@ -118,6 +118,7 @@ class AccountPoolQuotaSnapshot(BaseModel):
     reset_credits_available: int | None = None
     prepaid_balance: float | None = None
     extra_usage_enabled: bool | None = None
+    has_grok_code_access: bool | None = None
     refresh_status: Literal["complete", "partial", "unsupported"] | None = None
     refresh_error: str | None = None
     windows: tuple[AccountPoolQuotaWindow, ...] = ()

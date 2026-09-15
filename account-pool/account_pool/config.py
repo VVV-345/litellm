@@ -10,8 +10,8 @@ from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_CLI_PROXY_IMAGE: Final = (
-    "ghcr.io/vvv-345/cliproxyapi:sha-e851070a0d08fb631d5ee7c64ecfab9a30ecbd2a"
-    "@sha256:d1099dc145e86db0cf87a43e0812af541f725f274dd0502d23ce3e49fbc771b6"
+    "ghcr.io/vvv-345/cliproxyapi:sha-bebf587f5a940af676f6e503065140d4991ae1f3"
+    "@sha256:dead34aa417e937a00a20f0ce843cf5c224266c0d640d53fc3a78309c5988d18"
 )
 
 
@@ -26,6 +26,8 @@ def _validate_hostname(value: str) -> str:
 
 class Settings(BaseSettings):
     log_retention_days: int = Field(default=30, ge=1, le=365)
+    quota_refresh_interval_seconds: float = Field(default=300.0, ge=30.0, le=86400.0)
+    quota_refresh_max_concurrency: int = Field(default=3, ge=1, le=32)
     model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True)
 
     database_url: str

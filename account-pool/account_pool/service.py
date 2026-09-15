@@ -225,6 +225,19 @@ class EnvironmentService:
             return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
         return Success(to_view(refreshed))
 
+    async def refresh_ready_quotas(self, max_concurrency: int = 3) -> tuple[UUID, ...]:
+        records: Final = await self._repository.list()
+        ready: Final = tuple(record for record in records if record.status is EnvironmentStatus.READY)
+        semaphore: Final = asyncio.Semaphore(max(1, max_concurrency))
+
+        async def refresh(record: EnvironmentRecord) -> UUID | None:
+            async with semaphore:
+                result: Final = await self.refresh_environment(record.id)
+                return record.id if isinstance(result, Failure) else None
+
+        failed: Final = await asyncio.gather(*(refresh(record) for record in ready))
+        return tuple(card_id for card_id in failed if card_id is not None)
+
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
@@ -887,7 +900,7 @@ class EnvironmentService:
             supplier_definition: Final = self._channels.get(ChannelKind.CLIPROXYAPI).supplier(supplier)
         except (KeyError, UnsupportedChannelError) as error:
             return Failure(FailureCode.INVALID, str(error))
-        if supplier_definition.authorization_flow is not AuthorizationFlow.DIRECT_CREDENTIAL:
+        if not supplier_definition.accepts_direct_api_key and supplier is not SupplierKind.VERTEX:
             return Failure(FailureCode.INVALID, "supplier does not accept direct credentials")
         if operation_id is not None:
             existing: Final = await self._find_by_operation_id(operation_id)

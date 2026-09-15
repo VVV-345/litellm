@@ -53,6 +53,7 @@ class AntigravityAssist:
     plan_type: str | None
     balances: tuple[QuotaBalance, ...] = ()
     uses_gcp_tos: bool | None = None
+    onboard_tier_id: str | None = None
 
 
 class _AntigravityProject(BaseModel):
@@ -140,6 +141,20 @@ class _AntigravitySummaryPayload(BaseModel):
     groups: tuple[_AntigravitySummaryGroup, ...] = ()
 
 
+class _AntigravityOnboardResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    project: str | _AntigravityProject | None = Field(default=None, alias="cloudaicompanionProject")
+
+
+class _AntigravityOnboardPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    name: str | None = None
+    done: bool = False
+    response: _AntigravityOnboardResponse | None = None
+
+
 def parse_quota(observation: QuotaObservation) -> QuotaSnapshot:
     signals: Final = {key.lower(): value for key, value in observation.signals.items()}
     plan_type: Final = signals.get("x-codex-plan-type")
@@ -212,6 +227,16 @@ def parse_antigravity_assist(body: str | None) -> AntigravityAssist | None:
     current_tier: Final = payload.current_tier.id.strip() if payload.current_tier and payload.current_tier.id else None
     selected_tier: Final = payload.paid_tier or payload.current_tier
     default_tier: Final = next((tier for tier in payload.allowed_tiers if tier.is_default is True), None)
+    first_allowed_tier: Final = next((tier for tier in payload.allowed_tiers if tier.id), None)
+    onboard_tier_id: Final = (
+        default_tier.id.strip()
+        if default_tier is not None and default_tier.id is not None and default_tier.id.strip()
+        else first_allowed_tier.id.strip()
+        if first_allowed_tier is not None and first_allowed_tier.id is not None and first_allowed_tier.id.strip()
+        else "LEGACY"
+        if payload.allowed_tiers
+        else paid_tier or current_tier
+    )
     current_tier_id: Final = None if payload.current_tier is None or current_tier is None else current_tier.casefold()
     paid_tier_id: Final = None if payload.paid_tier is None or paid_tier is None else paid_tier.casefold()
     uses_gcp_tos: Final = (
@@ -237,7 +262,29 @@ def parse_antigravity_assist(body: str | None) -> AntigravityAssist | None:
         plan_type=paid_tier or current_tier,
         balances=balances,
         uses_gcp_tos=uses_gcp_tos,
+        onboard_tier_id=onboard_tier_id,
     )
+
+
+def parse_antigravity_onboard_project(body: str | None) -> tuple[str | None, str | None, bool]:
+    if body is None:
+        return None, None, False
+    try:
+        payload: Final = _AntigravityOnboardPayload.model_validate_json(body)
+    except ValidationError:
+        return None, None, False
+    project_value: Final = None if payload.response is None else payload.response.project
+    project: Final = (
+        project_value.strip()
+        if isinstance(project_value, str) and project_value.strip()
+        else project_value.id.strip()
+        if isinstance(project_value, _AntigravityProject)
+        and project_value.id is not None
+        and project_value.id.strip()
+        else None
+    )
+    operation: Final = payload.name.strip() if payload.name is not None and payload.name.strip() else None
+    return project, operation, payload.done
 
 
 def parse_antigravity_quota(

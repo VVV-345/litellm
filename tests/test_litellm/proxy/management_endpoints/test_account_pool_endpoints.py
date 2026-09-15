@@ -288,6 +288,33 @@ def test_create_rejects_unknown_channel_and_supplier_values() -> None:
     assert bad_supplier.status_code == 422
 
 
+def test_xai_direct_credential_is_forwarded_to_manager() -> None:
+    forwarded: Final[dict[str, object]] = {}
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/direct-credentials" and request.method == "POST":
+                forwarded.update(json.loads(request.content))
+                return httpx.Response(200, json=_ENVIRONMENT_FIXTURE, request=request)
+            return httpx.Response(404, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+    with TestClient(app) as client:
+        response: Final = client.post(
+            "/account_pool/direct-credentials",
+            json={"name": "xAI API", "supplier": "xai", "credential": {"api_key": "secret"}},
+        )
+
+    assert response.status_code == 200
+    assert forwarded["supplier"] == "xai"
+
+
 def test_vertex_creation_forwards_idempotency_key_to_manager() -> None:
     forwarded_key: list[str | None] = []
 

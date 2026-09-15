@@ -53,6 +53,7 @@ export const AccountPoolCreateDialog = ({
   const [baseUrl, setBaseUrl] = useState("");
   const [priority, setPriority] = useState(0);
   const [weight, setWeight] = useState(1);
+  const [useApiKey, setUseApiKey] = useState(false);
   const [location, setLocation] = useState("us-central1");
   const [vertexFile, setVertexFile] = useState<File | null>(null);
   const supplier = initialSupplier;
@@ -104,7 +105,7 @@ export const AccountPoolCreateDialog = ({
       toast.error(t("accountPool.create.directCredentialRequired"));
       return;
     }
-    if (supplier !== "gemini" && supplier !== "gemini_interactions") return;
+    if (supplier !== "gemini" && supplier !== "gemini_interactions" && supplier !== "xai") return;
     setSaving(true);
     try {
       await createDirectCredentialAccountPoolEnvironment(accessToken, {
@@ -162,6 +163,7 @@ export const AccountPoolCreateDialog = ({
       setBaseUrl("");
       setPriority(0);
       setWeight(1);
+      setUseApiKey(false);
       setLocation("us-central1");
       setVertexFile(null);
       setAuthorization(null);
@@ -215,7 +217,7 @@ export const AccountPoolCreateDialog = ({
         />
       );
     }
-    if (supplier === "gemini" || supplier === "gemini_interactions") {
+    if (supplier === "gemini" || supplier === "gemini_interactions" || (supplier === "xai" && useApiKey)) {
       return (
         <div className="grid gap-4">
           <div className="grid gap-2">
@@ -228,6 +230,19 @@ export const AccountPoolCreateDialog = ({
               autoFocus
             />
           </div>
+          {supplier === "xai" ? (
+            <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
+              <span className="text-muted-foreground">{t("accountPool.create.authenticationMethod")}</span>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setUseApiKey(false)}>
+                  {t("accountPool.create.oauth")}
+                </Button>
+                <Button type="button" variant="default">
+                  {t("accountPool.create.apiKey")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-2 rounded-md border p-4">
             <div className="grid gap-2 border-b pb-3">
               <Label htmlFor="account-pool-direct-key">{t("accountPool.create.apiKey")}</Label>
@@ -288,6 +303,42 @@ export const AccountPoolCreateDialog = ({
               onClick={() => void handleDirectCreate()}
               disabled={saving || !name.trim() || !apiKey.trim()}
             >
+              <Plus />
+              {saving ? t("accountPool.create.creating") : t("accountPool.providers.create")}
+            </Button>
+          </DialogFooter>
+        </div>
+      );
+    }
+    if (supplier === "xai") {
+      return (
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-name">{t("accountPool.create.environmentName")}</Label>
+            <Input
+              id="account-pool-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={80}
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
+            <span className="text-muted-foreground">{t("accountPool.create.authenticationMethod")}</span>
+            <div className="flex gap-2">
+              <Button type="button" variant={useApiKey ? "outline" : "default"} onClick={() => setUseApiKey(false)}>
+                {t("accountPool.create.oauth")}
+              </Button>
+              <Button type="button" variant={useApiKey ? "default" : "outline"} onClick={() => setUseApiKey(true)}>
+                {t("accountPool.create.apiKey")}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              {t("accountPool.cancel")}
+            </Button>
+            <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
               <Plus />
               {saving ? t("accountPool.create.creating") : t("accountPool.providers.create")}
             </Button>

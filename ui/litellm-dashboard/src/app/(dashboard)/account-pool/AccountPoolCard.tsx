@@ -266,6 +266,15 @@ export const AccountPoolCard = ({
             <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
             <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
           </div>
+          {environment.supplier === "xai" && environment.quota.has_grok_code_access !== null &&
+            environment.quota.has_grok_code_access !== undefined && (
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>
+                <p className="mt-1 font-medium">
+                  {t(environment.quota.has_grok_code_access ? "accountPool.available" : "accountPool.unavailable")}
+                </p>
+              </div>
+            )}
         </div>
         {policyValues && (
           <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">

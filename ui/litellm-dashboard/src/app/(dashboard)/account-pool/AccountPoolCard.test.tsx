@@ -95,6 +95,16 @@ describe("AccountPoolCard", () => {
     expect(screen.getByText("设备 ID 认证后自动维护")).toBeInTheDocument();
   });
 
+  it("shows Grok Code access returned by the provider", () => {
+    renderCard({
+      supplier: "xai",
+      quota: { observed_at: null, plan_type: "SuperGrok", has_grok_code_access: true, windows: [], balances: [] },
+    });
+
+    expect(screen.getByText(/Grok Code 权限|Grok Code access/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^可用$|^Available$/i).length).toBeGreaterThan(1);
+  });
+
   it("shows the authenticated provider setting summary on a card", () => {
     renderCard({}, undefined, {
       card_id: "env-claude-1",

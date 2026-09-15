@@ -20,6 +20,7 @@ class SupplierDefinition:
     callback_port: int | None
     callback_path: str | None
     quota_parser: Callable[[QuotaObservation], QuotaSnapshot]
+    accepts_direct_api_key: bool = False
 
     @property
     def uses_oauth_model_exclusions(self) -> bool:

@@ -171,6 +171,7 @@ class QuotaSnapshot(BaseModel):
     reset_credits_available: int | None = Field(default=None, ge=0)
     prepaid_balance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     extra_usage_enabled: bool | None = None
+    has_grok_code_access: bool | None = None
     refresh_status: Literal["complete", "partial", "unsupported"] | None = None
     refresh_error: str | None = Field(default=None, max_length=500)
     refresh_failures: tuple[ProviderEndpointFailure, ...] = Field(default=(), exclude=True, repr=False)
@@ -267,7 +268,7 @@ class DirectAPIKeyCredentialRequest(BaseModel):
     def validate_base_url(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
         if value is None:
             return None
-        return _normalize_public_base_url(value, https_only=True, allowed_hosts=_DIRECT_API_ALLOWED_HOSTS)
+        return _normalize_public_base_url(value, https_only=True)
 
     @field_validator("headers")
     @classmethod
@@ -303,8 +304,14 @@ class CreateDirectCredentialEnvironmentRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_supplier(self) -> CreateDirectCredentialEnvironmentRequest:
-        if self.supplier not in (SupplierKind.GEMINI, SupplierKind.GEMINI_INTERACTIONS):
+        if self.supplier not in (SupplierKind.GEMINI, SupplierKind.GEMINI_INTERACTIONS, SupplierKind.XAI):
             raise ValueError("supplier does not accept a direct API key")
+        if self.supplier in (SupplierKind.GEMINI, SupplierKind.GEMINI_INTERACTIONS) and self.credential.base_url:
+            _normalize_public_base_url(
+                self.credential.base_url,
+                https_only=True,
+                allowed_hosts=_DIRECT_API_ALLOWED_HOSTS,
+            )
         return self
 
 

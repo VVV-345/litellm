@@ -14,6 +14,7 @@ from account_pool.quota import (
     QuotaObservation,
     effective_cooldown_until,
     parse_antigravity_assist,
+    parse_antigravity_onboard_project,
     parse_antigravity_quota,
     parse_provider_quota,
     parse_quota,
@@ -445,6 +446,7 @@ def test_parse_xai_billing_keeps_credit_bags_products_tasks_and_subscription() -
         {
           "user": {
             "id": "user-1",
+            "hasGrokCodeAccess": true,
             "subscription": {
               "tier": "SuperGrok Heavy",
               "status": "SUBSCRIPTION_STATUS_ACTIVE",
@@ -470,6 +472,7 @@ def test_parse_xai_billing_keeps_credit_bags_products_tasks_and_subscription() -
     assert refreshed.quota.plan_type == "SuperGrok Heavy"
     assert refreshed.quota.subscription_status == "SUBSCRIPTION_STATUS_ACTIVE"
     assert refreshed.quota.prepaid_balance == 700
+    assert refreshed.quota.has_grok_code_access is True
     assert tuple(window.name for window in refreshed.quota.windows) == (
         "Weekly",
         "Monthly",
@@ -637,3 +640,14 @@ def test_parse_antigravity_assist_detects_gcp_tos_from_tiers() -> None:
     assert current is not None and current.uses_gcp_tos is True
     assert default is not None and default.uses_gcp_tos is True
     assert mixed is not None and mixed.uses_gcp_tos is True
+    assert default.onboard_tier_id == "standard-tier"
+
+
+def test_parse_antigravity_onboard_project_reads_operation_and_completion() -> None:
+    pending: Final = parse_antigravity_onboard_project('{"name":"operations/setup-1","done":false}')
+    completed: Final = parse_antigravity_onboard_project(
+        '{"done":true,"response":{"cloudaicompanionProject":{"id":"project-new"}}}'
+    )
+
+    assert pending == (None, "operations/setup-1", False)
+    assert completed == ("project-new", None, True)

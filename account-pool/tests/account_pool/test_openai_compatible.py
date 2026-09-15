@@ -11,6 +11,7 @@ import pytest
 from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.domain import (
     ChannelKind,
+    CreateDirectCredentialEnvironmentRequest,
     DirectAPIKeyCredentialRequest,
     EnvironmentRecord,
     EnvironmentStatus,
@@ -65,20 +66,29 @@ def test_openai_compatible_request_rejects_protected_headers() -> None:
         "http://generativelanguage.googleapis.com/v1beta",
         "https://127.0.0.1/v1beta",
         "https://metadata.google.internal/v1beta",
-        "https://example.com/v1beta",
     ),
 )
-def test_direct_api_key_base_url_requires_approved_https_host(base_url: str) -> None:
+def test_direct_api_key_base_url_rejects_unsafe_targets(base_url: str) -> None:
     with pytest.raises(ValueError):
         DirectAPIKeyCredentialRequest(api_key="secret", base_url=base_url)
 
 
-def test_direct_api_key_base_url_accepts_official_gemini_endpoint() -> None:
-    credential: Final = DirectAPIKeyCredentialRequest(
-        api_key="secret",
-        base_url="https://generativelanguage.googleapis.com/v1beta",
+def test_gemini_direct_api_key_requires_official_endpoint() -> None:
+    with pytest.raises(ValueError):
+        CreateDirectCredentialEnvironmentRequest(
+            name="Gemini",
+            supplier=SupplierKind.GEMINI,
+            credential=DirectAPIKeyCredentialRequest(api_key="secret", base_url="https://example.com/v1beta"),
+        )
+
+
+def test_xai_direct_api_key_accepts_safe_public_https_endpoint() -> None:
+    request: Final = CreateDirectCredentialEnvironmentRequest(
+        name="xAI",
+        supplier=SupplierKind.XAI,
+        credential=DirectAPIKeyCredentialRequest(api_key="secret", base_url="https://api.example.com/v1"),
     )
-    assert credential.base_url is not None
+    assert request.credential.base_url is not None
 
 
 @pytest.mark.asyncio

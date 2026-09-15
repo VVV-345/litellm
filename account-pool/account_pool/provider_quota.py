@@ -395,7 +395,14 @@ def parse_xai_quota(
         ),
     )
     prepaid_balance: Final = _first_number((weekly_config, monthly_config), "prepaidBalance")
-    if not windows and plan_type is None and status is None and prepaid_balance is None:
+    has_grok_code_access: Final = _xai_grok_code_access(user_payload)
+    if (
+        not windows
+        and plan_type is None
+        and status is None
+        and prepaid_balance is None
+        and has_grok_code_access is None
+    ):
         return None
     return ProviderQuotaRefresh(
         quota=QuotaSnapshot(
@@ -405,6 +412,7 @@ def parse_xai_quota(
             subscription_active_start=active_start,
             subscription_active_until=active_until,
             prepaid_balance=prepaid_balance,
+            has_grok_code_access=has_grok_code_access,
             windows=windows,
         )
     )
@@ -1190,6 +1198,12 @@ def _xai_subscription(
         ),
         None,
     )
+
+
+def _xai_grok_code_access(user_payload: JsonValue | None) -> bool | None:
+    root: Final = _mapping(user_payload)
+    user: Final = None if root is None else _mapping(root.get("user")) or root
+    return _first_bool((user,), ("hasGrokCodeAccess", "has_grok_code_access"))
 
 
 def _active_subscription(value: JsonValue | Mapping[str, JsonValue] | None) -> Mapping[str, JsonValue] | None:

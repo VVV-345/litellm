@@ -488,6 +488,7 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
     )
     assert all(call["header"]["Authorization"] == "Bearer $TOKEN$" for call in api_calls)
     assert all(call["header"]["x-grok-client-version"] == "0.2.120" for call in api_calls)
+    assert all(call["header"]["x-grok-client-identifier"] == "grok-shell" for call in api_calls)
     assert api_calls[-1]["header"]["x-userid"] == "user-1"
 
 
@@ -675,6 +676,74 @@ async def test_antigravity_quota_refresh_falls_back_to_prod_and_keeps_gcp_tos_en
         "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
         "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
     )
+
+
+@pytest.mark.asyncio
+async def test_antigravity_quota_refresh_onboards_when_project_is_missing() -> None:
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.GOOGLE_ANTIGRAVITY})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.GOOGLE_ANTIGRAVITY)
+    api_calls: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "antigravity.json",
+                            "provider": "antigravity",
+                            "auth_index": "antigravity-index",
+                        }
+                    ]
+                },
+                request=request,
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gemini-2.5-pro"}]}, request=request)
+        payload: Final = json.loads(request.content)
+        api_calls.append(payload)
+        url: Final = str(payload["url"])
+        body: Final = (
+            {"allowedTiers": [{"id": "pro-tier", "isDefault": True}]}
+            if url.endswith("loadCodeAssist")
+            else {"name": "operations/setup-1", "done": False}
+            if url.endswith("onboardUser")
+            else {"done": True, "response": {"cloudaicompanionProject": {"id": "project-new"}}}
+            if url.endswith("operations/setup-1")
+            else {"groups": []}
+            if url.endswith("retrieveUserQuotaSummary")
+            else {
+                "models": {
+                    "gemini-2.5-pro": {
+                        "quotaInfo": {"remainingFraction": 0.75, "resetTime": "2090-01-02T03:04:05Z"}
+                    }
+                }
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"status_code": 200, "header": {}, "body": json.dumps(body)},
+            request=request,
+        )
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    observed: Final = await proxy.read_account(record, supplier, refresh_quota=True)
+    await client.aclose()
+
+    assert observed.model_quotas[0].quota.windows[0].remaining_percent == 75
+    assert tuple(call["url"] for call in api_calls) == (
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal/operations/setup-1",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+    )
+    onboard_payload: Final = json.loads(str(api_calls[1]["data"]))
+    assert onboard_payload["tierId"] == "pro-tier"
+    assert onboard_payload["metadata"]["ideType"] == "ANTIGRAVITY"
+    assert json.loads(str(api_calls[3]["data"])) == {"project": "project-new"}
 
 
 @pytest.mark.asyncio

@@ -124,6 +124,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         network_retry_task: Final = asyncio.create_task(
             _restore_control_plane_connections_until_cancelled(channels, environments, retry_stopped)
         )
+        quota_refresh_task: Final = asyncio.create_task(
+            _refresh_ready_quotas_until_cancelled(
+                service,
+                retry_stopped,
+                refresh_seconds=resolved.quota_refresh_interval_seconds,
+                max_concurrency=resolved.quota_refresh_max_concurrency,
+            )
+        )
         try:
             yield
         finally:
@@ -132,8 +140,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             network_retry_task.cancel()
             log_retention_task.cancel()
             batch_task.cancel()
+            quota_refresh_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
+            await asyncio.gather(quota_refresh_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:
@@ -212,6 +222,26 @@ async def _restore_control_plane_connections_until_cancelled(
             await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
         except TimeoutError:
             continue
+
+
+async def _refresh_ready_quotas_until_cancelled(
+    service: EnvironmentService,
+    stopped: asyncio.Event,
+    refresh_seconds: float = 300.0,
+    max_concurrency: int = 3,
+) -> None:
+    while not stopped.is_set():
+        try:
+            await asyncio.wait_for(stopped.wait(), timeout=refresh_seconds)
+            continue
+        except TimeoutError:
+            pass
+        try:
+            failed: Final = await service.refresh_ready_quotas(max_concurrency)
+            if failed:
+                _LOGGER.warning("Account pool quota refresh failed for %d ready cards", len(failed))
+        except Exception as error:
+            _LOGGER.warning("Account pool quota refresh failed: %s", error.__class__.__name__)
 
 
 async def _restore_control_plane_connections(

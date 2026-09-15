@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import (
+    AuthorizationFlow,
     EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
@@ -39,6 +40,7 @@ from account_pool.quota import (
     ProviderQuotaRefresh,
     QuotaObservation,
     parse_antigravity_assist,
+    parse_antigravity_onboard_project,
     parse_antigravity_quota,
 )
 from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
@@ -236,6 +238,13 @@ def _merge_quota_snapshots(
             else passive.extra_usage_enabled
             if passive.extra_usage_enabled is not None
             else previous.extra_usage_enabled
+        ),
+        has_grok_code_access=(
+            active.has_grok_code_access
+            if active is not None and active.has_grok_code_access is not None
+            else passive.has_grok_code_access
+            if passive.has_grok_code_access is not None
+            else previous.has_grok_code_access
         ),
         refresh_status=(
             active.refresh_status
@@ -891,11 +900,26 @@ class HttpCLIProxyClient:
             if assist is not None and assist.uses_gcp_tos is True and len(candidate_base_urls) > 1
             else assist_base_url
         )
-        project_id: Final = auth_file.project_id or (None if assist is None else assist.project_id)
+        initial_project_id: Final = auth_file.project_id or (None if assist is None else assist.project_id)
+        onboard_result: Final = (
+            await self._onboard_antigravity_user(
+                record,
+                auth_file,
+                assist_base_url,
+                assist.onboard_tier_id,
+                load_payload["metadata"],
+            )
+            if initial_project_id is None and assist is not None and assist.onboard_tier_id is not None
+            else (None, ())
+        )
+        project_id: Final = initial_project_id or onboard_result[0]
+        onboard_failures: Final = onboard_result[1]
         if project_id is None:
             project_failures: Final = (
-                (assist_result.failure,)
+                (*onboard_failures, assist_result.failure)
                 if assist_result.failure is not None
+                else onboard_failures
+                if onboard_failures
                 else (
                     ProviderEndpointFailure(
                         method="POST",
@@ -946,9 +970,91 @@ class HttpCLIProxyClient:
             )
             raise ProviderQuotaError((parse_failure,), "Antigravity quota refresh failed")
         optional_failures: Final = tuple(
-            failure for failure in (assist_result.failure, summary_result.failure) if failure is not None
+            failure for failure in (*onboard_failures, assist_result.failure, summary_result.failure) if failure is not None
         )
         return _annotate_refresh(refreshed, optional_failures)
+
+    async def _onboard_antigravity_user(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+        base_url: str,
+        tier_id: str,
+        metadata: JSONValue,
+    ) -> tuple[str | None, tuple[ProviderEndpointFailure, ...]]:
+        headers: Final = {
+            "Authorization": "Bearer $TOKEN$",
+            "Accept": "*/*",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/1.20.5 windows/amd64 google-api-nodejs-client/10.3.0",
+            "Accept-Encoding": "gzip",
+        }
+        start_result: Final = await self._provider_api_call(
+            record,
+            auth_file,
+            "POST",
+            f"{base_url}/v1internal:onboardUser",
+            headers,
+            data={"tierId": tier_id, "metadata": metadata},
+        )
+        if start_result.failure is not None:
+            return None, (start_result.failure,)
+        project_id, operation, done = parse_antigravity_onboard_project(start_result.body)
+        if project_id is not None:
+            return project_id, ()
+        if done or operation is None:
+            return None, (
+                ProviderEndpointFailure(
+                    method="POST",
+                    endpoint=f"{base_url}/v1internal:onboardUser",
+                    message="response did not contain a project ID or pollable operation",
+                    status_code=200,
+                ),
+            )
+        return await self._poll_antigravity_onboard_operation(record, auth_file, base_url, operation, headers)
+
+    async def _poll_antigravity_onboard_operation(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+        base_url: str,
+        operation: str,
+        headers: Mapping[str, str],
+        attempts_remaining: int = 60,
+    ) -> tuple[str | None, tuple[ProviderEndpointFailure, ...]]:
+        endpoint: Final = f"{base_url}/v1internal/{operation.lstrip('/')}"
+        if attempts_remaining <= 0:
+            return None, (
+                ProviderEndpointFailure(
+                    method="GET",
+                    endpoint=endpoint,
+                    message="onboard operation did not complete before timeout",
+                ),
+            )
+        result: Final = await self._provider_api_call(record, auth_file, "GET", endpoint, headers)
+        if result.failure is not None:
+            return None, (result.failure,)
+        project_id, _, done = parse_antigravity_onboard_project(result.body)
+        if project_id is not None:
+            return project_id, ()
+        if done:
+            return None, (
+                ProviderEndpointFailure(
+                    method="GET",
+                    endpoint=endpoint,
+                    message="completed operation did not contain a project ID",
+                    status_code=200,
+                ),
+            )
+        await asyncio.sleep(0.5)
+        return await self._poll_antigravity_onboard_operation(
+            record,
+            auth_file,
+            base_url,
+            operation,
+            headers,
+            attempts_remaining - 1,
+        )
 
     async def _provider_api_call_first_success(
         self,
@@ -1126,10 +1232,14 @@ class HttpCLIProxyClient:
         self, record: EnvironmentRecord, supplier: SupplierDefinition, enabled_models: Sequence[str]
     ) -> None:
         excluded: Final = tuple(model for model in record.available_models if model not in frozenset(enabled_models))
-        if supplier.authorization_flow.value == "direct_credential":
+        if (
+            record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL
+            or supplier.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL
+        ):
             path: Final = {
                 SupplierKind.GEMINI: "/v0/management/gemini-api-key",
                 SupplierKind.GEMINI_INTERACTIONS: "/v0/management/interactions-api-key",
+                SupplierKind.XAI: "/v0/management/xai-api-key",
             }.get(supplier.kind)
             if path is not None:
                 await self._request(
@@ -1162,6 +1272,7 @@ class HttpCLIProxyClient:
         path: Final = {
             SupplierKind.GEMINI: "/v0/management/gemini-api-key",
             SupplierKind.GEMINI_INTERACTIONS: "/v0/management/interactions-api-key",
+            SupplierKind.XAI: "/v0/management/xai-api-key",
         }.get(supplier.kind)
         if path is None:
             raise ValueError("supplier does not accept a direct API key")

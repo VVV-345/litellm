@@ -97,7 +97,7 @@ export const createOpenAICompatibleAccountPoolEnvironment = (
 
 export interface AccountPoolDirectCredentialCreateRequest {
   name: string;
-  supplier: "gemini" | "gemini_interactions";
+  supplier: "gemini" | "gemini_interactions" | "xai";
   credential: {
     api_key: string;
     prefix: string;

@@ -208,6 +208,26 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("creates an xAI card with a direct API key", async () => {
+    renderDialog({ initialSupplier: "xai" });
+
+    fireEvent.click(screen.getByRole("button", { name: /^API Key$|^API key$/i }));
+    fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "xAI account" } });
+    fireEvent.change(screen.getByLabelText(/^API Key$|^API key$/i), { target: { value: "xai-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
+
+    await waitFor(() =>
+      expect(createDirectMock).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          name: "xAI account",
+          supplier: "xai",
+          credential: expect.objectContaining({ api_key: "xai-secret" }),
+        }),
+      ),
+    );
+  });
+
   it("creates a Vertex card from a service account file", async () => {
     const onCreated = vi.fn();
     const onOpenChange = vi.fn();
