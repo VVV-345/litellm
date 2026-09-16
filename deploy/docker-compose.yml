@@ -1,5 +1,5 @@
 # 本文件在单台服务器上部署完整号池栈：LiteLLM、号池 Manager、数据库、Docker Socket Proxy。
-# 镜像全部来自 ghcr.io/vvv-345，tag 统一用部署时的 commit 号，升级只改 TAG。
+# 业务镜像使用 commit 标签，通过 releasectl.py 先备份再更新；部署后台单独固定版本。
 # 使用方法见同目录 DEPLOY.md
 
 services:
@@ -38,6 +38,7 @@ services:
       ACCOUNT_POOL_FULL_LOG_DIR: /var/lib/litellm/full-logs
       ACCOUNT_POOL_MANAGER_URL: http://account-pool:8091
       ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:?set ACCOUNT_POOL_MANAGER_TOKEN}
+      ACCOUNT_POOL_RELEASE_TOKEN: ${ACCOUNT_POOL_RELEASE_TOKEN:-}
       ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS: ${ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS:-5}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -186,6 +187,50 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  release-worker:
+    container_name: litellm-release-worker
+    image: ghcr.io/vvv-345/account-pool-manager:${ACCOUNT_POOL_RELEASE_IMAGE_TAG:-${DEPLOY_TAG}}
+    restart: unless-stopped
+    entrypoint: ["uvicorn", "account_pool.release_app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8092", "--workers", "1", "--no-access-log"]
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 128
+    stop_grace_period: 5m
+    environment:
+      ACCOUNT_POOL_RELEASE_TOKEN: ${ACCOUNT_POOL_RELEASE_TOKEN:-}
+      ACCOUNT_POOL_RELEASE_ROOT: ${ACCOUNT_POOL_RELEASE_ROOT:-/opt/litellm-releases}
+      ACCOUNT_POOL_RELEASE_DEPLOYMENT: ${ACCOUNT_POOL_DEPLOY_DIRECTORY:-/opt/litellm}
+      ACCOUNT_POOL_RELEASE_PROJECT: ${COMPOSE_PROJECT_NAME:-litellm}
+      ACCOUNT_POOL_RELEASE_DOCKER_HOST: tcp://docker-socket-proxy:2375
+    volumes:
+      - ${ACCOUNT_POOL_RELEASE_ROOT:-/opt/litellm-releases}:${ACCOUNT_POOL_RELEASE_ROOT:-/opt/litellm-releases}:rw
+      - ${ACCOUNT_POOL_DEPLOY_DIRECTORY:-/opt/litellm}:${ACCOUNT_POOL_DEPLOY_DIRECTORY:-/opt/litellm}:ro
+    ports:
+      - "127.0.0.1:8092:8092"
+    networks:
+      - account-pool-socket
+      - litellm-control
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
   account-pool-db:
     container_name: litellm-account-pool-db

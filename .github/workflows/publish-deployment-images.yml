@@ -1,9 +1,16 @@
 name: Publish deployment images
 
 on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: '要构建的分支或完整 commit，留空使用当前工作流版本'
+        required: false
+        type: string
   push:
     branches:
       - CLIProxyAPI分支
+      - 'codex/fix-*'
 
 concurrency:
   group: publish-deployment-images-${{ github.ref }}
@@ -23,11 +30,19 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       deploy_tag: ${{ steps.version.outputs.deploy_tag }}
+      revision: ${{ steps.version.outputs.revision }}
     steps:
+      - name: Resolve the selected source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
       - id: version
         name: Use the commit prefix as the deployment tag
         shell: bash
-        run: printf 'deploy_tag=%.10s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+        run: |
+          revision="$(git rev-parse HEAD)"
+          printf 'deploy_tag=%.10s\nrevision=%s\n' "$revision" "$revision" >> "$GITHUB_OUTPUT"
 
   build-and-publish:
     name: Publish ${{ matrix.image }}
@@ -49,6 +64,7 @@ jobs:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ needs.version.outputs.revision }}
           persist-credentials: false
 
       - name: Set up Docker Buildx
@@ -70,7 +86,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.version.outputs.deploy_tag }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
           cache-from: type=gha,scope=${{ matrix.cache_scope }}
           cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
 

@@ -39,6 +39,7 @@ import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
 import { AccountPoolSettingsPanel } from "./AccountPoolSettingsPanel";
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
+import { AccountPoolReleasesPanel } from "./AccountPoolReleasesPanel";
 import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
 import {
@@ -320,7 +321,7 @@ export default function AccountPoolPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList variant="line" className="h-auto w-full justify-start rounded-none border-b p-0">
+          <TabsList variant="line" className="h-auto w-full justify-start overflow-x-auto rounded-none border-b p-0">
             <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.dashboard")}
             </TabsTrigger>
@@ -350,6 +351,9 @@ export default function AccountPoolPage() {
             </TabsTrigger>
             <TabsTrigger value="upstream-sync" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.upstreamSync")}
+            </TabsTrigger>
+            <TabsTrigger value="releases" className="flex-none rounded-none px-4 py-2">
+              版本管理
             </TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="pt-4">
@@ -445,6 +449,9 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="plugins" className="pt-4">
             {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
+          </TabsContent>
+          <TabsContent value="releases" className="pt-4">
+            {accessToken && activeTab === "releases" && <AccountPoolReleasesPanel accessToken={accessToken} />}
           </TabsContent>
           <TabsContent value="upstream-sync" className="pt-4">
             {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}

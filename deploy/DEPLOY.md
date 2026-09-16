@@ -99,22 +99,18 @@ Clash 在宿主机上时设置 `ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.inte
 - `ghcr.io/vvv-345/account-pool-manager:<DEPLOY_TAG>`
 首次启用前，需要在 GitHub 的两个现有 GHCR 包设置中进入 `Package settings` -> `Manage Actions access`，添加仓库 `VVV-345/litellm` 并授予 `Admin`。两个包分别是 `litellm` 和 `account-pool-manager`。这是一次性设置，授权后 Actions 使用短期 `GITHUB_TOKEN` 发布和清理旧版本，不需要创建或保存个人访问令牌
 
-发布完成后，进入服务器部署目录，修改 `.env` 中的 `DEPLOY_TAG` 为 Actions 页面显示的版本号，再执行：
+发布完成后使用 `python3 releasectl.py deploy 新提交前10位` 更新。部署后台会先备份当前运行的配套镜像，备份成功后才替换业务容器；已有完整备份会跳过，切换失败会尝试恢复原版本
+
+首次启用需要先启动独立的 `release-worker`。配置、首次接管、备份删除和代码回退步骤见 [项目版本管理](RELEASES.md)。界面入口在“号池 / 版本管理”，应用只使用本机备份归档
+
+日常更新不要直接执行 `docker compose pull && docker compose up -d`，这会绕过自动备份，并可能覆盖页面选定的运行版本。GitHub 保留最近 20 个镜像版本，本机备份归档独立保留，远程镜像清理不会删除归档
 
 ```bash
-docker compose pull && docker compose up -d
-```
+python3 releasectl.py status         # 运行版本、备份和最近任务
+python3 releasectl.py deploy 新提交前10位
+python3 releasectl.py apply 备份ID   # 旧页面没有入口时恢复归档
 
-拉取后使用 `docker image inspect` 记录两个 GHCR 镜像的仓库摘要和 `org.opencontainers.image.revision`，确认 revision 等于本次完整 commit。部署验收记录应保存摘要，回滚时使用已验证过的旧摘要
-
-这不会删除数据库或账号数据卷。需要回滚时，把 `DEPLOY_TAG` 改回之前已发布的提交号并重复同一命令
-
-GitHub Actions 的构建缓存由 GitHub 按容量和最近使用时间自动淘汰。发布流程对每种 GHCR 镜像只保留最近 20 个版本，旧版本会自动删除，保留的版本可用于回滚。服务器可定期执行 `docker image prune -f` 清理未被任何容器使用的旧镜像，不能执行会删除数据卷的清理命令
-
-```bash
-docker compose logs -f account-pool   # 看 Manager 日志
-docker compose pull && docker compose up -d   # 升级（先改 .env 里的 DEPLOY_TAG）
-docker compose down                   # 停止（数据卷保留）
+docker compose logs -f account-pool # 查看 Manager 日志
 ```
 
 ## 数据在哪

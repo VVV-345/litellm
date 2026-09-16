@@ -1632,6 +1632,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** View */
+        get: operations["view_account_pool_releases_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/releases/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute */
+        post: operations["execute_account_pool_releases_execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/releases/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare */
+        post: operations["prepare_account_pool_releases_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/releases/{version_id}/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Commands */
+        get: operations["commands_account_pool_releases__version_id__commands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/settings": {
         parameters: {
             query?: never;
@@ -37280,6 +37348,174 @@ export interface components {
             /** Review Notes */
             review_notes?: string | null;
         };
+        /** ReleaseAction */
+        ReleaseAction: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover";
+            /** Revision */
+            revision: number;
+            /** Tag */
+            tag?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Version Id */
+            version_id?: string | null;
+        };
+        /** ReleaseBackup */
+        ReleaseBackup: {
+            /** Archive Bytes */
+            archive_bytes: number;
+            /** Archive Sha256 */
+            archive_sha256: string;
+            /** Compose Sha256 */
+            compose_sha256: string;
+            /**
+             * Configuration Source
+             * @enum {string}
+             */
+            configuration_source: "running" | "imported_current";
+            /** Created At */
+            created_at: number;
+            pair: components["schemas"]["ReleasePair"];
+            /** Schema Fingerprint */
+            schema_fingerprint: string;
+        };
+        /** ReleaseCommands */
+        ReleaseCommands: {
+            /** Branch */
+            branch: string;
+            /** Revert */
+            revert: string;
+        };
+        /** ReleaseConfirmation */
+        ReleaseConfirmation: {
+            action: components["schemas"]["ReleaseAction"];
+            /** Current Commit */
+            current_commit: string | null;
+            /** Delay Seconds */
+            delay_seconds: number;
+            /**
+             * Expires In Seconds
+             * @default 300
+             */
+            expires_in_seconds: number;
+            /** Token */
+            token: string;
+        };
+        /** ReleaseExecute */
+        ReleaseExecute: {
+            /** Token */
+            token: string;
+        };
+        /** ReleaseImage */
+        ReleaseImage: {
+            /**
+             * Digests
+             * @default []
+             */
+            digests: string[];
+            /** Image Id */
+            image_id: string;
+            /** Repository */
+            repository: string;
+            /** Revision */
+            revision: string;
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "litellm" | "account-pool";
+            /** Size */
+            size: number;
+        };
+        /** ReleaseJob */
+        ReleaseJob: {
+            action: components["schemas"]["ReleaseAction"];
+            /** Created At */
+            created_at: number;
+            /** Expected Current Id */
+            expected_current_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Phase */
+            phase: string;
+            /** Recovery Id */
+            recovery_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "recovered" | "interrupted";
+            /** Updated At */
+            updated_at: number;
+        };
+        /** ReleasePair */
+        ReleasePair: {
+            /** Commit */
+            commit: string;
+            /** Id */
+            id: string;
+            /** Images */
+            images: [
+                components["schemas"]["ReleaseImage"],
+                components["schemas"]["ReleaseImage"]
+            ];
+        };
+        /** ReleaseVersion */
+        ReleaseVersion: {
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            backup?: components["schemas"]["ReleaseBackup"] | null;
+            /**
+             * Current
+             * @default false
+             */
+            current: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            pair: components["schemas"]["ReleasePair"];
+            /** Problem */
+            problem?: string | null;
+        };
+        /** ReleaseView */
+        ReleaseView: {
+            current: components["schemas"]["ReleasePair"] | null;
+            /** Default Guide */
+            default_guide: string;
+            /** Free Bytes */
+            free_bytes: number;
+            /** Guide */
+            guide: string;
+            job?: components["schemas"]["ReleaseJob"] | null;
+            /** Location */
+            location: string;
+            /**
+             * Problems
+             * @default []
+             */
+            problems: string[];
+            /** Revision */
+            revision: number;
+            /** Versions */
+            versions: components["schemas"]["ReleaseVersion"][];
+        };
         /**
          * ReminderMarkerPair
          * @description One open/close delimiter pair a harness wraps injected context in.
@@ -44969,6 +45205,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolQuotaRefreshStatus"];
+                };
+            };
+        };
+    };
+    view_account_pool_releases_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseView"];
+                };
+            };
+        };
+    };
+    execute_account_pool_releases_execute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseExecute"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_account_pool_releases_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseConfirmation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    commands_account_pool_releases__version_id__commands_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseCommands"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -20,6 +20,7 @@ from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
+from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
 
@@ -973,6 +974,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
+    router.include_router(create_release_router(_require_proxy_admin, client_factory))
     return router
 
 
