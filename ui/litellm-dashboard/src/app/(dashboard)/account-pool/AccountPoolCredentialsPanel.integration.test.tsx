@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,8 @@ const patchAuthFileStatus = vi.fn();
 const getAuthFileRefreshStatus = vi.fn();
 const refreshAuthFiles = vi.fn();
 const setAuthFileRefreshInterval = vi.fn();
+const uploadAuthFile = vi.fn();
+const deleteAuthFile = vi.fn();
 
 vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
   const original = await importOriginal<typeof import("./AccountPoolManagementApi")>();
@@ -21,6 +23,8 @@ vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
     getAccountPoolAuthFileRefreshStatus: (...args: unknown[]) => getAuthFileRefreshStatus(...args),
     refreshAccountPoolAuthFiles: (...args: unknown[]) => refreshAuthFiles(...args),
     setAccountPoolAuthFileRefreshInterval: (...args: unknown[]) => setAuthFileRefreshInterval(...args),
+    uploadAccountPoolAuthFile: (...args: unknown[]) => uploadAuthFile(...args),
+    deleteAccountPoolAuthFile: (...args: unknown[]) => deleteAuthFile(...args),
   };
 });
 
@@ -72,6 +76,7 @@ describe("AccountPoolCredentialsPanel", () => {
       },
     ]);
     patchAuthFileStatus.mockResolvedValue(environment);
+    uploadAuthFile.mockResolvedValue(environment);
     getAuthFileRefreshStatus.mockResolvedValue({
       interval_minutes: 15,
       running: true,
@@ -156,5 +161,88 @@ describe("AccountPoolCredentialsPanel", () => {
     await user.click(await screen.findByRole("button", { name: /启用|Enable/i }));
 
     await waitFor(() => expect(patchAuthFileStatus).toHaveBeenCalledWith("token", environment.id, false));
+  });
+
+  it("replaces the selected card's file without a separate delete request", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel
+          accessToken="token"
+          environments={[{ ...environment, id: "other-card", name: "Other card" }, environment]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Replace file|更换文件/i }));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByRole("combobox", { name: /Target card|目标卡片/i })).toHaveValue(environment.id);
+    expect(dialog.getByRole("combobox", { name: /Target card|目标卡片/i })).toBeDisabled();
+    expect(dialog.getByText(/Current file: test-account.json|当前文件：test-account.json/)).toBeVisible();
+    expect(dialog.getByRole("button", { name: /Confirm replacement|确认更换/i })).toBeDisabled();
+    const file = new File(['{"refresh_token":"test-replacement"}'], "replacement.json", { type: "application/json" });
+    await user.upload(dialog.getByLabelText(/Auth file|认证文件/i), file);
+    await user.click(dialog.getByRole("button", { name: /Confirm replacement|确认更换/i }));
+
+    await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(deleteAuthFile).not.toHaveBeenCalled();
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "credentials", "token"] });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "environments"] });
+  });
+
+  it("discards the selected file on cancel and allows regular uploads to choose a card", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Replace file|更换文件/i }));
+    await user.upload(screen.getByLabelText(/Auth file|认证文件/i), new File(["{}"], "cancelled.json"));
+    await user.click(screen.getByRole("button", { name: /Cancel|取消/i }));
+    await user.click(screen.getByRole("button", { name: /Replace file|更换文件/i }));
+    expect(screen.getByLabelText(/Auth file|认证文件/i)).toHaveValue("");
+    expect(screen.getByRole("button", { name: /Confirm replacement|确认更换/i })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /Cancel|取消/i }));
+    await user.click(screen.getByRole("button", { name: /Upload auth file|上传认证文件/i }));
+    expect(within(screen.getByRole("dialog")).getByRole("combobox", { name: /Target card|目标卡片/i })).toBeEnabled();
+    expect(uploadAuthFile).not.toHaveBeenCalled();
+    expect(deleteAuthFile).not.toHaveBeenCalled();
+  });
+
+  it("locks the form while replacing and keeps failures open for retry with refreshed card state", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const pending = Promise.withResolvers<AccountPoolEnvironment>();
+    uploadAuthFile.mockReturnValueOnce(pending.promise);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Replace file|更换文件/i }));
+    const file = new File(["{}"], "retry.json", { type: "application/json" });
+    await user.upload(screen.getByLabelText(/Auth file|认证文件/i), file);
+    await user.click(screen.getByRole("button", { name: /Confirm replacement|确认更换/i }));
+    expect(screen.getByLabelText(/Auth file|认证文件/i)).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Cancel|取消/i })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeVisible();
+    pending.reject(new Error("Validation failed"));
+
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(/retry|重试/i);
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "environments"] });
+    expect(screen.getByLabelText(/Auth file|认证文件/i)).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /Confirm replacement|确认更换/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(uploadAuthFile).toHaveBeenCalledTimes(2);
+    expect(uploadAuthFile).toHaveBeenLastCalledWith("token", environment.id, file);
+    expect(deleteAuthFile).not.toHaveBeenCalled();
   });
 });
