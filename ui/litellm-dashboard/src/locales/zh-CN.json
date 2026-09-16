@@ -6127,7 +6127,11 @@
       "doubleClickToConfigure": "双击打开卡片配置",
       "reorderHint": "拖动手柄调整顺序，或选中手柄后使用方向键；仅改变当前浏览器的展示顺序",
       "reorderCard": "调整 {{name}} 的顺序",
-      "orderNotSaved": "浏览器无法保存顺序，本次调整仅在当前页面有效"
+      "orderNotSaved": "浏览器无法保存顺序，本次调整仅在当前页面有效",
+      "quotaRefresh": "额度刷新",
+      "refreshQuotas": "刷新额度",
+      "lastQuotaRefresh": "最近额度刷新",
+      "nextQuotaRefresh": "下次额度刷新"
     },
     "management": {
       "loading": "正在加载…",

@@ -1,14 +1,17 @@
 /** 本文件渲染号池仪表盘的汇总指标和供应商分组，卡片操作由页面注入以保持权限边界。 */
 
 import type { ReactNode } from "react";
-import { Activity, AlertTriangle, Gauge, Layers3, Radio, TrafficCone } from "lucide-react";
+import { Activity, AlertTriangle, Gauge, Layers3, Radio, RefreshCw, TrafficCone } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import type { ErrorStats } from "./AccountPoolManagementApi";
+import { Button } from "@/components/ui/button";
+
+import { formatDateTime } from "./AccountPoolFormatters";
+import type { AccountPoolQuotaRefreshStatus, ErrorStats } from "./AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { AccountPoolSortableCards } from "./AccountPoolSortableCards";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
@@ -19,6 +22,9 @@ interface AccountPoolDashboardProps {
   statsByCard: ReadonlyMap<string, ErrorStats>;
   statsLoading: boolean;
   renderCard: (environment: AccountPoolEnvironment, stats: ErrorStats | undefined) => ReactNode;
+  quotaRefreshStatus: AccountPoolQuotaRefreshStatus | null;
+  onRefreshQuotas: () => void;
+  refreshingQuotas: boolean;
 }
 
 const formatInteger = (value: number): string => new Intl.NumberFormat("zh-CN").format(value);
@@ -28,8 +34,11 @@ export const AccountPoolDashboard = ({
   statsByCard,
   statsLoading,
   renderCard,
+  quotaRefreshStatus,
+  onRefreshQuotas,
+  refreshingQuotas,
 }: AccountPoolDashboardProps) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const summary = summarizeAccountPoolDashboard(environments, statsByCard);
   const groups = groupAccountPoolEnvironments(environments);
   const successRate =
@@ -83,6 +92,28 @@ export const AccountPoolDashboard = ({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base">{t("accountPool.dashboard.quotaRefresh")}</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={onRefreshQuotas} disabled={refreshingQuotas}>
+              <RefreshCw className={refreshingQuotas || quotaRefreshStatus?.running ? "animate-spin" : undefined} />
+              {t("accountPool.dashboard.refreshQuotas")}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+          <div className="rounded-md border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.lastQuotaRefresh")}</p>
+            <p className="mt-1 font-semibold">{formatDateTime(quotaRefreshStatus?.last_completed_at, i18n.language)}</p>
+          </div>
+          <div className="rounded-md border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.nextQuotaRefresh")}</p>
+            <p className="mt-1 font-semibold">{formatDateTime(quotaRefreshStatus?.next_refresh_at, i18n.language)}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

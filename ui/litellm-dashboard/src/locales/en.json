@@ -6127,7 +6127,11 @@
       "doubleClickToConfigure": "Double-click to open card configuration",
       "reorderHint": "Drag a handle or focus it and use arrow keys to reorder cards in this browser only",
       "reorderCard": "Reorder {{name}}",
-      "orderNotSaved": "Browser storage is unavailable; this order only lasts for this page"
+      "orderNotSaved": "Browser storage is unavailable; this order only lasts for this page",
+      "quotaRefresh": "Quota refresh",
+      "refreshQuotas": "Refresh quotas",
+      "lastQuotaRefresh": "Last quota refresh",
+      "nextQuotaRefresh": "Next quota refresh"
     },
     "management": {
       "loading": "Loading…",

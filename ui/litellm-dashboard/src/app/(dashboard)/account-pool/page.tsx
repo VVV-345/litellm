@@ -43,6 +43,7 @@ import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
 import {
   getAccountPoolDashboardStats,
+  getAccountPoolQuotaRefreshStatus,
   listAccountPolicies,
   refreshAccountPoolQuotas,
   type ErrorStats,
@@ -93,8 +94,15 @@ export default function AccountPoolPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
+  const [refreshingQuotas, setRefreshingQuotas] = useState(false);
   const canManage = canManageAccountPool(userRole, isViewOnly);
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
+  const quotaRefreshStatusQuery = useQuery({
+    queryKey: ["account-pool", "quota-refresh-status", accessToken],
+    queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
+    enabled: canManage && accessToken !== null,
+    retry: false,
+  });
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage);
   const policiesQueryOptions = {
     queryKey: ["account-pool", "policies", accessToken],
@@ -140,6 +148,19 @@ export default function AccountPoolPage() {
   const visibleEnvironments = paginateAccountPoolEnvironments(filteredEnvironments, currentPage, PAGE_SIZE);
   const overview = useMemo(() => summarizeAccountPoolEnvironments(environments), [environments]);
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
+  const refreshQuotas = () => {
+    if (!accessToken || refreshingQuotas) return;
+    setRefreshingQuotas(true);
+    void refreshAccountPoolQuotas(accessToken)
+      .then((result) => {
+        if (result.failed_card_ids.length)
+          toast.error(t("accountPool.quotas.partialFailure", { count: result.failed_card_ids.length }));
+        else toast.success(t("accountPool.quotas.refreshed"));
+        return Promise.all([environmentsQuery.refetch(), quotaRefreshStatusQuery.refetch()]);
+      })
+      .catch((error: unknown) => toast.fromError(error))
+      .finally(() => setRefreshingQuotas(false));
+  };
   const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
   if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
@@ -340,6 +361,9 @@ export default function AccountPoolPage() {
                 statsByCard={statsByCard}
                 statsLoading={statsLoading}
                 renderCard={renderCard}
+                quotaRefreshStatus={quotaRefreshStatusQuery.data ?? null}
+                onRefreshQuotas={refreshQuotas}
+                refreshingQuotas={refreshingQuotas}
               />
             )}
           </TabsContent>
@@ -402,18 +426,8 @@ export default function AccountPoolPage() {
             <AccountPoolQuotaPanel
               accessToken={accessToken}
               environments={environments}
-              onRefresh={() => {
-                if (accessToken)
-                  void refreshAccountPoolQuotas(accessToken)
-                    .then((result) => {
-                      if (result.failed_card_ids.length)
-                        toast.error(t("accountPool.quotas.partialFailure", { count: result.failed_card_ids.length }));
-                      else toast.success(t("accountPool.quotas.refreshed"));
-                      return environmentsQuery.refetch();
-                    })
-                    .catch((error: unknown) => toast.fromError(error));
-              }}
-              refreshing={environmentsQuery.isFetching}
+              onRefresh={refreshQuotas}
+              refreshing={refreshingQuotas}
             />
           </TabsContent>
           <TabsContent value="settings" className="pt-4">
