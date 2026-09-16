@@ -215,6 +215,7 @@ services:
     ports:
       - "127.0.0.1:8092:8092"
     networks:
+      - default
       - account-pool-socket
       - litellm-control
     depends_on:

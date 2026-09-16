@@ -468,7 +468,11 @@ def _default_client() -> AccountPoolManagerClient:
     )
 
 
-def create_account_pool_router(client_factory: ManagerClientFactory = _default_client) -> APIRouter:
+def create_account_pool_router(
+    client_factory: ManagerClientFactory = _default_client,
+    *,
+    release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
     async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
@@ -974,7 +978,7 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
-    router.include_router(create_release_router(_require_proxy_admin, client_factory))
+    router.include_router(create_release_router(_require_proxy_admin, release_client_factory))
     return router
 
 

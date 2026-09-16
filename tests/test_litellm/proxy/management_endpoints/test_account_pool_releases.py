@@ -15,6 +15,10 @@ from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints import account_pool_release_models as contracts
+from litellm.proxy.management_endpoints.account_pool_endpoints import (
+    AccountPoolManagerClient,
+    create_account_pool_router,
+)
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
 
 
@@ -69,3 +73,31 @@ def test_missing_worker_is_explicit_and_schema_generates(monkeypatch: pytest.Mon
         response: Final = client.get("/releases")
         assert response.status_code == 503
         assert "尚未启用" in response.text
+
+
+def test_mounted_release_router_uses_separate_worker_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_RELEASE_TOKEN", "s" * 32)
+    app: Final = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_id="administrator", user_role=LitellmUserRoles.PROXY_ADMIN
+    )
+
+    def manager_client() -> AccountPoolManagerClient:
+        pytest.fail("版本管理不能使用号池 Manager 客户端")
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://release-worker:8092/api/releases/execute"
+        assert request.headers["Authorization"] == "Bearer " + "s" * 32
+        assert request.content == b'{"token":"' + b"a" * 64 + b'"}'
+        return httpx.Response(409, json={"detail": "请等待确认倒计时结束"})
+
+    app.include_router(
+        create_account_pool_router(
+            manager_client,
+            release_client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+        )
+    )
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/releases/execute", json={"token": "a" * 64})
+    assert response.status_code == 409
+    assert response.json()["detail"] == "请等待确认倒计时结束"
