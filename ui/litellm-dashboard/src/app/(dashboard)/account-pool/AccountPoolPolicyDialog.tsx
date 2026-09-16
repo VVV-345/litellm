@@ -222,10 +222,7 @@ function PolicyForm({
     value,
   }));
   const selectedGroup = groupOptions.find((option) => option.value === policy.group) ?? null;
-  const preferredAccountOptions = [
-    { label: environment.name, value: environment.id, description: environment.id },
-    ...options.accounts.filter((option) => policy.account_ids?.includes(option.value)),
-  ];
+  const preferredAccountOptions = [{ label: environment.name, value: environment.id, description: environment.id }];
   const list = (input: string) =>
     input
       .split(",")
@@ -373,25 +370,6 @@ function PolicyForm({
       allowCustomValues: true,
     },
   };
-  const accountIdsField: MultiFieldProps = {
-    label: t("accountPool.policy.account_ids"),
-    description: description("account_ids"),
-    selected: policy.account_ids ?? [],
-    control: {
-      entries: options.accounts,
-      change: (accountIds) =>
-        setPolicy((current) => ({
-          ...current,
-          account_ids: accountIds,
-          routing: {
-            ...current.routing,
-            preferred_account_ids: current.routing.preferred_account_ids.filter(
-              (accountId) => accountId === environment.id || accountIds.includes(accountId),
-            ),
-          },
-        })),
-    },
-  };
   const preferredAccountIdsField: MultiFieldProps = {
     label: t("accountPool.policy.preferred_account_ids"),
     description: description("preferred_account_ids"),
@@ -420,12 +398,14 @@ function PolicyForm({
     }
     const parsed: FormPolicy = {
       ...policy,
+      account_ids: [],
       model_aliases: aliasValues.map((item) => {
         const split = item.indexOf("=");
         return { alias: item.slice(0, split).trim(), target: item.slice(split + 1).trim() };
       }),
       routing: {
         ...policy.routing,
+        preferred_account_ids: policy.routing.preferred_account_ids.filter((id) => id === environment.id),
         retryable_statuses: list(statuses).map(Number),
       },
     };
@@ -535,7 +515,7 @@ function PolicyForm({
           <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.accountScopeDescription")}</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          {multiField(accountIdsField)}
+          <p className="text-sm text-muted-foreground">{t("accountPool.credentials.exclusiveHint")}</p>
           {multiField(preferredAccountIdsField)}
         </div>
       </section>

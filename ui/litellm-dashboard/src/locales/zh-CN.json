@@ -5846,6 +5846,9 @@
       "reauthorize": "重新授权"
     },
     "credentials": {
+      "accountIdentity": "对应账号",
+      "identityUnknown": "账号信息待同步，请刷新认证文件",
+      "exclusiveHint": "一卡一凭证，仅使用本卡账号，不共享其他卡片凭证",
       "title": "认证文件",
       "description": "查看凭据归属和模型发现状态，敏感值只保存在服务端。",
       "provider": "供应商",

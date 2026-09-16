@@ -17,6 +17,12 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.credential_ownership import (
+    CredentialConflict,
+    CredentialIdentity,
+    CredentialOwnership,
+    credential_identity,
+)
 from account_pool.domain import (
     AuthorizationFlow,
     EnvironmentConfiguration,
@@ -106,6 +112,8 @@ class _AuthFile(BaseModel):
 
     name: str
     auth_index: str | None = None
+    email: str | None = None
+    account_id: str | None = None
     provider: str | None = None
     type: str | None = None
     disabled: bool = False
@@ -444,8 +452,14 @@ def _legacy_openai_supplier() -> SupplierDefinition:
 
 
 class HttpCLIProxyClient:
-    def __init__(self, secrets: EnvironmentSecretDeriver, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        secrets: EnvironmentSecretDeriver,
+        client: httpx.AsyncClient | None = None,
+        ownership: CredentialOwnership | None = None,
+    ) -> None:
         self._secrets: Final = secrets
+        self._ownership: Final = ownership
         self._client: Final = client or httpx.AsyncClient(
             timeout=15.0,
             transport=httpx.AsyncHTTPTransport(retries=20),
@@ -459,6 +473,10 @@ class HttpCLIProxyClient:
             await self._client.aclose()
 
     async def start_authorization(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> AuthorizationStart:
+        if self._ownership is not None:
+            if record.oauth_provider_state is not None:
+                await self.cancel_oauth_session(record, record.oauth_provider_state)
+            await self.delete_auth_file(record, record.auth_file_name or "")
         response: Final = await self._request(record, "GET", supplier.authorization_path)
         payload: Final = _AuthorizationResponse.model_validate(response.json())
         return AuthorizationStart(
@@ -554,7 +572,35 @@ class HttpCLIProxyClient:
             else None
         )
         if auth_file is None:
+            if self._ownership is not None:
+                try:
+                    for item in auth_files.files:
+                        await self.patch_auth_file_status(record, item.name, item.auth_index, True)
+                except Exception as error:
+                    raise CredentialConflict("卡片绑定的认证文件不存在且残留文件禁用失败，请重试清理") from error
+                raise CredentialConflict("卡片绑定的认证文件不存在，请重新上传唯一凭证或重新授权")
             raise RuntimeError(f"CLIProxyAPI did not persist a {selected_supplier.kind.value} credential")
+        if self._ownership is not None:
+            try:
+                if len(auth_files.files) != 1:
+                    raise CredentialConflict("卡片内存在多个认证文件，请删除多余凭证或重新上传唯一凭证")
+                if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL and record.credential_fingerprints:
+                    credential = CredentialIdentity(
+                        record.credential_fingerprints, record.credential_email, record.credential_account_id
+                    )
+                else:
+                    content, _ = await self.download_auth_file(record, auth_file.name)
+                    credential = credential_identity(content, record.supplier.value, self._secrets)
+                await self._ownership.claim(record.id, credential.fingerprints)
+            except CredentialConflict as conflict:
+                try:
+                    for item in auth_files.files:
+                        await self.patch_auth_file_status(record, item.name, item.auth_index, True)
+                except Exception as error:
+                    raise conflict from error
+                raise
+        else:
+            credential = None
         model_response: Final = await self._request(
             record,
             "GET",
@@ -630,6 +676,11 @@ class HttpCLIProxyClient:
             update={
                 "auth_file_name": auth_file.name,
                 "auth_index": auth_file.auth_index,
+                "credential_fingerprints": () if credential is None else credential.fingerprints,
+                "credential_email": auth_file.email if credential is None else credential.email or auth_file.email,
+                "credential_account_id": (
+                    auth_file.account_id if credential is None else credential.account_id or auth_file.account_id
+                ),
                 "auth_file_disabled": auth_file.disabled,
                 "available_models": available_models,
                 "enabled_models": enabled_models,
@@ -1254,6 +1305,8 @@ class HttpCLIProxyClient:
     async def set_credential_enabled(self, record: EnvironmentRecord, enabled: bool) -> None:
         if record.auth_file_name is None:
             return
+        if enabled and self._ownership is not None:
+            await self.read_account(record, SupplierRegistry.default().get(record.supplier))
         await self._request(
             record,
             "PATCH",
@@ -1268,6 +1321,14 @@ class HttpCLIProxyClient:
     async def upload_auth_file(
         self, record: EnvironmentRecord, filename: str, content: bytes, content_type: str | None
     ) -> None:
+        if self._ownership is not None:
+            identity: Final = credential_identity(content, record.supplier.value, self._secrets)
+            await self._ownership.claim(record.id, identity.fingerprints)
+        existing: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        files: Final = _AUTH_FILES_ADAPTER.validate_python(existing.json()).files
+        # 显式替换前移除旧文件，失败时由服务保持不可路由，不能让新旧令牌同时工作。
+        for item in files:
+            await self._request(record, "DELETE", "/v0/management/auth-files", params={"name": item.name})
         response: Final = await self._request_multipart(
             record,
             "POST",
@@ -1289,16 +1350,19 @@ class HttpCLIProxyClient:
         return response.content, content_type
 
     async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None:
-        await self._request(
-            record,
-            "DELETE",
-            "/v0/management/auth-files",
-            params={"name": filename},
-        )
+        existing: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        files: Final = _AUTH_FILES_ADAPTER.validate_python(existing.json()).files
+        for item in files:
+            await self._request(record, "DELETE", "/v0/management/auth-files", params={"name": item.name})
+        remaining: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        if _AUTH_FILES_ADAPTER.validate_python(remaining.json()).files:
+            raise CredentialConflict("认证文件尚未清理完成，请重试删除")
 
     async def patch_auth_file_status(
         self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
     ) -> None:
+        if not disabled and self._ownership is not None:
+            await self.read_account(record, SupplierRegistry.default().get(record.supplier))
         await self._request(
             record,
             "PATCH",

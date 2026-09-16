@@ -634,6 +634,10 @@ class AccountPoolCredential(BaseModel):
     enabled: bool
     model_count: int = Field(default=0, ge=0)
     auth_index: str | None = None
+    account_email: str | None = None
+    account_id: str | None = None
+    file_name: str | None = None
+    last_error: str | None = None
 
 
 class AccountPoolCredentialRequest(BaseModel):

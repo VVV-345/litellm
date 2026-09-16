@@ -75,7 +75,7 @@ class AccountPoolOpenAICompatibleConfig(BaseModel):
     prefix: str = Field(default="", max_length=120)
     priority: int = Field(default=0, ge=-10000, le=10000)
     test_model: str = Field(min_length=1, max_length=256)
-    api_keys: tuple[AccountPoolOpenAICompatibleKey, ...] = Field(min_length=1, max_length=100)
+    api_keys: tuple[AccountPoolOpenAICompatibleKey, ...] = Field(min_length=1, max_length=1)
     headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
     custom_models: tuple[str, ...] = Field(default=(), max_length=500)
 
@@ -968,7 +968,9 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "DELETE", f"/api/proxy-gateways/{port}")
         if response.is_error:
-            raise HTTPException(response.status_code, "Proxy gateway deletion failed; remove account references and retry")
+            raise HTTPException(
+                response.status_code, "Proxy gateway deletion failed; remove account references and retry"
+            )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     return router

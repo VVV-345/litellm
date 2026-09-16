@@ -23744,6 +23744,10 @@ export interface components {
         };
         /** AccountPoolCredential */
         AccountPoolCredential: {
+            /** Account Email */
+            account_email?: string | null;
+            /** Account Id */
+            account_id?: string | null;
             /** Auth Index */
             auth_index?: string | null;
             /**
@@ -23755,10 +23759,14 @@ export interface components {
             card_name: string;
             /** Enabled */
             enabled: boolean;
+            /** File Name */
+            file_name?: string | null;
             /** Id */
             id: string;
             /** Kind */
             kind: string;
+            /** Last Error */
+            last_error?: string | null;
             /**
              * Model Count
              * @default 0

@@ -1,4 +1,4 @@
-/** 本文件创建 OpenAI 兼容号池卡片及多 API Key 凭据，明文只在提交请求期间存在于浏览器内存。 */
+/** 本文件创建 OpenAI 兼容号池卡片及单 API Key 凭据，明文只在提交请求期间存在于浏览器内存。 */
 
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -136,15 +136,7 @@ export const AccountPoolOpenAICompatibleForm = ({
       <div className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
           <Label>{t("accountPool.providers.openaiCompatible.apiKeys")}</Label>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setKeys((current) => [...current, { api_key: "", proxy_profile_id: "", weight: 1 }])}
-          >
-            <Plus />
-            {t("accountPool.providers.openaiCompatible.addKey")}
-          </Button>
+          <span className="text-xs text-muted-foreground">{t("accountPool.credentials.exclusiveHint")}</span>
         </div>
         {keys.map((item, index) => (
           <div

@@ -34,6 +34,15 @@ async def private_resolver(_: str, __: int) -> tuple[str, ...]:
     return ("10.0.0.8",)
 
 
+def test_openai_compatible_request_rejects_multiple_keys() -> None:
+    with pytest.raises(ValueError, match="at most 1 item"):
+        OpenAICompatibleCreateRequest(
+            base_url="https://api.example.com/v1",
+            test_model="upstream-model",
+            api_keys=({"api_key": "first-key"}, {"api_key": "second-key"}),
+        )
+
+
 def test_openai_compatible_request_rejects_local_and_metadata_targets() -> None:
     for base_url in (
         "http://127.0.0.1/v1",
@@ -145,7 +154,6 @@ async def test_channel_discovers_prefixed_models_and_keeps_keys_out_of_record_re
         test_model="chat-model",
         credentials=(
             OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "secret-key"), weight=2),
-            OpenAICompatibleCredential(api_key_ciphertext=cipher.seal(environment_id, "second-key"), weight=1),
         ),
         custom_models=(),
     )
@@ -196,7 +204,7 @@ async def test_channel_discovers_prefixed_models_and_keeps_keys_out_of_record_re
     finally:
         await channel.close()
 
-    assert observed.available_models == ("vendor/chat-model", "vendor/embedding-model")
+    assert observed.available_models == ("vendor/chat-model",)
     assert observed.enabled_models == observed.available_models
     assert gateway.credentials[0].api_key == "secret-key"
     assert "secret-key" not in repr(record)

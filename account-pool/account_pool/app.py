@@ -20,6 +20,7 @@ from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.gateway_repository import PostgresLeaseRepository
@@ -59,7 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
-    channels: Final = ChannelRegistry.default(resolved, secrets)
+    ownership: Final = CredentialOwnership(resolved.database_url)
+    channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
@@ -83,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         error_logs=logs,
         global_settings=settings_repository,
         policies=policies,
+        ownership=ownership,
     )
     batch_service: Final = BatchService(
         batches,
@@ -117,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
         await policies.initialize()
         await leases.initialize()
@@ -127,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await proxy_gateways.sync_profiles()
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
+        await service.refresh_auth_files()
         # 旧卡片可能在新增运行配置前已创建，启动时补一次同步以迁移插件目录等持久配置。
         try:
             failed_settings_cards: Final = await sync_global_settings(
@@ -190,7 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             environments=environments,
             policies=policies,
             gateway_service=GatewayService(
-                keys, environments, policies, leases, logs, service.gateway_environment, settings_repository
+                keys, environments, policies, leases, logs, service.gateway_environment, settings_repository, ownership
             ),
             batch_service=batch_service,
             settings=settings_repository,

@@ -362,7 +362,7 @@ class OpenAICompatibleCreateRequest(BaseModel):
     prefix: str = Field(default="", max_length=120)
     priority: int = Field(default=0, ge=-10000, le=10000)
     test_model: str = Field(min_length=1, max_length=256)
-    api_keys: tuple[OpenAICompatibleKeyRequest, ...] = Field(min_length=1, max_length=100)
+    api_keys: tuple[OpenAICompatibleKeyRequest, ...] = Field(min_length=1, max_length=1)
     headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
     custom_models: tuple[str, ...] = Field(default=(), max_length=500)
 
@@ -455,6 +455,9 @@ class EnvironmentRecord(BaseModel):
     auth_file_name: str | None
     auth_index: str | None
     auth_file_disabled: bool = False
+    credential_fingerprints: tuple[str, ...] = Field(default=(), repr=False)
+    credential_email: str | None = None
+    credential_account_id: str | None = None
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     cooldown_until: datetime | None

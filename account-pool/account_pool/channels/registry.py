@@ -13,6 +13,7 @@ from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition,
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.config import Settings
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import AuthorizationFlow, ChannelKind, SupplierKind
 from account_pool.secrets import EnvironmentSecretDeriver
 
@@ -27,6 +28,7 @@ class ChannelRegistry:
         cls,
         settings: Settings | None = None,
         secrets: EnvironmentSecretDeriver | None = None,
+        ownership: CredentialOwnership | None = None,
     ) -> ChannelRegistry:
         suppliers: Final = SupplierRegistry.default()
         cliproxyapi: Final = ChannelDefinition(
@@ -48,11 +50,12 @@ class ChannelRegistry:
         implementations: Final = (
             MappingProxyType(
                 {
-                    ChannelKind.OPENAI_COMPATIBLE: OpenAICompatibleChannel(secrets),
+                    ChannelKind.OPENAI_COMPATIBLE: OpenAICompatibleChannel(secrets, ownership=ownership),
                     ChannelKind.CLIPROXYAPI: CLIProxyAPIChannel(
                         settings,
                         secrets,
                         suppliers=suppliers,
+                        ownership=ownership,
                     ),
                 }
             )

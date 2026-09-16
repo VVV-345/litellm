@@ -264,16 +264,16 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
     leases: Final = MemoryLeases()
     service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), gateway)
     resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
-    assert {item.id for item in resolution.candidates} == {card.id, other.id}
+    assert {item.id for item in resolution.candidates} == {card.id}
     request: Final = AcquireRequest(
         card_key=issued.value.key,
-        account_id=other.id,
+        account_id=card.id,
         request_id=uuid4(),
         model="gpt-5",
         card_version=0,
         policy_version=1,
         account_version=0,
-        account_policy_version=0,
+        account_policy_version=1,
         timeout_seconds=30,
         attempt=2,
         routing_reason="retry_failover",
@@ -296,8 +296,8 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
             cache_creation_input_tokens=0,
         )
     )
-    assert not leases.leases and other.id in leases.cooled
-    assert logs.events[0].card_id == card.id and logs.events[0].account_id == other.id
+    assert not leases.leases and card.id in leases.cooled
+    assert logs.events[0].card_id == card.id and logs.events[0].account_id == card.id
     assert logs.events[0].request_id == request.request_id
     assert logs.events[0].card_key_id == issued.value.status.key_id
     assert logs.events[0].attempt == 2 and logs.events[0].retry_count == 1
@@ -601,7 +601,7 @@ async def test_card_disabling_blocks_bound_accounts_and_disabled_member_is_remov
 
 
 @pytest.mark.asyncio
-async def test_full_sticky_account_can_rebind_to_next_candidate() -> None:
+async def test_full_card_cannot_borrow_a_legacy_bound_account() -> None:
     card: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 1})
     other: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 1})
     environments: Final = MemoryRepository(card)
@@ -625,7 +625,8 @@ async def test_full_sticky_account_can_rebind_to_next_candidate() -> None:
     session_hash: Final = "a" * 64
     resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key, session_hash=session_hash))
     first: Final = next(item for item in resolution.candidates if item.id == card.id)
-    second: Final = next(item for item in resolution.candidates if item.id == other.id)
+    assert tuple(item.id for item in resolution.candidates) == (card.id,)
+    second: Final = first.model_copy(update={"id": other.id})
 
     def request(candidate: Candidate, *, allow_session_rebind: bool = False) -> AcquireRequest:
         return AcquireRequest(
@@ -649,12 +650,11 @@ async def test_full_sticky_account_can_rebind_to_next_candidate() -> None:
     assert full.value.status_code == 409
     with pytest.raises(HTTPException) as bound:
         await service.acquire(request(second))
-    assert bound.value.status_code == 409
+    assert bound.value.status_code == 403
 
-    lease: Final = await service.acquire(request(second, allow_session_rebind=True))
-    rebound: Final = await service.resolve(ResolveRequest(card_key=issued.value.key, session_hash=session_hash))
-    assert lease.account_id == other.id
-    assert rebound.sticky_account_id == other.id
+    with pytest.raises(HTTPException) as rebound:
+        await service.acquire(request(second, allow_session_rebind=True))
+    assert rebound.value.status_code == 403
 
 
 @pytest.mark.asyncio

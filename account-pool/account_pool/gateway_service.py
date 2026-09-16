@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from collections.abc import Callable
 from typing import Final, Literal
@@ -11,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from account_pool.card_keys import CardKeyService
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import EnvironmentRecord, GatewayEnvironment, utc_now
 from account_pool.error_logs import MODEL_REQUEST_OPERATION, ErrorLogRecord, ErrorLogService
 from account_pool.gateway_contracts import (
@@ -44,6 +44,7 @@ class GatewayService:
         logs: ErrorLogService,
         gateway: Callable[[EnvironmentRecord], GatewayEnvironment],
         settings: AccountPoolSettingsRepository | None = None,
+        ownership: CredentialOwnership | None = None,
     ) -> None:
         self.keys: Final = keys
         self.environments: Final = environments
@@ -52,6 +53,7 @@ class GatewayService:
         self.logs: Final = logs
         self.gateway: Final = gateway
         self.settings: Final = settings
+        self.ownership: Final = ownership
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         key: Final = await self.keys.authenticate(request.card_key)
@@ -73,21 +75,12 @@ class GatewayService:
             policy.policy,
             effective_settings if policy.version == 0 else None,
         )
-        ids: Final = tuple(dict.fromkeys((card.id, *policy.policy.account_ids)))
-        records: Final = await asyncio.gather(*(self.environments.get(identifier) for identifier in ids))
         cooling: Final = await self.leases.cooling()
-        candidates: Final = tuple(
-            await asyncio.gather(
-                *(
-                    self.candidate(record, global_settings)
-                    for record in records
-                    if record is not None
-                    and record.channel == card.channel
-                    and record.supplier == card.supplier
-                    and record.id not in cooling
-                    and self.gateway(record).routable
-                )
-            )
+        owned: Final = self.ownership is None or await self.ownership.owns(card.id, card.credential_fingerprints)
+        candidates: Final = (
+            (await self.candidate(card, global_settings),)
+            if owned and card.id not in cooling and self.gateway(card).routable
+            else ()
         )
         binding: Final = (
             binding_hash(key.key_id, request.session_hash) if policy.policy.routing.session_affinity else None

@@ -578,6 +578,9 @@ class FakeCLIProxy:
     ) -> None:
         self.upload_calls.append((record.id, filename, content, content_type))
 
+    async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None:
+        _ = (record, filename)
+
     async def patch_auth_file_status(
         self, record: EnvironmentRecord, filename: str, auth_index: str | None, disabled: bool
     ) -> None:
@@ -826,7 +829,9 @@ async def test_upload_auth_file_binds_credential_and_clears_pending_oauth_sessio
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     service: Final = _service(record, FakeCLIProxy(), tmp_path)
 
-    result: Final = await service.upload_auth_file(record.id, "account.json", b"{}", "application/json")
+    result: Final = await service.upload_auth_file(
+        record.id, "account.json", b'{"refresh_token":"test-refresh","email":"test@example.test"}', "application/json"
+    )
     durable: Final = await service._repository.get(record.id)
 
     assert not isinstance(result, Failure)
@@ -841,7 +846,9 @@ async def test_upload_auth_file_binds_credential_and_clears_pending_oauth_sessio
     assert durable.oauth_authorization_url is None
     assert durable.authorization_user_code is None
     assert durable.configuration_pending is False
-    assert service._cli_proxy.upload_calls == [(record.id, "account.json", b"{}", "application/json")]
+    assert service._cli_proxy.upload_calls == [
+        (record.id, "account.json", b'{"refresh_token":"test-refresh","email":"test@example.test"}', "application/json")
+    ]
     assert service._cli_proxy.cancel_calls == [(record.id, "state-for-test-1234")]
     assert service._cli_proxy.authorization_status_calls == 0
 
@@ -852,13 +859,21 @@ async def test_upload_auth_file_reports_validation_failure_without_claiming_succ
     cli: Final = FakeCLIProxy(read_error=RuntimeError("invalid access_token=secret-value"))
     service: Final = _service(record, cli, tmp_path)
 
-    result: Final = await service.upload_auth_file(record.id, "account.json", b"{}", "application/json")
+    result: Final = await service.upload_auth_file(
+        record.id, "account.json", b'{"refresh_token":"test-refresh","email":"test@example.test"}', "application/json"
+    )
     durable: Final = await service._repository.get(record.id)
 
     assert isinstance(result, Failure)
     assert result.code is FailureCode.UPSTREAM
     assert "secret-value" not in result.message
-    assert durable == record
+    assert durable is not None
+    assert durable.status is EnvironmentStatus.ERROR
+    assert durable.auth_file_name == "account.json"
+    assert durable.credential_fingerprints == ()
+    assert not service.gateway_environment(durable).routable
+    assert durable.last_error is not None and "secret-value" not in durable.last_error
+    assert durable.version > record.version
     assert cli.authorization_status_calls == 0
 
 
@@ -3548,7 +3563,7 @@ async def test_reauthorize_failure_invalidates_previous_oauth_state(tmp_path: Pa
     assert result.code is FailureCode.UPSTREAM
     assert durable is not None
     assert durable.status is EnvironmentStatus.ERROR
-    assert durable.version == pending.version + 1
+    assert durable.version == pending.version + 2
     assert durable.oauth_state is None
     assert durable.oauth_expires_at is None
     assert durable.oauth_state_signature is None
@@ -4076,3 +4091,172 @@ async def test_direct_credential_card_rejects_oauth_reauthorization(tmp_path: Pa
     assert isinstance(result, Failure)
     assert result.code is FailureCode.INVALID
     assert result.message == "direct credential cards do not use OAuth authorization"
+
+
+@pytest.mark.asyncio
+async def test_delete_auth_file_waits_for_refresh_and_clears_binding(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+    lock: Final = await service._lock_for(record.id)
+    await lock.acquire()
+    deletion: Final = asyncio.create_task(service.delete_auth_file(record.id))
+    await asyncio.sleep(0)
+    assert not deletion.done()
+    lock.release()
+    result: Final = await deletion
+    assert isinstance(result, Success)
+    current: Final = await service._repository.get(record.id)
+    assert current is not None
+    assert current.auth_file_name is None and current.auth_index is None
+    assert current.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert current.enabled_models == () and current.credential_fingerprints == ()
+
+
+class CredentialDeleteFailure(FakeCLIProxy):
+    async def delete_auth_file(self, record: EnvironmentRecord, filename: str) -> None:
+        raise RuntimeError("upstream delete unavailable")
+
+
+@pytest.mark.asyncio
+async def test_delete_failure_keeps_card_unroutable_and_ownership_reserved(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = _service(record, CredentialDeleteFailure(), tmp_path)
+    await service._ownership.claim(record.id, ("identity",))
+    result: Final = await service.delete_auth_file(record.id)
+    assert isinstance(result, Failure)
+    current: Final = await service._repository.get(record.id)
+    assert current is not None and current.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert not service.gateway_environment(current).routable
+    assert await service._ownership.owns(record.id, ("identity",))
+
+
+@pytest.mark.asyncio
+async def test_delete_auth_file_does_not_report_success_after_version_conflict(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = RejectingVersionRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    result: Final = await service.delete_auth_file(record.id)
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.CONFLICT
+    assert await repository.get(record.id) == record
+
+
+@pytest.mark.asyncio
+async def test_duplicate_upload_rejected_before_touching_second_card(tmp_path: Path) -> None:
+    first: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    second: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(first, cli, tmp_path)
+    await service._repository.save(second)
+    content: Final = b'{"refresh_token":"unique-secret","email":"unique@example.test"}'
+    first_result: Final = await service.upload_auth_file(first.id, "first.json", content, "application/json")
+    assert isinstance(first_result, Success)
+    second_result: Final = await service.upload_auth_file(second.id, "renamed.json", content, "application/json")
+    assert isinstance(second_result, Failure) and second_result.code is FailureCode.CONFLICT
+    assert len(cli.upload_calls) == 1
+    assert await service._repository.get(second.id) == second
+
+
+@pytest.mark.asyncio
+async def test_existing_card_cannot_append_an_api_key(tmp_path: Path) -> None:
+    from account_pool.domain import OpenAICompatibleCredentialRequest
+
+    record: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+    result: Final = await service.add_openai_compatible_credential(
+        record.id, OpenAICompatibleCredentialRequest(version=record.version, api_key="extra-secret")
+    )
+    assert isinstance(result, Failure) and result.code is FailureCode.INVALID
+    assert await service._repository.get(record.id) == record
+
+
+class RejectCredentialClearRepository(MemoryRepository):
+    async def save_if_version(self, record: EnvironmentRecord, expected_version: int) -> EnvironmentRecord | None:
+        if record.auth_file_name is None:
+            return None
+        return await super().save_if_version(record, expected_version)
+
+
+@pytest.mark.asyncio
+async def test_delete_final_save_conflict_keeps_binding_reserved(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = RejectCredentialClearRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    await service._ownership.claim(record.id, ("reserved",))
+    result: Final = await service.delete_auth_file(record.id)
+    assert isinstance(result, Failure) and result.code is FailureCode.CONFLICT
+    current: Final = await repository.get(record.id)
+    assert current is not None and not service.gateway_environment(current).routable
+    assert await service._ownership.owns(record.id, ("reserved",))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preferred", [False, True])
+async def test_policy_cannot_bind_another_cards_credential(preferred: bool) -> None:
+    from account_pool.policies import AccountPolicy, RoutingPolicy, policy_validation_error
+
+    record: Final = _record(status=EnvironmentStatus.READY)
+    other: Final = _record(status=EnvironmentStatus.READY)
+    policy: Final = AccountPolicy(
+        account_ids=() if preferred else (other.id,),
+        routing=RoutingPolicy(preferred_account_ids=(other.id,) if preferred else ()),
+    )
+    assert await policy_validation_error(record, policy, MemoryRepository(record)) is not None
+
+
+class FailingCredentialCreateRepository(MemoryRepository):
+    async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        raise RuntimeError("database write failed")
+
+
+@pytest.mark.asyncio
+async def test_failed_card_creation_does_not_leave_an_orphan_credential_claim(tmp_path: Path) -> None:
+    from account_pool.credential_ownership import credential_identity
+
+    record: Final = _record(status=EnvironmentStatus.READY)
+    repository: Final = FailingCredentialCreateRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=secrets,
+        channels=_fake_channels(runtime, cli),
+    )
+    result: Final = await service.create_direct_credential_environment(
+        CreateDirectCredentialEnvironmentRequest(
+            name="Gemini account",
+            supplier=SupplierKind.GEMINI,
+            credential=DirectAPIKeyCredentialRequest(api_key="unclaimed-secret"),
+        )
+    )
+    assert isinstance(result, Failure) and result.code is FailureCode.UPSTREAM
+    identity: Final = credential_identity(b'{"api_key":"unclaimed-secret"}', SupplierKind.GEMINI.value, secrets)
+    replacement: Final = uuid4()
+    await service._ownership.claim(replacement, identity.fingerprints)
+    assert await service._ownership.owns(replacement, identity.fingerprints)
+    assert cli.direct_credentials == []

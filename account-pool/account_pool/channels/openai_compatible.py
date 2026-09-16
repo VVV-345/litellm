@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import socket
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from account_pool.channels.cliproxyapi.client import AuthorizationStart
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition, parse_empty_quota
+from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
     AuthorizationFlow,
     EnvironmentConfiguration,
@@ -115,8 +117,11 @@ class OpenAICompatibleChannel:
         secrets: EnvironmentSecretDeriver,
         client: httpx.AsyncClient | None = None,
         resolver: HostResolver = _resolve_host,
+        ownership: CredentialOwnership | None = None,
     ) -> None:
         self._cipher: Final = StateCipher(secrets)
+        self._secrets: Final = secrets
+        self._ownership: Final = ownership
         self._client: Final = client or httpx.AsyncClient(timeout=20, trust_env=False, follow_redirects=False)
         self._owns_client: Final = client is None
         self._resolver: Final = resolver
@@ -162,6 +167,18 @@ class OpenAICompatibleChannel:
 
     async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
         _ = refresh_quota
+        configuration: Final = self._configuration(record)
+        if len(configuration.credentials) != 1:
+            raise CredentialConflict("一张卡片只能使用一个 API Key，请先删除多余凭证")
+        identity: Final = credential_identity(
+            json.dumps(
+                {"api_key": self._cipher.open(record.id, configuration.credentials[0].api_key_ciphertext)}
+            ).encode(),
+            record.supplier.value,
+            self._secrets,
+        )
+        if self._ownership is not None:
+            await self._ownership.claim(record.id, identity.fingerprints)
         models: Final = await self._discover_models(record)
         if not models:
             raise RuntimeError("OpenAI-compatible upstream did not report any models")
@@ -179,6 +196,8 @@ class OpenAICompatibleChannel:
             update={
                 "auth_file_name": "encrypted-api-keys",
                 "auth_index": "openai-compatible",
+                "credential_fingerprints": identity.fingerprints,
+                "credential_account_id": configuration.base_url,
                 "available_models": models,
                 "enabled_models": enabled,
                 "quota": QuotaSnapshot(observed_at=utc_now()),
@@ -211,6 +230,8 @@ class OpenAICompatibleChannel:
         return GatewayEnvironment(
             id=record.id,
             routable=record.status is EnvironmentStatus.READY
+            and len(configuration.credentials) == 1
+            and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled
             and not record.manual_cooldown
             and record.cooldown_until is None

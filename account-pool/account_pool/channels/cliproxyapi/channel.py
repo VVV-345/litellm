@@ -14,6 +14,7 @@ from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistr
 from account_pool.compose_renderer import render_cli_proxy_config, render_compose
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
     DirectAPIKeyCredentialRequest,
     EnvironmentConfiguration,
@@ -37,11 +38,13 @@ class CLIProxyAPIChannel:
         client: HttpCLIProxyClient | None = None,
         settings_sync: CLIProxySettingsSynchronizer | None = None,
         suppliers: SupplierRegistry | None = None,
+        ownership: CredentialOwnership | None = None,
     ) -> None:
         self._settings: Final = settings
         self._secrets: Final = secrets
         self._runtime: Final = runtime or ComposeRuntime(settings, secrets)
-        self._client: Final = client or HttpCLIProxyClient(secrets)
+        self._client: Final = client or HttpCLIProxyClient(secrets, ownership=ownership)
+        self._ownership: Final = ownership
         self._suppliers: Final = suppliers or SupplierRegistry.default()
         self._settings_sync: Final = settings_sync or CLIProxySettingsSynchronizer(self._client, self._suppliers)
 
@@ -188,6 +191,7 @@ class CLIProxyAPIChannel:
         return GatewayEnvironment(
             id=record.id,
             routable=record.status.value == "ready"
+            and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled
             and not record.manual_cooldown
             and record.cooldown_until is None

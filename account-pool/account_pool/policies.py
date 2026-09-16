@@ -283,6 +283,8 @@ async def policy_validation_error(
     )
     if any(value is not None and card.supplier is not supplier for supplier, value in provider_policies):
         return "Provider-specific settings must match the card supplier"
+    if policy.account_ids or any(identifier != card.id for identifier in policy.routing.preferred_account_ids):
+        return "卡片与凭证必须一对一，不能绑定或优先使用其他卡片的账号"
     resolved: Final = await asyncio.gather(*(environments.get(identifier) for identifier in policy.account_ids))
     if any(member is None for member in resolved):
         return "Bound accounts must exist and use the same channel and supplier"

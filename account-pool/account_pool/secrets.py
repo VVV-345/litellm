@@ -17,6 +17,7 @@ class SecretPurpose(StrEnum):
     GATEWAY = "gateway"
     OAUTH_STATE = "oauth-state"
     AUTHORIZATION_STATE = "authorization-state"
+    CREDENTIAL_IDENTITY = "credential-identity"
 
 
 class EnvironmentSecretDeriver:

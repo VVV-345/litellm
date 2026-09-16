@@ -66,6 +66,9 @@ describe("AccountPoolCredentialsPanel", () => {
         enabled: false,
         model_count: 0,
         auth_index: null,
+        account_email: "test-account@example.test",
+        account_id: "account-identity-123",
+        file_name: "test-account.json",
       },
     ]);
     patchAuthFileStatus.mockResolvedValue(environment);
@@ -93,6 +96,17 @@ describe("AccountPoolCredentialsPanel", () => {
       next_refresh_at: "2026-09-16T10:31:00Z",
       last_failed_count: null,
     });
+  });
+
+  it("identifies the account behind a card without exposing credential contents", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("test-account@example.test")).toBeInTheDocument();
+    expect(screen.getByText("account-identity-123")).toBeInTheDocument();
+    expect(screen.getByText("test-account.json")).toBeInTheDocument();
   });
 
   it("shows and updates authentication refresh controls", async () => {

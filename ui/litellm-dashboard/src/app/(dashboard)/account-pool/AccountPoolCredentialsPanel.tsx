@@ -26,7 +26,6 @@ import { formatDateTime } from "./AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import {
-  addAccountPoolCredential,
   deleteAccountPoolAuthFile,
   deleteAccountPoolCredential,
   downloadAccountPoolAuthFile,
@@ -49,9 +48,6 @@ export const AccountPoolCredentialsPanel = ({
 }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const [addCard, setAddCard] = useState<AccountPoolEnvironment | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [weight, setWeight] = useState("1");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadCardId, setUploadCardId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -85,24 +81,6 @@ export const AccountPoolCredentialsPanel = ({
       setAccountPoolAuthFileRefreshInterval(accessToken!, intervalMinutes),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["account-pool", "auth-file-refresh", accessToken] });
-    },
-    onError: (error: Error) => toast.fromError(error),
-  });
-  const addMutation = useMutation({
-    mutationFn: () => {
-      if (!addCard || !apiKey.trim()) throw new Error(t("accountPool.credentials.keyRequired"));
-      return addAccountPoolCredential(accessToken!, addCard.id, {
-        version: addCard.version,
-        api_key: apiKey.trim(),
-        weight: Math.max(1, Number.parseInt(weight, 10) || 1),
-      });
-    },
-    onSuccess: () => {
-      toast.success(t("accountPool.credentials.added"));
-      setAddCard(null);
-      setApiKey("");
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -251,18 +229,6 @@ export const AccountPoolCredentialsPanel = ({
               {t("accountPool.credentials.upload")}
             </Button>
           )}
-          {environments.some((environment) => environment.channel === "openai_compatible") && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() =>
-                setAddCard(environments.find((environment) => environment.channel === "openai_compatible") ?? null)
-              }
-            >
-              <Plus />
-              {t("accountPool.credentials.add")}
-            </Button>
-          )}
         </div>
       </div>
       {refreshStatus && (
@@ -295,6 +261,18 @@ export const AccountPoolCredentialsPanel = ({
               </div>
             </CardHeader>
             <CardContent className="grid divide-y text-sm">
+              <div className="grid gap-1 py-2">
+                <span className="text-muted-foreground">{t("accountPool.credentials.accountIdentity")}</span>
+                <span className="break-all">
+                  {credential.account_email || credential.account_id || t("accountPool.credentials.identityUnknown")}
+                </span>
+                {credential.account_email && credential.account_id && (
+                  <span className="break-all text-xs text-muted-foreground">{credential.account_id}</span>
+                )}
+                {credential.file_name && (
+                  <span className="break-all text-xs text-muted-foreground">{credential.file_name}</span>
+                )}
+              </div>
               <div className="flex items-center justify-between gap-3 py-2">
                 <span className="text-muted-foreground">{t("accountPool.credentials.provider")}</span>
                 <span>{t(`accountPool.supplier.${credential.supplier}`)}</span>
@@ -368,53 +346,15 @@ export const AccountPoolCredentialsPanel = ({
                   ) : null;
                 })()}
               <p className="text-xs text-muted-foreground">{t("accountPool.credentials.secretHint")}</p>
+              {credential.last_error && (
+                <p role="alert" className="break-words text-xs text-destructive">
+                  {credential.last_error}
+                </p>
+              )}
             </CardContent>
           </Card>
         ))}
       </div>
-      <Dialog open={addCard !== null} onOpenChange={(open) => !open && setAddCard(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("accountPool.credentials.add")}</DialogTitle>
-            <DialogDescription>{addCard?.name}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <div className="grid gap-1">
-              <Label htmlFor="account-pool-api-key">{t("accountPool.credentials.apiKey")}</Label>
-              <Input
-                id="account-pool-api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="account-pool-key-weight">{t("accountPool.credentials.weight")}</Label>
-              <Input
-                id="account-pool-key-weight"
-                type="number"
-                min={1}
-                max={10000}
-                value={weight}
-                onChange={(event) => setWeight(event.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setAddCard(null)}>
-              {t("accountPool.cancel")}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => addMutation.mutate()}
-              disabled={addMutation.isPending || !apiKey.trim()}
-            >
-              {t("accountPool.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <Dialog
         open={uploadOpen}
         onOpenChange={(open) => {

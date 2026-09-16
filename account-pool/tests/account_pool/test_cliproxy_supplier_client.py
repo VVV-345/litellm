@@ -1124,6 +1124,7 @@ async def test_import_vertex_credential_uses_file_and_location_fields() -> None:
 async def test_auth_file_management_uses_cockpit_endpoints() -> None:
     record: Final = _record().model_copy(update={"auth_file_name": "codex.json", "auth_index": "1"})
     requests: list[httpx.Request] = []
+    files = [{"name": "codex.json", "auth_index": "1"}]
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -1133,6 +1134,10 @@ async def test_auth_file_management_uses_cockpit_endpoints() -> None:
             )
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
+        if request.url.path.endswith("/auth-files") and request.method == "GET":
+            return httpx.Response(200, json={"files": files})
+        if request.method == "DELETE":
+            files.clear()
         return httpx.Response(204, request=request)
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -1150,6 +1155,8 @@ async def test_auth_file_management_uses_cockpit_endpoints() -> None:
         "/v0/management/auth-files/download",
         "/v0/management/auth-files/status",
         "/v0/management/auth-files/fields",
+        "/v0/management/auth-files",
+        "/v0/management/auth-files",
         "/v0/management/auth-files",
         "/v0/management/auth-files/models",
     )
@@ -1473,3 +1480,73 @@ async def test_apply_policy_syncs_only_auth_file_metadata(
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
     assert json.loads(patch_request.content) == {"name": "provider.json", **expected_fields}
     assert not any(request.url.path.endswith("/config.yaml") and request.method == "PUT" for request in requests)
+
+
+@pytest.mark.asyncio
+async def test_upload_removes_old_and_orphan_files_before_installing_one_credential() -> None:
+    from account_pool.credential_ownership import CredentialOwnership
+
+    record: Final = _record()
+    files = ["old.json", "orphan.json"]
+    operations: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        operations.append((request.method, request.url.path))
+        if request.method == "GET":
+            return httpx.Response(200, json={"files": [{"name": name} for name in files]})
+        if request.method == "DELETE":
+            files.remove(request.url.params["name"])
+            return httpx.Response(204)
+        assert not files
+        assert b'filename="replacement.json"' in request.content
+        files.append("replacement.json")
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client, CredentialOwnership())
+        await proxy.upload_auth_file(record, "replacement.json", b'{"refresh_token":"unique"}', "application/json")
+        assert files == ["replacement.json"]
+        assert tuple(method for method, _ in operations) == ("GET", "DELETE", "DELETE", "POST")
+        await proxy.delete_auth_file(record, "replacement.json")
+        assert files == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enable", [False, True])
+@pytest.mark.parametrize("disable_status", [204, 503])
+async def test_duplicate_oauth_account_is_disabled_before_models_or_quota_calls(
+    enable: bool, disable_status: int
+) -> None:
+    from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
+
+    registry: Final = CredentialOwnership()
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    content: Final = b'{"refresh_token":"shared-refresh","email":"shared@example.test"}'
+    record: Final = _record()
+    await registry.claim(uuid4(), credential_identity(content, record.supplier.value, secrets).fingerprints)
+    disabled: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, content=content)
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(
+                200, json={"files": [{"name": "duplicate.json", "provider": "codex", "auth_index": "1"}]}
+            )
+        if request.url.path.endswith("/status"):
+            payload: Final = json.loads(request.content)
+            assert payload["disabled"] is True
+            disabled.append(payload["name"])
+            return httpx.Response(disable_status)
+        raise AssertionError("duplicate account must not make model or quota requests")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(secrets, client, registry)
+        operation: Final = (
+            proxy.patch_auth_file_status(record, "duplicate.json", "1", False)
+            if enable
+            else proxy.read_account(record, refresh_quota=True)
+        )
+        with pytest.raises(CredentialConflict, match="已绑定其他卡片"):
+            await operation
+    assert disabled == ["duplicate.json"]

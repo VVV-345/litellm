@@ -5846,6 +5846,9 @@
       "reauthorize": "Authorize again"
     },
     "credentials": {
+      "accountIdentity": "Account",
+      "identityUnknown": "Account identity pending; refresh authentication files",
+      "exclusiveHint": "One credential per card. Requests only use this card’s account.",
       "title": "Credential files",
       "description": "Review credential ownership and model discovery status. Secret values stay in server-side storage.",
       "provider": "Provider",

@@ -101,6 +101,10 @@ class CredentialView(BaseModel):
     enabled: bool
     model_count: int = 0
     auth_index: str | None = None
+    account_email: str | None = None
+    account_id: str | None = None
+    file_name: str | None = None
+    last_error: str | None = None
 
 
 class QuotaRefreshResult(BaseModel):
@@ -714,6 +718,8 @@ def _credential_views(record: EnvironmentRecord) -> tuple[CredentialView, ...]:
                 enabled=record.enabled,
                 model_count=len(record.available_models),
                 auth_index=str(index),
+                account_id=record.openai_compatible.base_url,
+                last_error=record.last_error,
             )
             for index, _ in enumerate(record.openai_compatible.credentials, start=1)
         )
@@ -730,5 +736,9 @@ def _credential_views(record: EnvironmentRecord) -> tuple[CredentialView, ...]:
             enabled=not record.auth_file_disabled,
             model_count=len(record.available_models),
             auth_index=record.auth_index,
+            account_email=record.credential_email,
+            account_id=record.credential_account_id,
+            file_name=record.auth_file_name,
+            last_error=record.last_error,
         ),
     )
