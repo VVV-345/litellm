@@ -34,6 +34,9 @@ _WEBSOCKET_PATHS: Final = frozenset(("/v1/responses", "/v1/realtime"))
 _MAX_BODY: Final = 16 * 1024 * 1024
 _NO_STORE_HEADERS: Final = MappingProxyType({"Cache-Control": "no-store"})
 _SESSION_HEADERS: Final = (
+    "x-litellm-session-id",
+    "thread-id",
+    "conversation_id",
     "x-claude-code-session-id",
     "x-session-id",
     "session-id",

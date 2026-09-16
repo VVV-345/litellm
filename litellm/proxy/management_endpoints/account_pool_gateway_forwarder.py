@@ -1,4 +1,4 @@
-"""本模块处理单次模型请求的转发、流式释放和有限重试，不记录请求正文。"""
+"""本模块处理单次模型请求的转发、流式释放和有限重试，按全局开关独立保存完整日志。"""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     Resolution,
     RoutingReason,
 )
+from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
@@ -162,7 +163,10 @@ def _responses_request_adapter() -> TypeAdapter[ResponsesAPIOptionalRequestParam
 
 
 class Attempt:
-    def __init__(self, lease: Lease, endpoint: str, send: Send, detail: str | None = None) -> None:
+    def __init__(
+        self, lease: Lease, endpoint: str, send: Send, detail: str | None = None, log: RequestLog | None = None
+    ) -> None:
+        self.log: Final = log
         self.result = FinishRequest(
             lease_id=lease.lease_id,
             endpoint=endpoint,
@@ -217,6 +221,14 @@ async def report(control: GatewayControl, result: FinishRequest) -> None:
         verbose_proxy_logger.warning(
             "Account pool completion event failed: request lease=%s type=%s", result.lease_id, error.__class__.__name__
         )
+
+
+async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
+    try:
+        if attempt.log is not None:
+            attempt.result = await attempt.log.finish(attempt.result)
+    finally:
+        await report(control, attempt.result)
 
 
 async def forward(
@@ -348,11 +360,14 @@ async def forward_candidate(
     debug_detail: Final = (
         safe_debug_detail(request, payload, route) if resolution.policy.transport.debug_log_enabled else None
     )
-    attempt: Final = Attempt(lease, request.url.path, send, debug_detail)
+    log: Final = RequestLog(
+        lease, route, resolution, request.headers, payload, key, "sse" if payload.get("stream") else "http"
+    )
+    attempt: Final = Attempt(lease, request.url.path, send, debug_detail, log)
     try:
         completed: Final = await execute(request, payload, route, resolution, client, attempt, next_id, seconds)
     finally:
-        await asyncio.shield(report(control, attempt.result))
+        await asyncio.shield(finish_attempt(control, attempt))
     if not completed:
         await asyncio.sleep(min(resolution.policy.routing.backoff_ms, 60000) / 1000)
         return await forward_candidate(
@@ -442,6 +457,9 @@ async def execute(
                 attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
                     error_payload, code = await upstream_error_payload(response, (credential.api_key,))
+                    if attempt.log is not None:
+                        attempt.log.capture(json.dumps(error_payload).encode())
+                        attempt.log.observe(error_payload)
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None and response.status_code in resolution.policy.routing.retryable_statuses
@@ -471,6 +489,9 @@ async def execute(
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
                     parsed: Final = _JSON.validate_json(data)
+                    if attempt.log is not None:
+                        attempt.log.capture(data)
+                        attempt.log.observe(parsed)
                     usage_in, usage_out = usage_tokens(parsed)
                     cache_read, cache_created = cache_usage_tokens(parsed)
                     attempt.outcome(
@@ -744,7 +765,11 @@ async def stream_response(
 
     async def chunks() -> AsyncIterator[bytes]:
         async for chunk in response.aiter_bytes():
+            if attempt.log is not None:
+                attempt.log.capture(chunk)
             for frame in state.feed(chunk):
+                if attempt.log is not None:
+                    attempt.log.observe_frame(frame)
                 yield state.observe(frame)
                 if state.terminal:
                     break
@@ -752,6 +777,8 @@ async def stream_response(
                 break
         final: Final = state.finish()
         if final is not None:
+            if attempt.log is not None:
+                attempt.log.observe_frame(final)
             yield state.observe(final)
         if not state.terminal:
             raise ValueError("Upstream event stream ended before completion")

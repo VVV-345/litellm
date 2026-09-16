@@ -17223,6 +17223,8 @@
               "type": "string"
             },
             "concurrency_limit": {
+              "maximum": 1000.0,
+              "minimum": 0.0,
               "title": "Concurrency Limit",
               "type": "integer"
             },
@@ -17501,6 +17503,17 @@
               ],
               "title": "Extra Usage Enabled"
             },
+            "has_grok_code_access": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Grok Code Access"
+            },
             "observed_at": {
               "anyOf": [
                 {
@@ -17534,6 +17547,17 @@
               ],
               "title": "Prepaid Balance"
             },
+            "refresh_attempted_at": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Refresh Attempted At"
+            },
             "refresh_error": {
               "anyOf": [
                 {
@@ -17551,6 +17575,7 @@
                   "enum": [
                     "complete",
                     "partial",
+                    "failed",
                     "unsupported"
                   ],
                   "type": "string"
@@ -17571,6 +17596,22 @@
                 }
               ],
               "title": "Reset Credits Available"
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "provider_api",
+                    "cliproxyapi_cache",
+                    "stored_cache"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
             },
             "subscription_active_start": {
               "anyOf": [

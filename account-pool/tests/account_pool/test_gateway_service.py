@@ -328,7 +328,9 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
         (80, 0, 200, True, None),
     ),
 )
+@pytest.mark.parametrize("endpoint", ("/v1/responses", "/v1/messages"))
 async def test_finish_records_per_request_cache_rate(
+    endpoint: str,
     cache_read: int | None,
     cache_created: int | None,
     http_status: int,
@@ -372,7 +374,7 @@ async def test_finish_records_per_request_cache_rate(
             http_status=http_status,
             retryable=retryable,
             message="Request completed",
-            endpoint="/v1/responses",
+            endpoint=endpoint,
             input_tokens=100,
             output_tokens=10,
             cache_read_input_tokens=cache_read,
@@ -380,7 +382,11 @@ async def test_finish_records_per_request_cache_rate(
         )
     )
 
-    assert logs.events[0].cache_rate == expected
+    native_total: Final = 100 + (cache_read or 0) + (cache_created or 0)
+    native_expected: Final = (
+        None if http_status >= 400 or retryable or cache_read is None else cache_read / native_total
+    )
+    assert logs.events[0].cache_rate == (native_expected if endpoint.endswith("/messages") else expected)
 
 
 @pytest.mark.asyncio

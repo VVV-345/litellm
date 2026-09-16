@@ -33,6 +33,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import (
     select_gateway_credential,
     upstream_request_headers,
 )
+from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 
 _FRAME: Final = TypeAdapter(dict[str, JsonValue])
@@ -252,6 +253,7 @@ async def _forward_candidate(
             attempt_number,
             rejection_reasons | frozenset((lease.reason,)),
         )
+    log: Final = RequestLog(lease, route, resolution, websocket.headers, {"model": public_model}, key, "websocket")
     attempt: Final = _Attempt(lease.lease_id, websocket.url.path, debug_detail)
     fallback: Final = (
         resolution.policy.routing.fallback_enabled
@@ -271,6 +273,7 @@ async def _forward_candidate(
             route,
             fallback,
             attempt,
+            log,
         )
     except asyncio.CancelledError:
         attempt.outcome(499, "WebSocket request cancelled", stage="response")
@@ -282,7 +285,7 @@ async def _forward_candidate(
         attempt.outcome(502, "WebSocket forwarding failed", stage="connection")
         raise
     finally:
-        await asyncio.shield(report(control, attempt.result))
+        await asyncio.shield(_finish_attempt(control, attempt, log))
     if completed:
         return True, frozenset[AcquireRejectionReason]()
     return await _forward_candidate(
@@ -301,6 +304,13 @@ async def _forward_candidate(
     )
 
 
+async def _finish_attempt(control: GatewayControl, attempt: _Attempt, log: RequestLog) -> None:
+    try:
+        attempt.result = await log.finish(attempt.result)
+    finally:
+        await report(control, attempt.result)
+
+
 async def _connect_and_relay(
     websocket: WebSocket,
     public_model: str,
@@ -313,6 +323,7 @@ async def _connect_and_relay(
     route: Route,
     fallback: bool,
     attempt: _Attempt,
+    log: RequestLog,
 ) -> bool:
     credential: Final = select_gateway_credential(route.account.credentials, request_id, route.account.api_key)
     upstream_model: Final = (
@@ -338,7 +349,7 @@ async def _connect_and_relay(
                 subprotocol=upstream.subprotocol if upstream.subprotocol in request.subprotocols else None,
                 headers=((b"x-account-pool-request-id", str(request_id).encode()),),
             )
-            outcome: Final = await _relay(websocket, upstream, public_model, upstream_model)
+            outcome: Final = await _relay(websocket, upstream, public_model, upstream_model, log)
             attempt.outcome(outcome.http_status, outcome.message, stage="response")
             return True
     except (OSError, TimeoutError, WebSocketException):
@@ -377,12 +388,13 @@ async def _relay(
     upstream: UpstreamWebSocket,
     public_model: str,
     upstream_model: str,
+    log: RequestLog | None = None,
 ) -> _RelayResult:
     downstream_task: Final = asyncio.create_task(
-        _downstream_to_upstream(websocket, upstream, public_model, upstream_model)
+        _downstream_to_upstream(websocket, upstream, public_model, upstream_model, log)
     )
     upstream_task: Final = asyncio.create_task(
-        _upstream_to_downstream(websocket, upstream, public_model, upstream_model)
+        _upstream_to_downstream(websocket, upstream, public_model, upstream_model, log)
     )
     done, pending = await asyncio.wait((downstream_task, upstream_task), return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
@@ -403,6 +415,7 @@ async def _downstream_to_upstream(
     upstream: UpstreamWebSocket,
     public_model: str,
     upstream_model: str,
+    log: RequestLog | None = None,
 ) -> _RelayResult:
     try:
         while True:
@@ -433,6 +446,8 @@ async def _downstream_to_upstream(
                 if websocket.client_state is not WebSocketState.DISCONNECTED:
                     await websocket.close(code=1008, reason="Routed model cannot be changed")
                 return _RelayResult(400, "WebSocket frame changes the routed model")
+            if log is not None:
+                log.observe_websocket(rewritten, incoming=True)
             await upstream.send(rewritten)
     except WebSocketDisconnect as error:
         await upstream.close(code=_safe_close_code(error.code))
@@ -444,6 +459,7 @@ async def _upstream_to_downstream(
     upstream: UpstreamWebSocket,
     public_model: str,
     upstream_model: str,
+    log: RequestLog | None = None,
 ) -> _RelayResult:
     try:
         while True:
@@ -451,6 +467,8 @@ async def _upstream_to_downstream(
             if _message_size(data) > _MAX_MESSAGE:
                 await websocket.close(code=1009, reason="Message too large")
                 return _RelayResult(502, "WebSocket upstream message exceeds 16 MiB")
+            if log is not None:
+                log.observe_websocket(data)
             public: Final = _rewrite_model(  # pyright: ignore[reportGeneralTypeIssues]  # loop-local frame
                 data, upstream_model, public_model, strict=False
             )

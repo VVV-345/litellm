@@ -9,12 +9,13 @@ from typing import Final, Literal, Protocol, TypeAlias
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
 from account_pool.error_safety import safe_error
 from account_pool.gateway_contracts import RoutingReason
 from account_pool.quota import ProviderQuotaError
+from account_pool.settings import AccountPoolSettingsRepository
 
 LogStage = Literal[
     "provisioning",
@@ -87,6 +88,12 @@ class ErrorLogRecord(BaseModel):
     cache_rate: float | None = Field(default=None, ge=0, le=1)
     routing_reason: RoutingReason | None = None
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    session_id: str | None = Field(default=None, max_length=128)
+    proxy_endpoint: str | None = Field(default=None, max_length=256)
+    cost_source: str = "unknown"
+    cost_details: dict[str, JsonValue] = Field(default_factory=dict)
+    full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
     @field_validator(
@@ -115,6 +122,7 @@ class ErrorLogQuery(BaseModel):
     account_id: UUID | None = None
     card_key_id: UUID | None = None
     request_id: UUID | None = None
+    session_id: str | None = Field(default=None, max_length=128)
     model: str | None = Field(default=None, max_length=256)
     stage: LogStage | None = None
     error_category: ErrorCategory | None = None
@@ -192,7 +200,13 @@ class ErrorLogRepository(Protocol):
 
 
 class ErrorLogService:
-    def __init__(self, repository: ErrorLogRepository, retention_days: int = 30) -> None:
+    def __init__(
+        self,
+        repository: ErrorLogRepository,
+        retention_days: int = 30,
+        settings: AccountPoolSettingsRepository | None = None,
+    ) -> None:
+        self.settings: Final = settings
         self.repository: Final = repository
         self.retention_days: Final = retention_days
 
@@ -269,7 +283,12 @@ class ErrorLogService:
     async def maintain(self, stopped: asyncio.Event) -> None:
         while not stopped.is_set():
             try:
-                await self.repository.prune(utc_now() - timedelta(days=self.retention_days))
+                retention: Final = (
+                    (await self.settings.get()).values.daily_log_retention_days
+                    if self.settings
+                    else self.retention_days
+                )
+                await self.repository.prune(utc_now() - timedelta(days=retention))
             except Exception:
                 _LOGGER.error("Account pool log retention failed")
             try:

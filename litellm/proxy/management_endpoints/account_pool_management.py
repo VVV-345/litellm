@@ -56,6 +56,9 @@ def create_management_router(
         require_admin(user)
 
     router: Final = APIRouter(dependencies=[Depends(authorize)])
+    from litellm.proxy.management_endpoints.account_pool_full_log_api import create_full_log_router
+
+    router.include_router(create_full_log_router())
 
     async def call(
         method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None
@@ -103,7 +106,7 @@ def create_management_router(
         )
 
     @router.delete("/logs", response_model=AccountPoolLogClearResult)
-    async def clear_logs(older_than_days: Literal[7, 14, 30, 45] | None = None) -> AccountPoolLogClearResult:
+    async def clear_logs(older_than_days: Literal["7", "14", "30", "45"] | None = None) -> AccountPoolLogClearResult:
         params: Final = "" if older_than_days is None else f"?older_than_days={older_than_days}"
         return parse_response(await call("DELETE", f"/api/logs{params}"), TypeAdapter(AccountPoolLogClearResult))
 

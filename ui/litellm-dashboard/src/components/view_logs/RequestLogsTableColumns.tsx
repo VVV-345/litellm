@@ -107,7 +107,9 @@ export const getRequestLogsTableColumns = ({
     cell: ({ row }) => {
       const status = readMetaString(row.original.metadata, "status") ?? "Success";
       const isSuccess = status.toLowerCase() !== "failure";
-      return <StatusBadge tone={isSuccess ? "success" : "error"} label={isSuccess ? t("ui.Success") : t("ui.Failure")} />;
+      return (
+        <StatusBadge tone={isSuccess ? "success" : "error"} label={isSuccess ? t("ui.Success") : t("ui.Failure")} />
+      );
     },
   },
   {
@@ -135,6 +137,13 @@ export const getRequestLogsTableColumns = ({
     cell: ({ row }) => {
       const log = row.original;
       const mcpCount = log.mcp_tool_call_count || 0;
+      if (log.metadata?.source === "account_pool" && log.metadata?.cost_known === false) {
+        return (
+          <span className="text-xs text-muted-foreground" title="此请求缺少模型价格或完整用量，未计入成本合计">
+            价格或用量未知
+          </span>
+        );
+      }
       const mcpSpend = log.mcp_tool_call_spend || 0;
       const isMultiCallSession = (log.session_total_count || 1) > 1;
       const spend = isMultiCallSession && log.session_total_spend != null ? log.session_total_spend : log.spend;
@@ -160,7 +169,9 @@ export const getRequestLogsTableColumns = ({
   {
     id: "request_duration_ms",
     accessorKey: "request_duration_ms",
-    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Duration (s)")} variant="dropdown-tristate" />,
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t("ui.Duration (s)")} variant="dropdown-tristate" />
+    ),
     enableSorting: true,
     meta: { numeric: true },
     cell: ({ row }) => {
@@ -177,7 +188,9 @@ export const getRequestLogsTableColumns = ({
   {
     id: "ttft_ms",
     accessorKey: "completionStartTime",
-    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.TTFT (s)")} variant="dropdown-tristate" />,
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t("ui.TTFT (s)")} variant="dropdown-tristate" />
+    ),
     enableSorting: true,
     meta: { numeric: true },
     cell: ({ row }) => {

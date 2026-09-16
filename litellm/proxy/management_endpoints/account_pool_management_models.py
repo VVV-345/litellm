@@ -6,7 +6,17 @@ from datetime import datetime, timezone
 from typing import Final, Literal, TypeAlias
 from uuid import UUID, uuid4
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    JsonValue,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 ChannelKind = Literal["openai_compatible", "cliproxyapi"]
 SupplierKind = Literal[
@@ -505,6 +515,9 @@ class AccountPoolSettings(BaseModel):
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
+    full_logging_enabled: bool = False
+    daily_log_retention_days: int = Field(default=30, ge=1, le=3650)
+    full_log_retention_days: int = Field(default=30, ge=1, le=3650)
     file_logging_enabled: bool = False
     debug_logging_enabled: bool = False
     websocket_enabled: bool = False
@@ -740,6 +753,7 @@ class UpstreamSyncReport(BaseModel):
     state: Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted"] = "idle"
     action: Literal["none", "analyze", "promote"] = "none"
     request_id: UUID | None = None
+    session_id: str | None = Field(default=None, max_length=128)
     target_tag: str | None = None
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     candidate_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
@@ -821,6 +835,12 @@ class ErrorLogRecord(BaseModel):
     cache_rate: float | None = Field(default=None, ge=0, le=1)
     routing_reason: RoutingReason | None = None
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    session_id: str | None = Field(default=None, max_length=128)
+    proxy_endpoint: str | None = Field(default=None, max_length=256)
+    cost_source: str = "unknown"
+    cost_details: dict[str, JsonValue] = Field(default_factory=dict)
+    full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
 
@@ -836,6 +856,7 @@ class ErrorLogQuery(BaseModel):
     account_id: UUID | None = None
     card_key_id: UUID | None = None
     request_id: UUID | None = None
+    session_id: str | None = Field(default=None, max_length=128)
     model: str | None = Field(default=None, max_length=256)
     stage: LogStage | None = None
     error_category: ErrorCategory | None = None

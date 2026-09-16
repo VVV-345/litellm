@@ -106,6 +106,8 @@ class GatewayService:
             policy_version=policy.version,
             policy=effective_card_policy,
             candidates=candidates,
+            full_logging_enabled=global_settings.full_logging_enabled if global_settings else False,
+            full_log_retention_days=global_settings.full_log_retention_days if global_settings else 30,
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
             websocket_enabled=websocket_enabled,
@@ -147,6 +149,7 @@ class GatewayService:
             environment_version=record.version,
             policy_version=policy.version,
             enabled_models=endpoint.enabled_models,
+            proxy_endpoint=record.proxy_profile_id or "default",
             api_base=endpoint.api_base,
             api_key=endpoint.api_key,
             credentials=endpoint.credentials,
@@ -221,6 +224,13 @@ class GatewayService:
             else None
         )
         now: Final = utc_now()
+        input_total: Final = (
+            (request.input_tokens or 0)
+            + (request.cache_read_input_tokens or 0)
+            + (request.cache_creation_input_tokens or 0)
+            if request.endpoint.endswith("/messages")
+            else request.input_tokens
+        )
         event: Final = ErrorLogRecord(
             event_id=lease.lease_id,
             occurred_at=lease.started_at,
@@ -254,18 +264,25 @@ class GatewayService:
             output_tokens=request.output_tokens,
             cache_read_input_tokens=request.cache_read_input_tokens,
             cache_creation_input_tokens=request.cache_creation_input_tokens,
-            # OpenAI-compatible 用量中的 input_tokens 已包含缓存命中，不能重复计入分母。
+            # 原生 Messages 的输入不含缓存，OpenAI-compatible 的输入已经包含缓存。
             cache_rate=(
                 None
                 if failed
                 or request.retryable
-                or not request.input_tokens
+                or request.input_tokens is None
+                or not input_total
                 or request.cache_read_input_tokens is None
-                or request.cache_read_input_tokens > request.input_tokens
-                else request.cache_read_input_tokens / request.input_tokens
+                or request.cache_read_input_tokens > input_total
+                else request.cache_read_input_tokens / input_total
             ),
             routing_reason=lease.routing_reason,
             cost_usd=request.cost_usd,
+            session_id=request.session_id,
+            proxy_endpoint=request.proxy_endpoint,
+            cost_source=request.cost_source,
+            cost_details=request.cost_details,
+            full_log_state=request.full_log_state,
+            spend_sync_state=request.spend_sync_state,
         )
         cooldown: Final = 60 if request.http_status == 429 else 300 if request.http_status in (401, 403) else 0
         actual_tokens: Final = (

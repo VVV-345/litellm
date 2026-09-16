@@ -35,6 +35,7 @@ services:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY}
       UI_USERNAME: ${UI_USERNAME:-}
       UI_PASSWORD: ${UI_PASSWORD:-}
+      ACCOUNT_POOL_FULL_LOG_DIR: /var/lib/litellm/full-logs
       ACCOUNT_POOL_MANAGER_URL: http://account-pool:8091
       ACCOUNT_POOL_MANAGER_TOKEN: ${ACCOUNT_POOL_MANAGER_TOKEN:?set ACCOUNT_POOL_MANAGER_TOKEN}
       ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS: ${ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS:-5}
@@ -53,6 +54,8 @@ services:
       INFISICAL_TOKEN: ${INFISICAL_TOKEN:-}
       NOVITA_API_KEY: ${NOVITA_API_KEY:-}
       INFINITY_API_KEY: ${INFINITY_API_KEY:-}
+    volumes:
+      - account_pool_full_logs:/var/lib/litellm/full-logs
     depends_on:
       db:
         condition: service_healthy
@@ -220,6 +223,7 @@ networks:
     internal: true
 
 volumes:
+  account_pool_full_logs:
   postgres_data:
     name: litellm_postgres_data
   account_pool_data:

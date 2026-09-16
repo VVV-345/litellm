@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
 
 from account_pool.domain import ChannelKind, GatewayCredential, SupplierKind
 from account_pool.policies import AccountPolicy
@@ -57,6 +57,7 @@ class Candidate(BaseModel):
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)
     headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
+    proxy_endpoint: str | None = None
     model_prefix: str = ""
     concurrency_limit: int = Field(ge=0, le=1000)
     policy: AccountPolicy
@@ -77,6 +78,8 @@ class Resolution(BaseModel):
     policy_version: int
     policy: AccountPolicy
     candidates: tuple[Candidate, ...]
+    full_logging_enabled: bool = False
+    full_log_retention_days: int = 30
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
     websocket_enabled: bool = False
@@ -134,6 +137,12 @@ class FinishRequest(BaseModel):
     cache_read_input_tokens: int | None = Field(default=None, ge=0)
     cache_creation_input_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    session_id: str | None = Field(default=None, max_length=128)
+    proxy_endpoint: str | None = Field(default=None, max_length=256)
+    cost_source: str = "unknown"
+    cost_details: dict[str, JsonValue] = Field(default_factory=dict)
+    full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
 
 
 class AcquireRejected(BaseModel):

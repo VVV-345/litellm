@@ -13,7 +13,7 @@ _MAX_EVENT: Final = 4 * 1024 * 1024
 
 
 def usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | None]:
-    response: Final = data.get("response")
+    response: Final = data.get("response", data.get("message"))
     usage: Final = response.get("usage") if isinstance(response, dict) else data.get("usage")
     if not isinstance(usage, dict):
         return None, None
@@ -26,7 +26,7 @@ def usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | None]:
 
 
 def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | None]:
-    response: Final = data.get("response")
+    response: Final = data.get("response", data.get("message"))
     usage: Final = response.get("usage") if isinstance(response, dict) else data.get("usage")
     if not isinstance(usage, dict):
         return None, None
@@ -88,7 +88,7 @@ class EventStream:
             self.cache_read_input_tokens = cache_read
         if cache_created is not None:
             self.cache_creation_input_tokens = cache_created
-        if event.get("type") in ("response.completed", "response.incomplete"):
+        if event.get("type") in ("response.completed", "response.incomplete", "message_stop"):
             self.terminal = True
         if event.get("type") in ("error", "response.failed", "response.incomplete") or event.get("error") is not None:
             self.failed = True

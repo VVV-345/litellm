@@ -115,11 +115,11 @@ def create_management_router(
         )
 
     @router.delete("/logs", response_model=LogClearResult)
-    async def clear_logs(older_than_days: Literal[7, 14, 30, 45] | None = None) -> LogClearResult:
+    async def clear_logs(older_than_days: Literal["7", "14", "30", "45"] | None = None) -> LogClearResult:
         deleted: Final = (
             await logs.repository.clear()
             if older_than_days is None
-            else await logs.repository.prune(utc_now() - timedelta(days=older_than_days))
+            else await logs.repository.prune(utc_now() - timedelta(days=int(older_than_days)))
         )
         return LogClearResult(deleted=deleted)
 

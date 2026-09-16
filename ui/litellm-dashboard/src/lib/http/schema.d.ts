@@ -718,6 +718,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/auth-files/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Auth Files */
+        post: operations["refresh_auth_files_account_pool_auth_files_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/auth-files/refresh/interval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Auth File Refresh Interval */
+        put: operations["set_auth_file_refresh_interval_account_pool_auth_files_refresh_interval_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/auth-files/refresh/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auth File Refresh Status */
+        get: operations["auth_file_refresh_status_account_pool_auth_files_refresh_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/batches": {
         parameters: {
             query?: never;
@@ -1168,6 +1219,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/full-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Logs */
+        get: operations["_logs_account_pool_full_logs_get"];
+        put?: never;
+        post?: never;
+        /** Clear */
+        delete: operations["_clear_account_pool_full_logs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/full-logs/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Storage */
+        get: operations["_storage_account_pool_full_logs_storage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/full-logs/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["_detail_account_pool_full_logs__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/logs": {
         parameters: {
             query?: never;
@@ -1195,6 +1298,23 @@ export interface paths {
         };
         /** Export Logs */
         get: operations["export_logs_account_pool_logs_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/logs/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Log Storage */
+        get: operations["log_storage_account_pool_logs_storage_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1367,7 +1487,8 @@ export interface paths {
         /** List Proxy Gateways */
         get: operations["list_proxy_gateways_account_pool_proxy_gateways_get"];
         put?: never;
-        post?: never;
+        /** Add Proxy Gateway */
+        post: operations["add_proxy_gateway_account_pool_proxy_gateways_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1436,7 +1557,8 @@ export interface paths {
         /** Switch Proxy Gateway */
         put: operations["switch_proxy_gateway_account_pool_proxy_gateways__port__put"];
         post?: never;
-        delete?: never;
+        /** Remove Proxy Gateway */
+        delete: operations["remove_proxy_gateway_account_pool_proxy_gateways__port__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1470,6 +1592,40 @@ export interface paths {
         put?: never;
         /** Refresh Quotas */
         post: operations["refresh_quotas_account_pool_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/quotas/refresh/interval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Quota Refresh Interval */
+        put: operations["set_quota_refresh_interval_account_pool_quotas_refresh_interval_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/quotas/refresh/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quota Refresh Status */
+        get: operations["quota_refresh_status_account_pool_quotas_refresh_status_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -23502,6 +23658,32 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** AccountPoolAuthFileRefreshIntervalRequest */
+        AccountPoolAuthFileRefreshIntervalRequest: {
+            /**
+             * Interval Minutes
+             * @enum {integer}
+             */
+            interval_minutes: 5 | 15 | 30 | 60;
+        };
+        /** AccountPoolAuthFileRefreshStatus */
+        AccountPoolAuthFileRefreshStatus: {
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Last Completed At */
+            last_completed_at?: string | null;
+            /** Last Failed Count */
+            last_failed_count?: number | null;
+            /** Last Started At */
+            last_started_at?: string | null;
+            /** Next Refresh At */
+            next_refresh_at?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
+        };
         /** AccountPoolAuthFileStatusRequest */
         AccountPoolAuthFileStatusRequest: {
             /** Disabled */
@@ -23770,6 +23952,21 @@ export interface components {
             /** Deleted */
             deleted: number;
         };
+        /** AccountPoolLogStorageStats */
+        AccountPoolLogStorageStats: {
+            /** Allocated Bytes */
+            allocated_bytes: number;
+            /**
+             * Backend
+             * @default postgresql
+             * @constant
+             */
+            backend: "postgresql";
+            /** Location */
+            location: string;
+            /** Row Count */
+            row_count: number;
+        };
         /** AccountPoolModelQuotaSnapshot */
         AccountPoolModelQuotaSnapshot: {
             /** Model */
@@ -23951,6 +24148,14 @@ export interface components {
             /** Unit */
             unit?: string | null;
         };
+        /** AccountPoolQuotaRefreshIntervalRequest */
+        AccountPoolQuotaRefreshIntervalRequest: {
+            /**
+             * Interval Minutes
+             * @enum {integer}
+             */
+            interval_minutes: 5 | 15 | 30 | 60;
+        };
         /** AccountPoolQuotaRefreshResult */
         AccountPoolQuotaRefreshResult: {
             /**
@@ -23960,6 +24165,24 @@ export interface components {
             failed_card_ids: string[];
             /** Refreshed */
             refreshed: components["schemas"]["AccountPoolEnvironment"][];
+        };
+        /** AccountPoolQuotaRefreshStatus */
+        AccountPoolQuotaRefreshStatus: {
+            /** Interval Minutes */
+            interval_minutes: number;
+            /** Last Completed At */
+            last_completed_at?: string | null;
+            /** Last Failed Count */
+            last_failed_count?: number | null;
+            /** Last Started At */
+            last_started_at?: string | null;
+            /** Next Refresh At */
+            next_refresh_at?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
         };
         /** AccountPoolQuotaSnapshot */
         AccountPoolQuotaSnapshot: {
@@ -23976,26 +24199,26 @@ export interface components {
             has_grok_code_access?: boolean | null;
             /** Observed At */
             observed_at?: string | null;
-            /** Refresh Attempted At */
-            refresh_attempted_at?: string | null;
             /** Plan Type */
             plan_type?: string | null;
             /** Prepaid Balance */
             prepaid_balance?: number | null;
+            /** Refresh Attempted At */
+            refresh_attempted_at?: string | null;
             /** Refresh Error */
             refresh_error?: string | null;
             /** Refresh Status */
             refresh_status?: ("complete" | "partial" | "failed" | "unsupported") | null;
             /** Reset Credits Available */
             reset_credits_available?: number | null;
+            /** Source */
+            source?: ("provider_api" | "cliproxyapi_cache" | "stored_cache") | null;
             /** Subscription Active Start */
             subscription_active_start?: string | null;
             /** Subscription Active Until */
             subscription_active_until?: string | null;
             /** Subscription Status */
             subscription_status?: string | null;
-            /** Source */
-            source?: ("provider_api" | "cliproxyapi_cache" | "stored_cache") | null;
             /**
              * Windows
              * @default []
@@ -24038,10 +24261,21 @@ export interface components {
              */
             advanced_profiles: components["schemas"]["AdvancedSettingsProfile"][];
             /**
+             * Auth Refresh Interval Minutes
+             * @default 15
+             * @enum {integer}
+             */
+            auth_refresh_interval_minutes: 5 | 15 | 30 | 60;
+            /**
              * Common Profiles
              * @default []
              */
             common_profiles: components["schemas"]["CommonSettingsProfile"][];
+            /**
+             * Daily Log Retention Days
+             * @default 30
+             */
+            daily_log_retention_days: number;
             /**
              * Debug Logging Enabled
              * @default false
@@ -24080,6 +24314,16 @@ export interface components {
              * @default false
              */
             force_model_prefix: boolean;
+            /**
+             * Full Log Retention Days
+             * @default 30
+             */
+            full_log_retention_days: number;
+            /**
+             * Full Logging Enabled
+             * @default false
+             */
+            full_logging_enabled: boolean;
             /**
              * Logs Max Total Size Mb
              * @default 0
@@ -24137,6 +24381,12 @@ export interface components {
              * @default []
              */
             quota_profiles: components["schemas"]["QuotaSettingsProfile"][];
+            /**
+             * Quota Refresh Interval Minutes
+             * @default 5
+             * @enum {integer}
+             */
+            quota_refresh_interval_minutes: 5 | 15 | 30 | 60;
             /**
              * Quota Switch Preview Model
              * @default false
@@ -28785,6 +29035,15 @@ export interface components {
             card_key_id?: string | null;
             /** Channel */
             channel: ("openai_compatible" | "cliproxyapi") | "freebuff2api";
+            /** Cost Details */
+            cost_details?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Cost Source
+             * @default unknown
+             */
+            cost_source: string;
             /** Cost Usd */
             cost_usd?: number | null;
             /** Detail */
@@ -28813,6 +29072,12 @@ export interface components {
             final_status: "failed" | "retrying" | "succeeded";
             /** Finished At */
             finished_at?: string | null;
+            /**
+             * Full Log State
+             * @default disabled
+             * @enum {string}
+             */
+            full_log_state: "disabled" | "stored" | "truncated" | "failed";
             /** Http Status */
             http_status?: number | null;
             /** Input Tokens */
@@ -28834,6 +29099,8 @@ export interface components {
             operation: string;
             /** Output Tokens */
             output_tokens?: number | null;
+            /** Proxy Endpoint */
+            proxy_endpoint?: string | null;
             /**
              * Request Id
              * Format: uuid
@@ -28851,12 +29118,20 @@ export interface components {
             retryable: boolean;
             /** Routing Reason */
             routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "plan" | "expiry" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "token_budget_fallback" | "retry_failover") | null;
+            /** Session Id */
+            session_id?: string | null;
             /**
              * Severity
              * @default error
              * @enum {string}
              */
             severity: "info" | "warning" | "error";
+            /**
+             * Spend Sync State
+             * @default pending
+             * @enum {string}
+             */
+            spend_sync_state: "pending" | "synced" | "failed" | "unavailable";
             /**
              * Stage
              * @enum {string}
@@ -28899,6 +29174,18 @@ export interface components {
             account_id?: string | null;
             /** Average Duration Ms */
             average_duration_ms?: number | null;
+            /**
+             * Cache Creation Input Tokens
+             * @default 0
+             */
+            cache_creation_input_tokens: number;
+            /** Cache Rate */
+            cache_rate?: number | null;
+            /**
+             * Cache Read Input Tokens
+             * @default 0
+             */
+            cache_read_input_tokens: number;
             /** Card Id */
             card_id?: string | null;
             /**
@@ -29104,6 +29391,271 @@ export interface components {
             field_type: string;
             /** Stored In Db */
             stored_in_db: boolean | null;
+        };
+        /** FinishRequest */
+        FinishRequest: {
+            /** Cache Creation Input Tokens */
+            cache_creation_input_tokens?: number | null;
+            /** Cache Read Input Tokens */
+            cache_read_input_tokens?: number | null;
+            /** Cost Details */
+            cost_details?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Cost Source
+             * @default unknown
+             */
+            cost_source: string;
+            /** Cost Usd */
+            cost_usd?: number | null;
+            /** Detail */
+            detail?: string | null;
+            /** Endpoint */
+            endpoint: string;
+            /**
+             * Full Log State
+             * @default disabled
+             * @enum {string}
+             */
+            full_log_state: "disabled" | "stored" | "truncated" | "failed";
+            /** Http Status */
+            http_status: number;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /**
+             * Lease Id
+             * Format: uuid
+             */
+            lease_id: string;
+            /** Message */
+            message: string;
+            /**
+             * Method
+             * @default POST
+             * @enum {string}
+             */
+            method: "GET" | "POST";
+            /** Next Account Id */
+            next_account_id?: string | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Proxy Endpoint */
+            proxy_endpoint?: string | null;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
+            /** Session Id */
+            session_id?: string | null;
+            /**
+             * Spend Sync State
+             * @default pending
+             * @enum {string}
+             */
+            spend_sync_state: "pending" | "synced" | "failed" | "unavailable";
+            /**
+             * Stage
+             * @default upstream
+             * @enum {string}
+             */
+            stage: "connection" | "upstream" | "response";
+            /**
+             * Switched Account
+             * @default false
+             */
+            switched_account: boolean;
+            /** Upstream Code */
+            upstream_code?: string | null;
+        };
+        /** FullLogPage */
+        FullLogPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["FullLogSummary"][];
+            totals?: components["schemas"]["FullLogTotals"];
+        };
+        /** FullLogRecord */
+        FullLogRecord: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Attempt */
+            attempt: number;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /**
+             * Incomplete
+             * @default false
+             */
+            incomplete: boolean;
+            /**
+             * Key Id
+             * Format: uuid
+             */
+            key_id: string;
+            /** Model */
+            model: string;
+            request: components["schemas"]["JsonValue"];
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Requested Model */
+            requested_model: string;
+            response: components["schemas"]["JsonValue"];
+            result: components["schemas"]["FinishRequest"];
+            /** Session Id */
+            session_id: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "http" | "sse" | "websocket";
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** FullLogStorageStats */
+        FullLogStorageStats: {
+            /** Allocated Bytes */
+            allocated_bytes: number;
+            /**
+             * Backend
+             * @default sqlite-gzip
+             */
+            backend: string;
+            /** Location */
+            location: string;
+            /** Row Count */
+            row_count: number;
+        };
+        /** FullLogSummary */
+        FullLogSummary: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Attempt */
+            attempt: number;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /**
+             * Incomplete
+             * @default false
+             */
+            incomplete: boolean;
+            /**
+             * Key Id
+             * Format: uuid
+             */
+            key_id: string;
+            /** Model */
+            model: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Requested Model */
+            requested_model: string;
+            result: components["schemas"]["FinishRequest"];
+            /** Session Id */
+            session_id: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "http" | "sse" | "websocket";
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** FullLogTotals */
+        FullLogTotals: {
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /**
+             * Cache Creation Input Tokens
+             * @default 0
+             */
+            cache_creation_input_tokens: number;
+            /**
+             * Cache Read Input Tokens
+             * @default 0
+             */
+            cache_read_input_tokens: number;
+            /** Cost Usd */
+            cost_usd?: number | null;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Requests
+             * @default 0
+             */
+            requests: number;
+            /**
+             * Unknown Cost Attempts
+             * @default 0
+             */
+            unknown_cost_attempts: number;
         };
         /** FunctionCall */
         FunctionCall: {
@@ -29896,6 +30448,7 @@ export interface components {
             /** Updated By */
             updated_by?: string | null;
         };
+        JsonValue: unknown;
         /** KeyHealthResponse */
         KeyHealthResponse: {
             /**
@@ -40331,6 +40884,8 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+            /** Session Id */
+            session_id?: string | null;
             /**
              * State
              * @default idle
@@ -42459,6 +43014,79 @@ export interface operations {
             };
         };
     };
+    refresh_auth_files_account_pool_auth_files_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAuthFileRefreshStatus"];
+                };
+            };
+        };
+    };
+    set_auth_file_refresh_interval_account_pool_auth_files_refresh_interval_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolAuthFileRefreshIntervalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAuthFileRefreshStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auth_file_refresh_status_account_pool_auth_files_refresh_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAuthFileRefreshStatus"];
+                };
+            };
+        };
+    };
     list_batches_account_pool_batches_get: {
         parameters: {
             query?: never;
@@ -43548,6 +44176,123 @@ export interface operations {
             };
         };
     };
+    _logs_account_pool_full_logs_get: {
+        parameters: {
+            query?: {
+                card_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    _clear_account_pool_full_logs_delete: {
+        parameters: {
+            query?: {
+                older_than_days?: ("7" | "14" | "30" | "45") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    _storage_account_pool_full_logs_storage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogStorageStats"];
+                };
+            };
+        };
+    };
+    _detail_account_pool_full_logs__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     logs_account_pool_logs_get: {
         parameters: {
             query?: {
@@ -43560,6 +44305,7 @@ export interface operations {
                 account_id?: string | null;
                 card_key_id?: string | null;
                 request_id?: string | null;
+                session_id?: string | null;
                 model?: string | null;
                 stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
                 error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
@@ -43596,7 +44342,9 @@ export interface operations {
     };
     clear_logs_account_pool_logs_delete: {
         parameters: {
-            query?: never;
+            query?: {
+                older_than_days?: ("7" | "14" | "30" | "45") | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -43610,6 +44358,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -43626,6 +44383,7 @@ export interface operations {
                 account_id?: string | null;
                 card_key_id?: string | null;
                 request_id?: string | null;
+                session_id?: string | null;
                 model?: string | null;
                 stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
                 error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
@@ -43656,6 +44414,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    log_storage_account_pool_logs_storage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogStorageStats"];
                 };
             };
         };
@@ -43950,6 +44728,26 @@ export interface operations {
             };
         };
     };
+    add_proxy_gateway_account_pool_proxy_gateways_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"];
+                };
+            };
+        };
+    };
     get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get: {
         parameters: {
             query?: never;
@@ -44045,6 +44843,35 @@ export interface operations {
             };
         };
     };
+    remove_proxy_gateway_account_pool_proxy_gateways__port__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_proxy_profiles_account_pool_proxy_profiles_get: {
         parameters: {
             query?: never;
@@ -44081,6 +44908,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolQuotaRefreshResult"];
+                };
+            };
+        };
+    };
+    set_quota_refresh_interval_account_pool_quotas_refresh_interval_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolQuotaRefreshIntervalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolQuotaRefreshStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quota_refresh_status_account_pool_quotas_refresh_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolQuotaRefreshStatus"];
                 };
             };
         };

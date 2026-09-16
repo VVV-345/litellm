@@ -220,6 +220,12 @@ async def _reconciliation_loop(interval_seconds: float) -> None:
             await reconcile_configured_account_pool()
         except Exception as error:
             verbose_proxy_logger.warning("Account pool deployment reconciliation failed: %s", error)
+        try:
+            from litellm.proxy.management_endpoints.account_pool_full_log_api import full_log_maintenance
+
+            await full_log_maintenance().run()
+        except Exception:
+            verbose_proxy_logger.warning("Account pool full log retention failed")
         await asyncio.sleep(interval_seconds)
 
 

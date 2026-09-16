@@ -1,5 +1,7 @@
-/** 本文件展示号池日志筛选、分页及同次请求的尝试链，不读取完整请求正文。 */
+/** 本文件展示日常日志和完整日志入口，日常列表只读取摘要。 */
 
+import { AccountPoolFullLogsPanel, FullLogDialog } from "./AccountPoolFullLogsPanel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Database, Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -73,7 +75,7 @@ const detailFieldValue = (
   return event[field] ?? unavailable;
 };
 
-export function AccountPoolLogsPanel({
+function AccountPoolDailyLogsPanel({
   accessToken,
   environments,
   initialCardId,
@@ -89,6 +91,7 @@ export function AccountPoolLogsPanel({
   const [to, setTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [eventId, setEventId] = useState<string | null>(null);
+  const [fullEventId, setFullEventId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState(false);
   const [retentionDays, setRetentionDays] = useState<"all" | "7" | "14" | "30" | "45">("30");
   const pageQuery = { ...filters, offset, limit: 50 };
@@ -505,6 +508,28 @@ export function AccountPoolLogsPanel({
           )}
           {detail.data && (
             <>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-xs text-muted-foreground">
+                  会话：{detail.data.event.session_id ?? "未关联"} · 代理：{detail.data.event.proxy_endpoint ?? "未知"}{" "}
+                  · Usage：
+                  {
+                    (
+                      {
+                        synced: "已同步",
+                        failed: "同步失败",
+                        pending: "等待同步",
+                        unavailable: "数据库不可用",
+                      } as Record<string, string>
+                    )[detail.data.event.spend_sync_state ?? "pending"]
+                  }
+                </p>
+                {["stored", "truncated"].includes(detail.data.event.full_log_state ?? "disabled") && (
+                  <Button variant="outline" onClick={() => setFullEventId(detail.data.event.event_id ?? null)}>
+                    查看完整日志
+                  </Button>
+                )}
+                {detail.data.event.full_log_state === "failed" && <p role="alert">完整日志保存失败，日常日志已保留</p>}
+              </div>
               <dl className="grid gap-1 text-sm">
                 {(
                   [
@@ -565,6 +590,28 @@ export function AccountPoolLogsPanel({
           )}
         </DialogContent>
       </Dialog>
+      <FullLogDialog accessToken={accessToken} eventId={fullEventId} onClose={() => setFullEventId(null)} />
     </div>
+  );
+}
+
+export function AccountPoolLogsPanel(props: {
+  accessToken: string;
+  environments: AccountPoolEnvironment[];
+  initialCardId?: string;
+}) {
+  return (
+    <Tabs defaultValue="daily" className="grid gap-4">
+      <TabsList>
+        <TabsTrigger value="daily">日常日志</TabsTrigger>
+        <TabsTrigger value="full">完整日志</TabsTrigger>
+      </TabsList>
+      <TabsContent value="daily">
+        <AccountPoolDailyLogsPanel {...props} />
+      </TabsContent>
+      <TabsContent value="full">
+        <AccountPoolFullLogsPanel {...props} />
+      </TabsContent>
+    </Tabs>
   );
 }

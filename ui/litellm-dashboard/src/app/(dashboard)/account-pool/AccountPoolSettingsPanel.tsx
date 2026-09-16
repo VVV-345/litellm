@@ -47,6 +47,11 @@ const defaults: AccountPoolSettings = {
   default_proxy_profile_id: null,
   max_attempts: 1,
   request_timeout_seconds: 120,
+  full_logging_enabled: false,
+  daily_log_retention_days: 30,
+  full_log_retention_days: 30,
+  auth_refresh_interval_minutes: 15,
+  quota_refresh_interval_minutes: 5,
   file_logging_enabled: false,
   debug_logging_enabled: false,
   websocket_enabled: false,
@@ -678,6 +683,30 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
                     <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.settings.loggingGlobalOnly")}</p>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
+                    <ToggleSetting
+                      id="logging-full"
+                      label="记录完整日志（输入、提示词、回复和工具调用）"
+                      checked={values.full_logging_enabled ?? false}
+                      disabled={busy}
+                      onChange={(enabled) => update("full_logging_enabled", enabled)}
+                    />
+                    <NumberSetting
+                      id="logging-daily-retention"
+                      label="日常日志保留天数"
+                      value={values.daily_log_retention_days ?? 30}
+                      disabled={busy}
+                      onChange={(days) => update("daily_log_retention_days", days)}
+                    />
+                    <NumberSetting
+                      id="logging-full-retention"
+                      label="完整日志保留天数"
+                      value={values.full_log_retention_days ?? 30}
+                      disabled={busy}
+                      onChange={(days) => update("full_log_retention_days", days)}
+                    />
+                    <p className="text-xs text-muted-foreground sm:col-span-2">
+                      日常日志始终记录。完整日志独立存储；关闭后停止采集新请求正文，已有记录按保留期限清理。保存后生效。
+                    </p>
                     <ToggleSetting
                       id="logging-file"
                       label={t("accountPool.settings.fileLogging")}

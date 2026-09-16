@@ -54,7 +54,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings_repository: Final = PostgresAccountPoolSettingsRepository(resolved.database_url)
     plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
     plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
-    logs: Final = ErrorLogService(PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days)
+    logs: Final = ErrorLogService(
+        PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days, settings_repository
+    )
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     channels: Final = ChannelRegistry.default(resolved, secrets)
