@@ -409,6 +409,55 @@ async def test_finish_keeps_cache_rate_unknown_without_input_usage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_finish_keeps_cache_rate_unknown_for_zero_input_tokens() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(card)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    logs: Final = MemoryLogs()
+    service: Final = GatewayService(
+        keys,
+        environments,
+        MemoryPolicies(),
+        MemoryLeases(),
+        ErrorLogService(logs),
+        gateway,
+    )
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    candidate: Final = resolution.candidates[0]
+    lease: Final = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            account_id=candidate.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolution.card_version,
+            policy_version=resolution.policy_version,
+            account_version=candidate.environment_version,
+            account_policy_version=candidate.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=200,
+            message="Request completed",
+            endpoint="/v1/responses",
+            input_tokens=0,
+            output_tokens=10,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+        )
+    )
+
+    assert logs.events[0].cache_rate is None
+
+
+@pytest.mark.asyncio
 async def test_token_budget_reserves_active_requests_and_settles_successful_usage() -> None:
     card: Final = _record(status=EnvironmentStatus.READY)
     environments: Final = MemoryRepository(card)

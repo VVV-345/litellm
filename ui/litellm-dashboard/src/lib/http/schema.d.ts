@@ -28772,6 +28772,8 @@ export interface components {
             attempt: number;
             /** Cache Creation Input Tokens */
             cache_creation_input_tokens?: number | null;
+            /** Cache Rate */
+            cache_rate?: number | null;
             /** Cache Read Input Tokens */
             cache_read_input_tokens?: number | null;
             /**
