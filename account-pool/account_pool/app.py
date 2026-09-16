@@ -108,7 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> tuple[UUID, ...]:
         failed: Final = await service.sync_global_settings(values, rollback_on_failure=rollback_on_failure)
         if not failed:
-            quota_scheduler.settings_changed()
+            _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
         return failed
 
     @asynccontextmanager
@@ -205,6 +205,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 def main() -> None:
     uvicorn.run(create_app(), host="0.0.0.0", port=8091)
+
+
+def _notify_refresh_schedulers_after_settings_sync(
+    quota_scheduler: QuotaRefreshScheduler,
+    auth_refresh_scheduler: RefreshScheduler,
+) -> None:
+    quota_scheduler.settings_changed()
+    auth_refresh_scheduler.settings_changed()
 
 
 async def _reconcile_pending_configurations_until_cancelled(

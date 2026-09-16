@@ -17,6 +17,7 @@ import pytest
 import yaml
 from account_pool.api import _credential_views
 from account_pool.app import (
+    _notify_refresh_schedulers_after_settings_sync,
     _reconcile_pending_configurations_until_cancelled,
     _refresh_ready_quotas_until_cancelled,
     _restore_control_plane_connections_until_cancelled,
@@ -927,6 +928,24 @@ async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -
 
     assert refreshed == Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
     assert cli.refresh_quota_calls == [True]
+
+
+class RefreshSchedulerProbe:
+    def __init__(self) -> None:
+        self.settings_change_count = 0
+
+    def settings_changed(self) -> None:
+        self.settings_change_count += 1
+
+
+def test_global_settings_sync_notifies_both_refresh_schedulers() -> None:
+    quota_scheduler: Final = RefreshSchedulerProbe()
+    auth_refresh_scheduler: Final = RefreshSchedulerProbe()
+
+    _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
+
+    assert quota_scheduler.settings_change_count == 1
+    assert auth_refresh_scheduler.settings_change_count == 1
 
 
 @pytest.mark.asyncio
