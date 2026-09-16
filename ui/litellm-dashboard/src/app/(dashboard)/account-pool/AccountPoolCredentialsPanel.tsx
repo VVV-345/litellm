@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
+import { formatDateTime } from "./AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import {
@@ -28,9 +30,13 @@ import {
   deleteAccountPoolAuthFile,
   deleteAccountPoolCredential,
   downloadAccountPoolAuthFile,
+  getAccountPoolAuthFileRefreshStatus,
   listAccountPoolCredentials,
   patchAccountPoolAuthFileStatus,
   patchAccountPoolAuthFileFields,
+  refreshAccountPoolAuthFiles,
+  setAccountPoolAuthFileRefreshInterval,
+  type AccountPoolAuthFileRefreshStatus,
   uploadAccountPoolAuthFile,
 } from "./AccountPoolManagementApi";
 
@@ -41,7 +47,7 @@ export const AccountPoolCredentialsPanel = ({
   accessToken: string | null;
   environments: readonly AccountPoolEnvironment[];
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [addCard, setAddCard] = useState<AccountPoolEnvironment | null>(null);
   const [apiKey, setApiKey] = useState("");
@@ -58,6 +64,30 @@ export const AccountPoolCredentialsPanel = ({
     retry: false,
   });
   const credentials = query.data ?? [];
+  const refreshStatusQuery = useQuery({
+    queryKey: ["account-pool", "auth-file-refresh", accessToken],
+    queryFn: () => getAccountPoolAuthFileRefreshStatus(accessToken!),
+    enabled: accessToken !== null,
+    retry: false,
+  });
+  const refreshStatus = refreshStatusQuery.data;
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshAccountPoolAuthFiles(accessToken!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "auth-file-refresh", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+    },
+    onError: (error: Error) => toast.fromError(error),
+  });
+  const intervalMutation = useMutation({
+    mutationFn: (intervalMinutes: AccountPoolAuthFileRefreshStatus["interval_minutes"]) =>
+      setAccountPoolAuthFileRefreshInterval(accessToken!, intervalMinutes),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["account-pool", "auth-file-refresh", accessToken] });
+    },
+    onError: (error: Error) => toast.fromError(error),
+  });
   const addMutation = useMutation({
     mutationFn: () => {
       if (!addCard || !apiKey.trim()) throw new Error(t("accountPool.credentials.keyRequired"));
@@ -169,7 +199,35 @@ export const AccountPoolCredentialsPanel = ({
           <h2 className="text-lg font-semibold">{t("accountPool.credentials.title")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.credentials.description")}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={String(refreshStatus?.interval_minutes ?? 15)}
+            onValueChange={(value) =>
+              intervalMutation.mutate(Number(value) as AccountPoolAuthFileRefreshStatus["interval_minutes"])
+            }
+            disabled={intervalMutation.isPending || accessToken === null}
+          >
+            <SelectTrigger className="w-40" aria-label={t("accountPool.credentials.refreshInterval")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {([5, 15, 30, 60] as const).map((minutes) => (
+                <SelectItem key={minutes} value={String(minutes)}>
+                  {t("accountPool.credentials.everyMinutes", { minutes })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending || accessToken === null}
+          >
+            <RefreshCw className={refreshMutation.isPending || refreshStatus?.running ? "animate-spin" : undefined} />
+            {t("accountPool.credentials.refresh")}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -207,6 +265,18 @@ export const AccountPoolCredentialsPanel = ({
           )}
         </div>
       </div>
+      {refreshStatus && (
+        <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm sm:grid-cols-2">
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.credentials.lastRefresh")}</p>
+            <p className="mt-1 font-medium">{formatDateTime(refreshStatus.last_completed_at, i18n.language)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.credentials.nextRefresh")}</p>
+            <p className="mt-1 font-medium">{formatDateTime(refreshStatus.next_refresh_at, i18n.language)}</p>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {query.isError && <p role="alert">{t("accountPool.credentials.loadFailed")}</p>}
         {credentials.length === 0 && !query.isError && environments.length === 0 && (

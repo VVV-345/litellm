@@ -5874,7 +5874,12 @@
       "download": "Download auth file",
       "editFields": "Edit auth fields",
       "fieldsJson": "Fields JSON",
-      "fieldsUpdated": "Auth fields updated"
+      "fieldsUpdated": "Auth fields updated",
+      "refresh": "Refresh authentication files",
+      "refreshInterval": "Authentication refresh interval",
+      "everyMinutes": "Every {{minutes}} minutes",
+      "lastRefresh": "Last completed refresh",
+      "nextRefresh": "Next scheduled refresh"
     },
     "quotas": {
       "title": "Quota management",

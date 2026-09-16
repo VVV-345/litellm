@@ -8,6 +8,9 @@ import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const listCredentials = vi.fn();
 const patchAuthFileStatus = vi.fn();
+const getAuthFileRefreshStatus = vi.fn();
+const refreshAuthFiles = vi.fn();
+const setAuthFileRefreshInterval = vi.fn();
 
 vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
   const original = await importOriginal<typeof import("./AccountPoolManagementApi")>();
@@ -15,6 +18,9 @@ vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
     ...original,
     listAccountPoolCredentials: (...args: unknown[]) => listCredentials(...args),
     patchAccountPoolAuthFileStatus: (...args: unknown[]) => patchAuthFileStatus(...args),
+    getAccountPoolAuthFileRefreshStatus: (...args: unknown[]) => getAuthFileRefreshStatus(...args),
+    refreshAccountPoolAuthFiles: (...args: unknown[]) => refreshAuthFiles(...args),
+    setAccountPoolAuthFileRefreshInterval: (...args: unknown[]) => setAuthFileRefreshInterval(...args),
   };
 });
 
@@ -61,6 +67,59 @@ describe("AccountPoolCredentialsPanel", () => {
       },
     ]);
     patchAuthFileStatus.mockResolvedValue(environment);
+    getAuthFileRefreshStatus.mockResolvedValue({
+      interval_minutes: 15,
+      running: true,
+      last_started_at: "2026-09-16T10:00:00Z",
+      last_completed_at: "2026-09-16T10:01:00Z",
+      next_refresh_at: "2026-09-16T10:16:00Z",
+      last_failed_count: null,
+    });
+    refreshAuthFiles.mockResolvedValue({ failed_card_ids: [] });
+    setAuthFileRefreshInterval.mockResolvedValue({
+      interval_minutes: 30,
+      running: false,
+      last_started_at: "2026-09-16T10:00:00Z",
+      last_completed_at: "2026-09-16T10:01:00Z",
+      next_refresh_at: "2026-09-16T10:31:00Z",
+      last_failed_count: null,
+    });
+  });
+
+  it("shows and updates authentication refresh controls", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("combobox", { name: /Authentication refresh interval|认证刷新档位/i }),
+    ).toHaveTextContent(/15/);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Refresh authentication files|刷新认证文件/i }).querySelector("svg"),
+      ).toHaveClass("animate-spin"),
+    );
+    await user.click(screen.getByRole("combobox", { name: /Authentication refresh interval|认证刷新档位/i }));
+    expect(await screen.findByRole("option", { name: /Every 5 minutes|每 5 分钟/i })).toBeVisible();
+    expect(screen.getByRole("option", { name: /Every 15 minutes|每 15 分钟/i })).toBeVisible();
+    expect(screen.getByRole("option", { name: /Every 30 minutes|每 30 分钟/i })).toBeVisible();
+    expect(screen.getByRole("option", { name: /Every 60 minutes|每 60 分钟/i })).toBeVisible();
+    await user.click(screen.getByRole("option", { name: /Every 30 minutes|每 30 分钟/i }));
+
+    await waitFor(() => expect(setAuthFileRefreshInterval).toHaveBeenCalledWith("token", 30));
+    await user.click(screen.getByRole("button", { name: /Refresh authentication files|刷新认证文件/i }));
+
+    await waitFor(() => expect(refreshAuthFiles).toHaveBeenCalledWith("token"));
+    await waitFor(() =>
+      expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "auth-file-refresh", "token"] }),
+    );
+    expect(screen.getByText(/Last completed refresh|上次完成刷新/i).parentElement).toHaveTextContent(/09\/16/);
+    expect(screen.getByText(/Next scheduled refresh|下次计划刷新/i).parentElement).toHaveTextContent(/09\/16/);
   });
 
   it("enables a disabled auth file even when its card remains enabled", async () => {

@@ -44,6 +44,7 @@ export type AccountPoolQuotaRefreshStatus = {
   next_refresh_at: string | null;
   last_failed_count: number | null;
 };
+export type AccountPoolAuthFileRefreshStatus = AccountPoolQuotaRefreshStatus;
 export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
 export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
 export type UpstreamSyncView = components["schemas"]["UpstreamSyncView"];
@@ -193,6 +194,21 @@ export const deleteAccountPoolCredential = (
   apiClient.delete<unknown>(`/account_pool/environments/${encodeURIComponent(cardId)}/credentials`, {
     accessToken,
     body: request,
+  });
+
+export const refreshAccountPoolAuthFiles = (accessToken: string) =>
+  apiClient.post<AccountPoolQuotaRefreshResult>("/account_pool/auth-files/refresh", { accessToken });
+
+export const getAccountPoolAuthFileRefreshStatus = (accessToken: string) =>
+  apiClient.get<AccountPoolAuthFileRefreshStatus>("/account_pool/auth-files/refresh/status", { accessToken });
+
+export const setAccountPoolAuthFileRefreshInterval = (
+  accessToken: string,
+  intervalMinutes: AccountPoolAuthFileRefreshStatus["interval_minutes"],
+) =>
+  apiClient.put<AccountPoolAuthFileRefreshStatus>("/account_pool/auth-files/refresh/interval", {
+    accessToken,
+    body: { interval_minutes: intervalMinutes },
   });
 
 export const refreshAccountPoolQuotas = (accessToken: string) =>

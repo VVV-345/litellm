@@ -6,18 +6,23 @@ import {
   getAccountPoolCodexReview,
   getAccountPoolUpstreamSync,
   installCardAccountPoolPlugin,
+  getAccountPoolAuthFileRefreshStatus,
   promoteAccountPoolUpstream,
+  refreshAccountPoolAuthFiles,
+  setAccountPoolAuthFileRefreshInterval,
   submitAccountPoolBatch,
   type AccountPolicy,
 } from "./AccountPoolManagementApi";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
+const putMock = vi.fn();
 
 vi.mock("@/components/networking", () => ({
   apiClient: {
     get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
+    put: (...args: unknown[]) => putMock(...args),
   },
 }));
 
@@ -57,6 +62,8 @@ describe("submitAccountPoolBatch", () => {
     getMock.mockResolvedValue({});
     postMock.mockReset();
     postMock.mockResolvedValue({});
+    putMock.mockReset();
+    putMock.mockResolvedValue({});
   });
 
   it("sends the complete policy and target version snapshots", async () => {
@@ -100,6 +107,19 @@ describe("submitAccountPoolBatch", () => {
     expect(postMock).toHaveBeenCalledWith("/account_pool/environments/card-1/plugins/plugin%2Fwith%20spaces/install", {
       accessToken: "token-123",
       body: { version: "1.2.3", source: "official" },
+    });
+  });
+
+  it("uses the authentication refresh routes and interval payload", async () => {
+    await refreshAccountPoolAuthFiles("token-123");
+    await getAccountPoolAuthFileRefreshStatus("token-123");
+    await setAccountPoolAuthFileRefreshInterval("token-123", 15);
+
+    expect(postMock).toHaveBeenCalledWith("/account_pool/auth-files/refresh", { accessToken: "token-123" });
+    expect(getMock).toHaveBeenCalledWith("/account_pool/auth-files/refresh/status", { accessToken: "token-123" });
+    expect(putMock).toHaveBeenCalledWith("/account_pool/auth-files/refresh/interval", {
+      accessToken: "token-123",
+      body: { interval_minutes: 15 },
     });
   });
 

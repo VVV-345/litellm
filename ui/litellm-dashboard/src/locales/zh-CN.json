@@ -5874,7 +5874,12 @@
       "download": "下载认证文件",
       "editFields": "编辑认证字段",
       "fieldsJson": "字段 JSON",
-      "fieldsUpdated": "认证字段已更新"
+      "fieldsUpdated": "认证字段已更新",
+      "refresh": "刷新认证文件",
+      "refreshInterval": "认证刷新档位",
+      "everyMinutes": "每 {{minutes}} 分钟",
+      "lastRefresh": "上次完成刷新",
+      "nextRefresh": "下次计划刷新"
     },
     "quotas": {
       "title": "配额管理",
