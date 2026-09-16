@@ -257,7 +257,7 @@ class PostgresProxyProfileRepository:
     async def delete_gateway(self, profile_id: str) -> bool:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                "DELETE FROM account_pool_proxy_profiles WHERE id = %s AND id LIKE 'clash-gateway-%'",
+                "DELETE FROM account_pool_proxy_profiles WHERE id = %s AND id LIKE 'clash-gateway-%%'",
                 (profile_id,),
             )
         return cursor.rowcount == 1
