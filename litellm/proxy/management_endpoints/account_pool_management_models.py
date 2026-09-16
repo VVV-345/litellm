@@ -504,6 +504,7 @@ class AccountPoolSettings(BaseModel):
     max_attempts: int = Field(default=1, ge=1, le=5)
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
+    auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
     file_logging_enabled: bool = False
     debug_logging_enabled: bool = False
     websocket_enabled: bool = False

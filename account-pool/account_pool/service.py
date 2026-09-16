@@ -242,6 +242,17 @@ class EnvironmentService:
         failed: Final = await asyncio.gather(*(refresh(record) for record in ready))
         return tuple(card_id for card_id in failed if card_id is not None)
 
+    async def refresh_auth_files(self) -> tuple[UUID, ...]:
+        records: Final = await self._repository.list()
+        auth_file_records: Final = tuple(record for record in records if record.auth_file_name is not None)
+        results: Final = await asyncio.gather(
+            *(self._refresh_if_needed(record, credential_state_changed=True, raise_on_error=True) for record in auth_file_records),
+            return_exceptions=True,
+        )
+        return tuple(
+            record.id for record, result in zip(auth_file_records, results) if isinstance(result, Exception)
+        )
+
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
 
@@ -2050,6 +2061,7 @@ class EnvironmentService:
         *,
         refresh_quota: bool = False,
         credential_state_changed: bool = False,
+        raise_on_error: bool = False,
     ) -> EnvironmentRecord:
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -2105,7 +2117,7 @@ class EnvironmentService:
                         )
                 else:
                     await self._log_event(current, "quota", error)
-                if refresh_quota:
+                if refresh_quota or raise_on_error:
                     raise
                 return current
             refreshed: Final = observed.model_copy(

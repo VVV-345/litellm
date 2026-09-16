@@ -125,6 +125,10 @@ class MemoryEnvironments:
         return None
 
 
+def test_auth_refresh_defaults_to_fifteen_minutes() -> None:
+    assert AccountPoolSettings().auth_refresh_interval_minutes == 15
+
+
 def test_settings_preview_reports_changes_and_affected_cards() -> None:
     card_id: Final = uuid4()
     current: Final = AccountPoolSettingsView(version=3, values=AccountPoolSettings())

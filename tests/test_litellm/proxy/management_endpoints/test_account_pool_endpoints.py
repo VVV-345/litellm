@@ -218,6 +218,37 @@ def _manager_factory() -> AccountPoolManagerClient:
         client=httpx.AsyncClient(transport=httpx.MockTransport(_manager_response)),
     )
 
+def test_proxy_forwards_auth_file_refresh_controls() -> None:
+    requests: Final[list[tuple[str, str, bytes]]] = []
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append((request.method, request.url.path, request.content))
+            return httpx.Response(200, json={"interval_minutes": 15}, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+
+    with TestClient(app) as client:
+        status: Final = client.get("/account_pool/auth-files/refresh/status")
+        updated: Final = client.put("/account_pool/auth-files/refresh/interval", json={"interval_minutes": 30})
+        refreshed: Final = client.post("/account_pool/auth-files/refresh")
+
+    assert status.status_code == 200
+    assert status.json()["interval_minutes"] == 15
+    assert updated.status_code == 200
+    assert refreshed.status_code == 200
+    assert requests == [
+        ("GET", "/api/auth-files/refresh/status", b""),
+        ("PUT", "/api/auth-files/refresh/interval", b'{"interval_minutes":30}'),
+        ("POST", "/api/auth-files/refresh", b""),
+    ]
+
 
 def test_proxy_admin_can_read_automatic_cooldown_metadata() -> None:
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)

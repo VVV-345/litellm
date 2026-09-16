@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
@@ -25,9 +26,11 @@ from account_pool.error_logs import (
 from account_pool.management_api import create_management_router
 from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView
 from account_pool.quota import ProviderEndpointFailure, ProviderQuotaError
+from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, _plugin_store_approves
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsUpdate, AccountPoolSettingsView
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from test_account_pool import (
@@ -226,6 +229,66 @@ async def test_key_rotation_rejects_stale_and_cross_card_changes() -> None:
     revoked: Final = await repository.get(a)
     assert revoked is not None and revoked.revoked_at is not None
     assert isinstance(await service.issue(a), Success)
+
+
+class MemoryRefreshSettings:
+    def __init__(self) -> None:
+        self.view: AccountPoolSettingsView = AccountPoolSettingsView(version=0, values=AccountPoolSettings())
+
+    async def get(self) -> AccountPoolSettingsView:
+        return self.view
+
+    async def save(self, request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView | None:
+        if request.version != self.view.version:
+            return None
+        saved: Final = AccountPoolSettingsView(version=request.version + 1, values=request.values)
+        self.view = saved
+        return saved
+
+
+def test_auth_file_refresh_endpoints_return_status_update_interval_and_refresh(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(record)
+    runtime: Final = FakeRuntime()
+    cli: Final = FakeCLIProxy()
+    service: Final = EnvironmentService(
+        _settings(tmp_path),
+        environments,
+        runtime,
+        cli,
+        EmptyProfiles(),
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    settings: Final = MemoryRefreshSettings()
+    scheduler: Final = QuotaRefreshScheduler(
+        settings,
+        service.refresh_auth_files,
+        interval=lambda values: values.auth_refresh_interval_minutes,
+    )
+    app: Final = FastAPI()
+    app.include_router(
+        create_router(
+            service,
+            "m" * 32,
+            environments=environments,
+            settings=settings,
+            auth_refresh_scheduler=scheduler,
+        )
+    )
+
+    with TestClient(app) as client:
+        client.headers["Authorization"] = "Bearer " + "m" * 32
+        initial: Final = client.get("/api/auth-files/refresh/status")
+        updated: Final = client.put("/api/auth-files/refresh/interval", json={"interval_minutes": 30})
+        refreshed: Final = client.post("/api/auth-files/refresh")
+
+    assert initial.status_code == 200
+    assert initial.json()["interval_minutes"] == 15
+    assert updated.status_code == 200
+    assert updated.json()["interval_minutes"] == 30
+    assert refreshed.status_code == 200
+    assert cli.refresh_quota_calls == [False]
 
 
 @pytest.fixture

@@ -33,7 +33,7 @@ from account_pool.plugins import PluginService, PostgresPluginRepository, parse_
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
-from account_pool.quota_scheduler import QuotaRefreshScheduler
+from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
@@ -95,6 +95,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
     )
+    auth_refresh_scheduler: Final = RefreshScheduler(
+        settings_repository,
+        service.refresh_auth_files,
+        interval=lambda values: values.auth_refresh_interval_minutes,
+    )
 
     async def sync_global_settings(
         values: AccountPoolSettings,
@@ -141,6 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _restore_control_plane_connections_until_cancelled(channels, environments, retry_stopped)
         )
         quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
+        auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
         try:
             yield
         finally:
@@ -150,9 +156,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log_retention_task.cancel()
             batch_task.cancel()
             quota_refresh_task.cancel()
+            auth_refresh_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
+            await asyncio.gather(auth_refresh_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:
@@ -189,6 +197,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sync_policy=service.sync_policy,
             upstream_sync=upstream_sync,
             quota_scheduler=quota_scheduler,
+            auth_refresh_scheduler=auth_refresh_scheduler,
         )
     )
     return app

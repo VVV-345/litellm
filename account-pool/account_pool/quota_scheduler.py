@@ -8,12 +8,12 @@ from typing import Final, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.domain import utc_now
-from account_pool.settings import AccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
 
 T = TypeVar("T")
 
 
-class QuotaRefreshStatus(BaseModel):
+class RefreshStatus(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     interval_minutes: int = Field(ge=5, le=60)
@@ -24,14 +24,16 @@ class QuotaRefreshStatus(BaseModel):
     last_failed_count: int | None = Field(default=None, ge=0)
 
 
-class QuotaRefreshScheduler:
+class RefreshScheduler:
     def __init__(
         self,
         settings: AccountPoolSettingsRepository,
         refresh: Callable[[], Awaitable[tuple[object, ...]]],
+        interval: Callable[[AccountPoolSettings], int] | None = None,
     ) -> None:
         self._settings: Final = settings
         self._refresh: Final = refresh
+        self._interval: Final = interval or (lambda values: values.quota_refresh_interval_minutes)
         self._wake: Final = asyncio.Event()
         self._lock: Final = asyncio.Lock()
         self._running = False
@@ -40,9 +42,9 @@ class QuotaRefreshScheduler:
         self._next_refresh_at: datetime | None = None
         self._last_failed_count: int | None = None
 
-    async def status(self) -> QuotaRefreshStatus:
-        interval: Final = (await self._settings.get()).values.quota_refresh_interval_minutes
-        return QuotaRefreshStatus(
+    async def status(self) -> RefreshStatus:
+        interval: Final = self._interval((await self._settings.get()).values)
+        return RefreshStatus(
             interval_minutes=interval,
             running=self._running,
             last_started_at=self._last_started_at,
@@ -94,6 +96,11 @@ class QuotaRefreshScheduler:
             await self.track(self._refresh, len)
 
     async def _schedule_next(self) -> None:
-        interval: Final = (await self._settings.get()).values.quota_refresh_interval_minutes
+        interval: Final = self._interval((await self._settings.get()).values)
         base: Final = self._last_completed_at or utc_now()
         self._next_refresh_at = base + timedelta(minutes=interval)
+
+
+QuotaRefreshStatus = RefreshStatus
+AuthFileRefreshStatus = RefreshStatus
+QuotaRefreshScheduler = RefreshScheduler

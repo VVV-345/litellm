@@ -930,6 +930,46 @@ async def test_explicit_quota_refresh_reports_provider_failure(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_auth_file_refresh_reads_credentials_without_live_quota_refresh(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    failed: Final = await service.refresh_auth_files()
+
+    assert failed == ()
+    assert cli.read_calls == 1
+    assert cli.refresh_quota_calls == [False]
+
+
+@pytest.mark.asyncio
+async def test_auth_file_refresh_reads_automatically_cooled_down_credentials(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(
+        update={"automatic_cooldown": True, "auth_file_disabled": True}
+    )
+    cli: Final = FakeCLIProxy(data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+
+    failed: Final = await service.refresh_auth_files()
+
+    assert failed == ()
+    assert cli.read_calls == 1
+    assert cli.refresh_quota_calls == [False]
+
+
+@pytest.mark.asyncio
+async def test_auth_file_refresh_reports_account_read_failures(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy(read_error=RuntimeError("credential read failed"))
+    service: Final = _service(record, cli, tmp_path)
+
+    failed: Final = await service.refresh_auth_files()
+
+    assert failed == (record.id,)
+    assert cli.refresh_quota_calls == [False]
+
+
+@pytest.mark.asyncio
 async def test_background_quota_refresh_reports_cached_fallback_as_failed_attempt(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy()

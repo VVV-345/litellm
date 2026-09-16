@@ -39,7 +39,12 @@ from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
-from account_pool.quota_scheduler import QuotaRefreshScheduler, QuotaRefreshStatus
+from account_pool.quota_scheduler import (
+    AuthFileRefreshStatus,
+    QuotaRefreshScheduler,
+    QuotaRefreshStatus,
+    RefreshScheduler,
+)
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, AccountPoolSettingsUpdate
 from account_pool.upstream_sync import GitHubUpstreamSyncService
@@ -189,6 +194,7 @@ def create_router(
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     upstream_sync: GitHubUpstreamSyncService | None = None,
     quota_scheduler: QuotaRefreshScheduler | None = None,
+    auth_refresh_scheduler: RefreshScheduler | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -279,6 +285,36 @@ def create_router(
             raise HTTPException(status_code=409, detail="settings have changed; refresh and retry")
         quota_scheduler.settings_changed()
         return await quota_scheduler.status()
+
+    @router.post("/api/auth-files/refresh", dependencies=[Depends(require_manager)])
+    async def refresh_auth_files() -> AuthFileRefreshStatus:
+        if auth_refresh_scheduler is None:
+            await service.refresh_auth_files()
+            return AuthFileRefreshStatus(interval_minutes=15)
+        await auth_refresh_scheduler.track(service.refresh_auth_files, len)
+        return await auth_refresh_scheduler.status()
+
+    @router.get("/api/auth-files/refresh/status", dependencies=[Depends(require_manager)])
+    async def auth_file_refresh_status() -> AuthFileRefreshStatus:
+        if auth_refresh_scheduler is None:
+            return AuthFileRefreshStatus(interval_minutes=15)
+        return await auth_refresh_scheduler.status()
+
+    @router.put("/api/auth-files/refresh/interval", dependencies=[Depends(require_manager)])
+    async def set_auth_file_refresh_interval(request: QuotaRefreshIntervalRequest) -> AuthFileRefreshStatus:
+        if settings is None or auth_refresh_scheduler is None:
+            raise HTTPException(status_code=503, detail="authentication refresh scheduler is unavailable")
+        current: Final = await settings.get()
+        saved: Final = await settings.save(
+            AccountPoolSettingsUpdate(
+                version=current.version,
+                values=current.values.model_copy(update={"auth_refresh_interval_minutes": request.interval_minutes}),
+            )
+        )
+        if saved is None:
+            raise HTTPException(status_code=409, detail="settings have changed; refresh and retry")
+        auth_refresh_scheduler.settings_changed()
+        return await auth_refresh_scheduler.status()
 
     @router.get("/api/credentials", dependencies=[Depends(require_manager)])
     @router.get("/api/auth-files", dependencies=[Depends(require_manager)])

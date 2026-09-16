@@ -209,6 +209,23 @@ class AccountPoolQuotaRefreshIntervalRequest(BaseModel):
     interval_minutes: Literal[5, 15, 30, 60]
 
 
+class AccountPoolAuthFileRefreshStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    interval_minutes: int = Field(ge=5, le=60)
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    next_refresh_at: str | None = None
+    last_failed_count: int | None = Field(default=None, ge=0)
+
+
+class AccountPoolAuthFileRefreshIntervalRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    interval_minutes: Literal[5, 15, 30, 60]
+
+
 class AccountPoolAuthFileStatusRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -325,6 +342,7 @@ _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
 _PROVIDER_FAMILIES: Final = TypeAdapter(tuple[AccountPoolProviderFamily, ...])
 _DASHBOARD_STATS: Final = TypeAdapter(AccountPoolDashboardStats)
 _QUOTA_REFRESH: Final = TypeAdapter(AccountPoolQuotaRefreshResult)
+_AUTH_FILE_REFRESH_STATUS: Final = TypeAdapter(AccountPoolAuthFileRefreshStatus)
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
@@ -508,6 +526,36 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             request.model_dump_json().encode("utf-8"),
         )
         return _validate_response(response, TypeAdapter(AccountPoolQuotaRefreshStatus))
+
+    @router.post("/auth-files/refresh", response_model=AccountPoolAuthFileRefreshStatus)
+    async def refresh_auth_files(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/auth-files/refresh")
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
+
+    @router.get("/auth-files/refresh/status", response_model=AccountPoolAuthFileRefreshStatus)
+    async def auth_file_refresh_status(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/auth-files/refresh/status")
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
+
+    @router.put("/auth-files/refresh/interval", response_model=AccountPoolAuthFileRefreshStatus)
+    async def set_auth_file_refresh_interval(
+        request: AccountPoolAuthFileRefreshIntervalRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/auth-files/refresh/interval",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
 
     @router.post("/auth-files", response_model=AccountPoolEnvironment)
     async def upload_auth_file(

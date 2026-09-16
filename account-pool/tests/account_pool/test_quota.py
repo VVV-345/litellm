@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Final
 from uuid import uuid4
 
+import pytest
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, Provider, ProxyMode, QuotaSnapshot, utc_now
 from account_pool.provider_quota import (
     parse_claude_usage_quota,
@@ -20,6 +21,8 @@ from account_pool.quota import (
     parse_quota,
     parse_xai_billing_quota,
 )
+from account_pool.quota_scheduler import QuotaRefreshScheduler
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsView
 
 
 def _record(*, manual_cooldown: bool = False, enabled: bool = True):
@@ -46,6 +49,28 @@ def _record(*, manual_cooldown: bool = False, enabled: bool = True):
         created_at=now,
         updated_at=now,
     )
+
+
+class _AuthRefreshSettings:
+    async def get(self) -> AccountPoolSettingsView:
+        return AccountPoolSettingsView(version=0, values=AccountPoolSettings())
+
+
+@pytest.mark.asyncio
+async def test_auth_refresh_scheduler_uses_the_authentication_interval() -> None:
+    scheduler: Final = QuotaRefreshScheduler(
+        _AuthRefreshSettings(),
+        lambda: _empty_refresh(),
+        interval=lambda values: values.auth_refresh_interval_minutes,
+    )
+
+    status: Final = await scheduler.status()
+
+    assert status.interval_minutes == 15
+
+
+async def _empty_refresh() -> tuple[object, ...]:
+    return ()
 
 
 def test_parse_quota_keeps_valid_windows_and_ignores_invalid_values() -> None:
