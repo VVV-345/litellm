@@ -217,10 +217,11 @@ class ProxyGatewayService:
             marker: Final = await connection.execute("SELECT singleton FROM account_pool_proxy_gateway_registry")
             initialized: Final = await marker.fetchone()
             if initialized is None:
-                await connection.executemany(
-                    "INSERT INTO account_pool_proxy_gateways (port) VALUES (%s) ON CONFLICT DO NOTHING",
-                    tuple((port,) for port in self._settings.clash_gateway_ports),
-                )
+                async with connection.cursor() as cursor:
+                    await cursor.executemany(
+                        "INSERT INTO account_pool_proxy_gateways (port) VALUES (%s) ON CONFLICT DO NOTHING",
+                        tuple((port,) for port in self._settings.clash_gateway_ports),
+                    )
                 await connection.execute("INSERT INTO account_pool_proxy_gateway_registry (singleton) VALUES (true)")
                 return tuple(sorted(self._settings.clash_gateway_ports))
         return tuple(int(row["port"]) for row in rows)
