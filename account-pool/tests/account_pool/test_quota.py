@@ -531,6 +531,8 @@ def test_parse_xai_billing_keeps_credit_bags_products_tasks_and_subscription() -
     assert refreshed.quota.windows[0].used == 120
     assert refreshed.quota.windows[0].total == 1000
     assert refreshed.quota.windows[-1].remaining == 7
+    assert refreshed.quota.windows[0].resets_at is not None
+    assert all(window.resets_at is None for window in refreshed.quota.windows if window.name.startswith("Tasks:"))
 
 
 def test_parse_xai_billing_uses_monthly_fields_from_weekly_response_when_monthly_probe_fails() -> None:

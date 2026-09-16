@@ -704,6 +704,71 @@ async def test_xai_quota_refresh_uses_credential_scoped_billing_endpoints() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cached, challenged", ((False, False), (False, True), (True, True)))
+async def test_xai_metadata_without_quota_fails_and_preserves_cached_observation(
+    cached: bool, challenged: bool
+) -> None:
+    previous: Final = (
+        QuotaSnapshot(
+            source="provider_api",
+            observed_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
+            windows=(QuotaWindow(name="Weekly", remaining_percent=75, used_percent=25, window_minutes=10080),),
+        )
+        if cached
+        else QuotaSnapshot()
+    )
+    record: Final = _record().model_copy(update={"supplier": SupplierKind.XAI, "quota": previous})
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(
+                200, json={"files": [{"name": "xai.json", "provider": "xai", "auth_index": "xai-index"}]}
+            )
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "grok-code-fast-1"}]})
+        url: Final = json.loads(request.content)["url"]
+        if challenged and url.endswith("/rest/tasks/usage"):
+            return httpx.Response(
+                200,
+                json={
+                    "status_code": 403,
+                    "header": {"Cf-Mitigated": ["challenge"], "Content-Type": ["text/html"]},
+                    "body": "<html>Just a moment. private-marker</html>",
+                },
+            )
+        body: Final = (
+            {"config": {"isUnifiedBillingUser": True, "prepaidBalance": {"val": 0}}}
+            if "format=credits" in url
+            else {"config": {"monthlyLimit": {"val": 0}, "used": {"val": 0}}}
+            if url.endswith("/v1/billing")
+            else {"subscriptionTier": "SuperGrokPro", "hasGrokCodeAccess": True}
+            if "include=subscription" in url
+            else {}
+        )
+        return httpx.Response(200, json={"status_code": 200, "header": {}, "body": json.dumps(body)})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        observed: Final = await proxy.read_account(
+            record, SupplierRegistry.default().get(SupplierKind.XAI), refresh_quota=True
+        )
+    assert observed.quota.refresh_status == "failed"
+    assert observed.quota.plan_type == "SuperGrokPro"
+    assert observed.quota.has_grok_code_access is True
+    assert observed.quota.prepaid_balance == 0
+    assert observed.quota.windows == previous.windows
+    assert observed.quota.observed_at == previous.observed_at
+    assert observed.quota.source == "stored_cache"
+    assert observed.quota.refresh_attempted_at is not None
+    assert observed.quota.refresh_error is not None
+    assert "quota_fields_missing" in observed.quota.refresh_error
+    assert "private-marker" not in observed.quota.refresh_error
+    if challenged:
+        assert "cloudflare_challenge" in observed.quota.refresh_error
+        assert observed.quota.refresh_failures[-1].upstream_code == "cloudflare_challenge"
+
+
+@pytest.mark.asyncio
 async def test_antigravity_quota_refresh_reads_tier_and_per_model_windows() -> None:
     record: Final = _record().model_copy(update={"supplier": SupplierKind.GOOGLE_ANTIGRAVITY})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.GOOGLE_ANTIGRAVITY)

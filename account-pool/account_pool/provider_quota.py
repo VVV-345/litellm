@@ -367,8 +367,8 @@ def parse_xai_quota(
                 period,
                 "cents",
             ),
-            _xai_task_window("Tasks: Frequent", task_payload, "frequentUsage", "frequentLimit", period),
-            _xai_task_window("Tasks: Occasional", task_payload, "occasionalUsage", "occasionalLimit", period),
+            _xai_task_window("Tasks: Frequent", task_payload, "frequentUsage", "frequentLimit"),
+            _xai_task_window("Tasks: Occasional", task_payload, "occasionalUsage", "occasionalLimit"),
         )
         if window is not None
     )
@@ -1179,12 +1179,11 @@ def _xai_task_window(
     payload: JsonValue | None,
     used_key: str,
     limit_key: str,
-    fallback_period: tuple[datetime | None, datetime | None],
 ) -> QuotaWindow | None:
     used: Final = _nested_number(payload, used_key)
     total: Final = _nested_number(payload, limit_key)
-    reset_at: Final = _nested_datetime(payload, ("resetsAt", "resetAt", "periodEnd", "end")) or fallback_period[1]
-    return _amount_window(name, used, total, (fallback_period[0], reset_at), "tasks")
+    reset_at: Final = _nested_datetime(payload, ("resetsAt", "resetAt", "periodEnd", "end"))
+    return _amount_window(name, used, total, (None, reset_at), "tasks")
 
 
 def _xai_subscription(

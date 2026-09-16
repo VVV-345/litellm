@@ -203,12 +203,15 @@ def _merge_quota_snapshots(
     passive: QuotaSnapshot,
     active: QuotaSnapshot | None,
 ) -> QuotaSnapshot:
-    active_has_payload: Final = active is not None and _has_quota_payload(active)
+    active_failed: Final = active is not None and active.refresh_status == "failed"
+    active_has_payload: Final = active is not None and not active_failed and _has_quota_payload(active)
     source: Final = (
         "provider_api"
         if active_has_payload
         else previous.source
         if active is None and previous.source == "provider_api" and _has_quota_payload(previous)
+        else "stored_cache"
+        if active_failed and _has_quota_payload(previous)
         else "cliproxyapi_cache"
         if _has_quota_payload(passive)
         else "stored_cache"
@@ -217,7 +220,9 @@ def _merge_quota_snapshots(
     )
     return QuotaSnapshot(
         observed_at=(
-            active.observed_at
+            (previous.observed_at if _has_quota_payload(previous) else passive.observed_at)
+            if active_failed
+            else active.observed_at
             if active is not None and active.observed_at is not None
             else passive.observed_at or previous.observed_at
         ),
@@ -297,7 +302,11 @@ def _select_quota_windows(
 ) -> tuple[QuotaWindow, ...]:
     if active is not None and active.windows:
         return active.windows
-    if active is None and previous.source == "provider_api" and previous.windows:
+    if (
+        (active is None or active.refresh_status == "failed")
+        and previous.source in ("provider_api", "stored_cache")
+        and previous.windows
+    ):
         return previous.windows
     return passive.windows or previous.windows
 
@@ -309,7 +318,11 @@ def _select_quota_balances(
 ) -> tuple[QuotaBalance, ...]:
     if active is not None and active.balances:
         return active.balances
-    if active is None and previous.source == "provider_api" and previous.balances:
+    if (
+        (active is None or active.refresh_status == "failed")
+        and previous.source in ("provider_api", "stored_cache")
+        and previous.balances
+    ):
         return previous.balances
     return passive.balances or previous.balances
 
@@ -983,6 +996,18 @@ class HttpCLIProxyClient:
                 status_code=200 if any(result.body is not None for result in results) else None,
             )
             raise ProviderQuotaError((*failures, parse_failure), "xAI quota refresh failed")
+        if not refreshed.quota.windows and not (refreshed.quota.prepaid_balance or 0) > 0:
+            missing_quota: Final = ProviderEndpointFailure(
+                method="GET",
+                endpoint="https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+                status_code=200 if weekly_result.body is not None else None,
+                upstream_code="quota_fields_missing",
+                message="Grok 未返回有效额度，仅取得账号或计费信息；保留已有额度缓存，缺失额度显示未知",
+            )
+            annotated: Final = _annotate_refresh(refreshed, (missing_quota, *failures))
+            return ProviderQuotaRefresh(
+                quota=annotated.quota.model_copy(update={"observed_at": None, "refresh_status": "failed"})
+            )
         return _annotate_refresh(refreshed, failures)
 
     async def _refresh_antigravity_quota(
@@ -1290,14 +1315,22 @@ class HttpCLIProxyClient:
                 )
             )
         if payload.status_code < 200 or payload.status_code >= 300:
+            challenged: Final = payload.status_code == 403 and any(
+                name.lower() == "cf-mitigated" and any(value.lower() == "challenge" for value in values)
+                for name, values in payload.header.items()
+            )
             return _ProviderAPICallResult(
                 failure=ProviderEndpointFailure(
                     method=method,
                     endpoint=_safe_endpoint(url),
-                    message="provider quota endpoint rejected the request",
+                    message=(
+                        "Cloudflare 浏览器验证拦截，未返回额度数据"
+                        if challenged
+                        else "provider quota endpoint rejected the request"
+                    ),
                     status_code=payload.status_code,
                     request_id=_request_id(payload.header),
-                    upstream_code=_upstream_code(payload.body),
+                    upstream_code="cloudflare_challenge" if challenged else _upstream_code(payload.body),
                 )
             )
         return _ProviderAPICallResult(body=payload.body)
