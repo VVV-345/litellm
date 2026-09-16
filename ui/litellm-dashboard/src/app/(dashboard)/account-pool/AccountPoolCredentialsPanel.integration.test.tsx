@@ -33,6 +33,8 @@ const environment = {
   supplier: "openai_codex",
   authorization_flow: "browser_oauth",
   status: "cooling_down",
+  desired_configuration_version: 0,
+  observed_configuration_version: 0,
   configuration_pending: false,
   enabled: true,
   manual_cooldown: false,
@@ -75,7 +77,14 @@ describe("AccountPoolCredentialsPanel", () => {
       next_refresh_at: "2026-09-16T10:16:00Z",
       last_failed_count: null,
     });
-    refreshAuthFiles.mockResolvedValue({ failed_card_ids: [] });
+    refreshAuthFiles.mockResolvedValue({
+      interval_minutes: 15,
+      running: false,
+      last_started_at: "2026-09-16T10:00:00Z",
+      last_completed_at: "2026-09-16T10:01:00Z",
+      next_refresh_at: "2026-09-16T10:16:00Z",
+      last_failed_count: 0,
+    });
     setAuthFileRefreshInterval.mockResolvedValue({
       interval_minutes: 30,
       running: false,

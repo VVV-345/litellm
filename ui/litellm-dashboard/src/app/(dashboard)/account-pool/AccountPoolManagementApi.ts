@@ -197,7 +197,7 @@ export const deleteAccountPoolCredential = (
   });
 
 export const refreshAccountPoolAuthFiles = (accessToken: string) =>
-  apiClient.post<AccountPoolQuotaRefreshResult>("/account_pool/auth-files/refresh", { accessToken });
+  apiClient.post<AccountPoolAuthFileRefreshStatus>("/account_pool/auth-files/refresh", { accessToken });
 
 export const getAccountPoolAuthFileRefreshStatus = (accessToken: string) =>
   apiClient.get<AccountPoolAuthFileRefreshStatus>("/account_pool/auth-files/refresh/status", { accessToken });
