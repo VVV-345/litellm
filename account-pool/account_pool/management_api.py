@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Annotated, Final, Literal, TypeVar, cast
 from uuid import UUID
 
@@ -12,8 +13,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
-from account_pool.domain import EnvironmentRecord
-from account_pool.error_logs import ErrorLogDetail, ErrorLogPage, ErrorLogQuery, ErrorLogService, ErrorStats
+from account_pool.domain import EnvironmentRecord, utc_now
+from account_pool.error_logs import (
+    ErrorLogDetail,
+    ErrorLogPage,
+    ErrorLogQuery,
+    ErrorLogService,
+    ErrorStats,
+    LogStorageStats,
+)
 from account_pool.policies import (
     AccountPolicy,
     PolicyRepository,
@@ -107,8 +115,17 @@ def create_management_router(
         )
 
     @router.delete("/logs", response_model=LogClearResult)
-    async def clear_logs() -> LogClearResult:
-        return LogClearResult(deleted=await logs.repository.clear())
+    async def clear_logs(older_than_days: Literal[7, 14, 30, 45] | None = None) -> LogClearResult:
+        deleted: Final = (
+            await logs.repository.clear()
+            if older_than_days is None
+            else await logs.repository.prune(utc_now() - timedelta(days=older_than_days))
+        )
+        return LogClearResult(deleted=deleted)
+
+    @router.get("/logs/storage")
+    async def log_storage() -> LogStorageStats:
+        return await logs.repository.storage()
 
     @router.get("/environments/{card_id}/policy")
     async def get_policy(card_id: UUID) -> PolicyView:

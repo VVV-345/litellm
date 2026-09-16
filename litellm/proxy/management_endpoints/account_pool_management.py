@@ -19,6 +19,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolCredentialMutationResult,
     AccountPoolCredentialRequest,
     AccountPoolLogClearResult,
+    AccountPoolLogStorageStats,
     AccountPoolPluginManifest,
     AccountPoolPluginRecord,
     AccountPoolSettingsHistoryEntry,
@@ -102,8 +103,13 @@ def create_management_router(
         )
 
     @router.delete("/logs", response_model=AccountPoolLogClearResult)
-    async def clear_logs() -> AccountPoolLogClearResult:
-        return parse_response(await call("DELETE", "/api/logs"), TypeAdapter(AccountPoolLogClearResult))
+    async def clear_logs(older_than_days: Literal[7, 14, 30, 45] | None = None) -> AccountPoolLogClearResult:
+        params: Final = "" if older_than_days is None else f"?older_than_days={older_than_days}"
+        return parse_response(await call("DELETE", f"/api/logs{params}"), TypeAdapter(AccountPoolLogClearResult))
+
+    @router.get("/logs/storage", response_model=AccountPoolLogStorageStats)
+    async def log_storage() -> AccountPoolLogStorageStats:
+        return parse_response(await call("GET", "/api/logs/storage"), TypeAdapter(AccountPoolLogStorageStats))
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])

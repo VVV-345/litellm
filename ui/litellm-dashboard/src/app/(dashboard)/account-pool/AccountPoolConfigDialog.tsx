@@ -37,6 +37,7 @@ import {
 import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
 import { toUpdateRequest } from "./AccountPoolTypes";
 import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "./AccountPoolTypes";
+import { useProxyGatewayQuery } from "./useProxyGateways";
 
 interface AccountPoolConfigDialogProps {
   accessToken: string | null;
@@ -69,6 +70,8 @@ export const AccountPoolConfigDialog = ({
     retry: false,
   });
   const profiles = profilesQuery.data ?? [];
+  const gatewaysQuery = useProxyGatewayQuery(accessToken, open);
+  const gateways = gatewaysQuery.data ?? [];
   const profilesLoading = profilesQuery.isLoading || profilesQuery.isFetching;
   const profilesError = profilesQuery.isError ? t("accountPool.config.proxyProfilesLoadFailed") : null;
   const profileSelectionError =
@@ -264,6 +267,12 @@ export const AccountPoolConfigDialog = ({
                       {profiles.map((profile) => (
                         <SelectItem key={profile.id} value={profile.id}>
                           {profile.name}
+                          {profile.id.startsWith("clash-gateway-")
+                            ? ` · ${
+                                gateways.find((gateway) => gateway.profile_id === profile.id)?.current_node ??
+                                t("accountPool.proxyGateways.currentNodeUnknown")
+                              }`
+                            : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>

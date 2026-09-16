@@ -503,6 +503,7 @@ class AccountPoolSettings(BaseModel):
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
     max_attempts: int = Field(default=1, ge=1, le=5)
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     file_logging_enabled: bool = False
     debug_logging_enabled: bool = False
     websocket_enabled: bool = False
@@ -866,10 +867,22 @@ class ErrorStats(BaseModel):
     retried_requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_rate: float | None = Field(default=None, ge=0, le=1)
     known_cost_requests: int = 0
     total_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     average_duration_ms: float | None = None
     recent_errors: tuple[ErrorLogRecord, ...] = ()
+
+
+class AccountPoolLogStorageStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    backend: Literal["postgresql"] = "postgresql"
+    location: str
+    row_count: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
 
 
 class ErrorLogDetail(BaseModel):

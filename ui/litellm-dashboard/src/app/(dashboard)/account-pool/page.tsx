@@ -400,6 +400,7 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="quotas" className="pt-4">
             <AccountPoolQuotaPanel
+              accessToken={accessToken}
               environments={environments}
               onRefresh={() => {
                 if (accessToken)

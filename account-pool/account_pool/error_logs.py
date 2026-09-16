@@ -156,10 +156,22 @@ class ErrorStats(BaseModel):
     retried_requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_rate: float | None = Field(default=None, ge=0, le=1)
     known_cost_requests: int = 0
     total_cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     average_duration_ms: float | None = None
     recent_errors: tuple[ErrorLogRecord, ...] = ()
+
+
+class LogStorageStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    backend: Literal["postgresql"] = "postgresql"
+    location: str = "PostgreSQL / account_pool_error_log"
+    row_count: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
 
 
 class ErrorLogRepository(Protocol):
@@ -171,7 +183,9 @@ class ErrorLogRepository(Protocol):
 
     async def stats(self, card_id: UUID | None, account_id: UUID | None, model: str | None) -> ErrorStats: ...
 
-    async def prune(self, before: datetime) -> None: ...
+    async def prune(self, before: datetime) -> int: ...
+
+    async def storage(self) -> LogStorageStats: ...
 
     async def clear(self) -> int: ...
 

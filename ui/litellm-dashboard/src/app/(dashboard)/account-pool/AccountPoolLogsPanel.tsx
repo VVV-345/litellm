@@ -1,6 +1,6 @@
 /** 本文件展示号池日志筛选、分页及同次请求的尝试链，不读取完整请求正文。 */
 
-import { Download, Trash2 } from "lucide-react";
+import { Database, Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,7 @@ import {
   clearAccountPoolLogs,
   exportAccountPoolLogs,
   getAccountPoolLog,
+  getAccountPoolLogStorage,
   getAccountPoolStats,
   listAccountPoolLogs,
   type LogDetail,
@@ -32,6 +33,12 @@ const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
 
 const formatCost = (value: number | null | undefined) =>
   value == null ? null : new Intl.NumberFormat("en-US", COST_FORMAT_OPTIONS).format(value);
+const formatBytes = (value: number) => {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GiB`;
+};
 
 type LogEvent = LogDetail["event"];
 type DetailField =
@@ -83,6 +90,7 @@ export function AccountPoolLogsPanel({
   const [offset, setOffset] = useState(0);
   const [eventId, setEventId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState(false);
+  const [retentionDays, setRetentionDays] = useState<"all" | "7" | "14" | "30" | "45">("30");
   const pageQuery = { ...filters, offset, limit: 50 };
   const query = useQuery({
     queryKey: ["account-pool", "logs", accessToken, filters, offset],
@@ -104,6 +112,11 @@ export function AccountPoolLogsPanel({
         account_id: filters.account_id,
         model: filters.model,
       }),
+    retry: false,
+  });
+  const storage = useQuery({
+    queryKey: ["account-pool", "log-storage", accessToken],
+    queryFn: () => getAccountPoolLogStorage(accessToken),
     retry: false,
   });
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
@@ -140,9 +153,12 @@ export function AccountPoolLogsPanel({
   const clearLogs = async () => {
     if (!window.confirm(t("accountPool.logs.clearConfirm"))) return;
     try {
-      const result = await clearAccountPoolLogs(accessToken);
+      const result = await clearAccountPoolLogs(
+        accessToken,
+        retentionDays === "all" ? undefined : (Number(retentionDays) as 7 | 14 | 30 | 45),
+      );
       toast.success(t("accountPool.logs.cleared", { count: result.deleted }));
-      await query.refetch();
+      await Promise.all([query.refetch(), stats.refetch(), storage.refetch()]);
     } catch (error) {
       toast.fromError(error);
     }
@@ -174,6 +190,41 @@ export function AccountPoolLogsPanel({
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">{t("accountPool.logs.description")}</p>
+      {storage.data && (
+        <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <Database className="size-5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{storage.data.location}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t("accountPool.logs.storageUsage", {
+                  size: formatBytes(storage.data.allocated_bytes),
+                  count: storage.data.row_count,
+                })}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Select value={retentionDays} onValueChange={(value) => setRetentionDays(value as typeof retentionDays)}>
+              <SelectTrigger className="w-44" aria-label={t("accountPool.logs.clearRange")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["7", "14", "30", "45"] as const).map((days) => (
+                  <SelectItem key={days} value={days}>
+                    {t("accountPool.logs.olderThanDays", { days })}
+                  </SelectItem>
+                ))}
+                <SelectItem value="all">{t("accountPool.logs.allLogs")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="destructive" onClick={() => void clearLogs()}>
+              <Trash2 />
+              {t("accountPool.logs.clearSelected")}
+            </Button>
+          </div>
+        </div>
+      )}
       <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={submitFilters}>
         {choice(
           "card_id",
@@ -270,15 +321,11 @@ export function AccountPoolLogsPanel({
             <Download />
             {t("accountPool.logs.export")}
           </Button>
-          <Button type="button" variant="destructive" onClick={() => void clearLogs()}>
-            <Trash2 />
-            {t("accountPool.logs.clear")}
-          </Button>
         </div>
       </form>
       {validationError && <p role="alert">{t("accountPool.logs.invalidTime")}</p>}
       {stats.data && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div className="rounded border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.stats.requests")}</p>
             <p className="text-xl font-semibold">{stats.data.total_requests}</p>
@@ -290,6 +337,15 @@ export function AccountPoolLogsPanel({
           <div className="rounded border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.stats.tokens")}</p>
             <p className="text-xl font-semibold">{stats.data.input_tokens + stats.data.output_tokens}</p>
+          </div>
+          <div className="rounded border p-3">
+            <p className="text-xs text-muted-foreground">{t("accountPool.stats.cacheRate")}</p>
+            <p className="text-xl font-semibold">
+              {stats.data.cache_rate == null ? "-" : `${(stats.data.cache_rate * 100).toFixed(1)}%`}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("accountPool.stats.cacheTokens", { count: stats.data.cache_read_input_tokens })}
+            </p>
           </div>
           <div className="rounded border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.stats.averageDuration")}</p>

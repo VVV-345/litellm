@@ -192,6 +192,23 @@ class AccountPoolQuotaRefreshResult(BaseModel):
     failed_card_ids: tuple[UUID, ...] = ()
 
 
+class AccountPoolQuotaRefreshStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    interval_minutes: int = Field(ge=5, le=60)
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    next_refresh_at: str | None = None
+    last_failed_count: int | None = Field(default=None, ge=0)
+
+
+class AccountPoolQuotaRefreshIntervalRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    interval_minutes: Literal[5, 15, 30, 60]
+
+
 class AccountPoolAuthFileStatusRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -469,6 +486,28 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "POST", "/api/quotas/refresh")
         return _validate_response(response, _QUOTA_REFRESH)
+
+    @router.get("/quotas/refresh/status", response_model=AccountPoolQuotaRefreshStatus)
+    async def quota_refresh_status(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/quotas/refresh/status")
+        return _validate_response(response, TypeAdapter(AccountPoolQuotaRefreshStatus))
+
+    @router.put("/quotas/refresh/interval", response_model=AccountPoolQuotaRefreshStatus)
+    async def set_quota_refresh_interval(
+        request: AccountPoolQuotaRefreshIntervalRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/quotas/refresh/interval",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolQuotaRefreshStatus))
 
     @router.post("/auth-files", response_model=AccountPoolEnvironment)
     async def upload_auth_file(
@@ -864,6 +903,24 @@ def create_account_pool_router(client_factory: ManagerClientFactory = _default_c
             request.model_dump_json().encode("utf-8"),
         )
         return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.post("/proxy-gateways", response_model=AccountPoolProxyGateway, status_code=201)
+    async def add_proxy_gateway(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/proxy-gateways")
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.delete("/proxy-gateways/{port}", status_code=204)
+    async def remove_proxy_gateway(
+        port: int,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> None:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "DELETE", f"/api/proxy-gateways/{port}")
+        if response.is_error:
+            raise HTTPException(response.status_code, "Proxy gateway deletion failed; remove account references and retry")
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     return router

@@ -10,7 +10,11 @@ export type AccountPolicy = components["schemas"]["AccountPolicy"];
 export type LogEvent = components["schemas"]["ErrorLogRecord"];
 export type LogPage = components["schemas"]["ErrorLogPage"];
 export type LogDetail = components["schemas"]["ErrorLogDetail"];
-export type ErrorStats = components["schemas"]["ErrorStats"];
+export type ErrorStats = components["schemas"]["ErrorStats"] & {
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_rate?: number | null;
+};
 export type AccountPoolSettings = components["schemas"]["AccountPoolSettings"];
 export type AccountPoolSettingsView = components["schemas"]["AccountPoolSettingsView"];
 export type AccountPoolSettingsUpdate = components["schemas"]["AccountPoolSettingsUpdate"];
@@ -26,6 +30,20 @@ export type StreamingSettingsValues = components["schemas"]["StreamingSettingsVa
 export type AccountPoolCredential = components["schemas"]["AccountPoolCredential"];
 export type AccountPoolQuotaRefreshResult = components["schemas"]["AccountPoolQuotaRefreshResult"];
 export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
+export type AccountPoolLogStorageStats = {
+  backend: "postgresql";
+  location: string;
+  row_count: number;
+  allocated_bytes: number;
+};
+export type AccountPoolQuotaRefreshStatus = {
+  interval_minutes: 5 | 15 | 30 | 60;
+  running: boolean;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  next_refresh_at: string | null;
+  last_failed_count: number | null;
+};
 export type AccountPoolPluginManifest = components["schemas"]["AccountPoolPluginManifest"];
 export type AccountPoolPluginRecord = components["schemas"]["AccountPoolPluginRecord"];
 export type UpstreamSyncView = components["schemas"]["UpstreamSyncView"];
@@ -180,8 +198,26 @@ export const deleteAccountPoolCredential = (
 export const refreshAccountPoolQuotas = (accessToken: string) =>
   apiClient.post<AccountPoolQuotaRefreshResult>("/account_pool/quotas/refresh", { accessToken });
 
-export const clearAccountPoolLogs = (accessToken: string) =>
-  apiClient.delete<AccountPoolLogClearResult>("/account_pool/logs", { accessToken });
+export const getAccountPoolQuotaRefreshStatus = (accessToken: string) =>
+  apiClient.get<AccountPoolQuotaRefreshStatus>("/account_pool/quotas/refresh/status", { accessToken });
+
+export const setAccountPoolQuotaRefreshInterval = (
+  accessToken: string,
+  intervalMinutes: AccountPoolQuotaRefreshStatus["interval_minutes"],
+) =>
+  apiClient.put<AccountPoolQuotaRefreshStatus>("/account_pool/quotas/refresh/interval", {
+    accessToken,
+    body: { interval_minutes: intervalMinutes },
+  });
+
+export const clearAccountPoolLogs = (accessToken: string, olderThanDays?: 7 | 14 | 30 | 45) =>
+  apiClient.delete<AccountPoolLogClearResult>("/account_pool/logs", {
+    accessToken,
+    query: olderThanDays ? { older_than_days: olderThanDays } : undefined,
+  });
+
+export const getAccountPoolLogStorage = (accessToken: string) =>
+  apiClient.get<AccountPoolLogStorageStats>("/account_pool/logs/storage", { accessToken });
 
 export const listAccountPoolPlugins = (accessToken: string) =>
   apiClient.get<AccountPoolPluginRecord[]>("/account_pool/plugins", { accessToken });

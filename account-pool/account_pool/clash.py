@@ -141,6 +141,16 @@ class ClashController:
         if response.status_code != 204:
             raise ClashError(f"clash switch rejected with status {response.status_code}")
 
+    async def reload_config(self, path: str) -> None:
+        response: Final = await self._client.put(
+            f"{self._base_url}/configs",
+            params={"force": "true"},
+            json={"path": path},
+            headers=self._headers(),
+        )
+        if response.status_code != 204:
+            raise ClashError(f"clash configuration reload rejected with status {response.status_code}")
+
     async def _get_json(self, path: str) -> object:
         response: Final = await self._client.get(f"{self._base_url}{path}", headers=self._headers())
         if response.status_code == 401:

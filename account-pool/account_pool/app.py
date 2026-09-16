@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Final
+from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI
@@ -32,10 +33,11 @@ from account_pool.plugins import PluginService, PostgresPluginRepository, parse_
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
-from account_pool.settings import PostgresAccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -89,6 +91,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         leases,
         sync_policy=service.sync_policy,
     )
+    quota_scheduler: Final = QuotaRefreshScheduler(
+        settings_repository,
+        lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
+    )
+
+    async def sync_global_settings(
+        values: AccountPoolSettings,
+        *,
+        rollback_on_failure: bool = True,
+    ) -> tuple[UUID, ...]:
+        failed: Final = await service.sync_global_settings(values, rollback_on_failure=rollback_on_failure)
+        if not failed:
+            quota_scheduler.settings_changed()
+        return failed
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -106,7 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _restore_control_plane_connections(channels, records)
         # 旧卡片可能在新增运行配置前已创建，启动时补一次同步以迁移插件目录等持久配置。
         try:
-            failed_settings_cards: Final = await service.sync_global_settings(
+            failed_settings_cards: Final = await sync_global_settings(
                 (await settings_repository.get()).values,
                 rollback_on_failure=False,
             )
@@ -124,14 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         network_retry_task: Final = asyncio.create_task(
             _restore_control_plane_connections_until_cancelled(channels, environments, retry_stopped)
         )
-        quota_refresh_task: Final = asyncio.create_task(
-            _refresh_ready_quotas_until_cancelled(
-                service,
-                retry_stopped,
-                refresh_seconds=resolved.quota_refresh_interval_seconds,
-                max_concurrency=resolved.quota_refresh_max_concurrency,
-            )
-        )
+        quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
         try:
             yield
         finally:
@@ -176,9 +185,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             batch_service=batch_service,
             settings=settings_repository,
             plugins=plugin_service,
-            sync_settings=service.sync_global_settings,
+            sync_settings=sync_global_settings,
             sync_policy=service.sync_policy,
             upstream_sync=upstream_sync,
+            quota_scheduler=quota_scheduler,
         )
     )
     return app

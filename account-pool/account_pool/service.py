@@ -759,6 +759,16 @@ class EnvironmentService:
         await self._proxy_gateways.sync_profiles()
         return view
 
+    async def add_proxy_gateway(self) -> GatewayView:
+        return await self._proxy_gateways.add_gateway()
+
+    async def remove_proxy_gateway(self, port: int) -> None:
+        records: Final = await self._repository.list()
+        referenced: Final = frozenset(
+            record.proxy_profile_id for record in records if record.proxy_profile_id is not None
+        )
+        await self._proxy_gateways.remove_gateway(port, referenced)
+
     async def list_gateway_environments(self) -> tuple[GatewayEnvironment, ...]:
         records: Final = await self._repository.list()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))

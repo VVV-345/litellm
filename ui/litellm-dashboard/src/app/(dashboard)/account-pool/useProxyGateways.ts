@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  addAccountPoolProxyGateway,
+  deleteAccountPoolProxyGateway,
   getAccountPoolProxyGatewayConfiguration,
   listAccountPoolClashNodes,
   listAccountPoolProxyGateways,
@@ -69,6 +71,20 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     },
     onSuccess: invalidate,
   });
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      if (!accessToken) throw new Error("Access token required");
+      return addAccountPoolProxyGateway(accessToken);
+    },
+    onSuccess: invalidate,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async (port: number) => {
+      if (!accessToken) throw new Error("Access token required");
+      return deleteAccountPoolProxyGateway(accessToken, port);
+    },
+    onSuccess: invalidate,
+  });
   return {
     gateways: gatewaysQuery.data ?? [],
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
@@ -87,5 +103,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     nodesLoading: nodesQuery.isLoading || nodesQuery.isFetching,
     nodesError: nodesQuery.isError ? nodesQuery.error.message ?? null : null,
     switchMutation,
+    addMutation,
+    deleteMutation,
   };
 };

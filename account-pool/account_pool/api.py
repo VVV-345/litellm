@@ -7,7 +7,7 @@ import hmac
 import html
 import json
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated, Final, TypeVar
+from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
@@ -39,8 +39,9 @@ from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
+from account_pool.quota_scheduler import QuotaRefreshScheduler, QuotaRefreshStatus
 from account_pool.service import EnvironmentService, Failure, FailureCode, Result
-from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, AccountPoolSettingsUpdate
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _BEARER: Final = HTTPBearer(auto_error=False)
@@ -104,6 +105,12 @@ class QuotaRefreshResult(BaseModel):
 
     refreshed: tuple[EnvironmentView, ...]
     failed_card_ids: tuple[UUID, ...] = ()
+
+
+class QuotaRefreshIntervalRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    interval_minutes: Literal[5, 15, 30, 60]
 
 
 class AuthFileStatusRequest(BaseModel):
@@ -181,6 +188,7 @@ def create_router(
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     upstream_sync: GitHubUpstreamSyncService | None = None,
+    quota_scheduler: QuotaRefreshScheduler | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -228,7 +236,20 @@ def create_router(
         if environments is None:
             return QuotaRefreshResult(refreshed=())
         records: Final = await environments.list()
-        results: Final = await asyncio.gather(*(service.refresh_environment(record.id) for record in records))
+
+        async def execute() -> tuple[Result[EnvironmentView], ...]:
+            return tuple(await asyncio.gather(*(service.refresh_environment(record.id) for record in records)))
+
+        results: Final = (
+            await execute()
+            if quota_scheduler is None
+            else await quota_scheduler.track(
+                execute,
+                lambda outcomes: sum(
+                    isinstance(result, Failure) or result.value.quota.refresh_status == "failed" for result in outcomes
+                ),
+            )
+        )
         refreshed: Final = tuple(result.value for result in results if not isinstance(result, Failure))
         failed: Final = tuple(
             record.id
@@ -236,6 +257,28 @@ def create_router(
             if isinstance(result, Failure) or result.value.quota.refresh_status == "failed"
         )
         return QuotaRefreshResult(refreshed=refreshed, failed_card_ids=failed)
+
+    @router.get("/api/quotas/refresh/status", dependencies=[Depends(require_manager)])
+    async def quota_refresh_status() -> QuotaRefreshStatus:
+        if quota_scheduler is None:
+            return QuotaRefreshStatus(interval_minutes=5)
+        return await quota_scheduler.status()
+
+    @router.put("/api/quotas/refresh/interval", dependencies=[Depends(require_manager)])
+    async def set_quota_refresh_interval(request: QuotaRefreshIntervalRequest) -> QuotaRefreshStatus:
+        if settings is None or quota_scheduler is None:
+            raise HTTPException(status_code=503, detail="quota refresh scheduler is unavailable")
+        current: Final = await settings.get()
+        saved: Final = await settings.save(
+            AccountPoolSettingsUpdate(
+                version=current.version,
+                values=current.values.model_copy(update={"quota_refresh_interval_minutes": request.interval_minutes}),
+            )
+        )
+        if saved is None:
+            raise HTTPException(status_code=409, detail="settings have changed; refresh and retry")
+        quota_scheduler.settings_changed()
+        return await quota_scheduler.status()
 
     @router.get("/api/credentials", dependencies=[Depends(require_manager)])
     @router.get("/api/auth-files", dependencies=[Depends(require_manager)])
@@ -507,6 +550,20 @@ def create_router(
             return await service.switch_proxy_gateway(port, request.node_name)
         except ClashError as error:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+    @router.post("/api/proxy-gateways", dependencies=[Depends(require_manager)], status_code=201)
+    async def add_proxy_gateway() -> GatewayView:
+        try:
+            return await service.add_proxy_gateway()
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    @router.delete("/api/proxy-gateways/{port}", dependencies=[Depends(require_manager)], status_code=204)
+    async def remove_proxy_gateway(port: int) -> None:
+        try:
+            await service.remove_proxy_gateway(port)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     @router.get("/internal/gateway/environments", dependencies=[Depends(require_manager)], include_in_schema=False)
     async def list_gateway_environments() -> tuple[GatewayEnvironment, ...]:

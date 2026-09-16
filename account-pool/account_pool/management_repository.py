@@ -18,6 +18,7 @@ from account_pool.error_logs import (
     ErrorLogQuery,
     ErrorLogRecord,
     ErrorStats,
+    LogStorageStats,
 )
 from account_pool.repository import database_connection
 
@@ -46,6 +47,18 @@ _SCHEMA: Final = (
     "CREATE INDEX IF NOT EXISTS account_pool_log_card_idx ON account_pool_error_log (card_id, occurred_at DESC)",
     "CREATE INDEX IF NOT EXISTS account_pool_log_request_idx ON account_pool_error_log (request_id, card_id)",
     "CREATE INDEX IF NOT EXISTS account_pool_log_filter_idx ON account_pool_error_log USING gin (payload jsonb_path_ops)",
+    """
+    CREATE TABLE IF NOT EXISTS account_pool_proxy_gateways (
+        port integer PRIMARY KEY CHECK (port BETWEEN 1 AND 65535),
+        created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_registry (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+        initialized_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
 )
 
 
@@ -234,6 +247,8 @@ class PostgresErrorLogRepository:
                     "count(*) FILTER (WHERE (payload->>'retry_count')::integer > 0) AS retried, "
                     "coalesce(sum((payload->>'input_tokens')::bigint), 0) AS input_tokens, "
                     "coalesce(sum((payload->>'output_tokens')::bigint), 0) AS output_tokens, "
+                    "coalesce(sum((payload->>'cache_read_input_tokens')::bigint), 0) AS cache_read_input_tokens, "
+                    "coalesce(sum((payload->>'cache_creation_input_tokens')::bigint), 0) AS cache_creation_input_tokens, "
                     "count((payload->>'cost_usd')::double precision) AS known_cost_requests, "
                     "sum((payload->>'cost_usd')::double precision) AS total_cost_usd, "
                     "avg((payload->>'duration_ms')::double precision) AS average_duration_ms "
@@ -265,6 +280,9 @@ class PostgresErrorLogRepository:
         retried: Final = TypeAdapter(int).validate_python(summary["retried"])
         input_tokens: Final = TypeAdapter(int).validate_python(summary["input_tokens"])
         output_tokens: Final = TypeAdapter(int).validate_python(summary["output_tokens"])
+        cache_read_input_tokens: Final = TypeAdapter(int).validate_python(summary["cache_read_input_tokens"])
+        cache_creation_input_tokens: Final = TypeAdapter(int).validate_python(summary["cache_creation_input_tokens"])
+        cache_denominator: Final = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
         known_cost_requests: Final = TypeAdapter(int).validate_python(summary["known_cost_requests"])
         total_cost_usd: Final = optional_float(summary["total_cost_usd"])
         average: Final = optional_float(summary["average_duration_ms"])
@@ -278,15 +296,32 @@ class PostgresErrorLogRepository:
             retried_requests=retried,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_rate=None if cache_denominator == 0 else cache_read_input_tokens / cache_denominator,
             known_cost_requests=known_cost_requests,
             total_cost_usd=total_cost_usd,
             average_duration_ms=average,
             recent_errors=tuple(ErrorLogRecord.model_validate(row["payload"]) for row in errors),
         )
 
-    async def prune(self, before: datetime) -> None:
+    async def prune(self, before: datetime) -> int:
         async with database_connection(self._database_url) as connection:
-            await connection.execute("DELETE FROM account_pool_error_log WHERE occurred_at < %s", (before,))
+            cursor: Final = await connection.execute(
+                "DELETE FROM account_pool_error_log WHERE occurred_at < %s", (before,)
+            )
+        return cursor.rowcount
+
+    async def storage(self) -> LogStorageStats:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT count(*) AS row_count, pg_total_relation_size('account_pool_error_log') AS allocated_bytes"
+            )
+            row: Final = await cursor.fetchone()
+        return LogStorageStats(
+            row_count=TypeAdapter(int).validate_python(None if row is None else row["row_count"]),
+            allocated_bytes=TypeAdapter(int).validate_python(None if row is None else row["allocated_bytes"]),
+        )
 
     async def clear(self) -> int:
         async with database_connection(self._database_url) as connection:

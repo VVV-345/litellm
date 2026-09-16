@@ -1,6 +1,6 @@
 /** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
-import { RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -29,11 +29,13 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
     nodesLoading,
     nodesError,
     switchMutation,
+    addMutation,
+    deleteMutation,
   } = useProxyGateways(accessToken, enabled);
 
   if (!enabled) return null;
 
-  const switching = switchMutation.isPending;
+  const switching = switchMutation.isPending || addMutation.isPending || deleteMutation.isPending;
 
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
@@ -48,18 +50,29 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.delayTarget")}</p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          onClick={refetchGateways}
-          disabled={gatewaysLoading || delaysLoading || switching}
-          aria-label={t("accountPool.refresh")}
-          title={t("accountPool.refresh")}
-        >
-          <RefreshCw className={gatewaysLoading || delaysLoading ? "size-4 animate-spin" : "size-4"} />
-        </Button>
+        <div className="flex shrink-0 gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => addMutation.mutate()}
+            disabled={gatewaysLoading || switching || !configuration?.config_path}
+          >
+            <Plus className="size-4" />
+            {t("accountPool.proxyGateways.add")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={refetchGateways}
+            disabled={gatewaysLoading || delaysLoading || switching}
+            aria-label={t("accountPool.refresh")}
+            title={t("accountPool.refresh")}
+          >
+            <RefreshCw className={gatewaysLoading || delaysLoading ? "size-4 animate-spin" : "size-4"} />
+          </Button>
+        </div>
       </div>
       {gatewaysError && (
         <div className="mt-3 flex items-center justify-between gap-2" role="alert">
@@ -83,6 +96,11 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
           {t("accountPool.proxyGateways.switchFailed")}
         </p>
       )}
+      {(addMutation.isError || deleteMutation.isError) && (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {t("accountPool.proxyGateways.mutationFailed")}
+        </p>
+      )}
       {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
         <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
       )}
@@ -99,6 +117,7 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
             delaysError={delaysError}
             disabled={switching || delaysLoading || nodesLoading || nodes.length === 0}
             onSelect={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
+            onDelete={() => deleteMutation.mutate(gateway.port)}
           />
         ))}
       </div>
@@ -114,6 +133,7 @@ interface GatewayRowProps {
   delaysError: boolean;
   disabled: boolean;
   onSelect: (nodeName: string) => void;
+  onDelete: () => void;
 }
 
 const getDelayStatus = (delay: AccountPoolProxyGatewayDelay | undefined, loading: boolean, failed: boolean) => {
@@ -122,7 +142,16 @@ const getDelayStatus = (delay: AccountPoolProxyGatewayDelay | undefined, loading
   return delay?.status ?? "unchecked";
 };
 
-const GatewayRow = ({ gateway, nodes, delay, delaysLoading, delaysError, disabled, onSelect }: GatewayRowProps) => {
+const GatewayRow = ({
+  gateway,
+  nodes,
+  delay,
+  delaysLoading,
+  delaysError,
+  disabled,
+  onSelect,
+  onDelete,
+}: GatewayRowProps) => {
   const { t } = useTranslation();
   const delayStatus = getDelayStatus(delay, delaysLoading, delaysError);
   const delayText =
@@ -150,7 +179,7 @@ const GatewayRow = ({ gateway, nodes, delay, delaysLoading, delaysError, disable
           {t("accountPool.proxyGateways.delayLabel", { value: delayText })}
         </p>
       </div>
-      <div className="min-w-0 sm:w-52 sm:shrink-0">
+      <div className="flex min-w-0 gap-1 sm:w-64 sm:shrink-0">
         <Select
           value={gateway.current_node ?? undefined}
           onValueChange={(value) => {
@@ -172,6 +201,20 @@ const GatewayRow = ({ gateway, nodes, delay, delaysLoading, delaysError, disable
             ))}
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-destructive"
+          disabled={disabled}
+          onClick={() => {
+            if (window.confirm(t("accountPool.proxyGateways.deleteConfirm", { name: gateway.name }))) onDelete();
+          }}
+          aria-label={t("accountPool.proxyGateways.delete", { name: gateway.name })}
+          title={t("accountPool.proxyGateways.delete", { name: gateway.name })}
+        >
+          <Trash2 className="size-4" />
+        </Button>
       </div>
     </div>
   );

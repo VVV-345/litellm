@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     clash_controller_url: str = ""
     clash_secret: str = ""
     clash_config_path: str = Field(default="", max_length=1024)
+    clash_runtime_config_path: str = Field(default="/root/.config/mihomo/config.yaml", max_length=1024)
     clash_gateway_ports: Annotated[tuple[int, ...], NoDecode] = ()
     proxy_gateway_host: str = DEFAULT_PROXY_GATEWAY_HOST
     plugin_registry_json: str = Field(default="", max_length=2_000_000)
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
             raise ValueError("clash_controller_url must be a credential-free HTTP(S) origin with an explicit port")
         return value.strip()
 
-    @field_validator("clash_config_path")
+    @field_validator("clash_config_path", "clash_runtime_config_path")
     @classmethod
     def normalize_clash_config_path(cls, value: str) -> str:
         return value.strip()

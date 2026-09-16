@@ -197,3 +197,9 @@ export const switchAccountPoolProxyGateway = (
     accessToken,
     body: { node_name: nodeName },
   });
+
+export const addAccountPoolProxyGateway = (accessToken: string): Promise<AccountPoolProxyGateway> =>
+  apiClient.post<AccountPoolProxyGateway>("/account_pool/proxy-gateways", { accessToken });
+
+export const deleteAccountPoolProxyGateway = (accessToken: string, port: number): Promise<void> =>
+  apiClient.delete<void>(`/account_pool/proxy-gateways/${port}`, { accessToken });
