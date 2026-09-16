@@ -385,6 +385,7 @@ export function AccountPoolLogsPanel({
                   "output_tokens",
                   "cache_read_input_tokens",
                   "cache_creation_input_tokens",
+                  "cache_rate",
                   "duration_ms",
                   "result",
                   "message",
@@ -430,6 +431,13 @@ export function AccountPoolLogsPanel({
                       )}
                     </td>
                   ))}
+                  <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">
+                    {event.cache_rate == null ? (
+                      <span className="text-muted-foreground">{t("accountPool.dashboard.unknown")}</span>
+                    ) : (
+                      `${(event.cache_rate * 100).toFixed(1)}%`
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
                     {event.duration_ms == null ? t("accountPool.dashboard.unknown") : `${event.duration_ms} ms`}
                   </td>

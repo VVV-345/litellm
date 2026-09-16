@@ -6388,6 +6388,7 @@
       "output_tokens": "输出 Token",
       "cache_read_input_tokens": "缓存读取",
       "cache_creation_input_tokens": "缓存写入",
+      "cache_rate": "请求缓存率",
       "usageHint": "用量单位为 Token，缓存数是其中的缓存明细，不要重复相加；未知表示上游未返回该项，点击消息查看详情",
       "retryable": "可重试",
       "switched_account": "已切号",

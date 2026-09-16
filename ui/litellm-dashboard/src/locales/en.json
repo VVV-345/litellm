@@ -6388,6 +6388,7 @@
       "output_tokens": "Output tokens",
       "cache_read_input_tokens": "Cache read",
       "cache_creation_input_tokens": "Cache write",
+      "cache_rate": "Request cache rate",
       "usageHint": "Usage is in tokens; cache details are not additional totals. Unknown means not reported. Click a message for details",
       "retryable": "Retryable",
       "switched_account": "Account switched",
