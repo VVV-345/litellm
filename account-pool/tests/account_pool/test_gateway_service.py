@@ -315,7 +315,26 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
 
 
 @pytest.mark.asyncio
-async def test_finish_records_per_request_cache_rate() -> None:
+@pytest.mark.parametrize(
+    "cache_read,cache_created,http_status,retryable,expected",
+    (
+        (80, None, 200, False, 0.8),
+        (80, 0, 200, False, 0.8),
+        (80, 10, 200, False, 0.8),
+        (0, 0, 200, False, 0.0),
+        (None, None, 200, False, None),
+        (120, 0, 200, False, None),
+        (80, 0, 500, False, None),
+        (80, 0, 200, True, None),
+    ),
+)
+async def test_finish_records_per_request_cache_rate(
+    cache_read: int | None,
+    cache_created: int | None,
+    http_status: int,
+    retryable: bool,
+    expected: float | None,
+) -> None:
     card: Final = _record(status=EnvironmentStatus.READY)
     environments: Final = MemoryRepository(card)
     keys: Final = CardKeyService(MemoryKeys())
@@ -350,17 +369,18 @@ async def test_finish_records_per_request_cache_rate() -> None:
     await service.finish(
         FinishRequest(
             lease_id=lease.lease_id,
-            http_status=200,
+            http_status=http_status,
+            retryable=retryable,
             message="Request completed",
             endpoint="/v1/responses",
-            input_tokens=20,
+            input_tokens=100,
             output_tokens=10,
-            cache_read_input_tokens=80,
-            cache_creation_input_tokens=0,
+            cache_read_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_created,
         )
     )
 
-    assert logs.events[0].cache_rate == 0.8
+    assert logs.events[0].cache_rate == expected
 
 
 @pytest.mark.asyncio

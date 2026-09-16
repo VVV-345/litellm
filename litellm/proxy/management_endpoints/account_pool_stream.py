@@ -34,7 +34,9 @@ def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | No
     read: Final = usage.get(
         "cache_read_input_tokens", details.get("cached_tokens") if isinstance(details, dict) else None
     )
-    created: Final = usage.get("cache_creation_input_tokens")
+    created: Final = usage.get(
+        "cache_creation_input_tokens", 0 if isinstance(details, dict) and "cached_tokens" in details else None
+    )
     return (
         read if type(read) is int and read >= 0 else None,
         created if type(created) is int and created >= 0 else None,

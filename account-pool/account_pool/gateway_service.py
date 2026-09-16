@@ -221,13 +221,6 @@ class GatewayService:
             else None
         )
         now: Final = utc_now()
-        cache_denominator: Final = (
-            None
-            if request.input_tokens is None
-            or request.cache_read_input_tokens is None
-            or request.cache_creation_input_tokens is None
-            else request.input_tokens + request.cache_read_input_tokens + request.cache_creation_input_tokens
-        )
         event: Final = ErrorLogRecord(
             event_id=lease.lease_id,
             occurred_at=lease.started_at,
@@ -261,10 +254,15 @@ class GatewayService:
             output_tokens=request.output_tokens,
             cache_read_input_tokens=request.cache_read_input_tokens,
             cache_creation_input_tokens=request.cache_creation_input_tokens,
+            # OpenAI-compatible 用量中的 input_tokens 已包含缓存命中，不能重复计入分母。
             cache_rate=(
                 None
-                if cache_denominator is None or cache_denominator == 0 or request.cache_read_input_tokens is None
-                else request.cache_read_input_tokens / cache_denominator
+                if failed
+                or request.retryable
+                or not request.input_tokens
+                or request.cache_read_input_tokens is None
+                or request.cache_read_input_tokens > request.input_tokens
+                else request.cache_read_input_tokens / request.input_tokens
             ),
             routing_reason=lease.routing_reason,
             cost_usd=request.cost_usd,

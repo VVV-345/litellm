@@ -912,17 +912,18 @@ def test_read_timeout_is_not_retried_even_with_fallback_enabled() -> None:
 @pytest.mark.parametrize("responses_api", (False, True))
 def test_gateway_preserves_cache_usage_in_completion_logs(streaming: bool, responses_api: bool) -> None:
     usage: Final = (
-        {"input_tokens": 120, "output_tokens": 9, "input_tokens_details": {"cached_tokens": 80},
-         "cache_creation_input_tokens": 0}
+        {"input_tokens": 100, "output_tokens": 9, "input_tokens_details": {"cached_tokens": 80}}
         if responses_api
-        else {"prompt_tokens": 120, "completion_tokens": 9, "prompt_tokens_details": {"cached_tokens": 80},
-              "cache_creation_input_tokens": 0}
+        else {"prompt_tokens": 100, "completion_tokens": 9, "prompt_tokens_details": {"cached_tokens": 80}}
     )
     payload: Final = {"type": "response.completed", "response": {"usage": usage}} if responses_api else {"usage": usage}
     body: Final = f"data: {json.dumps(payload)}\n\ndata: [DONE]\n\n"
     client, control = setup_gateway(
-        lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
-        if streaming else httpx.Response(200, json=payload)
+        lambda _: (
+            httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+            if streaming
+            else httpx.Response(200, json=payload)
+        )
     )
     with client:
         response: Final = client.post(
@@ -932,7 +933,7 @@ def test_gateway_preserves_cache_usage_in_completion_logs(streaming: bool, respo
         )
     assert response.status_code == 200
     result: Final = control.finished[0].model_dump()
-    assert result["input_tokens"] == 120
+    assert result["input_tokens"] == 100
     assert result["output_tokens"] == 9
     assert result.get("cache_read_input_tokens") == 80
     assert result.get("cache_creation_input_tokens") == 0

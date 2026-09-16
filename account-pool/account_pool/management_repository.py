@@ -282,7 +282,6 @@ class PostgresErrorLogRepository:
         output_tokens: Final = TypeAdapter(int).validate_python(summary["output_tokens"])
         cache_read_input_tokens: Final = TypeAdapter(int).validate_python(summary["cache_read_input_tokens"])
         cache_creation_input_tokens: Final = TypeAdapter(int).validate_python(summary["cache_creation_input_tokens"])
-        cache_denominator: Final = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
         known_cost_requests: Final = TypeAdapter(int).validate_python(summary["known_cost_requests"])
         total_cost_usd: Final = optional_float(summary["total_cost_usd"])
         average: Final = optional_float(summary["average_duration_ms"])
@@ -298,7 +297,11 @@ class PostgresErrorLogRepository:
             output_tokens=output_tokens,
             cache_read_input_tokens=cache_read_input_tokens,
             cache_creation_input_tokens=cache_creation_input_tokens,
-            cache_rate=None if cache_denominator == 0 else cache_read_input_tokens / cache_denominator,
+            cache_rate=(
+                None
+                if input_tokens == 0 or cache_read_input_tokens > input_tokens
+                else cache_read_input_tokens / input_tokens
+            ),
             known_cost_requests=known_cost_requests,
             total_cost_usd=total_cost_usd,
             average_duration_ms=average,

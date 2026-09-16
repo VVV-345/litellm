@@ -71,7 +71,7 @@ describe("AccountPoolLogsPanel", () => {
   it("shows per-request model, tokens and cache usage without treating missing usage as zero", async () => {
     listLogs.mockResolvedValue({
       items: [
-        { ...log, cache_read_input_tokens: 8, cache_creation_input_tokens: 0, cache_rate: 8 / 18 },
+        { ...log, cache_read_input_tokens: 8, cache_creation_input_tokens: 0, cache_rate: 0.8 },
         { ...log, event_id: "unknown", message: "No usage reported", input_tokens: null, output_tokens: null },
       ],
       has_more: false,
@@ -87,7 +87,7 @@ describe("AccountPoolLogsPanel", () => {
     expect(within(row).getByRole("cell", { name: "5" })).toBeInTheDocument();
     expect(within(row).getByRole("cell", { name: "8" })).toBeInTheDocument();
     expect(within(row).getByRole("cell", { name: "0" })).toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "44.4%" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "80.0%" })).toBeInTheDocument();
     expect(within(row).getByText("50 ms")).toBeInTheDocument();
     const unknown = screen.getByRole("row", { name: /No usage reported/ });
     expect(within(unknown).getAllByRole("cell", { name: "暂无数据" })).toHaveLength(5);

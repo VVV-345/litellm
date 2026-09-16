@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Final
@@ -294,6 +295,7 @@ async def test_codex_quota_refresh_reads_wham_windows_and_reset_credits() -> Non
     record: Final = _record().model_copy(update={"supplier": SupplierKind.OPENAI_CODEX})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
     api_calls: list[dict[str, object]] = []
+    active_calls: set[str] = set()
 
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v0/management/auth-files":
@@ -319,6 +321,10 @@ async def test_codex_quota_refresh_reads_wham_windows_and_reset_credits() -> Non
         if request.url.path == "/v0/management/auth-files/models":
             return httpx.Response(200, json={"models": [{"id": "gpt-5-codex"}]}, request=request)
         payload: Final = json.loads(request.content)
+        assert not active_calls, "quota endpoints must not refresh the same credential concurrently"
+        active_calls.add(str(payload["url"]))
+        await asyncio.sleep(0)
+        active_calls.remove(str(payload["url"]))
         api_calls.append(payload)
         url: Final = str(payload["url"])
         body: Final = (
@@ -378,6 +384,78 @@ async def test_codex_quota_refresh_reads_wham_windows_and_reset_credits() -> Non
     assert api_calls[1]["header"]["User-Agent"].endswith("Chrome/147.0.0.0 Safari/537.36")
     assert "OpenAI-Beta" not in api_calls[0]["header"]
     assert "Content-Type" not in api_calls[0]["header"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_credential,same_environment", ((True, True), (False, True), (True, False)))
+async def test_provider_calls_serialize_only_the_same_credential(same_credential: bool, same_environment: bool) -> None:
+    from account_pool.channels.cliproxyapi.client import _AuthFile
+
+    record: Final = _record()
+    other_record: Final = record if same_environment else _record()
+    credential: Final = _AuthFile(name="codex.json", auth_index="first")
+    other: Final = credential if same_credential else _AuthFile(name="other.json", auth_index="second")
+    active: set[tuple[str, str]] = set()
+    concurrency: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        index: Final = (request.url.host, json.loads(request.content)["auth_index"])
+        assert index not in active, "refresh token reuse"
+        active.add(index)
+        concurrency.append(len(active))
+        await asyncio.sleep(0)
+        active.remove(index)
+        return httpx.Response(200, json={"status_code": 200, "body": "{}"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        results: Final = await asyncio.gather(
+            proxy._provider_api_call(record, credential, "GET", "https://example.test/usage", {}),
+            proxy._provider_api_call(other_record, other, "GET", "https://example.test/check", {}),
+        )
+
+    assert all(result.failure is None for result in results)
+    assert max(concurrency) == (1 if same_credential and same_environment else 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", (True, False))
+async def test_provider_call_releases_credential_lock_after_cancellation_or_failure(cancel: bool) -> None:
+    from account_pool.channels.cliproxyapi.client import _AuthFile
+
+    record: Final = _record()
+    credential: Final = _AuthFile(name="codex.json", auth_index="first")
+    entered: Final = asyncio.Event()
+    release: Final = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if not entered.is_set():
+            entered.set()
+            await release.wait()
+            return httpx.Response(503)
+        return httpx.Response(200, json={"status_code": 200, "body": "{}"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        first: Final = asyncio.create_task(
+            proxy._provider_api_call(record, credential, "GET", "https://example.test/usage", {})
+        )
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        second: Final = asyncio.create_task(
+            proxy._provider_api_call(record, credential, "GET", "https://example.test/check", {})
+        )
+        if cancel:
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+        else:
+            release.set()
+            failed: Final = await first
+            assert failed.failure is not None
+            assert failed.failure.status_code == 503
+        recovered: Final = await asyncio.wait_for(second, timeout=1)
+        assert recovered.failure is None
+        assert recovered.body == "{}"
 
 
 @pytest.mark.asyncio
@@ -848,9 +926,7 @@ async def test_antigravity_quota_refresh_onboards_when_project_is_missing() -> N
             if url.endswith("retrieveUserQuotaSummary")
             else {
                 "models": {
-                    "gemini-2.5-pro": {
-                        "quotaInfo": {"remainingFraction": 0.75, "resetTime": "2090-01-02T03:04:05Z"}
-                    }
+                    "gemini-2.5-pro": {"quotaInfo": {"remainingFraction": 0.75, "resetTime": "2090-01-02T03:04:05Z"}}
                 }
             }
         )

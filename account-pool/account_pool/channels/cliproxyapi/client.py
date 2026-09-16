@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final, TypeAlias
 from urllib.parse import quote, urlsplit, urlunsplit
+from uuid import UUID
+from weakref import WeakValueDictionary
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -450,6 +452,7 @@ class HttpCLIProxyClient:
             trust_env=False,
         )
         self._owns_client: Final = client is None
+        self._credential_locks: Final[WeakValueDictionary[tuple[UUID, str], asyncio.Lock]] = WeakValueDictionary()
 
     async def close(self) -> None:
         if self._owns_client:
@@ -735,21 +738,19 @@ class HttpCLIProxyClient:
             else identity_account_id
         )
         headers: Final = _codex_usage_headers(account_id)
-        usage_result, reset_credits_result = await asyncio.gather(
-            self._provider_api_call(
-                record,
-                auth_file,
-                "GET",
-                "https://chatgpt.com/backend-api/wham/usage",
-                headers,
-            ),
-            self._provider_api_call(
-                record,
-                auth_file,
-                "GET",
-                "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
-                headers,
-            ),
+        usage_result: Final = await self._provider_api_call(
+            record,
+            auth_file,
+            "GET",
+            "https://chatgpt.com/backend-api/wham/usage",
+            headers,
+        )
+        reset_credits_result: Final = await self._provider_api_call(
+            record,
+            auth_file,
+            "GET",
+            "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+            headers,
         )
         if usage_result.failure is not None:
             fatal_failures: Final = tuple(
@@ -1051,7 +1052,9 @@ class HttpCLIProxyClient:
             )
             raise ProviderQuotaError((parse_failure,), "Antigravity quota refresh failed")
         optional_failures: Final = tuple(
-            failure for failure in (*onboard_failures, assist_result.failure, summary_result.failure) if failure is not None
+            failure
+            for failure in (*onboard_failures, assist_result.failure, summary_result.failure)
+            if failure is not None
         )
         return _annotate_refresh(refreshed, optional_failures)
 
@@ -1170,6 +1173,23 @@ class HttpCLIProxyClient:
         )
 
     async def _provider_api_call(
+        self,
+        record: EnvironmentRecord,
+        auth_file: _AuthFile,
+        method: ProviderHTTPMethod,
+        url: str,
+        headers: Mapping[str, str],
+        *,
+        data: JSONValue | None = None,
+    ) -> _ProviderAPICallResult:
+        # 同一凭据的管理请求可能轮换 refresh token，等待者必须等前一请求完成后再读取上游凭据。
+        lock: Final = self._credential_locks.setdefault(
+            (record.id, auth_file.auth_index or auth_file.name), asyncio.Lock()
+        )
+        async with lock:
+            return await self._provider_api_call_serialized(record, auth_file, method, url, headers, data=data)
+
+    async def _provider_api_call_serialized(
         self,
         record: EnvironmentRecord,
         auth_file: _AuthFile,
