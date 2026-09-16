@@ -99,6 +99,7 @@ services:
       ACCOUNT_POOL_CLASH_CONTROLLER_URL: ${ACCOUNT_POOL_CLASH_CONTROLLER_URL:-}
       ACCOUNT_POOL_CLASH_SECRET: ${ACCOUNT_POOL_CLASH_SECRET:-}
       ACCOUNT_POOL_CLASH_CONFIG_PATH: ${ACCOUNT_POOL_CLASH_CONFIG_PATH:-}
+      ACCOUNT_POOL_CLASH_CONFIG_DIR: ${ACCOUNT_POOL_CLASH_CONFIG_DIR:-/opt/litellm/mihomo}
       ACCOUNT_POOL_CLASH_RUNTIME_CONFIG_PATH: ${ACCOUNT_POOL_CLASH_RUNTIME_CONFIG_PATH:-/root/.config/mihomo/config.yaml}
       ACCOUNT_POOL_CLASH_GATEWAY_PORTS: ${ACCOUNT_POOL_CLASH_GATEWAY_PORTS:-}
       ACCOUNT_POOL_PLUGIN_REGISTRY_JSON: ${ACCOUNT_POOL_PLUGIN_REGISTRY_JSON:-}
@@ -125,7 +126,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - account_pool_data:/var/lib/litellm-account-pool/environments
-      - ${ACCOUNT_POOL_CLASH_CONFIG_PATH:-/opt/litellm/mihomo/config.yaml}:${ACCOUNT_POOL_CLASH_CONFIG_PATH:-/opt/litellm/mihomo/config.yaml}:rw
+      - ${ACCOUNT_POOL_CLASH_CONFIG_DIR:-/opt/litellm/mihomo}:${ACCOUNT_POOL_CLASH_CONFIG_DIR:-/opt/litellm/mihomo}:rw
     networks:
       account-pool-public: null
       account-pool-socket: null
