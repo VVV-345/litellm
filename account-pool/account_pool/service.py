@@ -246,7 +246,15 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         auth_file_records: Final = tuple(record for record in records if record.auth_file_name is not None)
         results: Final = await asyncio.gather(
-            *(self._refresh_if_needed(record, credential_state_changed=True, raise_on_error=True) for record in auth_file_records),
+            *(
+                self._refresh_if_needed(
+                    record,
+                    credential_state_changed=True,
+                    raise_on_error=True,
+                    wait_for_lock=True,
+                )
+                for record in auth_file_records
+            ),
             return_exceptions=True,
         )
         return tuple(
@@ -2062,6 +2070,7 @@ class EnvironmentService:
         refresh_quota: bool = False,
         credential_state_changed: bool = False,
         raise_on_error: bool = False,
+        wait_for_lock: bool = False,
     ) -> EnvironmentRecord:
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -2072,7 +2081,7 @@ class EnvironmentService:
         ):
             return record
         lock: Final = await self._lock_for(record.id)
-        if lock.locked():
+        if lock.locked() and not wait_for_lock:
             return record
         async with lock:
             current: Final = await self._repository.get(record.id) or record

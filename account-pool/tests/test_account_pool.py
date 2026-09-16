@@ -962,6 +962,27 @@ async def test_auth_file_refresh_reads_credentials_without_live_quota_refresh(tm
 
 
 @pytest.mark.asyncio
+async def test_auth_file_refresh_waits_for_an_existing_card_operation(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    lock: Final = await service._lock_for(record.id)
+    await lock.acquire()
+    refresh_task: Final = asyncio.create_task(service.refresh_auth_files())
+    await asyncio.sleep(0)
+
+    assert not refresh_task.done()
+    assert cli.read_calls == 0
+
+    lock.release()
+    failed: Final = await refresh_task
+
+    assert failed == ()
+    assert cli.read_calls == 1
+    assert cli.refresh_quota_calls == [False]
+
+
+@pytest.mark.asyncio
 async def test_auth_file_refresh_reads_automatically_cooled_down_credentials(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(
         update={"automatic_cooldown": True, "auth_file_disabled": True}
