@@ -175,6 +175,48 @@ async def test_model_cooldown_snapshot_is_isolated_from_healthy_models_and_crede
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code,retry_at,disabled,cooling",
+    (
+        ("server_is_overloaded", "2000-01-01T00:00:00Z", False, False),
+        ("server_is_overloaded", "2099-01-01T00:00:00Z", False, True),
+        ("server_is_overloaded", "2000-01-01T00:00:00Z", True, True),
+        ("refresh_token_reused", "2000-01-01T00:00:00Z", False, True),
+        ("unknown", "2000-01-01T00:00:00Z", False, True),
+    ),
+)
+async def test_expired_overload_allows_recovery_without_clearing_credential_failures(
+    code: str, retry_at: str, disabled: bool, cooling: bool
+) -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "selected.json"})
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "selected.json",
+                            "provider": "codex",
+                            "unavailable": True,
+                            "disabled": disabled,
+                            "next_retry_after": retry_at,
+                            "status_message": json.dumps({"error": {"code": code}}),
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"models": [{"id": "model-a"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        snapshot: Final = await proxy.read_account(record, SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX))
+    assert snapshot.automatic_cooldown is cooling
+    assert snapshot.status == (EnvironmentStatus.COOLING_DOWN if cooling else EnvironmentStatus.READY)
+
+
+@pytest.mark.asyncio
 async def test_read_account_prefers_the_auth_file_already_bound_to_the_card() -> None:
     record: Final = _record().model_copy(update={"auth_file_name": "uploaded.json"})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)

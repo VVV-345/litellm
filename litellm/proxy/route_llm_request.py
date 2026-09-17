@@ -62,6 +62,12 @@ def _raise_if_model_fully_blocked(llm_router: LitellmRouter, model_name: Any, te
         return
     deployments: Final = llm_router.get_model_list(model_name=model_name, team_id=team_id) or []
     if llm_router._are_all_deployments_blocked(deployments):
+        if all(deployment.get("model_info", {}).get("account_pool_environment_id") for deployment in deployments):
+            raise litellm.ServiceUnavailableError(
+                message="No account pool card is currently available",
+                model=model_name,
+                llm_provider="",
+            )
         raise litellm.PermissionDeniedError(
             message="Model is blocked",
             model=model_name,

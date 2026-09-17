@@ -286,6 +286,43 @@ async def test_failover_scope_preserves_supplier_model_and_origin_key_permission
 
 
 @pytest.mark.asyncio
+async def test_card_becoming_unavailable_during_retry_is_not_an_authentication_error() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(card)
+    leases: Final = MemoryLeases()
+    service: Final = GatewayService(
+        CardKeyService(MemoryKeys()), environments, MemoryPolicies(), leases, ErrorLogService(MemoryLogs()), gateway
+    )
+    identity: Final = ResolveRequest(trusted_card_id=card.id, trusted_key_id=uuid4())
+    resolved: Final = await service.resolve(identity)
+    request: Final = AcquireRequest(
+        **identity.model_dump(),
+        account_id=card.id,
+        request_id=uuid4(),
+        model="gpt-5",
+        card_version=resolved.card_version,
+        policy_version=resolved.policy_version,
+        account_version=resolved.candidates[0].environment_version,
+        account_policy_version=resolved.candidates[0].policy_version,
+        timeout_seconds=30,
+        attempt=2,
+    )
+    await environments.save(card.model_copy(update={"status": EnvironmentStatus.COOLING_DOWN}))
+    with pytest.raises(HTTPException) as unavailable:
+        await service.acquire(request)
+    assert unavailable.value.status_code == 409
+    assert unavailable.value.detail == {"reason": "cooldown"}
+    assert not leases.leases
+    with pytest.raises(HTTPException) as outside_scope:
+        await service.acquire(request.model_copy(update={"account_id": uuid4()}))
+    assert outside_scope.value.status_code == 403
+    await environments.save(card.model_copy(update={"enabled": False}))
+    with pytest.raises(HTTPException) as disabled:
+        await service.acquire(request)
+    assert disabled.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_failed_request_syncs_actual_model_cooldown_without_blocking_account() -> None:
     card = _record(status=EnvironmentStatus.READY)
     keys = CardKeyService(MemoryKeys())

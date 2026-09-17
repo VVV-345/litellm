@@ -10,6 +10,23 @@ from fastapi import HTTPException
 from litellm.proxy.route_llm_request import ProxyModelNotFoundError, route_request
 
 
+@pytest.mark.parametrize("pooled", [True, False])
+def test_blocked_pool_deployments_report_unavailability(pooled):
+    import litellm
+    from litellm.proxy.route_llm_request import _raise_if_model_fully_blocked
+
+    router = litellm.Router(model_list=[{
+        "model_name": "blocked-model",
+        "litellm_params": {"model": "openai/gpt-5.6-luna", "api_key": "fake"},
+        "model_info": {"id": "blocked", "blocked": True, **({"account_pool_environment_id": "card"} if pooled else {})},
+    }])
+    try:
+        with pytest.raises(litellm.ServiceUnavailableError if pooled else litellm.PermissionDeniedError):
+            _raise_if_model_fully_blocked(router, "blocked-model", None)
+    finally:
+        router.discard()
+
+
 @pytest.mark.parametrize(
     "route_type, required_body_params",
     [

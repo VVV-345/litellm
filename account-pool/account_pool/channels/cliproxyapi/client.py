@@ -127,6 +127,7 @@ class _AuthFile(BaseModel):
     type: str | None = None
     disabled: bool = False
     unavailable: bool = False
+    status_message: str | None = None
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
@@ -694,12 +695,17 @@ class HttpCLIProxyClient:
         now: Final = datetime.now().astimezone()
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)
+        overload_elapsed: Final = (
+            auth_file.next_retry_after is not None
+            and auth_file.next_retry_after <= now
+            and _upstream_code(auth_file.status_message or "") == "server_is_overloaded"
+        )
         cooldown_until: Final = effective_cooldown_until_value(
             record, None if model_aggregate else auth_file.next_retry_after, now
         )
         automatically_cooling: Final = (
             auth_file.disabled
-            or (auth_file.unavailable and not model_aggregate)
+            or (auth_file.unavailable and not model_aggregate and not overload_elapsed)
             or (cooldown_until is not None and cooldown_until > now)
         )
         status: Final = (

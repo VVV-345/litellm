@@ -915,6 +915,29 @@ class TestUserRepository:
 
 
 class TestVerificationTokenRepository:
+    @pytest.mark.asyncio
+    async def test_binding_query_uses_dynamic_writer_without_replica_lag(self):
+        from types import SimpleNamespace
+
+        query = AsyncMock(return_value=[{"token": "key-hash", "metadata": '{"account_pool_binding_id":"binding"}'}])
+
+        class DynamicWriter:
+            def __getattr__(self, name):
+                if name == "query_raw":
+                    return query
+                raise AttributeError(name)
+
+        client = SimpleNamespace(writer_db=DynamicWriter(), db=SimpleNamespace(query_raw=AsyncMock(return_value=[])))
+        repository = VerificationTokenRepository(client)
+        records = await repository.find_by_account_pool_binding("binding")
+        assert len(records) == 1
+        assert records[0].token == "key-hash"
+        assert records[0].metadata == {"account_pool_binding_id": "binding"}
+        query.assert_awaited_once_with(
+            'SELECT * FROM "LiteLLM_VerificationToken" WHERE metadata->>\'account_pool_binding_id\' = $1', "binding"
+        )
+        client.db.query_raw.assert_not_awaited()
+
     @pytest.fixture
     def repo(self):
         client = MockPrismaClient()

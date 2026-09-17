@@ -5,7 +5,7 @@ VerificationToken repository for database operations on LiteLLM_VerificationToke
 import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Final, Protocol, cast
 
 from litellm.models.verification_token import (
     LiteLLM_VerificationToken,
@@ -40,7 +40,6 @@ _JSON_ENCODED_TOKEN_FIELDS: Final = (
 )
 
 
-@runtime_checkable
 class TokenQueryDatabase(Protocol):
     async def query_raw(self, query: str, *args: object) -> Sequence[Mapping[str, object]]: ...
 
@@ -94,9 +93,9 @@ class VerificationTokenRepository(BaseRepository[LiteLLM_VerificationToken]):
         return None
 
     async def find_by_account_pool_binding(self, binding_id: str) -> list[LiteLLM_VerificationToken]:
-        database: Final[object] = self.prisma_client.db
-        if not isinstance(database, TokenQueryDatabase):
-            raise RuntimeError("Database does not support token queries")
+        database: Final = cast(
+            TokenQueryDatabase, self.prisma_client.writer_db
+        )  # cast-ok: PrismaWrapper dynamically delegates query_raw; revocation must read the writer
         records: Final = await database.query_raw(
             "SELECT * FROM \"LiteLLM_VerificationToken\" WHERE metadata->>'account_pool_binding_id' = $1",
             binding_id,

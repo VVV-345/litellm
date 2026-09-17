@@ -211,6 +211,8 @@ class GatewayService:
             )
         )
         candidate: Final = next((item for item in resolution.candidates if item.id == request.account_id), None)
+        if candidate is None and request.account_id == resolution.card_id:
+            raise HTTPException(409, detail=AcquireRejected(reason="cooldown").model_dump(exclude_defaults=True))
         if candidate is None or request.model not in candidate.enabled_models:
             raise HTTPException(403, "Account is outside the card scope or unavailable")
         if request.model not in resolution.enabled_models:
