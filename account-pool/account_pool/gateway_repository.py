@@ -133,13 +133,22 @@ class PostgresLeaseRepository:
             ):
                 if not await lock_version(connection, identifier, version, policy_version):
                     return AcquireRejected(reason="configuration")
-            key_cursor: Final = await connection.execute(
-                "SELECT key_id FROM account_pool_card_keys WHERE card_id = %s AND key_id = %s "
-                "AND key_hash = %s AND revoked_at IS NULL FOR UPDATE",
-                (resolution.card_id, resolution.key_id, hash_card_key(request.card_key)),
-            )
-            if await key_cursor.fetchone() is None:
-                return AcquireRejected(reason="configuration")
+            if request.card_key:
+                key_cursor: Final = await connection.execute(
+                    "SELECT key_id FROM account_pool_card_keys WHERE card_id = %s AND key_id = %s "
+                    "AND key_hash = %s AND revoked_at IS NULL FOR UPDATE",
+                    (resolution.card_id, resolution.key_id, hash_card_key(request.card_key)),
+                )
+                if await key_cursor.fetchone() is None:
+                    return AcquireRejected(reason="configuration")
+            elif request.binding_id is not None:
+                key_binding_cursor: Final = await connection.execute(
+                    "SELECT key_id FROM account_pool_card_keys WHERE card_id = %s AND key_id = %s "
+                    "AND revoked_at IS NULL FOR UPDATE",
+                    (resolution.card_id, request.binding_id),
+                )
+                if await key_binding_cursor.fetchone() is None:
+                    return AcquireRejected(reason="configuration")
             now: Final = utc_now()
             current_cursor: Final = await connection.execute(
                 "SELECT payload FROM account_pool_environments WHERE id = %s", (candidate.id,)

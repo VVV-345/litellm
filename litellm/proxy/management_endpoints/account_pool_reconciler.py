@@ -29,6 +29,7 @@ class GatewayEnvironment(BaseModel):
     routable: bool
     concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
+    public_models: tuple[str, ...] | None = None
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -57,6 +58,8 @@ class ManagedDeployment:
             "api_base": self.api_base,
             "api_key": self.api_key,
             "max_parallel_requests": self.max_parallel_requests,
+            "num_retries": 0,
+            "max_retries": 0,
         }
 
     @property
@@ -112,7 +115,7 @@ class LiteLLMDeploymentStore:
         current_deployment: Final = None if current is None else _from_row(current)
         if current is not None and current_deployment is None:
             raise RuntimeError(f"deployment id {deployment.id} is already owned outside the account pool")
-        if current_deployment == deployment and current is not None and not current.blocked:
+        if current_deployment == deployment and current is not None:
             return False
         if current is None:
             try:
@@ -122,6 +125,7 @@ class LiteLLMDeploymentStore:
                     model_info=deployment.model_info,
                     model_id=deployment.id,
                     created_by=_CREATED_BY,
+                    blocked=deployment.blocked,
                 )
                 return True
             except Exception:
@@ -131,9 +135,9 @@ class LiteLLMDeploymentStore:
         await self._repository.update_model(
             model_id=deployment.id,
             model_name=deployment.model_name,
-            litellm_params=deployment.litellm_params,
-            model_info=deployment.model_info,
-            blocked=False,
+            litellm_params={**(current.litellm_params if current is not None else {}), **deployment.litellm_params},
+            model_info={**((current.model_info or {}) if current is not None else {}), **deployment.model_info},
+            blocked=deployment.blocked,
             updated_by=_CREATED_BY,
         )
         return True
@@ -154,8 +158,9 @@ def desired_deployments(environments: tuple[GatewayEnvironment, ...]) -> tuple[M
     return tuple(
         _deployment(environment, model)
         for environment in environments
-        if environment.routable
-        for model in environment.enabled_models
+        for model in (
+            environment.public_models if environment.public_models is not None else environment.enabled_models
+        )
     )
 
 
@@ -230,6 +235,8 @@ async def _reconciliation_loop(interval_seconds: float) -> None:
 
 
 def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeployment:
+    from litellm.proxy.management_endpoints.account_pool_integration import forwarding_base
+
     model_name: Final = model.strip()
     deployment_id: Final = str(uuid5(NAMESPACE_URL, f"litellm-account-pool:{environment.id.hex}:{model_name}"))
     return ManagedDeployment(
@@ -237,10 +244,11 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         environment_id=str(environment.id),
         model_name=model_name,
         provider_model=f"openai/{model_name}",
-        api_base=environment.api_base,
-        api_key=environment.api_key,
+        api_base=forwarding_base(environment.id),
+        api_key="account-pool-internal",
         max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
+        blocked=not environment.routable,
     )
 
 

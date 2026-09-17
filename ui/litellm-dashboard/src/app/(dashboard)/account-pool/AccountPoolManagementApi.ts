@@ -77,6 +77,10 @@ export type LogFilters = {
   account_id?: string;
   card_key_id?: string;
   request_id?: string;
+  session_id?: string;
+  final_status?: string;
+  http_status?: number;
+  endpoint?: string;
   model?: string;
   stage?: string;
   error_category?: string;
@@ -127,10 +131,8 @@ export const listAccountPoolLogs = (accessToken: string, query: LogFilters) =>
 export const getAccountPoolLog = (accessToken: string, eventId: string) =>
   apiClient.get<LogDetail>(`/account_pool/logs/${encodeURIComponent(eventId)}`, { accessToken });
 
-export const getAccountPoolStats = (
-  accessToken: string,
-  query: Pick<LogFilters, "card_id" | "account_id" | "model"> = {},
-) => apiClient.get<ErrorStats>("/account_pool/stats", { accessToken, query });
+export const getAccountPoolStats = (accessToken: string, query: LogFilters = {}) =>
+  apiClient.get<ErrorStats>("/account_pool/stats", { accessToken, query });
 
 export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
   apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });

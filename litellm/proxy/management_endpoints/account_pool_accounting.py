@@ -54,7 +54,9 @@ def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = Non
         deployment: Final = router.get_model_info(id=model_id) if isinstance(router, ModelLookup) else None
     except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         return PriceSnapshot(model=model, model_id=model_id)
-    info: Final = TypeAdapter(dict[str, object]).validate_python((deployment or {}).get("model_info") or {})
+    info: Final = TypeAdapter(dict[str, object]).validate_python(
+        (deployment or {}).get("model_info") or deployment or {}
+    )
     params: Final = TypeAdapter(dict[str, object]).validate_python((deployment or {}).get("litellm_params") or {})
     configured: Final = {
         key: value

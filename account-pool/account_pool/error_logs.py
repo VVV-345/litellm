@@ -93,7 +93,7 @@ class ErrorLogRecord(BaseModel):
     cost_source: str = "unknown"
     cost_details: dict[str, JsonValue] = Field(default_factory=dict)
     full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
-    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable", "standard"] = "pending"
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
     @field_validator(
@@ -128,6 +128,9 @@ class ErrorLogQuery(BaseModel):
     error_category: ErrorCategory | None = None
     retryable: bool | None = None
     switched_account: bool | None = None
+    final_status: Literal["succeeded", "failed", "retrying"] | None = None
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    endpoint: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0, le=100000)
 
@@ -190,7 +193,9 @@ class ErrorLogRepository(Protocol):
 
     async def detail(self, event_id: UUID) -> ErrorLogDetail | None: ...
 
-    async def stats(self, card_id: UUID | None, account_id: UUID | None, model: str | None) -> ErrorStats: ...
+    async def stats(
+        self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
+    ) -> ErrorStats: ...
 
     async def prune(self, before: datetime) -> int: ...
 

@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import re
+import sys
 import threading
 import time
 import traceback
@@ -3518,6 +3519,35 @@ class Router:
             kwargs["timeout"] = self._get_timeout(kwargs=kwargs, data=deployment["litellm_params"])
 
         self._update_kwargs_with_default_litellm_params(kwargs=kwargs, metadata_variable_name=metadata_variable_name)
+
+        if "litellm.proxy.management_endpoints.account_pool_integration" not in sys.modules:
+            if model_info.get("account_pool_environment_id") is not None:
+                raise ValueError("Account pool deployments require authenticated proxy ingress")
+            return
+
+        from litellm.proxy.management_endpoints.account_pool_integration import (
+            check_deployment,
+            create_ticket,
+            forwarding_base,
+            pool_identity,
+        )
+
+        pool_environment: Final = model_info.get("account_pool_environment_id")
+        check_deployment(pool_environment)
+        if pool_environment is not None:
+            from uuid import UUID
+
+            pool_caller: Final = pool_identity.get()
+            if pool_caller is None:
+                raise ValueError("Account pool deployments require authenticated proxy ingress")
+            pool_account: Final = UUID(str(pool_environment))
+            kwargs["api_base"] = forwarding_base(pool_account)
+            kwargs["api_key"] = create_ticket(pool_caller, pool_account)
+            kwargs["num_retries"] = 0
+            kwargs["caching"] = False
+            kwargs["cache"] = {"no-cache": True, "no-store": True}
+            kwargs[metadata_variable_name]["account_pool_request_id"] = str(pool_caller.request_id)
+            kwargs[metadata_variable_name]["account_pool_attempt"] = True
 
     def _get_async_openai_model_client(self, deployment: dict, kwargs: dict):
         """
@@ -7195,6 +7225,8 @@ class Router:
         except Exception as e:
             current_attempt = None
             original_exception = e
+            if _metadata.get("account_pool_attempt"):
+                raise
             deployment_num_retries: Final = getattr(e, "num_retries", None)
 
             if (
@@ -11635,6 +11667,40 @@ class Router:
         return isinstance(deployment_model, str) and classify_strategy_router_model(deployment_model) is not None
 
     def _common_checks_available_deployment(
+        self,
+        model: str,
+        messages: list[dict[str, str]] | None = None,
+        input: str | list | None = None,
+        specific_deployment: bool | None = False,
+        request_kwargs: dict | None = None,
+    ) -> tuple[str, list | dict]:
+        resolved, candidates = self._unscoped_common_checks_available_deployment(
+            model,
+            messages,
+            input,
+            specific_deployment,
+            request_kwargs,
+        )
+        if "litellm.proxy.management_endpoints.account_pool_integration" not in sys.modules:
+            return resolved, candidates
+        from litellm.proxy.management_endpoints.account_pool_integration import check_deployment, pool_identity
+
+        caller: Final = pool_identity.get()
+        if caller is None or caller.card_id is None:
+            return resolved, candidates
+        if isinstance(candidates, dict):
+            check_deployment(candidates.get("model_info", {}).get("account_pool_environment_id"))
+            return resolved, candidates
+        scoped: Final = [
+            candidate
+            for candidate in candidates
+            if candidate.get("model_info", {}).get("account_pool_environment_id") == str(caller.card_id)
+        ]
+        if not scoped:
+            raise ValueError("No deployment is available within this card scope")
+        return resolved, scoped
+
+    def _unscoped_common_checks_available_deployment(
         self,
         model: str,
         messages: list[dict[str, str]] | None = None,

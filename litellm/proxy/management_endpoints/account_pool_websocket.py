@@ -168,7 +168,7 @@ async def forward_websocket(
     control: GatewayControl,
     dialer: WebSocketDialer,
 ) -> None:
-    request_id: Final = uuid4()
+    request_id: Final = getattr(websocket.state, "account_pool_request_id", None) or uuid4()
     completed, rejections = await _forward_candidate(
         websocket,
         key,
@@ -253,7 +253,16 @@ async def _forward_candidate(
             attempt_number,
             rejection_reasons | frozenset((lease.reason,)),
         )
-    log: Final = RequestLog(lease, route, resolution, websocket.headers, {"model": public_model}, key, "websocket")
+    log: Final = RequestLog(
+        lease,
+        route,
+        resolution,
+        websocket.headers,
+        {"model": public_model},
+        key,
+        "websocket",
+        standard_accounting=getattr(websocket.state, "account_pool_standard_accounting", False),
+    )
     attempt: Final = _Attempt(lease.lease_id, websocket.url.path, debug_detail)
     fallback: Final = (
         resolution.policy.routing.fallback_enabled

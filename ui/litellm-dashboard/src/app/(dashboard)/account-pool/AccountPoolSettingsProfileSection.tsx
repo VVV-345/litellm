@@ -181,6 +181,7 @@ export const AccountPoolSettingsProfileSection = <TValues,>({
                     <div className="grid gap-1.5">
                       <Label>{t("accountPool.settings.applyCards")}</Label>
                       <Select
+                        items={availableCards.map((card) => ({ value: card.id, label: card.name }))}
                         value={null}
                         disabled={busy || availableCards.length === 0}
                         onValueChange={(cardId) => {

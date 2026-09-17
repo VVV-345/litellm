@@ -220,13 +220,27 @@ class PostgresErrorLogRepository:
             has_more=len(rows) > 200,
         )
 
-    async def stats(self, card_id: UUID | None, account_id: UUID | None, model: str | None) -> ErrorStats:
+    async def stats(
+        self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
+    ) -> ErrorStats:
+        filters: Final = (
+            {}
+            if query is None
+            else query.model_dump(
+                mode="json",
+                exclude_none=True,
+                exclude={"occurred_from", "occurred_to", "limit", "offset"},
+            )
+        )
         conditions: Final = tuple(
             (clause, value)
             for clause, value in (
                 ("card_id = %s", card_id),
                 ("payload->>'account_id' = %s", account_id),
                 ("payload->>'model' = %s", model),
+                ("occurred_at >= %s", query.occurred_from if query else None),
+                ("occurred_at <= %s", query.occurred_to if query else None),
+                ("payload @> %s", Jsonb(filters)),
             )
             if value is not None
         )

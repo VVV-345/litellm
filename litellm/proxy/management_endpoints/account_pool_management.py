@@ -76,19 +76,47 @@ def create_management_router(
     @router.post("/cards/{card_id}/key")
     async def create_key(card_id: UUID, response: Response) -> CardKeyIssue:
         response.headers["Cache-Control"] = "no-store"
-        return parse_response(await call("POST", f"/api/cards/{card_id}/key"), TypeAdapter(CardKeyIssue))
+        issued: Final = parse_response(await call("POST", f"/api/cards/{card_id}/key"), TypeAdapter(CardKeyIssue))
+        from litellm.proxy.management_endpoints.account_pool_integration import register_card_key
+
+        try:
+            await register_card_key(issued.key, status=issued.status)
+        except Exception:
+            await call(
+                "DELETE",
+                f"/api/cards/{card_id}/key",
+                CardKeyChange(expected_key_id=issued.status.key_id).model_dump_json().encode(),
+            )
+            raise
+        return issued
 
     @router.post("/cards/{card_id}/key/rotate")
     async def rotate_key(card_id: UUID, request: CardKeyChange, response: Response) -> CardKeyIssue:
         response.headers["Cache-Control"] = "no-store"
-        return parse_response(
+        issued: Final = parse_response(
             await call("POST", f"/api/cards/{card_id}/key/rotate", request.model_dump_json().encode()),
             TypeAdapter(CardKeyIssue),
         )
+        from litellm.proxy.management_endpoints.account_pool_integration import block_card_keys, register_card_key
+
+        try:
+            await block_card_keys(request.expected_key_id)
+            await register_card_key(issued.key, status=issued.status)
+        except Exception:
+            await call(
+                "DELETE",
+                f"/api/cards/{card_id}/key",
+                CardKeyChange(expected_key_id=issued.status.key_id).model_dump_json().encode(),
+            )
+            raise
+        return issued
 
     @router.delete("/cards/{card_id}/key", status_code=204)
     async def revoke_key(card_id: UUID, request: CardKeyChange) -> None:
         await call("DELETE", f"/api/cards/{card_id}/key", request.model_dump_json().encode())
+        from litellm.proxy.management_endpoints.account_pool_integration import block_card_keys
+
+        await block_card_keys(request.expected_key_id)
 
     @router.get("/logs")
     async def logs(query: Annotated[ErrorLogQuery, Query()]) -> ErrorLogPage:
@@ -274,18 +302,8 @@ def create_management_router(
         )
 
     @router.get("/stats", response_model=ErrorStats)
-    async def stats(
-        card_id: UUID | None = None,
-        account_id: UUID | None = None,
-        model: str | None = None,
-    ) -> ErrorStats:
-        params: Final = httpx.QueryParams(
-            {
-                key: str(value)
-                for key, value in (("card_id", card_id), ("account_id", account_id), ("model", model))
-                if value is not None
-            }
-        )
+    async def stats(query: Annotated[ErrorLogQuery, Query()]) -> ErrorStats:
+        params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True, exclude={"limit", "offset"}))
         path: Final = "/api/stats" if not params else f"/api/stats?{params}"
         return parse_response(await call("GET", path), TypeAdapter(ErrorStats))
 

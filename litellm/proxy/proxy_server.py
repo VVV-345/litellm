@@ -449,10 +449,10 @@ from litellm.proxy.logging_endpoints.callback_logs_endpoints import (
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     router as account_pool_router,
 )
+from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     start_reconciliation_loop as start_account_pool_reconciliation_loop,
 )
-from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     stop_reconciliation_loop as stop_account_pool_reconciliation_loop,
 )
@@ -10173,6 +10173,34 @@ async def model_list(
     )
 
     hidden_names: Final = blocked_names | unhealthy_names
+
+    from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+
+    pool_caller: Final = pool_identity.get()
+    if pool_caller is not None and pool_caller.card_id is not None:
+        available: Final = await get_available_models_for_user(
+            user_api_key_dict=user_api_key_dict,
+            llm_router=llm_router,
+            general_settings=general_settings,
+            user_model=user_model,
+            prisma_client=prisma_client,
+            proxy_logging_obj=proxy_logging_obj,
+            user_api_key_cache=user_api_key_cache,
+        )
+        pool_models: Final = tuple(
+            deployment["model_name"]
+            for deployment in (llm_router.model_list if llm_router else [])
+            if deployment.get("model_info", {}).get("account_pool_environment_id") == str(pool_caller.card_id)
+            and deployment["model_name"] not in hidden_names
+            and deployment["model_name"] in available
+        )
+        return {
+            "object": "list",
+            "data": [
+                {"id": model, "object": "model", "created": 0, "owned_by": "account_pool"}
+                for model in sorted(set(pool_models))
+            ],
+        }
 
     # If scope=expand and user has admin privileges, return all proxy models
     if should_expand_scope:

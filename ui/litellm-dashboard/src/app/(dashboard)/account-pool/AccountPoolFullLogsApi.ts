@@ -4,7 +4,17 @@ import type { components } from "@/lib/http/schema";
 
 export type FullLogSummary = components["schemas"]["FullLogSummary"];
 export type FullLogRecord = components["schemas"]["FullLogRecord"];
-export type FullLogFilters = { card_id?: string; request_id?: string; session_id?: string; offset?: number };
+export type FullLogFilters = {
+  card_id?: string;
+  request_id?: string;
+  session_id?: string;
+  model?: string;
+  http_status?: number;
+  incomplete?: boolean;
+  occurred_from?: string;
+  occurred_to?: string;
+  offset?: number;
+};
 
 export const listFullLogs = (accessToken: string, query: FullLogFilters) =>
   apiClient.get<components["schemas"]["FullLogPage"]>("/account_pool/full-logs", { accessToken, query });

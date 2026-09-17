@@ -482,6 +482,23 @@ async def _run_model_health_check(model: dict):
         litellm_params,  # any-ok: untyped router config dict
     )
     litellm_params = _update_litellm_params_for_health_check(model_info, litellm_params)
+    if model_info.get("account_pool_environment_id"):
+        from uuid import UUID, uuid4
+
+        from litellm.proxy.management_endpoints.account_pool_integration import (
+            PoolIdentity,
+            create_ticket,
+            forwarding_base,
+        )
+
+        pool_account: Final = UUID(model_info["account_pool_environment_id"])
+        litellm_params = {
+            **litellm_params,
+            "api_base": forwarding_base(pool_account),
+            "api_key": create_ticket(
+                PoolIdentity(key_hash="account-pool-health-check", request_id=uuid4()), pool_account
+            ),
+        }
     timeout: Final = model_info.get("health_check_timeout") or HEALTH_CHECK_TIMEOUT_SECONDS
 
     return await run_with_timeout(

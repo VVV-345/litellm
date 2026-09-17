@@ -1,20 +1,24 @@
 /** 本文件验证号池日志页面展示可信成本覆盖率和显式路由原因。 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
+import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const listLogs = vi.fn();
 const getLog = vi.fn();
 const getStats = vi.fn();
+const exportLogs = vi.fn();
 
 vi.mock("./AccountPoolManagementApi", () => ({
   listAccountPoolLogs: (...args: unknown[]) => listLogs(...args),
   getAccountPoolLog: (...args: unknown[]) => getLog(...args),
   getAccountPoolStats: (...args: unknown[]) => getStats(...args),
+  exportAccountPoolLogs: (...args: unknown[]) => exportLogs(...args),
+  getAccountPoolLogStorage: async () => ({ row_count: 0, allocated_bytes: 0 }),
 }));
 
 const log = {
@@ -105,5 +109,34 @@ describe("AccountPoolLogsPanel", () => {
     expect(screen.getByText(/1.*3/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Request completed" }));
     expect(await screen.findAllByText(/卡片优先账号|Preferred card account/i)).not.toHaveLength(0);
+  });
+
+  it("keeps the selected card name and applies filters to rows, stats and export", async () => {
+    const user = userEvent.setup();
+    exportLogs.mockRejectedValue(new Error("test export"));
+    const card = { id: log.card_id, name: "测试账号" } as AccountPoolEnvironment;
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolLogsPanel accessToken="token" environments={[card]} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("row", { name: /Request completed/ });
+    await user.click(screen.getByRole("combobox", { name: "卡片" }));
+    await user.click(screen.getByRole("option", { name: "测试账号" }));
+    expect(screen.getByRole("combobox", { name: "卡片" })).toHaveTextContent("测试账号");
+    await user.click(screen.getByRole("combobox", { name: "请求结果" }));
+    await user.click(screen.getByRole("option", { name: "失败" }));
+    fireEvent.change(screen.getByLabelText("HTTP 状态码"), { target: { value: "429" } });
+    fireEvent.change(screen.getByLabelText("会话 ID"), { target: { value: "pool-session" } });
+    await user.click(screen.getByRole("button", { name: "查询" }));
+    const expected = { card_id: card.id, final_status: "failed", http_status: 429, session_id: "pool-session" };
+    await waitFor(() => expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining(expected)));
+    expect(getStats).toHaveBeenLastCalledWith("token", expect.objectContaining(expected));
+    await user.click(screen.getByRole("button", { name: "导出日志" }));
+    expect(exportLogs).toHaveBeenLastCalledWith("token", expect.objectContaining(expected));
+    await user.click(screen.getByRole("button", { name: "重置筛选" }));
+    expect(screen.getByLabelText("HTTP 状态码")).toHaveValue(null);
+    expect(screen.getByLabelText("会话 ID")).toHaveValue("");
+    expect(screen.getByRole("combobox", { name: "卡片" })).not.toHaveTextContent(card.id);
   });
 });

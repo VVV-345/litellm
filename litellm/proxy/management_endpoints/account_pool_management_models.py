@@ -517,6 +517,7 @@ class AccountPoolSettings(BaseModel):
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
     full_logging_enabled: bool = False
+    full_log_skip_failed: bool = False
     daily_log_retention_days: int = Field(default=30, ge=1, le=3650)
     full_log_retention_days: int = Field(default=30, ge=1, le=3650)
     file_logging_enabled: bool = False
@@ -845,7 +846,7 @@ class ErrorLogRecord(BaseModel):
     cost_source: str = "unknown"
     cost_details: dict[str, JsonValue] = Field(default_factory=dict)
     full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
-    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable", "standard"] = "pending"
     final_status: Literal["failed", "retrying", "succeeded"] = "failed"
 
 
@@ -867,6 +868,9 @@ class ErrorLogQuery(BaseModel):
     error_category: ErrorCategory | None = None
     retryable: bool | None = None
     switched_account: bool | None = None
+    final_status: Literal["succeeded", "failed", "retrying"] | None = None
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    endpoint: str | None = Field(default=None, max_length=256)
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0, le=100000)
 

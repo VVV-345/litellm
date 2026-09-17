@@ -2151,6 +2151,15 @@ async def prepare_key_update_data(
         )
 
     _metadata: Final = existing_key_row.metadata or {}
+    if _metadata.get("account_pool_card_id") and getattr(data, "auto_rotate", False):
+        raise HTTPException(400, "Rotate card-bound keys from the account pool card settings")
+    for scope_field in ("account_pool_card_id", "account_pool_binding_id"):
+        if (
+            scope_field in _metadata
+            and data.metadata is not None
+            and data.metadata.get(scope_field, _metadata[scope_field]) != _metadata[scope_field]
+        ):
+            raise HTTPException(400, "Card key scope is immutable; create a new key for another card")
 
     # validate model_max_budget
     if "model_max_budget" in non_default_values:
@@ -2163,6 +2172,22 @@ async def prepare_key_update_data(
     non_default_values = prepare_metadata_fields(
         data=data, non_default_values=non_default_values, existing_metadata=_metadata
     )
+    if _metadata.get("account_pool_card_id") and "metadata" in non_default_values:
+        merged_pool_metadata: Final = (
+            json.loads(non_default_values["metadata"])
+            if isinstance(non_default_values["metadata"], str)
+            else non_default_values["metadata"]
+        )
+        non_default_values["metadata"] = json.dumps(
+            {
+                **(merged_pool_metadata or {}),
+                **{
+                    field: _metadata[field]
+                    for field in ("account_pool_card_id", "account_pool_binding_id")
+                    if field in _metadata
+                },
+            }
+        )
 
     return non_default_values
 
@@ -4821,6 +4846,11 @@ async def _execute_virtual_key_regeneration(
             user_api_key_dict=user_api_key_dict,
             entity="key",
         )
+
+    from litellm.proxy.management_endpoints.account_pool_integration import KeyAuthScope
+
+    if KeyAuthScope.model_validate({"metadata": key_in_db.metadata or {}}).metadata.card_id is not None:
+        raise HTTPException(400, "Rotate a card-bound key from the account pool card settings")
 
     new_token: Final = await get_new_token(data=data)
     new_token_hash: Final = hash_token(new_token)

@@ -261,7 +261,7 @@ async def forward(
         else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
     )
     eligible: Final = ordered[:2] if routing.fallback_enabled and allow_retry else scoped[:1]
-    request_id: Final = uuid4()
+    request_id: Final = getattr(request.state, "account_pool_request_id", None) or uuid4()
     completed, rejections = await forward_candidate(
         request,
         payload,
@@ -419,7 +419,14 @@ async def forward_candidate(
         safe_debug_detail(request, payload, route) if resolution.policy.transport.debug_log_enabled else None
     )
     log: Final = RequestLog(
-        lease, route, resolution, request.headers, payload, key, "sse" if payload.get("stream") else "http"
+        lease,
+        route,
+        resolution,
+        request.headers,
+        payload,
+        key,
+        "sse" if payload.get("stream") else "http",
+        standard_accounting=getattr(request.state, "account_pool_standard_accounting", False),
     )
     attempt: Final = Attempt(lease, request.url.path, send, debug_detail, log)
     try:

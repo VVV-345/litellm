@@ -17,6 +17,21 @@ from litellm.proxy.health_check import (
 
 
 @pytest.mark.asyncio
+async def test_pool_health_probe_uses_signed_gateway_instead_of_placeholder(monkeypatch):
+    from uuid import uuid4
+    from litellm.proxy.management_endpoints.account_pool_integration import verify_ticket
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "health-probe-test-secret-" * 3)
+    card = uuid4()
+    model = {"litellm_params": {"model": "openai/gpt-5.4", "api_key": "placeholder"}, "model_info": {"account_pool_environment_id": str(card)}}
+    with patch("litellm.ahealth_check", new_callable=AsyncMock, return_value={}) as probe:
+        await hc_module._run_model_health_check(model)
+    params = probe.await_args.args[0]
+    assert params["api_base"].endswith(f"/{card}/v1")
+    assert verify_ticket(params["api_key"], card).identity.key_hash == "account-pool-health-check"
+
+
+@pytest.mark.asyncio
 async def test_update_litellm_params_max_tokens_default(monkeypatch):
     """
     Test that max_tokens defaults to 16 for non-wildcard models.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from account_pool.domain import ChannelKind, GatewayCredential, SupplierKind
 from account_pool.policies import AccountPolicy
@@ -34,8 +34,22 @@ AcquireRejectionReason: TypeAlias = Literal["concurrency", "configuration", "coo
 
 class ResolveRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    card_key: str = Field(min_length=16, max_length=256, repr=False)
+    card_key: str = Field(default="", max_length=256, repr=False)
+    trusted_card_id: UUID | None = None
+    trusted_key_id: UUID | None = None
+    binding_id: UUID | None = None
     session_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ResolveRequest:
+        if self.card_key:
+            if self.trusted_card_id is not None or self.trusted_key_id is not None or self.binding_id is not None:
+                raise ValueError("Raw and trusted identities cannot be combined")
+        elif self.trusted_card_id is None or self.trusted_key_id is None:
+            raise ValueError("Trusted card and key identity are required")
+        if self.binding_id is not None and self.binding_id != self.trusted_key_id:
+            raise ValueError("Card binding must match the key identity")
+        return self
 
 
 class CandidateModelQuota(BaseModel):
@@ -89,6 +103,7 @@ class Resolution(BaseModel):
     policy: AccountPolicy
     candidates: tuple[Candidate, ...]
     full_logging_enabled: bool = False
+    full_log_skip_failed: bool = False
     full_log_retention_days: int = 30
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
@@ -155,7 +170,7 @@ class FinishRequest(BaseModel):
     cost_source: str = "unknown"
     cost_details: dict[str, JsonValue] = Field(default_factory=dict)
     full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
-    spend_sync_state: Literal["pending", "synced", "failed", "unavailable"] = "pending"
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable", "standard"] = "pending"
 
 
 class AcquireRejected(BaseModel):

@@ -256,7 +256,11 @@ export const AccountPoolConfigDialog = ({
                       {profileSelectionError}
                     </p>
                   )}
-                  <Select value={form.proxy_profile_id} onValueChange={(value) => update("proxy_profile_id", value)}>
+                  <Select
+                    items={profiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+                    value={form.proxy_profile_id}
+                    onValueChange={(value) => update("proxy_profile_id", value)}
+                  >
                     <SelectTrigger
                       className="w-full"
                       disabled={saving || lifecycleDisabled || profilesLoading || profiles.length === 0}

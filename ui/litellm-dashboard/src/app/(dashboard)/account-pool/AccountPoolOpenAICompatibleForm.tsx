@@ -151,6 +151,10 @@ export const AccountPoolOpenAICompatibleForm = ({
               placeholder="sk-..."
             />
             <Select
+              items={[
+                { value: "default", label: t("accountPool.providers.openaiCompatible.defaultProxy") },
+                ...proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name })),
+              ]}
               value={item.proxy_profile_id || "default"}
               onValueChange={(value) => updateKey(index, "proxy_profile_id", value === "default" ? "" : value ?? "")}
             >

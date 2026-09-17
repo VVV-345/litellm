@@ -100,11 +100,14 @@ class RequestLog:
         payload: dict[str, JsonValue],
         key: str,
         transport: Literal["http", "sse", "websocket"],
+        standard_accounting: bool = False,
     ) -> None:
         self.lease: Final = lease
         self.key: Final = key
         self.transport: Final = transport
+        self.standard_accounting: Final = standard_accounting
         self.enabled: Final = resolution.full_logging_enabled
+        self.skip_failed: Final = resolution.full_log_skip_failed
         self.session_id: Final = conversation_id(headers, str(lease.key_id))
         self.proxy_endpoint: Final = route.account.proxy_endpoint
         self.requested_model: Final = str(payload.get("model", lease.model))
@@ -119,7 +122,12 @@ class RequestLog:
             if value
         )
         try:
-            self.price = price_snapshot(str(lease.account_id), lease.model)
+            requested_price: Final = price_snapshot(str(lease.account_id), self.requested_model)
+            self.price = (
+                requested_price
+                if requested_price.source != "unknown"
+                else price_snapshot(str(lease.account_id), lease.model)
+            )
         except Exception:  # noqa: BLE001  # 计价组件故障不能阻止转发已取得租约的请求。
             self.price = PriceSnapshot(model=lease.model, model_id="")
         self.request: Final = clean_content(payload, self.secrets) if self.enabled else None
@@ -282,9 +290,20 @@ class RequestLog:
             else estimate
         )
         synced: Final = await self._sync(priced)
-        return await self._save_full(synced) if self.enabled else synced
+        keep_full: Final = self.enabled and not (self.skip_failed and self.incomplete(synced))
+        return await self._save_full(synced) if keep_full else synced
+
+    def incomplete(self, result: FinishRequest) -> bool:
+        return (
+            result.http_status >= 400
+            or self.failure
+            or self.websocket_pending
+            or (self.transport != "http" and not self.finished)
+        )
 
     async def _sync(self, result: FinishRequest, retries: int = 2) -> FinishRequest:
+        if self.standard_accounting:
+            return result.model_copy(update={"spend_sync_state": "standard"})
         try:
             state: Final = await asyncio.wait_for(
                 sync_spend(self.lease, result, self.requested_model, self.key), timeout=10
@@ -313,11 +332,9 @@ class RequestLog:
             attempt=self.lease.attempt,
             result=saved,
             transport=self.transport,
-            incomplete=result.http_status >= 400
-            or self.failure
-            or self.websocket_pending
-            or (self.transport != "http" and not self.finished),
+            incomplete=self.incomplete(result),
             truncated=self.truncated,
+            skip_failed=self.skip_failed,
             request=self._body(self.client_frames) if self.client_frames else self.request,
             response=self._body(self.response),
         )

@@ -1267,6 +1267,11 @@ async def _user_api_key_auth_builder(
             _ensure_parent_otel_span_on_request_state(request)
             parent_otel_span = getattr(request.state, "parent_otel_span", None)
 
+        if isinstance(api_key, str) and api_key.startswith(("cpk_", "sk-cpk_")):
+            from litellm.proxy.management_endpoints.account_pool_integration import register_card_key
+
+            await register_card_key(api_key, request)
+
         ### USER-DEFINED AUTH FUNCTION ###
         if enterprise_custom_auth is not None:
             with tracer.trace("litellm.proxy.auth.enterprise_custom_auth"):
@@ -1730,7 +1735,7 @@ async def _user_api_key_auth_builder(
             # decryption fails closed for anything that is not a genuine blob.
             if (
                 valid_token is None
-                and not api_key.startswith("sk-")
+                and not api_key.startswith(("sk-", "cpk_"))
                 and get_secret_bool("EXPERIMENTAL_UI_LOGIN") is not False
             ):
                 valid_token = ExperimentalUIJWTToken.get_key_object_from_ui_hash_key(api_key)
@@ -1865,7 +1870,7 @@ async def _user_api_key_auth_builder(
         if valid_token is None:
             if isinstance(api_key, str):  # if generated token, make sure it starts with sk-.
                 _masked_key: Final = f"{api_key[:4]}****{api_key[-4:]}" if len(api_key) > 8 else "****"
-                if not api_key.startswith("sk-"):
+                if not api_key.startswith(("sk-", "cpk_")):
                     _hint = _JWT_AUTH_DISABLED_HINT if not enable_jwt_auth and JWTHandler.is_jwt(token=api_key) else ""
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1881,7 +1886,7 @@ async def _user_api_key_auth_builder(
                     )
                 )
             abbreviated_api_key: Final = abbreviate_api_key(api_key=api_key)
-            if api_key.startswith("sk-"):
+            if api_key.startswith(("sk-", "cpk_")):
                 api_key = hash_token(token=api_key)
 
             try:
@@ -2781,6 +2786,9 @@ async def _authorize_authenticated_request(
     """
     ## ENSURE DISABLE ROUTE WORKS ACROSS ALL USER AUTH FLOWS ##
     RouteChecks.should_call_route(route=route, valid_token=user_api_key_auth_obj, request=request)
+    from litellm.proxy.management_endpoints.account_pool_integration import bind_identity
+
+    bind_identity(request, user_api_key_auth_obj)
 
     # Single authorization point. Builder paths MUST NOT call common_checks.
     # Route through the same exception handler the builder uses so
@@ -2895,6 +2903,9 @@ async def user_api_key_auth(
                 api_key=api_key,
             )
             if recovered_auth_obj is not None:
+                from litellm.proxy.management_endpoints.account_pool_integration import bind_identity
+
+                bind_identity(request, recovered_auth_obj)
                 return recovered_auth_obj
 
     # Identity is now resolved. Seed it AFTER the auth span closes so the Baggage

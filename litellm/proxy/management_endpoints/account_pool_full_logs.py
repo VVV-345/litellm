@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest
 
@@ -36,6 +36,7 @@ class FullLogSummary(BaseModel):
     transport: Literal["http", "sse", "websocket"]
     incomplete: bool = False
     truncated: bool = False
+    skip_failed: bool = False
 
 
 class FullLogRecord(FullLogSummary):
@@ -71,8 +72,19 @@ class FullLogQuery(BaseModel):
     card_id: UUID | None = None
     request_id: UUID | None = None
     session_id: str | None = Field(default=None, max_length=128)
+    model: str | None = Field(default=None, max_length=256)
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    incomplete: bool | None = None
+    occurred_from: AwareDatetime | None = None
+    occurred_to: AwareDatetime | None = None
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=100000)
+
+    @model_validator(mode="after")
+    def ordered_time_range(self) -> FullLogQuery:
+        if self.occurred_from and self.occurred_to and self.occurred_from > self.occurred_to:
+            raise ValueError("开始时间不能晚于结束时间")
+        return self
 
 
 class FullLogStore:
@@ -99,12 +111,24 @@ class FullLogStore:
                     "CREATE INDEX IF NOT EXISTS conversations_session ON conversations(session_id, started_at)"
                 )
                 connection.execute("CREATE INDEX IF NOT EXISTS conversations_request ON conversations(request_id)")
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS failed_requests (request_id TEXT PRIMARY KEY, expires REAL NOT NULL)"
+                )
                 yield connection
         finally:
             connection.close()
 
     def append(self, record: FullLogRecord) -> None:
         with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if (
+                record.skip_failed
+                and connection.execute(
+                    "SELECT 1 FROM failed_requests WHERE request_id = ? AND expires > ?",
+                    (str(record.request_id), datetime.now(timezone.utc).timestamp()),
+                ).fetchone()
+            ):
+                return
             connection.execute(
                 "INSERT INTO conversations VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(event_id) DO NOTHING",
                 (
@@ -118,19 +142,38 @@ class FullLogStore:
                 ),
             )
 
+    def reject_request(self, request_id: UUID) -> None:
+        now: Final = datetime.now(timezone.utc).timestamp()
+        with self.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("DELETE FROM failed_requests WHERE expires < ?", (now,))
+            connection.execute(
+                "INSERT INTO failed_requests VALUES (?, ?) ON CONFLICT(request_id) DO UPDATE SET expires=excluded.expires",
+                (str(request_id), now + 86400),
+            )
+            connection.execute(
+                "DELETE FROM conversations WHERE request_id = ? AND json_extract(summary, '$.skip_failed') = 1",
+                (str(request_id),),
+            )
+
     def query(self, query: FullLogQuery) -> FullLogPage:
         if not self.path.exists():
             return FullLogPage(items=(), has_more=False)
         conditions: Final = tuple(
-            (column, str(value))
+            (column, value)
             for column, value in (
-                ("card_id", query.card_id),
-                ("request_id", query.request_id),
-                ("session_id", query.session_id),
+                ("card_id = ?", str(query.card_id) if query.card_id else None),
+                ("request_id = ?", str(query.request_id) if query.request_id else None),
+                ("session_id = ?", query.session_id),
+                ("json_extract(summary, '$.model') = ?", query.model),
+                ("json_extract(summary, '$.result.http_status') = ?", query.http_status),
+                ("json_extract(summary, '$.incomplete') = ?", query.incomplete),
+                ("started_at >= ?", query.occurred_from.timestamp() if query.occurred_from else None),
+                ("started_at <= ?", query.occurred_to.timestamp() if query.occurred_to else None),
             )
             if value is not None
         )
-        where: Final = " AND ".join(f"{column} = ?" for column, _ in conditions) or "1=1"
+        where: Final = " AND ".join(column for column, _ in conditions) or "1=1"
         order: Final = "ASC" if query.session_id else "DESC"
         with self.connection() as connection:
             rows: Final = TypeAdapter(tuple[tuple[str], ...]).validate_python(

@@ -883,7 +883,32 @@ class EnvironmentService:
     async def list_gateway_environments(self) -> tuple[GatewayEnvironment, ...]:
         records: Final = await self._repository.list()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
-        return tuple(self._gateway_environment(record) for record in refreshed)
+        policies: Final = () if self._policies is None else await self._policies.list()
+        by_card: Final = {entry.card_id: entry.policy for entry in policies}
+        return tuple(
+            endpoint.model_copy(
+                update={
+                    "public_models": tuple(
+                        dict.fromkeys(
+                            model
+                            for model in (
+                                *endpoint.enabled_models,
+                                *(
+                                    alias.alias
+                                    for alias in policy.model_aliases
+                                    if alias.target in endpoint.enabled_models
+                                    and alias.target not in policy.excluded_models
+                                ),
+                            )
+                            if model not in policy.excluded_models
+                        )
+                    )
+                }
+            )
+            for record in refreshed
+            for endpoint in (self._gateway_environment(record),)
+            for policy in (by_card.get(record.id, AccountPolicy()),)
+        )
 
     def gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
         return self._gateway_environment(record)

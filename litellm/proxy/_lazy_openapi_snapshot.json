@@ -17296,6 +17296,14 @@
               "title": "Manual Cooldown",
               "type": "boolean"
             },
+            "model_cooldowns": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/AccountPoolModelCooldown"
+              },
+              "title": "Model Cooldowns",
+              "type": "array"
+            },
             "model_quotas": {
               "default": [],
               "items": {
@@ -17412,6 +17420,29 @@
             "updated_at"
           ],
           "title": "AccountPoolEnvironment",
+          "type": "object"
+        },
+        "AccountPoolModelCooldown": {
+          "properties": {
+            "model": {
+              "title": "Model",
+              "type": "string"
+            },
+            "reason": {
+              "default": "upstream_error",
+              "title": "Reason",
+              "type": "string"
+            },
+            "retry_at": {
+              "title": "Retry At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "retry_at"
+          ],
+          "title": "AccountPoolModelCooldown",
           "type": "object"
         },
         "AccountPoolModelQuotaSnapshot": {

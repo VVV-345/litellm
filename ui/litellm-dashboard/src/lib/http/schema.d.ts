@@ -24413,6 +24413,11 @@ export interface components {
              */
             full_log_retention_days: number;
             /**
+             * Full Log Skip Failed
+             * @default false
+             */
+            full_log_skip_failed: boolean;
+            /**
              * Full Logging Enabled
              * @default false
              */
@@ -29224,7 +29229,7 @@ export interface components {
              * @default pending
              * @enum {string}
              */
-            spend_sync_state: "pending" | "synced" | "failed" | "unavailable";
+            spend_sync_state: "pending" | "synced" | "failed" | "unavailable" | "standard";
             /**
              * Stage
              * @enum {string}
@@ -29557,7 +29562,7 @@ export interface components {
              * @default pending
              * @enum {string}
              */
-            spend_sync_state: "pending" | "synced" | "failed" | "unavailable";
+            spend_sync_state: "pending" | "synced" | "failed" | "unavailable" | "standard";
             /**
              * Stage
              * @default upstream
@@ -29628,6 +29633,11 @@ export interface components {
             result: components["schemas"]["FinishRequest"];
             /** Session Id */
             session_id: string | null;
+            /**
+             * Skip Failed
+             * @default false
+             */
+            skip_failed: boolean;
             /**
              * Started At
              * Format: date-time
@@ -29704,6 +29714,11 @@ export interface components {
             result: components["schemas"]["FinishRequest"];
             /** Session Id */
             session_id: string | null;
+            /**
+             * Skip Failed
+             * @default false
+             */
+            skip_failed: boolean;
             /**
              * Started At
              * Format: date-time
@@ -44453,6 +44468,11 @@ export interface operations {
                 card_id?: string | null;
                 request_id?: string | null;
                 session_id?: string | null;
+                model?: string | null;
+                http_status?: number | null;
+                incomplete?: boolean | null;
+                occurred_from?: string | null;
+                occurred_to?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -44582,6 +44602,9 @@ export interface operations {
                 error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
                 retryable?: boolean | null;
                 switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -44660,6 +44683,9 @@ export interface operations {
                 error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
                 retryable?: boolean | null;
                 switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -45495,9 +45521,26 @@ export interface operations {
     stats_account_pool_stats_get: {
         parameters: {
             query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
                 card_id?: string | null;
+                environment_id?: string | null;
                 account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
                 model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
+                limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;

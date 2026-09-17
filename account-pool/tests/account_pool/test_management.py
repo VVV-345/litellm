@@ -129,7 +129,9 @@ class MemoryLogs:
         event: Final = next((item for item in self.events if item.event_id == event_id), None)
         return None if event is None else ErrorLogDetail(event=event, attempts=(event,), has_more=False)
 
-    async def stats(self, card_id: UUID | None, account_id: UUID | None, model: str | None) -> ErrorStats:
+    async def stats(
+        self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
+    ) -> ErrorStats:
         matching: Final = tuple(
             event
             for event in self.events

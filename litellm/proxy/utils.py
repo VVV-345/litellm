@@ -6204,7 +6204,7 @@ def _hash_token_if_needed(token: str) -> str:
 
     Else return the token as is
     """
-    if token.startswith("sk-"):
+    if token.startswith(("sk-", "cpk_")):
         return hash_token(token=token)
     else:
         return token

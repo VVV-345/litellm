@@ -17066,3 +17066,20 @@ async def test_check_project_key_limits_still_rejects_real_model_outside_project
 
     assert exc_info.value.status_code == 400
     assert "Model 'gpt-5.4-mini' not in project's allowed models" in exc_info.value.detail["error"]
+
+
+@pytest.mark.asyncio
+async def test_card_scope_survives_metadata_updates_and_cannot_be_reassigned():
+    scope = {"account_pool_card_id": "card-one", "account_pool_binding_id": "binding-one"}
+    existing_key = LiteLLM_VerificationToken(token="hashed", metadata=scope)
+    updated = await prepare_key_update_data(
+        data=UpdateKeyRequest(key="sk-1", metadata={"label": "renamed"}), existing_key_row=existing_key
+    )
+    metadata = json.loads(updated["metadata"]) if isinstance(updated["metadata"], str) else updated["metadata"]
+    assert metadata["account_pool_card_id"] == "card-one"
+    assert metadata["account_pool_binding_id"] == "binding-one"
+    with pytest.raises(HTTPException):
+        await prepare_key_update_data(
+            data=UpdateKeyRequest(key="sk-1", metadata={"account_pool_card_id": "card-two"}),
+            existing_key_row=existing_key,
+        )

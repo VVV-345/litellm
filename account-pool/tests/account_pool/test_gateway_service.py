@@ -173,6 +173,35 @@ def gateway(record: EnvironmentRecord) -> GatewayEnvironment:
 
 
 @pytest.mark.asyncio
+async def test_virtual_key_admission_is_scoped_and_obeys_card_revocation() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    backup: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(card)
+    await environments.save(backup)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    await policies.save(
+        card.id, PolicyUpdate(version=0, policy=AccountPolicy(routing=RoutingPolicy(fallback_enabled=True)))
+    )
+    service: Final = GatewayService(
+        keys, environments, policies, MemoryLeases(), ErrorLogService(MemoryLogs()), gateway
+    )
+    request: Final = ResolveRequest(
+        trusted_card_id=card.id, trusted_key_id=issued.value.status.key_id, binding_id=issued.value.status.key_id
+    )
+    resolution: Final = await service.resolve(request)
+    assert tuple(item.id for item in resolution.candidates) == (card.id,)
+    await keys.revoke(card.id, issued.value.status.key_id)
+    with pytest.raises(HTTPException) as error:
+        await service.resolve(request)
+    assert error.value.status_code == 401
+    unbound: Final = await service.resolve(ResolveRequest(trusted_card_id=card.id, trusted_key_id=uuid4()))
+    assert tuple(item.id for item in unbound.candidates) == (card.id,)
+
+
+@pytest.mark.asyncio
 async def test_candidate_preserves_per_model_quota_for_gateway_routing() -> None:
     observed_at: Final = utc_now()
     card: Final = _record(status=EnvironmentStatus.READY).model_copy(

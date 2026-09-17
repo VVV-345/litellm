@@ -155,7 +155,19 @@ export function AccountPoolBatchPanel({
             </SelectContent>
           </Select>
           {action === "policy" && (
-            <Select value={policyTemplateId} onValueChange={setPolicyTemplateId}>
+            <Select
+              items={policies.map((policy) => ({
+                value: policy.card_id,
+                label: t("accountPool.batch.policyTemplateOption", {
+                  name:
+                    environments.find((card) => card.id === policy.card_id)?.name ??
+                    `已删除卡片 (${policy.card_id.slice(0, 8)})`,
+                  version: policy.version,
+                }),
+              }))}
+              value={policyTemplateId}
+              onValueChange={setPolicyTemplateId}
+            >
               <SelectTrigger className="w-56" aria-label={t("accountPool.batch.policyTemplate")}>
                 <SelectValue placeholder={t("accountPool.batch.selectPolicyTemplate")} />
               </SelectTrigger>

@@ -94,6 +94,14 @@ function AccountPoolDailyLogsPanel({
   const [fullEventId, setFullEventId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState(false);
   const [retentionDays, setRetentionDays] = useState<"all" | "7" | "14" | "30" | "45">("30");
+  const resetFilters = () => {
+    setDraft({ card_id: initialCardId });
+    setFilters({ card_id: initialCardId });
+    setFrom("");
+    setTo("");
+    setOffset(0);
+    setValidationError(false);
+  };
   const pageQuery = { ...filters, offset, limit: 50 };
   const query = useQuery({
     queryKey: ["account-pool", "logs", accessToken, filters, offset],
@@ -108,13 +116,8 @@ function AccountPoolDailyLogsPanel({
   };
   const detail = useQuery(detailQuery);
   const stats = useQuery({
-    queryKey: ["account-pool", "stats", accessToken, filters.card_id, filters.account_id, filters.model],
-    queryFn: () =>
-      getAccountPoolStats(accessToken, {
-        card_id: filters.card_id,
-        account_id: filters.account_id,
-        model: filters.model,
-      }),
+    queryKey: ["account-pool", "stats", accessToken, filters],
+    queryFn: () => getAccountPoolStats(accessToken, filters),
     retry: false,
   });
   const storage = useQuery({
@@ -167,16 +170,18 @@ function AccountPoolDailyLogsPanel({
     }
   };
   const choice = (
-    field: "channel" | "supplier" | "card_id" | "stage" | "error_category",
+    field: "channel" | "supplier" | "card_id" | "account_id" | "stage" | "error_category" | "final_status" | "endpoint",
     options: { value: string; label: string }[],
+    label = t(`accountPool.logs.${field}`),
   ) => (
     <div className="grid gap-1" key={field}>
-      <Label>{t(`accountPool.logs.${field}`)}</Label>
+      <Label>{label}</Label>
       <Select
+        items={[{ value: "all", label: t("accountPool.management.all") }, ...options]}
         value={draft[field] || "all"}
         onValueChange={(value) => setDraft((current) => ({ ...current, [field]: value === "all" ? undefined : value }))}
       >
-        <SelectTrigger className="w-full" aria-label={t(`accountPool.logs.${field}`)}>
+        <SelectTrigger className="w-full" aria-label={label}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -275,7 +280,56 @@ function AccountPoolDailyLogsPanel({
             "unknown",
           ].map((value) => ({ value, label: t(`accountPool.logs.categories.${value}`) })),
         )}
-        {(["account_id", "card_key_id", "request_id", "model"] as const).map((field) => (
+        {choice(
+          "account_id",
+          environments.map((card) => ({ value: card.id, label: card.name })),
+          "实际使用卡片",
+        )}
+        {choice(
+          "final_status",
+          [
+            { value: "succeeded", label: "成功" },
+            { value: "failed", label: "失败" },
+            { value: "retrying", label: "重试中" },
+          ],
+          "请求结果",
+        )}
+        {choice(
+          "endpoint",
+          [
+            "/v1/chat/completions",
+            "/v1/responses",
+            "/v1/responses/compact",
+            "/v1/images/generations",
+            "/v1/realtime",
+          ].map((value) => ({ value, label: value })),
+          "请求端点",
+        )}
+        <div className="grid gap-1">
+          <Label htmlFor="log-http-status">HTTP 状态码</Label>
+          <Input
+            id="log-http-status"
+            type="number"
+            min={100}
+            max={599}
+            value={draft.http_status ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                http_status: event.target.value ? Number(event.target.value) : undefined,
+              }))
+            }
+          />
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="log-session-id">会话 ID</Label>
+          <Input
+            id="log-session-id"
+            value={draft.session_id ?? ""}
+            onChange={(event) => setDraft((current) => ({ ...current, session_id: event.target.value || undefined }))}
+          />
+        </div>
+        {(["card_key_id", "request_id", "model"] as const).map((field) => (
           <div className="grid gap-1" key={field}>
             <Label htmlFor={`log-filter-${field}`}>{t(`accountPool.logs.${field}`)}</Label>
             <Input
@@ -289,6 +343,7 @@ function AccountPoolDailyLogsPanel({
           <div className="grid gap-1" key={field}>
             <Label>{t(`accountPool.logs.${field}`)}</Label>
             <Select
+              items={["all", "true", "false"].map((value) => ({ value, label: t(`accountPool.management.${value}`) }))}
               value={draft[field] === undefined ? "all" : String(draft[field])}
               onValueChange={(value) =>
                 setDraft((current) => ({ ...current, [field]: value === "all" ? undefined : value === "true" }))
@@ -317,6 +372,9 @@ function AccountPoolDailyLogsPanel({
         </div>
         <div className="flex items-end gap-2">
           <Button type="submit">{t("accountPool.logs.apply")}</Button>
+          <Button type="button" variant="ghost" onClick={resetFilters}>
+            重置筛选
+          </Button>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
             {t("accountPool.refresh")}
           </Button>
@@ -516,6 +574,7 @@ function AccountPoolDailyLogsPanel({
                     (
                       {
                         synced: "已同步",
+                        standard: "由 LiteLLM 统一记账",
                         failed: "同步失败",
                         pending: "等待同步",
                         unavailable: "数据库不可用",

@@ -1544,6 +1544,11 @@ class ProxyBaseLLMRequestProcessing:
 
         headers: Final = {
             "x-litellm-call-id": call_id,
+            "x-account-pool-request-id": (
+                ((request_data or {}).get("litellm_metadata") or (request_data or {}).get("metadata") or {}).get(
+                    "account_pool_request_id"
+                )
+            ),
             "x-litellm-model-id": model_id,
             "x-litellm-model-name": model_name,
             "x-litellm-cache-key": cache_key,

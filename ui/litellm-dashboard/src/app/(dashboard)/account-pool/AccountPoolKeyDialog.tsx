@@ -65,7 +65,9 @@ export function AccountPoolKeyDialog({
           <DialogTitle>{t("accountPool.keys.title", { name })}</DialogTitle>
           <DialogDescription>{t("accountPool.keys.description")}</DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">{t("accountPool.keys.pendingGateway")}</p>
+        <p className="text-sm text-muted-foreground">
+          此密钥同步到“虚拟密钥”，可设置预算和防护栏；每次调用仍受当前卡片的模型、额度、冷却和并发限制
+        </p>
         <Input readOnly aria-label="Base URL" value={`${getProxyBaseUrl().replace(/\/$/, "")}/v1`} />
         {query.isPending && <p role="status">{t("accountPool.management.loading")}</p>}
         {query.isError && (

@@ -60,6 +60,84 @@ def test_disabled_full_logging_never_creates_content_storage(store: FullLogStore
     assert "private" not in control.finished[0].model_dump_json()
 
 
+@pytest.mark.parametrize("skip,complete", [(True, False), (True, True), (False, False)])
+def test_failed_full_log_switch_preserves_daily_usage(store: FullLogStore, skip: bool, complete: bool) -> None:
+    stream = 'data: {"usage":{"prompt_tokens":10,"completion_tokens":4}}\n\n'
+    if complete:
+        stream += "data: [DONE]\n\n"
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=stream, headers={"content-type": "text/event-stream"})
+    )
+    control.resolution = control.resolution.model_copy(
+        update={"full_logging_enabled": True, "full_log_skip_failed": skip}
+    )
+    with client:
+        client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True, "messages": [{"role": "user", "content": "private"}]},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert len(control.finished) == 1
+    assert control.finished[0].input_tokens == 10
+    assert control.finished[0].output_tokens == 4
+    assert store.storage().row_count == int(complete or not skip)
+
+
+@pytest.mark.asyncio
+async def test_full_log_filters_apply_to_rows_and_totals(store: FullLogStore) -> None:
+    log = request_log("http")
+    log.observe({"usage": {"prompt_tokens": 7, "completion_tokens": 3}})
+    await log.finish(
+        FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", http_status=200, message="ok")
+    )
+    other = request_log("http")
+    await other.finish(
+        FinishRequest(lease_id=other.lease.lease_id, endpoint="/v1/responses", http_status=500, message="error")
+    )
+    page = store.query(FullLogQuery(model="model-a", incomplete=False, http_status=200))
+    assert len(page.items) == 1
+    assert page.totals.attempts == 1
+    assert page.totals.input_tokens == 7
+    assert store.query(FullLogQuery(occurred_to=datetime.now(timezone.utc) - timedelta(days=1))).totals.attempts == 0
+    assert store.query(FullLogQuery(model="' OR 1=1 --")).items == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reject_first", [False, True])
+async def test_parent_guardrail_failure_removes_body_even_when_finish_races(
+    store: FullLogStore, reject_first: bool
+) -> None:
+    log = request_log("http")
+    log.skip_failed = True
+    if reject_first:
+        store.reject_request(log.lease.request_id)
+    await log.finish(
+        FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", http_status=200, message="ok")
+    )
+    if not reject_first:
+        assert store.storage().row_count == 1
+        store.reject_request(log.lease.request_id)
+    assert store.storage().row_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport,status", [("http", 500), ("websocket", 200)])
+async def test_skip_failed_keeps_usage_for_http_error_and_interrupted_websocket(
+    store: FullLogStore, transport: Literal["http", "websocket"], status: int
+) -> None:
+    log = request_log(transport)
+    log.skip_failed = True
+    log.input_tokens = 7
+    log.output_tokens = 3
+    log.websocket_pending = transport == "websocket"
+    result = await log.finish(
+        FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", http_status=status, message="error")
+    )
+    assert result.input_tokens == 7
+    assert result.output_tokens == 3
+    assert store.storage().row_count == 0
+
+
 @pytest.mark.parametrize("complete", [False, True])
 def test_full_sse_retains_partial_reply_and_never_puts_body_in_daily_log(store: FullLogStore, complete: bool) -> None:
     stream = 'data: {"choices":[{"delta":{"content":"hello private answer"}}]}\n\n'

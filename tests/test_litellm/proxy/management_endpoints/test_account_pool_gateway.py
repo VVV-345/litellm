@@ -209,7 +209,7 @@ def setup_gateway(
         return {"route": "ordinary"}
 
     app.add_middleware(
-        AccountPoolGatewayMiddleware,
+        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
         control_factory=lambda _: control,
         client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         websocket_dialer=websocket_dialer,
@@ -1148,7 +1148,7 @@ def test_sticky_backup_is_kept_while_it_remains_eligible() -> None:
     )
     app: Final = FastAPI()
     app.add_middleware(
-        AccountPoolGatewayMiddleware,
+        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
         control_factory=lambda _: control,
         client_factory=lambda: httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"output": []}))

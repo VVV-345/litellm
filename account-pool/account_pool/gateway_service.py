@@ -61,10 +61,19 @@ class GatewayService:
         self.model_cooldowns: Final = model_cooldowns
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
-        key: Final = await self.keys.authenticate(request.card_key)
-        if key is None:
+        key: Final = await self.keys.authenticate(request.card_key) if request.card_key else None
+        trusted: Final = request.trusted_card_id is not None and request.trusted_key_id is not None
+        if key is None and not trusted:
             raise HTTPException(401, "Invalid or revoked account pool key")
-        card: Final = await self.environments.get(key.card_id)
+        card_id: Final = key.card_id if key is not None else request.trusted_card_id
+        key_id: Final = key.key_id if key is not None else request.trusted_key_id
+        if card_id is None or key_id is None:
+            raise HTTPException(401, "Missing account pool identity")
+        if trusted and request.binding_id is not None:
+            key_status: Final = await self.keys.status(card_id)
+            if key_status is None or key_status.key_id != request.binding_id or key_status.revoked_at is not None:
+                raise HTTPException(401, "Card key binding was revoked")
+        card: Final = await self.environments.get(card_id)
         if (
             card is None
             or not card.enabled
@@ -81,7 +90,11 @@ class GatewayService:
             effective_settings if policy.version == 0 else None,
         )
         cooling: Final = await self.leases.cooling()
-        scope: Final = await self.environments.list() if effective_card_policy.routing.fallback_enabled else (card,)
+        scope: Final = (
+            await self.environments.list()
+            if effective_card_policy.routing.fallback_enabled and not trusted
+            else (card,)
+        )
         candidates: Final = tuple(
             [
                 await self.candidate(member, global_settings)
@@ -96,9 +109,7 @@ class GatewayService:
                 and (self.ownership is None or await self.ownership.owns(member.id, member.credential_fingerprints))
             ]
         )
-        binding: Final = (
-            binding_hash(key.key_id, request.session_hash) if policy.policy.routing.session_affinity else None
-        )
+        binding: Final = binding_hash(key_id, request.session_hash) if policy.policy.routing.session_affinity else None
         streaming_mode: Final = (
             "inherit" if global_settings is None else streaming_mode_for_card(global_settings, card.id)
         )
@@ -108,12 +119,13 @@ class GatewayService:
         )
         return Resolution(
             card_id=card.id,
-            key_id=key.key_id,
+            key_id=key_id,
             card_version=card.version,
             policy_version=policy.version,
             policy=effective_card_policy,
             candidates=candidates,
             full_logging_enabled=global_settings.full_logging_enabled if global_settings else False,
+            full_log_skip_failed=global_settings.full_log_skip_failed if global_settings else False,
             full_log_retention_days=global_settings.full_log_retention_days if global_settings else 30,
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
@@ -190,7 +202,13 @@ class GatewayService:
 
     async def acquire(self, request: AcquireRequest) -> Lease:
         resolution: Final = await self.resolve(
-            ResolveRequest(card_key=request.card_key, session_hash=request.session_hash)
+            ResolveRequest(
+                card_key=request.card_key,
+                session_hash=request.session_hash,
+                trusted_card_id=request.trusted_card_id,
+                trusted_key_id=request.trusted_key_id,
+                binding_id=request.binding_id,
+            )
         )
         candidate: Final = next((item for item in resolution.candidates if item.id == request.account_id), None)
         if candidate is None or request.model not in candidate.enabled_models:

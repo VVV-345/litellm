@@ -1368,6 +1368,14 @@ class LiteLLMProxyRequestSetup:
         data[_metadata_variable_name].update(user_api_key_logged_metadata)
         data[_metadata_variable_name]["user_api_key"] = user_api_key_dict.api_key  # this is just the hashed token
 
+        from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+
+        pool_caller: Final = pool_identity.get()
+        if pool_caller is not None:
+            data[_metadata_variable_name]["account_pool_request_id"] = str(pool_caller.request_id)
+            if pool_caller.card_id is not None:
+                data[_metadata_variable_name]["account_pool_card_id"] = str(pool_caller.card_id)
+
         # Key-owned agent_id for spend attribution; keep existing (e.g. from header) if key has none
         _key_agent_id: Final = getattr(user_api_key_dict, "agent_id", None)
         _existing_agent_id: Final = data[_metadata_variable_name].get("agent_id")

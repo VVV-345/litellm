@@ -52,6 +52,7 @@ const settings: AccountPoolSettings = {
   auth_refresh_interval_minutes: 15,
   quota_refresh_interval_minutes: 5,
   full_logging_enabled: false,
+  full_log_skip_failed: false,
   daily_log_retention_days: 30,
   full_log_retention_days: 30,
   file_logging_enabled: false,

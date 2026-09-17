@@ -1,26 +1,42 @@
-"""本模块为卡片 Key 提供 LiteLLM 公共模型入口，转发与普通 Key 及管理接口分离。"""
+"""本模块只接收 LiteLLM 已授权的内部转发，公共密钥走标准鉴权和请求处理。"""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import os
 from collections.abc import Callable
 from types import MappingProxyType
 from typing import Final, TypedDict
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
+from fastapi import HTTPException
 from pydantic import JsonValue, TypeAdapter
 from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocket
 from typing_extensions import ReadOnly
 
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl, ManagerControl
-from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Resolution, ResolveRequest
+from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
+    AcquireRejected,
+    AcquireRequest,
+    FinishRequest,
+    Lease,
+    Resolution,
+    ResolveRequest,
+)
 from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+from litellm.proxy.management_endpoints.account_pool_integration import (
+    INTERNAL_PREFIX,
+    ForwardTicket,
+    pool_identity,
+    verify_ticket,
+)
 from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     DefaultWebSocketDialer,
@@ -67,6 +83,34 @@ class _ErrorEnvelope(TypedDict):
     error: ReadOnly[_ErrorDetail]
 
 
+class TrustedControl:
+    def __init__(self, control: GatewayControl, ticket: ForwardTicket) -> None:
+        self.control: Final = control
+        self.ticket: Final = ticket
+
+    def identity_fields(self) -> dict[str, object]:
+        identity: Final = self.ticket.identity
+        return {
+            "card_key": "",
+            "trusted_card_id": self.ticket.account_id,
+            "trusted_key_id": identity.binding_id or uuid5(NAMESPACE_URL, identity.key_hash),
+            "binding_id": identity.binding_id,
+        }
+
+    async def resolve(self, request: ResolveRequest) -> Resolution:
+        return await self.control.resolve(
+            ResolveRequest.model_validate({**request.model_dump(), **self.identity_fields()})
+        )
+
+    async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
+        return await self.control.acquire(
+            AcquireRequest.model_validate({**request.model_dump(), **self.identity_fields()})
+        )
+
+    async def finish(self, request: FinishRequest) -> None:
+        await self.control.finish(request)
+
+
 def http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=120, trust_env=False, follow_redirects=False)
 
@@ -92,6 +136,81 @@ class AccountPoolGatewayMiddleware:
         self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        reset: Final = pool_identity.set(None)
+        try:
+            if scope["type"] in ("http", "websocket") and scope.get("path", "").startswith(INTERNAL_PREFIX):
+                await self.internal(scope, receive, send)
+            else:
+
+                async def track_outcome(message: Message) -> None:
+                    if (
+                        message["type"] == "http.response.start"
+                        and message["status"] >= 400
+                        and os.getenv("ACCOUNT_POOL_MANAGER_TOKEN")
+                        and scope.get("path") in _PATHS
+                    ):
+                        request_id: Final = scope.get("state", {}).get("account_pool_request_id")
+                        if isinstance(request_id, UUID):
+                            from litellm.proxy.management_endpoints.account_pool_full_logs import full_log_store
+
+                            try:
+                                await asyncio.to_thread(full_log_store().reject_request, request_id)
+                            except Exception:
+                                from litellm._logging import verbose_proxy_logger
+
+                                verbose_proxy_logger.warning(
+                                    "Account pool final outcome persistence failed: %s", request_id
+                                )
+                    await send(message)
+
+                await self.app(scope, receive, track_outcome)
+        finally:
+            pool_identity.reset(reset)
+
+    async def internal(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            account, _, path = scope["path"][len(INTERNAL_PREFIX) :].partition("/")
+            ticket: Final = verify_ticket(
+                Headers(scope=scope).get("authorization", "").removeprefix("Bearer "), UUID(account)
+            )
+            forwarded_scope: Final[Scope] = {
+                **scope,
+                "path": "/" + path,
+                "raw_path": ("/" + path).encode(),
+                "headers": [
+                    *(
+                        item
+                        for item in scope["headers"]
+                        if item[0].decode().lower() not in dict(ticket.identity.headers)
+                    ),
+                    *((name.encode(), value.encode()) for name, value in ticket.identity.headers),
+                ],
+                "state": {
+                    **scope.get("state", {}),
+                    "account_pool_request_id": ticket.identity.request_id,
+                    "account_pool_standard_accounting": True,
+                },
+            }
+            gateway: Final = AccountPoolGatewayMiddleware(
+                self.app,
+                lambda client: TrustedControl(self.control_factory(client), ticket),
+                self.client_factory,
+                self.websocket_dialer,
+            )
+            if scope["type"] == "websocket":
+                await gateway._dispatch_websocket(forwarded_scope, receive, send, "internal-forward-key")
+            else:
+                await gateway._dispatch_http(forwarded_scope, receive, send, "internal-forward-key")
+        except (HTTPException, ValueError) as error:
+            if scope["type"] == "websocket":
+                await WebSocket(scope, receive, send).close(code=1008)
+            else:
+                await error_response(
+                    error.status_code if isinstance(error, HTTPException) else 400,
+                    "Invalid internal account pool request",
+                )(scope, receive, send)
+
+    async def dispatch_card(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return

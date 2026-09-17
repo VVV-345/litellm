@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from account_pool.domain import utc_now
 from account_pool.result import Failure, FailureCode, Result, Success
 
-_PREFIX: Final = "cpk_"
+_PREFIX: Final = "sk-cpk_"
 _TOKEN_BYTES: Final = 32
 
 

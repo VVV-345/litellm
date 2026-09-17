@@ -201,6 +201,7 @@ class AccountPoolSettings(BaseModel):
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
     full_logging_enabled: bool = False
+    full_log_skip_failed: bool = False
     daily_log_retention_days: int = Field(default=30, ge=1, le=3650)
     full_log_retention_days: int = Field(default=30, ge=1, le=3650)
     file_logging_enabled: bool = False

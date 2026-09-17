@@ -48,6 +48,7 @@ const defaults: AccountPoolSettings = {
   max_attempts: 1,
   request_timeout_seconds: 120,
   full_logging_enabled: false,
+  full_log_skip_failed: false,
   daily_log_retention_days: 30,
   full_log_retention_days: 30,
   auth_refresh_interval_minutes: 15,
@@ -443,6 +444,10 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
         <Label>{t("accountPool.settings.defaultProxy")}</Label>
         <Select
           value={current.default_proxy_profile_id ?? "default"}
+          items={[
+            { value: "default", label: t("accountPool.config.defaultGateway") },
+            ...(profilesQuery.data ?? []).map((profile) => ({ value: profile.id, label: profile.name })),
+          ]}
           disabled={disabled}
           onValueChange={(profileId) =>
             typeof profileId === "string" &&

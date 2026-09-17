@@ -78,12 +78,13 @@ def test_desired_deployments_keep_protocol_identity_stable() -> None:
     assert [deployment.model_name for deployment in deployments] == ["gpt-5", "gpt-4.1"]
 
 
-def test_non_routable_snapshots_produce_no_deployments() -> None:
+def test_non_routable_snapshots_keep_disabled_deployments() -> None:
     blocked: Final = _environment(routable=False, models=("gpt-5", "gpt-4.1"))
 
     deployments: Final = desired_deployments((blocked,))
 
-    assert deployments == ()
+    assert len(deployments) == 2
+    assert all(deployment.blocked for deployment in deployments)
 
 
 def test_zero_concurrency_limit_removes_litellm_parallel_request_limit() -> None:
@@ -93,6 +94,16 @@ def test_zero_concurrency_limit_removes_litellm_parallel_request_limit() -> None
 
     assert deployment.max_parallel_requests is None
     assert deployment.litellm_params["max_parallel_requests"] is None
+
+
+def test_public_aliases_reach_internal_gateway_without_upstream_secrets() -> None:
+    environment = _environment(routable=True).model_copy(update={"public_models": ("my-model",)})
+    deployment = desired_deployments((environment,))[0]
+    assert deployment.model_name == "my-model"
+    assert deployment.provider_model == "openai/my-model"
+    assert deployment.api_base.endswith(f"/{environment.id}/v1")
+    assert deployment.api_key != environment.api_key
+    assert deployment.litellm_params["num_retries"] == 0
 
 
 @pytest.mark.asyncio
@@ -117,9 +128,9 @@ async def test_reconcile_only_exposes_routable_models_and_removes_stale_deployme
     assert store.deleted == ("stale",)
     assert store.reload_count == 1
     assert all(deployment.max_parallel_requests == 4 for deployment in store.upserted)
-    assert {deployment.model_info["account_pool_environment_id"] for deployment in store.upserted} == {
-        str(environment.id)
-    }
+    assert {
+        deployment.model_info["account_pool_environment_id"] for deployment in store.upserted if not deployment.blocked
+    } == {str(environment.id)}
     assert {deployment.litellm_params["max_parallel_requests"] for deployment in store.upserted} == {4}
 
 

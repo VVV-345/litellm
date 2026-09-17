@@ -467,9 +467,27 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
 ):
     raise_if_required_body_param_missing(route_type=route_type, data=data)
 
+    from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+
+    pool_caller: Final = pool_identity.get()
+    if pool_caller is not None and pool_caller.card_id is not None:
+        if any(name in data for name in ("api_key", "api_base", "config", "client", "user_config")):
+            raise HTTPException(403, "Card keys cannot override the upstream deployment")
+        data["num_retries"] = 0
+        data["caching"] = False
+        data["cache"] = {"no-cache": True, "no-store": True}
+        data["fallbacks"] = []
+        data["context_window_fallbacks"] = []
+        data["content_policy_fallbacks"] = []
+
     await add_shared_session_to_data(data)
 
     raise_if_mock_testing_params_disallowed(data, allowed=mock_testing_params_allowed())
+
+    if pool_caller is not None and pool_caller.card_id is not None:
+        if llm_router is None:
+            raise HTTPException(503, "Card keys require the configured LiteLLM router")
+        return getattr(llm_router, route_type)(**data)
 
     data.pop("enable_tag_filtering", None)
 

@@ -367,7 +367,11 @@ export function AccountPoolPluginsPanel({
       </div>
       <div className="flex flex-wrap items-center gap-3 rounded-md border p-4">
         <span className="text-sm font-medium">{t("accountPool.plugins.card")}</span>
-        <Select value={activeCardId ?? undefined} onValueChange={setSelectedCardId}>
+        <Select
+          items={cards.map((card) => ({ value: card.id, label: `${card.name} · ${card.supplier}` }))}
+          value={activeCardId ?? undefined}
+          onValueChange={setSelectedCardId}
+        >
           <SelectTrigger className="w-full sm:w-80" aria-label={t("accountPool.plugins.card")}>
             <SelectValue placeholder={t("accountPool.plugins.selectCard")} />
           </SelectTrigger>

@@ -169,10 +169,8 @@ def create_management_router(
         return result
 
     @router.get("/stats")
-    async def stats(
-        card_id: UUID | None = None, account_id: UUID | None = None, model: str | None = None
-    ) -> ErrorStats:
-        return await logs.repository.stats(card_id, account_id, model)
+    async def stats(query: Annotated[ErrorLogQuery, Query()]) -> ErrorStats:
+        return await logs.repository.stats(query.card_id, query.account_id, query.model, query)
 
     if settings is not None:
 

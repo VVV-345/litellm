@@ -5,6 +5,8 @@ import { Database, MessagesSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { getAccountPoolSettings, updateAccountPoolSettings } from "./AccountPoolManagementApi";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
 import {
@@ -128,10 +130,48 @@ export function AccountPoolFullLogsPanel({
 }) {
   const [filters, setFilters] = useState<FullLogFilters>({ card_id: initialCardId });
   const [session, setSession] = useState("");
+  const [model, setModel] = useState("");
+  const [requestId, setRequestId] = useState("");
+  const [resultFilter, setResultFilter] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [days, setDays] = useState("30");
   const [busy, setBusy] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [skipFailed, setSkipFailed] = useState<boolean | null>(null);
+  const settings = useQuery({
+    queryKey: ["account-pool", "settings", accessToken],
+    queryFn: () => getAccountPoolSettings(accessToken),
+    retry: false,
+  });
+  const saveLogging = async () => {
+    if (!settings.data || skipFailed === null) return;
+    setBusy(true);
+    try {
+      await updateAccountPoolSettings(accessToken, {
+        version: settings.data.version,
+        values: { ...settings.data.values, full_log_skip_failed: skipFailed },
+      });
+      await settings.refetch();
+      setSkipFailed(null);
+      toast.success("完整日志设置已保存");
+    } catch (error) {
+      toast.fromError(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const resetFilters = () => {
+    setFilters({ card_id: initialCardId });
+    setSession("");
+    setModel("");
+    setRequestId("");
+    setResultFilter("all");
+    setFrom("");
+    setTo("");
+    setExpanded(null);
+  };
   const query = useQuery({
     queryKey: ["account-pool", "full-logs", accessToken, filters],
     queryFn: () => listFullLogs(accessToken, filters),
@@ -144,7 +184,24 @@ export function AccountPoolFullLogsPanel({
   });
   const searchSession = (event: FormEvent) => {
     event.preventDefault();
-    setFilters({ ...filters, session_id: session.trim() || undefined, offset: 0 });
+    if (
+      (from && !Number.isFinite(Date.parse(from))) ||
+      (to && !Number.isFinite(Date.parse(to))) ||
+      (from && to && Date.parse(from) > Date.parse(to))
+    ) {
+      toast.error("请检查开始和结束时间");
+      return;
+    }
+    setFilters({
+      ...filters,
+      session_id: session.trim() || undefined,
+      model: model.trim() || undefined,
+      request_id: requestId.trim() || undefined,
+      incomplete: resultFilter === "all" ? undefined : resultFilter === "failed",
+      occurred_from: from ? new Date(from).toISOString() : undefined,
+      occurred_to: to ? new Date(to).toISOString() : undefined,
+      offset: 0,
+    });
     setExpanded(null);
   };
   const clear = async () => {
@@ -208,7 +265,57 @@ export function AccountPoolFullLogsPanel({
       <p className="text-sm text-muted-foreground">
         在“设置 / 日志”开启完整记录。只有开启后的请求会保存正文，关闭不会删除已有记录。
       </p>
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+        <Switch
+          id="full-log-skip-failed"
+          checked={skipFailed ?? settings.data?.values.full_log_skip_failed ?? false}
+          disabled={busy || !settings.data}
+          onCheckedChange={setSkipFailed}
+        />
+        <label htmlFor="full-log-skip-failed">失败请求不保存完整日志</label>
+        <Button disabled={busy || skipFailed === null || !settings.data} onClick={() => void saveLogging()}>
+          保存
+        </Button>
+        <p className="w-full text-xs text-muted-foreground">
+          开启后，失败和中断请求仍保留错误、用量和成本摘要；已有完整日志继续保留
+        </p>
+        {settings.isError && <p role="alert">日志设置读取失败，请刷新重试</p>}
+      </div>
       <form className="flex flex-wrap gap-2" onSubmit={searchSession}>
+        <Input
+          aria-label="完整日志模型"
+          placeholder="模型"
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+        />
+        <Input
+          aria-label="完整日志请求 ID"
+          placeholder="请求 ID"
+          value={requestId}
+          onChange={(event) => setRequestId(event.target.value)}
+        />
+        <select
+          aria-label="完整日志结果"
+          value={resultFilter}
+          onChange={(event) => setResultFilter(event.target.value)}
+          className="rounded-md border bg-background px-2 text-sm"
+        >
+          <option value="all">全部结果</option>
+          <option value="success">成功</option>
+          <option value="failed">失败或中断</option>
+        </select>
+        <Input
+          type="datetime-local"
+          aria-label="完整日志开始时间"
+          value={from}
+          onChange={(event) => setFrom(event.target.value)}
+        />
+        <Input
+          type="datetime-local"
+          aria-label="完整日志结束时间"
+          value={to}
+          onChange={(event) => setTo(event.target.value)}
+        />
         <Input
           className="min-w-0 flex-1 basis-48"
           aria-label="会话 ID"
@@ -218,6 +325,9 @@ export function AccountPoolFullLogsPanel({
         />
         <Button type="submit" variant="outline">
           查询会话
+        </Button>
+        <Button type="button" variant="ghost" onClick={resetFilters}>
+          重置筛选
         </Button>
         {filters.session_id && (
           <Button
