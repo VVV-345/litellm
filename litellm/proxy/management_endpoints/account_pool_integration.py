@@ -77,15 +77,6 @@ class BlockedKey(TypedDict):
     blocked: ReadOnly[bool]
 
 
-class BindingFilter(BaseModel):
-    path: tuple[str, ...] = ("account_pool_binding_id",)
-    equals: str
-
-
-class BindingQuery(BaseModel):
-    metadata: BindingFilter
-
-
 @runtime_checkable
 class KeyCreator(Protocol):
     async def __call__(
@@ -293,8 +284,7 @@ async def block_card_keys(binding_id: UUID) -> None:
     if prisma_client is None:
         raise HTTPException(503, "LiteLLM database unavailable")
     repository: Final = VerificationTokenRepository(prisma_client)
-    query: Final = BindingQuery(metadata=BindingFilter(equals=str(binding_id)))
-    keys: Final = await repository.find_many(where=query.model_dump(mode="json"))
+    keys: Final = await repository.find_by_account_pool_binding(str(binding_id))
     cache: Final = key_cache(user_api_key_cache)
     blocked: Final[BlockedKey] = {"blocked": True}
     for key in keys:

@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from sys import maxsize
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
@@ -102,6 +103,9 @@ def _account_pool_environment_limit_entries(model_list: list[object]) -> dict[st
         if environment_id is None or not isinstance(litellm_params, dict):
             continue
         limit: Final = litellm_params.get("max_parallel_requests")
+        if limit is None or limit == 0 and not isinstance(limit, bool):
+            entries[environment_id] = (*entries.get(environment_id, ()), maxsize)
+            continue
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             continue
         entries[environment_id] = (*entries.get(environment_id, ()), limit)
@@ -124,6 +128,15 @@ class AccountPoolConcurrencyRegistry:
 
     def get_or_create(self, environment_id: str) -> AccountPoolSemaphore:
         return self._get_or_create_at_current_snapshot(environment_id)
+
+    def update_environments(self, limits: dict[str, int], active_ids: frozenset[str]) -> None:
+        with self._lock:
+            self.update_snapshot(
+                {
+                    **{key: value for key, value in self._snapshot_limits.items() if key in active_ids},
+                    **limits,
+                }
+            )
 
     def _get_or_create_at_current_snapshot(self, environment_id: str) -> AccountPoolSemaphore:
         snapshot: Final = self._snapshot_entry(environment_id)
@@ -171,13 +184,12 @@ class InitalizeCachedClient:
             account_pool_semaphore: Final = litellm_router_instance._account_pool_concurrency_registry.get_or_create(
                 environment_id
             )
-            if calculated_max_parallel_requests:
-                account_pool_cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
-                litellm_router_instance.cache.set_cache(
-                    key=account_pool_cache_key,
-                    value=account_pool_semaphore,
-                    local_only=True,
-                )
+            account_pool_cache_key: Final = max_parallel_requests_cache_key(model_id, environment_id)
+            litellm_router_instance.cache.set_cache(
+                key=account_pool_cache_key,
+                value=account_pool_semaphore,
+                local_only=True,
+            )
             return
         if calculated_max_parallel_requests:
             effective_limit: Final = calculated_max_parallel_requests

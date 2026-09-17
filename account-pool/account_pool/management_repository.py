@@ -259,7 +259,7 @@ class PostgresErrorLogRepository:
                     "SELECT count(*) AS total, count(*) FILTER (WHERE payload->>'final_status' = 'succeeded') AS succeeded, "
                     "count(*) FILTER (WHERE payload->>'final_status' = 'failed') AS failed, "
                     "count(*) FILTER (WHERE (payload->>'retry_count')::integer > 0) AS retried, "
-                    "(SELECT coalesce(sum((payload->>'input_tokens')::bigint + CASE WHEN payload->>'endpoint' LIKE '%/messages' "
+                    "(SELECT coalesce(sum((payload->>'input_tokens')::bigint + CASE WHEN payload->>'endpoint' LIKE '%%/messages' "
                     "THEN coalesce((payload->>'cache_read_input_tokens')::bigint, 0) + "
                     "coalesce((payload->>'cache_creation_input_tokens')::bigint, 0) ELSE 0 END), 0) FROM attempts) AS input_tokens, "
                     "(SELECT coalesce(sum((payload->>'output_tokens')::bigint), 0) FROM attempts) AS output_tokens, "

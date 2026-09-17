@@ -9060,6 +9060,15 @@ class Router:
 
         # add to model names
         self._add_model_to_list_and_index_map(model=_deployment, model_id=deployment.model_info.id)
+        self._account_pool_concurrency_registry.update_environments(
+            account_pool_environment_limits([_deployment]),
+            frozenset(
+                item["model_info"]["account_pool_environment_id"]
+                for item in self.model_list
+                if item.get("model_info", {}).get("managed_by") == "account_pool"
+                and isinstance(item["model_info"].get("account_pool_environment_id"), str)
+            ),
+        )
         self.model_names.add(deployment.model_name)
         self._sync_deployment_budget_config(deployment=deployment)
         return deployment
@@ -9418,6 +9427,15 @@ class Router:
                 self._invalidate_model_group_info_cache()
                 self._invalidate_access_groups_cache()
                 self._update_deployment_indices_after_removal(model_id=id, removal_idx=deployment_idx)
+                self._account_pool_concurrency_registry.update_environments(
+                    {},
+                    frozenset(
+                        model["model_info"]["account_pool_environment_id"]
+                        for model in self.model_list
+                        if model.get("model_info", {}).get("managed_by") == "account_pool"
+                        and isinstance(model["model_info"].get("account_pool_environment_id"), str)
+                    ),
+                )
                 _budget_limiter: Final = self._get_router_deployment_budget_limiter()
                 if _budget_limiter is not None:
                     _budget_limiter.unregister_deployment_budget(model_id=id)
@@ -11697,7 +11715,7 @@ class Router:
             if candidate.get("model_info", {}).get("account_pool_environment_id") == str(caller.card_id)
         ]
         if not scoped:
-            raise ValueError("No deployment is available within this card scope")
+            raise RouterRateLimitErrorBasic(model=model)
         return resolved, scoped
 
     def _unscoped_common_checks_available_deployment(

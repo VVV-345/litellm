@@ -46,14 +46,20 @@ class PriceSnapshot(BaseModel):
     tiered_pricing: list[dict[str, JsonValue]] = Field(default_factory=list)
 
 
+def _deployment_price_info(router: object, model_id: str) -> Mapping[str, object] | None:
+    if not isinstance(router, ModelLookup):
+        return None
+    try:
+        return router.get_model_info(id=model_id)
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
 def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = None) -> PriceSnapshot:
     model_id: Final = str(uuid5(NAMESPACE_URL, f"litellm-account-pool:{account_id.replace('-', '')}:{model}"))
     runtime: Final = sys.modules.get("litellm.proxy.proxy_server")
     router: Final[object] = lookup or getattr(runtime, "llm_router", None)
-    try:
-        deployment: Final = router.get_model_info(id=model_id) if isinstance(router, ModelLookup) else None
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
-        return PriceSnapshot(model=model, model_id=model_id)
+    deployment: Final = _deployment_price_info(router, model_id)
     info: Final = TypeAdapter(dict[str, object]).validate_python(
         (deployment or {}).get("model_info") or deployment or {}
     )
@@ -70,11 +76,12 @@ def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = Non
     mapped: Final = catalog_map.get(model_id)
     catalog_model: Final = model.removeprefix("openai/")
     catalog: Final = TypeAdapter(dict[str, JsonValue]).validate_python(
-        mapped or catalog_map.get(model) or catalog_map.get(catalog_model) or catalog_map.get(f"openai/{model}") or {}
+        catalog_map.get(model) or catalog_map.get(catalog_model) or catalog_map.get(f"openai/{model}") or {}
     )
+    deployment_catalog: Final = TypeAdapter(dict[str, JsonValue]).validate_python(mapped or {})
     rates: Final = {
         key: float(value)
-        for key, value in {**(catalog or {}), **configured}.items()
+        for key, value in {**catalog, **deployment_catalog, **configured}.items()
         if "cost" in key and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
     return PriceSnapshot(
@@ -83,7 +90,7 @@ def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = Non
         source="configured" if configured or mapped else "catalog" if catalog else "unknown",
         rates=rates,
         tiered_pricing=TypeAdapter(list[dict[str, JsonValue]]).validate_python(
-            (catalog or {}).get("tiered_pricing") or []
+            deployment_catalog.get("tiered_pricing") or catalog.get("tiered_pricing") or []
         ),
     )
 

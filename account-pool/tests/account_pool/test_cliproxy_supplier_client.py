@@ -1292,6 +1292,22 @@ async def test_install_plugin_uses_version_and_source_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_global_settings_do_not_overlap_configuration_writes() -> None:
+    active: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert not active
+        active.append(request.url.path)
+        await asyncio.sleep(0.001)
+        active.pop()
+        return httpx.Response(204, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        await CLIProxySettingsSynchronizer(proxy).apply_global_settings(_record(), AccountPoolSettings())
+
+
+@pytest.mark.asyncio
 async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> None:
     record: Final = _record()
     requests: list[httpx.Request] = []

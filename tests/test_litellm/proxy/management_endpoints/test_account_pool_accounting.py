@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from typing import Final
 from datetime import datetime, timezone
+from typing import Final
 from uuid import uuid4
 
 import pytest
@@ -72,6 +72,28 @@ def test_price_lookup_is_bound_to_actual_deployment_and_freezes_rates() -> None:
     lookup.model["model_info"]["input_cost_per_token"] = 0.1
     assert snapshot.rates["input_cost_per_token"] == 0.002
     assert "never-store-this" not in snapshot.model_dump_json()
+
+
+def test_partial_deployment_catalog_retains_builtin_token_rates(monkeypatch) -> None:
+    from uuid import NAMESPACE_URL, uuid5
+
+    import litellm
+
+    account: Final = uuid4()
+    model: Final = "audit-priced-model"
+    model_id: Final = str(uuid5(NAMESPACE_URL, f"litellm-account-pool:{account.hex}:{model}"))
+    monkeypatch.setattr(
+        litellm,
+        "model_cost",
+        {
+            model_id: {"litellm_provider": "openai", "cache_read_input_token_cost": 0},
+            model: {"input_cost_per_token": 0.002, "output_cost_per_token": 0.003},
+        },
+    )
+    price: Final = price_snapshot(str(account), model)
+    assert price.rates["input_cost_per_token"] == 0.002
+    assert price.rates["output_cost_per_token"] == 0.003
+    assert price.rates["cache_read_input_token_cost"] == 0
 
 
 class Database:

@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import uuid4
 import socket
 import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 import httpx
 import pytest
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-import uvicorn
 
 from litellm import Router
 from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
@@ -255,7 +255,7 @@ async def test_revocation_blocks_matching_virtual_key_and_invalidates_auth_cache
 
     binding = uuid4()
     repository = SimpleNamespace(
-        find_many=AsyncMock(return_value=[SimpleNamespace(token="key-hash")]), update=AsyncMock()
+        find_by_account_pool_binding=AsyncMock(return_value=[SimpleNamespace(token="key-hash")]), update=AsyncMock()
     )
     invalidated = []
     cache = SimpleNamespace(delete_cache=invalidated.append)
@@ -268,9 +268,7 @@ async def test_revocation_blocks_matching_virtual_key_and_invalidates_auth_cache
         ),
     ):
         await block_card_keys(binding)
-    repository.find_many.assert_awaited_once_with(
-        where={"metadata": {"path": ["account_pool_binding_id"], "equals": str(binding)}}
-    )
+    repository.find_by_account_pool_binding.assert_awaited_once_with(str(binding))
     repository.update.assert_awaited_once_with("key-hash", {"blocked": True}, id_field="token")
     assert invalidated == ["key-hash"]
 

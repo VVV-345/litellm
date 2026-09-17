@@ -270,6 +270,14 @@ async def _sync_settings_or_restore(
     applied: AccountPoolSettingsView,
     previous: AccountPoolSettingsView,
 ) -> bool:
+    local_fields: Final = {
+        "full_logging_enabled",
+        "full_log_skip_failed",
+        "daily_log_retention_days",
+        "full_log_retention_days",
+    }
+    if applied.values.model_dump(exclude=local_fields) == previous.values.model_dump(exclude=local_fields):
+        return True
     if await _settings_runtime_sync_succeeded(sync_settings, applied.values):
         return True
     # 数据库配置和卡片运行时一起回退，避免同步异常后留下半生效状态。

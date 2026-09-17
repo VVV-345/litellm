@@ -412,3 +412,26 @@ def test_settings_management_api_restores_database_and_runtime_when_sync_raises(
     assert current.json()["version"] == 2
     assert current.json()["values"]["default_route"] == "auto"
     assert [values.default_route for values in synchronized] == ["priority", "auto"]
+
+
+def test_full_log_settings_save_without_upstream_synchronization() -> None:
+    repository: Final = MemorySettingsRepository()
+
+    async def unavailable(values: AccountPoolSettings) -> tuple[UUID, ...]:
+        pytest.fail("Log settings must not reconfigure upstream accounts")
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(), object(), MemoryEnvironments(), lambda: None, object(), repository, sync_settings=unavailable
+        )
+    )
+    with TestClient(app) as client:
+        saved: Final = client.put(
+            "/api/settings", json={"version": 0, "values": {"full_logging_enabled": True, "full_log_skip_failed": True}}
+        )
+        assert saved.status_code == 200
+        assert saved.json()["values"]["full_log_skip_failed"] is True
+        restored: Final = client.post("/api/settings/rollback", json={"expected_version": 1, "target_version": 0})
+        assert restored.status_code == 200
+        assert restored.json()["values"]["full_log_skip_failed"] is False

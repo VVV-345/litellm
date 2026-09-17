@@ -110,7 +110,7 @@ _ENVIRONMENT_A = "00000000-0000-4000-8000-000000000001"
 _ENVIRONMENT_B = "00000000-0000-4000-8000-000000000002"
 
 
-def _account_pool_deployment(model_id: str, environment_id: str, concurrency_limit: int) -> dict[str, object]:
+def _account_pool_deployment(model_id: str, environment_id: str, concurrency_limit: int | None) -> dict[str, object]:
     return {
         "model_name": model_id,
         "litellm_params": {"model": f"openai/{model_id}", "max_parallel_requests": concurrency_limit},
@@ -120,6 +120,30 @@ def _account_pool_deployment(model_id: str, environment_id: str, concurrency_lim
             "account_pool_environment_id": environment_id,
         },
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [None, 0])
+async def test_account_pool_unlimited_capacity_survives_limit_changes(limit: int | None) -> None:
+    from sys import maxsize
+
+    deployment = _account_pool_deployment("model-a", _ENVIRONMENT_A, limit)
+    router = litellm.Router(model_list=[deployment])
+    semaphore = router._get_client(deployment=deployment, kwargs={}, client_type="max_parallel_requests")
+    assert semaphore._value == maxsize
+    async with semaphore, semaphore:
+        router.set_model_list([_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)])
+        limited = router._get_client(deployment=deployment, kwargs={}, client_type="max_parallel_requests")
+        assert limited is semaphore
+        assert limited.locked()
+        router.set_model_list([deployment])
+        unlimited = router._get_client(deployment=deployment, kwargs={}, client_type="max_parallel_requests")
+        assert unlimited is semaphore
+        assert not unlimited.locked()
+    assert semaphore._value == maxsize
+    router.set_model_list([])
+    with pytest.raises(ValueError, match="No deployments available"):
+        router._get_client(deployment=deployment, kwargs={}, client_type="max_parallel_requests")
 
 
 @pytest.mark.asyncio
@@ -157,6 +181,28 @@ async def test_account_pool_models_share_environment_semaphore_capacity() -> Non
     await asyncio.wait_for(third_entered.wait(), timeout=0.1)
     release.set()
     await third
+
+
+@pytest.mark.asyncio
+async def test_dynamic_account_pool_deployments_publish_and_remove_concurrency_limits() -> None:
+    from litellm.types.router import Deployment
+
+    router = litellm.Router(model_list=[])
+    first = _account_pool_deployment("model-a", _ENVIRONMENT_A, 2)
+    second = _account_pool_deployment("model-b", _ENVIRONMENT_A, 2)
+    router.add_deployment(Deployment(**first))
+    router.add_deployment(Deployment(**second))
+    semaphore = router._get_client(deployment=first, kwargs={}, client_type="max_parallel_requests")
+    assert semaphore._value == 2
+    router.delete_deployment("model-a")
+    router.add_deployment(Deployment(**_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)))
+    limited = router._get_client(deployment=second, kwargs={}, client_type="max_parallel_requests")
+    assert limited is semaphore
+    assert limited._value == 1
+    router.delete_deployment("model-a")
+    router.delete_deployment("model-b")
+    with pytest.raises(ValueError, match="No deployments available"):
+        router._get_client(deployment=first, kwargs={}, client_type="max_parallel_requests")
 
 
 @pytest.mark.asyncio

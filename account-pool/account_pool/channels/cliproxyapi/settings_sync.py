@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping
 from typing import Final
 
@@ -47,7 +46,8 @@ class CLIProxySettingsSynchronizer:
             ("/v0/management/force-model-prefix", settings.force_model_prefix),
             ("/v0/management/routing/strategy", route_strategy),
         )
-        await asyncio.gather(*(self._client.put_value(record, path, value) for path, value in scalar_fields))
+        for path, value in scalar_fields:
+            await self._client.put_value(record, path, value)
         await self._client.put_json(record, "/v0/management/oauth-excluded-models", self._excluded_models(settings))
         await self._client.put_json(record, "/v0/management/oauth-model-alias", self._model_aliases(settings))
         await self._client.put_json(
@@ -87,19 +87,14 @@ class CLIProxySettingsSynchronizer:
         payload: Final = _JSON_VALUE_ADAPTER.validate_json(settings.payload.model_dump_json(by_alias=True))
         document: Final = _yaml_document(await self._client.get_config_yaml(record))
         plugins: Final = _yaml_section(document, "plugins")
-        await self._client.put_config_yaml(
-            record,
-            yaml.safe_dump(
-                {
-                    **document,
-                    **_gateway_retry_settings(document),
-                    "payload": payload,
-                    "plugins": {**plugins, "enabled": settings.plugins_enabled, "dir": "/data/plugins"},
-                },
-                sort_keys=False,
-                allow_unicode=False,
-            ),
-        )
+        updated: Final = {
+            **document,
+            **_gateway_retry_settings(document),
+            "payload": payload,
+            "plugins": {**plugins, "enabled": settings.plugins_enabled, "dir": "/data/plugins"},
+        }
+        if updated != document:
+            await self._client.put_config_yaml(record, yaml.safe_dump(updated, sort_keys=False, allow_unicode=False))
 
     def _excluded_models(self, settings: AccountPoolSettings) -> JSONValue:
         return {
