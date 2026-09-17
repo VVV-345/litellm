@@ -273,6 +273,31 @@ async def test_revocation_blocks_matching_virtual_key_and_invalidates_auth_cache
     assert invalidated == ["key-hash"]
 
 
+def test_pool_correlation_survives_standard_spend_metadata_filtering():
+    from litellm.litellm_core_utils.litellm_logging import get_standard_logging_metadata
+    from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.litellm_pre_call_utils import LiteLLMProxyRequestSetup
+    from litellm.proxy.spend_tracking.spend_tracking_utils import _get_spend_logs_metadata
+
+    identity = PoolIdentity(key_hash="audit-key", request_id=uuid4(), card_id=uuid4())
+    reset = pool_identity.set(identity)
+    try:
+        data = LiteLLMProxyRequestSetup.add_user_api_key_auth_to_request_metadata(
+            data={"metadata": {"spend_logs_metadata": {"project": "audit"}}},
+            user_api_key_dict=UserAPIKeyAuth(api_key="audit-key"),
+            _metadata_variable_name="metadata",
+        )
+    finally:
+        pool_identity.reset(reset)
+    metadata = get_standard_logging_metadata(data["metadata"])
+    stored = _get_spend_logs_metadata(metadata)
+    assert stored["spend_logs_metadata"] == {
+        "project": "audit",
+        "account_pool_request_id": str(identity.request_id),
+        "account_pool_card_id": str(identity.card_id),
+    }
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", ["chat", "responses", "compact", "stream", "error"])
 async def test_real_router_http_request_enters_pool_before_upstream(signing_secret, monkeypatch, protocol):

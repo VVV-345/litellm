@@ -1373,6 +1373,12 @@ class LiteLLMProxyRequestSetup:
         pool_caller: Final = pool_identity.get()
         if pool_caller is not None:
             data[_metadata_variable_name]["account_pool_request_id"] = str(pool_caller.request_id)
+            existing_spend_metadata: Final = data[_metadata_variable_name].get("spend_logs_metadata")
+            data[_metadata_variable_name]["spend_logs_metadata"] = {
+                **(existing_spend_metadata if isinstance(existing_spend_metadata, dict) else {}),
+                "account_pool_request_id": str(pool_caller.request_id),
+                **({"account_pool_card_id": str(pool_caller.card_id)} if pool_caller.card_id is not None else {}),
+            }
             if pool_caller.card_id is not None:
                 data[_metadata_variable_name]["account_pool_card_id"] = str(pool_caller.card_id)
 
