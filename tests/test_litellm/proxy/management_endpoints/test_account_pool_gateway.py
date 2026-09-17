@@ -45,6 +45,22 @@ from litellm.proxy.management_endpoints.account_pool_websocket import (
 _KEY: Final = "cpk_" + "test-only-" * 5
 
 
+@pytest.mark.asyncio
+async def test_stream_bootstrap_bounds_buffer_and_replays_every_byte() -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
+
+    oversized: Final = b":" + b" " * 70000 + b"\n\ndata: [DONE]\n\n"
+
+    async def chunks():
+        yield oversized
+
+    bootstrap: Final = StreamBootstrap(chunks())
+    await bootstrap.prepare()
+    assert bootstrap.buffer.tell() == 65536
+    assert b"".join([chunk async for chunk in bootstrap.replay()]) == oversized
+    await bootstrap.close()
+
+
 class Control:
     def __init__(self, resolution: Resolution) -> None:
         self.resolution: Final = resolution
@@ -168,12 +184,13 @@ def setup_gateway(
     handler: Callable[[httpx.Request], httpx.Response],
     *,
     retry: bool = False,
+    max_attempts: int = 2,
     websocket_dialer: FakeWebSocketDialer | None = None,
 ):
     card: Final = uuid4()
     policy: Final = AccountPolicy(
         model_aliases=(ModelAlias(alias="public-model", target="model-a"),),
-        routing=RoutingPolicy(fallback_enabled=retry, max_attempts=2, backoff_ms=0),
+        routing=RoutingPolicy(fallback_enabled=retry, max_attempts=max_attempts, backoff_ms=0),
     )
     control: Final = Control(
         Resolution(
@@ -795,8 +812,8 @@ def test_image_tool_skips_accounts_that_disable_image_generation() -> None:
             json={"model": "model-a", "tools": [{"type": "image_generation"}]},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
-    assert response.status_code == 200
-    assert seen == [f"cliproxy-{control.resolution.candidates[1].id.hex}"]
+    assert response.status_code == 503
+    assert seen == []
 
 
 def test_upstream_redirect_is_reported_as_gateway_failure() -> None:
@@ -830,7 +847,7 @@ def test_token_budget_exhaustion_falls_through_with_explicit_reason() -> None:
         seen.append(request.url.host)
         return httpx.Response(200, json={"output": []})
 
-    client, control = setup_gateway(upstream)
+    client, control = setup_gateway(upstream, retry=True)
     rejected: Final = control.resolution.candidates[0].id
     control.budget_exhausted_account_ids = frozenset((rejected,))
     with client:
@@ -857,6 +874,111 @@ def test_all_token_budgets_exhausted_returns_rate_limit() -> None:
 
     assert response.status_code == 429
     assert response.json()["error"]["message"] == "No bound account has available local token budget"
+
+
+@pytest.mark.parametrize("fallback,expected_attempts,expected_accounts", [(False, 5, 1), (True, 10, 2)])
+def test_same_card_attempt_budget_is_independent_of_failover(fallback, expected_attempts, expected_accounts) -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        raise httpx.ConnectError("upstream unreachable", request=request)
+
+    client, control = setup_gateway(upstream, retry=fallback, max_attempts=5)
+    with client:
+        response = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
+    assert response.status_code == 502
+    assert len(calls) == expected_attempts
+    assert len(set(calls)) == expected_accounts
+    assert calls[:5] == [calls[0]] * 5
+    assert [item.attempt for item in control.acquisitions] == list(range(1, expected_attempts + 1))
+    assert len({item.request_id for item in control.acquisitions}) == 1
+    assert control.acquisitions[1].routing_reason == "same_account_retry"
+    assert not control.finished[0].switched_account
+    if fallback:
+        assert control.finished[4].switched_account
+        assert control.acquisitions[5].routing_reason == "retry_failover"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"type": "error", "code": "server_error", "message": "private upstream details"},
+        {"error": {"code": "server_error", "message": "private upstream details"}},
+    ],
+)
+def test_stream_start_events_are_discarded_before_same_card_retry(error) -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        content = (
+            'data: {"type":"response.created","response":{"id":"failed-attempt"}}\n\n'
+            'data: {"type":"response.in_progress"}\n\n'
+            f"data: {json.dumps(error)}\n\n"
+            if len(calls) == 1
+            else 'data: {"type":"response.created","response":{"id":"successful-attempt"}}\n\n'
+            'data: {"type":"response.output_text.delta","delta":"OK"}\n\n'
+            'data: {"type":"response.completed"}\n\n'
+        )
+        return httpx.Response(200, content=content, headers={"content-type": "text/event-stream"})
+
+    client, control = setup_gateway(upstream)
+    with client:
+        response = client.post(
+            "/v1/responses", json={"model": "model-a", "stream": True}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert response.status_code == 200
+    assert "successful-attempt" in response.text and "OK" in response.text
+    assert "failed-attempt" not in response.text and "private upstream" not in response.text
+    assert len(calls) == 2 and len(set(calls)) == 1
+    assert control.finished[0].upstream_code == "server_error"
+    assert control.finished[0].model_cooldown_seconds == 1
+    assert control.finished[-1].http_status == 200
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"type": "response.output_text.delta", "delta": "hello"},
+        {"type": "response.function_call_arguments.delta", "delta": "{}"},
+        {"type": "response.reasoning_text.delta", "delta": "thinking"},
+    ],
+)
+def test_stream_error_after_meaningful_event_is_never_replayed(event) -> None:
+    content = "data: " + json.dumps(event) + '\n\ndata: {"type":"error","code":"server_error"}\n\n'
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=content, headers={"content-type": "text/event-stream"}), retry=True
+    )
+    with client:
+        response = client.post(
+            "/v1/responses", json={"model": "model-a", "stream": True}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert response.status_code == 200
+    assert len(control.acquisitions) == 1
+    assert control.finished[0].http_status == 502
+    assert not control.finished[0].retryable
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"previous_response_id": "old-response"},
+        {"conversation": "old-conversation"},
+        {"tools": [{"type": "web_search"}]},
+        {"background": True},
+    ],
+)
+def test_stateful_or_tool_requests_are_not_replayed(extra) -> None:
+    client, control = setup_gateway(
+        lambda _: httpx.Response(503, json={"error": {"code": "server_error"}}), retry=True, max_attempts=5
+    )
+    with client:
+        response = client.post(
+            "/v1/responses", json={"model": "model-a", **extra}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert response.status_code == 503
+    assert len(control.acquisitions) == 1
 
 
 def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
@@ -891,8 +1013,10 @@ def test_failover_requires_permission_and_does_not_replay_stateful_requests(prev
             json={"model": "model-a", "previous_response_id": previous_response_id},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
-    assert response.status_code == 503 and len(control.acquisitions) == 1
-    assert not control.finished[0].retryable
+    assert response.status_code == 503
+    assert len(control.acquisitions) == (1 if previous_response_id else 2)
+    assert len({item.account_id for item in control.acquisitions}) == 1
+    assert not control.finished[-1].retryable
 
 
 def test_read_timeout_is_not_retried_even_with_fallback_enabled() -> None:
@@ -973,7 +1097,7 @@ def test_concurrency_falls_through_to_next_candidate_without_consuming_retry_bud
         seen.append(request.url.host)
         return httpx.Response(200, json={"output": []})
 
-    client, control = setup_gateway(upstream)
+    client, control = setup_gateway(upstream, retry=True)
     sticky: Final = control.resolution.candidates[0].id
     control.resolution = control.resolution.model_copy(update={"sticky_account_id": sticky})
     control.unavailable_account_ids = frozenset((sticky,))
@@ -1017,7 +1141,7 @@ def test_sticky_backup_is_kept_while_it_remains_eligible() -> None:
             key_id=uuid4(),
             card_version=1,
             policy_version=1,
-            policy=AccountPolicy(routing=RoutingPolicy(session_affinity=True)),
+            policy=AccountPolicy(routing=RoutingPolicy(session_affinity=True, fallback_enabled=True)),
             candidates=(candidate(card, 10), backup),
             sticky_account_id=backup.id,
         )

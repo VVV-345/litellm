@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-from collections.abc import Callable
+import math
+from collections.abc import Awaitable, Callable
 from typing import Final, Literal
 from uuid import UUID
 
@@ -11,12 +13,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from account_pool.card_keys import CardKeyService
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import EnvironmentRecord, GatewayEnvironment, utc_now
+from account_pool.domain import ChannelKind, EnvironmentRecord, GatewayEnvironment, ModelCooldown, utc_now
 from account_pool.error_logs import MODEL_REQUEST_OPERATION, ErrorLogRecord, ErrorLogService
 from account_pool.gateway_contracts import (
     AcquireRejected,
     AcquireRequest,
     Candidate,
+    CandidateModelCooldown,
     CandidateModelQuota,
     FinishRequest,
     Lease,
@@ -45,6 +48,7 @@ class GatewayService:
         gateway: Callable[[EnvironmentRecord], GatewayEnvironment],
         settings: AccountPoolSettingsRepository | None = None,
         ownership: CredentialOwnership | None = None,
+        model_cooldowns: Callable[[EnvironmentRecord], Awaitable[tuple[ModelCooldown, ...]]] | None = None,
     ) -> None:
         self.keys: Final = keys
         self.environments: Final = environments
@@ -54,6 +58,7 @@ class GatewayService:
         self.gateway: Final = gateway
         self.settings: Final = settings
         self.ownership: Final = ownership
+        self.model_cooldowns: Final = model_cooldowns
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         key: Final = await self.keys.authenticate(request.card_key)
@@ -76,11 +81,20 @@ class GatewayService:
             effective_settings if policy.version == 0 else None,
         )
         cooling: Final = await self.leases.cooling()
-        owned: Final = self.ownership is None or await self.ownership.owns(card.id, card.credential_fingerprints)
-        candidates: Final = (
-            (await self.candidate(card, global_settings),)
-            if owned and card.id not in cooling and self.gateway(card).routable
-            else ()
+        scope: Final = await self.environments.list() if effective_card_policy.routing.fallback_enabled else (card,)
+        candidates: Final = tuple(
+            [
+                await self.candidate(member, global_settings)
+                for member in scope
+                if member.channel == card.channel
+                and member.supplier == card.supplier
+                and member.enabled
+                and not member.manual_cooldown
+                and not member.configuration_pending
+                and member.id not in cooling
+                and self.gateway(member).routable
+                and (self.ownership is None or await self.ownership.owns(member.id, member.credential_fingerprints))
+            ]
         )
         binding: Final = (
             binding_hash(key.key_id, request.session_hash) if policy.policy.routing.session_affinity else None
@@ -104,6 +118,7 @@ class GatewayService:
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
             websocket_enabled=websocket_enabled,
+            enabled_models=self.gateway(card).enabled_models,
         )
 
     async def candidate(
@@ -161,6 +176,9 @@ class GatewayService:
                 for item in record.model_quotas
                 if item.quota.windows
             ),
+            model_cooldowns=tuple(
+                CandidateModelCooldown.model_validate(item.model_dump()) for item in record.model_cooldowns
+            ),
             plan_type=record.quota.plan_type,
             auth_file_plan_type=record.quota.auth_file_plan_type,
             subscription_active_until=record.quota.subscription_active_until,
@@ -177,6 +195,8 @@ class GatewayService:
         candidate: Final = next((item for item in resolution.candidates if item.id == request.account_id), None)
         if candidate is None or request.model not in candidate.enabled_models:
             raise HTTPException(403, "Account is outside the card scope or unavailable")
+        if request.model not in resolution.enabled_models:
+            raise HTTPException(403, "Model is outside the originating card scope")
         if request.model in resolution.policy.excluded_models or request.model in candidate.policy.excluded_models:
             raise HTTPException(403, "Model is excluded")
         if resolution.card_version != request.card_version or resolution.policy_version != request.policy_version:
@@ -193,13 +213,14 @@ class GatewayService:
         )
         lease: Final = await self.leases.acquire(request, resolution, candidate, binding)
         if isinstance(lease, AcquireRejected):
-            raise HTTPException(409, detail=lease.model_dump(mode="json"))
+            raise HTTPException(409, detail=lease.model_dump(mode="json", exclude_defaults=True))
         return lease
 
     async def finish(self, request: FinishRequest) -> None:
         lease: Final = await self.leases.get(request.lease_id)
         if lease is None:
             return
+        observed_delay: Final = await self.cooldown_delay(lease) if request.http_status >= 400 else 0
         failed: Final = request.http_status >= 400
         category: Final = (
             "authentication"
@@ -277,7 +298,7 @@ class GatewayService:
             full_log_state=request.full_log_state,
             spend_sync_state=request.spend_sync_state,
         )
-        cooldown: Final = 60 if request.http_status == 429 else 300 if request.http_status in (401, 403) else 0
+        cooldown: Final = 300 if request.http_status in (401, 403) else 0
         actual_tokens: Final = (
             0
             if failed
@@ -291,7 +312,45 @@ class GatewayService:
             await self.logs.repository.append(event)
         finally:
             # 日志故障不能占住并发租约，否则账号会持续误判为满载。
-            await self.leases.release(lease, cooldown, actual_tokens)
+            await self.leases.release(
+                lease,
+                cooldown,
+                actual_tokens,
+                model_cooldown_seconds=max(
+                    observed_delay,
+                    request.model_cooldown_seconds,
+                    request.retry_after_seconds,
+                    60 if request.http_status == 429 else 0,
+                ),
+                model_succeeded=not failed,
+            )
+
+    async def cooldown_delay(self, lease: Lease) -> int:
+        if self.model_cooldowns is None or lease.channel != ChannelKind.CLIPROXYAPI:
+            return 0
+        try:
+            async with asyncio.timeout(3):
+                record: Final = await self.environments.get(lease.account_id)
+                if record is None:
+                    return 0
+                observed: Final = await self.model_cooldowns(record)
+            return min(
+                86400,
+                max(
+                    0,
+                    max(
+                        (
+                            math.ceil((item.retry_at - utc_now()).total_seconds())
+                            for item in observed
+                            if item.model == lease.model
+                        ),
+                        default=0,
+                    ),
+                ),
+            )
+        except Exception:
+            # 状态同步失败不能阻止租约释放，仍使用转发层报告的保守冷却。
+            return 0
 
 
 def binding_hash(key_id: UUID, session_hash: str | None) -> str | None:

@@ -39,6 +39,14 @@ class CandidateModelQuota(BaseModel):
     observed_at: AwareDatetime | None = None
 
 
+class CandidateModelCooldown(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    retry_at: AwareDatetime
+    reason: str = "upstream_error"
+
+
 class Candidate(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID
@@ -62,6 +70,7 @@ class Candidate(BaseModel):
     auth_file_plan_type: str | None = None
     subscription_active_until: AwareDatetime | None = None
     websocket_enabled: bool = False
+    model_cooldowns: tuple[CandidateModelCooldown, ...] = ()
 
 
 class Resolution(BaseModel):
@@ -77,6 +86,7 @@ class Resolution(BaseModel):
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
     websocket_enabled: bool = False
+    enabled_models: tuple[str, ...] = ()
 
 
 class AcquireRequest(ResolveRequest):
@@ -89,7 +99,7 @@ class AcquireRequest(ResolveRequest):
     account_policy_version: int
     timeout_seconds: int = Field(ge=1, le=3600)
     estimated_tokens: int = Field(default=0, ge=0, le=1000000000)
-    attempt: int = Field(ge=1, le=5)
+    attempt: int = Field(ge=1, le=10)
     routing_reason: RoutingReason = "automatic"
     allow_session_rebind: bool = False
 
@@ -109,7 +119,7 @@ class Lease(BaseModel):
     budget_enabled: bool = False
     budget_window_seconds: int | None = Field(default=None, ge=60, le=2592000)
     budget_window_started_at: AwareDatetime | None = None
-    attempt: int = Field(default=1, ge=1, le=5)
+    attempt: int = Field(default=1, ge=1, le=10)
     routing_reason: RoutingReason = "automatic"
 
 
@@ -120,6 +130,8 @@ class FinishRequest(BaseModel):
     stage: Literal["connection", "upstream", "response"] = "upstream"
     message: str = Field(max_length=500)
     upstream_code: str | None = Field(default=None, max_length=120)
+    retry_after_seconds: int = Field(default=0, ge=0, le=86400)
+    model_cooldown_seconds: int = Field(default=0, ge=0, le=86400)
     retryable: bool = False
     switched_account: bool = False
     next_account_id: UUID | None = None
@@ -142,3 +154,4 @@ class FinishRequest(BaseModel):
 class AcquireRejected(BaseModel):
     model_config = ConfigDict(frozen=True)
     reason: AcquireRejectionReason
+    retry_after_seconds: int = Field(default=0, ge=0, le=86400)

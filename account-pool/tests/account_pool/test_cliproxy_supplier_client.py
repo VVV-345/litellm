@@ -133,6 +133,48 @@ async def test_read_account_selects_matching_type_and_model_file() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("aggregate", (False, True))
+async def test_model_cooldown_snapshot_is_isolated_from_healthy_models_and_credentials(aggregate: bool) -> None:
+    record = _record().model_copy(update={"auth_file_name": "selected.json"})
+    retry_at = "2099-09-17T15:00:00+00:00"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "selected.json",
+                            "provider": "codex",
+                            "unavailable": aggregate,
+                            "next_retry_after": retry_at if aggregate else None,
+                            "model_states": {
+                                "model-a": {
+                                    "unavailable": True,
+                                    "next_retry_after": retry_at,
+                                    "reason": "upstream_error",
+                                },
+                                "model-b": {"unavailable": False},
+                            },
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"models": [{"id": "model-a"}, {"id": "model-b"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        snapshot = await proxy.read_account(record, SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX))
+        runtime = await proxy.read_model_cooldowns(record)
+    assert snapshot.status == EnvironmentStatus.READY
+    assert not snapshot.automatic_cooldown
+    assert len(snapshot.model_cooldowns) == 1
+    assert snapshot.model_cooldowns == runtime
+    assert runtime[0].model == "model-a" and runtime[0].reason == "upstream_error"
+
+
+@pytest.mark.asyncio
 async def test_read_account_prefers_the_auth_file_already_bound_to_the_card() -> None:
     record: Final = _record().model_copy(update={"auth_file_name": "uploaded.json"})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
@@ -1485,6 +1527,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
     assert json.loads(patch_request.content) == {
         "name": "codex.json",
+        "request_retry": 0,
         "codex_fingerprint_mode": "session",
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
@@ -1543,8 +1586,14 @@ async def test_apply_policy_syncs_only_auth_file_metadata(
     await client.aclose()
 
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
-    assert json.loads(patch_request.content) == {"name": "provider.json", **expected_fields}
-    assert not any(request.url.path.endswith("/config.yaml") and request.method == "PUT" for request in requests)
+    assert json.loads(patch_request.content) == {"name": "provider.json", "request_retry": 0, **expected_fields}
+    config_request: Final = next(
+        request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
+    )
+    synced: Final = yaml.safe_load(config_request.content)
+    assert synced["request-retry"] == 0
+    assert synced["streaming"]["bootstrap-retries"] == 0
+    assert synced["transient-error-cooldown-seconds"] == 1
 
 
 @pytest.mark.asyncio

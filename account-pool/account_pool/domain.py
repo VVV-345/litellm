@@ -188,6 +188,14 @@ class ModelQuotaSnapshot(BaseModel):
     quota: QuotaSnapshot
 
 
+class ModelCooldown(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    retry_at: datetime
+    reason: str = "upstream_error"
+
+
 class EnvironmentConfiguration(BaseModel):
     """环境需要收敛到所选渠道的完整配置快照，不包含任何密钥。"""
 
@@ -460,6 +468,7 @@ class EnvironmentRecord(BaseModel):
     credential_account_id: str | None = None
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
+    model_cooldowns: tuple[ModelCooldown, ...] = ()
     cooldown_until: datetime | None
     automatic_cooldown: bool = False
     oauth_state: str | None
@@ -501,6 +510,7 @@ class EnvironmentView(BaseModel):
     enabled_models: tuple[str, ...]
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
+    model_cooldowns: tuple[ModelCooldown, ...] = ()
     cooldown_until: datetime | None
     automatic_cooldown: bool = False
     last_error: str | None
@@ -684,6 +694,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         enabled_models=record.enabled_models,
         quota=record.quota,
         model_quotas=record.model_quotas,
+        model_cooldowns=record.model_cooldowns,
         cooldown_until=record.cooldown_until,
         automatic_cooldown=record.automatic_cooldown,
         last_error=record.last_error,

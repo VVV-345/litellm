@@ -36,6 +36,12 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     RoutingReason,
 )
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
+from litellm.proxy.management_endpoints.account_pool_retry import (
+    StreamBootstrap,
+    backoff_seconds,
+    replay_safe,
+    retry_after,
+)
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
@@ -243,8 +249,18 @@ async def forward(
     send: Send,
 ) -> None:
     routing: Final = resolution.policy.routing
-    allow_retry: Final = routing.fallback_enabled and not payload.get("previous_response_id")
+    allow_retry: Final = replay_safe(payload)
     max_attempts: Final = routing.max_attempts if allow_retry else 1
+    bound_id: Final = (
+        resolution.sticky_account_id if not allow_retry and resolution.sticky_account_id else resolution.card_id
+    )
+    scoped: Final = tuple(route for route in selected if route.account.id == bound_id)
+    ordered: Final = (
+        selected
+        if resolution.sticky_account_id is not None and selected[0].account.id == resolution.sticky_account_id
+        else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
+    )
+    eligible: Final = ordered[:2] if routing.fallback_enabled and allow_retry else scoped[:1]
     request_id: Final = uuid4()
     completed, rejections = await forward_candidate(
         request,
@@ -252,7 +268,7 @@ async def forward(
         key,
         session,
         resolution,
-        selected,
+        eligible,
         control,
         client,
         send,
@@ -261,6 +277,8 @@ async def forward(
         attempt_number=1,
         max_attempts=max_attempts,
         rejection_reasons=frozenset[AcquireRejectionReason](),
+        same_card_attempt=1,
+        deadline=asyncio.get_running_loop().time() + min(90, resolution.policy.transport.request_timeout_seconds),
     )
     if completed:
         return
@@ -301,9 +319,15 @@ async def forward_candidate(
     attempt_number: int,
     max_attempts: int,
     rejection_reasons: frozenset[AcquireRejectionReason],
+    same_card_attempt: int = 1,
+    deadline: float = float("inf"),
 ) -> tuple[bool, frozenset[AcquireRejectionReason]]:
-    if route_index >= len(selected):
+    if route_index >= len(selected) or attempt_number > 10:
         return False, rejection_reasons
+    if attempt_number > 1 and asyncio.get_running_loop().time() >= deadline:
+        return False, rejection_reasons
+    if await request.is_disconnected():
+        return True, frozenset()
     route: Final = selected[route_index]
     seconds: Final = min(
         resolution.policy.transport.request_timeout_seconds, route.account.policy.transport.request_timeout_seconds
@@ -329,13 +353,43 @@ async def forward_candidate(
         timeout_seconds=seconds,
         estimated_tokens=estimated_tokens,
         attempt=attempt_number,
-        routing_reason=attempt_routing_reason(
+        routing_reason="same_account_retry"
+        if same_card_attempt > 1
+        else attempt_routing_reason(
             route, route_index, attempt_number, sticky_unavailable, "token_budget" in rejection_reasons
         ),
         allow_session_rebind=route_index > 0 or sticky_unavailable,
     )
     lease: Final = await control.acquire(acquisition)
     if isinstance(lease, AcquireRejected):
+        if lease.reason in ("configuration", "session"):
+            return False, rejection_reasons | frozenset((lease.reason,))
+        wait: Final = lease.retry_after_seconds
+        if (
+            lease.reason == "cooldown"
+            and wait > 0
+            and route_index + 1 >= len(selected)
+            and asyncio.get_running_loop().time() + wait < deadline
+        ):
+            await asyncio.sleep(wait)
+            return await forward_candidate(
+                request,
+                payload,
+                key,
+                session,
+                resolution,
+                selected,
+                control,
+                client,
+                send,
+                request_id,
+                route_index,
+                attempt_number,
+                max_attempts,
+                rejection_reasons,
+                same_card_attempt,
+                deadline,
+            )
         return await forward_candidate(
             request,
             payload,
@@ -351,10 +405,14 @@ async def forward_candidate(
             attempt_number,
             max_attempts,
             rejection_reasons | frozenset((lease.reason,)),
+            1,
+            deadline,
         )
+    same_card_retry: Final = same_card_attempt < max_attempts
+    next_index: Final = route_index if same_card_retry else route_index + 1
     next_id: Final = (
-        selected[route_index + 1].account.id
-        if attempt_number < max_attempts and route_index + 1 < len(selected)
+        selected[next_index].account.id
+        if attempt_number < 10 and next_index < len(selected) and asyncio.get_running_loop().time() < deadline
         else None
     )
     debug_detail: Final = (
@@ -365,11 +423,36 @@ async def forward_candidate(
     )
     attempt: Final = Attempt(lease, request.url.path, send, debug_detail, log)
     try:
-        completed: Final = await execute(request, payload, route, resolution, client, attempt, next_id, seconds)
+        completed: Final = await execute(
+            request, payload, route, resolution, client, attempt, next_id, seconds, deadline
+        )
+        switch_unavailable: Final = (
+            not completed and attempt.result.http_status == 429 and route_index + 1 < len(selected)
+        )
+        actual_next_index: Final = route_index + 1 if switch_unavailable else next_index
+        if switch_unavailable:
+            attempt.outcome(
+                attempt.result.http_status,
+                attempt.result.message,
+                switched_account=True,
+                next_account_id=str(selected[actual_next_index].account.id),
+            )
     finally:
         await asyncio.shield(finish_attempt(control, attempt))
     if not completed:
-        await asyncio.sleep(min(resolution.policy.routing.backoff_ms, 60000) / 1000)
+        delay: Final = max(
+            backoff_seconds(resolution.policy.routing.backoff_ms, same_card_attempt),
+            attempt.result.retry_after_seconds if actual_next_index == route_index else 0,
+            attempt.result.model_cooldown_seconds if actual_next_index == route_index else 0,
+        )
+        if asyncio.get_running_loop().time() + delay >= deadline:
+            await JSONResponse(
+                {"error": {"message": "Retry deadline exhausted", "code": "retry_deadline_exceeded"}},
+                status_code=503,
+                headers={"Retry-After": str(max(1, math.ceil(delay)))},
+            )(request.scope, request.receive, attempt.emit)
+            return True, frozenset()
+        await asyncio.sleep(delay)
         return await forward_candidate(
             request,
             payload,
@@ -381,10 +464,12 @@ async def forward_candidate(
             client,
             send,
             request_id,
-            route_index + 1,
+            actual_next_index,
             attempt_number + 1,
             max_attempts,
             frozenset[AcquireRejectionReason](),
+            same_card_attempt + 1 if actual_next_index == route_index else 1,
+            deadline,
         )
     return True, frozenset[AcquireRejectionReason]()
 
@@ -398,6 +483,7 @@ async def execute(
     attempt: Attempt,
     next_id: UUID | None,
     seconds: int,
+    deadline: float = float("inf"),
 ) -> bool:
     provider_header_names: Final = frozenset(name.lower() for name, _ in route.account.headers)
     client_headers: Final = tuple(
@@ -462,7 +548,9 @@ async def execute(
                         attempt.log.observe(error_payload)
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
-                        next_id is not None and response.status_code in resolution.policy.routing.retryable_statuses
+                        next_id is not None
+                        and response.status_code in resolution.policy.routing.retryable_statuses
+                        and asyncio.get_running_loop().time() < deadline
                     )
                     attempt.outcome(
                         public_status,
@@ -470,8 +558,16 @@ async def execute(
                         stage="upstream",
                         upstream_code=code,
                         retryable=retry,
-                        switched_account=retry,
-                        next_account_id=str(next_id) if retry else None,
+                        switched_account=retry and next_id != route.account.id,
+                        next_account_id=str(next_id) if retry and next_id != route.account.id else None,
+                        retry_after_seconds=retry_after(response.headers),
+                        model_cooldown_seconds=(
+                            max(60, retry_after(response.headers))
+                            if public_status == 429
+                            else 1
+                            if public_status in (408, 500, 502, 503, 504)
+                            else 0
+                        ),
                         cost_usd=cost_usd,
                     )
                     if retry:
@@ -485,7 +581,9 @@ async def execute(
                 if payload.get("stream") is True:
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise ValueError("Upstream did not return an event stream")
-                    await stream_response(request, response, attempt, cost_usd)
+                    return await guarded_stream_response(
+                        request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline
+                    )
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
                     parsed: Final = _JSON.validate_json(data)
@@ -532,8 +630,8 @@ async def execute(
             "Downstream disconnected" if disconnected else "Upstream connection or response failed",
             stage="response" if attempt.started else "connection",
             retryable=retry_connection,
-            switched_account=retry_connection,
-            next_account_id=str(next_id) if retry_connection else None,
+            switched_account=retry_connection and next_id != route.account.id,
+            next_account_id=str(next_id) if retry_connection and next_id != route.account.id else None,
         )
         if retry_connection:
             return False
@@ -755,16 +853,80 @@ def requested_output_tokens(path: str, payload: Mapping[str, JsonValue]) -> int:
     return 0 if path == "/v1/images/generations" else 1024
 
 
+async def guarded_stream_response(
+    request: Request,
+    response: httpx.Response,
+    payload: Mapping[str, JsonValue],
+    route: Route,
+    resolution: Resolution,
+    attempt: Attempt,
+    next_id: UUID | None,
+    cost_usd: float | None,
+    deadline: float,
+) -> bool:
+    bootstrap: Final = StreamBootstrap(response.aiter_bytes())
+    try:
+        if replay_safe(payload):
+            await bootstrap.prepare()
+        if bootstrap.state.failed and not bootstrap.state.meaningful:
+            if attempt.log is not None:
+                attempt.log.capture(bootstrap.buffer.getvalue())
+            retry: Final = (
+                next_id is not None
+                and bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
+                and bootstrap.state.error_code
+                in (
+                    "server_error",
+                    "internal_server_error",
+                    "overloaded_error",
+                    "overloaded",
+                    "rate_limit_exceeded",
+                    "rate_limit_error",
+                    "stream_interrupted",
+                )
+                and asyncio.get_running_loop().time() < deadline
+            )
+            attempt.outcome(
+                bootstrap.state.error_status,
+                "Upstream stream failed before output",
+                stage="response",
+                upstream_code=bootstrap.state.error_code,
+                retryable=retry,
+                switched_account=retry and next_id != route.account.id,
+                next_account_id=str(next_id) if retry and next_id != route.account.id else None,
+                model_cooldown_seconds=60
+                if bootstrap.state.error_status == 429
+                else 1
+                if bootstrap.state.error_status >= 500
+                else 0,
+            )
+            if retry:
+                return False
+            await JSONResponse(
+                {"error": {"message": attempt.result.message, "code": bootstrap.state.error_code}},
+                status_code=bootstrap.state.error_status,
+                headers={"Retry-After": str(attempt.result.model_cooldown_seconds)}
+                if attempt.result.model_cooldown_seconds
+                else {},
+            )(request.scope, request.receive, attempt.emit)
+            return True
+        await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
+        return True
+    finally:
+        await bootstrap.close()
+
+
 async def stream_response(
     request: Request,
     response: httpx.Response,
     attempt: Attempt,
     cost_usd: float | None,
+    source: AsyncIterator[bytes] | None = None,
 ) -> None:
     state: Final = EventStream()
 
     async def chunks() -> AsyncIterator[bytes]:
-        async for chunk in response.aiter_bytes():
+        async for chunk in source if source is not None else response.aiter_bytes():
             if attempt.log is not None:
                 attempt.log.capture(chunk)
             for frame in state.feed(chunk):
@@ -783,7 +945,13 @@ async def stream_response(
         if not state.terminal:
             raise ValueError("Upstream event stream ended before completion")
         if state.failed:
-            attempt.outcome(502, "Upstream stream reported an error", stage="response")
+            attempt.outcome(
+                state.error_status,
+                "Upstream stream reported an error",
+                stage="response",
+                upstream_code=state.error_code,
+                model_cooldown_seconds=60 if state.error_status == 429 else 1 if state.error_status >= 500 else 0,
+            )
         else:
             attempt.outcome(
                 response.status_code,

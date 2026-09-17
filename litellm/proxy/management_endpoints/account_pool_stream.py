@@ -48,6 +48,9 @@ class EventStream:
         self.pending = b""
         self.terminal = False
         self.failed = False
+        self.meaningful = False
+        self.error_code: str | None = None
+        self.error_status = 502
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
         self.cache_read_input_tokens: int | None = None
@@ -78,6 +81,15 @@ class EventStream:
         return final
 
     def observe_payload(self, event: dict[str, JsonValue]) -> None:
+        kind: Final = event.get("type")
+        if event.get("error") is None and kind not in (
+            "response.created",
+            "response.in_progress",
+            "ping",
+            "error",
+            "response.failed",
+        ):
+            self.meaningful = True
         input_count, output_count = usage_tokens(event)
         if input_count is not None:
             self.input_tokens = input_count
@@ -93,3 +105,19 @@ class EventStream:
         if event.get("type") in ("error", "response.failed", "response.incomplete") or event.get("error") is not None:
             self.failed = True
             self.terminal = True
+            response: Final = event.get("response")
+            nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
+            error: Final = nested if isinstance(nested, dict) else event
+            code: Final = error.get("code", error.get("type"))
+            self.error_code = code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
+            self.error_status = (
+                429
+                if self.error_code in ("rate_limit_exceeded", "rate_limit_error", "insufficient_quota")
+                else 401
+                if self.error_code in ("authentication_error", "invalid_api_key")
+                else 400
+                if self.error_code in ("invalid_request_error", "invalid_request", "context_length_exceeded")
+                else 503
+                if self.error_code in ("overloaded_error", "overloaded")
+                else 502
+            )

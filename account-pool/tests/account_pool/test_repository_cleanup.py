@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Final, cast
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
-from account_pool.domain import ChannelKind, SupplierKind, utc_now
+from account_pool.domain import ChannelKind, ModelCooldown, SupplierKind, utc_now
 from account_pool.gateway_contracts import Lease
-from account_pool.gateway_repository import _release_lease, reserve_token_budget
+from account_pool.gateway_repository import _release_lease, reserve_token_budget, settle_model_cooldowns
 from account_pool.repository import _delete_environment
 
 
@@ -38,7 +38,9 @@ class RuntimeConnection:
 
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> ResultCursor:
         statement = " ".join(query.split())
-        if statement.startswith("SELECT id FROM account_pool_environments"):
+        if statement.startswith(
+            ("SELECT id FROM account_pool_environments", "SELECT id, payload FROM account_pool_environments")
+        ):
             environment_id = cast(UUID, params[0])
             return ResultCursor({"id": environment_id} if environment_id in self.state.environments else None)
         if statement.startswith("DELETE FROM account_pool_leases WHERE account_id"):
@@ -129,6 +131,20 @@ def lease(card_id: UUID, account_id: UUID) -> Lease:
         model="gpt-5",
         started_at=utc_now(),
     )
+
+
+def test_model_cooldown_preserves_other_models_and_newer_concurrent_failures() -> None:
+    now = utc_now()
+    active = lease(uuid4(), uuid4()).model_copy(update={"started_at": now})
+    other = ModelCooldown(model="other-model", retry_at=now + timedelta(minutes=2))
+    failed = settle_model_cooldowns((other,), active, 60, False, now)
+    assert len(failed) == 2 and failed[0] == other
+    assert failed[1].model == active.model and failed[1].retry_at == now + timedelta(seconds=60)
+    assert settle_model_cooldowns(failed, active, 0, True, now) == failed
+    probe = active.model_copy(update={"started_at": now + timedelta(seconds=61)})
+    assert settle_model_cooldowns(failed, probe, 0, True, now + timedelta(seconds=62)) == (other,)
+    repeated = settle_model_cooldowns(failed, active, 1, False, now)
+    assert repeated == failed
 
 
 @pytest.mark.asyncio

@@ -6,9 +6,13 @@ type GeneratedAccountPoolEnvironment = components["schemas"]["AccountPoolEnviron
 type GeneratedAccountPoolAuthorization = components["schemas"]["AccountPoolAuthorization"];
 type GeneratedAccountPoolUpdateRequest = components["schemas"]["AccountPoolUpdateRequest"];
 
-export type AccountPoolEnvironment = Omit<GeneratedAccountPoolEnvironment, "version" | "configuration_pending"> & {
+export type AccountPoolEnvironment = Omit<
+  GeneratedAccountPoolEnvironment,
+  "version" | "configuration_pending" | "model_cooldowns"
+> & {
   version: number;
   configuration_pending: boolean;
+  model_cooldowns?: GeneratedAccountPoolEnvironment["model_cooldowns"];
 };
 export type AccountPoolAuthorization = Omit<GeneratedAccountPoolAuthorization, "environment"> & {
   environment: AccountPoolEnvironment;

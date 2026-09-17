@@ -135,6 +135,14 @@ class AccountPoolModelQuotaSnapshot(BaseModel):
     quota: AccountPoolQuotaSnapshot
 
 
+class AccountPoolModelCooldown(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    retry_at: str
+    reason: str = "upstream_error"
+
+
 class AccountPoolEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -179,6 +187,7 @@ class AccountPoolEnvironment(BaseModel):
     enabled_models: tuple[str, ...]
     quota: AccountPoolQuotaSnapshot
     model_quotas: tuple[AccountPoolModelQuotaSnapshot, ...] = ()
+    model_cooldowns: tuple[AccountPoolModelCooldown, ...] = ()
     cooldown_until: str | None
     automatic_cooldown: bool = False
     last_error: str | None

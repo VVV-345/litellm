@@ -100,6 +100,14 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
           {quota.refresh_error}
         </p>
       )}
+      {(environment.model_cooldowns ?? []).map((cooldown) => (
+        <p key={cooldown.model} role="status" className="break-words text-xs text-amber-700 dark:text-amber-400">
+          {t("accountPool.quotas.modelCooldown", {
+            model: cooldown.model,
+            time: formatDateTime(cooldown.retry_at, i18n.language),
+          })}
+        </p>
+      ))}
     </section>
   );
 }

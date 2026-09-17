@@ -199,6 +199,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
                 "balances": [],
             },
             "model_quotas": [],
+            "model_cooldowns": [],
             "cooldown_until": None,
             "automatic_cooldown": False,
             "last_error": None,

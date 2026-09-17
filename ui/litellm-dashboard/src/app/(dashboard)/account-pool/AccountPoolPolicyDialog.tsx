@@ -222,7 +222,10 @@ function PolicyForm({
     value,
   }));
   const selectedGroup = groupOptions.find((option) => option.value === policy.group) ?? null;
-  const preferredAccountOptions = [{ label: environment.name, value: environment.id, description: environment.id }];
+  const preferredAccountOptions = [
+    { label: environment.name, value: environment.id, description: environment.id },
+    ...options.accounts,
+  ];
   const list = (input: string) =>
     input
       .split(",")
@@ -405,7 +408,9 @@ function PolicyForm({
       }),
       routing: {
         ...policy.routing,
-        preferred_account_ids: policy.routing.preferred_account_ids.filter((id) => id === environment.id),
+        preferred_account_ids: policy.routing.preferred_account_ids.filter((id) =>
+          preferredAccountOptions.some((option) => option.value === id),
+        ),
         retryable_statuses: list(statuses).map(Number),
       },
     };

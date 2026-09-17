@@ -37,11 +37,11 @@ class CLIProxySettingsSynchronizer:
             ("/v0/management/usage-statistics-enabled", settings.usage_statistics_enabled),
             ("/v0/management/request-log", settings.request_log_enabled),
             ("/v0/management/ws-auth", settings.websocket_auth_enabled or settings.websocket_enabled),
-            ("/v0/management/quota-exceeded/switch-project", settings.quota_switch_project),
-            ("/v0/management/quota-exceeded/switch-preview-model", settings.quota_switch_preview_model),
-            ("/v0/management/request-retry", settings.request_retry),
-            ("/v0/management/max-retry-credentials", settings.max_retry_credentials),
-            ("/v0/management/max-retry-interval", settings.max_retry_interval),
+            ("/v0/management/quota-exceeded/switch-project", False),
+            ("/v0/management/quota-exceeded/switch-preview-model", False),
+            ("/v0/management/request-retry", 0),
+            ("/v0/management/max-retry-credentials", 1),
+            ("/v0/management/max-retry-interval", 0),
             ("/v0/management/logs-max-total-size-mb", settings.logs_max_total_size_mb),
             ("/v0/management/error-logs-max-files", settings.error_logs_max_files),
             ("/v0/management/force-model-prefix", settings.force_model_prefix),
@@ -56,6 +56,8 @@ class CLIProxySettingsSynchronizer:
             self._request_scoped_errors(settings),
         )
         await self._apply_config_settings(record, settings)
+        if record.auth_file_name is not None:
+            await self._client.patch_auth_file_fields(record, record.auth_file_name, {"request_retry": 0})
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         route_strategy: Final = {
@@ -68,7 +70,7 @@ class CLIProxySettingsSynchronizer:
             "custom": "round-robin",
         }[policy.routing.strategy]
         await self._client.put_value(record, "/v0/management/routing/strategy", route_strategy)
-        await self._client.put_value(record, "/v0/management/request-retry", policy.routing.max_attempts)
+        await self._client.put_value(record, "/v0/management/request-retry", 0)
         document: Final = _yaml_document(await self._client.get_config_yaml(record))
         merged_document: Final = _policy_yaml_document(document, policy)
         if merged_document != document:
@@ -78,9 +80,8 @@ class CLIProxySettingsSynchronizer:
             )
         if record.auth_file_name is None:
             return
-        fields: Final = _policy_auth_fields(record, policy)
-        if fields:
-            await self._client.patch_auth_file_fields(record, record.auth_file_name, fields)
+        fields: Final = {**_policy_auth_fields(record, policy), "request_retry": 0}
+        await self._client.patch_auth_file_fields(record, record.auth_file_name, fields)
 
     async def _apply_config_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
         payload: Final = _JSON_VALUE_ADAPTER.validate_json(settings.payload.model_dump_json(by_alias=True))
@@ -91,6 +92,7 @@ class CLIProxySettingsSynchronizer:
             yaml.safe_dump(
                 {
                     **document,
+                    **_gateway_retry_settings(document),
                     "payload": payload,
                     "plugins": {**plugins, "enabled": settings.plugins_enabled, "dir": "/data/plugins"},
                 },
@@ -153,6 +155,7 @@ def _policy_yaml_document(document: Mapping[str, object], policy: AccountPolicy)
     antigravity_section: Final = _yaml_section(document, "antigravity")
     return {
         **document,
+        **_gateway_retry_settings(document),
         **(
             {
                 "codex": {
@@ -180,6 +183,21 @@ def _policy_yaml_document(document: Mapping[str, object], policy: AccountPolicy)
 def _yaml_section(document: Mapping[str, object], key: str) -> Mapping[str, object]:
     value: Final = document.get(key)
     return value if isinstance(value, dict) else {}
+
+
+def _gateway_retry_settings(document: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "request-retry": 0,
+        "max-retry-credentials": 1,
+        "max-retry-interval": 0,
+        "transient-error-cooldown-seconds": 1,
+        "streaming": {**_yaml_section(document, "streaming"), "bootstrap-retries": 0},
+        "quota-exceeded": {
+            **_yaml_section(document, "quota-exceeded"),
+            "switch-project": False,
+            "switch-preview-model": False,
+        },
+    }
 
 
 __all__ = ("CLIProxySettingsSynchronizer",)

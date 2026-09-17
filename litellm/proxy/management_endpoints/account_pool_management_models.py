@@ -74,6 +74,7 @@ RoutingReason = Literal[
     "concurrency_fallback",
     "token_budget_fallback",
     "retry_failover",
+    "same_account_retry",
 ]
 
 BatchAction = Literal["refresh", "authorize", "enable", "disable", "cooldown", "release", "policy", "delete"]

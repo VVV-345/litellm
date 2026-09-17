@@ -60,9 +60,7 @@ class PostgresEnvironmentRepository:
 
     async def list(self) -> tuple[EnvironmentRecord, ...]:
         async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                "SELECT payload FROM account_pool_environments"
-            )
+            cursor: Final = await connection.execute("SELECT payload FROM account_pool_environments")
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
         records: Final = tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
         return tuple(sorted(records, key=lambda record: (record.created_at, record.id.int)))
@@ -104,7 +102,21 @@ class PostgresEnvironmentRepository:
                 )
                 VALUES (%s, %s::jsonb, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
-                    payload = EXCLUDED.payload,
+                    payload = jsonb_set(EXCLUDED.payload, '{model_cooldowns}', (
+                        SELECT COALESCE(jsonb_agg(item), '[]'::jsonb) FROM (
+                            SELECT DISTINCT ON (item->>'model') item
+                            FROM (
+                                SELECT item FROM jsonb_array_elements(
+                                    COALESCE(account_pool_environments.payload->'model_cooldowns', '[]'::jsonb)
+                                ) AS item
+                                UNION ALL
+                                SELECT item FROM jsonb_array_elements(
+                                    COALESCE(EXCLUDED.payload->'model_cooldowns', '[]'::jsonb)
+                                ) AS item WHERE (item->>'retry_at')::timestamptz > now()
+                            ) AS states
+                            ORDER BY item->>'model', (item->>'retry_at')::timestamptz DESC
+                        ) AS cooldowns
+                    )),
                     oauth_state = EXCLUDED.oauth_state,
                     oauth_state_consumed_at = EXCLUDED.oauth_state_consumed_at,
                     updated_at = EXCLUDED.updated_at
@@ -133,7 +145,20 @@ class PostgresEnvironmentRepository:
             cursor: Final = await connection.execute(
                 """
                 UPDATE account_pool_environments
-                SET payload = %s::jsonb,
+                SET payload = jsonb_set(%s::jsonb, '{model_cooldowns}', (
+                        SELECT COALESCE(jsonb_agg(item), '[]'::jsonb) FROM (
+                            SELECT DISTINCT ON (item->>'model') item
+                            FROM (
+                                SELECT item FROM jsonb_array_elements(
+                                    COALESCE(payload->'model_cooldowns', '[]'::jsonb)
+                                ) AS item
+                                UNION ALL
+                                SELECT item FROM jsonb_array_elements(%s::jsonb) AS item
+                                WHERE (item->>'retry_at')::timestamptz > now()
+                            ) AS states
+                            ORDER BY item->>'model', (item->>'retry_at')::timestamptz DESC
+                        ) AS cooldowns
+                    )),
                     oauth_state = %s,
                     oauth_state_consumed_at = %s,
                     updated_at = %s
@@ -141,6 +166,7 @@ class PostgresEnvironmentRepository:
                 """,
                 (
                     Jsonb(payload),
+                    Jsonb([item.model_dump(mode="json") for item in record.model_cooldowns]),
                     record.oauth_state,
                     record.oauth_state_consumed_at,
                     record.updated_at,

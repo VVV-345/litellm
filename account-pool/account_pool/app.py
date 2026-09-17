@@ -17,6 +17,7 @@ from account_pool.batch_repository import PostgresBatchRepository
 from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
+from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
+    cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
@@ -184,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if controller is not None:
                 await controller.aclose()
             await upstream_sync.close()
+            await cooldown_client.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
@@ -195,7 +198,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             environments=environments,
             policies=policies,
             gateway_service=GatewayService(
-                keys, environments, policies, leases, logs, service.gateway_environment, settings_repository, ownership
+                keys,
+                environments,
+                policies,
+                leases,
+                logs,
+                service.gateway_environment,
+                settings_repository,
+                ownership,
+                model_cooldowns=cooldown_client.read_model_cooldowns,
             ),
             batch_service=batch_service,
             settings=settings_repository,

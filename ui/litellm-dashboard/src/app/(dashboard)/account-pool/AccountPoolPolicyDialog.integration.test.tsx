@@ -77,13 +77,13 @@ const policyView = {
   metadata_status: "saved",
 } as unknown as PolicyView;
 
-const renderDialog = () =>
+const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <AccountPoolPolicyDialog
         accessToken="token"
         environment={environment}
-        environments={[environment]}
+        environments={environments}
         policies={[]}
         onOpenRuntimeConfig={vi.fn()}
         onClose={vi.fn()}
@@ -96,6 +96,28 @@ describe("AccountPoolPolicyDialog", () => {
     vi.resetAllMocks();
     getPolicy.mockResolvedValue(policyView);
     savePolicy.mockResolvedValue(policyView);
+  });
+
+  it("preserves same-card attempts and preferred fallback cards independently of the fallback switch", async () => {
+    const user = userEvent.setup();
+    const backup = { ...environment, id: "00000000-0000-4000-8000-000000000002", name: "Backup" };
+    getPolicy.mockResolvedValue({
+      ...policyView,
+      policy: {
+        ...policyView.policy,
+        routing: { strategy: "priority", max_attempts: 5, fallback_enabled: false, preferred_account_ids: [backup.id] },
+      },
+    });
+    renderDialog([environment, backup]);
+    const fallback = await screen.findByRole("switch", { name: /故障切换|Failover/i });
+    expect(fallback).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    expect((savePolicy.mock.calls[0][3] as AccountPolicy).routing).toMatchObject({
+      max_attempts: 5,
+      fallback_enabled: false,
+      preferred_account_ids: [backup.id],
+    });
   });
 
   it("shows runtime failures and preserves supported routing and transport settings", async () => {

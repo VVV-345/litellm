@@ -23976,6 +23976,11 @@ export interface components {
             /** Manual Cooldown */
             manual_cooldown: boolean;
             /**
+             * Model Cooldowns
+             * @default []
+             */
+            model_cooldowns: components["schemas"]["AccountPoolModelCooldown"][];
+            /**
              * Model Quotas
              * @default []
              */
@@ -24042,6 +24047,18 @@ export interface components {
             location: string;
             /** Row Count */
             row_count: number;
+        };
+        /** AccountPoolModelCooldown */
+        AccountPoolModelCooldown: {
+            /** Model */
+            model: string;
+            /**
+             * Reason
+             * @default upstream_error
+             */
+            reason: string;
+            /** Retry At */
+            retry_at: string;
         };
         /** AccountPoolModelQuotaSnapshot */
         AccountPoolModelQuotaSnapshot: {
@@ -29193,7 +29210,7 @@ export interface components {
              */
             retryable: boolean;
             /** Routing Reason */
-            routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "plan" | "expiry" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "token_budget_fallback" | "retry_failover") | null;
+            routing_reason?: ("automatic" | "single_account" | "session_affinity" | "session_rebind" | "preferred_account" | "priority" | "quota" | "plan" | "expiry" | "random_weighted" | "custom_order" | "backup_account" | "concurrency_fallback" | "token_budget_fallback" | "retry_failover" | "same_account_retry") | null;
             /** Session Id */
             session_id?: string | null;
             /**
@@ -29512,12 +29529,22 @@ export interface components {
              * @enum {string}
              */
             method: "GET" | "POST";
+            /**
+             * Model Cooldown Seconds
+             * @default 0
+             */
+            model_cooldown_seconds: number;
             /** Next Account Id */
             next_account_id?: string | null;
             /** Output Tokens */
             output_tokens?: number | null;
             /** Proxy Endpoint */
             proxy_endpoint?: string | null;
+            /**
+             * Retry After Seconds
+             * @default 0
+             */
+            retry_after_seconds: number;
             /**
              * Retryable
              * @default false

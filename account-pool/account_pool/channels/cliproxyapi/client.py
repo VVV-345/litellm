@@ -28,6 +28,7 @@ from account_pool.domain import (
     EnvironmentConfiguration,
     EnvironmentRecord,
     EnvironmentStatus,
+    ModelCooldown,
     ModelQuotaSnapshot,
     OAuthCallback,
     ProviderEndpointFailure,
@@ -107,6 +108,14 @@ class _CodexIdentity(BaseModel):
     chatgpt_subscription_active_until: datetime | None = None
 
 
+class _ModelState(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    unavailable: bool = False
+    next_retry_after: datetime | None = None
+    reason: str = "upstream_error"
+
+
 class _AuthFile(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -121,6 +130,7 @@ class _AuthFile(BaseModel):
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
+    model_states: Mapping[str, _ModelState] = Field(default_factory=dict)
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
     project_id: str | None = None
@@ -133,6 +143,14 @@ class _AuthFilesResponse(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     files: tuple[_AuthFile, ...] = ()
+
+
+def model_cooldowns_from_auth(auth_file: _AuthFile) -> tuple[ModelCooldown, ...]:
+    return tuple(
+        ModelCooldown(model=model, retry_at=state.next_retry_after, reason=state.reason)
+        for model, state in sorted(auth_file.model_states.items())
+        if state.unavailable and state.next_retry_after is not None
+    )
 
 
 class _APICallResponse(BaseModel):
@@ -674,9 +692,15 @@ class HttpCLIProxyClient:
             else record.model_quotas
         )
         now: Final = datetime.now().astimezone()
-        cooldown_until: Final = effective_cooldown_until_value(record, auth_file.next_retry_after, now)
+        model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
+        model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)
+        cooldown_until: Final = effective_cooldown_until_value(
+            record, None if model_aggregate else auth_file.next_retry_after, now
+        )
         automatically_cooling: Final = (
-            auth_file.disabled or auth_file.unavailable or (cooldown_until is not None and cooldown_until > now)
+            auth_file.disabled
+            or (auth_file.unavailable and not model_aggregate)
+            or (cooldown_until is not None and cooldown_until > now)
         )
         status: Final = (
             EnvironmentStatus.DISABLED
@@ -699,12 +723,25 @@ class HttpCLIProxyClient:
                 "enabled_models": enabled_models,
                 "quota": quota,
                 "model_quotas": model_quotas,
+                "model_cooldowns": tuple(
+                    max(
+                        (item for item in (*record.model_cooldowns, *model_cooldowns) if item.model == model),
+                        key=lambda item: item.retry_at,
+                    )
+                    for model in sorted({item.model for item in (*record.model_cooldowns, *model_cooldowns)})
+                ),
                 "cooldown_until": cooldown_until,
                 "automatic_cooldown": automatically_cooling,
                 "status": status,
                 "last_error": None,
             }
         )
+
+    async def read_model_cooldowns(self, record: EnvironmentRecord) -> tuple[ModelCooldown, ...]:
+        response: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        files: Final = _AUTH_FILES_ADAPTER.validate_python(response.json())
+        selected: Final = next((item for item in files.files if item.name == record.auth_file_name), None)
+        return () if selected is None else model_cooldowns_from_auth(selected)
 
     async def _quota_refresh_with_fallback(
         self,

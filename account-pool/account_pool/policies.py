@@ -283,17 +283,16 @@ async def policy_validation_error(
     )
     if any(value is not None and card.supplier is not supplier for supplier, value in provider_policies):
         return "Provider-specific settings must match the card supplier"
-    if policy.account_ids or any(identifier != card.id for identifier in policy.routing.preferred_account_ids):
-        return "卡片与凭证必须一对一，不能绑定或优先使用其他卡片的账号"
-    resolved: Final = await asyncio.gather(*(environments.get(identifier) for identifier in policy.account_ids))
+    if policy.account_ids:
+        return "卡片与凭证必须一对一，故障切换使用同供应商的独立卡片"
+    resolved: Final = await asyncio.gather(
+        *(environments.get(identifier) for identifier in policy.routing.preferred_account_ids)
+    )
     if any(member is None for member in resolved):
         return "Bound accounts must exist and use the same channel and supplier"
     members: Final = tuple(member for member in resolved if member is not None)
     if any(member.channel != card.channel or member.supplier != card.supplier for member in members):
         return "Bound accounts must exist and use the same channel and supplier"
-    scope: Final = frozenset((card.id, *policy.account_ids))
-    if not frozenset(policy.routing.preferred_account_ids).issubset(scope):
-        return "Preferred accounts must be bound to this card"
     available: Final = frozenset(model for environment in (card, *members) for model in environment.available_models)
     if any(alias.target not in available for alias in policy.model_aliases):
         return "Model aliases contain unavailable targets"

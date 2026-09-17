@@ -133,11 +133,14 @@ def routes(
     target: Final = target_model(resolution.policy, model)
     if model in resolution.policy.excluded_models or target in resolution.policy.excluded_models:
         return Rejected(403, "Model is excluded by the card policy")
+    if resolution.enabled_models and target not in resolution.enabled_models:
+        return Rejected(403, "Model is outside the originating card scope")
     now: Final = datetime.now(timezone.utc)
     eligible: Final = tuple(
         Route(account, mapped, "automatic")
         for account in resolution.candidates
         if (mapped := target_model(account.policy, target)) in account.enabled_models
+        and (account.id == resolution.card_id or mapped.removeprefix(account.model_prefix) == target)
         and model not in account.policy.excluded_models
         and target not in account.policy.excluded_models
         and mapped not in account.policy.excluded_models

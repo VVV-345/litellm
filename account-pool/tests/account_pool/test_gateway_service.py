@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Final
 from uuid import UUID, uuid4
 
@@ -11,9 +12,11 @@ from account_pool.domain import (
     EnvironmentRecord,
     EnvironmentStatus,
     GatewayEnvironment,
+    ModelCooldown,
     ModelQuotaSnapshot,
     QuotaSnapshot,
     QuotaWindow,
+    SupplierKind,
     utc_now,
 )
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
@@ -49,6 +52,7 @@ class MemoryLeases:
         self.leases: dict[UUID, Lease] = {}
         self.bindings: dict[str, UUID] = {}
         self.cooled: tuple[UUID, ...] = ()
+        self.model_cooldowns: dict[tuple[UUID, str], int] = {}
         self.settled_tokens: dict[UUID, int] = {}
 
     async def sticky(self, binding_hash: str | None) -> UUID | None:
@@ -112,12 +116,22 @@ class MemoryLeases:
     async def get(self, lease_id: UUID) -> Lease | None:
         return self.leases.get(lease_id)
 
-    async def release(self, lease: Lease, cooldown_seconds: int, actual_tokens: int | None) -> None:
+    async def release(
+        self,
+        lease: Lease,
+        cooldown_seconds: int,
+        actual_tokens: int | None,
+        *,
+        model_cooldown_seconds: int = 0,
+        model_succeeded: bool = False,
+    ) -> None:
         self.leases.pop(lease.lease_id, None)
         if lease.budget_window_seconds is not None:
             self.settled_tokens[lease.account_id] = self.settled_tokens.get(lease.account_id, 0) + (actual_tokens or 0)
         if cooldown_seconds:
             self.cooled = (*self.cooled, lease.account_id)
+        if model_cooldown_seconds:
+            self.model_cooldowns[(lease.account_id, lease.model)] = model_cooldown_seconds
 
 
 class FailingLogs(MemoryLogs):
@@ -197,6 +211,100 @@ async def test_candidate_preserves_per_model_quota_for_gateway_routing() -> None
     assert candidate.model_quotas[0].model == "gpt-5"
     assert candidate.model_quotas[0].remaining_percent == 25
     assert candidate.model_quotas[0].observed_at == observed_at
+
+
+@pytest.mark.asyncio
+async def test_failover_scope_preserves_supplier_model_and_origin_key_permissions() -> None:
+    card = _record(status=EnvironmentStatus.READY)
+    backup = _record(status=EnvironmentStatus.READY).model_copy(update={"enabled_models": ("gpt-5", "private-model")})
+    other_supplier = _record(status=EnvironmentStatus.READY).model_copy(update={"supplier": SupplierKind.KIMI})
+    disabled = _record(status=EnvironmentStatus.READY).model_copy(update={"enabled": False})
+    environments = MemoryRepository(card)
+    for member in (backup, other_supplier, disabled):
+        await environments.save(member)
+    keys = CardKeyService(MemoryKeys())
+    issued = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies = MemoryPolicies()
+    await policies.save(
+        card.id, PolicyUpdate(version=0, policy=AccountPolicy(routing=RoutingPolicy(fallback_enabled=True)))
+    )
+    leases = MemoryLeases()
+    service = GatewayService(keys, environments, policies, leases, ErrorLogService(MemoryLogs()), gateway)
+    resolved = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    assert {item.id for item in resolved.candidates} == {card.id, backup.id}
+    target = next(item for item in resolved.candidates if item.id == backup.id)
+    request = AcquireRequest(
+        card_key=issued.value.key,
+        account_id=backup.id,
+        request_id=uuid4(),
+        model="gpt-5",
+        card_version=resolved.card_version,
+        policy_version=resolved.policy_version,
+        account_version=target.environment_version,
+        account_policy_version=target.policy_version,
+        timeout_seconds=30,
+        attempt=6,
+    )
+    lease = await service.acquire(request)
+    assert lease.card_id == card.id and lease.account_id == backup.id
+    with pytest.raises(HTTPException, match="originating card"):
+        await service.acquire(request.model_copy(update={"model": "private-model"}))
+    await keys.revoke(card.id, issued.value.status.key_id)
+    with pytest.raises(HTTPException) as revoked:
+        await service.acquire(request)
+    assert revoked.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_failed_request_syncs_actual_model_cooldown_without_blocking_account() -> None:
+    card = _record(status=EnvironmentStatus.READY)
+    keys = CardKeyService(MemoryKeys())
+    issued = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    leases = MemoryLeases()
+
+    async def observed(record: EnvironmentRecord) -> tuple[ModelCooldown, ...]:
+        assert record.id == card.id
+        return (ModelCooldown(model="gpt-5", retry_at=utc_now() + timedelta(seconds=55)),)
+
+    service = GatewayService(
+        keys,
+        MemoryRepository(card),
+        MemoryPolicies(),
+        leases,
+        ErrorLogService(MemoryLogs()),
+        gateway,
+        model_cooldowns=observed,
+    )
+    resolved = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    candidate = resolved.candidates[0]
+    lease = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            account_id=card.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolved.card_version,
+            policy_version=resolved.policy_version,
+            account_version=candidate.environment_version,
+            account_policy_version=candidate.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=502,
+            message="stream error",
+            endpoint="/v1/responses",
+            model_cooldown_seconds=1,
+        )
+    )
+    assert leases.cooled == ()
+    assert leases.model_cooldowns[(card.id, "gpt-5")] == 55
+    assert not leases.leases
 
 
 @pytest.mark.asyncio
@@ -296,7 +404,8 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
             cache_creation_input_tokens=0,
         )
     )
-    assert not leases.leases and card.id in leases.cooled
+    assert not leases.leases and card.id not in leases.cooled
+    assert leases.model_cooldowns[(card.id, "gpt-5")] == 60
     assert logs.events[0].card_id == card.id and logs.events[0].account_id == card.id
     assert logs.events[0].request_id == request.request_id
     assert logs.events[0].card_key_id == issued.value.status.key_id
@@ -739,4 +848,5 @@ async def test_finish_releases_lease_when_request_log_cannot_be_persisted() -> N
         )
 
     assert lease.lease_id not in leases.leases
-    assert card.id in leases.cooled
+    assert card.id not in leases.cooled
+    assert leases.model_cooldowns[(card.id, "gpt-5")] == 60

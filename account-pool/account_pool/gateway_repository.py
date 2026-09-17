@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Final, Protocol
@@ -12,7 +13,7 @@ from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
 from account_pool.card_keys import hash_card_key
-from account_pool.domain import utc_now
+from account_pool.domain import EnvironmentRecord, ModelCooldown, utc_now
 from account_pool.gateway_contracts import AcquireRejected, AcquireRequest, Candidate, Lease, Resolution
 from account_pool.repository import database_connection
 
@@ -50,7 +51,15 @@ class LeaseRepository(CooldownRepository, Protocol):
         binding_hash: str | None,
     ) -> Lease | AcquireRejected: ...
     async def get(self, lease_id: UUID) -> Lease | None: ...
-    async def release(self, lease: Lease, cooldown_seconds: int, actual_tokens: int | None) -> None: ...
+    async def release(
+        self,
+        lease: Lease,
+        cooldown_seconds: int,
+        actual_tokens: int | None,
+        *,
+        model_cooldown_seconds: int = 0,
+        model_succeeded: bool = False,
+    ) -> None: ...
 
 
 class PostgresLeaseRepository:
@@ -132,6 +141,29 @@ class PostgresLeaseRepository:
             if await key_cursor.fetchone() is None:
                 return AcquireRejected(reason="configuration")
             now: Final = utc_now()
+            current_cursor: Final = await connection.execute(
+                "SELECT payload FROM account_pool_environments WHERE id = %s", (candidate.id,)
+            )
+            current_row: Final = await current_cursor.fetchone()
+            current: Final = None if current_row is None else EnvironmentRecord.model_validate(current_row["payload"])
+            model_cooling: Final = (
+                next((item for item in current.model_cooldowns if item.model == request.model), None)
+                if current is not None
+                else None
+            )
+            if model_cooling is not None and model_cooling.retry_at > now:
+                return AcquireRejected(
+                    reason="cooldown",
+                    retry_after_seconds=min(86400, math.ceil((model_cooling.retry_at - now).total_seconds())),
+                )
+            if model_cooling is not None:
+                probe: Final = await connection.execute(
+                    "SELECT 1 FROM account_pool_leases WHERE account_id = %s "
+                    "AND expires_at > now() AND payload->>'model' = %s LIMIT 1",
+                    (candidate.id, request.model),
+                )
+                if await probe.fetchone() is not None:
+                    return AcquireRejected(reason="cooldown", retry_after_seconds=1)
             await connection.execute(
                 "DELETE FROM account_pool_leases WHERE account_id = %s AND expires_at <= now()", (candidate.id,)
             )
@@ -146,12 +178,9 @@ class PostgresLeaseRepository:
                 (candidate.id,),
             )
             counted_row: Final = await counted.fetchone()
-            if (
-                counted_row is None
-                or (
-                    candidate.concurrency_limit > 0
-                    and TypeAdapter(int).validate_python(counted_row["used"]) >= candidate.concurrency_limit
-                )
+            if counted_row is None or (
+                candidate.concurrency_limit > 0
+                and TypeAdapter(int).validate_python(counted_row["used"]) >= candidate.concurrency_limit
             ):
                 return AcquireRejected(reason="concurrency")
             budget_limit: Final = candidate.policy.routing.token_budget_limit
@@ -225,9 +254,19 @@ class PostgresLeaseRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else Lease.model_validate(row["payload"])
 
-    async def release(self, lease: Lease, cooldown_seconds: int, actual_tokens: int | None) -> None:
+    async def release(
+        self,
+        lease: Lease,
+        cooldown_seconds: int,
+        actual_tokens: int | None,
+        *,
+        model_cooldown_seconds: int = 0,
+        model_succeeded: bool = False,
+    ) -> None:
         async with database_connection(self._database_url) as connection:
-            await _release_lease(connection, lease, cooldown_seconds, actual_tokens)
+            await _release_lease(
+                connection, lease, cooldown_seconds, actual_tokens, model_cooldown_seconds, model_succeeded
+            )
 
 
 async def _release_lease(
@@ -235,9 +274,11 @@ async def _release_lease(
     lease: Lease,
     cooldown_seconds: int,
     actual_tokens: int | None,
+    model_cooldown_seconds: int = 0,
+    model_succeeded: bool = False,
 ) -> None:
     environment: Final = await connection.execute(
-        "SELECT id FROM account_pool_environments WHERE id = %s FOR UPDATE",
+        "SELECT id, payload FROM account_pool_environments WHERE id = %s FOR UPDATE",
         (lease.account_id,),
     )
     environment_row: Final = await environment.fetchone()
@@ -245,6 +286,15 @@ async def _release_lease(
         "DELETE FROM account_pool_leases WHERE lease_id = %s RETURNING lease_id", (lease.lease_id,)
     )
     deleted_row: Final = await deleted.fetchone()
+    if deleted_row is not None and environment_row is not None and (model_cooldown_seconds or model_succeeded):
+        record: Final = EnvironmentRecord.model_validate(environment_row["payload"])
+        settled: Final = settle_model_cooldowns(
+            record.model_cooldowns, lease, model_cooldown_seconds, model_succeeded, utc_now()
+        )
+        await connection.execute(
+            "UPDATE account_pool_environments SET payload = jsonb_set(payload, '{model_cooldowns}', %s::jsonb) WHERE id = %s",
+            (Jsonb([item.model_dump(mode="json") for item in settled]), lease.account_id),
+        )
     if (
         deleted_row is not None
         and lease.budget_window_seconds is not None
@@ -260,13 +310,36 @@ async def _release_lease(
                 lease.budget_window_started_at,
             ),
         )
-    if cooldown_seconds and environment_row is not None:
+    if cooldown_seconds and environment_row is not None and deleted_row is not None:
         await connection.execute(
             "INSERT INTO account_pool_runtime_cooldown VALUES (%s, %s) "
             "ON CONFLICT (account_id) DO UPDATE SET expires_at = GREATEST("
             "account_pool_runtime_cooldown.expires_at, EXCLUDED.expires_at)",
             (lease.account_id, utc_now() + timedelta(seconds=cooldown_seconds)),
         )
+
+
+def settle_model_cooldowns(
+    existing: tuple[ModelCooldown, ...],
+    lease: Lease,
+    seconds: int,
+    succeeded: bool,
+    now: datetime,
+) -> tuple[ModelCooldown, ...]:
+    previous: Final = next((item for item in existing if item.model == lease.model), None)
+    retry_at: Final = now + timedelta(seconds=seconds)
+    updated: Final = (
+        (ModelCooldown(model=lease.model, retry_at=max(retry_at, previous.retry_at) if previous else retry_at),)
+        if seconds
+        else ()
+    )
+    # 早于故障开始的并行成功请求不能清除较新的冷却。
+    retained: Final = tuple(
+        item
+        for item in existing
+        if item.model != lease.model or (succeeded and not seconds and item.retry_at > lease.started_at)
+    )
+    return (*retained, *updated)
 
 
 async def reserve_token_budget(
