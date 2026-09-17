@@ -6,6 +6,7 @@ import { useController, type Control, type ControllerRenderProps, type RegisterO
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTranslation } from "react-i18next";
 
 export interface GuardrailCriterion {
   name: string;
@@ -106,12 +107,13 @@ const SKIP_MESSAGE_ITEMS = [
 ];
 
 export const SkipMessageSelect: React.FC<{ control: GuardrailFieldControlProps }> = ({ control }) => {
+  const { t } = useTranslation();
   const { id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy } = control;
 
   return (
     <Select items={SKIP_MESSAGE_ITEMS} value={asText(value) || null} onValueChange={onChange}>
       <SelectTrigger id={id} aria-invalid={ariaInvalid} aria-describedby={ariaDescribedBy} className="w-full">
-        <SelectValue placeholder="Select an option" />
+        <SelectValue placeholder={t("ui.Select an option")} />
       </SelectTrigger>
       <SelectContent>
         {SKIP_MESSAGE_ITEMS.map((item) => (

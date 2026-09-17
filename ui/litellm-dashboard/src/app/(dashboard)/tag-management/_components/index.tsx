@@ -9,6 +9,7 @@ import TagTable from "./TagTable";
 import { toast } from "@/lib/toast";
 import DeleteResourceModal from "@/components/common_components/DeleteResourceModal";
 import CreateTagModal from "./components/CreateTagModal";
+import { useTranslation } from "react-i18next";
 
 interface ModelInfo {
   model_name: string;
@@ -27,6 +28,7 @@ interface TagProps {
 }
 
 const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) => {
+  const { t } = useTranslation();
   const [tags, setTags] = useState<Tag[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(true);
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
@@ -73,7 +75,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
         rpm_limit: formValues.rpm_limit,
         budget_duration: formValues.budget_duration,
       });
-      toast.success("Tag created successfully");
+      toast.success(t("ui.Tag created successfully"));
       setIsCreateModalVisible(false);
       fetchTags();
     } catch (error) {
@@ -92,7 +94,7 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
     setIsDeleting(true);
     try {
       await tagDeleteCall(accessToken, tagToDelete);
-      toast.success("Tag deleted successfully");
+      toast.success(t("ui.Tag deleted successfully"));
       fetchTags();
     } catch (error) {
       console.error("Error deleting tag:", error);
@@ -141,29 +143,34 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
       ) : (
         <div className="mt-2 h-[75vh] w-full gap-2 p-8">
           <div className="mt-2 mb-4 flex w-full items-center justify-between">
-            <h1>Tag Management</h1>
+            <h1>{t("ui.Tag Management")}</h1>
             <div className="flex items-center space-x-2">
-              {lastRefreshed && <p className="text-sm">Last Refreshed: {lastRefreshed}</p>}
-              <Button variant="outline" size="icon-sm" aria-label="Refresh tags" onClick={handleRefreshClick}>
+              {lastRefreshed && (
+                <p className="text-sm">
+                  {t("ui.Last Refreshed:")} {lastRefreshed}
+                </p>
+              )}
+              <Button variant="outline" size="icon-sm" aria-label={t("ui.Refresh tags")} onClick={handleRefreshClick}>
                 <RefreshCw />
               </Button>
             </div>
           </div>
 
           <div className="mb-4 text-sm">
-            Click on a tag name to view and edit its details.
+            {t("ui.Click on a tag name to view and edit its details.")}
             <p>
-              You can use tags to restrict the usage of certain LLMs based on tags passed in the request. Read more
-              about tag routing{" "}
+              {t(
+                "ui.You can use tags to restrict the usage of certain LLMs based on tags passed in the request. Read more about tag routing",
+              )}{" "}
               <a href="https://docs.litellm.ai/docs/proxy/tag_routing" target="_blank" rel="noopener noreferrer">
-                here
+                {t("ui.here")}
               </a>
               .
             </p>
           </div>
 
           <Button className="mb-4" onClick={() => setIsCreateModalVisible(true)}>
-            + Create New Tag
+            {t("ui.+ Create New Tag")}
           </Button>
 
           <div className="mt-2 grid h-[75vh] w-full grid-cols-1 gap-2 pt-2 pb-2">
@@ -192,8 +199,8 @@ const TagManagement: React.FC<TagProps> = ({ accessToken, userID, userRole }) =>
           {/* Delete Confirmation Modal */}
           <DeleteResourceModal
             isOpen={isDeleteModalOpen}
-            title="Delete Tag"
-            message="Are you sure you want to delete this tag? This action cannot be undone."
+            title={t("ui.Delete Tag")}
+            message={t("ui.Are you sure you want to delete this tag? This action cannot be undone.")}
             resourceInformationTitle="Tag Information"
             resourceInformation={[{ label: "Tag Name", value: tagToDelete, code: true }]}
             onCancel={() => {

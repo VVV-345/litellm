@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "react-i18next";
 
 export const accessGroupFormSchema = z.object({
   name: z.string().min(1, "Please enter the access group name"),
@@ -89,6 +90,7 @@ export function AccessGroupBaseForm({
   activeTab,
   onTabChange,
 }: AccessGroupBaseFormProps) {
+  const { t } = useTranslation();
   const { data: agentsData } = useAgents();
   const { data: mcpServersData } = useMCPServers();
 
@@ -106,52 +108,57 @@ export function AccessGroupBaseForm({
       <TabsList className="w-full">
         <TabsTrigger value={GENERAL_TAB}>
           <InfoIcon size={16} />
-          General Info
+          {t("ui.General Info")}
         </TabsTrigger>
         <TabsTrigger value={MODELS_TAB}>
           <LayersIcon size={16} />
-          Models
+          {t("ui.Models")}
         </TabsTrigger>
         <TabsTrigger value={MCP_SERVERS_TAB}>
           <ServerIcon size={16} />
-          MCP Servers
+          {t("ui.MCP Servers")}
         </TabsTrigger>
         <TabsTrigger value={AGENTS_TAB}>
           <BotIcon size={16} />
-          Agents
+          {t("ui.Agents")}
         </TabsTrigger>
       </TabsList>
 
       <TabsContent value={GENERAL_TAB} className="pt-4">
         <FieldGroup>
-          <FormField control={form.control} name="name" label="Group Name">
+          <FormField control={form.control} name="name" label={t("ui.Group Name")}>
             {({ ref, ...field }) => (
-              <Input {...field} ref={ref} placeholder="e.g. Engineering Team" disabled={isNameDisabled} />
+              <Input {...field} ref={ref} placeholder={t("ui.e.g. Engineering Team")} disabled={isNameDisabled} />
             )}
           </FormField>
-          <FormField control={form.control} name="description" label="Description">
+          <FormField control={form.control} name="description" label={t("ui.Description")}>
             {({ ref, ...field }) => (
-              <Textarea {...field} ref={ref} rows={4} placeholder="Describe the purpose of this access group..." />
+              <Textarea
+                {...field}
+                ref={ref}
+                rows={4}
+                placeholder={t("ui.Describe the purpose of this access group...")}
+              />
             )}
           </FormField>
         </FieldGroup>
       </TabsContent>
 
       <TabsContent value={MODELS_TAB} className="pt-4">
-        <FormField control={form.control} name="modelIds" label="Allowed Models">
+        <FormField control={form.control} name="modelIds" label={t("ui.Allowed Models")}>
           {(field) => <ModelSelect context="global" value={field.value} onChange={field.onChange} />}
         </FormField>
       </TabsContent>
 
       <TabsContent value={MCP_SERVERS_TAB} className="pt-4">
-        <FormField control={form.control} name="mcpServerIds" label="Allowed MCP Servers">
+        <FormField control={form.control} name="mcpServerIds" label={t("ui.Allowed MCP Servers")}>
           {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
             <MultiSelect
               id={id}
               value={value}
               onChange={onChange}
               options={mcpServerOptions}
-              placeholder="Select MCP servers"
+              placeholder={t("ui.Select MCP servers")}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedBy}
             />
@@ -160,14 +167,14 @@ export function AccessGroupBaseForm({
       </TabsContent>
 
       <TabsContent value={AGENTS_TAB} className="pt-4">
-        <FormField control={form.control} name="agentIds" label="Allowed Agents">
+        <FormField control={form.control} name="agentIds" label={t("ui.Allowed Agents")}>
           {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
             <MultiSelect
               id={id}
               value={value}
               onChange={onChange}
               options={agentOptions}
-              placeholder="Select agents"
+              placeholder={t("ui.Select agents")}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedBy}
             />

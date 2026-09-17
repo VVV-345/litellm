@@ -1,5 +1,6 @@
 import type { Resolver, ResolverResult } from "react-hook-form";
 
+import i18next from "@/i18n";
 import { InputSchema, InputSchemaProperty } from "@/components/mcp_tools/types";
 
 export interface ToolArgumentField {
@@ -52,20 +53,20 @@ export const validateToolArgument = (field: ToolArgumentField, value: unknown): 
   const prop = resolveSchemaProperty(field.prop);
   const normalized = typeof value === "string" ? value.trim() : value;
   if (field.required && isBlank(normalized)) {
-    return `Please enter ${field.key}`;
+    return i18next.t("ui.Please enter {{field}}", { field: field.key });
   }
   if (!isJsonField(prop) || (isBlank(value) && !field.required)) {
     return undefined;
   }
   const parsed = parseJson(value);
   if (parsed.kind === "invalid") {
-    return "Invalid JSON";
+    return i18next.t("ui.Invalid JSON");
   }
   if (prop.type === "object" && !isPlainObject(parsed.value)) {
-    return "Please enter a JSON object";
+    return i18next.t("ui.Please enter a JSON object");
   }
   if (prop.type === "array" && !Array.isArray(parsed.value)) {
-    return "Please enter a JSON array";
+    return i18next.t("ui.Please enter a JSON array");
   }
   return undefined;
 };

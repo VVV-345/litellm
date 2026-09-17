@@ -11,17 +11,13 @@ import { requiredRule } from "@/components/common_components/formRules";
 import { PasswordInput } from "@/components/shared/PasswordInput";
 import { Input } from "@/components/ui/input";
 import { selectControl, selectTriggerControl, tagsControl, textControl } from "./mcpFieldRules";
+import { useTranslation } from "react-i18next";
 
 interface TokenExchangeFormFieldsProps {
   isEditing?: boolean;
 }
 
 const fieldClassName = "rounded-lg border-border focus:border-info focus:ring-ring";
-
-const TOKEN_EXCHANGE_PROFILE_ITEMS = [
-  { value: "rfc8693", label: "RFC 8693 (standard)" },
-  { value: "entra_obo", label: "Microsoft Entra OBO" },
-];
 
 const FieldLabel: React.FC<{ label: string; tooltip: string }> = ({ label, tooltip }) => (
   <span className="text-sm font-medium text-foreground flex items-center">
@@ -33,7 +29,12 @@ const FieldLabel: React.FC<{ label: string; tooltip: string }> = ({ label, toolt
 );
 
 const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEditing = false }) => {
-  const placeholderSuffix = isEditing ? " (leave blank to keep existing)" : "";
+  const { t } = useTranslation();
+  const placeholderSuffix = isEditing ? ` (${t("ui.Leave blank to keep existing")})` : "";
+  const tokenExchangeProfileItems = [
+    { value: "rfc8693", label: t("ui.RFC 8693 (standard)") },
+    { value: "entra_obo", label: t("ui.Microsoft Entra OBO") },
+  ];
   const isEntraObo = useWatch({ name: "token_exchange_profile" }) === "entra_obo";
   const requiredWhenCreating = (message: string) =>
     isEditing ? undefined : { validate: { required: requiredRule(message) } };
@@ -43,20 +44,22 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
       <MountedFormField
         label={
           <FieldLabel
-            label="Profile"
-            tooltip="Token-exchange wire dialect. RFC 8693 is the standard token-exchange grant. Microsoft Entra OBO uses Entra's On-Behalf-Of dialect (the RFC 7523 jwt-bearer grant with requested_token_use=on_behalf_of) and carries the target resource in a scope like api://<app-id>/.default."
+            label={t("ui.Profile")}
+            tooltip={t(
+              "ui.Token-exchange wire dialect. RFC 8693 is the standard token-exchange grant. Microsoft Entra OBO uses Entra's On-Behalf-Of dialect (the RFC 7523 jwt-bearer grant with requested_token_use=on_behalf_of) and carries the target resource in a scope like api://<app-id>/.default.",
+            )}
           />
         }
         name="token_exchange_profile"
         {...(isEditing ? {} : { defaultValue: "rfc8693" })}
       >
         {(control) => (
-          <Select {...selectControl<string>(control)} items={TOKEN_EXCHANGE_PROFILE_ITEMS}>
+          <Select {...selectControl<string>(control)} items={tokenExchangeProfileItems}>
             <SelectTrigger {...selectTriggerControl(control)} className="w-full rounded-lg">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TOKEN_EXCHANGE_PROFILE_ITEMS.map((item) => (
+              {tokenExchangeProfileItems.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   <span className="font-medium">{item.label}</span>
                 </SelectItem>
@@ -68,8 +71,10 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
       <MountedFormField
         label={
           <FieldLabel
-            label="Token Exchange Endpoint (optional)"
-            tooltip="RFC 8693 token endpoint. The proxy exchanges the user's incoming token here for a scoped token used to call the upstream MCP server. Leave blank to auto-discover it from the upstream's protected-resource metadata (RFC 9728 then RFC 8414)."
+            label={t("ui.Token Exchange Endpoint (optional)")}
+            tooltip={t(
+              "ui.RFC 8693 token endpoint. The proxy exchanges the user's incoming token here for a scoped token used to call the upstream MCP server. Leave blank to auto-discover it from the upstream's protected-resource metadata (RFC 9728 then RFC 8414).",
+            )}
           />
         }
         name="token_exchange_endpoint"
@@ -85,18 +90,18 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
       <MountedFormField
         label={
           <FieldLabel
-            label="Client ID"
-            tooltip="OAuth2 client ID used to authenticate to the token exchange endpoint."
+            label={t("ui.Client ID")}
+            tooltip={t("ui.OAuth2 client ID used to authenticate to the token exchange endpoint.")}
           />
         }
         name={["credentials", "client_id"]}
         required={!isEditing}
-        rules={requiredWhenCreating("Client ID is required for token exchange")}
+        rules={requiredWhenCreating(t("ui.Client ID is required for token exchange"))}
       >
         {(control) => (
           <PasswordInput
             {...textControl(control)}
-            placeholder={`Enter OAuth client ID${placeholderSuffix}`}
+            placeholder={`${t("ui.Enter OAuth client ID")}${placeholderSuffix}`}
             groupClassName={fieldClassName}
           />
         )}
@@ -104,18 +109,18 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
       <MountedFormField
         label={
           <FieldLabel
-            label="Client Secret"
-            tooltip="OAuth2 client secret used to authenticate to the token exchange endpoint."
+            label={t("ui.Client Secret")}
+            tooltip={t("ui.OAuth2 client secret used to authenticate to the token exchange endpoint.")}
           />
         }
         name={["credentials", "client_secret"]}
         required={!isEditing}
-        rules={requiredWhenCreating("Client Secret is required for token exchange")}
+        rules={requiredWhenCreating(t("ui.Client Secret is required for token exchange"))}
       >
         {(control) => (
           <PasswordInput
             {...textControl(control)}
-            placeholder={`Enter OAuth client secret${placeholderSuffix}`}
+            placeholder={`${t("ui.Enter OAuth client secret")}${placeholderSuffix}`}
             groupClassName={fieldClassName}
           />
         )}
@@ -125,8 +130,10 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
           <MountedFormField
             label={
               <FieldLabel
-                label="Audience (optional)"
-                tooltip="Target audience for the exchanged token (RFC 8693 audience). Identifies the upstream MCP server the token is for."
+                label={t("ui.Audience (optional)")}
+                tooltip={t(
+                  "ui.Target audience for the exchanged token (RFC 8693 audience). Identifies the upstream MCP server the token is for.",
+                )}
               />
             }
             name="audience"
@@ -138,8 +145,10 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
           <MountedFormField
             label={
               <FieldLabel
-                label="Subject Token Type (optional)"
-                tooltip="Type of the user's incoming token (RFC 8693 subject_token_type). Defaults to urn:ietf:params:oauth:token-type:access_token."
+                label={t("ui.Subject Token Type (optional)")}
+                tooltip={t(
+                  "ui.Type of the user's incoming token (RFC 8693 subject_token_type). Defaults to urn:ietf:params:oauth:token-type:access_token.",
+                )}
               />
             }
             name="subject_token_type"
@@ -157,11 +166,11 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
       <MountedFormField
         label={
           <FieldLabel
-            label={isEntraObo ? "Scopes" : "Scopes (optional)"}
+            label={isEntraObo ? t("ui.Scopes") : t("ui.Scopes (optional)")}
             tooltip={
               isEntraObo
-                ? "Microsoft Entra OBO carries the target resource in the scope, so at least one is required (e.g. api://<app-id>/.default)."
-                : "Optional scopes to request during the token exchange."
+                ? t("ui.Microsoft Entra OBO carries the target resource in the scope, so at least one is required (e.g. api://<app-id>/.default).")
+                : t("ui.Optional scopes to request during the token exchange.")
             }
           />
         }
@@ -171,7 +180,7 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
           isEntraObo
             ? {
                 validate: {
-                  required: requiredRule("Microsoft Entra OBO requires a scope, e.g. api://<app-id>/.default"),
+                  required: requiredRule(t("ui.Microsoft Entra OBO requires a scope, e.g. api://<app-id>/.default")),
                 },
               }
             : undefined
@@ -180,7 +189,7 @@ const TokenExchangeFormFields: React.FC<TokenExchangeFormFieldsProps> = ({ isEdi
         {(control) => (
           <MultiSelect
             {...tagsControl(control)}
-            placeholder={isEntraObo ? "api://<app-id>/.default" : "Add scopes"}
+            placeholder={isEntraObo ? "api://<app-id>/.default" : t("ui.Add scopes")}
             className="rounded-lg"
           />
         )}

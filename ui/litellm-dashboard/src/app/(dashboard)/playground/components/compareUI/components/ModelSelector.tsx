@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { SearchSelect } from "@/components/shared/SearchSelect";
 import { Input } from "@/components/ui/input";
+import { useTranslation } from "react-i18next";
 interface ModelSelectorProps {
   value: string;
   onChange: (value: string) => void;
@@ -9,6 +10,7 @@ interface ModelSelectorProps {
   disabled?: boolean;
 }
 export function ModelSelector({ value, onChange, models, loading, disabled }: ModelSelectorProps) {
+  const { t } = useTranslation();
   const [isAddingCustom, setIsAddingCustom] = useState(false);
   const [customValue, setCustomValue] = useState("");
 
@@ -59,14 +61,14 @@ export function ModelSelector({ value, onChange, models, loading, disabled }: Mo
         onValueChange={handleSelectChange}
         disabled={disabled}
         placeholder={loading ? "Loading models..." : "Select a model"}
-        emptyText="No models found"
+        emptyText={t("ui.No models found")}
         allowClear={false}
         className="rounded-md"
       />
       {isAddingCustom && (
         <Input
           className="mt-2"
-          placeholder="Custom Model Name (Enter to add)"
+          placeholder={t("ui.Custom Model Name (Enter to add)")}
           value={customValue}
           onChange={(e) => setCustomValue(e.target.value)}
           onKeyDown={(event) => {

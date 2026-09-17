@@ -106,7 +106,10 @@ const MCPServerCostConfig: React.FC<MCPServerCostConfigProps> = ({
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <Info className="ml-1 inline size-4 text-muted-foreground" aria-label={t("ui.About the default cost")} />
+                      <Info
+                        className="ml-1 inline size-4 text-muted-foreground"
+                        aria-label={t("ui.About the default cost")}
+                      />
                     }
                   />
                   <TooltipContent>{t("ui.Default cost charged for each tool call to this server.")}</TooltipContent>
@@ -131,7 +134,10 @@ const MCPServerCostConfig: React.FC<MCPServerCostConfigProps> = ({
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <Info className="ml-1 inline size-4 text-muted-foreground" aria-label={t("ui.About per-tool costs")} />
+                        <Info
+                          className="ml-1 inline size-4 text-muted-foreground"
+                          aria-label={t("ui.About per-tool costs")}
+                        />
                       }
                     />
                     <TooltipContent>
@@ -184,7 +190,7 @@ const MCPServerCostConfig: React.FC<MCPServerCostConfigProps> = ({
               <div className="mt-2 space-y-1">
                 {value.default_cost_per_query && (
                   <p className="text-sm text-muted-foreground">
-                    • Default cost: ${value.default_cost_per_query.toFixed(4)} per query
+                    • {t("ui.Default cost:")} ${value.default_cost_per_query.toFixed(4)} {t("ui.per query")}
                   </p>
                 )}
                 {value.tool_name_to_cost_per_query &&
@@ -193,7 +199,7 @@ const MCPServerCostConfig: React.FC<MCPServerCostConfigProps> = ({
                       cost !== null &&
                       cost !== undefined && (
                         <p key={toolName} className="text-sm text-muted-foreground">
-                          • {toolName}: ${cost.toFixed(4)} per query
+                          • {toolName}: ${cost.toFixed(4)} {t("ui.per query")}
                         </p>
                       ),
                   )}

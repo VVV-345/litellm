@@ -1,3 +1,4 @@
+import i18next from "@/i18n";
 import { MCPEnvVar, MCPEnvVarScope } from "@/components/mcp_tools/types";
 
 export const extractMCPToken = (url: string): { token: string | null; baseUrl: string } => {
@@ -45,12 +46,14 @@ export const validateMCPServerUrl = (value: string) => {
   const urlPattern = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
   return urlPattern.test(value)
     ? Promise.resolve()
-    : Promise.reject("Please enter a valid URL (e.g., http://service-name.domain:1234/path or https://example.com)");
+    : Promise.reject(
+        i18next.t("ui.Please enter a valid URL (e.g., http://service-name.domain:1234/path or https://example.com)"),
+      );
 };
 
 export const validateMCPServerName = (value: string) => {
   return value && (value.includes("-") || value.includes(" "))
-    ? Promise.reject("Cannot contain '-' (hyphen) or spaces. Please use '_' (underscore) instead.")
+    ? Promise.reject(i18next.t("ui.Cannot contain '-' (hyphen) or spaces. Please use '_' (underscore) instead."))
     : Promise.resolve();
 };
 
@@ -58,7 +61,7 @@ export const TOOL_DISPLAY_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 export const validateToolDisplayName = (value: string) => {
   return value && !TOOL_DISPLAY_NAME_PATTERN.test(value)
-    ? Promise.reject("Only letters, digits, underscores, and hyphens are allowed (no spaces).")
+    ? Promise.reject(i18next.t("ui.Only letters, digits, underscores, and hyphens are allowed (no spaces)."))
     : Promise.resolve();
 };
 

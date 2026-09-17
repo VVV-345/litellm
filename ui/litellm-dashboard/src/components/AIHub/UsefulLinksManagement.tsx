@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
 import { getProxyBaseUrl, getPublicModelHubInfo, updateUsefulLinksCall } from "../networking";
+import { useTranslation } from "react-i18next";
 
 interface UsefulLinksManagementProps {
   accessToken: string | null;
@@ -21,6 +22,7 @@ interface Link {
 }
 
 const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessToken, userRole }) => {
+  const { t } = useTranslation();
   const [links, setLinks] = useState<Link[]>([]);
   const [newLink, setNewLink] = useState({ url: "", displayName: "" });
   const [editingLink, setEditingLink] = useState<Link | null>(null);
@@ -115,13 +117,13 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     try {
       new URL(newLink.url);
     } catch {
-      toast.fromError("Please enter a valid URL");
+      toast.fromError(t("ui.Please enter a valid URL"));
       return;
     }
 
     // Check for duplicate display names
     if (links.some((link) => link.displayName === newLink.displayName)) {
-      toast.fromError("A link with this display name already exists");
+      toast.fromError(t("ui.A link with this display name already exists"));
       return;
     }
 
@@ -136,7 +138,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     if (await saveLinksToBackend(updatedLinks)) {
       setLinks(updatedLinks);
       setNewLink({ url: "", displayName: "" });
-      toast.success("Link added successfully");
+      toast.success(t("ui.Link added successfully"));
     }
   };
 
@@ -151,13 +153,13 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     try {
       new URL(editingLink.url);
     } catch {
-      toast.fromError("Please enter a valid URL");
+      toast.fromError(t("ui.Please enter a valid URL"));
       return;
     }
 
     // Check for duplicate display names (excluding current link)
     if (links.some((link) => link.id !== editingLink.id && link.displayName === editingLink.displayName)) {
-      toast.fromError("A link with this display name already exists");
+      toast.fromError(t("ui.A link with this display name already exists"));
       return;
     }
 
@@ -166,7 +168,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     if (await saveLinksToBackend(updatedLinks)) {
       setLinks(updatedLinks);
       setEditingLink(null);
-      toast.success("Link updated successfully");
+      toast.success(t("ui.Link updated successfully"));
     }
   };
 
@@ -179,7 +181,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
 
     if (await saveLinksToBackend(updatedLinks)) {
       setLinks(updatedLinks);
-      toast.success("Link deleted successfully");
+      toast.success(t("ui.Link deleted successfully"));
     }
   };
 
@@ -205,7 +207,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     if (await saveLinksToBackend(links)) {
       setIsRearranging(false);
       setOriginalLinksOrder([]);
-      toast.success("Link order saved successfully");
+      toast.success(t("ui.Link order saved successfully"));
     }
   };
 
@@ -227,9 +229,9 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
     <Card className="mb-6 px-6">
       <div className="flex items-center justify-between cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="flex flex-col">
-          <h3 className="mb-0 text-lg font-semibold">Link Management</h3>
+          <h3 className="mb-0 text-lg font-semibold">{t("ui.Link Management")}</h3>
           <p className="text-sm text-muted-foreground">
-            Manage the links that are displayed under &apos;Useful Links&apos; on the public model hub.
+            {t("ui.Manage the links that are displayed under 'Useful Links' on the public model hub.")}
           </p>
         </div>
         <div className="flex items-center">
@@ -244,10 +246,10 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
       {isExpanded && (
         <div className="mt-4">
           <div className="mb-6">
-            <p className="text-sm font-medium text-foreground mb-2">Add New Link</p>
+            <p className="text-sm font-medium text-foreground mb-2">{t("ui.Add New Link")}</p>
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">Display Name</label>
+                <label className="block text-xs text-muted-foreground mb-1">{t("ui.Display Name")}</label>
                 <input
                   type="text"
                   value={newLink.displayName}
@@ -257,12 +259,12 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                       displayName: e.target.value,
                     })
                   }
-                  placeholder="Friendly name"
+                  placeholder={t("ui.Friendly name")}
                   className="w-full px-3 py-2 border border-border rounded-md text-sm"
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">URL</label>
+                <label className="block text-xs text-muted-foreground mb-1">{t("ui.URL")}</label>
                 <input
                   type="text"
                   value={newLink.url}
@@ -283,22 +285,22 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                   className={`flex items-center px-4 py-2 rounded-md text-sm ${!newLink.url || !newLink.displayName ? "bg-border text-muted-foreground cursor-not-allowed" : "bg-success text-success-foreground hover:bg-success/80"}`}
                 >
                   <PlusCircleIcon className="w-4 h-4 mr-1" />
-                  Add Link
+                  {t("ui.Add Link")}
                 </button>
               </div>
             </div>
           </div>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium text-foreground">Manage Existing Links</p>
+            <p className="text-sm font-medium text-foreground">{t("ui.Manage Existing Links")}</p>
             <div className="flex items-center space-x-2">
               <Link
                 href={`${getProxyBaseUrl()}/ui/model_hub_table`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs bg-info/10 text-info px-3 py-1.5 rounded-sm hover:bg-info/15 flex items-center"
-                title="Open Public Model Hub"
+                title={t("ui.Open Public Model Hub")}
               >
-                Public Model Hub
+                {t("ui.Public Model Hub")}
                 <ExternalLinkIcon className="w-4 h-4 ml-1" />
               </Link>
               {!isRearranging ? (
@@ -306,7 +308,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                   onClick={handleStartRearranging}
                   className="text-xs bg-purple-50 text-purple-600 px-3 py-1.5 rounded-sm hover:bg-purple-100 flex items-center dark:bg-purple-950 dark:text-purple-300 dark:hover:bg-purple-900"
                 >
-                  Rearrange Order
+                  {t("ui.Rearrange Order")}
                 </button>
               ) : (
                 <div className="flex space-x-2">
@@ -314,13 +316,13 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                     onClick={handleSaveRearranging}
                     className="text-xs bg-success text-success-foreground px-3 py-1.5 rounded-sm hover:bg-success/80"
                   >
-                    Save Order
+                    {t("ui.Save Order")}
                   </button>
                   <button
                     onClick={handleCancelRearranging}
                     className="text-xs bg-muted text-muted-foreground px-3 py-1.5 rounded-sm hover:bg-accent"
                   >
-                    Cancel
+                    {t("ui.Cancel")}
                   </button>
                 </div>
               )}
@@ -331,9 +333,9 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
               <Table className="[&_td]:py-0.5 [&_th]:py-1">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="py-1 h-8">Display Name</TableHead>
-                    <TableHead className="py-1 h-8">URL</TableHead>
-                    <TableHead className="py-1 h-8">Actions</TableHead>
+                    <TableHead className="py-1 h-8">{t("ui.Display Name")}</TableHead>
+                    <TableHead className="py-1 h-8">{t("ui.URL")}</TableHead>
+                    <TableHead className="py-1 h-8">{t("ui.Actions")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -373,13 +375,13 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                                 onClick={handleUpdateLink}
                                 className="text-xs bg-info/10 text-info px-2 py-1 rounded-sm hover:bg-info/15"
                               >
-                                Save
+                                {t("ui.Save")}
                               </button>
                               <button
                                 onClick={handleCancelEdit}
                                 className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-sm hover:bg-accent"
                               >
-                                Cancel
+                                {t("ui.Cancel")}
                               </button>
                             </div>
                           </TableCell>
@@ -394,17 +396,17 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                                 <TableIconActionButton
                                   variant="Up"
                                   onClick={() => handleMoveUp(index)}
-                                  tooltipText="Move up"
+                                  tooltipText={t("ui.Move up")}
                                   disabled={index === 0}
-                                  disabledTooltipText="Already at the top"
+                                  disabledTooltipText={t("ui.Already at the top")}
                                   dataTestId={`move-up-${link.id}`}
                                 />
                                 <TableIconActionButton
                                   variant="Down"
                                   onClick={() => handleMoveDown(index)}
-                                  tooltipText="Move down"
+                                  tooltipText={t("ui.Move down")}
                                   disabled={index === links.length - 1}
-                                  disabledTooltipText="Already at the bottom"
+                                  disabledTooltipText={t("ui.Already at the bottom")}
                                   dataTestId={`move-down-${link.id}`}
                                 />
                               </div>
@@ -413,19 +415,19 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                                 <TableIconActionButton
                                   variant="Open"
                                   onClick={() => setCurrentLink(link.url)}
-                                  tooltipText="Open link"
+                                  tooltipText={t("ui.Open link")}
                                   dataTestId={`open-link-${link.id}`}
                                 />
                                 <TableIconActionButton
                                   variant="Edit"
                                   onClick={() => handleEditLink(link)}
-                                  tooltipText="Edit link"
+                                  tooltipText={t("ui.Edit link")}
                                   dataTestId={`edit-link-${link.id}`}
                                 />
                                 <TableIconActionButton
                                   variant="Delete"
                                   onClick={() => deleteLink(link.id)}
-                                  tooltipText="Delete link"
+                                  tooltipText={t("ui.Delete link")}
                                   dataTestId={`delete-link-${link.id}`}
                                 />
                               </div>
@@ -438,7 +440,7 @@ const UsefulLinksManagement: React.FC<UsefulLinksManagementProps> = ({ accessTok
                   {links.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={3} className="py-0.5 text-sm text-muted-foreground text-center">
-                        No links added yet. Add a new link above.
+                        {t("ui.No links added yet. Add a new link above.")}
                       </TableCell>
                     </TableRow>
                   )}

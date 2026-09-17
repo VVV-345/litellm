@@ -8,6 +8,7 @@ import { cn } from "@/lib/cva.config";
 import { makeAgentsPublicCall } from "../../networking";
 import { toast } from "@/lib/toast";
 import { AgentHubData } from "@/components/AIHub/AgentHubTableColumns";
+import { useTranslation } from "react-i18next";
 
 const STEP_TITLES = ["Select Agents", "Confirm"];
 
@@ -26,6 +27,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
   agentHubData,
   onSuccess,
 }) => {
+  const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -39,7 +41,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
   const handleNext = () => {
     if (currentStep === 0) {
       if (selectedAgents.size === 0) {
-        toast.fromError("Please select at least one agent to make public");
+        toast.fromError(t("ui.Please select at least one agent to make public"));
         return;
       }
       setCurrentStep(1);
@@ -85,7 +87,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
 
   const handleSubmit = async () => {
     if (selectedAgents.size === 0) {
-      toast.fromError("Please select at least one agent to make public");
+      toast.fromError(t("ui.Please select at least one agent to make public"));
       return;
     }
 
@@ -96,12 +98,12 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
       // Make batch API call for all agents
       await makeAgentsPublicCall(accessToken, agentIdsToMakePublic);
 
-      toast.success(`Successfully made ${agentIdsToMakePublic.length} agent(s) public!`);
+      toast.success(t("ui.Successfully made {{count}} agents public!", { count: agentIdsToMakePublic.length }));
       handleClose();
       onSuccess();
     } catch (error) {
       console.error("Error making agents public:", error);
-      toast.fromError("Failed to make agents public. Please try again.");
+      toast.fromError(t("ui.Failed to make agents public. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -115,7 +117,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Select Agents to Make Public</h3>
+          <h3 className="text-lg font-semibold">{t("ui.Select Agents to Make Public")}</h3>
           <div className="flex items-center space-x-2">
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
@@ -124,21 +126,22 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
                 onCheckedChange={(checked) => handleSelectAll(checked === true)}
                 disabled={agentHubData.length === 0}
               />
-              Select All {agentHubData.length > 0 && `(${agentHubData.length})`}
+              {t("ui.Select All")} {agentHubData.length > 0 && `(${agentHubData.length})`}
             </label>
           </div>
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Select the agents you want to be visible on the public model hub. Users will still require a valid Virtual Key
-          to use these agents.
+          {t(
+            "ui.Select the agents you want to be visible on the public model hub. Users will still require a valid Virtual Key to use these agents.",
+          )}
         </p>
 
         <div className="max-h-96 overflow-y-auto border rounded-lg p-4">
           <div className="space-y-3">
             {agentHubData.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <p>No agents available.</p>
+                <p>{t("ui.No agents available.")}</p>
               </div>
             ) : (
               agentHubData.map((agent) => {
@@ -163,7 +166,9 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
                             </Badge>
                           ))}
                           {agent.skills.length > 3 && (
-                            <p className="text-xs text-muted-foreground">+{agent.skills.length - 3} more</p>
+                            <p className="text-xs text-muted-foreground">
+                              +{agent.skills.length - 3} {t("ui.more")}
+                            </p>
                           )}
                         </div>
                       )}
@@ -178,7 +183,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
         {selectedAgents.size > 0 && (
           <div className="bg-info/10 border border-info/20 rounded-lg p-3">
             <p className="text-sm text-info">
-              <strong>{selectedAgents.size}</strong> agent{selectedAgents.size !== 1 ? "s" : ""} selected
+              <strong>{t("ui.{{count}} agents", { count: selectedAgents.size })}</strong> {t("ui.selected")}
             </p>
           </div>
         )}
@@ -189,17 +194,17 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
   const renderStep2Content = () => {
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Confirm Making Agents Public</h3>
+        <h3 className="text-lg font-semibold">{t("ui.Confirm Making Agents Public")}</h3>
 
         <div className="bg-warning/10 border border-warning/20 rounded-lg p-4">
           <p className="text-sm text-warning">
-            <strong>Warning:</strong> Once you make these agents public, anyone who can go to the{" "}
+            <strong>{t("ui.Warning:")}</strong> {t("ui.Once you make these agents public, anyone who can go to the")}{" "}
             <code>/ui/model_hub_table</code> will be able to know they exist on the proxy.
           </p>
         </div>
 
         <div className="space-y-3">
-          <p className="font-medium">Agents to be made public:</p>
+          <p className="font-medium">{t("ui.Agents to be made public:")}</p>
           <div className="max-h-48 overflow-y-auto border rounded-lg p-3">
             <div className="space-y-2">
               {Array.from(selectedAgents).map((agentId) => {
@@ -224,8 +229,8 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
 
         <div className="bg-info/10 border border-info/20 rounded-lg p-3">
           <p className="text-sm text-info">
-            Total: <strong>{selectedAgents.size}</strong> agent{selectedAgents.size !== 1 ? "s" : ""} will be made
-            public
+            {t("ui.Total:")} <strong>{t("ui.{{count}} agents", { count: selectedAgents.size })}</strong>{" "}
+            {t("ui.will be made public")}
           </p>
         </div>
       </div>
@@ -247,20 +252,20 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
     return (
       <div className="flex justify-between mt-6">
         <Button variant="outline" onClick={currentStep === 0 ? handleClose : handlePrevious}>
-          {currentStep === 0 ? "Cancel" : "Previous"}
+          {currentStep === 0 ? t("ui.Cancel") : t("ui.Previous")}
         </Button>
 
         <div className="flex space-x-2">
           {currentStep === 0 && (
             <Button onClick={handleNext} disabled={selectedAgents.size === 0}>
-              Next
+              {t("ui.Next")}
             </Button>
           )}
 
           {currentStep === 1 && (
             <Button onClick={handleSubmit} disabled={loading}>
               {loading && <Loader2 className="size-4 animate-spin" />}
-              Make Public
+              {t("ui.Make Public")}
             </Button>
           )}
         </div>
@@ -272,7 +277,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && handleClose()} disablePointerDismissal>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[1200px]">
         <DialogHeader>
-          <DialogTitle>Make Agents Public</DialogTitle>
+          <DialogTitle>{t("ui.Make Agents Public")}</DialogTitle>
         </DialogHeader>
 
         <div>
@@ -294,7 +299,7 @@ const MakeAgentPublicForm: React.FC<MakeAgentPublicFormProps> = ({
                   {index + 1}
                 </span>
                 <span className={cn("text-sm", currentStep === index ? "font-medium" : "text-muted-foreground")}>
-                  {title}
+                  {t(`ui.${title}`)}
                 </span>
               </li>
             ))}

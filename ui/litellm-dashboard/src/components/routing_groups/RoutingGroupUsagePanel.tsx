@@ -5,9 +5,11 @@ import React from "react";
 
 import CodeBlock from "@/components/CodeBlock";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { translateUiText } from "@/utils/i18nText";
 
 import { formatStrategyLabel } from "./strategy";
 import type { RoutingGroup } from "./types";
+import { useTranslation } from "react-i18next";
 
 interface RoutingGroupUsagePanelProps {
   group: RoutingGroup;
@@ -62,15 +64,20 @@ const SNIPPET_TABS = [
 ] as const;
 
 export function RoutingGroupUsagePanel({ group, baseUrl }: RoutingGroupUsagePanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="border-y bg-muted/40 px-4 py-4">
       <div className="mb-2 flex items-center gap-2">
         <Code2 className="size-4 text-primary" />
-        <span className="text-sm font-medium text-foreground">How routing works for this group</span>
+        <span className="text-sm font-medium text-foreground">{t("ui.How routing works for this group")}</span>
       </div>
       <p className="mb-3 text-sm text-muted-foreground">
-        Callers request any model in the group by name; LiteLLM picks a deployment behind the scenes using the{" "}
-        <span className="font-medium text-foreground">{formatStrategyLabel(group.routing_strategy)}</span> strategy.
+        {t(
+          "ui.Callers request any model in the group by name; LiteLLM picks a deployment behind the scenes using the {{strategy}} strategy.",
+          {
+            strategy: translateUiText(t, formatStrategyLabel(group.routing_strategy)),
+          },
+        )}
       </p>
       <Tabs defaultValue="curl">
         <TabsList variant="line" className="h-auto w-full justify-start rounded-none border-b p-0">

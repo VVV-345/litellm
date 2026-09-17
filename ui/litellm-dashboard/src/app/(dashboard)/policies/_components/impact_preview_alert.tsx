@@ -21,17 +21,25 @@ interface SampleListProps {
   totalCount: number;
 }
 
-const SampleList: React.FC<SampleListProps> = ({ label, samples, totalCount }) => (
-  <div className="mt-1 flex flex-wrap items-center gap-1">
-    <span className="text-xs text-muted-foreground">{label}: </span>
-    {samples.slice(0, 5).map((sample) => (
-      <Badge key={sample} variant="outline">
-        {sample}
-      </Badge>
-    ))}
-    {totalCount > 5 && <span className="text-xs text-muted-foreground">and {totalCount - 5} more...</span>}
-  </div>
-);
+const SampleList: React.FC<SampleListProps> = ({ label, samples, totalCount }) => {
+  const { t } = useTranslation();
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      <span className="text-xs text-muted-foreground">{label}: </span>
+      {samples.slice(0, 5).map((sample) => (
+        <Badge key={sample} variant="outline">
+          {sample}
+        </Badge>
+      ))}
+      {totalCount > 5 && (
+        <span className="text-xs text-muted-foreground">
+          {t("ui.and")} {totalCount - 5} more...
+        </span>
+      )}
+    </div>
+  );
+};
 
 const ImpactPreviewAlert: React.FC<ImpactPreviewAlertProps> = ({ impactResult }) => {
   const { t } = useTranslation();
@@ -44,16 +52,16 @@ const ImpactPreviewAlert: React.FC<ImpactPreviewAlertProps> = ({ impactResult })
       <AlertDescription>
         {isGlobal ? (
           <span>
-            Global scope — this will affect <strong>all keys and teams</strong>.
+            {t("ui.Global scope — this will affect")} <strong>{t("ui.all keys and teams")}</strong>.
           </span>
         ) : (
           <div>
             <span>
-              This attachment would affect{" "}
+              {t("ui.This attachment would affect")}{" "}
               <strong>
                 {impactResult.affected_keys_count} key{impactResult.affected_keys_count !== 1 ? "s" : ""}
               </strong>{" "}
-              and{" "}
+              {t("ui.and")}{" "}
               <strong>
                 {impactResult.affected_teams_count} team{impactResult.affected_teams_count !== 1 ? "s" : ""}
               </strong>

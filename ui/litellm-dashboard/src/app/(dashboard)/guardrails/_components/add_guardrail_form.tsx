@@ -490,7 +490,9 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
           selectedPatterns.length > 0 || blockedWords.length > 0 || selectedContentCategories.length > 0;
         if (!hasContentFilterSelections && !hasCompetitorIntent) {
           toast.fromError(
-            "Please configure at least one content filter setting (category, pattern, keyword, or competitor intent)",
+            t(
+              "ui.Please configure at least one content filter setting (category, pattern, keyword, or competitor intent)",
+            ),
           );
           setLoading(false);
           return;
@@ -943,14 +945,16 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
       <div className="space-y-6">
         <div>
           <p className="text-sm text-muted-foreground">
-            Configure settings for a specific call type. Most guardrails don't need this — skip it unless you're using a
-            specific endpoint like <code>/v1/realtime</code>.
+            {t(
+              "ui.Configure settings for a specific call type. Most guardrails don't need this. Skip it unless you're using a specific endpoint like {{endpoint}}.",
+              { endpoint: "/v1/realtime" },
+            )}
           </p>
         </div>
 
         <div>
           <label htmlFor="guardrail-call-type" className="mb-1 block text-sm font-medium text-foreground">
-            Call type
+            {t("ui.Call type")}
           </label>
           <Select
             items={CALL_TYPE_ITEMS}
@@ -1172,21 +1176,21 @@ const AddGuardrailForm: React.FC<AddGuardrailFormProps> = ({ visible, onClose, a
             {/* Bottom bar */}
             <div className="flex items-center justify-end space-x-3 border-t border-border px-6 py-3">
               <Button type="button" variant="outline" onClick={handleClose}>
-                Cancel
+                {t("ui.Cancel")}
               </Button>
               {currentStep > 0 && (
                 <Button type="button" variant="outline" onClick={prevStep}>
-                  Previous
+                  {t("ui.Previous")}
                 </Button>
               )}
               {currentStep < stepConfigs.length - 1 ? (
                 <Button type="button" onClick={nextStep}>
-                  Next
+                  {t("ui.Next")}
                 </Button>
               ) : (
                 <Button type="button" onClick={handleSubmit} disabled={loading}>
                   {loading && <UiLoadingSpinner className="size-4" />}
-                  Create Guardrail
+                  {t("ui.Create Guardrail")}
                 </Button>
               )}
             </div>

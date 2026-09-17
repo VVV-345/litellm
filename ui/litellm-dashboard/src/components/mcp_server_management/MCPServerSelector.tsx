@@ -4,6 +4,7 @@ import { useMCPToolsets } from "@/app/(dashboard)/hooks/mcpServers/useMCPToolset
 import { MultiSelect, type MultiSelectOption } from "@/components/shared/MultiSelect";
 import React from "react";
 import { ALL_PROXY_MCP_SERVERS_SENTINEL, NO_MCP_SERVERS_SENTINEL } from "@/components/mcp_tools/constants";
+import { useTranslation } from "react-i18next";
 
 interface MCPServerSelectorProps {
   onChange: (selected: { servers: string[]; accessGroups: string[]; toolsets: string[] }) => void;
@@ -28,15 +29,17 @@ const MCPServerSelector: React.FC<MCPServerSelectorProps> = ({
   value,
   className,
   accessToken,
-  placeholder = "Select MCP servers",
+  placeholder,
   disabled = false,
   teamId,
   allowNoMcpServers = false,
   allowAllProxyMcpServers = false,
 }) => {
+  const { t } = useTranslation();
   const { data: mcpServers = [], isLoading: serversLoading } = useMCPServers(teamId);
   const { data: accessGroups = [], isLoading: groupsLoading } = useMCPAccessGroups();
   const { data: toolsets = [], isLoading: toolsetsLoading } = useMCPToolsets();
+  const selectPlaceholder = placeholder ?? t("ui.Select MCP servers");
 
   const loading = serversLoading || groupsLoading || toolsetsLoading;
 
@@ -47,17 +50,17 @@ const MCPServerSelector: React.FC<MCPServerSelectorProps> = ({
     ...accessGroups.map((group) => ({
       label: group,
       value: group,
-      description: "Access Group",
+      description: t("ui.Access Group"),
     })),
     ...mcpServers.map((server) => ({
       label: `${server.server_name || server.server_id} (${server.server_id})`,
       value: server.server_id,
-      description: "MCP Server",
+      description: t("ui.MCP Server"),
     })),
     ...toolsets.map((toolset) => ({
       label: toolset.toolset_name,
       value: `${TOOLSET_PREFIX}${toolset.toolset_id}`,
-      description: "Toolset",
+      description: t("ui.Toolset"),
     })),
   ];
 
@@ -93,10 +96,10 @@ const MCPServerSelector: React.FC<MCPServerSelectorProps> = ({
 
   const selectOptions: MultiSelectOption[] = [
     ...(allowAllProxyMcpServers || hasAllProxyMcpServersSelected
-      ? [{ label: "All Proxy MCP Servers", value: ALL_PROXY_MCP_SERVERS_SENTINEL }]
+      ? [{ label: t("ui.All Proxy MCP Servers"), value: ALL_PROXY_MCP_SERVERS_SENTINEL }]
       : []),
     ...(allowNoMcpServers
-      ? [{ label: "No MCP Servers", value: NO_MCP_SERVERS_SENTINEL, description: "Block all" }]
+      ? [{ label: t("ui.No MCP Servers"), value: NO_MCP_SERVERS_SENTINEL, description: t("ui.Block all") }]
       : []),
     ...options.map((opt) => ({
       ...opt,
@@ -110,8 +113,8 @@ const MCPServerSelector: React.FC<MCPServerSelectorProps> = ({
         options={selectOptions}
         value={selectedValues}
         onValueChange={handleChange}
-        placeholder={placeholder}
-        emptyText="No MCP servers found"
+        placeholder={selectPlaceholder}
+        emptyText={t("ui.No MCP servers found")}
         loading={loading}
         disabled={disabled}
         className={`w-full ${className ?? ""}`}

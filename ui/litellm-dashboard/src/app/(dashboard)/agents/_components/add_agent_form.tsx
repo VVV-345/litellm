@@ -462,8 +462,9 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
   const renderEntitlementsStep = () => (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all
-        (subject to key/team permissions).
+        {t(
+          "ui.Configure which models, agents, and MCP tools this agent is allowed to use. Leave fields empty to allow all (subject to key/team permissions).",
+        )}
       </p>
 
       <FieldGroup>
@@ -561,10 +562,10 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
           <div className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium text-foreground">
-                Require x-litellm-trace-id on calls TO this agent
+                {t("ui.Require x-litellm-trace-id on calls TO this agent")}
               </span>
               <p className="mt-1 text-xs text-muted-foreground">
-                Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).
+                {t("ui.Only accept this agent being invoked with a trace-id (e.g. when used as a sub-agent).")}
               </p>
             </div>
             <Switch checked={requireTraceIdInbound} onCheckedChange={setRequireTraceIdInbound} />
@@ -573,10 +574,10 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
           <div className="flex items-center justify-between">
             <div>
               <span className="text-sm font-medium text-foreground">
-                Require x-litellm-trace-id on calls BY this agent
+                {t("ui.Require x-litellm-trace-id on calls BY this agent")}
               </span>
               <p className="mt-1 text-xs text-muted-foreground">
-                Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.
+                {t("ui.Requires LLM/MCP calls made by this agent to include x-litellm-trace-id for session tracking.")}
               </p>
             </div>
             <Switch
@@ -600,8 +601,9 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
         <div className="space-y-4">
           {!requireTraceIdOutbound && (
             <div className="rounded-lg border border-warning/20 bg-warning/10 p-3 text-sm text-warning">
-              Enable &quot;Require x-litellm-trace-id on calls BY this agent&quot; in Tracing to configure budgets and
-              rate limits.
+              {t(
+                'ui.Enable "Require x-litellm-trace-id on calls BY this agent" in Tracing to configure budgets and rate limits.',
+              )}
             </div>
           )}
 
@@ -670,7 +672,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
       <div>
         <h4 className="mb-3 text-sm font-medium text-foreground">{t("ui.Guardrails")}</h4>
         <p className="mb-3 text-xs text-muted-foreground">
-          Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.
+          {t("ui.Apply guardrails to this agent. Selected guardrails will run on all calls made by this agent.")}
         </p>
         <AgentFormField name="guardrails">
           {({ value, onChange }) => (
@@ -769,7 +771,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
             ))}
             <SelectSeparator />
             <div className="mb-1 px-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Not listed?
+              {t("ui.Not listed?")}
             </div>
             <SelectItem value={CUSTOM_AGENT_TYPE} className="focus:bg-warning/10">
               <span className="flex items-center gap-3">
@@ -780,7 +782,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
                     <StatusBadge tone="warning" label={t("ui.GENERIC")} className="h-4 px-1 text-[10px]" />
                   </span>
                   <span className="block text-xs whitespace-normal text-warning">
-                    For agents that don&apos;t follow a standard protocol, just needs a virtual key
+                    {t("ui.For agents that don't follow a standard protocol, just needs a virtual key")}
                   </span>
                 </span>
               </span>
@@ -828,7 +830,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
             {selectedAgentTypeInfo.credential_fields.length > 0 && (
               <div className="mt-4 rounded-lg border border-border p-4">
                 <h4 className="mb-3 text-sm font-medium text-foreground">
-                  {selectedAgentTypeInfo.agent_type_display_name} Settings
+                  {selectedAgentTypeInfo.agent_type_display_name} {t("ui.Settings")}
                 </h4>
                 <FieldGroup>
                   {selectedAgentTypeInfo.credential_fields.map((field) => (
@@ -998,7 +1000,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
             className="text-sm text-muted-foreground underline hover:text-foreground"
             onClick={() => setKeyAssignOption("skip")}
           >
-            Skip for now — I&apos;ll assign a key later
+            {t("ui.Skip for now — I'll assign a key later")}
           </button>
         </div>
       </div>
@@ -1022,12 +1024,13 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
       )}
       {assignedKeyAlias && (
         <p className="mt-2 text-sm text-muted-foreground">
-          Key <span className="font-medium">{assignedKeyAlias}</span> has been assigned to this agent.
+          {t("ui.Key")} <span className="font-medium">{assignedKeyAlias}</span>{" "}
+          {t("ui.has been assigned to this agent.")}
         </p>
       )}
       {!createdKeyValue && !assignedKeyAlias && keyAssignOption === "skip" && (
         <p className="mt-2 text-sm text-muted-foreground">
-          No key assigned. You can create one from the Virtual Keys page.
+          {t("ui.No key assigned. You can create one from the Virtual Keys page.")}
         </p>
       )}
     </div>
@@ -1039,7 +1042,7 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
         <DialogHeader>
           <div className="flex items-center space-x-3 border-b border-border pb-4">
             {selectedLogo && currentStep < 1 && (
-              <Logo src={selectedLogo} label="Agent" className="h-6 w-6 object-contain" />
+              <Logo src={selectedLogo} label={t("ui.Agent")} className="h-6 w-6 object-contain" />
             )}
             <DialogTitle className="text-xl font-semibold text-foreground">{t("ui.Add New Agent")}</DialogTitle>
           </div>
@@ -1062,14 +1065,14 @@ const AddAgentForm: React.FC<AddAgentFormProps> = ({ visible, onClose, accessTok
               <div>
                 {currentStep > 0 && currentStep < 4 && (
                   <Button type="button" variant="outline" onClick={handleBack}>
-                    ← Back
+                    {t("ui.← Back")}
                   </Button>
                 )}
               </div>
               <div className="flex gap-3">
                 {currentStep < 4 && (
                   <Button variant="secondary" onClick={handleClose}>
-                    Cancel
+                    {t("ui.Cancel")}
                   </Button>
                 )}
                 {currentStep < 3 && <Button onClick={handleNext}>{t("ui.Next →")}</Button>}

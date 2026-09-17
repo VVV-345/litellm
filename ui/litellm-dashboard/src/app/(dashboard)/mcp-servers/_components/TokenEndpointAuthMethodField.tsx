@@ -5,49 +5,53 @@ import { SimpleTooltip } from "@/components/ui/tooltip";
 
 import { MountedFormField } from "@/components/common_components/MountedFormField";
 import { selectControl, selectTriggerControl } from "./mcpFieldRules";
+import { useTranslation } from "react-i18next";
 
-const TOKEN_ENDPOINT_AUTH_METHOD_OPTIONS = [
-  { value: "client_secret_basic", label: "Client Secret Basic" },
-  { value: "client_secret_post", label: "Client Secret Post" },
-];
+const TOKEN_ENDPOINT_AUTH_METHOD_VALUES = ["client_secret_basic", "client_secret_post"] as const;
 
 interface TokenEndpointAuthMethodFieldProps {
   isEditing?: boolean;
 }
 
-const TokenEndpointAuthMethodField: React.FC<TokenEndpointAuthMethodFieldProps> = ({ isEditing = false }) => (
+const TokenEndpointAuthMethodField: React.FC<TokenEndpointAuthMethodFieldProps> = ({ isEditing = false }) => {
+  const { t } = useTranslation();
+  const options = TOKEN_ENDPOINT_AUTH_METHOD_VALUES.map((value) => ({
+    value,
+    label: t(`ui.${value === "client_secret_basic" ? "Client Secret Basic" : "Client Secret Post"}`),
+  }));
+  const placeholder = isEditing
+    ? t("ui.Leave blank to keep existing (default Client Secret Post)")
+    : t("ui.Default (Client Secret Post)");
+
+  return (
   <MountedFormField
     label={
       <span className="text-sm font-medium text-foreground flex items-center">
-        Token Endpoint Auth Method (optional)
-        <SimpleTooltip content="How the proxy authenticates to the upstream OAuth token endpoint. Client Secret Basic sends the client credentials in an HTTP Basic Authorization header; leave blank to use the default, Client Secret Post, which sends them in the request body.">
+        {t("ui.Token Endpoint Auth Method (optional)")}
+        <SimpleTooltip content={t("ui.How the proxy authenticates to the upstream OAuth token endpoint. Client Secret Basic sends the client credentials in an HTTP Basic Authorization header; leave blank to use the default, Client Secret Post, which sends them in the request body.")}>
           <Info className="ml-2 size-4 text-info hover:text-info/80 cursor-help" />
         </SimpleTooltip>
       </span>
     }
     name={["credentials", "token_endpoint_auth_method"]}
   >
-    {(control) => {
-      const placeholder = isEditing
-        ? "Leave blank to keep existing (default Client Secret Post)"
-        : "Default (Client Secret Post)";
-      return (
-        <Select {...selectControl<string>(control)} items={TOKEN_ENDPOINT_AUTH_METHOD_OPTIONS}>
+    {(control) => (
+        <Select {...selectControl<string>(control)} items={options}>
           <SelectTrigger {...selectTriggerControl(control)} className="w-full rounded-lg">
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={null}>{placeholder}</SelectItem>
-            {TOKEN_ENDPOINT_AUTH_METHOD_OPTIONS.map((option) => (
+            {options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      );
-    }}
+    )}
   </MountedFormField>
-);
+  );
+};
 
 export default TokenEndpointAuthMethodField;

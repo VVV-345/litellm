@@ -17,6 +17,7 @@ import {
   configuredSecretFields,
   isFieldVisible,
 } from "./cacheSettingsUtils";
+import { useTranslation } from "react-i18next";
 
 const ADVANCED_SECTIONS = ["ssl", "cacheManagement", "gcp"] as const;
 
@@ -30,6 +31,7 @@ const toRedisType = (value: unknown): RedisType =>
   REDIS_TYPES.includes(value as RedisType) ? (value as RedisType) : "node";
 
 const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const form = useForm<CacheFormValues>({ defaultValues: buildInitialValues({}) });
   const [redisType, setRedisType] = useState<RedisType>("node");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -50,7 +52,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
       setRedisType(toRedisType(currentValues.redis_type));
     } catch (error) {
       console.error("Failed to load cache settings:", error);
-      toast.fromError("Failed to load cache settings");
+      toast.fromError(t("ui.Failed to load cache settings"));
     }
   }, [accessToken, form]);
 
@@ -105,7 +107,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
         buildCachePayload(redisType, values, { forTesting: true }),
       );
       if (result.status === "success") {
-        toast.success("Cache connection test successful!");
+        toast.success(t("ui.Cache connection test successful!"));
       } else {
         toast.fromError(`Connection test failed: ${result.message || result.error}`);
       }
@@ -129,11 +131,11 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
     setIsSaving(true);
     try {
       await updateCacheSettingsCall(accessToken, buildCachePayload(redisType, values, { forTesting: false }));
-      toast.success("Cache settings updated successfully");
+      toast.success(t("ui.Cache settings updated successfully"));
       await loadCacheSettings();
     } catch (error) {
       console.error("Failed to save cache settings:", error);
-      toast.fromError("Failed to update cache settings");
+      toast.fromError(t("ui.Failed to update cache settings"));
     } finally {
       setIsSaving(false);
     }
@@ -148,8 +150,8 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
       <FormProvider {...form}>
         <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
           <div className="max-w-3xl">
-            <h3 className="text-sm font-medium text-foreground">Cache Settings</h3>
-            <p className="text-xs text-muted-foreground mt-1">Configure Redis cache for LiteLLM</p>
+            <h3 className="text-sm font-medium text-foreground">{t("ui.Cache Settings")}</h3>
+            <p className="text-xs text-muted-foreground mt-1">{t("ui.Configure Redis cache for LiteLLM")}</p>
           </div>
 
           <RedisTypeSelector
@@ -160,7 +162,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
 
           <div className="pt-4 border-t border-border">
             <CacheFieldSection
-              title="Connection Settings"
+              title={t("ui.Connection Settings")}
               section="connection"
               redisType={redisType}
               embeddingModels={embeddingModels}
@@ -171,7 +173,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
           {redisType === "cluster" && (
             <div className="pt-4 border-t border-border">
               <CacheFieldSection
-                title="Cluster Configuration"
+                title={t("ui.Cluster Configuration")}
                 section="cluster"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
@@ -183,7 +185,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
           {redisType === "sentinel" && (
             <div className="pt-4 border-t border-border">
               <CacheFieldSection
-                title="Sentinel Configuration"
+                title={t("ui.Sentinel Configuration")}
                 section="sentinel"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
@@ -195,7 +197,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
           {redisType === "semantic" && (
             <div className="pt-4 border-t border-border">
               <CacheFieldSection
-                title="Semantic Configuration"
+                title={t("ui.Semantic Configuration")}
                 section="semantic"
                 redisType={redisType}
                 embeddingModels={embeddingModels}
@@ -205,27 +207,27 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ accessToken }) => {
 
           <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="mt-4">
             <CollapsibleTrigger className="group flex w-full items-center justify-between py-2 text-left">
-              <span className="text-sm font-medium text-foreground">Advanced Settings</span>
+              <span className="text-sm font-medium text-foreground">{t("ui.Advanced Settings")}</span>
               <ChevronRight className="size-4 text-muted-foreground transition-transform group-data-panel-open:rotate-90" />
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="space-y-6">
                 <CacheFieldSection
-                  title="SSL Settings"
+                  title={t("ui.SSL Settings")}
                   section="ssl"
                   redisType={redisType}
                   embeddingModels={embeddingModels}
                   headingLevel="h5"
                 />
                 <CacheFieldSection
-                  title="Cache Management"
+                  title={t("ui.Cache Management")}
                   section="cacheManagement"
                   redisType={redisType}
                   embeddingModels={embeddingModels}
                   headingLevel="h5"
                 />
                 <CacheFieldSection
-                  title="GCP Authentication"
+                  title={t("ui.GCP Authentication")}
                   section="gcp"
                   redisType={redisType}
                   embeddingModels={embeddingModels}

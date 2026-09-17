@@ -10,6 +10,7 @@ import {
 } from "@/app/(dashboard)/router-settings/_components/general_settings";
 import CacheLeakageCard from "./CacheLeakageCard";
 import { DailyActivityRange } from "./useDailyActivityRange";
+import { useTranslation } from "react-i18next";
 
 interface PromptCachingTabProps {
   accessToken: string | null;
@@ -17,6 +18,7 @@ interface PromptCachingTabProps {
 }
 
 const PromptCachingTab: React.FC<PromptCachingTabProps> = ({ accessToken, activity }) => {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<generalSettingsItem[]>([]);
 
   const loadSettings = useCallback(() => {
@@ -27,7 +29,7 @@ const PromptCachingTab: React.FC<PromptCachingTabProps> = ({ accessToken, activi
       .then((data: generalSettingsItem[]) => setSettings(data))
       .catch((error) => {
         console.error("Failed to load prompt caching settings:", error);
-        toast.fromError("Failed to load prompt caching settings");
+        toast.fromError(t("ui.Failed to load prompt caching settings"));
       });
   }, [accessToken]);
 

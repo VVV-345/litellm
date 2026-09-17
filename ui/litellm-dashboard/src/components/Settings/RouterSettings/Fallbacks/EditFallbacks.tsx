@@ -91,7 +91,7 @@ export default function EditFallbacks({
       />
       <div className="flex items-center justify-end space-x-3 pt-6 mt-6 border-t border-border">
         <Button variant="outline" onClick={onClose} disabled={isSaving}>
-          Cancel
+          {t("ui.Cancel")}
         </Button>
         <Button onClick={handleSave} disabled={isSaving || group.fallbackModels.length === 0}>
           {isSaving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}

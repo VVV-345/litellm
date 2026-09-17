@@ -15,8 +15,10 @@ import RoutingGroupModal from "./RoutingGroupModal";
 import { toast } from "@/lib/toast";
 import type { RoutingGroup } from "./types";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 const RoutingGroups: React.FC = () => {
+  const { t } = useTranslation();
   const { data, isLoading, refetch, isFetching } = useRoutingGroups();
   const { data: routerFields } = useRouterFields();
   const { data: modelHub } = useModelHub();
@@ -110,13 +112,13 @@ const RoutingGroups: React.FC = () => {
                 <Search className="size-4 text-muted-foreground" />
               </InputGroupAddon>
               <InputGroupInput
-                placeholder="Search groups..."
+                placeholder={t("ui.Search groups...")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
               {searchQuery && (
                 <InputGroupAddon align="inline-end">
-                  <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => setSearchQuery("")}>
+                  <InputGroupButton size="icon-xs" aria-label={t("ui.Clear search")} onClick={() => setSearchQuery("")}>
                     <X />
                   </InputGroupButton>
                 </InputGroupAddon>
@@ -130,14 +132,14 @@ const RoutingGroups: React.FC = () => {
                 aria-busy={isFetching && !isLoading}
               >
                 <RefreshCw />
-                Refresh
+                {t("ui.Refresh")}
               </Button>
               <Button onClick={openCreate}>
                 <Plus />
-                Create Group
+                {t("ui.Create Group")}
               </Button>
               <span className="text-sm whitespace-nowrap text-muted-foreground">
-                Showing {filteredGroups.length} {filteredGroups.length === 1 ? "result" : "results"}
+                {t("ui.Showing")} {filteredGroups.length} {filteredGroups.length === 1 ? "result" : "results"}
               </span>
             </div>
           </div>
@@ -168,7 +170,7 @@ const RoutingGroups: React.FC = () => {
       <Dialog open={Boolean(deletingGroup)} onOpenChange={(open) => !open && setDeletingGroup(null)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Delete routing group?</DialogTitle>
+            <DialogTitle>{t("ui.Delete routing group?")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-foreground">
             Models in <span className="font-medium">{deletingGroup?.group_name}</span> will fall back to the
@@ -176,7 +178,7 @@ const RoutingGroups: React.FC = () => {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletingGroup(null)}>
-              Cancel
+              {t("ui.Cancel")}
             </Button>
             <Button
               onClick={confirmDelete}
@@ -184,7 +186,7 @@ const RoutingGroups: React.FC = () => {
               disabled={saveMutation.isPending}
               aria-busy={saveMutation.isPending}
             >
-              Delete
+              {t("ui.Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

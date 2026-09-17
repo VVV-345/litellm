@@ -97,7 +97,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
               />
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <span>ID: {project.project_id}</span>
+              <span>
+                {t("ui.ID:")} {project.project_id}
+              </span>
               <CopyButton value={project.project_id} label={t("ui.Copy project ID")} />
             </div>
           </div>
@@ -217,7 +219,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                     <div>
                       <p className="text-base font-medium text-foreground">{teamInfo.team_alias || teamInfo.team_id}</p>
                       <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <span>ID: {teamInfo.team_id}</span>
+                        <span>
+                          {t("ui.ID:")} {teamInfo.team_id}
+                        </span>
                         <CopyButton value={teamInfo.team_id} label={t("ui.Copy team ID")} />
                       </div>
                     </div>

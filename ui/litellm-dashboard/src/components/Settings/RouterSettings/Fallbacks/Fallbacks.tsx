@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import openai from "openai";
 import React, { useEffect, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import DeleteResourceModal from "../../../common_components/DeleteResourceModal";
 import { ProviderLogo } from "../../../molecules/models/ProviderLogo";
@@ -75,7 +76,7 @@ interface FallbacksProps {
   userID: string | null;
 }
 
-async function testFallbackModelResponse(selectedModel: string, accessToken: string) {
+async function testFallbackModelResponse(t: TFunction, selectedModel: string, accessToken: string) {
   const isLocal = process.env.NODE_ENV === "development";
   if (isLocal != true) {
     console.log = function () {};
@@ -88,7 +89,7 @@ async function testFallbackModelResponse(selectedModel: string, accessToken: str
   });
 
   try {
-    toast.info("Testing fallback model response...");
+    toast.info(t("ui.Testing fallback model response..."));
 
     const response = await client.chat.completions.create({
       model: selectedModel,
@@ -104,8 +105,10 @@ async function testFallbackModelResponse(selectedModel: string, accessToken: str
 
     toast.success(
       <span>
-        Test model=<strong>{selectedModel}</strong>, received model=
-        <strong>{response.model}</strong>. See{" "}
+        {t("ui.Test model={{selectedModel}}, received model={{responseModel}}. See", {
+          selectedModel,
+          responseModel: response.model,
+        })}{" "}
         <a
           href="#"
           onClick={() => window.open("https://docs.litellm.ai/docs/proxy/reliability", "_blank")}
@@ -116,7 +119,11 @@ async function testFallbackModelResponse(selectedModel: string, accessToken: str
       </span>,
     );
   } catch (error) {
-    toast.fromError(`Error occurred while generating model response. Please try again. Error: ${error}`);
+    toast.fromError(
+      t("ui.Error occurred while generating model response. Please try again. Error: {{error}}", {
+        error: String(error),
+      }),
+    );
   }
 }
 
@@ -195,9 +202,9 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
     try {
       await setCallbacksCall(accessToken, payload);
       setRouterSettings(updatedSettings);
-      toast.success("Router settings updated successfully");
+      toast.success(t("ui.Router settings updated successfully"));
     } catch (error) {
-      toast.fromError("Failed to update router settings: " + error);
+      toast.fromError(t("ui.Failed to update router settings: {{error}}", { error: String(error) }));
     } finally {
       setIsDeleting(false);
       setIsDeleteModalOpen(false);
@@ -234,7 +241,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
       setRouterSettings(updatedSettings);
     } catch (error) {
       // Revert on error by refetching from server
-      toast.fromError("Failed to update router settings: " + error);
+      toast.fromError(t("ui.Failed to update router settings: {{error}}", { error: String(error) }));
       if (accessToken && userRole && userID) {
         getCallbacksCall(accessToken, userID, userRole).then((data) => {
           let router_settings = data.router_settings;
@@ -265,7 +272,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
       {!hasFallbacks ? (
         <div className="rounded-lg border border-border bg-muted px-4 py-6 text-center">
           <span className="text-muted-foreground">
-            No fallbacks configured. Add fallbacks to automatically try another model when the primary fails.
+            {t("ui.No fallbacks configured. Add fallbacks to automatically try another model when the primary fails.")}
           </span>
         </div>
       ) : (
@@ -273,7 +280,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
           <TableHeader>
             <TableRow>
               <TableHead>{t("ui.Model Name")}</TableHead>
-              <TableHead>Fallbacks</TableHead>
+              <TableHead>{t("ui.Fallbacks")}</TableHead>
               <TableHead>{t("ui.Actions")}</TableHead>
             </TableRow>
           </TableHeader>
@@ -295,14 +302,14 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
                           <TooltipTrigger
                             render={
                               <span
-                                onClick={() => testFallbackModelResponse(Object.keys(item)[0], accessToken || "")}
+                                onClick={() => testFallbackModelResponse(t, Object.keys(item)[0], accessToken || "")}
                                 className={`${iconWrapperClass} cursor-pointer hover:text-info`}
                               />
                             }
                           >
                             <Play className="h-5 w-5 shrink-0" />
                           </TooltipTrigger>
-                          <TooltipContent>Test fallback</TooltipContent>
+                          <TooltipContent>{t("ui.Test fallback")}</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger
@@ -319,7 +326,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
                           >
                             <Pencil className="h-5 w-5 shrink-0" />
                           </TooltipTrigger>
-                          <TooltipContent>Edit fallback</TooltipContent>
+                          <TooltipContent>{t("ui.Edit fallback")}</TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger
@@ -336,7 +343,7 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
                           >
                             <Trash2 className="h-5 w-5 shrink-0" />
                           </TooltipTrigger>
-                          <TooltipContent>Delete fallback</TooltipContent>
+                          <TooltipContent>{t("ui.Delete fallback")}</TooltipContent>
                         </Tooltip>
                       </>
                     )}
@@ -359,9 +366,9 @@ const Fallbacks: React.FC<FallbacksProps> = ({ accessToken, userRole, userID }) 
       )}
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
-        title="Delete Fallback?"
-        message="Are you sure you want to delete this fallback? This action cannot be undone."
-        resourceInformationTitle="Fallback Information"
+        title={t("ui.Delete Fallback?")}
+        message={t("ui.Are you sure you want to delete this fallback? This action cannot be undone.")}
+        resourceInformationTitle={t("ui.Fallback Information")}
         resourceInformation={[
           {
             label: t("ui.Model Name"),

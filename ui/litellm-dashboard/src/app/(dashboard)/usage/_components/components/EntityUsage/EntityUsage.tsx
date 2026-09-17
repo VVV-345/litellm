@@ -43,6 +43,7 @@ import EndpointUsage from "../EndpointUsage/EndpointUsage";
 import ModelViewToggle, { ModelViewType } from "../ModelViewToggle";
 import TopKeyView from "@/components/UsagePage/components/EntityUsage/TopKeyView";
 import TopModelView from "./TopModelView";
+import { useTranslation } from "react-i18next";
 
 interface EntityMetrics {
   metrics: {
@@ -117,6 +118,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   dateValue,
   isOrgAdmin = false,
 }) => {
+  const { t } = useTranslation();
   const { teams } = useTeams();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [modelViewType, setModelViewType] = useState<ModelViewType>("groups");
@@ -385,7 +387,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardContent>
-            <h3 className="text-lg font-medium text-foreground">{capitalizedEntityLabel} Spend Overview</h3>
+            <h3 className="text-lg font-medium text-foreground">
+              {capitalizedEntityLabel} {t("ui.Spend Overview")}
+            </h3>
             <div className="grid grid-cols-5 gap-4 mt-4">{summaryTiles.map(renderSummaryTile)}</div>
           </CardContent>
         </ShadcnCard>
@@ -395,7 +399,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardHeader>
-            <CardTitle className="text-base font-semibold">Daily Spend</CardTitle>
+            <CardTitle className="text-base font-semibold">{t("ui.Daily Spend")}</CardTitle>
           </CardHeader>
           <CardContent>
             <BarChart
@@ -424,24 +428,44 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                     <p className="font-bold">{data.date}</p>
                     {showFlatCost ? (
                       <>
-                        <p className="text-info">Request cost: ${formatNumberWithCommas(requestSpend, 2)}</p>
-                        <p className="text-violet-500">Flat cost: ${formatNumberWithCommas(flatCost, 2)}</p>
+                        <p className="text-info">
+                          {t("ui.Request cost: $")}
+                          {formatNumberWithCommas(requestSpend, 2)}
+                        </p>
+                        <p className="text-violet-500">
+                          {t("ui.Flat cost: $")}
+                          {formatNumberWithCommas(flatCost, 2)}
+                        </p>
                         <p className="font-semibold">
-                          Total cost: ${formatNumberWithCommas(requestSpend + flatCost, 2)}
+                          {t("ui.Total cost: $")}
+                          {formatNumberWithCommas(requestSpend + flatCost, 2)}
                         </p>
                       </>
                     ) : (
-                      <p className="text-info">Total Spend: ${formatNumberWithCommas(data.metrics.spend, 2)}</p>
+                      <p className="text-info">
+                        {t("ui.Total Spend: $")}
+                        {formatNumberWithCommas(data.metrics.spend, 2)}
+                      </p>
                     )}
-                    <p className="text-muted-foreground">Total Requests: {data.metrics.api_requests}</p>
-                    <p className="text-muted-foreground">Successful: {data.metrics.successful_requests}</p>
-                    <p className="text-muted-foreground">Failed: {data.metrics.failed_requests}</p>
-                    <p className="text-muted-foreground">Total Tokens: {data.metrics.total_tokens}</p>
                     <p className="text-muted-foreground">
-                      Total {capitalizedEntityLabel}s: {entityCount}
+                      {t("ui.Total Requests:")} {data.metrics.api_requests}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {t("ui.Successful:")} {data.metrics.successful_requests}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {t("ui.Failed:")} {data.metrics.failed_requests}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {t("ui.Total Tokens:")} {data.metrics.total_tokens}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {t("ui.Total")} {capitalizedEntityLabel}s: {entityCount}
                     </p>
                     <div className="mt-2 border-t pt-2">
-                      <p className="font-semibold">Spend by {capitalizedEntityLabel}:</p>
+                      <p className="font-semibold">
+                        {t("ui.Spend by")} {capitalizedEntityLabel}:
+                      </p>
                       {Object.entries(data.breakdown.entities || {})
                         .sort(([, a], [, b]) => {
                           const spendA = (a as EntityMetrics).metrics.spend;
@@ -459,7 +483,9 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                           );
                         })}
                       {entityCount > 5 && (
-                        <p className="text-sm text-muted-foreground italic">...and {entityCount - 5} more</p>
+                        <p className="text-sm text-muted-foreground italic">
+                          ...and {entityCount - 5} {t("ui.more")}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -475,15 +501,19 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         <ShadcnCard>
           <CardContent className="flex flex-col space-y-4">
             <div className="flex flex-col space-y-2">
-              <h3 className="text-lg font-medium text-foreground">Spend Per {capitalizedEntityLabel}</h3>
-              <p className="text-xs text-muted-foreground">Showing Top 5 by Spend</p>
+              <h3 className="text-lg font-medium text-foreground">
+                {t("ui.Spend Per")} {capitalizedEntityLabel}
+              </h3>
+              <p className="text-xs text-muted-foreground">{t("ui.Showing Top 5 by Spend")}</p>
               <div className="flex items-center text-sm text-muted-foreground">
-                <span>Get Started by Tracking cost per {capitalizedEntityLabel} </span>
+                <span>
+                  {t("ui.Get Started by Tracking cost per")} {capitalizedEntityLabel}{" "}
+                </span>
                 <a
                   href="https://docs.litellm.ai/docs/proxy/enterprise#spend-tracking"
                   className="text-info hover:text-info/80 ml-1"
                 >
-                  here
+                  {t("ui.here")}
                 </a>
               </div>
             </div>
@@ -505,11 +535,22 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                     return (
                       <div className="bg-card p-4 shadow-lg rounded-lg border">
                         <p className="font-bold">{data.metadata.alias}</p>
-                        <p className="text-info">Spend: ${formatNumberWithCommas(data.metrics.spend, 4)}</p>
-                        <p className="text-muted-foreground">Requests: {data.metrics.api_requests.toLocaleString()}</p>
-                        <p className="text-success">Successful: {data.metrics.successful_requests.toLocaleString()}</p>
-                        <p className="text-destructive">Failed: {data.metrics.failed_requests.toLocaleString()}</p>
-                        <p className="text-muted-foreground">Tokens: {data.metrics.total_tokens.toLocaleString()}</p>
+                        <p className="text-info">
+                          {t("ui.Spend: $")}
+                          {formatNumberWithCommas(data.metrics.spend, 4)}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {t("ui.Requests:")} {data.metrics.api_requests.toLocaleString()}
+                        </p>
+                        <p className="text-success">
+                          {t("ui.Successful:")} {data.metrics.successful_requests.toLocaleString()}
+                        </p>
+                        <p className="text-destructive">
+                          {t("ui.Failed:")} {data.metrics.failed_requests.toLocaleString()}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {t("ui.Tokens:")} {data.metrics.total_tokens.toLocaleString()}
+                        </p>
                       </div>
                     );
                   }}
@@ -521,7 +562,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                   data={getEntityBreakdown().filter((entity) => entity.metrics.spend > 0)}
                   getRowId={(row) => row.metadata.id}
                   maxBodyHeight={208}
-                  noDataMessage={`No ${entityType} spend data`}
+                  noDataMessage={t("ui.No spend data")}
                   size="compact"
                 />
               </div>
@@ -534,7 +575,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div>
         <ShadcnCard>
           <CardContent>
-            <h3 className="text-lg font-medium text-foreground">Top Virtual Keys</h3>
+            <h3 className="text-lg font-medium text-foreground">{t("ui.Top Virtual Keys")}</h3>
             <TopKeyView
               topKeys={getTopAPIKeys(spendData.results, topKeysLimit)}
               teams={null}
@@ -552,7 +593,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
           <CardContent>
             <div className="flex justify-between items-center">
               <h3 className="text-lg font-medium text-foreground">
-                {entityType === "agent" ? "Top Agents" : modelViewTitle}
+                {entityType === "agent" ? t("ui.Top Agents") : modelViewTitle}
               </h3>
               <ModelViewToggle value={modelViewType} onChange={setModelViewType} />
             </div>
@@ -569,7 +610,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
         <div className="col-span-2">
           <ShadcnCard>
             <CardContent>
-              <h3 className="text-lg font-medium text-foreground">Top Agents Driving Spend</h3>
+              <h3 className="text-lg font-medium text-foreground">{t("ui.Top Agents Driving Spend")}</h3>
               <TopModelView
                 topModels={getTopAgents(agentSpendData.results, topAgentsLimit)}
                 topModelsLimit={topAgentsLimit}
@@ -584,7 +625,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
       <div className="col-span-2">
         <ShadcnCard>
           <CardContent className="flex flex-col space-y-4">
-            <h3 className="text-lg font-medium text-foreground">Provider Usage</h3>
+            <h3 className="text-lg font-medium text-foreground">{t("ui.Provider Usage")}</h3>
             <div className="grid grid-cols-2">
               <div>
                 <DonutChart
@@ -604,7 +645,7 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
                   columns={providerSpendColumns}
                   data={providerSpend}
                   getRowId={(row) => row.provider}
-                  noDataMessage="No provider usage data"
+                  noDataMessage={t("ui.No provider usage data")}
                   size="compact"
                 />
               </div>
@@ -616,10 +657,10 @@ const EntityUsage: React.FC<EntityUsageProps> = ({
   );
 
   const tabs: readonly { key: string; label: string; content: ReactNode }[] = [
-    { key: "cost", label: "Cost", content: costPanel },
+    { key: "cost", label: t("ui.Cost"), content: costPanel },
     {
       key: "models",
-      label: entityType === "agent" ? "Request / Token Consumption" : "Model Activity",
+      label: entityType === "agent" ? t("ui.Request / Token Consumption") : t("ui.Model Activity"),
       content: (
         <>
           <div className="flex justify-end mt-2 mb-4">

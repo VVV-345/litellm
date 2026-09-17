@@ -50,7 +50,9 @@ const MCPServerCostDisplay: React.FC<MCPServerCostDisplayProps> = ({ costConfig 
                   cost !== undefined && (
                     <div key={toolName} className="flex items-center justify-between rounded-lg bg-muted p-3">
                       <p className="text-sm font-medium">{toolName}</p>
-                      <p className="font-mono text-sm">${cost.toFixed(4)} per query</p>
+                      <p className="font-mono text-sm">
+                        ${cost.toFixed(4)} {t("ui.per query")}
+                      </p>
                     </div>
                   ),
               )}
@@ -65,12 +67,12 @@ const MCPServerCostDisplay: React.FC<MCPServerCostDisplayProps> = ({ costConfig 
               costConfig?.default_cost_per_query !== undefined &&
               costConfig?.default_cost_per_query !== null && (
                 <p className="text-sm text-muted-foreground">
-                  • Default cost: ${costConfig.default_cost_per_query.toFixed(4)} per query
+                  • {t("ui.Default cost:")} ${costConfig.default_cost_per_query.toFixed(4)} {t("ui.per query")}
                 </p>
               )}
             {hasToolCosts && costConfig?.tool_name_to_cost_per_query && (
               <p className="text-sm text-muted-foreground">
-                • {Object.keys(costConfig.tool_name_to_cost_per_query).length} tool(s) with custom pricing
+                • {Object.keys(costConfig.tool_name_to_cost_per_query).length} {t("ui.tool(s) with custom pricing")}
               </p>
             )}
           </div>

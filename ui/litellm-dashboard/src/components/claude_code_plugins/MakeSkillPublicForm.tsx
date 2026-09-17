@@ -8,6 +8,7 @@ import { cn } from "@/lib/cva.config";
 import { enableClaudeCodePlugin, disableClaudeCodePlugin } from "../networking";
 import { toast } from "@/lib/toast";
 import { Plugin } from "./types";
+import { useTranslation } from "react-i18next";
 
 const STEP_TITLES = ["Select Skills", "Confirm"];
 
@@ -26,6 +27,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
   skillsList,
   onSuccess,
 }) => {
+  const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
 
   const handleNext = () => {
     if (selectedSkills.size === 0) {
-      toast.fromError("Please select at least one skill");
+      toast.fromError(t("ui.Please select at least one skill"));
       return;
     }
     setCurrentStep(1);
@@ -71,7 +73,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
 
   const handleSubmit = async () => {
     if (selectedSkills.size === 0) {
-      toast.fromError("Please select at least one skill");
+      toast.fromError(t("ui.Please select at least one skill"));
       return;
     }
 
@@ -91,12 +93,12 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
         }),
       );
 
-      toast.success(`Skill Hub updated — ${selectedSkills.size} skill(s) published`);
+      toast.success(t("ui.Skill Hub updated — {{count}} skills published", { count: selectedSkills.size }));
       handleClose();
       onSuccess();
     } catch (error) {
       console.error("Error publishing skills:", error);
-      toast.fromError("Failed to update skills. Please try again.");
+      toast.fromError(t("ui.Failed to update skills. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -108,7 +110,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
   const renderStep1 = () => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Select Skills to Publish</h3>
+        <h3 className="text-lg font-semibold">{t("ui.Select Skills to Publish")}</h3>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={allSelected}
@@ -116,19 +118,19 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
             onCheckedChange={(checked) => handleSelectAll(checked === true)}
             disabled={skillsList.length === 0}
           />
-          Select All ({skillsList.length})
+          {t("ui.Select All ({{count}})", { count: skillsList.length })}
         </label>
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Selected skills will be visible to all users in the Skill Hub. Deselected skills will be unpublished.
+        {t("ui.Selected skills will be visible to all users in the Skill Hub. Deselected skills will be unpublished.")}
       </p>
 
       <div className="max-h-96 overflow-y-auto border rounded-lg p-4">
         <div className="space-y-3">
           {skillsList.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              <p>No skills registered yet.</p>
+              <p>{t("ui.No skills registered yet.")}</p>
             </div>
           ) : (
             skillsList.map((skill) => (
@@ -141,7 +143,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-medium font-mono text-sm break-words">{skill.name}</p>
-                    {skill.enabled && <Badge variant="secondary">Public</Badge>}
+                    {skill.enabled && <Badge variant="secondary">{t("ui.Public")}</Badge>}
                   </div>
                   {skill.description && (
                     <p className="text-xs text-muted-foreground truncate max-w-sm">{skill.description}</p>
@@ -157,7 +159,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
       {selectedSkills.size > 0 && (
         <div className="bg-info/10 border border-info/20 rounded-lg p-3">
           <p className="text-sm text-info">
-            <strong>{selectedSkills.size}</strong> skill{selectedSkills.size !== 1 ? "s" : ""} will be published
+            <strong>{t("ui.{{count}} skills", { count: selectedSkills.size })}</strong> {t("ui.will be published")}
           </p>
         </div>
       )}
@@ -166,17 +168,19 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
 
   const renderStep2 = () => (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Confirm Publish to Skill Hub</h3>
+      <h3 className="text-lg font-semibold">{t("ui.Confirm Publish to Skill Hub")}</h3>
 
       <div className="bg-warning/10 border border-warning/20 rounded-lg p-4">
         <p className="text-sm text-warning">
-          <strong>Note:</strong> Published skills will be visible to all users in the Skill Hub tab. Skills not in the
-          list below will be unpublished.
+          <strong>{t("ui.Note:")}</strong>{" "}
+          {t(
+            "ui.Published skills will be visible to all users in the Skill Hub tab. Skills not in the list below will be unpublished.",
+          )}
         </p>
       </div>
 
       <div className="space-y-3">
-        <p className="font-medium">Skills to be published:</p>
+        <p className="font-medium">{t("ui.Skills to be published:")}</p>
         <div className="max-h-48 overflow-y-auto border rounded-lg p-3">
           <div className="space-y-2">
             {Array.from(selectedSkills).map((name) => {
@@ -194,7 +198,8 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
 
       <div className="bg-info/10 border border-info/20 rounded-lg p-3">
         <p className="text-sm text-info">
-          Total: <strong>{selectedSkills.size}</strong> skill{selectedSkills.size !== 1 ? "s" : ""} will be published
+          {t("ui.Total:")} <strong>{t("ui.{{count}} skills", { count: selectedSkills.size })}</strong>{" "}
+          {t("ui.will be published")}
         </p>
       </div>
     </div>
@@ -204,7 +209,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && handleClose()} disablePointerDismissal>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[700px]">
         <DialogHeader>
-          <DialogTitle>Publish to Skill Hub</DialogTitle>
+          <DialogTitle>{t("ui.Publish to Skill Hub")}</DialogTitle>
         </DialogHeader>
 
         <div>
@@ -226,7 +231,7 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
                   {index + 1}
                 </span>
                 <span className={cn("text-sm", currentStep === index ? "font-medium" : "text-muted-foreground")}>
-                  {title}
+                  {t(`ui.${title}`)}
                 </span>
               </li>
             ))}
@@ -236,18 +241,18 @@ const MakeSkillPublicForm: React.FC<MakeSkillPublicFormProps> = ({
 
           <div className="flex justify-between mt-6">
             <Button variant="outline" onClick={currentStep === 0 ? handleClose : () => setCurrentStep(0)}>
-              {currentStep === 0 ? "Cancel" : "Previous"}
+              {currentStep === 0 ? t("ui.Cancel") : t("ui.Previous")}
             </Button>
             <div className="flex space-x-2">
               {currentStep === 0 && (
                 <Button onClick={handleNext} disabled={selectedSkills.size === 0}>
-                  Next
+                  {t("ui.Next")}
                 </Button>
               )}
               {currentStep === 1 && (
                 <Button onClick={handleSubmit} disabled={loading}>
                   {loading && <Loader2 className="size-4 animate-spin" />}
-                  Publish to Hub
+                  {t("ui.Publish to Hub")}
                 </Button>
               )}
             </div>

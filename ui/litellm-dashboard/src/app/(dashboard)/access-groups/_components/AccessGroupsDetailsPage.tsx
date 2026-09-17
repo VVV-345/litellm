@@ -82,7 +82,9 @@ export function AccessGroupDetail({ accessGroupId, onBack }: AccessGroupDetailPr
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-foreground">{accessGroup.access_group_name}</h1>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <span>ID: {accessGroup.access_group_id}</span>
+              <span>
+                {t("ui.ID:")} {accessGroup.access_group_id}
+              </span>
               <CopyButton value={accessGroup.access_group_id} label={t("ui.Copy access group ID")} />
             </div>
           </div>

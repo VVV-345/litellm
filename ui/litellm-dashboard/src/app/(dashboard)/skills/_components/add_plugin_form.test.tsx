@@ -1,6 +1,7 @@
 import React from "react";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18next, { CHINESE_LANGUAGE, ENGLISH_LANGUAGE } from "@/i18n";
 import { renderWithProviders } from "@/../tests/test-utils";
 import AddPluginForm from "./add_plugin_form";
 import { registerClaudeCodePlugin } from "@/components/networking";
@@ -24,8 +25,13 @@ const URL_PLACEHOLDER = "https://github.com/org/repo or https://gitlab.com/org/r
 const SUBPATH_PLACEHOLDER = "plugins/my-skill";
 
 describe("AddPluginForm", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage(ENGLISH_LANGUAGE);
     vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
   });
 
   it("renders the host-agnostic repository URL input and subfolder field", () => {

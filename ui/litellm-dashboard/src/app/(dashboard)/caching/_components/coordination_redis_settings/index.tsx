@@ -21,8 +21,10 @@ import {
   isFieldVisible,
   sourceBadge,
 } from "./coordinationRedisUtils";
+import { useTranslation } from "react-i18next";
 
 const CoordinationRedisSettings: React.FC = () => {
+  const { t } = useTranslation();
   const form = useForm<CoordinationFormValues>({ defaultValues: buildInitialValues({}) });
   const [selectedRedisType, setSelectedRedisType] = useState<CoordinationRedisType | null>(null);
 
@@ -40,7 +42,7 @@ const CoordinationRedisSettings: React.FC = () => {
 
   useEffect(() => {
     if (isError) {
-      toast.fromError("Failed to load coordination Redis settings");
+      toast.fromError(t("ui.Failed to load coordination Redis settings"));
     }
   }, [isError]);
 
@@ -65,7 +67,7 @@ const CoordinationRedisSettings: React.FC = () => {
     try {
       const result = await testConnection.mutateAsync(buildCoordinationPayload(redisType, values));
       if (result.status === "healthy") {
-        toast.success("Coordination Redis connection test successful!");
+        toast.success(t("ui.Coordination Redis connection test successful!"));
       } else {
         toast.fromError(`Connection test failed: ${result.error ?? "Unknown error"}`);
       }
@@ -82,9 +84,9 @@ const CoordinationRedisSettings: React.FC = () => {
 
     try {
       await updateSettings.mutateAsync(buildCoordinationPayload(redisType, values));
-      toast.success("Coordination Redis settings saved. Restart the proxy to apply them.");
+      toast.success(t("ui.Coordination Redis settings saved. Restart the proxy to apply them."));
     } catch {
-      toast.fromError("Failed to update coordination Redis settings");
+      toast.fromError(t("ui.Failed to update coordination Redis settings"));
     }
   };
 
@@ -97,24 +99,25 @@ const CoordinationRedisSettings: React.FC = () => {
         <form onSubmit={(event) => event.preventDefault()} className="space-y-6">
           <div className="max-w-3xl space-y-2">
             <div className="flex items-center gap-3">
-              <h3 className="text-sm font-medium text-foreground">Coordination Redis</h3>
+              <h3 className="text-sm font-medium text-foreground">{t("ui.Coordination Redis")}</h3>
               {!isLoading && (
                 <StatusBadge tone={badge.tone} label={badge.label} dataTestId="coordination-redis-source" />
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Redis used to coordinate work across proxy pods: cross-pod rate limits, spend tracking, and the pod lock
-              manager. It is configured independently of the response cache.
+              {t(
+                "ui.Redis used to coordinate work across proxy pods: cross-pod rate limits, spend tracking, and the pod lock manager. It is configured independently of the response cache.",
+              )}
             </p>
             <p className="text-xs text-muted-foreground">{badge.tooltip}</p>
-            <p className="text-xs text-warning">Saved changes take effect on proxy restart.</p>
+            <p className="text-xs text-warning">{t("ui.Saved changes take effect on proxy restart.")}</p>
           </div>
 
           <CoordinationRedisTypeSelector redisType={redisType} onTypeChange={setSelectedRedisType} />
 
           <div className="pt-4 border-t border-border">
             <CoordinationRedisFieldSection
-              title="Connection Settings"
+              title={t("ui.Connection Settings")}
               section="connection"
               redisType={redisType}
               configuredSecrets={configuredSecrets}
@@ -124,7 +127,7 @@ const CoordinationRedisSettings: React.FC = () => {
           {redisType === "cluster" && (
             <div className="pt-4 border-t border-border">
               <CoordinationRedisFieldSection
-                title="Cluster Configuration"
+                title={t("ui.Cluster Configuration")}
                 section="cluster"
                 redisType={redisType}
                 configuredSecrets={configuredSecrets}
@@ -136,7 +139,7 @@ const CoordinationRedisSettings: React.FC = () => {
           {redisType === "sentinel" && (
             <div className="pt-4 border-t border-border">
               <CoordinationRedisFieldSection
-                title="Sentinel Configuration"
+                title={t("ui.Sentinel Configuration")}
                 section="sentinel"
                 redisType={redisType}
                 configuredSecrets={configuredSecrets}
@@ -146,7 +149,7 @@ const CoordinationRedisSettings: React.FC = () => {
 
           <div className="pt-4 border-t border-border">
             <CoordinationRedisFieldSection
-              title="SSL Settings"
+              title={t("ui.SSL Settings")}
               section="ssl"
               redisType={redisType}
               configuredSecrets={configuredSecrets}

@@ -1,5 +1,6 @@
 import React, { useId } from "react";
 import { Switch } from "@/components/ui/switch";
+import { useTranslation } from "react-i18next";
 
 interface TagFilteringToggleProps {
   enabled: boolean;
@@ -8,6 +9,7 @@ interface TagFilteringToggleProps {
 }
 
 const TagFilteringToggle: React.FC<TagFilteringToggleProps> = ({ enabled, routerFieldsMetadata, onToggle }) => {
+  const { t } = useTranslation();
   const toggleId = useId();
 
   return (
@@ -28,7 +30,7 @@ const TagFilteringToggle: React.FC<TagFilteringToggleProps> = ({ enabled, router
                   rel="noopener noreferrer"
                   className="text-info hover:text-info/80 underline"
                 >
-                  Learn more
+                  {t("ui.Learn more")}
                 </a>
               </>
             )}

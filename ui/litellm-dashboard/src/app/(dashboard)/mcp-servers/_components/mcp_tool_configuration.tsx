@@ -88,7 +88,9 @@ const ToolRow: React.FC<ToolRowProps> = ({
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium">{toolNameToDisplayName[tool.name] || tool.name}</p>
-              <Badge variant={isEnabled ? "secondary" : "outline"}>{isEnabled ? t("ui.Enabled") : t("ui.Disabled")}</Badge>
+              <Badge variant={isEnabled ? "secondary" : "outline"}>
+                {isEnabled ? t("ui.Enabled") : t("ui.Disabled")}
+              </Badge>
               {toolNameToDisplayName[tool.name] && <Badge variant="secondary">{t("ui.Custom name")}</Badge>}
             </div>
             {(toolNameToDescription[tool.name] || tool.description) && (
@@ -429,7 +431,9 @@ const MCPToolConfiguration: React.FC<MCPToolConfigurationProps> = ({
         <div className="rounded-lg border border-border bg-muted p-3">
           <p className="text-sm">
             <strong>{t("ui.Select which tools users can call:")}</strong>
-            {t("ui. Only checked tools will be available for users to invoke. Unchecked tools will be blocked from execution.")}
+            {t(
+              "ui. Only checked tools will be available for users to invoke. Unchecked tools will be blocked from execution.",
+            )}
           </p>
         </div>
 
@@ -465,7 +469,10 @@ const MCPToolConfiguration: React.FC<MCPToolConfigurationProps> = ({
             <div className="rounded-lg border border-dashed py-4 text-center text-muted-foreground">
               <Wrench className="mx-auto mb-2 size-6" />
               <p className="text-sm">{t("ui.No tools loaded from spec")}</p>
-              <p className="mt-1 block text-sm">{t("ui.Expected tools: ")}{keyTools.map((t) => t.name).join(", ")}</p>
+              <p className="mt-1 block text-sm">
+                {t("ui.Expected tools: ")}
+                {keyTools.map((t) => t.name).join(", ")}
+              </p>
             </div>
           ) : (
             <div className="rounded-lg border border-dashed py-6 text-center text-muted-foreground">
@@ -490,7 +497,7 @@ const MCPToolConfiguration: React.FC<MCPToolConfigurationProps> = ({
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted p-3">
               <CircleCheck className="size-4" />
               <p className="text-sm font-medium">
-                {effectiveAllowedTools.length} of {tools.length}{" "}
+                {effectiveAllowedTools.length} {t("ui.of")} {tools.length}{" "}
                 {t(`ui.${tools.length === 1 ? "tool" : "tools"} enabled for user access`, {
                   defaultValue: `${tools.length === 1 ? "tool" : "tools"} enabled for user access`,
                 })}

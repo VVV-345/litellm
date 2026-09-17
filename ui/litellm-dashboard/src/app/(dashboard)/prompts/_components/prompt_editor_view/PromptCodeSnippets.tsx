@@ -15,6 +15,7 @@ const LANGUAGE_ITEMS = [
   { value: "javascript", label: "JavaScript (OpenAI SDK)" },
 ] as const;
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useTranslation } from "react-i18next";
 
 interface PromptCodeSnippetsProps {
   promptId: string;
@@ -36,6 +37,7 @@ const PromptCodeSnippets: React.FC<PromptCodeSnippetsProps> = ({
   version = "1",
   proxySettings,
 }) => {
+  const { t } = useTranslation();
   const syntaxTheme = useSyntaxTheme(coy);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<"curl" | "python" | "javascript">("curl");
@@ -247,18 +249,18 @@ main();`;
     <>
       <Button variant="outline" onClick={showModal}>
         <CodeIcon />
-        Get Code
+        {t("ui.Get Code")}
       </Button>
 
       <Dialog open={isModalVisible} onOpenChange={(open) => !open && handleCancel()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Generated Code</DialogTitle>
+            <DialogTitle>{t("ui.Generated Code")}</DialogTitle>
           </DialogHeader>
           <div className="flex justify-between items-center mb-4">
             <div>
               <label htmlFor="prompt-code-language" className="font-medium block mb-1 text-foreground">
-                Language
+                {t("ui.Language")}
               </label>
               <Select
                 items={LANGUAGE_ITEMS}
@@ -281,19 +283,19 @@ main();`;
               variant="outline"
               onClick={() => {
                 navigator.clipboard.writeText(generatedCode);
-                toast.success("Copied to clipboard!");
+                toast.success(t("ui.Copied to clipboard!"));
               }}
             >
               <CopyIcon />
-              Copy to Clipboard
+              {t("ui.Copy to Clipboard")}
             </Button>
           </div>
 
           <Tabs value={selectedTab} onValueChange={(value) => setSelectedTab(String(value))}>
-            <TabsList aria-label="Generated code type">
-              <TabsTrigger value="basic">Basic</TabsTrigger>
-              <TabsTrigger value="messages">With Messages</TabsTrigger>
-              <TabsTrigger value="version">With Version</TabsTrigger>
+            <TabsList aria-label={t("ui.Generated code type")}>
+              <TabsTrigger value="basic">{t("ui.Basic")}</TabsTrigger>
+              <TabsTrigger value="messages">{t("ui.With Messages")}</TabsTrigger>
+              <TabsTrigger value="version">{t("ui.With Version")}</TabsTrigger>
             </TabsList>
           </Tabs>
 

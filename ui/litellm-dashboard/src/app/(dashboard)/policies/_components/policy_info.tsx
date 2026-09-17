@@ -127,9 +127,15 @@ const PolicyInfoView: React.FC<PolicyInfoViewProps> = ({
             <DetailRow label={t("ui.Policy ID", { defaultValue: "Policy ID" })}>
               <code className="rounded-sm bg-muted px-2 py-1 text-xs">{policy.policy_id}</code>
             </DetailRow>
-            <DetailRow label={t("ui.Description", { defaultValue: "Description" })}>{policy.description || <Muted>{t("ui.No description", { defaultValue: "No description" })}</Muted>}</DetailRow>
+            <DetailRow label={t("ui.Description", { defaultValue: "Description" })}>
+              {policy.description || <Muted>{t("ui.No description", { defaultValue: "No description" })}</Muted>}
+            </DetailRow>
             <DetailRow label={t("ui.Inherits From", { defaultValue: "Inherits From" })}>
-              {policy.inherit ? <Badge variant="secondary">{policy.inherit}</Badge> : <Muted>{t("ui.None", { defaultValue: "None" })}</Muted>}
+              {policy.inherit ? (
+                <Badge variant="secondary">{policy.inherit}</Badge>
+              ) : (
+                <Muted>{t("ui.None", { defaultValue: "None" })}</Muted>
+              )}
             </DetailRow>
             <DetailRow label={t("ui.Created At", { defaultValue: "Created At" })}>
               {policy.created_at ? new Date(policy.created_at).toLocaleString() : "-"}
@@ -145,7 +151,7 @@ const PolicyInfoView: React.FC<PolicyInfoViewProps> = ({
               <Alert className="mb-4">
                 <Info />
                 <AlertTitle>
-                  Pipeline ({policy.pipeline.mode} mode, {policy.pipeline.steps.length} step
+                  Pipeline ({policy.pipeline.mode} mode, {policy.pipeline.steps.length} {t("ui.step")}
                   {policy.pipeline.steps.length !== 1 ? "s" : ""})
                 </AlertTitle>
               </Alert>
@@ -153,14 +159,20 @@ const PolicyInfoView: React.FC<PolicyInfoViewProps> = ({
             </>
           )}
 
-          <SectionHeading>{t("ui.Guardrails Configuration", { defaultValue: "Guardrails Configuration" })}</SectionHeading>
+          <SectionHeading>
+            {t("ui.Guardrails Configuration", { defaultValue: "Guardrails Configuration" })}
+          </SectionHeading>
 
           {resolvedGuardrails.length > 0 && (
             <Alert className="mb-4">
               <Info />
               <AlertTitle>{t("ui.Resolved Guardrails", { defaultValue: "Resolved Guardrails" })}</AlertTitle>
               <AlertDescription>
-                <span className="mb-2 block">{t("ui.Final guardrails that will be applied (including inheritance):", { defaultValue: "Final guardrails that will be applied (including inheritance):" })}</span>
+                <span className="mb-2 block">
+                  {t("ui.Final guardrails that will be applied (including inheritance):", {
+                    defaultValue: "Final guardrails that will be applied (including inheritance):",
+                  })}
+                </span>
                 <div className="flex flex-wrap gap-1">
                   {resolvedGuardrails.map((g) => (
                     <Badge key={g} variant="secondary">
@@ -212,7 +224,11 @@ const PolicyInfoView: React.FC<PolicyInfoViewProps> = ({
                     : JSON.stringify(policy.condition.model)}
                 </Badge>
               ) : (
-                <Muted>{t("ui.No model condition (applies to all models)", { defaultValue: "No model condition (applies to all models)" })}</Muted>
+                <Muted>
+                  {t("ui.No model condition (applies to all models)", {
+                    defaultValue: "No model condition (applies to all models)",
+                  })}
+                </Muted>
               )}
             </DetailRow>
           </dl>

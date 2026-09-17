@@ -24,6 +24,7 @@ import {
   type GuardrailFieldControlProps,
   type GuardrailFormControl,
 } from "./GuardrailFormField";
+import { useTranslation } from "react-i18next";
 
 interface GuardrailProviderFieldsProps {
   selectedProvider: string | null;
@@ -67,6 +68,7 @@ interface ProviderFieldInputProps {
 }
 
 const ProviderFieldInput: React.FC<ProviderFieldInputProps> = ({ descriptor, fieldKey, control }) => {
+  const { t } = useTranslation();
   const { id, value, onChange, onBlur, ref, name, ...aria } = control;
 
   if (descriptor.type === "select" && descriptor.options) {
@@ -113,8 +115,8 @@ const ProviderFieldInput: React.FC<ProviderFieldInputProps> = ({ descriptor, fie
           <SelectValue placeholder={descriptor.description} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={true}>True</SelectItem>
-          <SelectItem value={false}>False</SelectItem>
+          <SelectItem value={true}>{t("ui.True")}</SelectItem>
+          <SelectItem value={false}>{t("ui.False")}</SelectItem>
         </SelectContent>
       </Select>
     );
@@ -192,6 +194,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
   providerParams: providerParamsProp = null,
   value = null,
 }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [providerParams, setProviderParams] = useState<ProviderParamsResponse | null>(providerParamsProp);
   const [error, setError] = useState<string | null>(null);
@@ -241,7 +244,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <UiLoadingSpinner className="size-4" />
-        Loading provider parameters...
+        {t("ui.Loading provider parameters...")}
       </div>
     );
   }
@@ -258,7 +261,7 @@ const GuardrailProviderFields: React.FC<GuardrailProviderFieldsProps> = ({
   const providerFields = providerParams && providerParams[providerKey];
 
   if (!providerFields || Object.keys(providerFields).length === 0) {
-    return <div>No configuration fields available for this provider.</div>;
+    return <div>{t("ui.No configuration fields available for this provider.")}</div>;
   }
 
   // Fields to skip for content filter provider (handled in dedicated steps)

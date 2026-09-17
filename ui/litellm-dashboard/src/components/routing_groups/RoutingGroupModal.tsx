@@ -32,6 +32,7 @@ import {
 import type { RoutingGroup } from "./types";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 
 interface RoutingGroupModalProps {
   open: boolean;
@@ -62,6 +63,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
   onSubmit,
   saving,
 }) => {
+  const { t } = useTranslation();
   const modelsAnchor = useComboboxAnchor();
   const strategyItems = availableStrategies.map((strategy) => ({ label: strategy, value: strategy }));
 
@@ -115,17 +117,21 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
             <FormField
               control={form.control}
               name="group_name"
-              label="Group Name"
-              description="Use this name as the model in API calls — LiteLLM routes the request to one of the group's models."
+              label={t("ui.Group Name")}
+              description={t(
+                "ui.Use this name as the model in API calls — LiteLLM routes the request to one of the group's models.",
+              )}
             >
-              {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="fast-chat" disabled={mode === "edit"} />}
+              {({ ref, ...field }) => (
+                <Input {...field} ref={ref} placeholder={t("ui.fast-chat")} disabled={mode === "edit"} />
+              )}
             </FormField>
 
             <FormField
               control={form.control}
               name="models"
-              label="Models"
-              description="Models from your model list that this group routes between."
+              label={t("ui.Models")}
+              description={t("ui.Models from your model list that this group routes between.")}
             >
               {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
                 <Combobox multiple items={modelOptions} value={value} onValueChange={onChange}>
@@ -142,14 +148,14 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
                             id={id}
                             aria-invalid={ariaInvalid}
                             aria-describedby={ariaDescribedBy}
-                            placeholder="Select models"
+                            placeholder={t("ui.Select models")}
                           />
                         </>
                       )}
                     </ComboboxValue>
                   </ComboboxChips>
                   <ComboboxContent anchor={modelsAnchor}>
-                    <ComboboxEmpty>No models found</ComboboxEmpty>
+                    <ComboboxEmpty>{t("ui.No models found")}</ComboboxEmpty>
                     <ComboboxList>
                       {(model: string) => (
                         <ComboboxItem key={model} value={model}>
@@ -165,7 +171,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
             <FormField
               control={form.control}
               name="routing_strategy"
-              label="Routing Strategy"
+              label={t("ui.Routing Strategy")}
               description={strategyDescriptions[selectedStrategy]}
             >
               {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
@@ -181,7 +187,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
                   }}
                 >
                   <SelectTrigger id={id} aria-invalid={ariaInvalid} aria-describedby={ariaDescribedBy}>
-                    <SelectValue placeholder="Select strategy" />
+                    <SelectValue placeholder={t("ui.Select strategy")} />
                   </SelectTrigger>
                   <SelectContent>
                     {availableStrategies.map((strategy) => (
@@ -198,7 +204,7 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
               <FormField
                 control={form.control}
                 name="routing_strategy_args"
-                label="Strategy Arguments (JSON)"
+                label={t("ui.Strategy Arguments (JSON)")}
                 description={ARGS_EXAMPLES[selectedStrategy] ?? 'Example: { "ttl": 60 }'}
               >
                 {({ ref, ...field }) => (
@@ -208,13 +214,13 @@ const RoutingGroupModal: React.FC<RoutingGroupModalProps> = ({
             )}
 
             <p className="text-xs text-muted-foreground">
-              Models not claimed by an explicit group fall through to the proxy&apos;s top-level routing strategy.
+              {t("ui.Models not claimed by an explicit group fall through to the proxy's top-level routing strategy.")}
             </p>
           </FieldGroup>
         </form>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {t("ui.Cancel")}
           </Button>
           <Button onClick={() => void form.handleSubmit(handleSubmit)()} disabled={saving} aria-busy={saving}>
             {mode === "create" ? "Create Group" : "Save Changes"}

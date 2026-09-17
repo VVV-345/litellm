@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ArrowLeft, Check, Copy, Link2 } from "lucide-react";
 import { buildMarketplaceSettingsSnippet, formatInstallCommand } from "./helpers";
 import { Plugin } from "./types";
+import { useTranslation } from "react-i18next";
 
 interface SkillDetailProps {
   skill: Plugin;
@@ -12,6 +13,7 @@ interface SkillDetailProps {
 }
 
 const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("overview");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -36,17 +38,17 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
   );
 
   const detailRows = [
-    ...(skill.category ? [{ property: "Category", value: skill.category }] : []),
-    ...(skill.domain ? [{ property: "Domain", value: skill.domain }] : []),
-    ...(skill.namespace ? [{ property: "Namespace", value: skill.namespace }] : []),
-    ...(skill.version ? [{ property: "Version", value: skill.version }] : []),
-    ...(skill.author?.name ? [{ property: "Author", value: skill.author.name }] : []),
-    ...(skill.created_at ? [{ property: "Added", value: new Date(skill.created_at).toLocaleDateString() }] : []),
+    ...(skill.category ? [{ property: t("ui.Category"), value: skill.category }] : []),
+    ...(skill.domain ? [{ property: t("ui.Domain"), value: skill.domain }] : []),
+    ...(skill.namespace ? [{ property: t("ui.Namespace"), value: skill.namespace }] : []),
+    ...(skill.version ? [{ property: t("ui.Version"), value: skill.version }] : []),
+    ...(skill.author?.name ? [{ property: t("ui.Author"), value: skill.author.name }] : []),
+    ...(skill.created_at ? [{ property: t("ui.Added"), value: new Date(skill.created_at).toLocaleDateString() }] : []),
   ];
 
   const tabs = [
-    { key: "overview", label: "Overview" },
-    { key: "usage", label: "How to Use" },
+    { key: "overview", label: t("ui.Overview") },
+    { key: "usage", label: t("ui.How to Use") },
   ];
 
   return (
@@ -65,7 +67,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
         }}
       >
         <ArrowLeft className="size-3" />
-        <span>Skills</span>
+        <span>{t("ui.Skills")}</span>
       </div>
 
       {/* Header */}
@@ -104,13 +106,17 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
         <div style={{ display: "flex", gap: 64 }}>
           {/* Left column */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 400, color: "#202124", margin: "0 0 4px 0" }}>Skill Details</h2>
-            <p style={{ fontSize: 13, color: "#5f6368", margin: "0 0 16px 0" }}>Metadata registered with this skill</p>
+            <h2 style={{ fontSize: 18, fontWeight: 400, color: "#202124", margin: "0 0 4px 0" }}>
+              {t("ui.Skill Details")}
+            </h2>
+            <p style={{ fontSize: 13, color: "#5f6368", margin: "0 0 16px 0" }}>
+              {t("ui.Metadata registered with this skill")}
+            </p>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #dadce0" }}>
                   <th style={{ textAlign: "left", padding: "12px 0", color: "#5f6368", fontWeight: 500, width: 160 }}>
-                    Property
+                    {t("ui.Property")}
                   </th>
                   <th style={{ textAlign: "left", padding: "12px 0", color: "#5f6368", fontWeight: 500 }}>
                     {skill.name}
@@ -131,7 +137,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           {/* Right sidebar */}
           <div style={{ width: 240, flexShrink: 0 }}>
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>Status</div>
+              <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>{t("ui.Status")}</div>
               <span
                 style={{
                   fontSize: 12,
@@ -142,13 +148,13 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                   fontWeight: 500,
                 }}
               >
-                {skill.enabled ? "Public" : "Draft"}
+                {skill.enabled ? t("ui.Public") : t("ui.Draft")}
               </span>
             </div>
 
             {sourceUrl && (
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>Source</div>
+                <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>{t("ui.Source")}</div>
                 <a
                   href={sourceUrl}
                   target="_blank"
@@ -170,7 +176,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
 
             {skill.keywords && skill.keywords.length > 0 && (
               <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 8 }}>Tags</div>
+                <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 8 }}>{t("ui.Tags")}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {skill.keywords.map((kw) => (
                     <span
@@ -192,7 +198,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
             )}
 
             <div>
-              <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>Skill ID</div>
+              <div style={{ fontSize: 12, color: "#5f6368", marginBottom: 4 }}>{t("ui.Skill ID")}</div>
               <div style={{ fontSize: 12, fontFamily: "monospace", color: "#3c4043", wordBreak: "break-all" }}>
                 {skill.id}
               </div>
@@ -204,9 +210,11 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
       {/* How to Use tab */}
       {activeTab === "usage" && (
         <div style={{ maxWidth: 640 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 400, color: "#202124", margin: "0 0 8px 0" }}>Using this skill</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 400, color: "#202124", margin: "0 0 8px 0" }}>
+            {t("ui.Using this skill")}
+          </h2>
           <p style={{ fontSize: 14, color: "#5f6368", margin: "0 0 24px 0", lineHeight: 1.6 }}>
-            Once your proxy is set as a marketplace, enable this skill in Claude Code with one command:
+            {t("ui.Once your proxy is set as a marketplace, enable this skill in Claude Code with one command:")}
           </p>
 
           {/* Install command */}
@@ -228,7 +236,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 borderBottom: "1px solid #dadce0",
               }}
             >
-              <span style={{ fontSize: 13, color: "#3c4043", fontWeight: 500 }}>Run in Claude Code</span>
+              <span style={{ fontSize: 13, color: "#3c4043", fontWeight: 500 }}>{t("ui.Run in Claude Code")}</span>
               <button
                 onClick={() => copyToClipboard(installCommand, "install")}
                 style={{
@@ -244,7 +252,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 }}
               >
                 {copiedKey === "install" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "install" ? "Copied" : "Copy"}
+                {copiedKey === "install" ? t("ui.Copied") : t("ui.Copy")}
               </button>
             </div>
             <pre
@@ -272,7 +280,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
             }}
           >
             <p style={{ fontSize: 13, color: "#5f6368", lineHeight: 1.6, margin: "0 0 8px 0" }}>
-              If you see &quot;Plugin {skill.name} not found in marketplace&quot;, update the catalog first:
+              {t('ui.If you see "Plugin {{name}} not found in marketplace", update the catalog first:', {
+                name: skill.name,
+              })}
             </p>
             <pre
               style={{
@@ -288,9 +298,9 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           </div>
 
           <p style={{ fontSize: 13, color: "#5f6368", lineHeight: 1.6, margin: 0 }}>
-            Don&apos;t have the marketplace configured yet?{" "}
+            {t("ui.Don't have the marketplace configured yet?")}{" "}
             <span onClick={() => setActiveTab("setup")} style={{ color: "#1a73e8", cursor: "pointer" }}>
-              See one-time setup →
+              {t("ui.See one-time setup →")}
             </span>
           </p>
         </div>
@@ -300,12 +310,12 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
       {activeTab === "setup" && (
         <div style={{ maxWidth: 640 }}>
           <h2 style={{ fontSize: 18, fontWeight: 400, color: "#202124", margin: "0 0 8px 0" }}>
-            One-time marketplace setup
+            {t("ui.One-time marketplace setup")}
           </h2>
 
           {/* Option 1: single command — fastest path for most users */}
           <p style={{ fontSize: 14, color: "#5f6368", margin: "0 0 12px 0", lineHeight: 1.6 }}>
-            Run this command in Claude Code to register the marketplace:
+            {t("ui.Run this command in Claude Code to register the marketplace:")}
           </p>
           <div
             style={{
@@ -325,7 +335,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 borderBottom: "1px solid #dadce0",
               }}
             >
-              <span style={{ fontSize: 13, color: "#3c4043", fontWeight: 500 }}>Run in Claude Code</span>
+              <span style={{ fontSize: 13, color: "#3c4043", fontWeight: 500 }}>{t("ui.Run in Claude Code")}</span>
               <button
                 onClick={() => {
                   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -344,7 +354,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 }}
               >
                 {copiedKey === "marketplace-cmd" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "marketplace-cmd" ? "Copied" : "Copy"}
+                {copiedKey === "marketplace-cmd" ? t("ui.Copied") : t("ui.Copy")}
               </button>
             </div>
             <pre
@@ -364,11 +374,11 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
           {/* Option 2: settings.json — for persistent config or managed deployments.
               extraKnownMarketplaces requires source to be a nested object, not a flat string. */}
           <p style={{ fontSize: 14, color: "#5f6368", margin: "0 0 12px 0", lineHeight: 1.6 }}>
-            Or add this to{" "}
+            {t("ui.Or add this to")}{" "}
             <code style={{ fontSize: 13, backgroundColor: "#f1f3f4", padding: "1px 6px", borderRadius: 4 }}>
               ~/.claude/settings.json
             </code>{" "}
-            for a persistent configuration:
+            {t("ui.for a persistent configuration:")}
           </p>
           <div
             style={{
@@ -403,7 +413,7 @@ const SkillDetail: React.FC<SkillDetailProps> = ({ skill, onBack }) => {
                 }}
               >
                 {copiedKey === "settings" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                {copiedKey === "settings" ? "Copied" : "Copy"}
+                {copiedKey === "settings" ? t("ui.Copied") : t("ui.Copy")}
               </button>
             </div>
             <pre

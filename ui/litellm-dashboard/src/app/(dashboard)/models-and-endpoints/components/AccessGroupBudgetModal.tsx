@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ModelAccessGroup } from "@/app/(dashboard)/hooks/modelAccessGroups/useModelAccessGroups";
 import { SetModelAccessGroupBudgetParams } from "@/app/(dashboard)/hooks/modelAccessGroups/useSetModelAccessGroupBudget";
 import { accessGroupBudgetFormValues, buildAccessGroupBudgetBody, hasAnyBudgetValue } from "./accessGroupBudgetPayload";
+import { useTranslation } from "react-i18next";
 
 const labelWithHint = (label: React.ReactNode, hint: string): React.ReactNode => (
   <>
@@ -49,6 +50,7 @@ const AccessGroupBudgetModal: React.FC<AccessGroupBudgetModalProps> = ({
   onCancel,
   onSubmit,
 }) => {
+  const { t } = useTranslation();
   const budget = accessGroup?.budget ?? null;
   const form = useZodForm(budgetSchema, { values: accessGroupBudgetFormValues(budget) });
 
@@ -109,7 +111,7 @@ const AccessGroupBudgetModal: React.FC<AccessGroupBudgetModalProps> = ({
 
             <div className="mt-6 flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onCancel}>
-                Cancel
+                {t("ui.Cancel")}
               </Button>
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save Budget"}

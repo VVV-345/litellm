@@ -16,6 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CacheField } from "./cacheSettingsFields";
 import type { CacheFormValues } from "./cacheSettingsUtils";
+import { useTranslation } from "react-i18next";
 
 export interface EmbeddingModelOption {
   value: string;
@@ -31,6 +32,7 @@ interface CacheFormFieldProps {
 }
 
 const CacheFormField: React.FC<CacheFormFieldProps> = ({ field, embeddingModels, isSecretConfigured = false }) => {
+  const { t } = useTranslation();
   const form = useFormContext<CacheFormValues>();
   const placeholder = isSecretConfigured ? SECRET_ALREADY_SET_PLACEHOLDER : field.helpText;
 
@@ -76,11 +78,11 @@ const CacheFormField: React.FC<CacheFormFieldProps> = ({ field, embeddingModels,
                 model.value === other.value
               }
             >
-              <ComboboxInput {...rest} placeholder="Search and select a model..." className="w-full">
+              <ComboboxInput {...rest} placeholder={t("ui.Search and select a model...")} className="w-full">
                 <ComboboxClear />
               </ComboboxInput>
               <ComboboxContent>
-                <ComboboxEmpty>No models found</ComboboxEmpty>
+                <ComboboxEmpty>{t("ui.No models found")}</ComboboxEmpty>
                 <ComboboxList>
                   {(model: EmbeddingModelOption) => (
                     <ComboboxItem key={model.value} value={model} title={model.label}>

@@ -159,7 +159,7 @@ const MCPToolsViewer = ({
   } = useQuery({
     queryKey: ["mcpTools", serverId, passthroughHeaders, oauthToken],
     queryFn: async () => {
-      if (!accessToken) throw new Error("Access Token required");
+      if (!accessToken) throw new Error(t("ui.Access Token required"));
       const result = await listMCPTools(accessToken, serverId, buildCustomHeaders());
       // listMCPTools never throws — surface error responses as thrown errors
       // here so useQuery's retry/onError can react (e.g. clear the cached
@@ -169,7 +169,7 @@ const MCPToolsViewer = ({
         if (status === 401) {
           removeToken(serverId, userID);
         }
-        const enhancedError = new Error(result.message || result.error || "Failed to fetch MCP tools") as Error & {
+        const enhancedError = new Error(result.message || result.error || t("ui.Failed to fetch MCP tools")) as Error & {
           status?: number;
           statusText?: string;
           details?: any;
@@ -235,7 +235,7 @@ const MCPToolsViewer = ({
   // Mutation for calling a tool
   const { mutate: executeTool, isPending: isCallingTool } = useMutation({
     mutationFn: async (args: { tool: MCPTool; arguments: Record<string, any> }) => {
-      if (!accessToken) throw new Error("Access Token required");
+      if (!accessToken) throw new Error(t("ui.Access Token required"));
 
       try {
         const result: CallMCPToolResponse = await callMCPTool(accessToken, serverId, args.tool.name, args.arguments, {
@@ -358,7 +358,7 @@ const MCPToolsViewer = ({
                     <div className="mt-2">
                       <p className="flex items-center text-xs text-muted-foreground">
                         <span className="mr-2 inline-block size-2 rounded-full bg-success" />
-                        {Object.keys(passthroughHeaders).length} header(s) configured
+                        {Object.keys(passthroughHeaders).length} {t("ui.header(s) configured")}
                       </p>
                     </div>
                   )}
@@ -446,7 +446,7 @@ const MCPToolsViewer = ({
                     {(mcpToolsResponse?.error || mcpToolsError) && !toolsAreaLoading && !toolsData.length && (
                       <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
                         <p className="font-medium">
-                          Error: {mcpToolsResponse?.message || (mcpToolsError as Error)?.message}
+                          {t("ui.Error:")} {mcpToolsResponse?.message || (mcpToolsError as Error)?.message}
                         </p>
                       </div>
                     )}
@@ -485,7 +485,7 @@ const MCPToolsViewer = ({
                             <Search className="mx-auto mb-2 size-6 text-muted-foreground" />
                             <p className="mb-1 text-xs font-medium">{t("ui.No tools found")}</p>
                             <p className="text-xs text-muted-foreground">
-                              {t('ui.No tools match "')}{toolSearchTerm}{t('ui."')}
+                              {t('ui.No tools match "{{query}}".', { query: toolSearchTerm })}
                             </p>
                           </div>
                         ) : (

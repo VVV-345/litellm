@@ -75,7 +75,9 @@ interface TeamOption {
 const MEMBER_ROLE_OPTIONS = ["user", "admin"] as const;
 
 const getMemberRoleHint = (role: (typeof MEMBER_ROLE_OPTIONS)[number], t: TFunction) =>
-  t(`ui.${role === "user" ? "Can view team info, but not manage it" : "Can create team keys, add members, and manage settings"}`);
+  t(
+    `ui.${role === "user" ? "Can view team info, but not manage it" : "Can create team keys, add members, and manage settings"}`,
+  );
 
 export default function UserInfoView({
   userId,
@@ -410,7 +412,7 @@ export default function UserInfoView({
         <div>
           <Button variant="ghost" onClick={onClose} className="mb-4">
             <ArrowLeft />
-            Back to Users
+            {t("ui.Back to Users")}
           </Button>
           <h2 className="text-xl font-semibold">{userData.user_email || t("ui.User")}</h2>
           <div className="flex items-center cursor-pointer">
@@ -487,7 +489,10 @@ export default function UserInfoView({
               <div className="mt-2">
                 <h3 className="text-lg font-medium">${formatNumberWithCommas(userData.spend || 0, 2)}</h3>
                 <p>
-                  {t("ui.of")} {userData.max_budget !== null ? `$${formatNumberWithCommas(userData.max_budget, 2)}` : t("ui.Unlimited")}
+                  {t("ui.of")}{" "}
+                  {userData.max_budget !== null
+                    ? `$${formatNumberWithCommas(userData.max_budget, 2)}`
+                    : t("ui.Unlimited")}
                 </p>
               </div>
             </Card>
@@ -629,12 +634,20 @@ export default function UserInfoView({
 
                 <div>
                   <p className="font-medium">{t("ui.Created")}</p>
-                  <p>{userData.created_at ? new Date(userData.created_at).toLocaleString(i18n.language) : t("ui.Unknown")}</p>
+                  <p>
+                    {userData.created_at
+                      ? new Date(userData.created_at).toLocaleString(i18n.language)
+                      : t("ui.Unknown")}
+                  </p>
                 </div>
 
                 <div>
                   <p className="font-medium">{t("ui.Last Updated")}</p>
-                  <p>{userData.updated_at ? new Date(userData.updated_at).toLocaleString(i18n.language) : t("ui.Unknown")}</p>
+                  <p>
+                    {userData.updated_at
+                      ? new Date(userData.updated_at).toLocaleString(i18n.language)
+                      : t("ui.Unknown")}
+                  </p>
                 </div>
 
                 <div>
@@ -700,7 +713,9 @@ export default function UserInfoView({
       <DeleteResourceModal
         isOpen={isRemoveTeamModalOpen}
         title={t("ui.Remove from Team")}
-        alertMessage={t("ui.Removing this user from the team will also delete any keys the user created for this team.")}
+        alertMessage={t(
+          "ui.Removing this user from the team will also delete any keys the user created for this team.",
+        )}
         message={t("ui.Are you sure you want to remove this user from the team? This action cannot be undone.")}
         resourceInformationTitle={t("ui.Team Membership")}
         resourceInformation={[

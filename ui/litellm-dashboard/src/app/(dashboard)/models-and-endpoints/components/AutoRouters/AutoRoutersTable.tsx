@@ -26,12 +26,13 @@ const DEFAULT_SORTING: SortingState = [
 ];
 
 function EmptyState({ canModify }: { canModify: boolean }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center gap-1 py-6">
       <div className="mb-1 flex size-10 items-center justify-center rounded-lg bg-muted">
         <AutoRouterIcon size={20} className="text-muted-foreground" />
       </div>
-      <div className="text-sm font-medium text-foreground">No auto routers yet</div>
+      <div className="text-sm font-medium text-foreground">{t("ui.No auto routers yet")}</div>
       <div className="text-sm text-muted-foreground">
         {canModify
           ? "Create an auto router to pick the right model per request instead of pinning one."

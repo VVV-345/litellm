@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18next, { CHINESE_LANGUAGE, ENGLISH_LANGUAGE } from "@/i18n";
 import { DataTable } from "@/components/shared/DataTable";
 import { getAgentHubTableColumns, AgentHubData } from "./AgentHubTableColumns";
 
@@ -26,7 +27,7 @@ function renderTable(data: AgentHubData[], onAgentClick = vi.fn()) {
   render(
     <DataTable
       data={data}
-      columns={getAgentHubTableColumns({ onAgentClick })}
+      columns={getAgentHubTableColumns({ onAgentClick, t: i18next.t })}
       getRowId={(agent, index) => agent.agent_id || String(index)}
       sortingMode="client"
       size="compact"
@@ -36,6 +37,14 @@ function renderTable(data: AgentHubData[], onAgentClick = vi.fn()) {
 }
 
 describe("getAgentHubTableColumns", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage(ENGLISH_LANGUAGE);
+  });
+
+  afterEach(async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
+  });
+
   it("should render", () => {
     renderTable([mockAgent]);
     expect(screen.getByText("Test Agent")).toBeInTheDocument();

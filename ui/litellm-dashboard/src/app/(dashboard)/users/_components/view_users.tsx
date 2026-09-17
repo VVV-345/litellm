@@ -34,6 +34,7 @@ import { DefaultUserSettingsForm } from "./default-user-settings/DefaultUserSett
 import { UsersTable } from "./view_users/UsersTable";
 import UserInfoView from "./view_users/user_info_view";
 import { UserInfo } from "@/components/networking";
+import { useTranslation } from "react-i18next";
 
 interface ViewUserDashboardProps {
   accessToken: string | null;
@@ -58,6 +59,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
   teams,
   orgAdminOrgIds,
 }) => {
+  const { t } = useTranslation();
   const isProxyAdmin = userRole ? isProxyAdminRole(userRole) : false;
   const queryClient = useQueryClient();
 
@@ -157,16 +159,16 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
   const handleResetPassword = useCallback(
     async (userId: string) => {
       if (!accessToken) {
-        toast.fromError("Access token not found");
+        toast.fromError(t("ui.Access token not found"));
         return;
       }
       try {
-        toast.success("Generating password reset link...");
+        toast.success(t("ui.Generating password reset link..."));
         const data = await invitationCreateCall(accessToken, userId);
         setInvitationLinkData(data);
         setIsInvitationLinkModalVisible(true);
       } catch (error) {
-        toast.fromError("Failed to generate password reset link");
+        toast.fromError(t("ui.Failed to generate password reset link"));
       }
     },
     [accessToken],
@@ -185,10 +187,10 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
           return { ...previousData, users: updatedUsers };
         });
 
-        toast.success("User deleted successfully");
+        toast.success(t("ui.User deleted successfully"));
       } catch (error) {
         console.error("Error deleting user:", error);
-        toast.fromError("Failed to delete user");
+        toast.fromError(t("ui.Failed to delete user"));
       } finally {
         setIsDeleteModalOpen(false);
         setUserToDelete(null);
@@ -353,7 +355,8 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
                   disabled={selectedUsers.length === 0}
                   data-testid="bulk-edit-users"
                 >
-                  Bulk Edit ({selectedUsers.length} selected)
+                  {t("ui.Bulk Edit (")}
+                  {selectedUsers.length} {t("ui.selected)")}
                 </Button>
               )}
             </>
@@ -365,10 +368,10 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
         <Tabs defaultValue="users" className="gap-0">
           <TabsList variant="line" className="mb-4">
             <TabsTrigger value="users" className="flex-none data-active:text-primary after:bg-primary">
-              Users
+              {t("ui.Users")}
             </TabsTrigger>
             <TabsTrigger value="default-settings" className="flex-none data-active:text-primary after:bg-primary">
-              Default User Settings
+              {t("ui.Default User Settings")}
             </TabsTrigger>
           </TabsList>
 
@@ -381,7 +384,7 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
               <div
                 className="flex h-64 items-center justify-center"
                 role="status"
-                aria-label="Loading default user settings"
+                aria-label={t("ui.Loading default user settings")}
               >
                 <div className="w-full max-w-lg space-y-3">
                   <Skeleton className="h-5 w-1/3" />
@@ -402,8 +405,8 @@ const ViewUserDashboard: React.FC<ViewUserDashboardProps> = ({
       {/* Existing Modals */}
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
-        title="Delete User?"
-        message="Are you sure you want to delete this user? This action cannot be undone."
+        title={t("ui.Delete User?")}
+        message={t("ui.Are you sure you want to delete this user? This action cannot be undone.")}
         resourceInformationTitle="User Information"
         resourceInformation={[
           { label: "Email", value: userToDelete?.user_email },

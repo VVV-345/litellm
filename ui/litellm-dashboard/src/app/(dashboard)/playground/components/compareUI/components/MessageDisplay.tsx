@@ -10,6 +10,7 @@ import ReasoningContent from "@/components/chat_ui/ReasoningContent";
 import ResponseMetrics from "@/components/chat_ui/ResponseMetrics";
 import { SearchResultsDisplay } from "../../chat_ui/SearchResultsDisplay";
 import type { MessageType } from "@/components/chat_ui/types";
+import { useTranslation } from "react-i18next";
 
 interface MessageDisplayProps {
   messages: MessageType[];
@@ -17,6 +18,7 @@ interface MessageDisplayProps {
 }
 
 export function MessageDisplay({ messages, isLoading }: MessageDisplayProps) {
+  const { t } = useTranslation();
   const syntaxTheme = useSyntaxTheme(coy);
   if (messages.length === 0) {
     return <div className="h-full" />;
@@ -113,7 +115,7 @@ export function MessageDisplay({ messages, isLoading }: MessageDisplayProps) {
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-info/15 text-info">
                     <UserRound size={16} />
                   </div>
-                  <div className="text-sm font-semibold text-foreground">You</div>
+                  <div className="text-sm font-semibold text-foreground">{t("ui.You")}</div>
                 </div>
                 {renderMessageBody(block.user)}
               </div>
@@ -155,10 +157,10 @@ export function MessageDisplay({ messages, isLoading }: MessageDisplayProps) {
             ) : isLoading && blockIndex === conversationBlocks.length - 1 ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 size={18} className="animate-spin" />
-                <span>Generating response...</span>
+                <span>{t("ui.Generating response...")}</span>
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground">Waiting for a response...</div>
+              <div className="text-sm text-muted-foreground">{t("ui.Waiting for a response...")}</div>
             )}
           </div>
         );
@@ -166,7 +168,7 @@ export function MessageDisplay({ messages, isLoading }: MessageDisplayProps) {
       {isLoading && conversationBlocks.length === 0 && (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 size={18} className="animate-spin" />
-          <span>Generating response...</span>
+          <span>{t("ui.Generating response...")}</span>
         </div>
       )}
     </div>

@@ -10,6 +10,7 @@ import { ToolRow, updateToolPolicy } from "@/components/networking";
 
 import { toolPoliciesListOptions } from "./toolPoliciesQueries";
 import { ToolPoliciesTable } from "./ToolPoliciesTable";
+import { useTranslation } from "react-i18next";
 
 function getUTCDateKey(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
@@ -28,12 +29,6 @@ function countToolsInUTCDay(tools: ToolRow[], utcDateKey: string): number {
   return tools.filter((tool) => isCreatedInUTCDay(tool.created_at, utcDateKey)).length;
 }
 
-function getTrendSubtitle(newToday: number, newYesterday: number): string | undefined {
-  const diff = newToday - newYesterday;
-  if (diff === 0) return undefined;
-  return diff > 0 ? `+${diff} since yesterday` : `${diff} since yesterday`;
-}
-
 function toMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
@@ -49,6 +44,7 @@ interface ToolPoliciesPanelProps {
 }
 
 export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToken, onSelectTool }) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canViewToolPolicies = useCan("viewToolPolicies");
   const [savingInput, setSavingInput] = useState<ReadonlySet<string>>(() => new Set());
@@ -79,12 +75,14 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
         await updateToolPolicy(accessToken, toolName, { input_policy: newPolicy });
         await patchTool(toolName, { input_policy: newPolicy });
       } catch (e) {
-        toast.fromError(`Failed to update input policy: ${toMessage(e, "unknown error")}`);
+        toast.fromError(
+          t("ui.Failed to update input policy: {{error}}", { error: toMessage(e, t("ui.unknown error")) }),
+        );
       } finally {
         setSavingInput((previous) => withoutTool(previous, toolName));
       }
     },
-    [accessToken, patchTool],
+    [accessToken, patchTool, t],
   );
 
   const handleOutputPolicyChange = useCallback(
@@ -95,12 +93,14 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
         await updateToolPolicy(accessToken, toolName, { output_policy: newPolicy });
         await patchTool(toolName, { output_policy: newPolicy });
       } catch (e) {
-        toast.fromError(`Failed to update output policy: ${toMessage(e, "unknown error")}`);
+        toast.fromError(
+          t("ui.Failed to update output policy: {{error}}", { error: toMessage(e, t("ui.unknown error")) }),
+        );
       } finally {
         setSavingOutput((previous) => withoutTool(previous, toolName));
       }
     },
-    [accessToken, patchTool],
+    [accessToken, patchTool, t],
   );
 
   const { newToday, trendSubtitle, totalTools, blockedCount, activeTeamsCount, needsReviewTools } = useMemo(() => {
@@ -109,10 +109,16 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
     const yesterday = new Date(now);
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
     const today = countToolsInUTCDay(tools, todayKey);
+    const changeSinceYesterday = today - countToolsInUTCDay(tools, getUTCDateKey(yesterday));
 
     return {
       newToday: today,
-      trendSubtitle: getTrendSubtitle(today, countToolsInUTCDay(tools, getUTCDateKey(yesterday))),
+      trendSubtitle:
+        changeSinceYesterday === 0
+          ? undefined
+          : t("ui.{{count}} since yesterday", {
+              count: changeSinceYesterday > 0 ? `+${changeSinceYesterday}` : changeSinceYesterday,
+            }),
       totalTools: tools.length,
       blockedCount: tools.filter((tool) => tool.input_policy === "blocked").length,
       activeTeamsCount: new Set(tools.map((tool) => tool.team_id).filter(Boolean)).size,
@@ -120,7 +126,7 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
         (tool) => isCreatedInUTCDay(tool.created_at, todayKey) && tool.input_policy === "untrusted",
       ),
     };
-  }, [tools]);
+  }, [t, tools]);
 
   const scrollToToolRow = (toolId: string) => {
     document.querySelector(`[data-row-id="${CSS.escape(toolId)}"]`)?.scrollIntoView({
@@ -131,11 +137,11 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
 
   return (
     <div className="w-full">
-      <h1 className="text-2xl font-semibold text-foreground mb-6">Tool Policies</h1>
+      <h1 className="text-2xl font-semibold text-foreground mb-6">{t("ui.Tool Policies")}</h1>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <MetricCard
-          label="New Today"
+          label={t("ui.New Today")}
           value={newToday}
           valueColor="text-success"
           subtitle={trendSubtitle}
@@ -145,21 +151,20 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
             </svg>
           }
         />
-        <MetricCard label="Total Tools Discovered" value={totalTools} />
+        <MetricCard label={t("ui.Total Tools Discovered")} value={totalTools} />
         <MetricCard
-          label="Blocked Tools"
+          label={t("ui.Blocked Tools")}
           value={blockedCount}
           valueColor={blockedCount > 0 ? "text-destructive" : undefined}
         />
-        <MetricCard label="Active Teams" value={activeTeamsCount > 0 ? activeTeamsCount : "—"} />
+        <MetricCard label={t("ui.Active Teams")} value={activeTeamsCount > 0 ? activeTeamsCount : "—"} />
       </div>
 
       {needsReviewTools.length > 0 && (
         <div className="bg-warning/10 border border-warning/20 rounded-lg p-4 mb-6">
-          <h2 className="text-sm font-semibold text-warning mb-1">Needs Review</h2>
+          <h2 className="text-sm font-semibold text-warning mb-1">{t("ui.Needs Review")}</h2>
           <p className="text-sm text-warning mb-3">
-            {needsReviewTools.length} new tool{needsReviewTools.length !== 1 ? "s" : ""} discovered that require policy
-            decisions.
+            {t("ui.New tools requiring policy decisions: {{count}}", { count: needsReviewTools.length })}
           </p>
           <div className="flex flex-wrap gap-2">
             {needsReviewTools.map((tool) => (
@@ -175,7 +180,7 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
                   onClick={() => scrollToToolRow(tool.tool_id)}
                   className="text-warning hover:text-warning/80 font-medium text-xs whitespace-nowrap"
                 >
-                  Review
+                  {t("ui.Review")}
                 </button>
               </span>
             ))}
@@ -188,7 +193,7 @@ export const ToolPoliciesPanel: React.FC<ToolPoliciesPanelProps> = ({ accessToke
           className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-sm text-sm text-destructive"
           role="alert"
         >
-          {toMessage(query.error, "Failed to load tools")}
+          {toMessage(query.error, t("ui.Failed to load tools"))}
         </div>
       )}
 

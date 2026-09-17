@@ -18,6 +18,7 @@ import { getInvalidTeamEntries } from "./scope_validation";
 import ImpactPreviewAlert from "./impact_preview_alert";
 import { TokenSelect } from "./TokenSelect";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useTranslation } from "react-i18next";
 
 interface AddAttachmentFormProps {
   visible: boolean;
@@ -90,6 +91,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
   policies,
   createAttachment,
 }) => {
+  const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scopeType, setScopeType] = useState<ScopeType>("global");
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
@@ -234,12 +236,12 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
     <Dialog open={visible} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Create Policy Attachment</DialogTitle>
+          <DialogTitle>{t("ui.Create Policy Attachment")}</DialogTitle>
         </DialogHeader>
         <TooltipProvider>
           <form onSubmit={(event) => event.preventDefault()} noValidate>
             <FieldGroup>
-              <FormField control={form.control} name="policy_names" label="Policies">
+              <FormField control={form.control} name="policy_names" label={t("ui.Policies")}>
                 {({
                   id,
                   value,
@@ -253,9 +255,9 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                     value={value}
                     onValueChange={onChange}
                     onBlur={onBlur}
-                    placeholder="Select policies to attach"
+                    placeholder={t("ui.Select policies to attach")}
                     options={policyOptions}
-                    emptyText="No matching policies"
+                    emptyText={t("ui.No matching policies")}
                     ariaInvalid={ariaInvalid}
                     ariaDescribedBy={ariaDescribedBy}
                   />
@@ -263,20 +265,20 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
               </FormField>
 
               <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold">Scope</span>
+                <span className="text-sm font-semibold">{t("ui.Scope")}</span>
                 <Separator className="flex-1" />
               </div>
 
               <div>
-                <FieldTitle className="mb-2">Scope Type</FieldTitle>
+                <FieldTitle className="mb-2">{t("ui.Scope Type")}</FieldTitle>
                 <RadioGroup value={scopeType} onValueChange={(value: unknown) => setScopeType(value as ScopeType)}>
                   <FieldLabel className="font-normal">
                     <RadioGroupItem value="specific" />
-                    Specific (teams, keys, models, or tags)
+                    {t("ui.Specific (teams, keys, models, or tags)")}
                   </FieldLabel>
                   <FieldLabel className="font-normal">
                     <RadioGroupItem value="global" />
-                    Global (applies to all requests)
+                    {t("ui.Global (applies to all requests)")}
                   </FieldLabel>
                 </RadioGroup>
               </div>
@@ -308,7 +310,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                         options={availableTeams}
                         allowCustomValues
                         tokenSeparators={[","]}
-                        emptyText="No matching teams"
+                        emptyText={t("ui.No matching teams")}
                         ariaInvalid={ariaInvalid}
                         ariaDescribedBy={ariaDescribedBy}
                       />
@@ -340,7 +342,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                         options={availableKeys}
                         allowCustomValues
                         tokenSeparators={[","]}
-                        emptyText="No matching keys"
+                        emptyText={t("ui.No matching keys")}
                         ariaInvalid={ariaInvalid}
                         ariaDescribedBy={ariaDescribedBy}
                       />
@@ -374,7 +376,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                         options={availableModels}
                         allowCustomValues
                         tokenSeparators={[","]}
-                        emptyText="No matching models"
+                        emptyText={t("ui.No matching models")}
                         ariaInvalid={ariaInvalid}
                         ariaDescribedBy={ariaDescribedBy}
                       />
@@ -390,8 +392,8 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                     )}
                     description={
                       <span className="text-xs">
-                        Matches tags from key/team <code>metadata.tags</code> or tags passed dynamically in the request
-                        body. Use <code>*</code> as a suffix wildcard (e.g., <code>prod-*</code> matches{" "}
+                        {t("ui.Matches tags from key/team")} <code>metadata.tags</code> or tags passed dynamically in
+                        the request body. Use <code>*</code> as a suffix wildcard (e.g., <code>prod-*</code> matches{" "}
                         <code>prod-us</code>, <code>prod-eu</code>).
                       </span>
                     }
@@ -409,7 +411,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                         value={value}
                         onValueChange={onChange}
                         onBlur={onBlur}
-                        placeholder="Type a tag and press Enter (e.g. healthcare, prod-*)"
+                        placeholder={t("ui.Type a tag and press Enter (e.g. healthcare, prod-*)")}
                         allowCustomValues
                         tokenSeparators={[",", " "]}
                         ariaInvalid={ariaInvalid}
@@ -425,7 +427,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
 
             <div className="flex justify-end space-x-2 mt-4">
               <Button type="button" variant="secondary" onClick={handleClose}>
-                Cancel
+                {t("ui.Cancel")}
               </Button>
               {scopeType === "specific" && (
                 <Button
@@ -436,7 +438,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                   aria-busy={isEstimating}
                 >
                   {isEstimating && <UiLoadingSpinner className="size-4" />}
-                  Estimate Impact
+                  {t("ui.Estimate Impact")}
                 </Button>
               )}
               <Button
@@ -446,7 +448,7 @@ const AddAttachmentForm: React.FC<AddAttachmentFormProps> = ({
                 aria-busy={isSubmitting}
               >
                 {isSubmitting && <UiLoadingSpinner className="size-4" />}
-                Create Attachment
+                {t("ui.Create Attachment")}
               </Button>
             </div>
           </form>

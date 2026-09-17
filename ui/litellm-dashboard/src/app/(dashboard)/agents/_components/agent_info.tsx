@@ -228,7 +228,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
       <div className="p-4">
         <div className="text-center">{t("ui.Agent not found")}</div>
         <Button onClick={onClose} className="mt-4">
-          Back to Agents List
+          {t("ui.Back to Agents List")}
         </Button>
       </div>
     );
@@ -277,7 +277,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
       <div>
         <Button variant="ghost" onClick={onClose} className="mb-4">
           <ArrowLeft className="size-4" />
-          Back to Agents
+          {t("ui.Back to Agents")}
         </Button>
         <h1 className="text-2xl font-semibold">{agent.agent_name || t("ui.Unnamed Agent")}</h1>
         <p className="text-sm text-muted-foreground font-mono">{agent.agent_id}</p>
@@ -286,11 +286,11 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList variant="line" className="mb-4 h-auto w-full justify-start rounded-none border-b p-0">
           <TabsTrigger value="overview" className="flex-none rounded-none px-4 py-2">
-            Overview
+            {t("ui.Overview")}
           </TabsTrigger>
           {isAdmin && (
             <TabsTrigger value="settings" className="flex-none rounded-none px-4 py-2">
-              Settings
+              {t("ui.Settings")}
             </TabsTrigger>
           )}
         </TabsList>
@@ -426,7 +426,7 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                         setIsEditing(true);
                       }}
                     >
-                      Edit Settings
+                      {t("ui.Edit Settings")}
                     </Button>
                   )}
                 </div>
@@ -480,11 +480,11 @@ const AgentInfoView: React.FC<AgentInfoViewProps> = ({ agentId, onClose, accessT
                               fetchAgentInfo();
                             }}
                           >
-                            Cancel
+                            {t("ui.Cancel")}
                           </Button>
                           <Button type="submit" disabled={isSaving} aria-busy={isSaving}>
                             {isSaving && <UiLoadingSpinner className="size-4" />}
-                            Save Changes
+                            {t("ui.Save Changes")}
                           </Button>
                         </div>
                       </form>

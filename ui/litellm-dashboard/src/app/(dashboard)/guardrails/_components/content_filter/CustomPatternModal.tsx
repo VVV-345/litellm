@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ACTION_ITEMS } from "./action_options";
+import { useTranslation } from "react-i18next";
 
 interface CustomPatternModalProps {
   visible: boolean;
@@ -28,46 +29,49 @@ const CustomPatternModal: React.FC<CustomPatternModalProps> = ({
   onAdd,
   onCancel,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={visible} onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
         <DialogHeader>
-          <DialogTitle>Add custom regex pattern</DialogTitle>
+          <DialogTitle>{t("ui.Add custom regex pattern")}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
           <div>
-            <p className="font-semibold">Pattern name</p>
+            <p className="font-semibold">{t("ui.Pattern name")}</p>
             <Input
               className="mt-2"
-              placeholder="e.g., internal_id, employee_code"
+              placeholder={t("ui.e.g., internal_id, employee_code")}
               value={patternName}
               onChange={(e) => onNameChange(e.target.value)}
             />
           </div>
 
           <div>
-            <p className="font-semibold">Regex pattern</p>
+            <p className="font-semibold">{t("ui.Regex pattern")}</p>
             <Input
               className="mt-2"
-              placeholder="e.g., ID-[0-9]{6}"
+              placeholder={t("ui.e.g., ID-[0-9]{6}")}
               value={patternRegex}
               onChange={(e) => onRegexChange(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">Enter a valid regular expression to match sensitive data</p>
+            <p className="text-xs text-muted-foreground">
+              {t("ui.Enter a valid regular expression to match sensitive data")}
+            </p>
           </div>
 
           <div>
-            <p className="font-semibold">Action</p>
+            <p className="font-semibold">{t("ui.Action")}</p>
             <p className="mt-1 mb-2 text-muted-foreground">
-              Choose what action the guardrail should take when this pattern is detected
+              {t("ui.Choose what action the guardrail should take when this pattern is detected")}
             </p>
             <Select
               items={ACTION_ITEMS}
               value={patternAction}
               onValueChange={(value: string | null) => value && onActionChange(value as "BLOCK" | "MASK")}
             >
-              <SelectTrigger className="w-full" aria-label="Action">
+              <SelectTrigger className="w-full" aria-label={t("ui.Action")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -83,9 +87,9 @@ const CustomPatternModal: React.FC<CustomPatternModalProps> = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {t("ui.Cancel")}
           </Button>
-          <Button onClick={onAdd}>Add</Button>
+          <Button onClick={onAdd}>{t("ui.Add")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

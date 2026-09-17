@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import React, { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface GuardrailConfigProps {
   guardrailName: string;
@@ -48,6 +49,7 @@ const GUARDRAIL_TYPE_ITEMS = [
 ];
 
 export function GuardrailConfig({ guardrailName, guardrailType, provider }: GuardrailConfigProps) {
+  const { t } = useTranslation();
   const [action, setAction] = useState("block");
   const [enabled, setEnabled] = useState(true);
   const [customCode, setCustomCode] = useState("");
@@ -71,9 +73,9 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-foreground">Version:</span>
+            <span className="text-sm font-medium text-foreground">{t("ui.Version:")}</span>
             <Select
-              items={versions.map((v) => ({ value: v.id, label: v.label }))}
+              items={versions.map((v) => ({ value: v.id, label: t(`ui.${v.label}`, { defaultValue: v.label }) }))}
               value={version}
               onValueChange={(value: string | null) => value && setVersion(value)}
             >
@@ -83,23 +85,24 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
               <SelectContent>
                 {versions.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
-                    {v.label}
+                    {t(`ui.${v.label}`, { defaultValue: v.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Button variant="link" size="sm" onClick={() => setShowVersionHistory(!showVersionHistory)}>
-              {showVersionHistory ? "Hide history" : "View history"}
+              {showVersionHistory ? t("ui.Hide history") : t("ui.View history")}
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline">
               <Undo2 />
-              Revert
+              {t("ui.Revert")}
             </Button>
             <Button>
               <Save />
-              Save as v{parseInt(version.replace("v", ""), 10) + 1}
+              {t("ui.Save as v")}
+              {parseInt(version.replace("v", ""), 10) + 1}
             </Button>
           </div>
         </div>
@@ -119,7 +122,7 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
                   >
                     {v.id}
                   </span>
-                  <span className="text-foreground">{v.changes}</span>
+                  <span className="text-foreground">{t(`ui.${v.changes}`, { defaultValue: v.changes })}</span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <span>{v.author}</span>
@@ -133,14 +136,19 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
 
       {/* Parameters */}
       <div className="bg-card border border-border rounded-lg p-6">
-        <h3 className="text-base font-semibold text-foreground mb-1">Parameters</h3>
-        <p className="text-xs text-muted-foreground mb-5">Configure {guardrailName} behavior</p>
+        <h3 className="text-base font-semibold text-foreground mb-1">{t("ui.Parameters")}</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          {t("ui.Configure")} {guardrailName} {t("ui.behavior")}
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Action on Failure</label>
+            <label className="block text-sm font-medium text-foreground mb-1.5">{t("ui.Action on Failure")}</label>
             <Select
-              items={ACTION_ITEMS}
+              items={ACTION_ITEMS.map((item) => ({
+                ...item,
+                label: t(`ui.${item.label}`, { defaultValue: item.label }),
+              }))}
               value={action}
               onValueChange={(value: string | null) => value && setAction(value)}
             >
@@ -150,7 +158,7 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
               <SelectContent>
                 {ACTION_ITEMS.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
-                    {item.label}
+                    {t(`ui.${item.label}`, { defaultValue: item.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -158,15 +166,21 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Provider</label>
-            <Select items={PROVIDER_ITEMS} defaultValue={provider}>
+            <label className="block text-sm font-medium text-foreground mb-1.5">{t("ui.Provider")}</label>
+            <Select
+              items={PROVIDER_ITEMS.map((item) => ({
+                ...item,
+                label: t(`ui.${item.label}`, { defaultValue: item.label }),
+              }))}
+              defaultValue={provider}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {PROVIDER_ITEMS.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
-                    {item.label}
+                    {t(`ui.${item.label}`, { defaultValue: item.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -174,15 +188,21 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Guardrail Type</label>
-            <Select items={GUARDRAIL_TYPE_ITEMS} defaultValue={guardrailType}>
+            <label className="block text-sm font-medium text-foreground mb-1.5">{t("ui.Guardrail Type")}</label>
+            <Select
+              items={GUARDRAIL_TYPE_ITEMS.map((item) => ({
+                ...item,
+                label: t(`ui.${item.label}`, { defaultValue: item.label }),
+              }))}
+              defaultValue={guardrailType}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {GUARDRAIL_TYPE_ITEMS.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
-                    {item.label}
+                    {t(`ui.${item.label}`, { defaultValue: item.label })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -190,14 +210,16 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-foreground mb-1.5">Categories (comma-separated)</label>
+            <label className="block text-sm font-medium text-foreground mb-1.5">
+              {t("ui.Categories (comma-separated)")}
+            </label>
             <Input defaultValue="violence, hate_speech, sexual_content, self_harm, illegal_activity" />
           </div>
 
           <div className="md:col-span-2 flex items-center gap-3">
             <Switch id={enabledToggleId} checked={enabled} onCheckedChange={setEnabled} />
             <Label htmlFor={enabledToggleId} className="font-normal text-foreground">
-              Guardrail enabled in production
+              {t("ui.Guardrail enabled in production")}
             </Label>
           </div>
         </div>
@@ -209,13 +231,17 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
           <div>
             <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
               <Code className="size-4 text-muted-foreground" />
-              Custom Code Override
+              {t("ui.Custom Code Override")}
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Replace the built-in guardrail with custom evaluation code
+              {t("ui.Replace the built-in guardrail with custom evaluation code")}
             </p>
           </div>
-          <Switch aria-label="Custom Code Override" checked={useCustomCode} onCheckedChange={setUseCustomCode} />
+          <Switch
+            aria-label={t("ui.Custom Code Override")}
+            checked={useCustomCode}
+            onCheckedChange={setUseCustomCode}
+          />
         </div>
 
         {useCustomCode && (
@@ -236,24 +262,24 @@ export function GuardrailConfig({ guardrailName, guardrailType, provider }: Guar
 
       {/* Re-run on Failing Logs */}
       <div className="bg-card border border-border rounded-lg p-6">
-        <h3 className="text-base font-semibold text-foreground mb-1">Test Configuration</h3>
+        <h3 className="text-base font-semibold text-foreground mb-1">{t("ui.Test Configuration")}</h3>
         <p className="text-xs text-muted-foreground mb-4">
-          Re-run this guardrail on recent failing logs to validate your changes
+          {t("ui.Re-run this guardrail on recent failing logs to validate your changes")}
         </p>
 
         <div className="flex items-center gap-3">
           <Button disabled={rerunStatus === "running"} aria-busy={rerunStatus === "running"} onClick={handleRerun}>
             {rerunStatus === "running" ? null : <CirclePlay />}
-            {rerunStatus === "running" ? "Running on 10 samples..." : "Re-run on failing logs"}
+            {rerunStatus === "running" ? t("ui.Running on 10 samples...") : t("ui.Re-run on failing logs")}
           </Button>
 
           {rerunStatus === "success" && (
             <span className="text-sm text-success flex items-center gap-2">
-              <CircleCheck className="size-4" /> 7/10 would now pass with new config
+              <CircleCheck className="size-4" /> {t("ui.7/10 would now pass with new config")}
             </span>
           )}
 
-          {rerunStatus === "error" && <span className="text-sm text-destructive">Error running tests</span>}
+          {rerunStatus === "error" && <span className="text-sm text-destructive">{t("ui.Error running tests")}</span>}
         </div>
       </div>
     </div>

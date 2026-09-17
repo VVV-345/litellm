@@ -8,6 +8,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 import { GuardrailMode } from "@/components/guardrails/types";
 import { formatGuardrailMode } from "./guardrail_info_helpers";
+import { useTranslation } from "react-i18next";
 
 interface GuardrailItem {
   guardrail_id?: string;
@@ -47,6 +48,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
   accessToken,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [selectedGuardrails, setSelectedGuardrails] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [testResults, setTestResults] = useState<TestResult[]>([]);
@@ -123,13 +125,13 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
             <div className="flex w-1/4 flex-col overflow-hidden border-r border-border">
               <div className="border-b border-border p-4">
                 <div className="mb-3">
-                  <h3 className="mb-3 text-lg font-semibold">Guardrails</h3>
+                  <h3 className="mb-3 text-lg font-semibold">{t("ui.Guardrails")}</h3>
                   <InputGroup>
                     <InputGroupAddon>
                       <Search className="size-4 text-muted-foreground" />
                     </InputGroupAddon>
                     <InputGroupInput
-                      placeholder="Search guardrails..."
+                      placeholder={t("ui.Search guardrails...")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -172,7 +174,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
                             <span className="text-muted-foreground">{guardrail.litellm_params.guardrail}</span>
                           </div>
                           <div>
-                            <span className="font-medium">Mode: </span>
+                            <span className="font-medium">{t("ui.Mode:")} </span>
                             <span className="text-muted-foreground">
                               {formatGuardrailMode(guardrail.litellm_params.mode)}
                             </span>
@@ -186,7 +188,7 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
 
               <div className="border-t border-border bg-muted/40 p-3">
                 <span className="text-xs text-muted-foreground">
-                  {selectedGuardrails.size} of {filteredGuardrails.length} selected
+                  {selectedGuardrails.size} {t("ui.of")} {filteredGuardrails.length} {t("ui.selected")}
                 </span>
               </div>
             </div>
@@ -194,16 +196,18 @@ const GuardrailTestPlayground: React.FC<GuardrailTestPlaygroundProps> = ({
             {/* Right Panel - Test Area */}
             <div className="flex w-3/4 flex-col">
               <div className="flex items-center justify-between border-b border-border p-4">
-                <h2 className="mb-0 text-xl font-semibold">Guardrail Testing Playground</h2>
+                <h2 className="mb-0 text-xl font-semibold">{t("ui.Guardrail Testing Playground")}</h2>
               </div>
 
               <div className="flex-1 overflow-auto p-4">
                 {selectedGuardrails.size === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
                     <FlaskConical className="mb-4 size-12" />
-                    <p className="mb-2 text-lg font-medium">Select Guardrails to Test</p>
+                    <p className="mb-2 text-lg font-medium">{t("ui.Select Guardrails to Test")}</p>
                     <p className="max-w-md text-center">
-                      Choose one or more guardrails from the left sidebar to start testing and comparing results.
+                      {t(
+                        "ui.Choose one or more guardrails from the left sidebar to start testing and comparing results.",
+                      )}
                     </p>
                   </div>
                 ) : (

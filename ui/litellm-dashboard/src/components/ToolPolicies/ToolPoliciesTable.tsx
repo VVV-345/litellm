@@ -14,20 +14,10 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTranslation } from "react-i18next";
 
-import { INPUT_POLICY_OPTIONS, OUTPUT_POLICY_OPTIONS } from "./PolicySelect";
+import { INPUT_POLICY_OPTIONS, OUTPUT_POLICY_OPTIONS, policyOptionLabel } from "./PolicySelect";
 import { getToolPoliciesTableColumns } from "./ToolPoliciesTableColumns";
 
 const ALL_VALUE = "all";
-
-const INPUT_POLICY_FILTER_ITEMS = [
-  { value: ALL_VALUE, label: "All Input Policies" },
-  ...INPUT_POLICY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
-];
-
-const OUTPUT_POLICY_FILTER_ITEMS = [
-  { value: ALL_VALUE, label: "All Output Policies" },
-  ...OUTPUT_POLICY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
-];
 
 const toFilterValue = (value: string | null): string | undefined =>
   value === null || value === ALL_VALUE ? undefined : value;
@@ -82,27 +72,41 @@ export function ToolPoliciesTable({
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const inputPolicyFilterItems = useMemo(
+    () => [
+      { value: ALL_VALUE, label: t("ui.All Input Policies") },
+      ...INPUT_POLICY_OPTIONS.map((option) => ({ value: option.value, label: policyOptionLabel(t, option) })),
+    ],
+    [t],
+  );
+  const outputPolicyFilterItems = useMemo(
+    () => [
+      { value: ALL_VALUE, label: t("ui.All Output Policies") },
+      ...OUTPUT_POLICY_OPTIONS.map((option) => ({ value: option.value, label: policyOptionLabel(t, option) })),
+    ],
+    [t],
+  );
 
   const columns = useMemo(() => {
     const deps = { onSelectTool, savingInput, savingOutput, onInputPolicyChange, onOutputPolicyChange, t };
     return getToolPoliciesTableColumns(deps);
-  }, [onSelectTool, savingInput, savingOutput, onInputPolicyChange, onOutputPolicyChange]);
+  }, [onSelectTool, savingInput, savingOutput, onInputPolicyChange, onOutputPolicyChange, t]);
 
   const teamOptions = useMemo(() => uniqueValues(data, (row) => row.team_id), [data]);
   const keyAliasOptions = useMemo(() => uniqueValues(data, (row) => row.key_alias), [data]);
   const teamFilterItems = useMemo(
     () => [
-      { value: ALL_VALUE, label: "All Teams" },
+      { value: ALL_VALUE, label: t("ui.All Teams") },
       ...teamOptions.map((option) => ({ value: option, label: option })),
     ],
-    [teamOptions],
+    [t, teamOptions],
   );
   const keyAliasFilterItems = useMemo(
     () => [
-      { value: ALL_VALUE, label: "All Keys" },
+      { value: ALL_VALUE, label: t("ui.All Keys") },
       ...keyAliasOptions.map((option) => ({ value: option, label: option })),
     ],
-    [keyAliasOptions],
+    [keyAliasOptions, t],
   );
 
   return (
@@ -146,7 +150,7 @@ export function ToolPoliciesTable({
               <>
                 <DataTableFilterField label={t("ui.Input Policy")}>
                   <Select
-                    items={INPUT_POLICY_FILTER_ITEMS}
+                    items={inputPolicyFilterItems}
                     value={(get("input_policy") as string) ?? ALL_VALUE}
                     onValueChange={(value) => set("input_policy", toFilterValue(value))}
                   >
@@ -157,7 +161,7 @@ export function ToolPoliciesTable({
                       <SelectItem value={ALL_VALUE}>{t("ui.All Input Policies")}</SelectItem>
                       {INPUT_POLICY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                          {policyOptionLabel(t, option)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -165,7 +169,7 @@ export function ToolPoliciesTable({
                 </DataTableFilterField>
                 <DataTableFilterField label={t("ui.Output Policy")}>
                   <Select
-                    items={OUTPUT_POLICY_FILTER_ITEMS}
+                    items={outputPolicyFilterItems}
                     value={(get("output_policy") as string) ?? ALL_VALUE}
                     onValueChange={(value) => set("output_policy", toFilterValue(value))}
                   >
@@ -176,7 +180,7 @@ export function ToolPoliciesTable({
                       <SelectItem value={ALL_VALUE}>{t("ui.All Output Policies")}</SelectItem>
                       {OUTPUT_POLICY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                          {policyOptionLabel(t, option)}
                         </SelectItem>
                       ))}
                     </SelectContent>

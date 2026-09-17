@@ -25,6 +25,7 @@ import {
   WILDCARD_MODEL_GROUP_VALUE,
 } from "./AllModelsTable";
 import { ACCESS_GROUPS_COLUMN_ID, MODEL_NAME_COLUMN_ID, toServerSortField } from "./ModelsTableColumns";
+import { useTranslation } from "react-i18next";
 
 const SEARCH_DEBOUNCE_WAIT_MS = 200;
 const DEFAULT_PAGE_SIZE = 50;
@@ -47,6 +48,7 @@ const AllModelsTab = ({
   setSelectedModelId,
   setSelectedTeamId,
 }: AllModelsTabProps) => {
+  const { t } = useTranslation();
   const { data: modelCostMapData, isLoading: isLoadingModelCostMap } = useModelCostMap();
   const { accessToken, userId, userRole } = useAuthorized();
   const { data: teams, isLoading: isLoadingTeams } = useTeams();
@@ -220,7 +222,7 @@ const AllModelsTab = ({
     try {
       setDeleteLoading(true);
       await modelDeleteCall(accessToken, deleteModalModelId);
-      toast.success("Model deleted successfully");
+      toast.success(t("ui.Model deleted successfully"));
       queryClient.invalidateQueries({ queryKey: ["models", "list"] });
       refetchModels();
     } catch (error) {
@@ -307,9 +309,9 @@ const AllModelsTab = ({
             <Info className="mt-0.5 size-3.5 shrink-0" />
             {selectedTeamValue === PERSONAL_TEAM_VALUE ? (
               <span>
-                To access these models, create a Virtual Key without selecting a team on the{" "}
+                {t("ui.To access these models, create a Virtual Key without selecting a team on the")}{" "}
                 <a href={migratedHref("api-keys")} className="font-medium text-info hover:underline">
-                  Virtual Keys page
+                  {t("ui.Virtual Keys page")}
                 </a>
                 .
               </span>
@@ -317,7 +319,7 @@ const AllModelsTab = ({
               <span>
                 To access these models, create a Virtual Key and select Team as &quot;{teamAccessLabel}&quot; on the{" "}
                 <a href={migratedHref("api-keys")} className="font-medium text-info hover:underline">
-                  Virtual Keys page
+                  {t("ui.Virtual Keys page")}
                 </a>
                 .
               </span>
@@ -328,7 +330,7 @@ const AllModelsTab = ({
 
       <DeleteResourceModal
         isOpen={!!deleteModalModelId}
-        title="Delete Model"
+        title={t("ui.Delete Model")}
         alertMessage="This action cannot be undone."
         message="Are you sure you want to delete this model?"
         resourceInformationTitle="Model Information"

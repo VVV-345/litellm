@@ -19,7 +19,7 @@ const DeveloperMessageCard: React.FC<DeveloperMessageCardProps> = ({ value, onCh
           value={value}
           onChange={onChange}
           rows={3}
-          placeholder="e.g., You are a helpful assistant..."
+          placeholder={t("ui.e.g., You are a helpful assistant...")}
         />
       </CardContent>
     </Card>

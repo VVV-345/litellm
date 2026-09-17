@@ -6,6 +6,7 @@ import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 import { useMCPServers } from "../../app/(dashboard)/hooks/mcpServers/useMCPServers";
 import McpCrudPermissionPanel from "../mcp_tools/McpCrudPermissionPanel";
 import { classifyToolOp } from "../../utils/mcpToolCrudClassification";
+import { useTranslation } from "react-i18next";
 
 interface MCPToolPermissionsProps {
   accessToken: string;
@@ -22,6 +23,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
   onChange,
   disabled = false,
 }) => {
+  const { t } = useTranslation();
   const { data: allServers = [] } = useMCPServers();
   const [serverTools, setServerTools] = useState<Record<string, MCPTool[]>>({});
   const [loadingTools, setLoadingTools] = useState<Record<string, boolean>>({});
@@ -52,7 +54,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
       const response = await listMCPTools(token, serverId);
 
       if (response.error) {
-        setToolErrors((prev) => ({ ...prev, [serverId]: response.message || "Failed to fetch tools" }));
+        setToolErrors((prev) => ({ ...prev, [serverId]: response.message || t("ui.Failed to fetch tools") }));
         setServerTools((prev) => ({ ...prev, [serverId]: [] }));
       } else {
         const fetchedTools: MCPTool[] = response.tools || [];
@@ -70,7 +72,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
       }
     } catch (err) {
       console.error(`Error fetching tools for server ${serverId}:`, err);
-      setToolErrors((prev) => ({ ...prev, [serverId]: "Failed to fetch tools" }));
+      setToolErrors((prev) => ({ ...prev, [serverId]: t("ui.Failed to fetch tools") }));
       setServerTools((prev) => ({ ...prev, [serverId]: [] }));
     } finally {
       setLoadingTools((prev) => ({ ...prev, [serverId]: false }));
@@ -135,11 +137,11 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
                   >
                     <label className="flex items-center gap-2 text-sm">
                       <RadioGroupItem value="crud" />
-                      Risk Groups
+                      {t("ui.Risk Groups")}
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <RadioGroupItem value="flat" />
-                      Flat List
+                      {t("ui.Flat List")}
                     </label>
                   </RadioGroup>
                 )}
@@ -151,7 +153,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
                       onClick={() => handleSelectAll(server.server_id)}
                       disabled={isLoading}
                     >
-                      Select All
+                      {t("ui.Select All")}
                     </button>
                     <button
                       type="button"
@@ -159,7 +161,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
                       onClick={() => handleDeselectAll(server.server_id)}
                       disabled={isLoading}
                     >
-                      Deselect All
+                      {t("ui.Deselect All")}
                     </button>
                   </>
                 )}
@@ -172,14 +174,14 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
               {isLoading && (
                 <div className="flex items-center justify-center py-8">
                   <UiLoadingSpinner />
-                  <p className="ml-3 text-sm text-muted-foreground">Loading tools...</p>
+                  <p className="ml-3 text-sm text-muted-foreground">{t("ui.Loading tools...")}</p>
                 </div>
               )}
 
               {/* Error */}
               {error && !isLoading && (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-center">
-                  <p className="text-sm text-destructive font-medium">Unable to load tools</p>
+                  <p className="text-sm text-destructive font-medium">{t("ui.Unable to load tools")}</p>
                   <p className="text-sm text-destructive mt-1">{error}</p>
                 </div>
               )}
@@ -218,7 +220,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium text-foreground">{tool.name}</p>
-                            <p className="text-sm text-muted-foreground">- {tool.description || "No description"}</p>
+                            <p className="text-sm text-muted-foreground">- {tool.description || t("ui.No description")}</p>
                           </div>
                         </div>
                       </div>
@@ -230,7 +232,7 @@ const MCPToolPermissions: React.FC<MCPToolPermissionsProps> = ({
               {/* Empty State */}
               {!isLoading && !error && tools.length === 0 && (
                 <div className="text-center py-6">
-                  <p className="text-sm text-muted-foreground">No tools available</p>
+                  <p className="text-sm text-muted-foreground">{t("ui.No tools available")}</p>
                 </div>
               )}
             </div>

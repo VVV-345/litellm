@@ -6,6 +6,7 @@ import { Alert, AlertTitle } from "@/components/shared/Alert";
 import { importMCPServers } from "@/components/networking";
 import { toast } from "@/lib/toast";
 import { MCPConnectorImportResponse, parseConnectorConfig } from "./importConnectorConfig";
+import { useTranslation } from "react-i18next";
 
 interface ImportMCPServersProps {
   accessToken: string;
@@ -24,6 +25,7 @@ const PLACEHOLDER = `{
 }`;
 
 const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, onClose, onImported }) => {
+  const { t } = useTranslation();
   const [configText, setConfigText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -48,12 +50,12 @@ const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, 
       const response = (await importMCPServers(accessToken, parsed.payload)) as MCPConnectorImportResponse;
       setResult(response);
       if (response.imported.length > 0) {
-        toast.success(`Imported ${response.imported.length} MCP server${response.imported.length === 1 ? "" : "s"}`);
+        toast.success(t("ui.Imported {{count}} MCP servers", { count: response.imported.length }));
         onImported();
       }
     } catch (error) {
       console.error("Failed to import MCP servers:", error);
-      setParseError("Import request failed. Check the proxy logs for details.");
+      setParseError(t("ui.Import request failed. Check the proxy logs for details."));
     } finally {
       setIsImporting(false);
     }
@@ -63,15 +65,16 @@ const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, 
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Import MCP Connectors</DialogTitle>
+          <DialogTitle>{t("ui.Import MCP Connectors")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Paste an Anthropic connector configuration: the <code>mcpServers</code> mapping from a Claude Desktop /
-            Claude Code config file, or the <code>mcp_servers</code> array from the Anthropic Messages API.
+            {t("ui.Paste an Anthropic connector configuration: the")} <code>mcpServers</code>{" "}
+            {t("ui.mapping from a Claude Desktop / Claude Code config file, or the")} <code>mcp_servers</code>{" "}
+            {t("ui.array from the Anthropic Messages API.")}
           </p>
           <Textarea
-            aria-label="Connector JSON"
+            aria-label={t("ui.Connector JSON")}
             value={configText}
             onChange={(e) => setConfigText(e.target.value)}
             placeholder={PLACEHOLDER}
@@ -87,13 +90,13 @@ const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, 
             <div className="space-y-2 text-sm">
               {result.imported.length > 0 && (
                 <div>
-                  <span className="font-semibold">Imported:</span>{" "}
+                  <span className="font-semibold">{t("ui.Imported:")}</span>{" "}
                   {result.imported.map((entry) => entry.alias || entry.name).join(", ")}
                 </div>
               )}
               {result.skipped.length > 0 && (
                 <div>
-                  <span className="font-semibold">Skipped:</span>
+                  <span className="font-semibold">{t("ui.Skipped:")}</span>
                   <ul className="ml-4 list-disc">
                     {result.skipped.map((entry) => (
                       <li key={entry.name}>
@@ -105,7 +108,7 @@ const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, 
               )}
               {result.errors.length > 0 && (
                 <div>
-                  <span className="font-semibold">Failed:</span>
+                  <span className="font-semibold">{t("ui.Failed:")}</span>
                   <ul className="ml-4 list-disc">
                     {result.errors.map((entry) => (
                       <li key={entry.name}>
@@ -119,10 +122,10 @@ const ImportMCPServers: React.FC<ImportMCPServersProps> = ({ accessToken, open, 
           )}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={handleClose} disabled={isImporting}>
-              Close
+              {t("ui.Close")}
             </Button>
             <Button onClick={handleImport} disabled={isImporting}>
-              {isImporting ? "Importing..." : "Import"}
+              {isImporting ? t("ui.Importing...") : t("ui.Import")}
             </Button>
           </div>
         </div>

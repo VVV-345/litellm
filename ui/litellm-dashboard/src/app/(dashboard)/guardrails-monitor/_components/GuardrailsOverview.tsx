@@ -11,6 +11,7 @@ import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 import { EvaluationSettingsModal } from "./EvaluationSettingsModal";
 import { MetricCard } from "@/components/GuardrailsMonitor/MetricCard";
 import { ScoreChart } from "./ScoreChart";
+import { useTranslation } from "react-i18next";
 
 interface GuardrailsOverviewProps {
   accessToken?: string | null;
@@ -47,6 +48,7 @@ export function GuardrailsOverview({
   onSelectGuardrail,
   dateRangeControl,
 }: GuardrailsOverviewProps) {
+  const { t } = useTranslation();
   const [sortBy, setSortBy] = useState<SortKey>("failRate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [evaluationModalOpen, setEvaluationModalOpen] = useState(false);
@@ -90,7 +92,7 @@ export function GuardrailsOverview({
 
   const columns: ColumnDef<PerformanceRow>[] = [
     {
-      header: "Guardrail",
+      header: t("ui.Guardrail"),
       accessorKey: "name",
       enableSorting: false,
       cell: ({ row }) => (
@@ -104,7 +106,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: "Provider",
+      header: t("ui.Provider"),
       accessorKey: "provider",
       enableSorting: false,
       cell: ({ row }) => (
@@ -118,14 +120,14 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Requests" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Requests")} />,
       accessorKey: "requestsEvaluated",
       meta: { numeric: true },
       sortDescFirst: false,
       cell: ({ row }) => row.original.requestsEvaluated.toLocaleString(),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Fail Rate" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Fail Rate")} />,
       accessorKey: "failRate",
       meta: { numeric: true },
       sortDescFirst: false,
@@ -146,7 +148,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: ({ column }) => <DataTableSortHeader column={column} title="Avg. latency added" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Avg. latency added")} />,
       accessorKey: "avgLatency",
       meta: { numeric: true },
       sortDescFirst: false,
@@ -167,7 +169,7 @@ export function GuardrailsOverview({
       ),
     },
     {
-      header: "Status",
+      header: t("ui.Status"),
       accessorKey: "status",
       enableSorting: false,
       cell: ({ row }) => (
@@ -181,7 +183,9 @@ export function GuardrailsOverview({
                   : "bg-destructive"
             }`}
           />
-          <span className="text-xs text-muted-foreground capitalize">{row.original.status}</span>
+          <span className="text-xs text-muted-foreground">
+            {t(`ui.${row.original.status}`, { defaultValue: row.original.status })}
+          </span>
         </span>
       ),
     },
@@ -202,41 +206,41 @@ export function GuardrailsOverview({
     <div>
       <PageHeader
         icon={<HeartPulse />}
-        title="Guardrails Monitor"
-        subtitle="Monitor guardrail performance across all requests"
+        title={t("ui.Guardrails Monitor")}
+        subtitle={t("ui.Monitor guardrail performance across all requests")}
         utilities={
           <>
             {dateRangeControl}
-            <Button variant="outline" title="Coming soon">
+            <Button variant="outline" title={t("ui.Coming soon")}>
               <Download className="size-4" />
-              Export Data
+              {t("ui.Export Data")}
             </Button>
           </>
         }
       />
 
       <div className="mt-6 mb-6 grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-4">
-        <MetricCard label="Total Evaluations" value={metrics.totalRequests.toLocaleString()} />
+        <MetricCard label={t("ui.Total Evaluations")} value={metrics.totalRequests.toLocaleString()} />
         <MetricCard
-          label="Blocked Requests"
+          label={t("ui.Blocked Requests")}
           value={metrics.totalBlocked.toLocaleString()}
           valueColor="text-destructive"
           icon={<TriangleAlert className="size-4 text-destructive" />}
         />
         <MetricCard
-          label="Pass Rate"
+          label={t("ui.Pass Rate")}
           value={`${metrics.passRate}%`}
           valueColor="text-success"
           icon={<TrendingUp className="size-4 text-success" />}
         />
         <MetricCard
-          label="Avg. latency added"
+          label={t("ui.Avg. latency added")}
           value={`${metrics.avgLatency}ms`}
           valueColor={
             metrics.avgLatency > 150 ? "text-destructive" : metrics.avgLatency > 50 ? "text-warning" : "text-success"
           }
         />
-        <MetricCard label="Active Guardrails" value={metrics.count} />
+        <MetricCard label={t("ui.Active Guardrails")} value={metrics.count} />
       </div>
 
       <div className="mb-6">
@@ -247,11 +251,11 @@ export function GuardrailsOverview({
         {(isLoading || error) && (
           <div className="mb-2 flex items-center gap-2">
             {isLoading && (
-              <span role="status" aria-busy="true" aria-label="Loading" className="inline-flex">
+              <span role="status" aria-busy="true" aria-label={t("ui.Loading")} className="inline-flex">
                 <UiLoadingSpinner className="size-4 text-primary" />
               </span>
             )}
-            {error && <span className="text-sm text-destructive">Failed to load data. Try again.</span>}
+            {error && <span className="text-sm text-destructive">{t("ui.Failed to load data. Try again.")}</span>}
           </div>
         )}
         <DataTable
@@ -259,7 +263,7 @@ export function GuardrailsOverview({
           data={sorted}
           getRowId={(row) => row.id}
           isLoading={isLoading}
-          noDataMessage="No data for this period"
+          noDataMessage={t("ui.No data for this period")}
           onRowClick={(row) => onSelectGuardrail(row.id)}
           rowClassName={() => "cursor-pointer"}
           sortingMode="server"
@@ -270,9 +274,9 @@ export function GuardrailsOverview({
           toolbar={() => (
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h5 className="mb-0 text-base font-semibold text-foreground">Guardrail Performance</h5>
+                <h5 className="mb-0 text-base font-semibold text-foreground">{t("ui.Guardrail Performance")}</h5>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Click a guardrail to view details, logs, and configuration
+                  {t("ui.Click a guardrail to view details, logs, and configuration")}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -280,7 +284,7 @@ export function GuardrailsOverview({
                   variant="outline"
                   size="icon"
                   onClick={() => setEvaluationModalOpen(true)}
-                  title="Evaluation settings"
+                  title={t("ui.Evaluation settings")}
                 >
                   <Settings className="size-4" />
                 </Button>

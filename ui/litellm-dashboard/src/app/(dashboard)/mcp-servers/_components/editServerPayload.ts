@@ -112,20 +112,26 @@ const assertNever = (value: never): never => {
   throw new Error(`unhandled edit payload result: ${JSON.stringify(value)}`);
 };
 
-export const editPayloadErrorMessage = (result: Exclude<BuildEditPayloadResult, { kind: "ok" }>): string => {
+export const editPayloadErrorMessage = (
+  result: Exclude<BuildEditPayloadResult, { kind: "ok" }>,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string => {
   switch (result.kind) {
     case "invalid_tool_display_name":
-      return `Tool display name "${result.displayName}" is invalid. Only letters, digits, underscores, and hyphens are allowed (no spaces).`;
+      return t(
+        'ui.Tool display name "{{name}}" is invalid. Only letters, digits, underscores, and hyphens are allowed (no spaces).',
+        { name: result.displayName },
+      );
     case "stdio_config_missing_command":
-      return "Stdio configuration must include a command";
+      return t("ui.Stdio configuration must include a command");
     case "invalid_stdio_json":
-      return "Invalid JSON in stdio configuration";
+      return t("ui.Invalid JSON in stdio configuration");
     case "invalid_stdio_env_json":
-      return "Invalid JSON in stdio env configuration";
+      return t("ui.Invalid JSON in stdio env configuration");
     case "stdio_command_required":
-      return "Stdio transport requires a command";
+      return t("ui.Stdio transport requires a command");
     case "invalid_token_validation_json":
-      return "Invalid JSON in Token Validation Rules";
+      return t("ui.Invalid JSON in Token Validation Rules");
     default:
       return assertNever(result);
   }

@@ -1,23 +1,27 @@
 "use client";
 
 import React from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/cva.config";
 
 export const INPUT_POLICY_OPTIONS = [
-  { value: "untrusted", label: "untrusted", dot: "bg-warning" },
-  { value: "trusted", label: "trusted", dot: "bg-success" },
-  { value: "blocked", label: "blocked", dot: "bg-destructive" },
+  { value: "untrusted", labelKey: "ui.Untrusted", dot: "bg-warning" },
+  { value: "trusted", labelKey: "ui.Trusted", dot: "bg-success" },
+  { value: "blocked", labelKey: "ui.Blocked", dot: "bg-destructive" },
 ] as const;
 
 export const OUTPUT_POLICY_OPTIONS = [
-  { value: "untrusted", label: "untrusted", dot: "bg-warning" },
-  { value: "trusted", label: "trusted", dot: "bg-success" },
+  { value: "untrusted", labelKey: "ui.Untrusted", dot: "bg-warning" },
+  { value: "trusted", labelKey: "ui.Trusted", dot: "bg-success" },
 ] as const;
 
 export const POLICY_OPTIONS = INPUT_POLICY_OPTIONS;
 
 export const policyStyle = (p: string) => INPUT_POLICY_OPTIONS.find((o) => o.value === p) ?? INPUT_POLICY_OPTIONS[0];
+
+export const policyOptionLabel = (t: TFunction, option: { labelKey: string }): string => t(option.labelKey);
 
 export interface PolicySelectProps {
   value: string;
@@ -39,6 +43,7 @@ export const PolicySelect: React.FC<PolicySelectProps> = ({
   size = "small",
   stopPropagation = true,
 }) => {
+  const { t } = useTranslation();
   const options = policyType === "output" ? OUTPUT_POLICY_OPTIONS : INPUT_POLICY_OPTIONS;
   const selected = policyStyle(value);
   return (
@@ -56,7 +61,7 @@ export const PolicySelect: React.FC<PolicySelectProps> = ({
           <SelectItem key={o.value} value={o.value}>
             <span className="inline-flex items-center gap-1.5">
               <span className={cn("size-2 shrink-0 rounded-full", o.dot)} />
-              {o.label}
+              {policyOptionLabel(t, o)}
             </span>
           </SelectItem>
         ))}

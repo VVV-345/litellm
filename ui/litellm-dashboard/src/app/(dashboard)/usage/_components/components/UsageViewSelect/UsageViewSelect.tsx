@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hasCapability, type Capability } from "@/utils/capabilities";
 import { all_admin_roles } from "@/utils/roles";
+import { useTranslation } from "react-i18next";
+import { translateUiText } from "@/utils/i18nText";
 export type UsageOption =
   | "global"
   | "my-usage"
@@ -110,10 +112,11 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
   userRole,
   canViewTagUsage = false,
   isOrgAdmin = false,
-  title = "Usage View",
-  description = "Select the usage data you want to view",
+  title,
+  description,
   "data-id": dataId,
 }) => {
+  const { t } = useTranslation();
   const isAdmin = all_admin_roles.includes(userRole ?? "");
   const getFilteredOptions = () => {
     return OPTIONS.filter((option) => {
@@ -138,10 +141,10 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
       }
       return {
         value: option.value,
-        label,
-        description: desc,
+        label: translateUiText(t, label),
+        description: translateUiText(t, desc),
         icon: option.icon,
-        badgeText: option.badgeText,
+        badgeText: option.badgeText ? translateUiText(t, option.badgeText) : undefined,
       };
     });
   };
@@ -155,8 +158,12 @@ export const UsageViewSelect: React.FC<UsageViewSelectProps> = ({
             <BarChart3 className="size-8" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-foreground mb-0.5 leading-tight">{title}</h3>
-            <p className="text-xs text-muted-foreground leading-tight">{description}</p>
+            <h3 className="text-sm font-semibold text-foreground mb-0.5 leading-tight">
+              {translateUiText(t, title ?? "Usage View")}
+            </h3>
+            <p className="text-xs text-muted-foreground leading-tight">
+              {translateUiText(t, description ?? "Select the usage data you want to view")}
+            </p>
           </div>
         </div>
         <div className="shrink-0">

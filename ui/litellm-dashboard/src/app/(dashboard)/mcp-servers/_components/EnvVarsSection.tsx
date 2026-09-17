@@ -15,11 +15,7 @@ import {
 import { requiredRule } from "@/components/common_components/formRules";
 import { matchesPattern, selectControl, selectTriggerControl, textControl } from "./mcpFieldRules";
 import { listControl } from "./mcpFormStore";
-
-const SCOPE_OPTIONS = [
-  { value: "global", label: "Instance" },
-  { value: "user", label: "Per-user" },
-];
+import { useTranslation } from "react-i18next";
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -34,6 +30,11 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * The parent form reads the ``env_vars`` field from the form values.
  */
 const EnvVarsSection: React.FC = () => {
+  const { t } = useTranslation();
+  const scopeOptions = [
+    { value: "global", label: t("ui.Instance") },
+    { value: "user", label: t("ui.Per-user") },
+  ];
   const { control } = useFormContext<MountedFormValues>();
   const { fields, append, remove } = useFieldArray({ control: listControl(control), name: "env_vars" });
   useMountedName("env_vars");
@@ -41,16 +42,15 @@ const EnvVarsSection: React.FC = () => {
   return (
     <div className="rounded-lg border border-border bg-muted p-4">
       <div className="flex items-center gap-2 mb-1">
-        <strong className="text-sm font-semibold">Variables</strong>
+        <strong className="text-sm font-semibold">{t("ui.Variables")}</strong>
         <SimpleTooltip
           content={
             <>
-              Define variables you can interpolate in Static Headers or Authentication using{" "}
+              {t("ui.Define variables you can interpolate in Static Headers or Authentication using")}{" "}
               <code>{"${VAR_NAME}"}</code>. <br />
-              <b>Instance</b>: admin-defined value used for every user.
+              <b>{t("ui.Instance")}</b>: {t("ui.admin-defined value used for every user.")}
               <br />
-              <b>Per-user</b>: each user supplies their own value (e.g. personal credentials) via the MCP Gateway
-              dashboard.
+              <b>{t("ui.Per-user")}</b>: {t("ui.each user supplies their own value (e.g. personal credentials) via the MCP Gateway dashboard.")}
             </>
           }
         >
@@ -58,7 +58,7 @@ const EnvVarsSection: React.FC = () => {
         </SimpleTooltip>
       </div>
       <span className="mb-3 block text-xs text-muted-foreground">
-        Reference these in Static Headers or Authentication as <code>{"${VAR_NAME}"}</code>. For example:{" "}
+        {t("ui.Reference these in Static Headers or Authentication as")} <code>{"${VAR_NAME}"}</code>. {t("ui.For example:")}{" "}
         <code className="bg-card px-1 rounded-sm border border-border">
           {"${DB_PROTOCOL}://${CORP_USERNAME}:${CORP_PASSWORD}@${DB_HOSTNAME}"}
         </code>
@@ -67,9 +67,9 @@ const EnvVarsSection: React.FC = () => {
       <div className="space-y-2">
         {fields.length > 0 && (
           <div className="flex gap-3 px-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            <div style={{ flex: 1 }}>Variable Name</div>
-            <div style={{ flex: 1 }}>Value / Description</div>
-            <div style={{ width: 160 }}>Scope</div>
+            <div style={{ flex: 1 }}>{t("ui.Variable Name")}</div>
+            <div style={{ flex: 1 }}>{t("ui.Value / Description")}</div>
+            <div style={{ width: 160 }}>{t("ui.Scope")}</div>
             <div style={{ width: 24 }} />
           </div>
         )}
@@ -80,16 +80,20 @@ const EnvVarsSection: React.FC = () => {
               className="mb-0 flex-1"
               rules={{
                 validate: {
-                  required: requiredRule("Variable name is required"),
+                  required: requiredRule(t("ui.Variable name is required")),
                   pattern: matchesPattern(
                     VARIABLE_NAME_PATTERN,
-                    "Use letters, digits, underscores; cannot start with a digit.",
+                    t("ui.Use letters, digits, underscores; cannot start with a digit."),
                   ),
                 },
               }}
             >
               {(control) => (
-                <Input {...textControl(control)} placeholder="e.g. DB_PROTOCOL" className="rounded-md font-mono" />
+                <Input
+                  {...textControl(control)}
+                  placeholder={t("ui.e.g. DB_PROTOCOL")}
+                  className="rounded-md font-mono"
+                />
               )}
             </MountedFormField>
             <div style={{ flex: 1 }}>
@@ -97,12 +101,12 @@ const EnvVarsSection: React.FC = () => {
             </div>
             <MountedFormField name={["env_vars", String(index), "scope"]} className="mb-0 w-40" defaultValue="global">
               {(control) => (
-                <Select {...selectControl<string>(control)} items={SCOPE_OPTIONS}>
+                <Select {...selectControl<string>(control)} items={scopeOptions}>
                   <SelectTrigger {...selectTriggerControl(control)} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {SCOPE_OPTIONS.map((option) => (
+                    {scopeOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -121,7 +125,7 @@ const EnvVarsSection: React.FC = () => {
         ))}
         <Button variant="outline" className="w-full border-dashed" onClick={() => append({ scope: "global" })}>
           <Plus />
-          Add Variable
+          {t("ui.Add Variable")}
         </Button>
       </div>
     </div>
@@ -132,6 +136,7 @@ const EnvVarsSection: React.FC = () => {
 // vars the value comes from each user later, so the column instead captures an
 // optional description that the per-user fill-in modal shows as a hint.
 const ScopedValueOrDescription: React.FC<{ index: number }> = ({ index }) => {
+  const { t } = useTranslation();
   const isPerUser = useWatch({ name: `env_vars.${index}.scope` }) === "user";
   if (isPerUser) {
     return (
@@ -139,16 +144,20 @@ const ScopedValueOrDescription: React.FC<{ index: number }> = ({ index }) => {
         {(control) => (
           <InputGroup>
             <InputGroupAddon>
-              <SimpleTooltip content="Per-user variables have no shared value. This text is only a hint shown to each user when they fill in their own value.">
+              <SimpleTooltip
+                content={t(
+                  "ui.Per-user variables have no shared value. This text is only a hint shown to each user when they fill in their own value.",
+                )}
+              >
                 <span className="text-xs text-muted-foreground cursor-help whitespace-nowrap">
                   <Info className="mr-1 inline size-3 align-text-bottom" />
-                  Hint
+                  {t("ui.Hint")}
                 </span>
               </SimpleTooltip>
             </InputGroupAddon>
             <InputGroupInput
               {...textControl(control)}
-              placeholder="e.g. Your DB username"
+              placeholder={t("ui.e.g. Your DB username")}
               className="text-muted-foreground"
             />
           </InputGroup>
@@ -158,7 +167,9 @@ const ScopedValueOrDescription: React.FC<{ index: number }> = ({ index }) => {
   }
   return (
     <MountedFormField name={["env_vars", String(index), "value"]} className="mb-0">
-      {(control) => <Input {...textControl(control)} placeholder="e.g. postgresql" className="rounded-md font-mono" />}
+      {(control) => (
+        <Input {...textControl(control)} placeholder={t("ui.e.g. postgresql")} className="rounded-md font-mono" />
+      )}
     </MountedFormField>
   );
 };

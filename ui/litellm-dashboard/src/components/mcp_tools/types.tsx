@@ -292,6 +292,16 @@ export const handleAuth = (authType?: string | null): string => {
   return authType;
 };
 
+export const getTransportLabel = (transport?: string | null, specPath?: string | null): string => {
+  const value = handleTransport(transport, specPath);
+  return TRANSPORT_ITEMS.find((item) => item.value === value)?.label ?? value.toUpperCase();
+};
+
+export const getAuthTypeLabel = (authType?: string | null): string => {
+  const value = handleAuth(authType);
+  return AUTH_TYPE_ITEMS.find((item) => item.value === value)?.label ?? value;
+};
+
 // Define the structure for tool input schema properties
 export interface InputSchemaProperty {
   type?: string;

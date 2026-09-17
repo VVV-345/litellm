@@ -7,6 +7,7 @@ import { useUpdateRetryPolicy } from "@/app/(dashboard)/hooks/routerSettings/use
 import { useModelDashboardData } from "@/app/(dashboard)/models-and-endpoints/useModelDashboardData";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { toast } from "@/lib/toast";
+import { useTranslation } from "react-i18next";
 
 interface RetryPolicyObject {
   [key: string]: { [retryPolicyKey: string]: number } | undefined;
@@ -23,6 +24,7 @@ interface RouterSettings {
 }
 
 export default function ModelRetrySettingsPanel() {
+  const { t } = useTranslation();
   const { accessToken, userId: userID, userRole } = useAuthorized();
   const { availableModelGroups } = useModelDashboardData();
   const updateRetryPolicy = useUpdateRetryPolicy(accessToken);
@@ -69,7 +71,7 @@ export default function ModelRetrySettingsPanel() {
       { retry_policy: globalRetryPolicy, model_group_retry_policy: modelGroupRetryPolicy },
       {
         onSuccess: () => {
-          toast.success("Retry settings saved successfully");
+          toast.success(t("ui.Retry settings saved successfully"));
           void fetchRetrySettings().then((routerSettings) => {
             if (routerSettings) {
               applyRetrySettings(routerSettings);
@@ -77,7 +79,7 @@ export default function ModelRetrySettingsPanel() {
           });
         },
         onError: () => {
-          toast.fromError("Failed to save retry settings");
+          toast.fromError(t("ui.Failed to save retry settings"));
         },
       },
     );

@@ -9,8 +9,10 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { CreateProjectModal } from "./ProjectModals/CreateProjectModal";
 import { ProjectDetail } from "./ProjectDetailsPage";
 import { ProjectsTable } from "./ProjectsTable";
+import { useTranslation } from "react-i18next";
 
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const { data: projects, isLoading } = useProjects();
   const { data: teams, isLoading: isTeamsLoading } = useTeams();
 
@@ -57,12 +59,12 @@ export function ProjectsPage() {
     <div className="p-8">
       <PageHeader
         icon={<Folder />}
-        title="Projects"
+        title={t("ui.Projects")}
         subtitle="Manage projects within your teams"
         primaryAction={
           <Button onClick={() => setIsCreateModalVisible(true)}>
             <Plus className="size-4" />
-            Create Project
+            {t("ui.Create Project")}
           </Button>
         }
       />
@@ -73,13 +75,13 @@ export function ProjectsPage() {
             <SearchIcon className="size-4 text-muted-foreground" />
           </InputGroupAddon>
           <InputGroupInput
-            placeholder="Search projects by name, ID, description, or team..."
+            placeholder={t("ui.Search projects by name, ID, description, or team...")}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
           {searchText && (
             <InputGroupAddon align="inline-end">
-              <InputGroupButton size="icon-xs" aria-label="Clear search" onClick={() => setSearchText("")}>
+              <InputGroupButton size="icon-xs" aria-label={t("ui.Clear search")} onClick={() => setSearchText("")}>
                 <X />
               </InputGroupButton>
             </InputGroupAddon>

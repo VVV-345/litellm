@@ -6,12 +6,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 import { transformRequestCall } from "@/components/networking";
 import { toast } from "@/lib/toast";
+import { useTranslation } from "react-i18next";
 
 interface TransformRequestPanelProps {
   accessToken: string | null;
 }
 
 const TransformRequestPanel: React.FC<TransformRequestPanelProps> = ({ accessToken }) => {
+  const { t } = useTranslation();
   const [originalRequestJSON, setOriginalRequestJSON] = useState(`{
   "model": "openai/gpt-4o",
   "messages": [
@@ -69,7 +71,7 @@ ${formattedBody}
       try {
         requestBody = JSON.parse(originalRequestJSON);
       } catch (e) {
-        toast.fromError("Invalid JSON in request body");
+        toast.fromError(t("ui.Invalid JSON in request body"));
         setIsLoading(false);
         return;
       }
@@ -82,7 +84,7 @@ ${formattedBody}
 
       // Make the API call using fetch
       if (!accessToken) {
-        toast.fromError("No access token found");
+        toast.fromError(t("ui.No access token found"));
         setIsLoading(false);
         return;
       }
@@ -100,17 +102,17 @@ ${formattedBody}
 
         // Update state with the formatted curl command
         setTransformedResponse(formattedCurl);
-        toast.success("Request transformed successfully");
+        toast.success(t("ui.Request transformed successfully"));
       } else {
         // Handle the case where the API returns a different format
         // Try to extract the parts from a string response if needed
         const rawText = typeof data === "string" ? data : JSON.stringify(data);
         setTransformedResponse(rawText);
-        toast.info("Transformed request received in unexpected format");
+        toast.info(t("ui.Transformed request received in unexpected format"));
       }
     } catch (err) {
       console.error("Error transforming request:", err);
-      toast.fromError("Failed to transform request");
+      toast.fromError(t("ui.Failed to transform request"));
     } finally {
       setIsLoading(false);
     }
@@ -126,16 +128,18 @@ ${formattedBody}
 
   return (
     <div className="p-2">
-      <h1 className="text-lg font-medium text-foreground">Playground</h1>
+      <h1 className="text-lg font-medium text-foreground">{t("ui.Playground")}</h1>
       <p className="text-sm text-muted-foreground">
-        See how LiteLLM transforms your request for the specified provider.
+        {t("ui.See how LiteLLM transforms your request for the specified provider.")}
       </p>
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Original Request Panel */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl font-bold">Original Request</CardTitle>
-            <CardDescription>The request you would send to LiteLLM /chat/completions endpoint.</CardDescription>
+            <CardTitle className="text-2xl font-bold">{t("ui.Original Request")}</CardTitle>
+            <CardDescription>
+              {t("ui.The request you would send to LiteLLM /chat/completions endpoint.")}
+            </CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -144,13 +148,13 @@ ${formattedBody}
               value={originalRequestJSON}
               onChange={(e) => setOriginalRequestJSON(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Press Cmd/Ctrl + Enter to transform"
+              placeholder={t("ui.Press Cmd/Ctrl + Enter to transform")}
             />
           </CardContent>
 
           <CardFooter className="justify-end">
             <Button onClick={handleTransform} disabled={isLoading}>
-              <span>Transform</span>
+              <span>{t("ui.Transform")}</span>
               {isLoading ? <UiLoadingSpinner className="size-4" /> : <ArrowRight />}
             </Button>
           </CardFooter>
@@ -159,9 +163,9 @@ ${formattedBody}
         {/* Transformed Request Panel */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl font-bold">Transformed Request</CardTitle>
-            <CardDescription>How LiteLLM transforms your request for the specified provider.</CardDescription>
-            <p className="mt-2 text-xs text-muted-foreground">Note: Sensitive headers are not shown.</p>
+            <CardTitle className="text-2xl font-bold">{t("ui.Transformed Request")}</CardTitle>
+            <CardDescription>{t("ui.How LiteLLM transforms your request for the specified provider.")}</CardDescription>
+            <p className="mt-2 text-xs text-muted-foreground">{t("ui.Note: Sensitive headers are not shown.")}</p>
           </CardHeader>
 
           <CardContent>
@@ -187,11 +191,11 @@ ${formattedBody}
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Copy to clipboard"
+                aria-label={t("ui.Copy to clipboard")}
                 className="absolute top-2 right-2"
                 onClick={() => {
                   navigator.clipboard.writeText(transformedResponse || "");
-                  toast.success("Copied to clipboard");
+                  toast.success(t("ui.Copied to clipboard"));
                 }}
               >
                 <Copy />
@@ -202,14 +206,14 @@ ${formattedBody}
       </div>
       <div className="mt-4 text-right">
         <p className="text-sm text-muted-foreground">
-          Found an error? File an issue{" "}
+          {t("ui.Found an error? File an issue")}{" "}
           <a
             className="underline underline-offset-4"
             href="https://github.com/BerriAI/litellm/issues"
             target="_blank"
             rel="noopener noreferrer"
           >
-            here
+            {t("ui.here")}
           </a>
           .
         </p>

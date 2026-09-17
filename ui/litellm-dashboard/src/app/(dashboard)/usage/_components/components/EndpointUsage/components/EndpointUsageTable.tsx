@@ -4,6 +4,7 @@ import { Meter, MeterIndicator, MeterTrack } from "@/components/shared/Meter";
 import { DataTable } from "@/components/shared/DataTable";
 import { MoneyCell } from "@/components/shared/table_cells";
 import { MetricWithMetadata } from "@/components/UsagePage/types";
+import { useTranslation } from "react-i18next";
 
 interface EndpointUsageTableProps {
   endpointData: Record<string, MetricWithMetadata>;
@@ -21,6 +22,7 @@ interface EndpointRow {
 }
 
 const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData }) => {
+  const { t } = useTranslation();
   const calculateSuccessRate = (successful: number, total: number): number => {
     if (total === 0) return 0;
     return (successful / total) * 100;
@@ -39,12 +41,12 @@ const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData })
 
   const columns: ColumnDef<EndpointRow>[] = [
     {
-      header: "Endpoint",
+      header: t("ui.Endpoint"),
       accessorKey: "endpoint",
       cell: ({ row }) => <span className="font-medium">{row.original.endpoint}</span>,
     },
     {
-      header: "Successful / Failed",
+      header: t("ui.Successful / Failed"),
       id: "requests",
       cell: ({ row }) => {
         const record = row.original;
@@ -56,7 +58,7 @@ const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData })
         return (
           <div className="flex items-center space-x-3">
             <div className="flex-1 relative">
-              <Meter value={successPercentage} max={totalPercentage || 100} aria-label="Successful requests">
+              <Meter value={successPercentage} max={totalPercentage || 100} aria-label={t("ui.Successful requests")}>
                 <MeterTrack className={failurePercentage > 0 ? "bg-destructive" : undefined}>
                   <MeterIndicator className="bg-success" />
                 </MeterTrack>
@@ -72,13 +74,13 @@ const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData })
       },
     },
     {
-      header: "Total Request",
+      header: t("ui.Total Request"),
       accessorKey: "api_requests",
       meta: { numeric: true },
       cell: ({ row }) => row.original.api_requests.toLocaleString(),
     },
     {
-      header: "Success Rate",
+      header: t("ui.Success Rate"),
       accessorKey: "successRate",
       meta: { numeric: true },
       cell: ({ row }) => {
@@ -100,13 +102,13 @@ const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData })
       },
     },
     {
-      header: "Total Tokens",
+      header: t("ui.Total Tokens"),
       accessorKey: "total_tokens",
       meta: { numeric: true },
       cell: ({ row }) => row.original.total_tokens.toLocaleString(),
     },
     {
-      header: "Spend",
+      header: t("ui.Spend"),
       accessorKey: "spend",
       meta: { numeric: true },
       cell: ({ row }) => <MoneyCell value={row.original.spend} decimals={2} />,
@@ -118,7 +120,7 @@ const EndpointUsageTable: React.FC<EndpointUsageTableProps> = ({ endpointData })
       columns={columns}
       data={dataSource}
       getRowId={(row) => row.key}
-      noDataMessage="No endpoint usage data"
+      noDataMessage={t("ui.No endpoint usage data")}
       size="compact"
     />
   );

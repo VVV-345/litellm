@@ -20,9 +20,6 @@ interface ProviderMarginRow {
   margin: number | { percentage?: number; fixed_amount?: number };
 }
 
-const marginRowDisplayName = (provider: string): string =>
-  provider === "global" ? "Global" : getProviderLogoAndName(provider).displayName;
-
 const ProviderMarginTable: React.FC<ProviderMarginTableProps> = ({
   marginConfig,
   onMarginChange,
@@ -30,6 +27,8 @@ const ProviderMarginTable: React.FC<ProviderMarginTableProps> = ({
 }) => {
   const { t } = useTranslation();
   const ui = (text: string) => translateUiText(t, text);
+  const marginRowDisplayName = (provider: string): string =>
+    provider === "global" ? ui("Global (All Providers)") : getProviderLogoAndName(provider).displayName;
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [editPercentage, setEditPercentage] = useState<string>("");
   const [editFixedAmount, setEditFixedAmount] = useState<string>("");

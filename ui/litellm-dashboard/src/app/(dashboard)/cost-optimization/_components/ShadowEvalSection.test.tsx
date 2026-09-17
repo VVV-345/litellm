@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInfiniteKeys } from "@/app/(dashboard)/hooks/keys/useKeys";
+import i18next, { CHINESE_LANGUAGE, ENGLISH_LANGUAGE } from "@/i18n";
 import { ApiError } from "@/lib/http/client";
 
 vi.mock("./useShadowEval", () => ({
@@ -192,8 +193,13 @@ const mockHooks = ({
 };
 
 describe("ShadowEvalSection", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage(ENGLISH_LANGUAGE);
     authorizedRoleMock.mockReturnValue({ accessToken: "token", isViewOnly: false });
+  });
+
+  afterEach(async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
   });
 
   it("shows a key picker load failure instead of posing as no matching keys", async () => {
@@ -257,7 +263,7 @@ describe("ShadowEvalSection", () => {
     render(<ShadowEvalSection />);
     expect(screen.queryByText("Start a shadow eval")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
-    expect(screen.getByText("running")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
   });
 
   it("never labels a collapsed previous eval as empty from a countless list row", () => {
@@ -529,11 +535,11 @@ describe("ShadowEvalSection", () => {
     const hungry = screen.getByText("hash-hungr…").closest("tr");
     if (!spent || !hungry) throw new Error("expected a table row per scoped key");
 
-    expect(within(spent).getByText("stopped")).toBeInTheDocument();
+    expect(within(spent).getByText("Stopped")).toBeInTheDocument();
     expect(within(spent).getByText("$1.50 / $2.00")).toBeInTheDocument();
     expect(within(spent).getByText("60.0%")).toBeInTheDocument();
 
-    expect(within(hungry).getByText("running")).toBeInTheDocument();
+    expect(within(hungry).getByText("Running")).toBeInTheDocument();
     expect(within(hungry).getByText("$0.2000 / $5.00")).toBeInTheDocument();
     expect(within(hungry).getByText("No verdicts yet")).toBeInTheDocument();
 
@@ -559,9 +565,9 @@ describe("ShadowEvalSection", () => {
     const spent = screen.getByText("hash-spent…").closest("tr");
     const hungry = screen.getByText("hash-hungr…").closest("tr");
     if (!spent || !hungry) throw new Error("expected a table row per scoped key");
-    expect(within(spent).getByText("completed")).toBeInTheDocument();
+    expect(within(spent).getByText("Completed")).toBeInTheDocument();
     expect(within(spent).getByText("$2.00 / $2.00")).toBeInTheDocument();
-    expect(within(hungry).getByText("running")).toBeInTheDocument();
+    expect(within(hungry).getByText("Running")).toBeInTheDocument();
     expect(within(hungry).getByText("3 / 500 turns")).toBeInTheDocument();
   });
 
@@ -582,7 +588,7 @@ describe("ShadowEvalSection", () => {
 
     const spent = screen.getByText("hash-spent…").closest("tr");
     if (!spent) throw new Error("expected a per-key row before verdicts exist");
-    expect(within(spent).getByText("completed")).toBeInTheDocument();
+    expect(within(spent).getByText("Completed")).toBeInTheDocument();
     expect(within(spent).getByText("$0.5000 / $0.5000")).toBeInTheDocument();
     expect(screen.getByText("Budget used")).toBeInTheDocument();
     expect(screen.queryByText("Judged turns")).not.toBeInTheDocument();
@@ -605,8 +611,8 @@ describe("ShadowEvalSection", () => {
 
     const hungry = screen.getByText("hash-hungr…").closest("tr");
     if (!hungry) throw new Error("expected a table row per scoped key");
-    expect(within(hungry).getByText("completed")).toBeInTheDocument();
-    expect(within(hungry).queryByText("running")).not.toBeInTheDocument();
+    expect(within(hungry).getByText("Completed")).toBeInTheDocument();
+    expect(within(hungry).queryByText("Running")).not.toBeInTheDocument();
   });
 
   it("shows the measured cost comparison with savings and both arm totals", () => {

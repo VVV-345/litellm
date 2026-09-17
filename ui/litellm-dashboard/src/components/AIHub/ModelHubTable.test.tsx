@@ -1,6 +1,7 @@
 import * as networking from "@/components/networking";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18next, { CHINESE_LANGUAGE, ENGLISH_LANGUAGE } from "@/i18n";
 import { renderWithProviders, screen, waitFor } from "../../../tests/test-utils";
 import ModelHubTable from "./ModelHubTable";
 
@@ -48,7 +49,8 @@ vi.mock("@/utils/jwtUtils", () => ({
 describe("ModelHubTable", () => {
   const originalLocation = window.location;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage(ENGLISH_LANGUAGE);
     Object.defineProperty(window, "location", {
       value: {
         href: "http://localhost:4000/ui/model_hub_table",
@@ -63,7 +65,8 @@ describe("ModelHubTable", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await i18next.changeLanguage(CHINESE_LANGUAGE);
     Object.defineProperty(window, "location", {
       value: originalLocation,
       writable: true,
