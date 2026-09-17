@@ -237,6 +237,18 @@ class TestOpenAIChatCompletionStreamingHandler:
         assert excinfo.value.status_code == 503
         assert excinfo.value.message == '{"type": "overloaded", "code": 503}'
 
+    def test_chunk_parser_preserves_explicit_stream_error_status(self):
+        from litellm.llms.openai.common_utils import OpenAIError
+
+        handler = OpenAIChatCompletionStreamingHandler(streaming_response=None, sync_stream=True)
+        with pytest.raises(OpenAIError) as error:
+            handler.chunk_parser({"error": {
+                "message": "Upstream rejected the prompt (invalid_prompt)",
+                "code": "invalid_prompt", "type": "invalid_request_error", "status_code": 400,
+            }})
+        assert error.value.status_code == 400
+        assert "invalid_prompt" in error.value.message
+
     def test_chunk_parser_tolerates_null_error_field(self):
         """A chunk that carries "error": null alongside real data must parse
         normally, not raise."""

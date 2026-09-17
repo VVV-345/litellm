@@ -1527,11 +1527,7 @@ class CustomStreamWrapper:
                     setattr(
                         model_response,
                         "usage",
-                        litellm.Usage(
-                            prompt_tokens=response_obj["usage"].get("prompt_tokens", None) or None,
-                            completion_tokens=response_obj["usage"].get("completion_tokens", None) or None,
-                            total_tokens=response_obj["usage"].get("total_tokens", None) or None,
-                        ),
+                        Usage.model_validate(response_obj["usage"]),
                     )
                 elif isinstance(response_obj["usage"], Usage):
                     setattr(
@@ -1655,8 +1651,15 @@ class CustomStreamWrapper:
 
                 self.tool_call = True
 
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                model_response.usage = chunk.usage
+            chunk_usage: Final[object] = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                model_response.usage = (
+                    Usage.model_validate(chunk_usage.model_dump())
+                    if isinstance(chunk_usage, BaseModel) and not isinstance(chunk_usage, Usage)
+                    else Usage.model_validate(chunk_usage)
+                    if isinstance(chunk_usage, dict)
+                    else chunk.usage
+                )
 
             ## RETURN ARG
             result: Final = self.return_processed_chunk_logic(

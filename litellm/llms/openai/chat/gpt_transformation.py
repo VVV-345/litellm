@@ -786,7 +786,7 @@ class OpenAIChatCompletionStreamingHandler(BaseModelResponseIterator):
         if not isinstance(error, dict):
             return str(error), 500
         message: Final = error.get("message")
-        code: Final = error.get("code")
+        code: Final = error.get("status_code", error.get("code"))
         status_code: Final = code if isinstance(code, int) and 400 <= code < 600 else 500
         return (message if isinstance(message, str) else json.dumps(error)), status_code
 

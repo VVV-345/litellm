@@ -873,13 +873,13 @@ async def guarded_stream_response(
 ) -> bool:
     bootstrap: Final = StreamBootstrap(response.aiter_bytes())
     try:
-        if replay_safe(payload):
-            await bootstrap.prepare()
+        await bootstrap.prepare()
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
                 next_id is not None
+                and replay_safe(payload)
                 and bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
                 and bootstrap.state.error_code
                 in (
@@ -895,7 +895,7 @@ async def guarded_stream_response(
             )
             attempt.outcome(
                 bootstrap.state.error_status,
-                "Upstream stream failed before output",
+                str(bootstrap.state.public_error()["message"]),
                 stage="response",
                 upstream_code=bootstrap.state.error_code,
                 retryable=retry,
@@ -910,7 +910,7 @@ async def guarded_stream_response(
             if retry:
                 return False
             await JSONResponse(
-                {"error": {"message": attempt.result.message, "code": bootstrap.state.error_code}},
+                {"error": bootstrap.state.public_error()},
                 status_code=bootstrap.state.error_status,
                 headers={"Retry-After": str(attempt.result.model_cooldown_seconds)}
                 if attempt.result.model_cooldown_seconds
@@ -954,7 +954,7 @@ async def stream_response(
         if state.failed:
             attempt.outcome(
                 state.error_status,
-                "Upstream stream reported an error",
+                str(state.public_error()["message"]),
                 stage="response",
                 upstream_code=state.error_code,
                 model_cooldown_seconds=60 if state.error_status == 429 else 1 if state.error_status >= 500 else 0,

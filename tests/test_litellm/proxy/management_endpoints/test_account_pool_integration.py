@@ -299,7 +299,21 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("protocol", ["chat", "responses", "compact", "stream", "error"])
+@pytest.mark.parametrize(
+    "protocol",
+    [
+        "chat",
+        "responses",
+        "compact",
+        "stream",
+        "stream_usage",
+        "stream_finish_usage",
+        "error",
+        "stream_refusal",
+        "stream_tool_refusal",
+        "stream_late_refusal",
+    ],
+)
 async def test_real_router_http_request_enters_pool_before_upstream(signing_secret, monkeypatch, protocol):
     _, original = setup_gateway(lambda _: httpx.Response(200))
     control = InternalControl(original.resolution)
@@ -348,14 +362,45 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
         assert request.url.path == expected_path
         if protocol == "error":
             return httpx.Response(503, json={"error": {"message": "upstream unavailable", "type": "server_error"}})
-        if protocol == "stream":
+        if protocol in ("stream_refusal", "stream_tool_refusal", "stream_late_refusal"):
+            import json
+
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="data: "
+                + json.dumps(
+                    {
+                        "id": "chatcmpl-pool",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": "model-a",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "role": "assistant",
+                                    "content": "partial" if protocol == "stream_late_refusal" else "",
+                                },
+                            }
+                        ],
+                    }
+                )
+                + '\n\ndata: {"error":{"type":"invalid_request_error","code":"invalid_prompt"}}\n\n',
+            )
+        if protocol in ("stream", "stream_usage", "stream_finish_usage"):
             return httpx.Response(
                 200,
                 headers={"content-type": "text/event-stream"},
                 content=(
                     'data: {"id":"chatcmpl-pool","object":"chat.completion.chunk","created":1,"model":"model-a","choices":[{"index":0,"delta":{"role":"assistant","content":"through pool"},"finish_reason":null}]}\n\n'
-                    'data: {"id":"chatcmpl-pool","object":"chat.completion.chunk","created":1,"model":"model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n'
-                    "data: [DONE]\n\n"
+                    + (
+                        'data: {"id":"chatcmpl-pool","object":"chat.completion.chunk","created":1,"model":"model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2877,"completion_tokens":5,"total_tokens":2882,"prompt_tokens_details":{"cached_tokens":2048}}}\n\n'
+                        if protocol == "stream_finish_usage"
+                        else 'data: {"id":"chatcmpl-pool","object":"chat.completion.chunk","created":1,"model":"model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+                        'data: {"id":"chatcmpl-pool","object":"chat.completion.chunk","created":1,"model":"model-a","choices":[],"usage":{"prompt_tokens":2877,"completion_tokens":5,"total_tokens":2882,"prompt_tokens_details":{"cached_tokens":2048}}}\n\n'
+                    )
+                    + "data: [DONE]\n\n"
                 ),
             )
         return httpx.Response(200, json=response_body)
@@ -387,6 +432,9 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                     "api_base": f"http://127.0.0.1:{port}/invalid",
                     "max_parallel_requests": 4,
                     "num_retries": 0,
+                    "input_cost_per_token": 0.0000002,
+                    "output_cost_per_token": 0.0000012,
+                    "cache_read_input_token_cost": 0.00000005,
                 },
                 "model_info": {"id": str(card), "account_pool_environment_id": str(card), "managed_by": "account_pool"},
             }
@@ -395,6 +443,11 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
         retry_after=0,
     )
     token = pool_identity.set(PoolIdentity(key_hash="standard-virtual-key", request_id=uuid4()))
+    logged = asyncio.Queue()
+
+    async def on_success(kwargs, response_obj, start_time, end_time):
+        await logged.put((kwargs, response_obj))
+
     try:
         assert server.started
         if protocol == "responses":
@@ -406,12 +459,52 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
         elif protocol == "error":
             with pytest.raises(Exception, match="upstream unavailable"):
                 await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
-        elif protocol == "stream":
+        elif protocol in ("stream_refusal", "stream_tool_refusal", "stream_late_refusal"):
+            from litellm import BadRequestError
+
+            with pytest.raises(BadRequestError, match="invalid_prompt") as failure:
+                response = await router.acompletion(
+                    model="model-a",
+                    messages=[{"role": "user", "content": "hello"}],
+                    stream=True,
+                    **(
+                        {
+                            "tools": [
+                                {"type": "function", "function": {"name": "test", "parameters": {"type": "object"}}}
+                            ]
+                        }
+                        if protocol == "stream_tool_refusal"
+                        else {}
+                    ),
+                )
+                async for chunk in response:
+                    pass
+            assert failure.value.status_code == 400
+        elif protocol in ("stream", "stream_usage", "stream_finish_usage"):
             response = await router.acompletion(
-                model="model-a", stream=True, messages=[{"role": "user", "content": "hello"}]
+                model="model-a",
+                stream=True,
+                messages=[{"role": "user", "content": "hello"}],
+                success_callback=[on_success],
+                **({"stream_options": {"include_usage": True}} if protocol != "stream" else {}),
             )
             chunks = [chunk async for chunk in response]
             assert any(chunk.choices and chunk.choices[0].delta.content == "through pool" for chunk in chunks)
+            from litellm import stream_chunk_builder
+
+            assembled = stream_chunk_builder(response.chunks)
+            assert assembled.usage.prompt_tokens == 2877
+            assert assembled.usage.completion_tokens == 5
+            assert assembled.usage.prompt_tokens_details.cached_tokens == 2048
+            if protocol != "stream":
+                assert chunks[-1].usage == assembled.usage
+            logging_kwargs, logged_response = await asyncio.wait_for(logged.get(), timeout=5)
+            assert logged_response.usage == assembled.usage
+            assert logging_kwargs["response_cost"] == pytest.approx(0.0002742)
+            standard_log = logging_kwargs["standard_logging_object"]
+            assert standard_log["prompt_tokens"] == 2877
+            assert standard_log["completion_tokens"] == 5
+            assert standard_log["response_cost"] == pytest.approx(0.0002742)
         else:
             response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
             assert response.choices[0].message.content == "through pool"
@@ -423,6 +516,10 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             await asyncio.sleep(0.01)
         assert len(control.finished) == expected_attempts
         assert control.finished[0].spend_sync_state == "standard"
+        if protocol in ("stream", "stream_usage", "stream_finish_usage"):
+            assert control.finished[0].input_tokens == assembled.usage.prompt_tokens
+            assert control.finished[0].output_tokens == assembled.usage.completion_tokens
+            assert control.finished[0].cache_read_input_tokens == assembled.usage.prompt_tokens_details.cached_tokens
     finally:
         pool_identity.reset(token)
         router.discard()

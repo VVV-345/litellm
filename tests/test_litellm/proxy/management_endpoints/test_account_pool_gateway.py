@@ -981,6 +981,88 @@ def test_stateful_or_tool_requests_are_not_replayed(extra) -> None:
     assert len(control.acquisitions) == 1
 
 
+@pytest.mark.parametrize("with_tools", [False, True])
+@pytest.mark.parametrize("code", ["invalid_prompt", "content_policy_violation"])
+def test_stream_refusal_before_content_returns_400_without_retry(with_tools: bool, code: str) -> None:
+    content: Final = (
+        'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}\n\n'
+        f'data: {{"error":{{"type":"invalid_request_error","code":"{code}",'
+        '"message":"private upstream details internal-secret"}}\n\n'
+    )
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=content, headers={"content-type": "text/event-stream"}),
+        retry=True,
+        max_attempts=5,
+    )
+    with client:
+        response: Final = client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True, **({"tools": [{"type": "function"}]} if with_tools else {})},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == code
+    assert response.json()["error"]["type"] == "invalid_request_error"
+    assert "private upstream" not in response.text and "internal-secret" not in response.text
+    assert len(control.acquisitions) == len(control.finished) == 1
+    assert control.finished[0].http_status == 400
+    assert control.finished[0].upstream_code == code
+    assert control.finished[0].model_cooldown_seconds == 0
+    assert not control.finished[0].retryable
+
+
+@pytest.mark.parametrize(
+    "delta", [{"content": "hello"}, {"tool_calls": [{"index": 0}]}, {"reasoning_content": "think"}]
+)
+def test_stream_refusal_after_content_preserves_error_without_replay(delta: dict[str, object]) -> None:
+    content: Final = (
+        "data: "
+        + json.dumps({"choices": [{"index": 0, "delta": delta}]})
+        + '\n\ndata: {"error":{"code":"invalid_prompt","type":"invalid_request_error",'
+        '"message":"private upstream details internal-secret"}}\n\n'
+    )
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=content, headers={"content-type": "text/event-stream"}),
+        retry=True,
+    )
+    with client:
+        response: Final = client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 200
+    error: Final = json.loads(response.text.split("data: ")[-1])["error"]
+    assert error["code"] == "invalid_prompt"
+    assert error["type"] == "invalid_request_error"
+    assert error["status_code"] == 400
+    assert "private upstream" not in response.text and "internal-secret" not in response.text
+    assert len(control.acquisitions) == len(control.finished) == 1
+    assert control.finished[0].http_status == 400
+    assert not control.finished[0].retryable
+
+
+def test_tool_stream_failure_before_output_is_not_replayed() -> None:
+    client, control = setup_gateway(
+        lambda _: httpx.Response(
+            200,
+            content='data: {"error":{"code":"server_error"}}\n\n',
+            headers={"content-type": "text/event-stream"},
+        ),
+        retry=True,
+        max_attempts=5,
+    )
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "stream": True, "tools": [{"type": "web_search"}]},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == 502
+    assert len(control.acquisitions) == len(control.finished) == 1
+    assert not control.finished[0].retryable
+
+
 def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
     calls: list[str] = []
 

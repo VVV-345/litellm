@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Final
 
@@ -50,6 +51,7 @@ class EventStream:
         self.failed = False
         self.meaningful = False
         self.error_code: str | None = None
+        self.error_type: str | None = None
         self.error_status = 502
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
@@ -70,8 +72,23 @@ class EventStream:
         elif payload:
             self.observe_payload(_JSON.validate_json(payload))
         if self.failed:
-            return b'data: {"error":{"message":"Upstream stream reported an error","type":"upstream_error"}}\n\n'
+            return b"data: " + json.dumps({"error": self.public_error()}).encode() + b"\n\n"
         return frame + b"\n\n"
+
+    def public_error(self) -> dict[str, JsonValue]:
+        message: Final = (
+            "Upstream rejected the prompt (invalid_prompt)"
+            if self.error_code == "invalid_prompt"
+            else "Upstream rejected the request: invalid_request_error content_policy_violation"
+            if self.error_code == "content_policy_violation"
+            else "Upstream stream reported an error"
+        )
+        return {
+            "message": message,
+            "type": self.error_type or ("invalid_request_error" if self.error_status == 400 else "upstream_error"),
+            "code": self.error_code,
+            "status_code": self.error_status,
+        }
 
     def finish(self) -> bytes | None:
         if not self.pending:
@@ -82,12 +99,28 @@ class EventStream:
 
     def observe_payload(self, event: dict[str, JsonValue]) -> None:
         kind: Final = event.get("type")
-        if event.get("error") is None and kind not in (
-            "response.created",
-            "response.in_progress",
-            "ping",
-            "error",
-            "response.failed",
+        choices: Final = event.get("choices")
+        has_output: Final = not isinstance(choices, list) or any(
+            isinstance(choice, dict)
+            and (
+                choice.get("finish_reason")
+                or isinstance(delta := choice.get("delta"), dict)
+                and any(value for key, value in delta.items() if key != "role")
+            )
+            for choice in choices
+        )
+        if (
+            has_output
+            and event.get("error") is None
+            and kind
+            not in (
+                "response.created",
+                "response.in_progress",
+                "ping",
+                "error",
+                "response.failed",
+                "response.incomplete",
+            )
         ):
             self.meaningful = True
         input_count, output_count = usage_tokens(event)
@@ -108,15 +141,29 @@ class EventStream:
             response: Final = event.get("response")
             nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
             error: Final = nested if isinstance(nested, dict) else event
-            code: Final = error.get("code", error.get("type"))
+            code: Final = error.get("code") or error.get("type")
             self.error_code = code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
+            error_type: Final = error.get("type")
+            self.error_type = (
+                error_type
+                if isinstance(error_type, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", error_type)
+                else None
+            )
             self.error_status = (
                 429
                 if self.error_code in ("rate_limit_exceeded", "rate_limit_error", "insufficient_quota")
                 else 401
                 if self.error_code in ("authentication_error", "invalid_api_key")
                 else 400
-                if self.error_code in ("invalid_request_error", "invalid_request", "context_length_exceeded")
+                if self.error_code
+                in (
+                    "invalid_request_error",
+                    "invalid_request",
+                    "context_length_exceeded",
+                    "invalid_prompt",
+                    "content_policy_violation",
+                )
+                or self.error_type == "invalid_request_error"
                 else 503
                 if self.error_code in ("overloaded_error", "overloaded")
                 else 502

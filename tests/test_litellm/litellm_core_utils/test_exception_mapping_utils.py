@@ -15,6 +15,19 @@ from litellm.litellm_core_utils.exception_mapping_utils import (
 from litellm.llms.openai.common_utils import OpenAIError
 from litellm.types.utils import LlmProviders
 
+
+@pytest.mark.parametrize("status", [400, 401, 429, 502])
+def test_openai_stream_error_preserves_body_status(status: int) -> None:
+    from typing import Final
+
+    error: Final = openai.APIError(
+        message="Upstream stream reported an error", request=httpx.Request("POST", "https://example.com"),
+        body={"code": "invalid_prompt", "status_code": status},
+    )
+    with pytest.raises(openai.APIError) as mapped:
+        exception_type(model="model-a", custom_llm_provider="openai", original_exception=error)
+    assert mapped.value.status_code == status
+
 # Test cases for is_error_str_context_window_exceeded
 # Tuple format: (error_message, expected_result)
 context_window_test_cases = [

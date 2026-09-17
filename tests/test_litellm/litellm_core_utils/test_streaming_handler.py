@@ -6,7 +6,7 @@ import pytest
 
 import asyncio
 import traceback
-from typing import Optional
+from typing import Final, Optional
 
 import litellm
 from litellm import verbose_logger
@@ -28,6 +28,47 @@ from litellm.types.utils import (
     Usage,
 )
 from litellm.utils import ModelResponseListIterator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sync_mode", [False, True])
+@pytest.mark.parametrize("include_usage", [False, True])
+async def test_openai_sdk_finish_chunk_preserves_usage_and_cache(
+    logging_obj: Logging, sync_mode: bool, include_usage: bool,
+) -> None:
+    from openai.types.chat import ChatCompletionChunk
+
+    chunks: Final = (
+        ChatCompletionChunk(
+            id="usage-regression", created=1, model="model-a", object="chat.completion.chunk",
+            choices=[{"index": 0, "delta": {"role": "assistant", "content": "OK"}, "finish_reason": None}],
+        ),
+        ChatCompletionChunk(
+            id="usage-regression", created=1, model="model-a", object="chat.completion.chunk",
+            choices=[{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            usage={"prompt_tokens": 2877, "completion_tokens": 5, "total_tokens": 2882,
+                   "prompt_tokens_details": {"cached_tokens": 2048}, "completion_tokens_details": {"reasoning_tokens": 4}},
+        ),
+    )
+
+    async def source():
+        for chunk in chunks:
+            yield chunk
+
+    wrapper: Final = CustomStreamWrapper(
+        completion_stream=iter(chunks) if sync_mode else source(), model="model-a", logging_obj=logging_obj,
+        custom_llm_provider="openai", stream_options={"include_usage": True} if include_usage else None,
+    )
+    received: Final = list(wrapper) if sync_mode else [chunk async for chunk in wrapper]
+    assembled: Final = litellm.stream_chunk_builder(wrapper.chunks)
+    assert assembled.usage.prompt_tokens == 2877
+    assert assembled.usage.completion_tokens == 5
+    assert assembled.usage.prompt_tokens_details.cached_tokens == 2048
+    assert assembled.usage.completion_tokens_details.reasoning_tokens == 4
+    if include_usage:
+        assert received[-1].usage == assembled.usage
+    else:
+        assert not any(getattr(chunk, "usage", None) for chunk in received)
 
 
 @pytest.fixture
