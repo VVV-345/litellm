@@ -217,6 +217,38 @@ async def test_expired_overload_allows_recovery_without_clearing_credential_fail
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("code", ("auth_unavailable", "refresh_token_invalidated", "refresh_token_reused"))
+@pytest.mark.parametrize("status", ("error", "active"))
+async def test_authentication_error_blocks_false_available_credentials(code: str, status: str) -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "selected.json"})
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(
+                200,
+                json={
+                    "files": [
+                        {
+                            "name": "selected.json",
+                            "provider": "codex",
+                            "unavailable": False,
+                            "status": status,
+                            "status_message": json.dumps({"error": {"code": code}}),
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"models": [{"id": "model-a"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        snapshot: Final = await proxy.read_account(record, SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX))
+    assert snapshot.automatic_cooldown is (status == "error")
+    assert snapshot.status == (EnvironmentStatus.COOLING_DOWN if status == "error" else EnvironmentStatus.READY)
+    assert snapshot.last_error == ("上游认证失效，请重新认证" if status == "error" else None)
+
+
+@pytest.mark.asyncio
 async def test_read_account_prefers_the_auth_file_already_bound_to_the_card() -> None:
     record: Final = _record().model_copy(update={"auth_file_name": "uploaded.json"})
     supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)

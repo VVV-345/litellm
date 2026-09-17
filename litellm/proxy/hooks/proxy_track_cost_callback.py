@@ -133,17 +133,8 @@ class _ProxyDBLogger(CustomLogger):
             metadata=_metadata,
         )
 
-        existing_metadata: Final[dict] = request_data.get("metadata", None) or {}
+        existing_metadata: Final = StandardLoggingPayloadSetup.merge_litellm_metadata(request_data)
         existing_metadata.update(_metadata)
-
-        litellm_metadata_bucket: Final = request_data.get("litellm_metadata")
-        if (
-            isinstance(litellm_metadata_bucket, dict)
-            and "standard_logging_guardrail_information" not in existing_metadata
-        ):
-            guardrail_info: Final = litellm_metadata_bucket.get("standard_logging_guardrail_information")
-            if guardrail_info is not None:
-                existing_metadata["standard_logging_guardrail_information"] = guardrail_info
 
         if "litellm_params" not in request_data:
             request_data["litellm_params"] = {}
@@ -159,6 +150,8 @@ class _ProxyDBLogger(CustomLogger):
             request_data.get("proxy_server_request") or existing_litellm_params.get("proxy_server_request") or {}
         )
         request_data["litellm_params"]["metadata"] = existing_metadata
+        if "litellm_metadata" in request_data or "litellm_metadata" in existing_litellm_params:
+            request_data["litellm_params"]["litellm_metadata"] = existing_metadata
 
         # Preserve model name and custom_llm_provider
         if "model" not in request_data:

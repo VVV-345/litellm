@@ -589,6 +589,7 @@ def _failure_fields_to_lift(request_data: Mapping[str, object]) -> Mapping[str, 
         dispatched=_first_handoff is not None,
     )
     _entries: Final = (
+        ("call_type", getattr(_logging_obj, "call_type", None)),
         ("first_api_call_start_time", _first_handoff),
         ("combined_usage_object", None if _usage_to_lift is None else _usage_to_lift[0]),
         ("response_cost", None if _usage_to_lift is None else (_usage_to_lift[1] or 0.0)),

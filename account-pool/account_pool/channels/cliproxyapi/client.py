@@ -127,6 +127,7 @@ class _AuthFile(BaseModel):
     type: str | None = None
     disabled: bool = False
     unavailable: bool = False
+    status: str | None = None
     status_message: str | None = None
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
@@ -695,16 +696,25 @@ class HttpCLIProxyClient:
         now: Final = datetime.now().astimezone()
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)
+        upstream_code: Final = _upstream_code(auth_file.status_message or "")
+        authentication_failed: Final = auth_file.status == "error" and upstream_code in {
+            "auth_unavailable",
+            "authentication_error",
+            "invalid_api_key",
+            "refresh_token_invalidated",
+            "refresh_token_reused",
+        }
         overload_elapsed: Final = (
             auth_file.next_retry_after is not None
             and auth_file.next_retry_after <= now
-            and _upstream_code(auth_file.status_message or "") == "server_is_overloaded"
+            and upstream_code == "server_is_overloaded"
         )
         cooldown_until: Final = effective_cooldown_until_value(
             record, None if model_aggregate else auth_file.next_retry_after, now
         )
         automatically_cooling: Final = (
             auth_file.disabled
+            or authentication_failed
             or (auth_file.unavailable and not model_aggregate and not overload_elapsed)
             or (cooldown_until is not None and cooldown_until > now)
         )
@@ -739,7 +749,7 @@ class HttpCLIProxyClient:
                 "cooldown_until": cooldown_until,
                 "automatic_cooldown": automatically_cooling,
                 "status": status,
-                "last_error": None,
+                "last_error": "上游认证失效，请重新认证" if authentication_failed else None,
             }
         )
 
