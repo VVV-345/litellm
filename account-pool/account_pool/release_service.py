@@ -155,16 +155,23 @@ class ReleaseService:
         if existing:
             try:
                 self.verify(existing)
-                if imported or hashlib.sha256(configuration).hexdigest() == existing.compose_sha256:
+                refreshed_fingerprint: Final = self.runtime.fingerprint(pair)
+                if (
+                    imported or hashlib.sha256(configuration).hexdigest() == existing.compose_sha256
+                ) and refreshed_fingerprint == existing.schema_fingerprint:
                     return existing
                 # 同一镜像的配置可能已修改，只更新运行配置，不重复导出大归档。
                 refreshed: Final = existing.model_copy(
                     update={
-                        "compose_sha256": hashlib.sha256(configuration).hexdigest(),
-                        "configuration_source": "running",
+                        "compose_sha256": existing.compose_sha256
+                        if imported
+                        else hashlib.sha256(configuration).hexdigest(),
+                        "configuration_source": existing.configuration_source if imported else "running",
+                        "schema_fingerprint": refreshed_fingerprint,
                     }
                 )
-                write_private(self.store.path(pair.id) / "compose.json", configuration)
+                if not imported:
+                    write_private(self.store.path(pair.id) / "compose.json", configuration)
                 write_private(self.store.path(pair.id) / "manifest.json", refreshed.model_dump_json().encode())
                 self.store.save_backup(refreshed)
                 return refreshed
@@ -210,7 +217,7 @@ class ReleaseService:
         directory: Final = self.verify(backup)
         self.runtime.load(backup.pair, directory / "images.tar.gz")
         if self.runtime.fingerprint(backup.pair) != backup.schema_fingerprint:
-            raise ReleaseError("备份镜像的结构校验不一致")
+            raise ReleaseError("备份镜像的兼容性校验不一致，请用当前版本重新扫描备份")
         self.runtime.apply(backup.pair, (directory / "compose.json").read_bytes())
 
     def run(self, job: ReleaseJob) -> None:
@@ -290,7 +297,7 @@ class ReleaseService:
         recovery: Final = self.backup(current, self.runtime.running_compose())
         # 新版若会改变数据库结构，故障时不能自动切换旧镜像，因此先阻止这类在线替换。
         if self.runtime.fingerprint(target) != recovery.schema_fingerprint:
-            raise ReleaseError("版本间数据库结构不同，已备份当前版本；请先完成数据兼容处理")
+            raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
         self.phase(job, "替换服务并检查健康", recovery.pair.id)
@@ -308,9 +315,9 @@ class ReleaseService:
         directory: Final = self.verify(saved)
         self.runtime.load(saved.pair, directory / "images.tar.gz")
         if saved.schema_fingerprint != self.runtime.fingerprint(saved.pair):
-            raise ReleaseError("备份镜像的结构校验不一致")
+            raise ReleaseError("备份镜像的兼容性校验不一致，请用当前版本重新扫描备份")
         if saved.schema_fingerprint != self.runtime.fingerprint(current):
-            raise ReleaseError("两个版本的数据库结构不同，不能直接回退；请先完成兼容性处理")
+            raise ReleaseError("两个版本的数据库结构或持久化配置格式不同，不能直接回退；请先完成兼容性处理")
         return saved.pair, (directory / "compose.json").read_bytes()
 
     def _recover(self, job: ReleaseJob, message: str) -> None:

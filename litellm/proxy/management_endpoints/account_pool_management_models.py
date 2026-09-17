@@ -890,6 +890,7 @@ class ErrorLogPage(BaseModel):
 
 class ErrorStats(BaseModel):
     model_config = ConfigDict(frozen=True)
+    statistics_source: Literal["litellm", "account_pool"] = "account_pool"
     card_id: UUID | None = None
     account_id: UUID | None = None
     model: str | None = None

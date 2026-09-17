@@ -14,6 +14,24 @@ const refreshStatus: AccountPoolQuotaRefreshStatus = {
 };
 
 describe("AccountPoolDashboard", () => {
+  it("reports failed statistics reads without hiding quota controls", () => {
+    render(
+      <AccountPoolDashboard
+        environments={[]}
+        statsByCard={new Map()}
+        statsLoading={false}
+        statsError
+        renderCard={vi.fn()}
+        quotaRefreshStatus={refreshStatus}
+        onRefreshQuotas={vi.fn()}
+        refreshingQuotas={false}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("调用统计读取失败");
+    expect(screen.getAllByText(/暂无数据|Unknown/i).length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByRole("button", { name: /刷新额度|Refresh quotas/i })).toBeEnabled();
+  });
+
   it("shows quota refresh timing and invokes the immediate refresh action", () => {
     const onRefreshQuotas = vi.fn();
 

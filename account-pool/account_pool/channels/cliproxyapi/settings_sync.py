@@ -24,7 +24,6 @@ class CLIProxySettingsSynchronizer:
         self._suppliers: Final = suppliers or SupplierRegistry.default()
 
     async def apply_global_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
-        request_retry: Final = int(record.supplier == SupplierKind.OPENAI_CODEX)
         route_strategy: Final = {
             "auto": "round-robin",
             "priority": "fill-first",
@@ -39,9 +38,9 @@ class CLIProxySettingsSynchronizer:
             ("/v0/management/ws-auth", settings.websocket_auth_enabled or settings.websocket_enabled),
             ("/v0/management/quota-exceeded/switch-project", False),
             ("/v0/management/quota-exceeded/switch-preview-model", False),
-            ("/v0/management/request-retry", request_retry),
+            ("/v0/management/request-retry", 0),
             ("/v0/management/max-retry-credentials", 1),
-            ("/v0/management/max-retry-interval", 2 * request_retry),
+            ("/v0/management/max-retry-interval", 0),
             ("/v0/management/logs-max-total-size-mb", settings.logs_max_total_size_mb),
             ("/v0/management/error-logs-max-files", settings.error_logs_max_files),
             ("/v0/management/force-model-prefix", settings.force_model_prefix),
@@ -58,10 +57,9 @@ class CLIProxySettingsSynchronizer:
         )
         await self._apply_config_settings(record, settings)
         if record.auth_file_name is not None:
-            await self._client.patch_auth_file_fields(record, record.auth_file_name, {"request_retry": request_retry})
+            await self._client.patch_auth_file_fields(record, record.auth_file_name, {"request_retry": 0})
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        request_retry: Final = int(record.supplier == SupplierKind.OPENAI_CODEX)
         route_strategy: Final = {
             "auto": "round-robin",
             "priority": "fill-first",
@@ -72,7 +70,7 @@ class CLIProxySettingsSynchronizer:
             "custom": "round-robin",
         }[policy.routing.strategy]
         await self._client.put_value(record, "/v0/management/routing/strategy", route_strategy)
-        await self._client.put_value(record, "/v0/management/request-retry", request_retry)
+        await self._client.put_value(record, "/v0/management/request-retry", 0)
         document: Final = _yaml_document(await self._client.get_config_yaml(record))
         merged_document: Final = _policy_yaml_document(document, policy, record.supplier)
         if merged_document != document:
@@ -82,7 +80,7 @@ class CLIProxySettingsSynchronizer:
             )
         if record.auth_file_name is None:
             return
-        fields: Final = {**_policy_auth_fields(record, policy), "request_retry": request_retry}
+        fields: Final = {**_policy_auth_fields(record, policy), "request_retry": 0}
         await self._client.patch_auth_file_fields(record, record.auth_file_name, fields)
 
     async def _apply_config_settings(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> None:
@@ -159,7 +157,7 @@ def _policy_yaml_document(
             {
                 "codex": {
                     **codex_section,
-                    "stream-bootstrap-buffering": supplier == SupplierKind.OPENAI_CODEX,
+                    "stream-bootstrap-buffering": False,
                     "identity-confuse": codex.identity_confuse,
                     "disable-codex-cloaking": codex.disable_codex_cloaking,
                 }
@@ -188,13 +186,13 @@ def _yaml_section(document: Mapping[str, object], key: str) -> Mapping[str, obje
 def _gateway_retry_settings(document: Mapping[str, object], supplier: SupplierKind) -> dict[str, object]:
     codex: Final = supplier == SupplierKind.OPENAI_CODEX
     return {
-        "request-retry": int(codex),
+        "request-retry": 0,
         "max-retry-credentials": 1,
-        "max-retry-interval": 2 if codex else 0,
+        "max-retry-interval": 0,
         "transient-error-cooldown-seconds": 1,
-        # 只复用凭证调度器的输出前重试，关闭第二层流式重试，避免次数相乘。
+        # LiteLLM 号池适配层统一执行卡片重试策略，供应商侧不再重试或缓冲首帧。
         "streaming": {**_yaml_section(document, "streaming"), "bootstrap-retries": 0},
-        **({"codex": {**_yaml_section(document, "codex"), "stream-bootstrap-buffering": True}} if codex else {}),
+        **({"codex": {**_yaml_section(document, "codex"), "stream-bootstrap-buffering": False}} if codex else {}),
         "quota-exceeded": {
             **_yaml_section(document, "quota-exceeded"),
             "switch-project": False,

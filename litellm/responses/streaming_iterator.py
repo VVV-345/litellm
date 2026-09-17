@@ -162,6 +162,9 @@ def _log_background_task_failure(task: asyncio.Task[object], *, task_name: str) 
 _ERROR_CODE_HTTP_STATUS: Final[Mapping[str, int]] = MappingProxyType(
     {  # mutable-ok: immediately frozen by MappingProxyType
         "server_error": 500,
+        "server_is_overloaded": 503,
+        "service_unavailable_error": 503,
+        "stream_interrupted": 502,
         "rate_limit_exceeded": 429,
         "insufficient_quota": 429,
         "vector_store_timeout": 504,

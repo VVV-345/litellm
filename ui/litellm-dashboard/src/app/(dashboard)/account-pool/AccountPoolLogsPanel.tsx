@@ -658,14 +658,20 @@ export function AccountPoolLogsPanel(props: {
   accessToken: string;
   environments: AccountPoolEnvironment[];
   initialCardId?: string;
+  standardLogs?: import("react").ReactNode;
 }) {
   return (
-    <Tabs defaultValue="daily" className="grid gap-4">
+    <Tabs defaultValue={props.standardLogs && !props.initialCardId ? "standard" : "daily"} className="grid gap-4">
       <TabsList>
-        <TabsTrigger value="daily">日常日志</TabsTrigger>
-        <TabsTrigger value="full">完整日志</TabsTrigger>
+        {props.standardLogs && <TabsTrigger value="standard">标准调用日志</TabsTrigger>}
+        <TabsTrigger value="daily">账号运行记录</TabsTrigger>
+        <TabsTrigger value="full">完整请求记录</TabsTrigger>
       </TabsList>
+      {props.standardLogs && <TabsContent value="standard">{props.standardLogs}</TabsContent>}
       <TabsContent value="daily">
+        <p className="mb-3 text-sm text-muted-foreground">
+          账号调度、重试和运行事件用于排错；调用结果与费用请查看标准调用日志
+        </p>
         <AccountPoolDailyLogsPanel {...props} />
       </TabsContent>
       <TabsContent value="full">

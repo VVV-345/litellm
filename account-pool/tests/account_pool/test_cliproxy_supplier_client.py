@@ -1576,7 +1576,7 @@ async def test_apply_policy_syncs_yaml_settings_without_an_auth_file() -> None:
     document: Final = yaml.safe_load(config.content)
     assert document["codex"] == {
         "keep": "unchanged",
-        "stream-bootstrap-buffering": True,
+        "stream-bootstrap-buffering": False,
         "identity-confuse": True,
         "disable-codex-cloaking": True,
     }
@@ -1618,7 +1618,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
     assert json.loads(patch_request.content) == {
         "name": "codex.json",
-        "request_retry": 1,
+        "request_retry": 0,
         "codex_fingerprint_mode": "session",
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
@@ -1629,7 +1629,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     )
     assert yaml.safe_load(config.content)["codex"] == {
         "keep": "unchanged",
-        "stream-bootstrap-buffering": True,
+        "stream-bootstrap-buffering": False,
         "identity-confuse": True,
         "disable-codex-cloaking": True,
     }
@@ -1721,15 +1721,15 @@ async def test_settings_and_policy_preserve_single_retry_owner(supplier: Supplie
         await sync.apply_global_settings(record, AccountPoolSettings(request_retry=8))
         await sync.apply_policy(record, AccountPolicy())
     for document in documents[1:]:
-        assert document["request-retry"] == int(supplier == SupplierKind.OPENAI_CODEX)
+        assert document["request-retry"] == 0
         assert document["max-retry-credentials"] == 1
-        assert document["max-retry-interval"] == (2 if supplier == SupplierKind.OPENAI_CODEX else 0)
+        assert document["max-retry-interval"] == 0
         assert document["streaming"] == {"bootstrap-retries": 0, "keepalive-seconds": 10}
         assert document["quota-exceeded"] == {"switch-project": False, "switch-preview-model": False}
         if supplier == SupplierKind.OPENAI_CODEX:
-            assert document["codex"]["stream-bootstrap-buffering"] is True
+            assert document["codex"]["stream-bootstrap-buffering"] is False
     assert len(patches) == 2
-    assert all(patch["request_retry"] == int(supplier == SupplierKind.OPENAI_CODEX) for patch in patches)
+    assert all(patch["request_retry"] == 0 for patch in patches)
 
 
 @pytest.mark.asyncio

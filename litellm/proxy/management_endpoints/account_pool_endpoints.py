@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated, Final, Literal, TypeVar
 from urllib.parse import quote
 from uuid import UUID
@@ -18,7 +18,7 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
-from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
+from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
 
@@ -98,13 +98,6 @@ class AccountPoolDirectCredentialCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     supplier: Literal["gemini", "gemini_interactions", "xai"]
     credential: AccountPoolDirectAPIKey
-
-
-class AccountPoolDashboardStats(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    summary: ErrorStats
-    cards: tuple[ErrorStats, ...]
 
 
 class AccountPoolQuotaSnapshot(BaseModel):
@@ -350,7 +343,6 @@ class AccountPoolGatewaySwitchRequest(BaseModel):
 
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
 _PROVIDER_FAMILIES: Final = TypeAdapter(tuple[AccountPoolProviderFamily, ...])
-_DASHBOARD_STATS: Final = TypeAdapter(AccountPoolDashboardStats)
 _QUOTA_REFRESH: Final = TypeAdapter(AccountPoolQuotaRefreshResult)
 _AUTH_FILE_REFRESH_STATUS: Final = TypeAdapter(AccountPoolAuthFileRefreshStatus)
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
@@ -480,6 +472,7 @@ def _default_client() -> AccountPoolManagerClient:
 def create_account_pool_router(
     client_factory: ManagerClientFactory = _default_client,
     *,
+    dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
@@ -508,8 +501,7 @@ def create_account_pool_router(
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> AccountPoolDashboardStats:
         _require_proxy_admin(user_api_key_dict)
-        response: Final = await _manager_request(client_factory, "GET", "/api/dashboard")
-        return _validate_response(response, _DASHBOARD_STATS)
+        return await dashboard_reader()
 
     @router.post("/quotas/refresh", response_model=AccountPoolQuotaRefreshResult)
     async def refresh_quotas(

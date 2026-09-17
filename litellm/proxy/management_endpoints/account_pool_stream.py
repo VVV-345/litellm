@@ -45,7 +45,8 @@ def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | No
 
 
 class EventStream:
-    def __init__(self) -> None:
+    def __init__(self, *, responses_api: bool = False) -> None:
+        self.responses_api: Final = responses_api
         self.pending = b""
         self.terminal = False
         self.failed = False
@@ -72,7 +73,11 @@ class EventStream:
         elif payload:
             self.observe_payload(_JSON.validate_json(payload))
         if self.failed:
-            return b"data: " + json.dumps({"error": self.public_error()}).encode() + b"\n\n"
+            error: Final = self.public_error()
+            envelope: Final = (
+                {"type": "error", "sequence_number": 0, "error": error} if self.responses_api else {"error": error}
+            )
+            return b"data: " + json.dumps(envelope).encode() + b"\n\n"
         return frame + b"\n\n"
 
     def public_error(self) -> dict[str, JsonValue]:
@@ -165,6 +170,6 @@ class EventStream:
                 )
                 or self.error_type == "invalid_request_error"
                 else 503
-                if self.error_code in ("overloaded_error", "overloaded")
+                if self.error_code in ("server_is_overloaded", "overloaded_error", "overloaded")
                 else 502
             )

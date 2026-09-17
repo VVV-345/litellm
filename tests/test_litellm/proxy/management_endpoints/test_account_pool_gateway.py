@@ -61,6 +61,57 @@ async def test_stream_bootstrap_bounds_buffer_and_replays_every_byte() -> None:
     await bootstrap.close()
 
 
+@pytest.mark.asyncio
+async def test_responses_without_retry_budget_forwards_handshake_before_waiting_for_output() -> None:
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, guarded_stream_response
+
+    delivered: Final = asyncio.Event()
+    _, control = setup_gateway(lambda _: httpx.Response(200), max_attempts=1)
+    lease: Final = await control.acquire(
+        AcquireRequest(
+            card_key=_KEY,
+            account_id=control.resolution.card_id,
+            request_id=uuid4(),
+            model="model-a",
+            card_version=1,
+            policy_version=1,
+            account_version=2,
+            account_policy_version=1,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    assert isinstance(lease, Lease)
+
+    async def send(message):
+        if message["type"] == "http.response.body" and b"response.created" in message.get("body", b""):
+            delivered.set()
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.created"}\n\n'
+            await asyncio.wait_for(delivered.wait(), timeout=1)
+            yield b'data: {"type":"response.completed"}\n\n'
+
+    request: Final = Request(
+        {"type": "http", "path": "/v1/responses", "method": "POST", "headers": [], "asgi": {"spec_version": "2.4"}}
+    )
+    selected: Final = routes(control.resolution, "model-a", "/v1/responses", Headers())
+    assert not isinstance(selected, Rejected)
+    attempt: Final = Attempt(lease, "/v1/responses", send)
+    response: Final = httpx.Response(200, stream=Upstream())
+    try:
+        assert await guarded_stream_response(
+            request, response, {"stream": True}, selected[0], control.resolution, attempt, None, None, float("inf")
+        )
+    finally:
+        await response.aclose()
+    assert delivered.is_set()
+    assert attempt.result.http_status == 200
+
+
 class Control:
     def __init__(self, resolution: Resolution) -> None:
         self.resolution: Final = resolution
@@ -969,7 +1020,7 @@ def test_stream_error_after_meaningful_event_is_never_replayed(event) -> None:
 
 @pytest.mark.parametrize("stream_error", [False, True])
 @pytest.mark.parametrize("tools", [[], [{"type": "function", "function": {"name": "lookup"}}]])
-def test_codex_retry_exhaustion_is_not_replayed_or_switched_by_gateway(stream_error, tools) -> None:
+def test_codex_retries_obey_card_budget_and_tool_replay_boundary(stream_error, tools) -> None:
     def upstream(_: httpx.Request) -> httpx.Response:
         if stream_error:
             return httpx.Response(
@@ -987,10 +1038,12 @@ def test_codex_retry_exhaustion_is_not_replayed_or_switched_by_gateway(stream_er
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert response.status_code == (502 if stream_error else 503)
-    assert len(control.acquisitions) == len(control.finished) == 1
+    assert len(control.acquisitions) == len(control.finished) == (1 if tools else 10)
     assert control.acquisitions[0].account_id == control.resolution.card_id
-    assert not control.finished[0].retryable
-    assert not control.finished[0].switched_account
+    assert not control.finished[-1].retryable
+    if not tools:
+        assert len({entry.account_id for entry in control.acquisitions}) == 2
+        assert [entry.attempt for entry in control.acquisitions] == list(range(1, 11))
 
 
 @pytest.mark.parametrize(
@@ -1091,7 +1144,9 @@ def test_tool_stream_failure_before_output_is_not_replayed() -> None:
             json={"model": "model-a", "stream": True, "tools": [{"type": "web_search"}]},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
-    assert response.status_code == 502
+    assert response.status_code == 200
+    assert json.loads(response.text.removeprefix("data: "))["type"] == "error"
+    assert control.finished[0].http_status == 502
     assert len(control.acquisitions) == len(control.finished) == 1
     assert not control.finished[0].retryable
 
@@ -1136,7 +1191,7 @@ def test_failover_requires_permission_and_does_not_replay_stateful_requests(prev
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert response.status_code == 503
-    assert len(control.acquisitions) == 1
+    assert len(control.acquisitions) == (2 if previous_response_id is None else 1)
     assert len({item.account_id for item in control.acquisitions}) == 1
     assert not control.finished[-1].retryable
 

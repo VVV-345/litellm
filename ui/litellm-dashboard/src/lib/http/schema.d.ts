@@ -23880,6 +23880,17 @@ export interface components {
         AccountPoolDashboardStats: {
             /** Cards */
             cards: components["schemas"]["ErrorStats"][];
+            /**
+             * Occurred From
+             * Format: date-time
+             */
+            occurred_from: string;
+            /**
+             * Statistics Source
+             * @default litellm
+             * @constant
+             */
+            statistics_source: "litellm";
             summary: components["schemas"]["ErrorStats"];
         };
         /** AccountPoolDirectAPIKey */
@@ -29318,6 +29329,12 @@ export interface components {
              * @default 0
              */
             retried_requests: number;
+            /**
+             * Statistics Source
+             * @default account_pool
+             * @enum {string}
+             */
+            statistics_source: "litellm" | "account_pool";
             /**
              * Succeeded Requests
              * @default 0

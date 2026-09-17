@@ -233,6 +233,19 @@ def test_notes_and_guide_persist_without_reexporting_images(setup: tuple[Release
     assert service.store.path(CURRENT.id).joinpath("compose.json").read_bytes().find(b"changed") > 0
 
 
+def test_rescan_refreshes_compatibility_fingerprint_without_reexporting(
+    setup: tuple[ReleaseService, Runtime, Clock],
+) -> None:
+    service, runtime, _ = setup
+    original: Final = service.backup(OLD, runtime.compose())
+    runtime.changed_schema = OLD.id
+    refreshed: Final = service.backup(OLD, b"unrelated running configuration", imported=True)
+    assert refreshed.schema_fingerprint == "changed"
+    assert refreshed.compose_sha256 == original.compose_sha256
+    assert service.store.path(OLD.id).joinpath("compose.json").read_bytes() == runtime.compose()
+    assert runtime.events.count("export:" + OLD.id) == 1
+
+
 def test_restart_recovers_persisted_operation(setup: tuple[ReleaseService, Runtime, Clock]) -> None:
     service, runtime, clock = setup
     service.backup(CURRENT, runtime.compose())

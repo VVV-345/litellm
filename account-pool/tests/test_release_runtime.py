@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import json
+import tarfile
 from pathlib import Path
 from typing import Final
 
+import pytest
 from account_pool.release_models import ReleasePair
 from account_pool.release_runtime import (
     ContainerInspection,
@@ -14,6 +17,35 @@ from account_pool.release_runtime import (
     image_pair,
     snapshot_container,
 )
+
+
+def schema_contract(source: str) -> bytes:
+    data: Final = source.encode()
+    output: Final = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        member: Final = tarfile.TarInfo("account_pool/settings.py")
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    with tarfile.open(fileobj=io.BytesIO(output.getvalue())) as archive:
+        return DockerReleaseRuntime._schema_member(archive, archive.getmembers()[0])
+
+
+@pytest.mark.parametrize(
+    "changed",
+    (
+        "class Settings(BaseModel):\n    full_log_skip_failed: bool = False\n",
+        'class Settings(BaseModel):\n    state: Literal["pending", "standard"] = "pending"\n',
+    ),
+)
+def test_persisted_json_contract_changes_block_image_only_rollback(changed: str) -> None:
+    old: Final = 'class Settings(BaseModel):\n    state: Literal["pending"] = "pending"\n'
+    assert schema_contract(old) != schema_contract(changed)
+
+
+def test_contract_fingerprint_ignores_method_bodies_and_formatting() -> None:
+    old: Final = "class Settings(BaseModel):\n    enabled: bool = True\n    def ready(self): return True\n"
+    changed: Final = "class Settings(BaseModel):\n    enabled: bool=True\n    def ready(self): return False\n"
+    assert schema_contract(old) == schema_contract(changed)
 
 
 class Commands:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Final, TypedDict
 from uuid import uuid4
 
@@ -18,7 +19,8 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     AccountPoolManagerClient,
     create_account_pool_router,
 )
-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord, ErrorStats
+from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats
 
 _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
@@ -218,6 +220,7 @@ def _manager_factory() -> AccountPoolManagerClient:
         client=httpx.AsyncClient(transport=httpx.MockTransport(_manager_response)),
     )
 
+
 def test_proxy_forwards_auth_file_refresh_controls() -> None:
     requests: Final[list[tuple[str, str, bytes]]] = []
 
@@ -387,30 +390,30 @@ def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
     assert first["configuration_pending"] is False
 
 
-def test_proxy_admin_can_read_dashboard_stats_from_one_manager_endpoint() -> None:
+@pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.INTERNAL_USER))
+def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUserRoles) -> None:
     def factory() -> AccountPoolManagerClient:
-        def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.path == "/api/dashboard" and request.method == "GET":
-                return httpx.Response(
-                    200,
-                    json={"summary": {"total_requests": 4, "succeeded_requests": 3, "failed_requests": 1}, "cards": []},
-                    request=request,
-                )
-            return httpx.Response(404, request=request)
+        pytest.fail("Standard statistics must not depend on the account manager")
 
-        return AccountPoolManagerClient(
-            "http://manager.test",
-            _MANAGER_TOKEN,
-            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    async def read_dashboard() -> AccountPoolDashboardStats:
+        assert role == LitellmUserRoles.PROXY_ADMIN
+        return AccountPoolDashboardStats(
+            summary=ErrorStats(total_requests=4, succeeded_requests=3, failed_requests=1, statistics_source="litellm"),
+            cards=(),
+            occurred_from=datetime(2026, 9, 1, tzinfo=timezone.utc),
         )
 
-    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+    app: Final = FastAPI()
+    app.include_router(create_account_pool_router(factory, dashboard_reader=read_dashboard))
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=role)
 
     with TestClient(app) as client:
         response: Final = client.get("/account_pool/dashboard")
 
-    assert response.status_code == 200
-    assert response.json()["summary"]["total_requests"] == 4
+    assert response.status_code == (200 if role == LitellmUserRoles.PROXY_ADMIN else 403)
+    if role == LitellmUserRoles.PROXY_ADMIN:
+        assert response.json()["summary"]["total_requests"] == 4
+        assert response.json()["statistics_source"] == "litellm"
 
 
 def test_malformed_manager_environment_response_is_rejected() -> None:

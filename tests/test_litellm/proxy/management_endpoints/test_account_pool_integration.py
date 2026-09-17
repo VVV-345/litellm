@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import queue
 import socket
 import threading
 import time
@@ -24,6 +25,7 @@ from litellm.proxy.management_endpoints.account_pool_integration import (
     INTERNAL_PREFIX,
     CardScope,
     PoolIdentity,
+    completed_pool_metadata,
     create_ticket,
     pool_identity,
     register_card_key,
@@ -61,6 +63,26 @@ def test_ticket_rejects_tampering_and_cross_card(signing_secret):
     other = uuid4()
     with pytest.raises(HTTPException):
         verify_ticket(create_ticket(identity, other), other)
+
+
+def test_final_account_attribution_requires_matching_internal_request():
+    request_id, card_id, fallback_id = uuid4(), uuid4(), uuid4()
+    metadata = {"account_pool_request_id": str(request_id), "account_pool_card_id": str(card_id), "project": "test"}
+    headers = {
+        "llm_provider-x-account-pool-request-id": str(request_id),
+        "llm_provider-x-account-pool-account-id": str(fallback_id),
+        "llm_provider-x-account-pool-attempt": "3",
+    }
+    assert completed_pool_metadata(metadata, headers) == {
+        **metadata,
+        "account_pool_account_id": str(fallback_id),
+        "account_pool_attempt_count": 3,
+    }
+    assert (
+        completed_pool_metadata(metadata, {**headers, "llm_provider-x-account-pool-request-id": str(uuid4())})
+        == metadata
+    )
+    assert completed_pool_metadata({}, headers) == {}
 
 
 def test_internal_forward_enforces_ticket_and_correlates_without_spend_sync(signing_secret):
@@ -312,6 +334,11 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
         "stream_refusal",
         "stream_tool_refusal",
         "stream_late_refusal",
+        "responses_stream",
+        "responses_stream_error",
+        "responses_stream_refusal",
+        "responses_stream_untyped_error",
+        "responses_stream_truncated",
     ],
 )
 async def test_real_router_http_request_enters_pool_before_upstream(signing_secret, monkeypatch, protocol):
@@ -336,7 +363,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             "output": [],
             "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7},
         }
-        if protocol in ("responses", "compact")
+        if protocol.startswith("responses") or protocol == "compact"
         else {
             "id": "chatcmpl-pool",
             "object": "chat.completion",
@@ -356,10 +383,51 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             "/v1/responses/compact"
             if protocol == "compact"
             else "/v1/responses"
-            if protocol == "responses"
+            if protocol.startswith("responses")
             else "/v1/chat/completions"
         )
         assert request.url.path == expected_path
+        if protocol.startswith("responses_stream"):
+            import json
+
+            terminal = (
+                {"type": "response.completed", "sequence_number": 2, "response": response_body}
+                if protocol == "responses_stream"
+                else {
+                    **({"type": "error", "sequence_number": 2} if protocol != "responses_stream_untyped_error" else {}),
+                    "error": {
+                        "type": "invalid_request_error"
+                        if protocol == "responses_stream_refusal"
+                        else "service_unavailable_error",
+                        "code": "invalid_prompt" if protocol == "responses_stream_refusal" else "server_is_overloaded",
+                        "message": "private upstream error details",
+                    },
+                }
+            )
+            events = (
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {**response_body, "status": "in_progress"},
+                },
+                {
+                    "type": "response.output_text.delta",
+                    "sequence_number": 1,
+                    "item_id": "msg_pool",
+                    "output_index": 0,
+                    "content_index": 0,
+                    "delta": "partial",
+                },
+                terminal,
+            )
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="".join(
+                    f"data: {json.dumps(event)}\n\n"
+                    for event in (events[:-1] if protocol == "responses_stream_truncated" else events)
+                ),
+            )
         if protocol == "error":
             return httpx.Response(503, json={"error": {"message": "upstream unavailable", "type": "server_error"}})
         if protocol in ("stream_refusal", "stream_tool_refusal", "stream_late_refusal"):
@@ -448,9 +516,44 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
     async def on_success(kwargs, response_obj, start_time, end_time):
         await logged.put((kwargs, response_obj))
 
+    failures = queue.Queue()
+
+    def on_failure(kwargs, response_obj, start_time, end_time):
+        failures.put(kwargs)
+
     try:
         assert server.started
-        if protocol == "responses":
+        if protocol.startswith("responses_stream"):
+
+            async def consume():
+                stream = await router.aresponses(
+                    model="model-a",
+                    input="hello",
+                    stream=True,
+                    success_callback=[on_success],
+                    failure_callback=[on_failure],
+                )
+                return [chunk async for chunk in stream]
+
+            if protocol == "responses_stream":
+                chunks = await consume()
+                assert chunks[-1].type == "response.completed"
+                logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
+                assert logging_kwargs["standard_logging_object"]["status"] == "success"
+            else:
+                with pytest.raises(Exception) as failure:
+                    await consume()
+                assert getattr(failure.value, "status_code", None) == (
+                    400
+                    if protocol == "responses_stream_refusal"
+                    else 502
+                    if protocol == "responses_stream_truncated"
+                    else 503
+                )
+                assert "private upstream error details" not in str(failure.value)
+                logging_kwargs = await asyncio.to_thread(failures.get, timeout=5)
+                assert logging_kwargs["standard_logging_object"]["status"] == "failure"
+        elif protocol == "responses":
             response = await router.aresponses(model="model-a", input="hello")
             assert response.usage.total_tokens == 7
         elif protocol == "compact":
@@ -505,11 +608,18 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             assert standard_log["prompt_tokens"] == 2877
             assert standard_log["completion_tokens"] == 5
             assert standard_log["response_cost"] == pytest.approx(0.0002742)
+            assert standard_log["metadata"]["spend_logs_metadata"]["account_pool_account_id"] == str(card)
+            assert standard_log["metadata"]["spend_logs_metadata"]["account_pool_request_id"] == str(
+                pool_identity.get().request_id
+            )
+            assert standard_log["hidden_params"]["additional_headers"]["llm_provider-x-account-pool-account-id"] == str(
+                card
+            )
         else:
             response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
             assert response.choices[0].message.content == "through pool"
             assert response.usage.total_tokens == 7
-        expected_attempts = 1
+        expected_attempts = 2 if protocol == "error" else 1
         assert len(control.acquisitions) == expected_attempts
         finish_deadline = time.monotonic() + 5
         while len(control.finished) < expected_attempts and time.monotonic() < finish_deadline:

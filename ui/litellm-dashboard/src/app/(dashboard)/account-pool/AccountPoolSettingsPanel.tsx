@@ -558,23 +558,24 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
         id={`${editorId}-request-retry`}
         label={t("accountPool.settings.requestRetry")}
         value={current.request_retry}
-        disabled={disabled}
+        disabled
         onChange={(request_retry) => onChange({ ...current, request_retry })}
       />
       <NumberSetting
         id={`${editorId}-retry-credentials`}
         label={t("accountPool.settings.maxRetryCredentials")}
         value={current.max_retry_credentials}
-        disabled={disabled}
+        disabled
         onChange={(max_retry_credentials) => onChange({ ...current, max_retry_credentials })}
       />
       <NumberSetting
         id={`${editorId}-retry-interval`}
         label={t("accountPool.settings.maxRetryInterval")}
         value={current.max_retry_interval}
-        disabled={disabled}
+        disabled
         onChange={(max_retry_interval) => onChange({ ...current, max_retry_interval })}
       />
+      <p>供应商重试参数保留历史值。重试次数、退避和账号切换统一使用卡片策略</p>
     </div>
   );
 

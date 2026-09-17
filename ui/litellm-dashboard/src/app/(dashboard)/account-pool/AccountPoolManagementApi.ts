@@ -10,7 +10,11 @@ export type AccountPolicy = components["schemas"]["AccountPolicy"];
 export type LogEvent = components["schemas"]["ErrorLogRecord"];
 export type LogPage = components["schemas"]["ErrorLogPage"];
 export type LogDetail = components["schemas"]["ErrorLogDetail"];
-export type ErrorStats = components["schemas"]["ErrorStats"] & {
+export type ErrorStats = Omit<
+  components["schemas"]["ErrorStats"],
+  "statistics_source" | "cache_read_input_tokens" | "cache_creation_input_tokens"
+> & {
+  statistics_source?: "litellm" | "account_pool";
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_rate?: number | null;
@@ -64,6 +68,8 @@ export type AccountPoolCredentialDeleteRequest = {
 export interface AccountPoolDashboardStats {
   summary: ErrorStats;
   cards: ErrorStats[];
+  statistics_source?: "litellm";
+  occurred_from?: string;
 }
 export type BatchJob = components["schemas"]["BatchJob"];
 export type BatchAction = components["schemas"]["BatchRequest"]["action"];

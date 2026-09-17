@@ -64,6 +64,28 @@ class CardName(BaseModel):
     name: str
 
 
+class CompletedPoolAttempt(BaseModel):
+    request_id: UUID = Field(alias="llm_provider-x-account-pool-request-id")
+    account_id: UUID = Field(alias="llm_provider-x-account-pool-account-id")
+    attempt: int = Field(alias="llm_provider-x-account-pool-attempt", ge=1, le=10)
+
+
+def completed_pool_metadata(metadata: Mapping[str, object], headers: object) -> dict[str, object]:
+    if not isinstance(headers, Mapping) or metadata.get("account_pool_request_id") is None:
+        return dict(metadata)
+    try:
+        completed: Final = CompletedPoolAttempt.model_validate(headers)
+    except ValueError:
+        return dict(metadata)
+    if str(completed.request_id) != metadata["account_pool_request_id"]:
+        return dict(metadata)
+    return {
+        **metadata,
+        "account_pool_account_id": str(completed.account_id),
+        "account_pool_attempt_count": completed.attempt,
+    }
+
+
 class ScopeMetadata(TypedDict):
     account_pool_card_id: ReadOnly[str]
     account_pool_binding_id: ReadOnly[str]

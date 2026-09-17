@@ -6,6 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -26,6 +27,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
+import { migratedHref } from "@/utils/migratedPages";
+import SpendLogsTable from "@/components/view_logs";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
@@ -82,7 +85,7 @@ const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
 
 export default function AccountPoolPage() {
   const { t } = useTranslation();
-  const { accessToken, userRole, isViewOnly } = useAuthorized();
+  const { accessToken, userRole, isViewOnly, userId, token, premiumUser } = useAuthorized();
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -310,7 +313,10 @@ export default function AccountPoolPage() {
               type="button"
               variant="ghost"
               size="icon-sm"
-              onClick={() => void environmentsQuery.refetch()}
+              onClick={() => {
+                void environmentsQuery.refetch();
+                void dashboardStatsQuery.refetch();
+              }}
               disabled={environmentsQuery.isFetching}
               aria-label={t("accountPool.refresh")}
               title={t("accountPool.refresh")}
@@ -320,6 +326,20 @@ export default function AccountPoolPage() {
           </div>
         </div>
 
+        <nav aria-label="LiteLLM 统一管理" className="flex flex-wrap gap-4 text-sm">
+          <Link href={migratedHref("api-keys")} className="text-primary underline">
+            虚拟密钥与预算
+          </Link>
+          <Link href={migratedHref("guardrails")} className="text-primary underline">
+            防护栏
+          </Link>
+          <Link href={migratedHref("usage")} className="text-primary underline">
+            用量与费用
+          </Link>
+          <Link href={migratedHref("logs")} className="text-primary underline">
+            标准调用日志
+          </Link>
+        </nav>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList variant="line" className="h-auto w-full justify-start overflow-x-auto rounded-none border-b p-0">
             <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
@@ -364,6 +384,8 @@ export default function AccountPoolPage() {
                 environments={environments}
                 statsByCard={statsByCard}
                 statsLoading={statsLoading}
+                standardSummary={dashboardStatsQuery.data?.summary}
+                statsError={dashboardStatsQuery.isError}
                 renderCard={renderCard}
                 quotaRefreshStatus={quotaRefreshStatusQuery.data ?? null}
                 onRefreshQuotas={refreshQuotas}
@@ -444,6 +466,15 @@ export default function AccountPoolPage() {
                 accessToken={accessToken}
                 environments={environments}
                 initialCardId={logCardId}
+                standardLogs={
+                  <SpendLogsTable
+                    userID={userId}
+                    userRole={userRole}
+                    token={token}
+                    accessToken={accessToken}
+                    premiumUser={premiumUser}
+                  />
+                }
               />
             )}
           </TabsContent>

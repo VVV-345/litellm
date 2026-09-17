@@ -21,6 +21,8 @@ interface AccountPoolDashboardProps {
   environments: readonly AccountPoolEnvironment[];
   statsByCard: ReadonlyMap<string, ErrorStats>;
   statsLoading: boolean;
+  standardSummary?: ErrorStats;
+  statsError?: boolean;
   renderCard: (environment: AccountPoolEnvironment, stats: ErrorStats | undefined) => ReactNode;
   quotaRefreshStatus: AccountPoolQuotaRefreshStatus | null;
   onRefreshQuotas: () => void;
@@ -33,19 +35,30 @@ export const AccountPoolDashboard = ({
   environments,
   statsByCard,
   statsLoading,
+  standardSummary,
+  statsError = false,
   renderCard,
   quotaRefreshStatus,
   onRefreshQuotas,
   refreshingQuotas,
 }: AccountPoolDashboardProps) => {
   const { t, i18n } = useTranslation();
-  const summary = summarizeAccountPoolDashboard(environments, statsByCard);
+  const summary = summarizeAccountPoolDashboard(environments, statsByCard, standardSummary);
   const groups = groupAccountPoolEnvironments(environments);
   const successRate =
-    summary.successRate === null ? t("accountPool.dashboard.unknown") : `${summary.successRate.toFixed(1)}%`;
+    statsError || summary.successRate === null
+      ? t("accountPool.dashboard.unknown")
+      : `${summary.successRate.toFixed(1)}%`;
+  const metric = (value: number) => (statsError ? t("accountPool.dashboard.unknown") : formatInteger(value));
 
   return (
     <div className="grid gap-5" data-testid="account-pool-dashboard">
+      <p className="text-sm text-muted-foreground">调用统计：LiteLLM 标准日志，近 30 天；供应商额度按卡片独立刷新</p>
+      {statsError && (
+        <p role="alert" className="text-sm text-destructive">
+          调用统计读取失败，暂不可用；请刷新重试
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
@@ -62,7 +75,7 @@ export const AccountPoolDashboard = ({
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.failures")}</p>
               <p className="text-2xl font-semibold">
-                {statsLoading ? <Skeleton className="h-7 w-16" /> : formatInteger(summary.failedRequests)}
+                {statsLoading ? <Skeleton className="h-7 w-16" /> : metric(summary.failedRequests)}
               </p>
             </div>
           </CardContent>
@@ -73,7 +86,7 @@ export const AccountPoolDashboard = ({
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.traffic")}</p>
               <p className="text-2xl font-semibold">
-                {statsLoading ? <Skeleton className="h-7 w-16" /> : formatInteger(summary.totalTokens)}
+                {statsLoading ? <Skeleton className="h-7 w-16" /> : metric(summary.totalTokens)}
               </p>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.tokens")}</p>
             </div>
@@ -131,11 +144,11 @@ export const AccountPoolDashboard = ({
         <CardContent className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <div className="rounded-md border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
-            <p className="mt-1 font-semibold">{statsLoading ? "-" : formatInteger(summary.totalRequests)}</p>
+            <p className="mt-1 font-semibold">{statsLoading ? "-" : metric(summary.totalRequests)}</p>
           </div>
           <div className="rounded-md border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.successes")}</p>
-            <p className="mt-1 font-semibold">{statsLoading ? "-" : formatInteger(summary.successfulRequests)}</p>
+            <p className="mt-1 font-semibold">{statsLoading ? "-" : metric(summary.successfulRequests)}</p>
           </div>
           <div className="rounded-md border p-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.supplierFamilies")}</p>

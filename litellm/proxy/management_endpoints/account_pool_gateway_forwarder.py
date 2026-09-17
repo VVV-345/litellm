@@ -184,6 +184,8 @@ class Attempt:
         self.started = False
         self.send: Final = send
         self.request_id: Final = lease.request_id
+        self.account_id: Final = lease.account_id
+        self.attempt_number: Final = lease.attempt
 
     async def emit(self, message: Message) -> None:
         if message["type"] == "http.response.start":
@@ -197,6 +199,8 @@ class Attempt:
                     *response_headers,
                     *(((b"x-request-id", request_id),) if b"x-request-id" not in header_names else ()),
                     (b"x-account-pool-request-id", request_id),
+                    (b"x-account-pool-account-id", str(self.account_id).encode()),
+                    (b"x-account-pool-attempt", str(self.attempt_number).encode()),
                 ),
             }
             await self.send(outbound)
@@ -556,7 +560,6 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None
-                        and not upstream_manages_retries(route)
                         and response.status_code in resolution.policy.routing.retryable_statuses
                         and asyncio.get_running_loop().time() < deadline
                     )
@@ -650,11 +653,21 @@ async def execute(
                 attempt.emit,
             )
         elif attempt.started and not disconnected:
+            stream_error: Final = {
+                "message": "Upstream stream interrupted",
+                "code": "stream_interrupted",
+                "status_code": status,
+            }
+            envelope: Final = (
+                {"type": "error", "sequence_number": 0, "error": stream_error}
+                if request.url.path == "/v1/responses"
+                else {"error": stream_error}
+            )
             await attempt.emit(
                 {
                     "type": "http.response.body",
                     "more_body": False,
-                    "body": b'data: {"error":{"message":"Upstream stream interrupted"}}\n\n',
+                    "body": b"data: " + json.dumps(envelope).encode() + b"\n\n",
                 }
             )
         return True
@@ -861,10 +874,6 @@ def requested_output_tokens(path: str, payload: Mapping[str, JsonValue]) -> int:
     return 0 if path == "/v1/images/generations" else 1024
 
 
-def upstream_manages_retries(route: Route) -> bool:
-    return route.account.channel == "cliproxyapi" and route.account.supplier == "openai_codex"
-
-
 async def guarded_stream_response(
     request: Request,
     response: httpx.Response,
@@ -876,6 +885,9 @@ async def guarded_stream_response(
     cost_usd: float | None,
     deadline: float,
 ) -> bool:
+    if request.url.path == "/v1/responses" and (next_id is None or not replay_safe(payload)):
+        await stream_response(request, response, attempt, cost_usd)
+        return True
     bootstrap: Final = StreamBootstrap(response.aiter_bytes())
     try:
         await bootstrap.prepare()
@@ -884,7 +896,6 @@ async def guarded_stream_response(
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
                 next_id is not None
-                and not upstream_manages_retries(route)
                 and replay_safe(payload)
                 and bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
                 and bootstrap.state.error_code
@@ -893,6 +904,7 @@ async def guarded_stream_response(
                     "internal_server_error",
                     "overloaded_error",
                     "overloaded",
+                    "server_is_overloaded",
                     "rate_limit_exceeded",
                     "rate_limit_error",
                     "stream_interrupted",
@@ -936,7 +948,7 @@ async def stream_response(
     cost_usd: float | None,
     source: AsyncIterator[bytes] | None = None,
 ) -> None:
-    state: Final = EventStream()
+    state: Final = EventStream(responses_api=request.url.path == "/v1/responses")
 
     async def chunks() -> AsyncIterator[bytes]:
         async for chunk in source if source is not None else response.aiter_bytes():

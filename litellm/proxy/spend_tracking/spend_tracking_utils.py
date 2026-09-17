@@ -463,6 +463,13 @@ def get_logging_payload(kwargs, response_obj, start_time, end_time) -> SpendLogs
             if isinstance(cache_write_tokens, int) and cache_write_tokens > 0:
                 additional_usage_values["cache_creation_input_tokens"] = cache_write_tokens
     clean_metadata["additional_usage_values"] = additional_usage_values
+    pool_metadata: Final = clean_metadata.get("spend_logs_metadata")
+    if isinstance(pool_metadata, dict) and pool_metadata.get("account_pool_request_id") and standard_logging_payload:
+        from litellm.proxy.management_endpoints.account_pool_integration import completed_pool_metadata
+
+        clean_metadata["spend_logs_metadata"] = completed_pool_metadata(
+            pool_metadata, standard_logging_payload.get("hidden_params", {}).get("additional_headers")
+        )
 
     if litellm.cache is not None:
         cache_key = litellm.cache.get_cache_key(**kwargs)

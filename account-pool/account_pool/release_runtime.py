@@ -354,7 +354,29 @@ class DockerReleaseRuntime:
             and isinstance(node.value, str)
             and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
         )
-        return "\n".join(sorted(statements)).encode()
+        contracts: Final = tuple(
+            f"{Path(member.name).name}:{node.name}:"
+            + ast.dump(
+                ast.ClassDef(
+                    name=node.name,
+                    bases=node.bases,
+                    keywords=node.keywords,
+                    body=[item for item in node.body if isinstance(item, (ast.AnnAssign, ast.Assign))],
+                    decorator_list=[],
+                    type_params=[],
+                ),
+                include_attributes=False,
+            )
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and any(isinstance(base, ast.Name) and base.id in ("BaseModel", "StrEnum", "Enum") for base in node.bases)
+        )
+        aliases: Final = tuple(
+            f"{Path(member.name).name}:" + ast.dump(node, include_attributes=False)
+            for node in tree.body
+            if isinstance(node, (ast.AnnAssign, ast.Assign)) and isinstance(node.value, (ast.Subscript, ast.BinOp))
+        )
+        return "\n".join(sorted((*statements, *contracts, *aliases))).encode()
 
     def load(self, pair: ReleasePair, archive: Path) -> None:
         self.run("image", "load", "--input", str(archive), timeout=3600)

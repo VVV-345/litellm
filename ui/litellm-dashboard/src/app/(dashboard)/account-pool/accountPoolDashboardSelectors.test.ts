@@ -55,6 +55,13 @@ const stats = (total_requests: number, succeeded_requests: number, failed_reques
 });
 
 describe("account pool dashboard selectors", () => {
+  it("keeps historical requests from deleted accounts in the standard summary", () => {
+    const summary = summarizeAccountPoolDashboard([environment("one", "kimi")], new Map(), stats(5, 3, 2));
+    expect(summary.totalCards).toBe(1);
+    expect(summary.totalRequests).toBe(5);
+    expect(summary.successRate).toBe(60);
+  });
+
   it("aggregates request and token totals without treating missing stats as failures", () => {
     const environments = [environment("one", "openai_codex"), environment("two", "kimi")];
     const summary = summarizeAccountPoolDashboard(environments, new Map([["one", stats(4, 3, 1)]]));

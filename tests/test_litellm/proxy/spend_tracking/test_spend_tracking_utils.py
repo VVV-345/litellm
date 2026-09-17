@@ -4,6 +4,7 @@ import json
 from datetime import timezone
 from typing import Any, Final, cast
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from typing_extensions import ReadOnly, TypedDict
@@ -263,6 +264,37 @@ def test_get_logging_payload_maps_responses_api_cache_write_tokens_from_usage_ob
     )
     additional_usage_values = json.loads(payload["metadata"])["additional_usage_values"]
     assert additional_usage_values["cache_creation_input_tokens"] == 800
+
+
+def test_standard_spend_record_uses_the_final_account_after_pool_failover():
+    request_id, card_id, account_id = uuid4(), uuid4(), uuid4()
+    standard = _make_standard_logging_payload_with_usage_object({})
+    standard["hidden_params"]["additional_headers"] = {
+        "llm_provider-x-account-pool-request-id": str(request_id),
+        "llm_provider-x-account-pool-account-id": str(account_id),
+        "llm_provider-x-account-pool-attempt": "2",
+    }
+    payload = get_logging_payload(
+        kwargs={
+            "model": "model-a",
+            "standard_logging_object": standard,
+            "litellm_params": {
+                "metadata": {
+                    "spend_logs_metadata": {
+                        "account_pool_request_id": str(request_id),
+                        "account_pool_card_id": str(card_id),
+                    }
+                }
+            },
+        },
+        response_obj={"id": "pool-final-response", "usage": {"prompt_tokens": 5, "completion_tokens": 2}},
+        start_time=datetime.datetime.now(timezone.utc),
+        end_time=datetime.datetime.now(timezone.utc),
+    )
+    stored = json.loads(payload["metadata"])["spend_logs_metadata"]
+    assert stored["account_pool_card_id"] == str(card_id)
+    assert stored["account_pool_account_id"] == str(account_id)
+    assert stored["account_pool_attempt_count"] == 2
 
 
 def test_sanitize_request_body_for_spend_logs_payload_basic():

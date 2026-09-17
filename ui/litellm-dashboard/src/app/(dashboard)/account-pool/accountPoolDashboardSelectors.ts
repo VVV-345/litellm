@@ -21,20 +21,28 @@ export interface AccountPoolSupplierGroup {
 export const summarizeAccountPoolDashboard = (
   environments: readonly AccountPoolEnvironment[],
   statsByCard: ReadonlyMap<string, ErrorStats>,
+  standardSummary?: ErrorStats,
 ): AccountPoolDashboardSummary => {
-  const totals = environments.reduce(
-    (summary, environment) => {
-      const stats = statsByCard.get(environment.id);
-      if (!stats) return summary;
-      return {
-        successfulRequests: summary.successfulRequests + stats.succeeded_requests,
-        failedRequests: summary.failedRequests + stats.failed_requests,
-        totalRequests: summary.totalRequests + stats.total_requests,
-        totalTokens: summary.totalTokens + stats.input_tokens + stats.output_tokens,
-      };
-    },
-    { successfulRequests: 0, failedRequests: 0, totalRequests: 0, totalTokens: 0 },
-  );
+  const totals = standardSummary
+    ? {
+        successfulRequests: standardSummary.succeeded_requests,
+        failedRequests: standardSummary.failed_requests,
+        totalRequests: standardSummary.total_requests,
+        totalTokens: standardSummary.input_tokens + standardSummary.output_tokens,
+      }
+    : environments.reduce(
+        (summary, environment) => {
+          const stats = statsByCard.get(environment.id);
+          if (!stats) return summary;
+          return {
+            successfulRequests: summary.successfulRequests + stats.succeeded_requests,
+            failedRequests: summary.failedRequests + stats.failed_requests,
+            totalRequests: summary.totalRequests + stats.total_requests,
+            totalTokens: summary.totalTokens + stats.input_tokens + stats.output_tokens,
+          };
+        },
+        { successfulRequests: 0, failedRequests: 0, totalRequests: 0, totalTokens: 0 },
+      );
   const completedRequests = totals.successfulRequests + totals.failedRequests;
   return {
     totalCards: environments.length,

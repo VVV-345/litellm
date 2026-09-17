@@ -65,6 +65,19 @@ const stats = {
 };
 
 describe("AccountPoolLogsPanel", () => {
+  it("opens standard logs by default and preserves account-specific diagnostics", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AccountPoolLogsPanel accessToken="token" environments={[]} standardLogs={<p>LiteLLM 标准记录</p>} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("tab", { name: "标准调用日志" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("LiteLLM 标准记录")).toBeVisible();
+    expect(listLogs).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("tab", { name: "账号运行记录" }));
+    expect(await screen.findByRole("row", { name: /Request completed/ })).toBeVisible();
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     listLogs.mockResolvedValue({ items: [log], has_more: false });

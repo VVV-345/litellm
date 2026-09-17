@@ -3548,6 +3548,13 @@ class Router:
             kwargs["cache"] = {"no-cache": True, "no-store": True}
             kwargs[metadata_variable_name]["account_pool_request_id"] = str(pool_caller.request_id)
             kwargs[metadata_variable_name]["account_pool_attempt"] = True
+            pool_spend_metadata: Final = kwargs[metadata_variable_name].get("spend_logs_metadata")
+            kwargs[metadata_variable_name]["spend_logs_metadata"] = {
+                **(pool_spend_metadata if isinstance(pool_spend_metadata, dict) else {}),
+                "account_pool_request_id": str(pool_caller.request_id),
+                "account_pool_card_id": str(pool_caller.card_id or pool_account),
+                "account_pool_account_id": str(pool_account),
+            }
 
     def _get_async_openai_model_client(self, deployment: dict, kwargs: dict):
         """
