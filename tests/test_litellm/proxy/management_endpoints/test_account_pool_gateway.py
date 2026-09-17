@@ -924,6 +924,13 @@ def test_stream_start_events_are_discarded_before_same_card_retry(error) -> None
         return httpx.Response(200, content=content, headers={"content-type": "text/event-stream"})
 
     client, control = setup_gateway(upstream)
+    control.resolution = control.resolution.model_copy(
+        update={
+            "candidates": tuple(
+                account.model_copy(update={"supplier": "anthropic_claude"}) for account in control.resolution.candidates
+            )
+        }
+    )
     with client:
         response = client.post(
             "/v1/responses", json={"model": "model-a", "stream": True}, headers={"Authorization": f"Bearer {_KEY}"}
@@ -958,6 +965,32 @@ def test_stream_error_after_meaningful_event_is_never_replayed(event) -> None:
     assert len(control.acquisitions) == 1
     assert control.finished[0].http_status == 502
     assert not control.finished[0].retryable
+
+
+@pytest.mark.parametrize("stream_error", [False, True])
+@pytest.mark.parametrize("tools", [[], [{"type": "function", "function": {"name": "lookup"}}]])
+def test_codex_retry_exhaustion_is_not_replayed_or_switched_by_gateway(stream_error, tools) -> None:
+    def upstream(_: httpx.Request) -> httpx.Response:
+        if stream_error:
+            return httpx.Response(
+                200,
+                content='data: {"error":{"code":"server_error"}}\n\n',
+                headers={"content-type": "text/event-stream"},
+            )
+        return httpx.Response(503, json={"error": {"code": "server_is_overloaded"}})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=5)
+    with client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "model-a", "stream": True, "tools": tools},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert response.status_code == (502 if stream_error else 503)
+    assert len(control.acquisitions) == len(control.finished) == 1
+    assert control.acquisitions[0].account_id == control.resolution.card_id
+    assert not control.finished[0].retryable
+    assert not control.finished[0].switched_account
 
 
 @pytest.mark.parametrize(
@@ -1073,6 +1106,13 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
         return httpx.Response(200, json={"output": []})
 
     client, control = setup_gateway(upstream, retry=True)
+    control.resolution = control.resolution.model_copy(
+        update={
+            "candidates": tuple(
+                account.model_copy(update={"supplier": "anthropic_claude"}) for account in control.resolution.candidates
+            )
+        }
+    )
     with client:
         response: Final = client.post(
             "/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"}
@@ -1096,7 +1136,7 @@ def test_failover_requires_permission_and_does_not_replay_stateful_requests(prev
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert response.status_code == 503
-    assert len(control.acquisitions) == (1 if previous_response_id else 2)
+    assert len(control.acquisitions) == 1
     assert len({item.account_id for item in control.acquisitions}) == 1
     assert not control.finished[-1].retryable
 

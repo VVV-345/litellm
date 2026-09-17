@@ -509,7 +509,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
             assert response.choices[0].message.content == "through pool"
             assert response.usage.total_tokens == 7
-        expected_attempts = 2 if protocol == "error" else 1
+        expected_attempts = 1
         assert len(control.acquisitions) == expected_attempts
         finish_deadline = time.monotonic() + 5
         while len(control.finished) < expected_attempts and time.monotonic() < finish_deadline:

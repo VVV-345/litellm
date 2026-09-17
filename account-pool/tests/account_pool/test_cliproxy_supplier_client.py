@@ -1576,6 +1576,7 @@ async def test_apply_policy_syncs_yaml_settings_without_an_auth_file() -> None:
     document: Final = yaml.safe_load(config.content)
     assert document["codex"] == {
         "keep": "unchanged",
+        "stream-bootstrap-buffering": True,
         "identity-confuse": True,
         "disable-codex-cloaking": True,
     }
@@ -1617,7 +1618,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     patch_request: Final = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
     assert json.loads(patch_request.content) == {
         "name": "codex.json",
-        "request_retry": 0,
+        "request_retry": 1,
         "codex_fingerprint_mode": "session",
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
@@ -1628,6 +1629,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
     )
     assert yaml.safe_load(config.content)["codex"] == {
         "keep": "unchanged",
+        "stream-bootstrap-buffering": True,
         "identity-confuse": True,
         "disable-codex-cloaking": True,
     }
@@ -1660,7 +1662,12 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
 async def test_apply_policy_syncs_only_auth_file_metadata(
     policy: AccountPolicy, expected_fields: dict[str, object]
 ) -> None:
-    record: Final = _record().model_copy(update={"auth_file_name": "provider.json"})
+    record: Final = _record().model_copy(
+        update={
+            "auth_file_name": "provider.json",
+            "supplier": SupplierKind.ANTHROPIC_CLAUDE if policy.claude is not None else SupplierKind.KIMI,
+        }
+    )
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -1684,6 +1691,45 @@ async def test_apply_policy_syncs_only_auth_file_metadata(
     assert synced["request-retry"] == 0
     assert synced["streaming"]["bootstrap-retries"] == 0
     assert synced["transient-error-cooldown-seconds"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supplier", [SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE])
+async def test_settings_and_policy_preserve_single_retry_owner(supplier: SupplierKind) -> None:
+    record: Final = _record().model_copy(update={"supplier": supplier, "auth_file_name": "account.json"})
+    documents: list[dict[str, object]] = [
+        {
+            "streaming": {"bootstrap-retries": 5, "keepalive-seconds": 10},
+            "codex": {"identity-confuse": False},
+            "request-retry": 7,
+            "max-retry-credentials": 4,
+        }
+    ]
+    patches: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/config.yaml"):
+            if request.method == "GET":
+                return httpx.Response(200, text=yaml.safe_dump(documents[-1]))
+            documents.append(yaml.safe_load(request.content))
+        elif request.url.path.endswith("/auth-files/fields"):
+            patches.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        sync: Final = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
+        await sync.apply_global_settings(record, AccountPoolSettings(request_retry=8))
+        await sync.apply_policy(record, AccountPolicy())
+    for document in documents[1:]:
+        assert document["request-retry"] == int(supplier == SupplierKind.OPENAI_CODEX)
+        assert document["max-retry-credentials"] == 1
+        assert document["max-retry-interval"] == (2 if supplier == SupplierKind.OPENAI_CODEX else 0)
+        assert document["streaming"] == {"bootstrap-retries": 0, "keepalive-seconds": 10}
+        assert document["quota-exceeded"] == {"switch-project": False, "switch-preview-model": False}
+        if supplier == SupplierKind.OPENAI_CODEX:
+            assert document["codex"]["stream-bootstrap-buffering"] is True
+    assert len(patches) == 2
+    assert all(patch["request_retry"] == int(supplier == SupplierKind.OPENAI_CODEX) for patch in patches)
 
 
 @pytest.mark.asyncio

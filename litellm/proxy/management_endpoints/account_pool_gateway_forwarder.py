@@ -556,6 +556,7 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None
+                        and not upstream_manages_retries(route)
                         and response.status_code in resolution.policy.routing.retryable_statuses
                         and asyncio.get_running_loop().time() < deadline
                     )
@@ -860,6 +861,10 @@ def requested_output_tokens(path: str, payload: Mapping[str, JsonValue]) -> int:
     return 0 if path == "/v1/images/generations" else 1024
 
 
+def upstream_manages_retries(route: Route) -> bool:
+    return route.account.channel == "cliproxyapi" and route.account.supplier == "openai_codex"
+
+
 async def guarded_stream_response(
     request: Request,
     response: httpx.Response,
@@ -879,6 +884,7 @@ async def guarded_stream_response(
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
                 next_id is not None
+                and not upstream_manages_retries(route)
                 and replay_safe(payload)
                 and bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
                 and bootstrap.state.error_code
