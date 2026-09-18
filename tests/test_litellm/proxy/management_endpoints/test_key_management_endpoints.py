@@ -65,6 +65,86 @@ client = TestClient(app)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role,owner,expected", [
+    (LitellmUserRoles.PROXY_ADMIN, "another", 200),
+    (LitellmUserRoles.INTERNAL_USER, "caller", 200),
+    (LitellmUserRoles.INTERNAL_USER, "another", 403),
+    (LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY, "caller", 403),
+])
+async def test_reveal_virtual_key_enforces_secret_permissions_and_no_cache(monkeypatch, role, owner, expected):
+    import hashlib
+    from fastapi import Response
+    from litellm.proxy.management_helpers.virtual_key_secret import VirtualKeySecretRequest, seal_virtual_key
+    from litellm.proxy.management_endpoints.key_management_endpoints import reveal_virtual_key
+    from litellm.proxy import proxy_server
+
+    monkeypatch.setenv("LITELLM_SALT_KEY", "test-secret-reveal-salt")
+    plaintext = "sk-test-secret-reveal"
+    token = hashlib.sha256(plaintext.encode()).hexdigest()
+    database = MagicMock()
+    database.db.litellm_verificationtoken.find_unique = AsyncMock(return_value=LiteLLM_VerificationToken(token=token, user_id=owner))
+    database.db.litellm_virtualkeysecret.find_unique = AsyncMock(return_value=MagicMock(ciphertext=seal_virtual_key(plaintext)))
+    monkeypatch.setattr(proxy_server, "prisma_client", database)
+    response = Response()
+    caller = UserAPIKeyAuth(user_role=role, user_id="caller")
+    if expected != 200:
+        with pytest.raises(HTTPException) as error:
+            await reveal_virtual_key(VirtualKeySecretRequest(token=token), response, caller)
+        assert error.value.status_code == expected
+        database.db.litellm_virtualkeysecret.find_unique.assert_not_called()
+        return
+    result = await reveal_virtual_key(VirtualKeySecretRequest(token=token), response, caller)
+    assert result.key == plaintext
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_reveal_hash_only_key_does_not_rotate_or_change_it(monkeypatch):
+    from fastapi import Response
+    from litellm.proxy.management_helpers.virtual_key_secret import VirtualKeySecretRequest
+    from litellm.proxy.management_endpoints.key_management_endpoints import reveal_virtual_key
+    from litellm.proxy import proxy_server
+
+    database = MagicMock()
+    database.db.litellm_verificationtoken.find_unique = AsyncMock(return_value=LiteLLM_VerificationToken(token="a" * 64, user_id="caller"))
+    database.db.litellm_virtualkeysecret.find_unique = AsyncMock(return_value=None)
+    monkeypatch.setattr(proxy_server, "prisma_client", database)
+    with pytest.raises(HTTPException) as error:
+        await reveal_virtual_key(VirtualKeySecretRequest(token="a" * 64), Response(), UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER, user_id="caller"))
+    assert error.value.status_code == 409
+    database.db.litellm_verificationtoken.update.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_master_rotation_preserves_revealable_virtual_key(monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+    from litellm.proxy import proxy_server
+    from litellm.proxy.management_endpoints.key_management_endpoints import _rotate_master_key
+    from litellm.proxy.management_helpers.virtual_key_secret import open_virtual_key, seal_virtual_key
+
+    monkeypatch.delenv("LITELLM_SALT_KEY", raising=False)
+    monkeypatch.setattr(proxy_server, "master_key", "sk-old-test-master")
+    plaintext = "sk-test-rotation-secret"
+    token = hashlib.sha256(plaintext.encode()).hexdigest()
+    database = MagicMock()
+    database.db.litellm_virtualkeysecret.find_many = AsyncMock(return_value=[
+        SimpleNamespace(token=token, ciphertext=seal_virtual_key(plaintext)),
+    ])
+    for table in ("litellm_proxymodeltable", "litellm_config", "litellm_credentialstable"):
+        getattr(database.db, table).find_many = AsyncMock(return_value=[])
+    transaction = AsyncMock()
+    database.db.tx.return_value.__aenter__ = AsyncMock(return_value=transaction)
+    await _rotate_master_key(database, UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN),
+                             "sk-old-test-master", "sk-new-test-master")
+    saved = transaction.litellm_virtualkeysecret.update.call_args.kwargs
+    assert saved["where"] == {"token": token}
+    assert open_virtual_key(saved["data"]["ciphertext"], token) is None
+    monkeypatch.setattr(proxy_server, "master_key", "sk-new-test-master")
+    assert open_virtual_key(saved["data"]["ciphertext"], token) == plaintext
+
+
+@pytest.mark.asyncio
 async def test_list_keys():
     mock_prisma_client = AsyncMock()
     mock_find_many = AsyncMock(return_value=[])
@@ -8332,6 +8412,7 @@ async def test_rotate_master_key_model_data_valid_for_prisma(
     # Setup mock prisma client
     mock_prisma_client = AsyncMock()
     mock_prisma_client.db = MagicMock()
+    mock_prisma_client.db.litellm_virtualkeysecret.find_many = AsyncMock(return_value=[])
 
     # Mock model table — return one model
     mock_model = MagicMock()
@@ -15488,6 +15569,7 @@ async def test_rotate_master_key_rotates_sso_identity_assertions(
 
     mock_prisma_client = AsyncMock()
     mock_prisma_client.db = MagicMock()
+    mock_prisma_client.db.litellm_virtualkeysecret.find_many = AsyncMock(return_value=[])
     mock_prisma_client.db.litellm_proxymodeltable.find_many = AsyncMock(return_value=[])
     mock_tx = AsyncMock()
     mock_tx.litellm_proxymodeltable = MagicMock()

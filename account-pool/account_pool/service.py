@@ -729,6 +729,7 @@ class EnvironmentService:
             return Failure(FailureCode.CONFLICT, "auth file validation did not reach a usable state")
         if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
             return Failure(FailureCode.CONFLICT, "auth file validation is still being reconciled")
+        await self._ownership.retain(record.id, persisted.credential_fingerprints)
         await self._log_event(persisted, "authentication", None)
         return Success(to_view(persisted))
 

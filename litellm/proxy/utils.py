@@ -4394,6 +4394,8 @@ class PrismaClient:
                 else data,
             )
             if table_name == "key":
+                from litellm.proxy.management_helpers.virtual_key_secret import seal_virtual_key
+
                 token: Final = cast("str", data["token"])  # cast-ok: the key table's token column is a str
                 hashed_token: Final = self.hash_token(token=token)
                 db_data = self.jsonify_object(data=data)
@@ -4408,7 +4410,11 @@ class PrismaClient:
                         "token": hashed_token,
                     },
                     data={
-                        "create": {**db_data},
+                        "create": {
+                            **db_data,
+                            **({"secret_record": {"create": {"ciphertext": seal_virtual_key(token)}}}
+                               if token.startswith("sk-") and data.get("team_id") != "litellm-dashboard" else {}),
+                        },
                         "update": {},  # don't do anything if it already exists
                     },
                     include={"litellm_budget_table": True},

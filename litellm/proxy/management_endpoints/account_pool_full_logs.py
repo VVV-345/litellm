@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest
+from litellm.proxy.management_endpoints.account_pool_timing import TimingPhase
 
 
 class FullLogSummary(BaseModel):
@@ -117,6 +118,61 @@ class FullLogStore:
                 yield connection
         finally:
             connection.close()
+
+    @contextmanager
+    def timing_connection(self) -> Generator[sqlite3.Connection]:
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        connection: Final = sqlite3.connect(self.root / "timings.sqlite3", timeout=1)
+        try:
+            with connection:
+                connection.execute("PRAGMA auto_vacuum=FULL")
+                connection.execute(
+                    "CREATE TABLE IF NOT EXISTS request_timings (request_id TEXT NOT NULL, segment_id TEXT NOT NULL, attempt INTEGER NOT NULL, "
+                    "phase TEXT NOT NULL, duration_ms REAL NOT NULL, status INTEGER NOT NULL, recorded_at REAL NOT NULL, "
+                    "PRIMARY KEY(request_id, segment_id, phase))"
+                )
+                connection.execute("CREATE INDEX IF NOT EXISTS request_timings_age ON request_timings(recorded_at)")
+                yield connection
+        finally:
+            connection.close()
+
+    def save_timing(self, request_id: UUID, phases: tuple[TimingPhase, ...]) -> None:
+        now: Final = datetime.now(timezone.utc).timestamp()
+        with self.timing_connection() as connection:
+            connection.executemany(
+                "INSERT INTO request_timings VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(request_id, segment_id, phase) DO UPDATE SET duration_ms=excluded.duration_ms, "
+                "status=excluded.status, recorded_at=excluded.recorded_at",
+                (
+                    (
+                        str(request_id),
+                        str(phase.segment_id),
+                        phase.attempt,
+                        phase.phase,
+                        phase.duration_ms,
+                        phase.status,
+                        now,
+                    )
+                    for phase in phases
+                ),
+            )
+            connection.execute("DELETE FROM request_timings WHERE recorded_at < ?", (now - 7 * 86400,))
+            connection.execute(
+                "DELETE FROM request_timings WHERE rowid <= (SELECT MAX(rowid) - 100000 FROM request_timings)"
+            )
+
+    def timing(self, request_id: UUID) -> tuple[TimingPhase, ...]:
+        if not (self.root / "timings.sqlite3").exists():
+            return ()
+        with self.timing_connection() as connection:
+            rows: Final = connection.execute(
+                "SELECT attempt, phase, duration_ms, status, segment_id FROM request_timings WHERE request_id = ? ORDER BY recorded_at, phase",
+                (str(request_id),),
+            ).fetchall()
+        return tuple(
+            TimingPhase(attempt=row[0], phase=row[1], duration_ms=row[2], status=row[3], segment_id=row[4])
+            for row in rows
+        )
 
     def append(self, record: FullLogRecord) -> None:
         with self.connection() as connection:

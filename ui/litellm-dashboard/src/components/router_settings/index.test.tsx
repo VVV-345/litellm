@@ -4,6 +4,13 @@ import { fireEvent, renderWithProviders, screen, waitFor } from "../../../tests/
 import userEvent from "@testing-library/user-event";
 import RouterSettings from "./index";
 
+vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({
+  useAccountPoolQuery: () => ({ data: [
+    { id: "11111111-1111-1111-1111-111111111111", name: "Card A", enabled_models: ["gpt-6-astra"], status: "ready" },
+    { id: "22222222-2222-2222-2222-222222222222", name: "Card B", enabled_models: ["gpt-6-astra"], status: "ready" },
+  ] }),
+}));
+
 // The strategy select only renders once getRouterSettingsCall resolves, so awaiting it is how a
 // test knows the loaded settings are on screen.
 const findStrategySelect = () => screen.findByRole("combobox", { name: "Routing Strategy" });
@@ -199,11 +206,32 @@ describe("RouterSettings", () => {
         router_settings: expect.objectContaining({
           account_pool_routing: {
             selection: "plan",
+            preferred_account_ids: [],
             session_affinity: true,
             session_affinity_ttl_seconds: 900,
           },
         }),
       }),
     );
+  });
+
+  it("saves the chosen card order after moving a card earlier", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RouterSettings {...defaultProps} />);
+    await findStrategySelect();
+    await user.click(screen.getByRole("combobox", { name: "同优先级卡片偏好" }));
+    await user.click(await screen.findByRole("option", { name: "按指定卡片顺序" }));
+    for (const name of [/Card A/, /Card B/]) {
+      await user.click(screen.getByRole("combobox", { name: "添加优先卡片" }));
+      await user.click(await screen.findByRole("option", { name }));
+    }
+    await user.click(screen.getAllByRole("button", { name: "上移" })[1]);
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(setCallbacksCall).toHaveBeenCalledWith("test-token", {
+      router_settings: expect.objectContaining({ account_pool_routing: expect.objectContaining({
+        selection: "ordered",
+        preferred_account_ids: ["22222222-2222-2222-2222-222222222222", "11111111-1111-1111-1111-111111111111"],
+      }) }),
+    }));
   });
 });

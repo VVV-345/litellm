@@ -4,7 +4,7 @@ import { Info } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 
-import { DataTableMultiSortHeader, DataTableSortHeader, type DataTableSortField } from "@/components/shared/DataTable";
+import { DataTableMultiSortHeader, DataTableSortHeader } from "@/components/shared/DataTable";
 import { inheritedBudgetGates } from "@/components/shared/InheritedBudgetHint";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +21,7 @@ import {
 import DefaultProxyAdminTag from "../common_components/DefaultProxyAdminTag";
 import { KeyResponse, Team } from "../key_team_helpers/key_list";
 import { Organization } from "../networking";
+import { VirtualKeySecret } from "./VirtualKeySecret";
 
 interface KeyStatus {
   tone: StatusTone;
@@ -177,10 +178,20 @@ export const getKeyTableColumns = ({
     id: "token",
     accessorKey: "token",
     meta: { title: t("virtualKeys.keyId") },
-    header: ({ column }) => <DataTableSortHeader column={column} title={t("virtualKeys.keyId")} variant="header-cycle" />,
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t("virtualKeys.keyId")} variant="header-cycle" />
+    ),
     size: 120,
     enableSorting: true,
     cell: (info) => <IdCell value={info.getValue() as string | null} onClick={() => onSelectKey(info.row.original)} />,
+  },
+  {
+    id: "secret",
+    meta: { title: t("ui.Secret Key") },
+    header: t("ui.Secret Key"),
+    size: 240,
+    enableSorting: false,
+    cell: ({ row }) => <VirtualKeySecret token={row.original.token} />,
   },
   {
     id: "team_alias",
@@ -227,7 +238,10 @@ export const getKeyTableColumns = ({
     accessorKey: "user",
     meta: { title: t("ui.User") },
     header: () => (
-      <InfoHeader label={t("ui.User")} tooltip={t("ui.Displays the first available value: User Alias, User Email, or User ID.")} />
+      <InfoHeader
+        label={t("ui.User")}
+        tooltip={t("ui.Displays the first available value: User Alias, User Email, or User ID.")}
+      />
     ),
     size: 160,
     enableSorting: false,
@@ -248,7 +262,9 @@ export const getKeyTableColumns = ({
     id: "created_at",
     accessorKey: "created_at",
     meta: { title: t("virtualKeys.createdAt") },
-    header: ({ column }) => <DataTableSortHeader column={column} title={t("virtualKeys.createdAt")} variant="header-cycle" />,
+    header: ({ column }) => (
+      <DataTableSortHeader column={column} title={t("virtualKeys.createdAt")} variant="header-cycle" />
+    ),
     size: 120,
     enableSorting: true,
     cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" />,

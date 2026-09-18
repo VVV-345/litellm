@@ -70,6 +70,7 @@ export function RegenerateKeyModal({ selectedToken, visible, onClose, onKeyUpdat
   const { t } = useTranslation();
   const { accessToken } = useAuthorized();
   const [regeneratedKey, setRegeneratedKey] = useState<string | null>(null);
+  const [showRegeneratedKey, setShowRegeneratedKey] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -149,6 +150,7 @@ export function RegenerateKeyModal({ selectedToken, visible, onClose, onKeyUpdat
 
   const handleClose = () => {
     setRegeneratedKey(null);
+    setShowRegeneratedKey(false);
     setIsRegenerating(false);
     setCopied(false);
     form.reset(EMPTY_VALUES);
@@ -169,7 +171,7 @@ export function RegenerateKeyModal({ selectedToken, visible, onClose, onKeyUpdat
           <div className="flex flex-col gap-4">
             <Alert variant="warning">
               <TriangleAlert />
-              <AlertTitle>{t("ui.Save it now, you will not see it again")}</AlertTitle>
+              <AlertTitle>请更新客户端使用的新密钥，可在虚拟密钥列表中再次查看</AlertTitle>
             </Alert>
 
             <div className="flex flex-col gap-0.5">
@@ -180,8 +182,11 @@ export function RegenerateKeyModal({ selectedToken, visible, onClose, onKeyUpdat
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">{t("ui.Virtual Key")}</span>
               <div className="rounded-md border border-border bg-muted px-4 py-3.5 font-mono text-base break-all text-foreground">
-                {regeneratedKey}
+                {showRegeneratedKey ? regeneratedKey : "****************"}
               </div>
+              <Button type="button" variant="outline" onClick={() => setShowRegeneratedKey(!showRegeneratedKey)}>
+                {showRegeneratedKey ? "隐藏密钥" : "显示密钥"}
+              </Button>
             </div>
           </div>
         ) : (

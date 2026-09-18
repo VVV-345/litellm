@@ -22,6 +22,7 @@ it("links request attempts to the saved body and loads the body only when expand
     result: { input_tokens: 5, output_tokens: 2 },
   };
   vi.mocked(apiClient.get).mockImplementation(async (path) => {
+    if (path === "/logs/timing/request-one") return [{ attempt: 1, phase: "upstream_headers", duration_ms: 1234, status: 200 }];
     if (path === "/logs/operations") return { items: [{ event_id: "event-one" }] };
     if (path === "/logs/operations/event-one")
       return {
@@ -46,6 +47,8 @@ it("links request attempts to the saved body and loads the body only when expand
     </QueryClientProvider>,
   );
   expect(await screen.findByText("upstream interrupted")).toBeInTheDocument();
+  expect(await screen.findByText("1234 ms · HTTP 200")).toBeInTheDocument();
+  expect(screen.getByText(/阶段包含重叠时间/)).toBeInTheDocument();
   expect(apiClient.get).toHaveBeenCalledWith("/logs/operations", {
     accessToken: "test",
     query: { request_id: "request-one", limit: 1 },

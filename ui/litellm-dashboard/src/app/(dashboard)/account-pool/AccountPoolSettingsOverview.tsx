@@ -341,6 +341,13 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         </p>
       )}
       <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        <OverviewCard title="设置生效规则" href="router-settings?tab=loadbalancing" scope="当前请求执行关系">
+          <dl className="space-y-3 text-sm">
+            <div><dt className="font-medium">选卡、顺序与会话保持</dt><dd className="mt-1 text-muted-foreground">由 LiteLLM 原生路由控制，密钥或团队的独立规则可能覆盖全局默认。卡片上的旧路由值仅保留查看。</dd></div>
+            <div><dt className="font-medium">单卡额度、并发、代理与模型</dt><dd className="mt-1 text-muted-foreground">由卡片设置控制，转发前再次检查；供应商设置需同步成功才可视为已生效。</dd></div>
+            <div><dt className="font-medium">虚拟密钥指定卡片</dt><dd className="mt-1 text-muted-foreground">始终限制在所选卡片范围内。顺序偏好、重试和回退均不能扩大这个范围。</dd></div>
+          </dl>
+        </OverviewCard>
         {[
           {
             title: "LiteLLM 路由、重试与回退",

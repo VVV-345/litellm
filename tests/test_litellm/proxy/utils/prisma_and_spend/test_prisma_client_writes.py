@@ -22,7 +22,10 @@ from litellm.proxy.utils import PrismaClient
 
 
 @pytest.mark.asyncio
-async def test_insert_data_hashes_token_and_upserts(prisma_client: PrismaClient) -> None:
+async def test_insert_data_hashes_token_and_upserts(prisma_client: PrismaClient, monkeypatch) -> None:
+    from litellm.proxy.management_helpers.virtual_key_secret import open_virtual_key
+
+    monkeypatch.setenv("LITELLM_SALT_KEY", "test-salt")
     token = "sk-secret-1"
     response = SimpleNamespace(token=hashlib.sha256(token.encode()).hexdigest(),
                                key_alias="alias", user_id="u1")
@@ -46,6 +49,8 @@ async def test_insert_data_hashes_token_and_upserts(prisma_client: PrismaClient)
         "update_empty": upsert_kwargs["data"]["update"],
     }
     expected_hash = hashlib.sha256(token.encode()).hexdigest()
+    ciphertext = upsert_kwargs["data"]["create"]["secret_record"]["create"]["ciphertext"]
+    assert open_virtual_key(ciphertext, expected_hash) == token
     assert actual == {
         "returned": response,
         "where": {"token": expected_hash},

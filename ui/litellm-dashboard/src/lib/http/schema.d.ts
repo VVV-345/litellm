@@ -8792,6 +8792,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/key/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reveal Virtual Key */
+        post: operations["reveal_virtual_key_key_reveal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/key/service-account/generate": {
         parameters: {
             query?: never;
@@ -9343,6 +9360,23 @@ export interface paths {
         get: operations["get_settings_logs_settings_get"];
         /** Update Settings */
         put: operations["update_settings_logs_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/timing/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Timing */
+        get: operations["timing_logs_timing__request_id__get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -24337,11 +24371,16 @@ export interface components {
         /** AccountPoolRoutingConfig */
         AccountPoolRoutingConfig: {
             /**
+             * Preferred Account Ids
+             * @default []
+             */
+            preferred_account_ids: string[];
+            /**
              * Selection
              * @default native
              * @enum {string}
              */
-            selection: "native" | "quota" | "plan" | "expiry";
+            selection: "native" | "quota" | "plan" | "expiry" | "ordered";
             /**
              * Session Affinity
              * @default false
@@ -39923,6 +39962,22 @@ export interface components {
              */
             name: string;
         };
+        /** TimingPhase */
+        TimingPhase: {
+            /** Attempt */
+            attempt: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Phase */
+            phase: string;
+            /**
+             * Segment Id
+             * Format: uuid
+             */
+            segment_id?: string;
+            /** Status */
+            status: number;
+        };
         /**
          * TokenCountDetailsResponse
          * @description Response structure for token count details with modality breakdown.
@@ -42038,6 +42093,16 @@ export interface components {
             } | null;
             /** Vector Store Name */
             vector_store_name?: string | null;
+        };
+        /** VirtualKeySecretRequest */
+        VirtualKeySecretRequest: {
+            /** Token */
+            token: string;
+        };
+        /** VirtualKeySecretResponse */
+        VirtualKeySecretResponse: {
+            /** Key */
+            key: string;
         };
         /** WorkerRegistryEntry */
         WorkerRegistryEntry: {
@@ -54568,6 +54633,39 @@ export interface operations {
             };
         };
     };
+    reveal_virtual_key_key_reveal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VirtualKeySecretRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VirtualKeySecretResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_service_account_key_fn_key_service_account_generate_post: {
         parameters: {
             query?: never;
@@ -55412,6 +55510,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RequestLogSettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    timing_logs_timing__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimingPhase"][];
                 };
             };
             /** @description Validation Error */

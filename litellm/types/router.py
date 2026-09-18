@@ -6,7 +6,7 @@ import datetime
 import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Generic, Literal, TypeVar, get_type_hints
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Generic, Literal, TypeVar, get_type_hints
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -108,7 +108,10 @@ class RetryPolicy(BaseModel):
 
 class AccountPoolRoutingConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    selection: Literal["native", "quota", "plan", "expiry"] = "native"
+    selection: Literal["native", "quota", "plan", "expiry", "ordered"] = "native"
+    preferred_account_ids: tuple[
+        Annotated[str, Field(pattern=r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")], ...
+    ] = ()
     session_affinity: bool = False
     session_affinity_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 

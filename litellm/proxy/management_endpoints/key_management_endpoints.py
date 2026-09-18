@@ -111,6 +111,7 @@ from litellm.proxy.management_helpers.team_member_permission_checks import (
     TeamMemberPermissionChecks,
 )
 from litellm.proxy.management_helpers.utils import management_endpoint_wrapper
+from litellm.proxy.management_helpers.virtual_key_secret import VirtualKeySecretRequest, VirtualKeySecretResponse
 from litellm.proxy.spend_tracking.spend_tracking_utils import _is_master_key
 from litellm.proxy.ui_crud_endpoints.proxy_setting_endpoints import (
     get_ui_settings_cached,
@@ -3822,6 +3823,43 @@ async def info_key_fn(
         raise handle_exception_on_proxy(e)
 
 
+@router.post("/key/reveal", tags=["key management"], response_model=VirtualKeySecretResponse)
+async def reveal_virtual_key(
+    data: VirtualKeySecretRequest,
+    response: fastapi.Response,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+) -> VirtualKeySecretResponse:
+    from litellm.proxy.management_helpers.virtual_key_secret import open_virtual_key
+    from litellm.proxy.proxy_server import prisma_client, user_api_key_cache
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    if prisma_client is None:
+        raise HTTPException(503, "Database unavailable")
+    if user_api_key_dict.user_role in (
+        LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY.value,
+        LitellmUserRoles.INTERNAL_USER_VIEW_ONLY.value,
+    ) or user_api_key_dict.key_type == "read_only":
+        raise HTTPException(403, "Read-only users cannot reveal secrets")
+    key_row: Final = await _prisma_table(VerificationTokenRepository(prisma_client)).find_unique(
+        where={"token": data.token}
+    )
+    if key_row is None:
+        raise HTTPException(404, "Key not found")
+    if key_row.team_id == UI_SESSION_TOKEN_TEAM_ID:
+        raise HTTPException(403, "Dashboard session tokens cannot be revealed")
+    if not (user_api_key_dict.user_id and key_row.user_id == user_api_key_dict.user_id):
+        await _check_key_admin_access(user_api_key_dict, data.token, prisma_client, user_api_key_cache, "/key/reveal")
+    db: Final = cast("Prisma", prisma_client.db)  # cast-ok: PrismaClient owns the generated Prisma client
+    secret: Final = await db.litellm_virtualkeysecret.find_unique(where={"token": data.token})
+    if secret is None:
+        raise HTTPException(409, "此旧密钥只保存了哈希，无法恢复完整值。原密钥仍可使用；需要查看时请主动重新生成并更新客户端")
+    plaintext: Final = open_virtual_key(secret.ciphertext, data.token)
+    if plaintext is None:
+        raise HTTPException(503, "密钥暂时无法解密，请检查服务器加密配置")
+    return VirtualKeySecretResponse(key=plaintext)
+
+
 def _check_model_access_group(models: list[str] | None, llm_router: Router | None, premium_user: bool) -> Literal[True]:
     """
     if is_model_access_group is True + is_wildcard_route is True, check if user is a premium user
@@ -4511,7 +4549,16 @@ async def _rotate_master_key(
     """
     import prisma
 
+    from litellm.proxy.common_utils.encrypt_decrypt_utils import encrypt_value_helper
+    from litellm.proxy.management_helpers.virtual_key_secret import open_virtual_key
     from litellm.proxy.proxy_server import proxy_config
+
+    rotate_virtual_secrets: Final = not os.environ.get("LITELLM_SALT_KEY")
+    secret_db: Final = cast(prisma.Prisma, prisma_client.db)  # cast-ok: PrismaClient owns the generated Prisma client
+    stored_secrets: Final = await secret_db.litellm_virtualkeysecret.find_many() if rotate_virtual_secrets else ()
+    reencrypted: Final = tuple((item.token, open_virtual_key(item.ciphertext, item.token)) for item in stored_secrets)
+    if any(value is None for _, value in reencrypted):
+        raise HTTPException(409, "Virtual key secrets must be decryptable before rotating the master key")
 
     try:
         models: list | None = cast(  # cast-ok: find_many returns a real list, which TableActions widens to Sequence
@@ -4643,6 +4690,15 @@ async def _rotate_master_key(
                 # Continue with next credential instead of failing entire rotation
                 continue
         verbose_proxy_logger.debug("Successfully re-encrypted %s credentials with new master key", len(credentials))
+
+    if reencrypted:
+        async with secret_db.tx() as secret_tx:
+            for token_hash, plaintext in reencrypted:
+                if plaintext is not None:
+                    await secret_tx.litellm_virtualkeysecret.update(
+                        where={"token": token_hash},
+                        data={"ciphertext": encrypt_value_helper(plaintext, new_encryption_key=new_master_key)},
+                    )
 
 
 def _require_proxy_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
@@ -4871,6 +4927,9 @@ async def _execute_virtual_key_regeneration(
     new_token: Final = await get_new_token(data=data)
     new_token_hash: Final = hash_token(new_token)
     new_token_key_name: Final = abbreviate_api_key(api_key=new_token)
+    from litellm.proxy.management_helpers.virtual_key_secret import seal_virtual_key
+
+    encrypted_token: Final = seal_virtual_key(new_token)
     update_data = {"token": new_token_hash, "key_name": new_token_key_name}
 
     non_default_values = {}
@@ -4884,7 +4943,12 @@ async def _execute_virtual_key_regeneration(
             _validate_key_alias_format(key_alias=new_key_alias)
         verbose_proxy_logger.debug("non_default_values: %s", non_default_values)
     update_data.update(non_default_values)
-    jsonified_update_data: Final[Mapping[str, object]] = prisma_client.jsonify_object(data=update_data)
+    jsonified_update_data: Final[Mapping[str, object]] = {
+        **prisma_client.jsonify_object(data=update_data),
+        "secret_record": {
+            "upsert": {"create": {"ciphertext": encrypted_token}, "update": {"ciphertext": encrypted_token}}
+        },
+    }
 
     # If grace period set, insert deprecated key so old key remains valid
     if legacy_binding is None:

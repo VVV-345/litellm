@@ -516,7 +516,7 @@ function PolicyForm({
             <p>
               权重、优先级和备用标记只在首次同步时初始化 LiteLLM 模型的 weight/order，之后以模型编辑中的值为准。
               额度、套餐、到期时间偏好及会话亲和性已在 LiteLLM Router Settings
-              中提供新设置；此处旧值不会自动覆盖原生设置。旧指定账号顺序尚未迁移。 旧重试与回退字段保留，但实际请求使用
+              中提供新设置，包括按指定卡片顺序选择；此处旧值不会自动覆盖原生设置。旧重试与回退字段保留，但实际请求使用
               LiteLLM 的重试和回退设置。
             </p>
             <dl className="grid gap-2 sm:grid-cols-2">

@@ -73,7 +73,7 @@ def test_migrated_routes_require_admin_and_pool_no_longer_owns_logs() -> None:
     app.include_router(create_management_router(manager.request, authorize), prefix="/account_pool")
     app.dependency_overrides[user_api_key_auth] = lambda: "viewer"
     with TestClient(app) as client:
-        for path in ("/logs/settings", "/logs/operations", "/logs/full"):
+        for path in ("/logs/settings", "/logs/operations", "/logs/full", "/logs/timing/00000000-0000-0000-0000-000000000001"):
             assert client.get(path).status_code == 403
         for path in ("/account_pool/logs", "/account_pool/full-logs", "/account_pool/stats"):
             assert client.get(path).status_code == 404

@@ -2,9 +2,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
 
 export type AccountPoolRoutingValue = {
-  selection: "native" | "quota" | "plan" | "expiry";
+  selection: "native" | "quota" | "plan" | "expiry" | "ordered";
+  preferred_account_ids: string[];
   session_affinity: boolean;
   session_affinity_ttl_seconds: number;
 };
@@ -13,6 +17,7 @@ export const accountPoolRoutingValue = (value: unknown): AccountPoolRoutingValue
   const source = typeof value === "object" && value !== null ? (value as Partial<AccountPoolRoutingValue>) : {};
   return {
     selection: source.selection ?? "native",
+    preferred_account_ids: source.preferred_account_ids ?? [],
     session_affinity: source.session_affinity ?? false,
     session_affinity_ttl_seconds: source.session_affinity_ttl_seconds ?? 3600,
   };
@@ -26,6 +31,14 @@ export function AccountPoolRoutingFields({
   onChange: (value: AccountPoolRoutingValue) => void;
 }) {
   const current = accountPoolRoutingValue(value);
+  const { accessToken } = useAuthorized();
+  const cards = useAccountPoolQuery(accessToken, current.selection === "ordered", false);
+  const available = cards.data ?? [];
+  const moveEarlier = (index: number) => {
+    const order = [...current.preferred_account_ids];
+    [order[index - 1], order[index]] = [order[index], order[index - 1]];
+    onChange({ ...current, preferred_account_ids: order });
+  };
   return (
     <section className="space-y-4 rounded-xl border bg-muted/20 p-5">
       <div>
@@ -51,6 +64,7 @@ export function AccountPoolRoutingFields({
                     quota: "优先剩余额度多的账号",
                     plan: "优先高等级套餐",
                     expiry: "优先较早到期的套餐",
+                    ordered: "按指定卡片顺序",
                   }[current.selection]
                 }
               </SelectValue>
@@ -60,8 +74,69 @@ export function AccountPoolRoutingFields({
               <SelectItem value="quota">优先剩余额度多的账号</SelectItem>
               <SelectItem value="plan">优先高等级套餐</SelectItem>
               <SelectItem value="expiry">优先较早到期的套餐</SelectItem>
+              <SelectItem value="ordered">按指定卡片顺序</SelectItem>
             </SelectContent>
           </Select>
+          {current.selection === "ordered" && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">
+                从上到下优先；不可用或本次已失败的卡片会跳过，未列出的卡片最后参与选择。不会扩大密钥权限。
+              </p>
+              {current.preferred_account_ids.map((id, index) => (
+                <div className="flex items-center gap-2 text-xs" key={id}>
+                  <span className="min-w-0 flex-1 break-all">
+                    {index + 1}. {available.find((card) => card.id === id)?.name ?? id}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={index === 0}
+                    onClick={() => moveEarlier(index)}
+                  >
+                    上移
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      onChange({
+                        ...current,
+                        preferred_account_ids: current.preferred_account_ids.filter((item) => item !== id),
+                      })
+                    }
+                  >
+                    移除
+                  </Button>
+                </div>
+              ))}
+              <Select
+                value=""
+                onValueChange={(id) =>
+                  id && onChange({ ...current, preferred_account_ids: [...current.preferred_account_ids, id] })
+                }
+              >
+                <SelectTrigger className="w-full" aria-label="添加优先卡片">
+                  <SelectValue placeholder="添加卡片到顺序末尾" />
+                </SelectTrigger>
+                <SelectContent>
+                  {available
+                    .filter((card) => !current.preferred_account_ids.includes(card.id))
+                    .map((card) => (
+                      <SelectItem key={card.id} value={card.id}>
+                        {card.name} · {card.enabled_models.length} 个模型 · {card.status}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {cards.isError && (
+                <p role="alert" className="text-xs text-destructive">
+                  卡片列表读取失败，请刷新后重试
+                </p>
+              )}
+            </div>
+          )}
           <p className="text-xs leading-5 text-muted-foreground">
             使用最近一次额度快照。额度低于单卡阈值、已到期或模型冷却中的卡片会被排除；最终转发前还会检查实时状态。
           </p>

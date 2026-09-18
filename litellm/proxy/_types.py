@@ -584,6 +584,7 @@ class LiteLLMRoutes(enum.Enum):
         + model_info_routes
     )
     info_routes = [
+        "/key/reveal",
         "/key/info",
         "/key/health",
         "/team/info",

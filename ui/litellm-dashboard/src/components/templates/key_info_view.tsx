@@ -1,4 +1,5 @@
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import { VirtualKeySecret } from "@/components/VirtualKeysPage/VirtualKeySecret";
 import { useProjects } from "@/app/(dashboard)/hooks/projects/useProjects";
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
 import useTeams from "@/app/(dashboard)/hooks/useTeams";
@@ -803,7 +804,7 @@ export default function KeyInfoView({
 
                   <div>
                     <p className="text-sm font-medium">{t("ui.Secret Key")}</p>
-                    <p className="text-sm font-mono">{currentKeyData.key_name}</p>
+                    <VirtualKeySecret key={currentKeyData.token_id || currentKeyData.token} token={currentKeyData.token_id || currentKeyData.token} />
                   </div>
 
                   <div>

@@ -725,6 +725,8 @@ class HttpCLIProxyClient:
             if record.manual_cooldown or automatically_cooling
             else EnvironmentStatus.READY
         )
+        if self._ownership is not None and credential is not None:
+            await self._ownership.retain(record.id, credential.fingerprints)
         return record.model_copy(
             update={
                 "auth_file_name": auth_file.name,

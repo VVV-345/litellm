@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Annotated, Final, Literal
 from uuid import UUID
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_full_log_api import create_full_log_router
+from litellm.proxy.management_endpoints.account_pool_full_logs import full_log_store
 from litellm.proxy.management_endpoints.account_pool_management import ManagementRequest, parse_response
 from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolLogClearResult,
@@ -23,6 +25,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     ErrorLogQuery,
     ErrorStats,
 )
+from litellm.proxy.management_endpoints.account_pool_timing import TimingPhase
 
 
 class RequestLogSettings(BaseModel):
@@ -58,6 +61,10 @@ def create_request_log_router(
 
     router: Final = APIRouter(prefix="/logs", tags=["Logs"], dependencies=[Depends(authorize)])
     router.include_router(create_full_log_router(prefix="/full"))
+
+    @router.get("/timing/{request_id}")
+    async def timing(request_id: UUID) -> tuple[TimingPhase, ...]:
+        return await asyncio.to_thread(full_log_store().timing, request_id)
 
     async def call(
         method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None

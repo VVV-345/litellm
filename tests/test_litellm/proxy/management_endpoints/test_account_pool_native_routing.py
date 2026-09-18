@@ -61,6 +61,17 @@ def test_preference_keeps_ties_and_unmanaged_deployments():
     assert preferred_deployments(models, "shared", AccountPoolRoutingConfig(), values, now) == models
 
 
+def test_explicit_card_order_only_narrows_existing_candidates_and_preserves_direct_routes():
+    now = datetime.now(timezone.utc)
+    first, second, outside = (str(uuid4()) for _ in range(3))
+    models = [deployment(first), deployment(second)]
+    direct = {"model_info": {"id": "direct"}}
+    config = AccountPoolRoutingConfig(selection="ordered", preferred_account_ids=(outside, second, first))
+    assert preferred_deployments([*models, direct], "shared", config, {}, now) == [models[1], direct]
+    assert preferred_deployments([models[0]], "shared", config, {}, now) == [models[0]]
+    assert preferred_deployments([], "shared", config, {}, now) == []
+
+
 @pytest.mark.asyncio
 async def test_router_filters_exhausted_card_before_native_order_and_honors_scope():
     first, second = uuid4(), uuid4()
@@ -160,6 +171,7 @@ def test_router_setting_updates_take_effect_and_roundtrip():
         router.update_settings(**persisted)
         assert router.get_settings()["enable_weighted_failover"] is True
         assert router.get_settings()["account_pool_routing"] == {
+            "preferred_account_ids": (),
             "selection": "expiry",
             "session_affinity": True,
             "session_affinity_ttl_seconds": 900,

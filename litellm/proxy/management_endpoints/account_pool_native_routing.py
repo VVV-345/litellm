@@ -108,6 +108,24 @@ def preferred_deployments(
 ) -> list[Deployment]:
     if config.selection == "native":
         return list(deployments)
+    if config.selection == "ordered":
+        positions: Final = {card: index for index, card in enumerate(config.preferred_account_ids)}
+        preferred: Final = tuple(
+            (
+                deployment,
+                positions.get(str(cast(Mapping[str, object], info).get("account_pool_environment_id")), len(positions)),
+            )
+            for deployment in deployments
+            if isinstance((info := deployment.get("model_info")), Mapping)
+            and cast(Mapping[str, object], info).get("account_pool_environment_id") is not None
+        )
+        best_position: Final = min((position for _, position in preferred), default=len(positions))
+        return [
+            deployment
+            for deployment in deployments
+            if not any(item is deployment for item, _ in preferred)
+            or any(item is deployment and position == best_position for item, position in preferred)
+        ]
     ranked: Final = tuple(
         rank(snapshot, model, config.selection, now)
         for deployment in deployments

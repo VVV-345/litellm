@@ -16,13 +16,14 @@ describe("CreatedKeyDisplay", () => {
 
   it("should render", () => {
     render(<CreatedKeyDisplay apiKey="sk-test-123" />);
-    expect(screen.getByText("sk-test-123")).toBeInTheDocument();
+    expect(screen.queryByText("sk-test-123")).not.toBeInTheDocument();
+    expect(screen.getByText("****************")).toBeInTheDocument();
   });
 
   it("should theme the key box with tokens instead of a hardcoded light background", () => {
     render(<CreatedKeyDisplay apiKey="sk-test-123" />);
 
-    const keyBox = screen.getByText("sk-test-123").parentElement as HTMLElement;
+    const keyBox = screen.getByText("****************").parentElement as HTMLElement;
 
     expect(keyBox).not.toHaveAttribute("style");
     expect(keyBox).toHaveClass("bg-muted");
@@ -30,7 +31,7 @@ describe("CreatedKeyDisplay", () => {
 
   it("should display the security warning", () => {
     render(<CreatedKeyDisplay apiKey="sk-test-123" />);
-    expect(screen.getByText(/you will not be able to view it again/i)).toBeInTheDocument();
+    expect(screen.getByText(/密钥默认隐藏/)).toBeInTheDocument();
   });
 
   it("should show the copy button with initial label", () => {

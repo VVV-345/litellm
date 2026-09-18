@@ -1800,3 +1800,44 @@ async def test_duplicate_oauth_account_is_disabled_before_models_or_quota_calls(
         with pytest.raises(CredentialConflict, match="已绑定其他卡片"):
             await operation
     assert disabled == ["duplicate.json"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("models_status", [200, 503])
+async def test_verified_single_credential_releases_stale_ownership_only_after_success(models_status: int) -> None:
+    from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
+
+    registry: Final = CredentialOwnership()
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _record()
+    old: Final = credential_identity(
+        b'{"refresh_token":"old","email":"old@example.test"}', record.supplier.value, secrets
+    )
+    content: Final = b'{"refresh_token":"new","email":"new@example.test"}'
+    current: Final = credential_identity(content, record.supplier.value, secrets)
+    await registry.claim(record.id, old.fingerprints)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, content=content)
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(
+                200, json={"files": [{"name": "current.json", "provider": "codex", "auth_index": "1"}]}
+            )
+        if request.url.path.endswith("/models"):
+            return httpx.Response(models_status, json={"models": [{"id": "model-a"}]})
+        raise AssertionError(request.url.path)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(secrets, client, registry)
+        if models_status != 200:
+            with pytest.raises(httpx.HTTPStatusError):
+                await proxy.read_account(record)
+            assert await registry.owns(record.id, old.fingerprints)
+            return
+        observed: Final = await proxy.read_account(record)
+    assert observed.credential_fingerprints == current.fingerprints
+    assert not await registry.owns(record.id, old.fingerprints)
+    await registry.claim(uuid4(), old.fingerprints)
+    with pytest.raises(CredentialConflict):
+        await registry.claim(uuid4(), current.fingerprints)

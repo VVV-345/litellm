@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen, waitFor } from "../../../tests/test-utils";
 import { RegenerateKeyModal } from "./RegenerateKeyModal";
 import { KeyResponse } from "../key_team_helpers/key_list";
+import i18n from "@/i18n";
 
 const mockRegenerateKeyCall = vi.fn();
 vi.mock("../networking", () => ({
@@ -36,7 +37,8 @@ const submittedPayload = (): Record<string, unknown> =>
   mockRegenerateKeyCall.mock.calls[0][2] as Record<string, unknown>;
 
 describe("RegenerateKeyModal submit payload", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
     vi.clearAllMocks();
     mockRegenerateKeyCall.mockResolvedValue({ key: "sk-new-regenerated-key", token: "new-token-hash" });
   });
@@ -266,6 +268,7 @@ describe("RegenerateKeyModal submit payload", () => {
 
     await regenerate(user);
 
+    await user.click(await screen.findByRole("button", { name: "显示密钥" }));
     expect(await screen.findByText("sk-new-regenerated-key")).toBeInTheDocument();
     expect(onKeyUpdate).toHaveBeenCalledWith({
       key: "sk-new-regenerated-key",
@@ -285,7 +288,8 @@ describe("RegenerateKeyModal submit payload", () => {
 
     await regenerate(user);
 
-    expect(await screen.findByText("sk-new-regenerated-key")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "显示密钥" })).toBeInTheDocument();
+    expect(screen.queryByText("sk-new-regenerated-key")).not.toBeInTheDocument();
     expect(localSetItem.mock.calls.flat()).not.toContain("sk-new-regenerated-key");
   });
 });

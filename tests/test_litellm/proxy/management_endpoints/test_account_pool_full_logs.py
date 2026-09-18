@@ -403,3 +403,19 @@ async def test_full_content_limit_is_explicit_and_usage_still_collected(store: F
     saved: Final = store.detail(log.lease.lease_id)
     assert saved is not None
     assert len(saved.response) == 16 * 1024 * 1024
+
+
+def test_timing_is_persistent_request_scoped_and_independent_of_body_storage(store: FullLogStore) -> None:
+    from litellm.proxy.management_endpoints.account_pool_timing import TimingPhase
+
+    request_id: Final = uuid4()
+    phase: Final = TimingPhase(attempt=1, phase="acquire", duration_ms=125, status=200)
+    store.save_timing(request_id, (phase,))
+    reopened: Final = FullLogStore(store.root)
+    assert reopened.timing(request_id) == (phase,)
+    assert reopened.timing(uuid4()) == ()
+    assert not store.path.exists()
+    with store.timing_connection() as connection:
+        connection.execute("UPDATE request_timings SET recorded_at = 0")
+    store.save_timing(uuid4(), (phase,))
+    assert reopened.timing(request_id) == ()
