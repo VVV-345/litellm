@@ -888,6 +888,8 @@ class EnvironmentService:
         return tuple(
             endpoint.model_copy(
                 update={
+                    "routing_weight": policy.routing.weight,
+                    "routing_order": (20001 if policy.routing.is_backup else 0) - policy.routing.priority,
                     "public_models": tuple(
                         dict.fromkeys(
                             model
@@ -902,7 +904,7 @@ class EnvironmentService:
                             )
                             if model not in policy.excluded_models
                         )
-                    )
+                    ),
                 }
             )
             for record in refreshed

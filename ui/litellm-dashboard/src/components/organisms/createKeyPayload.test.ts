@@ -579,3 +579,20 @@ describe("model_max_budget", () => {
     expect(payloadOf(build({}))).not.toHaveProperty("model_max_budget");
   });
 });
+
+describe("native account binding", () => {
+  it("merges selected card into metadata without replacing native permissions", () => {
+    const payload = payloadOf(
+      build({ account_id: "card-1", metadata: '{"project":"demo"}', models: ["model-a"], guardrails: ["guard-a"] }),
+    );
+    expect(JSON.parse(payload.metadata as string)).toEqual({ project: "demo", account_pool_card_id: "card-1" });
+    expect(payload.models).toEqual(["model-a"]);
+    expect(payload.guardrails).toEqual(["guard-a"]);
+    expect(payload).not.toHaveProperty("account_id");
+  });
+  it("leaves an unselected key unrestricted by cards", () => {
+    const payload = payloadOf(build({ account_id: "", metadata: '{"project":"demo"}' }));
+    expect(JSON.parse(payload.metadata as string)).toEqual({ project: "demo" });
+    expect(payload).not.toHaveProperty("account_id");
+  });
+});

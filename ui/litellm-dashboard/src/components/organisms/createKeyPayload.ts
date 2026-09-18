@@ -103,7 +103,9 @@ const buildMetadataJson = (values: Record<string, unknown>, input: KeyCreateInpu
     input.disabledCallbacks.length > 0
       ? { ...(logged as object), litellm_disabled_callbacks: mapDisplayToInternalNames(input.disabledCallbacks) }
       : logged;
-  return JSON.stringify(disabled);
+  return JSON.stringify(
+    values.account_id ? { ...(disabled as object), account_pool_card_id: values.account_id } : disabled,
+  );
 };
 
 interface PermissionSources {
@@ -147,6 +149,7 @@ const consumedSourceKeys = (
   { vectorStores, mcp, extraMcpAccessGroups, agents }: PermissionSources,
 ): ReadonlySet<string> =>
   new Set<string>([
+    "account_id",
     "mcp_tool_permissions",
     ...(values.disable_global_guardrails ? [] : ["disable_global_guardrails"]),
     ...(vectorStores ? ["allowed_vector_store_ids"] : []),

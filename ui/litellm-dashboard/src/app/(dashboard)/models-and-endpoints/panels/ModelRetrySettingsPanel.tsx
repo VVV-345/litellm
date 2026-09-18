@@ -8,6 +8,7 @@ import { useModelDashboardData } from "@/app/(dashboard)/models-and-endpoints/us
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "react-i18next";
+import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 
 interface RetryPolicyObject {
   [key: string]: { [retryPolicyKey: string]: number } | undefined;
@@ -86,17 +87,20 @@ export default function ModelRetrySettingsPanel() {
   };
 
   return (
-    <ModelRetrySettingsTab
-      selectedModelGroup={retryScope}
-      setSelectedModelGroup={setRetryScope}
-      availableModelGroups={availableModelGroups}
-      globalRetryPolicy={globalRetryPolicy}
-      setGlobalRetryPolicy={setGlobalRetryPolicy}
-      defaultRetry={defaultRetry}
-      modelGroupRetryPolicy={modelGroupRetryPolicy}
-      setModelGroupRetryPolicy={setModelGroupRetryPolicy}
-      handleSaveRetrySettings={handleSaveRetrySettings}
-      isSaving={updateRetryPolicy.isPending}
-    />
+    <div className="space-y-6">
+      <ModelRetrySettingsTab
+        selectedModelGroup={retryScope}
+        setSelectedModelGroup={setRetryScope}
+        availableModelGroups={availableModelGroups}
+        globalRetryPolicy={globalRetryPolicy}
+        setGlobalRetryPolicy={setGlobalRetryPolicy}
+        defaultRetry={defaultRetry}
+        modelGroupRetryPolicy={modelGroupRetryPolicy}
+        setModelGroupRetryPolicy={setModelGroupRetryPolicy}
+        handleSaveRetrySettings={handleSaveRetrySettings}
+        isSaving={updateRetryPolicy.isPending}
+      />
+      <RuntimeSettings category="network" />
+    </div>
   );
 }

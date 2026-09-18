@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -30,6 +30,8 @@ class GatewayEnvironment(BaseModel):
     concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
     public_models: tuple[str, ...] | None = None
+    routing_weight: int | None = Field(default=None, ge=1, le=10000)
+    routing_order: int | None = None
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -49,6 +51,17 @@ class ManagedDeployment:
     max_parallel_requests: int | None
     custom_llm_provider: Literal["openai"] = "openai"
     blocked: bool = False
+    routing_weight: int | None = field(default=None, compare=False)
+    routing_order: int | None = field(default=None, compare=False)
+    native_routing_migrated: bool = False
+
+    @property
+    def routing_defaults(self) -> dict[str, object]:
+        return {
+            name: value
+            for name, value in (("weight", self.routing_weight), ("order", self.routing_order))
+            if value is not None
+        }
 
     @property
     def litellm_params(self) -> dict[str, object]:
@@ -69,6 +82,7 @@ class ManagedDeployment:
             "managed_by": _MANAGED_BY,
             "account_pool_environment_id": self.environment_id,
             "account_pool_model": self.model_name,
+            "account_pool_native_routing": self.native_routing_migrated,
         }
 
 
@@ -102,9 +116,14 @@ class ManagerGatewayClient:
         return _GATEWAY_ENVIRONMENTS.validate_json(response.content)
 
 
+class _StoredProperties(BaseModel):
+    litellm_params: dict[str, object]
+    model_info: dict[str, object] | None = None
+
+
 class LiteLLMDeploymentStore:
-    def __init__(self, prisma_client: object) -> None:
-        self._repository: Final = ModelRepository(prisma_client)
+    def __init__(self, prisma_client: object, repository: ModelRepository | None = None) -> None:
+        self._repository: Final = repository if repository is not None else ModelRepository(prisma_client)
 
     async def list_managed(self) -> tuple[ManagedDeployment, ...]:
         rows: Final = await self._repository.find_all()
@@ -115,13 +134,13 @@ class LiteLLMDeploymentStore:
         current_deployment: Final = None if current is None else _from_row(current)
         if current is not None and current_deployment is None:
             raise RuntimeError(f"deployment id {deployment.id} is already owned outside the account pool")
-        if current_deployment == deployment and current is not None:
+        if _matches(current_deployment, deployment):
             return False
         if current is None:
             try:
                 await self._repository.create_model(
                     model_name=deployment.model_name,
-                    litellm_params=deployment.litellm_params,
+                    litellm_params={**deployment.litellm_params, **deployment.routing_defaults},
                     model_info=deployment.model_info,
                     model_id=deployment.id,
                     created_by=_CREATED_BY,
@@ -132,11 +151,22 @@ class LiteLLMDeploymentStore:
                 raced: Final = await self._repository.find_by_id(deployment.id)
                 if raced is None or _from_row(raced) is None:
                     raise
+                return await self.upsert(deployment)
+        preserved: Final = _StoredProperties.model_validate(current, from_attributes=True)
         await self._repository.update_model(
             model_id=deployment.id,
             model_name=deployment.model_name,
-            litellm_params={**(current.litellm_params if current is not None else {}), **deployment.litellm_params},
-            model_info={**((current.model_info or {}) if current is not None else {}), **deployment.model_info},
+            litellm_params={
+                **deployment.routing_defaults,
+                **preserved.litellm_params,
+                **deployment.litellm_params,
+            },
+            model_info={
+                **(preserved.model_info or {}),
+                **deployment.model_info,
+                "account_pool_native_routing": deployment.native_routing_migrated
+                or (current_deployment is not None and current_deployment.native_routing_migrated),
+            },
             blocked=deployment.blocked,
             updated_by=_CREATED_BY,
         )
@@ -174,7 +204,7 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
             *(
                 store.upsert(deployment)
                 for deployment_id, deployment in desired_by_id.items()
-                if current_by_id.get(deployment_id) != deployment
+                if not _matches(current_by_id.get(deployment_id), deployment)
             )
         )
     )
@@ -249,7 +279,19 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
         blocked=not environment.routable,
+        routing_weight=environment.routing_weight,
+        routing_order=environment.routing_order,
+        native_routing_migrated=environment.routing_weight is not None and environment.routing_order is not None,
     )
+
+
+def _matches(current: ManagedDeployment | None, desired: ManagedDeployment) -> bool:
+    from dataclasses import replace
+
+    if current is None:
+        return False
+    expected: Final = replace(desired, native_routing_migrated=current.native_routing_migrated)
+    return current == expected and (current.native_routing_migrated or not desired.native_routing_migrated)
 
 
 def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
@@ -283,6 +325,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         api_key=api_key,
         max_parallel_requests=max_parallel_requests,
         blocked=blocked,
+        native_routing_migrated=info.get("account_pool_native_routing") is True,
     )
 
 

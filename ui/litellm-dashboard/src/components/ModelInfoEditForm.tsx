@@ -83,6 +83,8 @@ export interface ModelEditFormValues {
   tpm?: string | number | null;
   rpm?: string | number | null;
   max_retries?: string | number | null;
+  weight?: string | number | null;
+  order?: string | number | null;
   timeout?: string | number | null;
   stream_timeout?: string | number | null;
   input_cost?: string | number | null;
@@ -119,6 +121,8 @@ const modelEditShape = {
   tpm: scalar,
   rpm: scalar,
   max_retries: scalar,
+  weight: scalar,
+  order: scalar,
   timeout: scalar,
   stream_timeout: scalar,
   input_cost: scalar,
@@ -214,6 +218,8 @@ export const toModelEditFormValues = (localModelData: any, isWildcardModel: bool
   tpm: localModelData.litellm_params.tpm,
   rpm: localModelData.litellm_params.rpm,
   max_retries: localModelData.litellm_params.max_retries,
+  weight: localModelData.litellm_params.weight,
+  order: localModelData.litellm_params.order,
   timeout: localModelData.litellm_params.timeout,
   stream_timeout: localModelData.litellm_params.stream_timeout,
   input_cost: perMillionTokens(
@@ -383,10 +389,13 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
     onCancel();
   };
 
+  const managed = localModelData.model_info?.managed_by === "account_pool";
+  const protectedFields = ["model_name", "litellm_model_name", "api_base", "custom_llm_provider"];
+
   const textField = (name: ModelEditFieldName, label: string, placeholder: string, stored: unknown) => (
     <div>
       <FieldLabel>{label}</FieldLabel>
-      {isEditing ? (
+      {isEditing && !(managed && protectedFields.includes(name)) ? (
         <FormField control={form.control} name={name}>
           {({ value, ...control }) => <Input {...control} value={(value as string) ?? ""} placeholder={placeholder} />}
         </FormField>
@@ -401,7 +410,9 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
       <FieldLabel>{label}</FieldLabel>
       {isEditing ? (
         <FormField control={form.control} name={name}>
-          {({ value, ...control }) => <NumericalInput {...control} value={value ?? ""} placeholder={placeholder} />}
+          {({ value, ...control }) => (
+            <NumericalInput {...control} aria-label={label} value={value ?? ""} placeholder={placeholder} />
+          )}
         </FormField>
       ) : (
         <Display>{(stored as string) || "Not Set"}</Display>
@@ -532,7 +543,18 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
 
             {numberField("tpm", "TPM (Tokens per Minute)", "Enter TPM", localModelData.litellm_params?.tpm)}
             {numberField("rpm", "RPM (Requests per Minute)", "Enter RPM", localModelData.litellm_params?.rpm)}
-            {numberField("max_retries", "Max Retries", "Enter max retries", localModelData.litellm_params?.max_retries)}
+            {numberField("weight", "路由权重", "数值越大，随机路由时占比越高", localModelData.litellm_params?.weight)}
+            {numberField(
+              "order",
+              "路由优先级",
+              "数值越小越优先，失败后按顺序回退",
+              localModelData.litellm_params?.order,
+            )}
+            {localModelData.model_info?.account_pool_environment_id ? (
+              <p className="text-sm text-muted-foreground">重试使用模型重试页或虚拟密钥中的路由策略</p>
+            ) : (
+              numberField("max_retries", "Max Retries", "Enter max retries", localModelData.litellm_params?.max_retries)
+            )}
             {numberField("timeout", "Timeout (seconds)", "Enter timeout", localModelData.litellm_params?.timeout)}
             {numberField(
               "stream_timeout",
@@ -623,7 +645,7 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
 
             <div>
               <FieldLabel>Existing Credentials</FieldLabel>
-              {isEditing ? (
+              {isEditing && !managed ? (
                 <FormField control={form.control} name="litellm_credential_name">
                   {({ id, value, onChange, onBlur }) => {
                     const items = [
@@ -654,7 +676,9 @@ const ModelInfoEditForm: React.FC<ModelInfoEditFormProps> = ({
                   }}
                 </FormField>
               ) : (
-                <Display>{localModelData.litellm_params?.litellm_credential_name || "Manual"}</Display>
+                <Display>
+                  {managed ? "使用卡片认证文件" : localModelData.litellm_params?.litellm_credential_name || "Manual"}
+                </Display>
               )}
             </div>
 

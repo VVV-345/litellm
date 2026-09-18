@@ -253,13 +253,16 @@ export const putCardAccountPoolPluginConfig = (
   );
 
 export const getAccountPoolSettings = (accessToken: string) =>
-  apiClient.get<AccountPoolSettingsView>("/account_pool/settings", { accessToken });
+  apiClient.get<AccountPoolSettingsView>("/config/runtime", { accessToken });
 
 export const listAccountPoolSettingsHistory = (accessToken: string) =>
   apiClient.get<AccountPoolSettingsHistoryEntry[]>("/account_pool/settings/history", { accessToken });
 
-export const updateAccountPoolSettings = (accessToken: string, request: AccountPoolSettingsUpdate) =>
-  apiClient.put<AccountPoolSettingsView>("/account_pool/settings", { accessToken, body: request });
+export const updateAccountPoolSettings = (
+  accessToken: string,
+  request: AccountPoolSettingsUpdate,
+  section: "common" | "access" | "network" | "quota" | "streaming" | "advanced" | "payload",
+) => apiClient.put<AccountPoolSettingsView>(`/config/runtime/${section}`, { accessToken, body: request });
 
 export const previewAccountPoolSettings = (accessToken: string, request: AccountPoolSettingsUpdate) =>
   apiClient.post<AccountPoolSettingsPreview>("/account_pool/settings/preview", { accessToken, body: request });

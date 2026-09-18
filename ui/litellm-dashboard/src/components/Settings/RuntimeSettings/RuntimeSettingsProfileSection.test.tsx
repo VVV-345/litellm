@@ -6,11 +6,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  AccountPoolSettingsProfileSection,
+  RuntimeSettingsProfileSection,
   createSettingsProfileId,
   type SettingsProfile,
-} from "./AccountPoolSettingsProfileSection";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+} from "./RuntimeSettingsProfileSection";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 type Values = { enabled: boolean };
 
@@ -40,7 +40,7 @@ const Harness = () => {
     },
   ]);
   return (
-    <AccountPoolSettingsProfileSection
+    <RuntimeSettingsProfileSection
       moduleName="流式传输"
       globalValues={globalValues}
       profiles={profiles}
@@ -59,7 +59,7 @@ const Harness = () => {
   );
 };
 
-describe("AccountPoolSettingsProfileSection", () => {
+describe("RuntimeSettingsProfileSection", () => {
   it("creates a configuration id when randomUUID is unavailable on an HTTP origin", () => {
     const originalCrypto = globalThis.crypto;
     try {

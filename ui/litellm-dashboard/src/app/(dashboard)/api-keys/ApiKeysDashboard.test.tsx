@@ -1,9 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
-const { userDashboardSpy, setAccountId, session } = vi.hoisted(() => ({
+const { userDashboardSpy, session } = vi.hoisted(() => ({
   userDashboardSpy: vi.fn((_props: Record<string, unknown>) => null),
-  setAccountId: vi.fn(),
   session: { role: "Admin", accountId: null as string | null },
 }));
 
@@ -45,17 +44,7 @@ vi.mock("@/app/(dashboard)/hooks/teams/useTeams", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(""),
-}));
-
-vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({
-  useAccountPoolQuery: () => ({ data: [{ id: "account-one", name: "测试账号" }], isError: false }),
-}));
-vi.mock("nuqs", () => ({ parseAsString: {}, useQueryState: () => [session.accountId, setAccountId] }));
-vi.mock("./AccountKeyDialog", () => ({
-  AccountKeyDialog: ({ cardId, onClose }: { cardId: string; onClose: () => void }) => (
-    <button onClick={onClose}>关闭 {cardId}</button>
-  ),
+  useSearchParams: () => new URLSearchParams(session.accountId ? `account_id=${session.accountId}` : ""),
 }));
 
 import ApiKeysDashboard from "./ApiKeysDashboard";
@@ -70,20 +59,20 @@ describe("ApiKeysDashboard identity source", () => {
   });
 });
 
-it("opens account-bound keys from the native keys page and preserves the standard dashboard", () => {
+it("prefills the single native create-key form from a card link", () => {
   session.role = "Admin";
   session.accountId = "account-one";
   render(<ApiKeysDashboard />);
-  expect(screen.getByRole("combobox", { name: "账号专用密钥" })).toHaveValue("account-one");
-  fireEvent.click(screen.getByRole("button", { name: "关闭 account-one" }));
-  expect(setAccountId).toHaveBeenCalledWith(null);
-  expect(userDashboardSpy).toHaveBeenCalled();
+  const props = userDashboardSpy.mock.calls.at(-1)![0];
+  expect(props.autoOpenCreate).toBe(true);
+  expect(props.prefillData).toMatchObject({ account_id: "account-one" });
 });
 
-it("does not expose account key management to ordinary users even through a URL", () => {
+it("ignores card binding links for ordinary users", () => {
   session.role = "Internal User";
   session.accountId = "account-one";
   render(<ApiKeysDashboard />);
-  expect(screen.queryByRole("combobox", { name: "账号专用密钥" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "关闭 account-one" })).not.toBeInTheDocument();
+  const props = userDashboardSpy.mock.calls.at(-1)![0];
+  expect(props.autoOpenCreate).toBe(false);
+  expect(props.prefillData).toBeUndefined();
 });

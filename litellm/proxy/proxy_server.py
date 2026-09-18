@@ -448,6 +448,7 @@ from litellm.proxy.logging_endpoints.callback_logs_endpoints import (
 )
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     request_log_router,
+    runtime_configuration_router,
 )
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     router as account_pool_router,
@@ -18028,6 +18029,7 @@ app.include_router(model_access_group_management_router)
 app.include_router(auto_router_management_router)
 app.include_router(account_pool_router)
 app.include_router(request_log_router)
+app.include_router(runtime_configuration_router)
 app.include_router(tag_management_router)
 app.include_router(workflow_management_router)
 app.include_router(memory_router)

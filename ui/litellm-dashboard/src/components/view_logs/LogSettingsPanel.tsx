@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/components/networking";
 import { Button } from "@/components/ui/button";
-import { NumberSetting, ToggleSetting } from "@/app/(dashboard)/account-pool/AccountPoolSettingsFields";
+import { NumberSetting, ToggleSetting } from "@/components/Settings/RuntimeSettings/RuntimeSettingsFields";
 import { toast } from "@/lib/toast";
 import type { components } from "@/lib/http/schema";
 

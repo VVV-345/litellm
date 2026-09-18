@@ -11,12 +11,10 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Final
 
-from pydantic import JsonValue
-
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream
 
 
-def replay_safe(payload: Mapping[str, JsonValue]) -> bool:
+def replay_safe(payload: Mapping[str, object]) -> bool:
     return not any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "background"))
 
 

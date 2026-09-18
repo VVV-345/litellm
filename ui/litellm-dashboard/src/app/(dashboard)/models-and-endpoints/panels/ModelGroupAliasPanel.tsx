@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import ModelGroupAliasSettings from "@/components/model_group_alias_settings";
 import { getCallbacksCall } from "@/components/networking";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 
 export default function ModelGroupAliasPanel() {
   const { accessToken, userId: userID, userRole } = useAuthorized();
@@ -30,10 +31,13 @@ export default function ModelGroupAliasPanel() {
   }, [accessToken, userID, userRole]);
 
   return (
-    <ModelGroupAliasSettings
-      accessToken={accessToken}
-      initialModelGroupAlias={modelGroupAlias}
-      onAliasUpdate={setModelGroupAlias}
-    />
+    <div className="space-y-6">
+      <ModelGroupAliasSettings
+        accessToken={accessToken}
+        initialModelGroupAlias={modelGroupAlias}
+        onAliasUpdate={setModelGroupAlias}
+      />
+      <RuntimeSettings category="access" />
+    </div>
   );
 }

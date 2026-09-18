@@ -11,11 +11,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
-import { listAccountPoolProxyProfiles } from "./AccountPoolApi";
+import { listAccountPoolProxyProfiles } from "@/app/(dashboard)/account-pool/AccountPoolApi";
 import {
   getAccountPoolSettings,
   updateAccountPoolSettings,
@@ -27,10 +26,10 @@ import {
   type PayloadSettings,
   type QuotaSettingsValues,
   type StreamingSettingsValues,
-} from "./AccountPoolManagementApi";
-import { NumberSetting, ToggleSetting } from "./AccountPoolSettingsFields";
-import { AccountPoolSettingsProfileSection, type SettingsProfile } from "./AccountPoolSettingsProfileSection";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+} from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+import { NumberSetting, ToggleSetting } from "./RuntimeSettingsFields";
+import { RuntimeSettingsProfileSection, type SettingsProfile } from "./RuntimeSettingsProfileSection";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const emptyPayload: PayloadSettings = {
   default: [],
@@ -83,12 +82,12 @@ const defaults: AccountPoolSettings = {
   streaming_rules: [],
 };
 
-const categories = ["common", "access", "network", "quota", "streaming", "advanced", "payload"] as const;
+export type RuntimeSettingsCategory = "common" | "access" | "network" | "quota" | "streaming" | "advanced" | "payload";
 const oauthAliasChannels = ["codex", "claude", "antigravity", "kimi", "xai", "gemini", "vertex", "aistudio"] as const;
-const routingModes = ["auto", "priority", "random", "quota"] as const;
 
 type Props = {
   accessToken: string;
+  category: RuntimeSettingsCategory;
   environments: readonly AccountPoolEnvironment[];
 };
 
@@ -105,9 +104,6 @@ type JsonEditorProps<TValue> = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isRoutingMode = (value: unknown): value is CommonSettingsValues["default_route"] =>
-  routingModes.some((mode) => mode === value);
-
 const normalizeProfiles = <TValues,>(
   profiles: ReadonlyArray<{
     id: string;
@@ -119,7 +115,7 @@ const normalizeProfiles = <TValues,>(
   fallback: TValues,
 ): SettingsProfile<TValues>[] => profiles.map((profile) => ({ ...profile, values: profile.values ?? fallback }));
 
-export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) => {
+export const RuntimeSettingsSection = ({ accessToken, environments, category }: Props) => {
   const { t } = useTranslation();
   const settingsQuery = useQuery({
     queryKey: ["account-pool", "settings", accessToken],
@@ -188,7 +184,7 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
     }
     setBusy(true);
     try {
-      const saved = await updateAccountPoolSettings(accessToken, { version, values });
+      const saved = await updateAccountPoolSettings(accessToken, { version, values }, category);
       await settingsQuery.refetch();
       setDraft(null);
       setJsonTexts({});
@@ -287,27 +283,9 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
     editorId: string,
   ) => (
     <div className="grid gap-3 sm:grid-cols-2">
-      <div className="grid gap-2 rounded-md border p-3">
-        <Label>{t("accountPool.settings.defaultRoute")}</Label>
-        <Select
-          value={current.default_route}
-          disabled={disabled}
-          onValueChange={(route) => {
-            if (isRoutingMode(route)) onChange({ ...current, default_route: route });
-          }}
-        >
-          <SelectTrigger className="w-full" aria-label={t("accountPool.settings.defaultRoute")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {routingModes.map((route) => (
-              <SelectItem key={route} value={route}>
-                {route}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <p className="text-sm text-muted-foreground sm:col-span-2">
+        卡片之间的选择由 LiteLLM 负载均衡、路由组和回退设置控制。
+      </p>
       <NumberSetting
         id={`${editorId}-concurrency`}
         label={t("accountPool.settings.defaultConcurrency")}
@@ -467,13 +445,9 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
           </SelectContent>
         </Select>
       </div>
-      <NumberSetting
-        id={`${editorId}-max-attempts`}
-        label={t("accountPool.settings.maxAttempts")}
-        value={current.max_attempts}
-        disabled={disabled}
-        onChange={(max_attempts) => onChange({ ...current, max_attempts })}
-      />
+      <p className="text-sm text-muted-foreground">
+        重试次数使用本页 LiteLLM 原生策略，每个候选部署最多重试 4 次；已输出内容或工具调用不重放。
+      </p>
       <NumberSetting
         id={`${editorId}-timeout`}
         label={t("accountPool.settings.timeout")}
@@ -554,28 +528,6 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
         disabled={disabled}
         onChange={(force_model_prefix) => onChange({ ...current, force_model_prefix })}
       />
-      <NumberSetting
-        id={`${editorId}-request-retry`}
-        label={t("accountPool.settings.requestRetry")}
-        value={current.request_retry}
-        disabled
-        onChange={(request_retry) => onChange({ ...current, request_retry })}
-      />
-      <NumberSetting
-        id={`${editorId}-retry-credentials`}
-        label={t("accountPool.settings.maxRetryCredentials")}
-        value={current.max_retry_credentials}
-        disabled
-        onChange={(max_retry_credentials) => onChange({ ...current, max_retry_credentials })}
-      />
-      <NumberSetting
-        id={`${editorId}-retry-interval`}
-        label={t("accountPool.settings.maxRetryInterval")}
-        value={current.max_retry_interval}
-        disabled
-        onChange={(max_retry_interval) => onChange({ ...current, max_retry_interval })}
-      />
-      <p>供应商重试参数保留历史值。重试次数、退避和账号切换统一使用卡片策略</p>
     </div>
   );
 
@@ -617,8 +569,10 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
     <div className="grid gap-5" data-testid="account-pool-settings-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-3xl">
-          <h2 className="text-lg font-semibold">{t("accountPool.settings.title")}</h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("accountPool.settings.description")}</p>
+          <h2 className="text-lg font-semibold">{t(`accountPool.settings.categories.${category}`)}</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            按卡片保存供应商运行参数，未配置的卡片继承全局值。模型权限、预算与护栏使用 LiteLLM 原生配置。
+          </p>
         </div>
         <Button type="button" onClick={() => void save()} disabled={busy}>
           {t("accountPool.settings.save")}
@@ -627,120 +581,110 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
 
       <Card>
         <CardContent className="pt-6">
-          <Tabs defaultValue="common">
-            <TabsList className="h-auto w-full justify-start overflow-x-auto">
-              {categories.map((category) => (
-                <TabsTrigger key={category} value={category}>
-                  {t(`accountPool.settings.categories.${category}`)}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          {category === "common" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.common")}
+              globalValues={commonGlobal}
+              profiles={commonProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => patchValues(next)}
+              onProfilesChange={(profiles) => update("common_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderCommon}
+            />
+          )}
 
-            <TabsContent value="common">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.common")}
-                globalValues={commonGlobal}
-                profiles={commonProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => patchValues(next)}
-                onProfilesChange={(profiles) => update("common_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderCommon}
-              />
-            </TabsContent>
+          {category === "access" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.access")}
+              globalValues={accessGlobal}
+              profiles={accessProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => patchValues(next)}
+              onProfilesChange={(profiles) => update("access_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderAccess}
+            />
+          )}
 
-            <TabsContent value="access">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.access")}
-                globalValues={accessGlobal}
-                profiles={accessProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => patchValues(next)}
-                onProfilesChange={(profiles) => update("access_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderAccess}
-              />
-            </TabsContent>
+          {category === "network" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.network")}
+              globalValues={networkGlobal}
+              profiles={networkProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => patchValues(next)}
+              onProfilesChange={(profiles) => update("network_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderNetwork}
+            />
+          )}
 
-            <TabsContent value="network">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.network")}
-                globalValues={networkGlobal}
-                profiles={networkProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => patchValues(next)}
-                onProfilesChange={(profiles) => update("network_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderNetwork}
-              />
-            </TabsContent>
+          {category === "quota" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.quota")}
+              globalValues={quotaGlobal}
+              profiles={quotaProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => patchValues(next)}
+              onProfilesChange={(profiles) => update("quota_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderQuota}
+            />
+          )}
 
-            <TabsContent value="quota">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.quota")}
-                globalValues={quotaGlobal}
-                profiles={quotaProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => patchValues(next)}
-                onProfilesChange={(profiles) => update("quota_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderQuota}
-              />
-            </TabsContent>
+          {category === "streaming" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.streaming")}
+              globalValues={streamingGlobal}
+              profiles={streamingProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => update("streaming_enabled", next.enabled)}
+              onProfilesChange={(profiles) => patchValues({ streaming_profiles: profiles, streaming_rules: [] })}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderStreaming}
+            />
+          )}
 
-            <TabsContent value="streaming">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.streaming")}
-                globalValues={streamingGlobal}
-                profiles={streamingProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => update("streaming_enabled", next.enabled)}
-                onProfilesChange={(profiles) => patchValues({ streaming_profiles: profiles, streaming_rules: [] })}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderStreaming}
-              />
-            </TabsContent>
+          {category === "advanced" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.advanced")}
+              globalValues={advancedGlobal}
+              profiles={advancedProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => patchValues(next)}
+              onProfilesChange={(profiles) => update("advanced_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderAdvanced}
+            />
+          )}
 
-            <TabsContent value="advanced">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.advanced")}
-                globalValues={advancedGlobal}
-                profiles={advancedProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => patchValues(next)}
-                onProfilesChange={(profiles) => update("advanced_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderAdvanced}
-              />
-            </TabsContent>
-
-            <TabsContent value="payload">
-              <AccountPoolSettingsProfileSection
-                moduleName={t("accountPool.settings.categories.payload")}
-                globalValues={payloadGlobal}
-                profiles={payloadProfiles}
-                environments={environments}
-                busy={busy}
-                onGlobalChange={(next) => update("payload", next)}
-                onProfilesChange={(profiles) => update("payload_profiles", profiles)}
-                onProfileDeleted={clearProfileEditors}
-                onSave={() => void save()}
-                renderValues={renderPayload}
-              />
-            </TabsContent>
-          </Tabs>
+          {category === "payload" && (
+            <RuntimeSettingsProfileSection
+              moduleName={t("accountPool.settings.categories.payload")}
+              globalValues={payloadGlobal}
+              profiles={payloadProfiles}
+              environments={environments}
+              busy={busy}
+              onGlobalChange={(next) => update("payload", next)}
+              onProfilesChange={(profiles) => update("payload_profiles", profiles)}
+              onProfileDeleted={clearProfileEditors}
+              onSave={() => void save()}
+              renderValues={renderPayload}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

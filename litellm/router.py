@@ -3262,7 +3262,9 @@ class Router:
                 parent_otel_span=parent_otel_span,
             )
 
-            if isinstance(response, CustomStreamWrapper):
+            if isinstance(response, CustomStreamWrapper) and not deployment.get("model_info", {}).get(
+                "account_pool_environment_id"
+            ):
                 return await self._acompletion_streaming_iterator(
                     model_response=response,
                     messages=messages,
@@ -3529,6 +3531,8 @@ class Router:
             check_deployment,
             create_ticket,
             forwarding_base,
+            forwarding_retry_policy,
+            forwarding_timeout,
             pool_identity,
         )
 
@@ -3542,7 +3546,19 @@ class Router:
                 raise ValueError("Account pool deployments require authenticated proxy ingress")
             pool_account: Final = UUID(str(pool_environment))
             kwargs["api_base"] = forwarding_base(pool_account)
-            kwargs["api_key"] = create_ticket(pool_caller, pool_account)
+            kwargs["api_key"] = create_ticket(
+                pool_caller,
+                pool_account,
+                forwarding_retry_policy(
+                    pool_caller,
+                    kwargs[metadata_variable_name].get("model_group", deployment["model_name"]),
+                    self.num_retries or 0,
+                    self.retry_policy,
+                    self.model_group_retry_policy,
+                    self.retry_after or 0,
+                ),
+                forwarding_timeout(pool_caller, deployment["litellm_params"], kwargs.get("stream") is True),
+            )
             kwargs["num_retries"] = 0
             kwargs["caching"] = False
             kwargs["cache"] = {"no-cache": True, "no-store": True}
@@ -5016,6 +5032,9 @@ class Router:
         fallback_kwargs["original_generic_function"] = original_function
 
         response: Final = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)
+
+        if (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get("account_pool_attempt"):
+            return response
 
         if kwargs.get("stream") and isinstance(response, BaseResponsesAPIStreamingIterator):
             return await self._aresponses_streaming_iterator(
@@ -6852,6 +6871,14 @@ class Router:
         fallback_failure_exception_str = ""
 
         if disable_fallbacks is True or original_model_group is None:
+            raise e
+
+        from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
+
+        pool_attempt: Final = (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get(
+            "account_pool_attempt"
+        )
+        if pool_attempt and not replay_safe(kwargs):
             raise e
 
         input_kwargs: Final = {

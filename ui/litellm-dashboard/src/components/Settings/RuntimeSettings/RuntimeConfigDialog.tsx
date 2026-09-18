@@ -25,21 +25,24 @@ import {
   getAccountPoolEnvironment,
   listAccountPoolProxyProfiles,
   updateAccountPoolEnvironment,
-} from "./AccountPoolApi";
-import { canConfigureEnvironment } from "./AccountPoolPermissions";
+} from "@/app/(dashboard)/account-pool/AccountPoolApi";
+import { canConfigureEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
 import {
   concurrencyLimitLabel,
   formatDateTime,
   formatQuota,
   mostConstrainedWindow,
   quotaRows,
-} from "./AccountPoolFormatters";
-import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
-import { toUpdateRequest } from "./AccountPoolTypes";
-import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "./AccountPoolTypes";
-import { useProxyGatewayQuery } from "./useProxyGateways";
+} from "@/app/(dashboard)/account-pool/AccountPoolFormatters";
+import {
+  validateAccountPoolUpdate,
+  validateProxyProfileSelection,
+} from "@/app/(dashboard)/account-pool/AccountPoolValidation";
+import { toUpdateRequest } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import { useProxyGatewayQuery } from "@/app/(dashboard)/account-pool/useProxyGateways";
 
-interface AccountPoolConfigDialogProps {
+interface RuntimeConfigDialogProps {
   accessToken: string | null;
   environment: AccountPoolEnvironment;
   open: boolean;
@@ -48,14 +51,14 @@ interface AccountPoolConfigDialogProps {
   onSaved: (environment: AccountPoolEnvironment) => void;
 }
 
-export const AccountPoolConfigDialog = ({
+export const RuntimeConfigDialog = ({
   accessToken,
   environment,
   open,
   onOpenChange,
   onRefresh,
   onSaved,
-}: AccountPoolConfigDialogProps) => {
+}: RuntimeConfigDialogProps) => {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<AccountPoolUpdateRequest>(() => toUpdateRequest(environment));
   const [saving, setSaving] = useState(false);

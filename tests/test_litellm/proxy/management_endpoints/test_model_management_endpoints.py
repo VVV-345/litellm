@@ -4466,3 +4466,31 @@ class TestEnforceRpmTpmOnModelAdd:
             _raise_if_rate_limits_required_but_missing(litellm_params=params, enforced=True)
         assert expected_missing in str(exc_info.value.message)
         assert exc_info.value.code == "400"
+
+
+def test_managed_model_keeps_native_guardrails_and_routing_but_protects_forwarding_identity():
+    from fastapi import HTTPException
+    from litellm.proxy.management_endpoints.model_management_endpoints import update_db_model
+
+    model = Deployment(
+        model_name="public-model",
+        litellm_params={"model": "openai/public-model", "api_base": "http://internal/v1"},
+        model_info={"id": "managed-model", "managed_by": "account_pool", "account_pool_environment_id": "card"},
+    )
+    saved = update_db_model(
+        model, updateDeployment(litellm_params={"weight": 7, "order": 2, "timeout": 40, "guardrails": ["native-guard"]})
+    )
+    params = json.loads(saved["litellm_params"])
+    assert params["guardrails"] == ["native-guard"]
+    assert params["weight"] == 7
+    assert params["order"] == 2
+    assert params["timeout"] == 40
+    for patch_data in (
+        {"model_name": "different"},
+        {"litellm_params": {"api_base": "https://outside/v1"}},
+        {"model_info": {"managed_by": "manual"}},
+        {"litellm_params": {"num_retries": 3}},
+    ):
+        with pytest.raises(HTTPException) as error:
+            update_db_model(model, updateDeployment(**patch_data))
+        assert error.value.status_code == 400

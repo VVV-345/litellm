@@ -534,6 +534,8 @@ class GatewayEnvironment(BaseModel):
     concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
     public_models: tuple[str, ...] | None = None
+    routing_weight: int = Field(default=1, ge=1, le=10000)
+    routing_order: int = 0
     api_base: str
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)

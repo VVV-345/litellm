@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import math
 import os
 import time
 from collections.abc import Mapping
@@ -13,6 +14,7 @@ from types import MappingProxyType
 from typing import Final, Literal, Protocol, TypedDict, runtime_checkable
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from starlette.requests import Request
@@ -23,9 +25,15 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Re
 from litellm.proxy.management_endpoints.account_pool_management_models import CardKeyStatus
 from litellm.repositories.table_repositories import DeletedVerificationTokenRepository
 from litellm.repositories.verification_token_repository import VerificationTokenRepository
+from litellm.types.router import RetryPolicy, UpdateRouterConfig
 
 INTERNAL_PREFIX: Final = "/account_pool/internal/forward/"
 CARD_ROUTES: Final = (
+    "/models",
+    "/chat/completions",
+    "/responses",
+    "/responses/compact",
+    "/images/generations",
     "/v1/models",
     "/v1/chat/completions",
     "/v1/responses",
@@ -42,6 +50,48 @@ class PoolIdentity(BaseModel):
     card_id: UUID | None = None
     binding_id: UUID | None = None
     headers: tuple[tuple[str, str], ...] = ()
+    router_settings: UpdateRouterConfig | None = None
+
+
+class ForwardRetryPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    rate_limit: int = Field(ge=0, le=4)
+    timeout: int = Field(ge=0, le=4)
+    server_error: int = Field(ge=0, le=4)
+    backoff_ms: int = Field(ge=0, le=60000)
+
+    def retries(self, status: int) -> int:
+        if status == 429:
+            return self.rate_limit
+        if status in (408, 504):
+            return self.timeout
+        return self.server_error if status in (500, 502, 503) else 0
+
+
+def forwarding_retry_policy(
+    identity: PoolIdentity,
+    model: str,
+    default_retries: int,
+    retry_policy: RetryPolicy | None,
+    model_policies: Mapping[str, RetryPolicy] | None,
+    retry_after: float,
+) -> ForwardRetryPolicy:
+    key: Final = identity.router_settings
+    groups: Final = key.model_group_retry_policy if key and key.model_group_retry_policy is not None else model_policies
+    global_policy: Final = key.retry_policy if key and key.retry_policy is not None else retry_policy
+    policy: Final = (groups or {}).get(model, global_policy) or RetryPolicy()
+    retries: Final = key.num_retries if key and key.num_retries is not None else default_retries
+    delay: Final = key.retry_after if key and key.retry_after is not None else retry_after
+    return ForwardRetryPolicy(
+        rate_limit=max(
+            0, min(4, policy.RateLimitErrorRetries if policy.RateLimitErrorRetries is not None else retries)
+        ),
+        timeout=max(0, min(4, policy.TimeoutErrorRetries if policy.TimeoutErrorRetries is not None else retries)),
+        server_error=max(
+            0, min(4, policy.InternalServerErrorRetries if policy.InternalServerErrorRetries is not None else retries)
+        ),
+        backoff_ms=max(0, min(60000, int(delay * 1000))),
+    )
 
 
 class ForwardTicket(BaseModel):
@@ -49,6 +99,22 @@ class ForwardTicket(BaseModel):
     identity: PoolIdentity
     account_id: UUID
     expires: int
+    retry_policy: ForwardRetryPolicy | None = None
+    timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+
+
+def forwarding_timeout(identity: PoolIdentity, params: Mapping[str, object], streaming: bool) -> int | None:
+    key: Final = identity.router_settings
+    selected: Final = (
+        key.timeout
+        if key is not None and key.timeout is not None
+        else params.get("stream_timeout", params.get("timeout"))
+        if streaming
+        else params.get("timeout")
+    )
+    if not isinstance(selected, (int, float)) or not math.isfinite(selected) or selected <= 0:
+        return None
+    return max(1, min(3600, math.ceil(selected)))
 
 
 class CardScope(BaseModel):
@@ -58,10 +124,59 @@ class CardScope(BaseModel):
 
 class KeyAuthScope(BaseModel):
     metadata: CardScope = Field(default_factory=CardScope)
+    router_settings: UpdateRouterConfig | None = None
 
 
 class CardName(BaseModel):
     name: str
+
+
+async def validate_key_account_scope(
+    metadata: Mapping[str, object] | None,
+    existing_metadata: Mapping[str, object] | None,
+    auth: UserAPIKeyAuth,
+) -> None:
+    from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+    from litellm.proxy.management_endpoints.account_pool_gateway import http_client
+
+    supplied: Final = metadata or {}
+    existing: Final = existing_metadata or {}
+    for field in ("account_pool_card_id", "account_pool_binding_id"):
+        if field in existing and field in supplied and supplied[field] != existing[field]:
+            raise HTTPException(400, "Account binding is immutable; create a new virtual key for another account")
+    if "account_pool_binding_id" in supplied and supplied["account_pool_binding_id"] != existing.get(
+        "account_pool_binding_id"
+    ):
+        raise HTTPException(400, "Legacy account binding IDs are managed by the server")
+    if (
+        "account_pool_card_id" not in supplied
+        or supplied["account_pool_card_id"] is None
+        or existing.get("account_pool_card_id")
+    ):
+        return
+    if not is_proxy_admin(auth):
+        raise HTTPException(403, "Only proxy admins can bind a virtual key to an account")
+    try:
+        scope: Final = CardScope.model_validate(supplied)
+    except ValueError:
+        raise HTTPException(400, "Invalid account ID") from None
+    try:
+        async with http_client() as client:
+            response: Final = await client.get(
+                os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091").rstrip("/")
+                + f"/api/environments/{scope.card_id}",
+                headers={"Authorization": "Bearer " + signing_key().decode()},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(503, "Account validation is unavailable") from None
+    if response.status_code == 404:
+        raise HTTPException(400, "Account does not exist")
+    if response.status_code != 200:
+        raise HTTPException(503, "Account validation is unavailable")
+    try:
+        CardName.model_validate_json(response.content)
+    except ValueError:
+        raise HTTPException(503, "Account validation is unavailable") from None
 
 
 class CompletedPoolAttempt(BaseModel):
@@ -150,6 +265,12 @@ def key_cache(value: object) -> KeyCache:
 pool_identity: Final[ContextVar[PoolIdentity | None]] = ContextVar("account_pool_identity", default=None)
 
 
+def bind_router_settings(settings: Mapping[str, object]) -> None:
+    identity: Final = pool_identity.get()
+    if identity is not None:
+        pool_identity.set(identity.model_copy(update={"router_settings": UpdateRouterConfig.model_validate(settings)}))
+
+
 def signing_key() -> bytes:
     secret: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
     if len(secret) < 32:
@@ -157,8 +278,19 @@ def signing_key() -> bytes:
     return secret.encode()
 
 
-def create_ticket(identity: PoolIdentity, account_id: UUID) -> str:
-    body: Final = ForwardTicket(identity=identity, account_id=account_id, expires=int(time.time()) + 120)
+def create_ticket(
+    identity: PoolIdentity,
+    account_id: UUID,
+    retry_policy: ForwardRetryPolicy | None = None,
+    timeout_seconds: int | None = None,
+) -> str:
+    body: Final = ForwardTicket(
+        identity=identity.model_copy(update={"router_settings": None}),
+        account_id=account_id,
+        expires=int(time.time()) + 120,
+        retry_policy=retry_policy,
+        timeout_seconds=timeout_seconds,
+    )
     encoded: Final = base64.urlsafe_b64encode(body.model_dump_json().encode()).decode()
     signature: Final = hmac.new(signing_key(), encoded.encode(), hashlib.sha256).hexdigest()
     return f"{encoded}.{signature}"
@@ -195,7 +327,8 @@ def check_deployment(environment_id: object) -> None:
 
 
 def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
-    metadata: Final = KeyAuthScope.model_validate(auth, from_attributes=True).metadata
+    scope: Final = KeyAuthScope.model_validate(auth, from_attributes=True)
+    metadata: Final = scope.metadata
     resolution: Final[object] = getattr(request.state, "account_pool_resolution", None)
     card: Final = resolution.card_id if isinstance(resolution, Resolution) else metadata.card_id
     binding: Final = resolution.key_id if isinstance(resolution, Resolution) else metadata.binding_id
@@ -206,6 +339,7 @@ def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
         request_id=uuid4(),
         card_id=card,
         binding_id=binding,
+        router_settings=scope.router_settings,
         headers=tuple(
             (name, value)
             for name, value in request.headers.items()
@@ -253,11 +387,6 @@ async def register_card_key(key: str, request: Request | None = None, status: Ca
 
     if prisma_client is None:
         raise HTTPException(503, "Account pool virtual keys require the LiteLLM database")
-    scope: Final = (
-        await resolve_card_key(key, request)
-        if status is None
-        else CardScope(account_pool_card_id=status.card_id, account_pool_binding_id=status.key_id)
-    )
     hashed: Final = hashlib.sha256(key.encode()).hexdigest()
     repository: Final = VerificationTokenRepository(prisma_client)
     deleted_table: Final = deleted_token_source(DeletedVerificationTokenRepository(prisma_client))
@@ -269,6 +398,11 @@ async def register_card_key(key: str, request: Request | None = None, status: Ca
         return
     if status is None and not key.startswith("cpk_"):
         raise HTTPException(401, "This virtual key is not registered")
+    scope: Final = (
+        await resolve_card_key(key, request)
+        if status is None
+        else CardScope(account_pool_card_id=status.card_id, account_pool_binding_id=status.key_id)
+    )
     create_key: Final = TypeAdapter(object).validate_python(vars(key_management_endpoints)["generate_key_helper_fn"])
     if not isinstance(create_key, KeyCreator):
         raise HTTPException(503, "Virtual key registration unavailable")

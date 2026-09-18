@@ -17083,3 +17083,127 @@ async def test_card_scope_survives_metadata_updates_and_cannot_be_reassigned():
             data=UpdateKeyRequest(key="sk-1", metadata={"account_pool_card_id": "card-two"}),
             existing_key_row=existing_key,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_account_bound_key_regeneration_preserves_scope_and_revokes_old_legacy_token(legacy):
+    from uuid import uuid4
+    from litellm.proxy._types import RegenerateKeyRequest
+    from litellm.proxy.management_endpoints import key_management_endpoints as endpoints
+
+    metadata = {"account_pool_card_id": str(uuid4()), "project": "keep"}
+    if legacy:
+        metadata["account_pool_binding_id"] = str(uuid4())
+    existing = _make_regenerate_existing_key().model_copy(update={"metadata": metadata})
+    prisma = _make_regenerate_mock_prisma()
+    tx = MagicMock()
+    tx.litellm_verificationtoken.update = AsyncMock(
+        return_value=existing.model_copy(update={"token": "new-hashed-token"})
+    )
+    tx.litellm_deletedverificationtoken.create_many = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=tx)
+    context.__aexit__ = AsyncMock(return_value=False)
+    prisma.db.tx = MagicMock(return_value=context)
+    with _patch_regenerate_side_effects():
+        response = await endpoints._execute_virtual_key_regeneration(
+            prisma_client=prisma,
+            key_in_db=existing,
+            hashed_api_key="abc123",
+            key="abc123",
+            data=RegenerateKeyRequest(metadata={"project": "updated"}),
+            user_api_key_dict=_make_regenerate_user_api_key_dict(),
+            litellm_changed_by=None,
+            user_api_key_cache=MagicMock(),
+            proxy_logging_obj=MagicMock(),
+        )
+        endpoints._delete_cache_key_object.assert_awaited_once()
+        if legacy:
+            endpoints._insert_deprecated_key.assert_not_awaited()
+    assert response.key.startswith("sk-")
+    update = tx.litellm_verificationtoken.update if legacy else prisma.db.litellm_verificationtoken.update
+    sent = update.call_args.kwargs["data"]
+    saved_metadata = json.loads(sent["metadata"]) if isinstance(sent["metadata"], str) else sent["metadata"]
+    assert saved_metadata == {**metadata, "project": "updated"}
+    if legacy:
+        archived = tx.litellm_deletedverificationtoken.create_many.call_args.kwargs["data"]
+        assert archived[0]["token"] == "abc123"
+        prisma.db.litellm_verificationtoken.update.assert_not_awaited()
+        assert context.__aexit__.call_args.args[0] is None
+    else:
+        prisma.db.tx.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_legacy_rotation_failure_rolls_back_archive_without_invalidating_cache():
+    from uuid import uuid4
+    from litellm.proxy.management_endpoints import key_management_endpoints as endpoints
+
+    existing = _make_regenerate_existing_key().model_copy(
+        update={"metadata": {"account_pool_card_id": str(uuid4()), "account_pool_binding_id": str(uuid4())}}
+    )
+    prisma = _make_regenerate_mock_prisma()
+    tx = MagicMock()
+    tx.litellm_deletedverificationtoken.create_many = AsyncMock()
+    tx.litellm_verificationtoken.update = AsyncMock(side_effect=RuntimeError("write failed"))
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=tx)
+    context.__aexit__ = AsyncMock(return_value=False)
+    prisma.db.tx = MagicMock(return_value=context)
+    with _patch_regenerate_side_effects():
+        with pytest.raises(RuntimeError, match="write failed"):
+            await endpoints._execute_virtual_key_regeneration(
+                prisma_client=prisma,
+                key_in_db=existing,
+                hashed_api_key="abc123",
+                key="abc123",
+                data=None,
+                user_api_key_dict=_make_regenerate_user_api_key_dict(),
+                litellm_changed_by=None,
+                user_api_key_cache=MagicMock(),
+                proxy_logging_obj=MagicMock(),
+            )
+        endpoints._delete_cache_key_object.assert_not_awaited()
+    assert context.__aexit__.call_args.args[0] is RuntimeError
+    tx.litellm_deletedverificationtoken.create_many.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_native_key_generate_persists_validated_card_scope(monkeypatch):
+    from uuid import uuid4
+    import httpx
+
+    card = str(uuid4())
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-signing-secret-" * 3)
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway.http_client",
+        lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"name": "card"}))
+        ),
+    )
+    inserted = _wire_key_generation_prisma(monkeypatch)
+    persisted = await _generate_key_and_get_persisted_row(
+        GenerateKeyRequest(metadata={"account_pool_card_id": card}), inserted
+    )
+    metadata = persisted["metadata"]
+    assert (json.loads(metadata) if isinstance(metadata, str) else metadata)["account_pool_card_id"] == card
+
+
+@pytest.mark.asyncio
+async def test_bulk_key_update_cannot_add_card_scope_as_non_admin():
+    from uuid import uuid4
+    from litellm.proxy.management_endpoints.key_management_endpoints import _process_single_key_update
+
+    with pytest.raises(HTTPException) as error:
+        await _process_single_key_update(
+            update_key_request=UpdateKeyRequest(key="abc123", metadata={"account_pool_card_id": str(uuid4())}),
+            user_api_key_dict=UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER, user_id="user-1"),
+            litellm_changed_by=None,
+            prisma_client=None,
+            user_api_key_cache=MagicMock(),
+            proxy_logging_obj=MagicMock(),
+            llm_router=None,
+            existing_key_row=_make_regenerate_existing_key(),
+        )
+    assert error.value.status_code == 403

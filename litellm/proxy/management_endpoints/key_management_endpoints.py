@@ -925,6 +925,10 @@ async def _common_key_generation_helper(
     validate_budget_duration(data.budget_duration)
     raise_on_invalid_key_logging_config(data.metadata)
 
+    from litellm.proxy.management_endpoints.account_pool_integration import validate_key_account_scope
+
+    await validate_key_account_scope(data.metadata, None, user_api_key_dict)
+
     if data.throttle_on_budget_exceeded is True and user_api_key_dict.user_role != LitellmUserRoles.PROXY_ADMIN.value:
         raise HTTPException(
             status_code=403,
@@ -2151,8 +2155,10 @@ async def prepare_key_update_data(
         )
 
     _metadata: Final = existing_key_row.metadata or {}
-    if _metadata.get("account_pool_card_id") and getattr(data, "auto_rotate", False):
-        raise HTTPException(400, "Rotate card-bound keys from the account pool card settings")
+    if _metadata.get("account_pool_binding_id") and getattr(data, "auto_rotate", False):
+        raise HTTPException(
+            400, "Legacy account keys require manual rotation; create a native virtual key for automatic rotation"
+        )
     for scope_field in ("account_pool_card_id", "account_pool_binding_id"):
         if (
             scope_field in _metadata
@@ -2381,6 +2387,10 @@ async def _process_single_key_update(
     )
 
     # Check team member permissions
+    from litellm.proxy.management_endpoints.account_pool_integration import validate_key_account_scope
+
+    await validate_key_account_scope(update_key_request.metadata, existing_key_row.metadata, user_api_key_dict)
+
     if prisma_client is not None:
         await TeamMemberPermissionChecks.can_team_member_execute_key_management_endpoint(
             user_api_key_dict=user_api_key_dict,
@@ -2555,6 +2565,10 @@ async def _validate_update_key_data(
     # Reject NaN/±inf spend before it can reach the DB / spend counter.
     validate_finite_spend(data.spend)
     validate_budget_duration(data.budget_duration)
+
+    from litellm.proxy.management_endpoints.account_pool_integration import validate_key_account_scope
+
+    await validate_key_account_scope(data.metadata, existing_key_row.metadata, user_api_key_dict)
 
     _is_proxy_admin: Final = user_api_key_dict.user_role == LitellmUserRoles.PROXY_ADMIN.value
 
@@ -4847,10 +4861,12 @@ async def _execute_virtual_key_regeneration(
             entity="key",
         )
 
-    from litellm.proxy.management_endpoints.account_pool_integration import KeyAuthScope
+    from litellm.proxy.management_endpoints.account_pool_integration import KeyAuthScope, validate_key_account_scope
 
-    if KeyAuthScope.model_validate({"metadata": key_in_db.metadata or {}}).metadata.card_id is not None:
-        raise HTTPException(400, "Rotate a card-bound key from the account pool card settings")
+    await validate_key_account_scope(data.metadata if data else None, key_in_db.metadata, user_api_key_dict)
+    legacy_binding: Final = KeyAuthScope.model_validate({"metadata": key_in_db.metadata or {}}).metadata.binding_id
+    if legacy_binding is not None and data is not None and data.grace_period:
+        raise HTTPException(400, "Legacy account keys must be rotated without a grace period")
 
     new_token: Final = await get_new_token(data=data)
     new_token_hash: Final = hash_token(new_token)
@@ -4871,19 +4887,33 @@ async def _execute_virtual_key_regeneration(
     jsonified_update_data: Final[Mapping[str, object]] = prisma_client.jsonify_object(data=update_data)
 
     # If grace period set, insert deprecated key so old key remains valid
-    await _insert_deprecated_key(
-        prisma_client=prisma_client,
-        old_token_hash=hashed_api_key,
-        new_token_hash=new_token_hash,
-        grace_period=data.grace_period if data else None,
-    )
+    if legacy_binding is None:
+        await _insert_deprecated_key(
+            prisma_client=prisma_client,
+            old_token_hash=hashed_api_key,
+            new_token_hash=new_token_hash,
+            grace_period=data.grace_period if data else None,
+        )
 
-    updated_token: Final[LiteLLM_VerificationToken | None] = await _prisma_table(
-        VerificationTokenRepository(prisma_client)
-    ).update(
-        where={"token": hashed_api_key},
-        data=with_settings_updated_at(jsonified_update_data),
-    )
+    if legacy_binding is not None:
+        async with prisma_client.db.tx() as tx:
+            await _persist_deleted_verification_tokens(
+                keys=[key_in_db],
+                prisma_client=prisma_client,
+                user_api_key_dict=user_api_key_dict,
+                litellm_changed_by=litellm_changed_by,
+                tx=tx,
+            )
+            rotated_token: Final = await tx.litellm_verificationtoken.update(
+                where={"token": hashed_api_key},
+                data=with_settings_updated_at(jsonified_update_data),
+            )
+        updated_token = rotated_token
+    else:
+        updated_token = await _prisma_table(VerificationTokenRepository(prisma_client)).update(
+            where={"token": hashed_api_key},
+            data=with_settings_updated_at(jsonified_update_data),
+        )
     updated_token_dict: Final[dict[str, object]] = dict(updated_token) if updated_token is not None else {}
     updated_token_dict["key"] = new_token
     updated_token_dict["token_id"] = updated_token_dict.pop("token")

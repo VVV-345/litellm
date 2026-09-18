@@ -1886,6 +1886,9 @@ class ProxyBaseLLMRequestProcessing:
             # Pass settings as per-request overrides instead of creating a new Router
             # This avoids expensive Router instantiation on each request
             if router_settings is not None:
+                from litellm.proxy.management_endpoints.account_pool_integration import bind_router_settings
+
+                bind_router_settings(router_settings)
                 self.data["router_settings_override"] = router_settings
                 alias_target: Final = await _resolve_per_request_model_group_alias(
                     requested_model=self.data.get("model"),

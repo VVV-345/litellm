@@ -161,3 +161,43 @@ async def test_reconcile_unblocks_a_managed_deployment_when_it_is_still_desired(
     assert changed is True
     assert store.upserted == [desired]
     assert store.reload_count == 1
+
+
+@pytest.mark.asyncio
+async def test_native_routing_migrates_after_manager_upgrade_and_preserves_native_edits():
+    from unittest.mock import AsyncMock
+
+    from litellm.models.model import LiteLLM_ProxyModelTable
+    from litellm.proxy.management_endpoints.account_pool_reconciler import LiteLLMDeploymentStore
+    from litellm.repositories.model_repository import ModelRepository
+
+    environment = _environment(routable=True)
+    old = desired_deployments((environment,))[0]
+    row = LiteLLM_ProxyModelTable(
+        model_id=old.id,
+        model_name=old.model_name,
+        litellm_params=old.litellm_params,
+        model_info=old.model_info,
+        blocked=False,
+    )
+    repository = AsyncMock(spec=ModelRepository)
+    repository.find_by_id.return_value = row
+    store = LiteLLMDeploymentStore(None, repository)
+    assert await store.upsert(old) is False
+    upgraded = desired_deployments((environment.model_copy(update={"routing_weight": 7, "routing_order": -12}),))[0]
+    assert await store.upsert(upgraded) is True
+    first = repository.update_model.call_args.kwargs
+    assert first["litellm_params"]["weight"] == 7
+    assert first["litellm_params"]["order"] == -12
+    assert first["model_info"]["account_pool_native_routing"] is True
+    edited = {**first["litellm_params"], "weight": 20, "order": 3, "timeout": 90, "guardrails": ["guard"]}
+    repository.find_by_id.return_value = row.model_copy(
+        update={"litellm_params": edited, "model_info": first["model_info"]}
+    )
+    assert await store.upsert(upgraded) is False
+    assert await store.upsert(old) is False
+    assert await store.upsert(replace(upgraded, blocked=True)) is True
+    saved = repository.update_model.call_args.kwargs
+    assert saved["litellm_params"] == edited
+    assert saved["blocked"] is True
+    assert saved["model_info"]["account_pool_native_routing"] is True

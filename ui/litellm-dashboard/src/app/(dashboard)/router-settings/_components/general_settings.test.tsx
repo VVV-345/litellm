@@ -1,3 +1,4 @@
+vi.mock("@/components/Settings/RuntimeSettings/RuntimeSettings", () => ({ default: () => null }));
 import { renderWithProviders, screen, within } from "../../../../../tests/test-utils";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";

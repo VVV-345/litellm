@@ -98,8 +98,34 @@ class TrustedControl:
         }
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
-        return await self.control.resolve(
+        resolved: Final = await self.control.resolve(
             ResolveRequest.model_validate({**request.model_dump(), **self.identity_fields()})
+        )
+        timeout: Final = self.ticket.timeout_seconds
+        if timeout is None:
+            return resolved
+        return resolved.model_copy(
+            update={
+                "policy": resolved.policy.model_copy(
+                    update={
+                        "transport": resolved.policy.transport.model_copy(update={"request_timeout_seconds": timeout})
+                    }
+                ),
+                "candidates": tuple(
+                    candidate.model_copy(
+                        update={
+                            "policy": candidate.policy.model_copy(
+                                update={
+                                    "transport": candidate.policy.transport.model_copy(
+                                        update={"request_timeout_seconds": timeout}
+                                    )
+                                }
+                            )
+                        }
+                    )
+                    for candidate in resolved.candidates
+                ),
+            }
         )
 
     async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
@@ -189,6 +215,7 @@ class AccountPoolGatewayMiddleware:
                     **scope.get("state", {}),
                     "account_pool_request_id": ticket.identity.request_id,
                     "account_pool_standard_accounting": True,
+                    "account_pool_retry_policy": ticket.retry_policy,
                 },
             }
             gateway: Final = AccountPoolGatewayMiddleware(

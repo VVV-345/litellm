@@ -1,3 +1,11 @@
+vi.mock("@/app/(dashboard)/account-pool/AccountPoolApi", () => ({
+  listAccountPoolEnvironments: vi
+    .fn()
+    .mockResolvedValue([
+      { id: "00000000-0000-4000-8000-000000000001", name: "测试卡片", enabled_models: ["gpt-6-astra"] },
+    ]),
+}));
+
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderWithProviders, screen, testQueryClient, waitFor } from "../../../tests/test-utils";
@@ -246,6 +254,20 @@ describe("CreateKey", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("selects a card in the native key form and shows its models", async () => {
+    await openModal();
+    await userEvent.selectOptions(await screen.findByLabelText("指定卡片"), "00000000-0000-4000-8000-000000000001");
+    expect(await screen.findByLabelText("卡片已有模型")).toHaveTextContent("gpt-6-astra");
+    await nameTheKey();
+    await submit();
+    const payload = await createdPayload();
+    expect(JSON.parse(payload.metadata as string)).toMatchObject({
+      account_pool_card_id: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(payload).not.toHaveProperty("account_id");
+    expect(payload).toHaveProperty("key_type", "llm_api");
   });
 
   describe("submit payload contract", () => {

@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getGeneralSettingsCall, updateConfigFieldSetting, deleteConfigFieldSetting } from "@/components/networking";
 import { Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/shared/table_cells";
+import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
+import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
 
 import RouterSettings from "@/components/router_settings";
 import Fallbacks from "@/components/Settings/RouterSettings/Fallbacks/Fallbacks";
@@ -159,9 +161,7 @@ export const PromptCachingPanel: React.FC<{
         {ttlSetting && (
           <div className="mt-6 flex items-start justify-between gap-8">
             <div className="min-w-0 max-w-2xl">
-              <p className={`font-medium ${enabled ? "" : "text-muted-foreground"}`}>
-                {t("ui.Cache lifetime (TTL)")}
-              </p>
+              <p className={`font-medium ${enabled ? "" : "text-muted-foreground"}`}>{t("ui.Cache lifetime (TTL)")}</p>
               <p className="mt-1 break-words text-xs text-muted-foreground">{ttlSetting.field_description}</p>
             </div>
             <Select
@@ -266,6 +266,12 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
           <TabsTrigger value="fallbacks">{t("ui.Fallbacks")}</TabsTrigger>
           <TabsTrigger value="prompt-caching">{t("ui.Prompt Caching")}</TabsTrigger>
           <TabsTrigger value="general">{t("ui.General")}</TabsTrigger>
+          {canManageAccountPool(userRole, false) && (
+            <>
+              <TabsTrigger value="streaming">流式传输</TabsTrigger>
+              <TabsTrigger value="payload">请求参数</TabsTrigger>
+            </>
+          )}
         </TabsList>
         <TabsContent value="loadbalancing" className="px-8 py-6" keepMounted>
           <RouterSettings accessToken={accessToken} userRole={userRole} userID={userID} />
@@ -336,6 +342,13 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
               </Table>
             </CardContent>
           </Card>
+          <RuntimeSettings category="advanced" />
+        </TabsContent>
+        <TabsContent value="streaming" className="px-8 py-6">
+          <RuntimeSettings category="streaming" />
+        </TabsContent>
+        <TabsContent value="payload" className="px-8 py-6">
+          <RuntimeSettings category="payload" />
         </TabsContent>
       </Tabs>
     </div>

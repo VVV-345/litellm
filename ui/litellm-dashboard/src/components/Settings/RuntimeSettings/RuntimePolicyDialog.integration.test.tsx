@@ -3,15 +3,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
-import type { AccountPolicy, PolicyView } from "./AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
+import type { AccountPolicy, PolicyView } from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const getPolicy = vi.fn();
 const savePolicy = vi.fn();
 
-vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./AccountPoolManagementApi")>();
+vi.mock("@/app/(dashboard)/account-pool/AccountPoolManagementApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolManagementApi")>();
   return {
     ...original,
     getAccountPolicy: (...args: unknown[]) => getPolicy(...args),
@@ -80,7 +80,7 @@ const policyView = {
 const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <AccountPoolPolicyDialog
+      <RuntimePolicyDialog
         accessToken="token"
         environment={environment}
         environments={environments}
@@ -91,7 +91,7 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
     </QueryClientProvider>,
   );
 
-describe("AccountPoolPolicyDialog", () => {
+describe("RuntimePolicyDialog", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     getPolicy.mockResolvedValue(policyView);
@@ -109,8 +109,8 @@ describe("AccountPoolPolicyDialog", () => {
       },
     });
     renderDialog([environment, backup]);
-    const fallback = await screen.findByRole("switch", { name: /故障切换|Failover/i });
-    expect(fallback).not.toBeChecked();
+    await screen.findByText(/卡片之间的权重/);
+    expect(screen.queryByRole("switch", { name: /故障切换|Failover/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
     expect((savePolicy.mock.calls[0][3] as AccountPolicy).routing).toMatchObject({
@@ -140,10 +140,8 @@ describe("AccountPoolPolicyDialog", () => {
   it("explains routing and transport settings in user-facing language", async () => {
     renderDialog();
 
-    expect(
-      await screen.findByText(/同一会话会优先继续使用之前选中的账号|Prefer the account previously selected/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/数值越大越先被选择|higher values are selected first/i)).toBeInTheDocument();
+    expect(await screen.findByText(/卡片之间的权重/)).toBeInTheDocument();
+    expect(screen.getByText(/重试次数和退避使用 LiteLLM/)).toBeInTheDocument();
     expect(screen.getByText(/剩余额度达到或低于|remaining quota reaches/i)).toBeInTheDocument();
     expect(screen.getByText(/认证信息与敏感内容仍会脱敏|credentials and sensitive data redacted/i)).toBeInTheDocument();
   });

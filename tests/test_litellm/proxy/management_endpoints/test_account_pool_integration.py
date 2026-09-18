@@ -27,8 +27,10 @@ from litellm.proxy.management_endpoints.account_pool_integration import (
     PoolIdentity,
     completed_pool_metadata,
     create_ticket,
+    forwarding_retry_policy,
     pool_identity,
     register_card_key,
+    validate_key_account_scope,
     verify_ticket,
 )
 from tests.test_litellm.proxy.management_endpoints.test_account_pool_gateway import (
@@ -44,6 +46,96 @@ class InternalControl(Control):
         assert request.trusted_card_id == self.resolution.card_id
         assert request.trusted_key_id is not None
         return self.resolution
+
+
+@pytest.mark.asyncio
+async def test_native_key_binding_validates_admin_and_card_and_preserves_legacy_scope(signing_secret):
+    from litellm.proxy._types import UserAPIKeyAuth
+
+    card, binding = uuid4(), uuid4()
+    scope = {"account_pool_card_id": str(card)}
+    admin = UserAPIKeyAuth(user_role="proxy_admin")
+    with pytest.raises(HTTPException) as denied:
+        await validate_key_account_scope(scope, None, UserAPIKeyAuth(user_role="internal_user"))
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as invalid:
+        await validate_key_account_scope({"account_pool_card_id": "invalid"}, None, admin)
+    assert invalid.value.status_code == 400
+    with pytest.raises(HTTPException):
+        await validate_key_account_scope({**scope, "account_pool_binding_id": str(binding)}, None, admin)
+    calls = []
+
+    def lookup(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"name": "卡片"})
+
+    with patch(
+        "litellm.proxy.management_endpoints.account_pool_gateway.http_client",
+        lambda: httpx.AsyncClient(transport=httpx.MockTransport(lookup)),
+    ):
+        await validate_key_account_scope(scope, None, admin)
+    assert calls == [f"/api/environments/{card}"]
+    await validate_key_account_scope({"project": "keep"}, {**scope, "account_pool_binding_id": str(binding)}, admin)
+    with pytest.raises(HTTPException):
+        await validate_key_account_scope({"account_pool_card_id": str(uuid4())}, scope, admin)
+
+
+def test_native_retry_settings_use_key_then_model_then_global_and_bound_attempts():
+    from litellm.types.router import RetryPolicy, UpdateRouterConfig
+
+    identity = PoolIdentity(
+        key_hash="key",
+        request_id=uuid4(),
+        router_settings=UpdateRouterConfig(
+            num_retries=0,
+            retry_after=0.25,
+            model_group_retry_policy={
+                "public-alias": RetryPolicy(RateLimitErrorRetries=2, InternalServerErrorRetries=99)
+            },
+        ),
+    )
+    settings = forwarding_retry_policy(identity, "public-alias", 3, RetryPolicy(TimeoutErrorRetries=3), None, 2)
+    assert settings.rate_limit == 2
+    assert settings.server_error == 4
+    assert settings.timeout == 0
+    assert settings.backoff_ms == 250
+    assert settings.retries(401) == settings.retries(400) == 0
+
+
+def test_unbound_native_key_preserves_native_alias_and_card_candidates():
+    from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.management_endpoints.account_pool_integration import bind_identity
+
+    card, other = uuid4(), uuid4()
+    router = Router(
+        model_list=[
+            {
+                "model_name": "shared",
+                "litellm_params": {"model": "openai/gpt-6-astra", "api_key": "test", "weight": index + 1},
+                "model_info": {
+                    "id": str(identifier),
+                    "account_pool_environment_id": str(identifier),
+                    "managed_by": "account_pool",
+                },
+            }
+            for index, identifier in enumerate((card, other))
+        ],
+        model_group_alias={"alias": "shared"},
+    )
+    reset = pool_identity.set(None)
+    request = Request({"type": "http", "path": "/chat/completions", "headers": []})
+    try:
+        bind_identity(request, UserAPIKeyAuth(api_key="native-key"))
+        _, candidates = router._common_checks_available_deployment("alias")
+        assert {item["model_info"]["id"] for item in candidates} == {str(card), str(other)}
+        bind_identity(request, UserAPIKeyAuth(api_key="native-key", metadata={"account_pool_card_id": str(card)}))
+        _, scoped = router._common_checks_available_deployment("alias")
+        assert [item["model_info"]["id"] for item in scoped] == [str(card)]
+        with pytest.raises(HTTPException):
+            router._common_checks_available_deployment(str(other))
+    finally:
+        pool_identity.reset(reset)
+        router.discard()
 
 
 @pytest.fixture
@@ -619,7 +711,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
             assert response.choices[0].message.content == "through pool"
             assert response.usage.total_tokens == 7
-        expected_attempts = 2 if protocol == "error" else 1
+        expected_attempts = 4 if protocol == "error" else 1
         assert len(control.acquisitions) == expected_attempts
         finish_deadline = time.monotonic() + 5
         while len(control.finished) < expected_attempts and time.monotonic() < finish_deadline:
@@ -639,3 +731,76 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
         from litellm import close_litellm_async_clients
 
         await close_litellm_async_clients()
+
+
+@pytest.mark.asyncio
+async def test_native_timeout_ticket_overrides_transport_for_all_candidates(signing_secret):
+    from litellm.proxy.management_endpoints.account_pool_gateway import TrustedControl
+    from litellm.proxy.management_endpoints.account_pool_integration import bind_router_settings, forwarding_timeout
+
+    identity = PoolIdentity(key_hash="key", request_id=uuid4())
+    assert forwarding_timeout(identity, {"timeout": 40, "stream_timeout": 80}, True) == 80
+    assert forwarding_timeout(identity, {"timeout": 40}, False) == 40
+    assert forwarding_timeout(identity, {}, True) is None
+    reset = pool_identity.set(identity)
+    try:
+        bind_router_settings({"timeout": 21, "num_retries": 0})
+        inherited = pool_identity.get()
+        assert forwarding_timeout(inherited, {"timeout": 40}, False) == 21
+        assert forwarding_retry_policy(inherited, "model", 3, None, None, 1).server_error == 0
+    finally:
+        pool_identity.reset(reset)
+    _, control = setup_gateway(lambda request: httpx.Response(200, json={}))
+    card = control.resolution.card_id
+    ticket = verify_ticket(create_ticket(identity, card, timeout_seconds=21), card)
+    trusted = TrustedControl(InternalControl(control.resolution), ticket)
+    resolved = await trusted.resolve(ResolveRequest(card_key="test-only-request"))
+    assert resolved.policy.transport.request_timeout_seconds == 21
+    assert all(candidate.policy.transport.request_timeout_seconds == 21 for candidate in resolved.candidates)
+    assert control.resolution.policy.transport.request_timeout_seconds != 21
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "unsafe", [{"tools": [{"type": "function"}]}, {"previous_response_id": "prior"}, {"background": True}]
+)
+async def test_native_fallback_cannot_replay_unsafe_pool_request(unsafe):
+    router = Router(model_list=[])
+    failure = RuntimeError("pool attempt failed")
+    try:
+        with pytest.raises(RuntimeError, match="pool attempt failed") as error:
+            await router.async_function_with_fallbacks_common_utils(
+                e=failure,
+                disable_fallbacks=False,
+                fallbacks=[{"primary": ["backup"]}],
+                context_window_fallbacks=None,
+                content_policy_fallbacks=None,
+                model_group="primary",
+                args=(),
+                kwargs={"model": "primary", "metadata": {"account_pool_attempt": True}, **unsafe},
+            )
+        assert error.value is failure
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_pool_responses_stream_skips_outer_replay_wrapper():
+    from unittest.mock import MagicMock
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+
+    router = Router(model_list=[])
+    stream = MagicMock(spec=BaseResponsesAPIStreamingIterator)
+    call = AsyncMock(return_value=stream)
+    with (
+        patch.object(router, "_ageneric_api_call_with_fallbacks", call),
+        patch.object(router, "_aresponses_streaming_iterator", AsyncMock()) as wrapped,
+    ):
+        response = await router._aresponses_with_streaming_fallbacks(
+            original_function=AsyncMock(),
+            stream=True,
+            litellm_metadata={"account_pool_attempt": True},
+        )
+    assert response is stream
+    wrapped.assert_not_awaited()
+    router.discard()

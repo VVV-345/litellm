@@ -31,16 +31,14 @@ import { migratedHref } from "@/utils/migratedPages";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
-import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
 import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
-import { AccountPoolSettingsPanel } from "./AccountPoolSettingsPanel";
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
 import { AccountPoolReleasesPanel } from "./AccountPoolReleasesPanel";
-import { AccountPoolPolicyDialog } from "./AccountPoolPolicyDialog";
+import { RuntimeSettingsSection } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
 import {
   getAccountPoolDashboardStats,
@@ -86,9 +84,7 @@ export default function AccountPoolPage() {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
-  const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [search, setSearch] = useState("");
@@ -177,12 +173,20 @@ export default function AccountPoolPage() {
       environment={environment}
       requestStats={requestStats}
       proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
-      onConfigure={setConfigEnvironment}
+      onConfigure={(current) =>
+        router.push(`${migratedHref("models-and-endpoints")}?account_id=${encodeURIComponent(current.id)}`)
+      }
       onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
       onAuthorize={(current) => authorizeMutation.mutate(current)}
       onDelete={setDeleteEnvironment}
-      onManageKey={(current) => router.push(`${migratedHref("api-keys")}?account_id=${encodeURIComponent(current.id)}`)}
-      onManagePolicy={setPolicyEnvironment}
+      onManageKey={(current) =>
+        router.push(`${migratedHref("api-keys")}?create=true&account_id=${encodeURIComponent(current.id)}`)
+      }
+      onManagePolicy={(current) =>
+        router.push(
+          `${migratedHref("models-and-endpoints")}?account_id=${encodeURIComponent(current.id)}&account_policy=true`,
+        )
+      }
       onViewLogs={(current) => {
         router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(current.id)}`);
       }}
@@ -338,14 +342,8 @@ export default function AccountPoolPage() {
             <TabsTrigger value="quotas" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.quotas")}
             </TabsTrigger>
-            <TabsTrigger value="settings" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.settings")}
-            </TabsTrigger>
             <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.proxyLayer")}
-            </TabsTrigger>
-            <TabsTrigger value="plugins" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.plugins")}
             </TabsTrigger>
             <TabsTrigger value="upstream-sync" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.upstreamSync")}
@@ -373,6 +371,12 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="providers" className="pt-4">
             <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
+            {accessToken && (
+              <details className="my-4 rounded-lg border p-4">
+                <summary>新卡片默认配置</summary>
+                <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="common" />
+              </details>
+            )}
             {accessToken && environments.length > 0 && (
               <div className="mb-4">
                 <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
@@ -427,6 +431,12 @@ export default function AccountPoolPage() {
             <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
           </TabsContent>
           <TabsContent value="quotas" className="pt-4">
+            {accessToken && (
+              <details className="mb-4 rounded-lg border p-4">
+                <summary>配额耗尽策略</summary>
+                <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="quota" />
+              </details>
+            )}
             <AccountPoolQuotaPanel
               accessToken={accessToken}
               environments={environments}
@@ -434,14 +444,16 @@ export default function AccountPoolPage() {
               refreshing={refreshingQuotas}
             />
           </TabsContent>
-          <TabsContent value="settings" className="pt-4">
-            {accessToken && <AccountPoolSettingsPanel accessToken={accessToken} environments={environments} />}
-          </TabsContent>
-          <TabsContent value="plugins" className="pt-4">
-            {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
-          </TabsContent>
           <TabsContent value="releases" className="pt-4">
-            {accessToken && activeTab === "releases" && <AccountPoolReleasesPanel accessToken={accessToken} />}
+            {accessToken && activeTab === "releases" && (
+              <>
+                <AccountPoolReleasesPanel accessToken={accessToken} />
+                <details className="mt-6 rounded-lg border p-4">
+                  <summary>运行插件管理</summary>
+                  <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />
+                </details>
+              </>
+            )}
           </TabsContent>
           <TabsContent value="upstream-sync" className="pt-4">
             {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
@@ -461,36 +473,6 @@ export default function AccountPoolPage() {
             if (!open) setAuthorization(null);
           }}
           onCreated={() => void environmentsQuery.refetch()}
-        />
-      )}
-      {configEnvironment && (
-        <AccountPoolConfigDialog
-          key={configEnvironment.id}
-          accessToken={accessToken}
-          environment={configEnvironment}
-          open
-          onOpenChange={(open) => !open && setConfigEnvironment(null)}
-          onRefresh={() => void environmentsQuery.refetch()}
-          onSaved={() => {
-            setConfigEnvironment(null);
-            void environmentsQuery.refetch();
-          }}
-        />
-      )}
-      {policyEnvironment && accessToken && (
-        <AccountPoolPolicyDialog
-          accessToken={accessToken}
-          environment={policyEnvironment}
-          environments={environments}
-          policies={policies}
-          onOpenRuntimeConfig={() => {
-            setPolicyEnvironment(null);
-            setConfigEnvironment(policyEnvironment);
-          }}
-          onClose={() => {
-            setPolicyEnvironment(null);
-            void policiesQuery.refetch();
-          }}
         />
       )}
       <AlertDialog

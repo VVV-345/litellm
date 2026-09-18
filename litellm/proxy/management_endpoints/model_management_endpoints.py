@@ -538,7 +538,44 @@ def _ptu_priced_deployment(model_params: Deployment) -> Deployment:
     )
 
 
+def _validate_managed_model_patch(db_model: Deployment, updated_patch: updateDeployment) -> None:
+    info: Final = db_model.model_info.model_dump()
+    if info.get("managed_by") != "account_pool":
+        return
+    params: Final = db_model.litellm_params.model_dump()
+    patch_params: Final = (
+        updated_patch.litellm_params.model_dump(exclude_unset=True) if updated_patch.litellm_params else {}
+    )
+    patch_info: Final = updated_patch.model_info.model_dump(exclude_unset=True) if updated_patch.model_info else {}
+    protected_params: Final = (
+        "model",
+        "custom_llm_provider",
+        "api_base",
+        "api_key",
+        "litellm_credential_name",
+        "max_parallel_requests",
+        "num_retries",
+        "max_retries",
+    )
+    protected_info: Final = (
+        "id",
+        "managed_by",
+        "account_pool_environment_id",
+        "account_pool_model",
+        "account_pool_native_routing",
+    )
+    if (
+        (updated_patch.model_name is not None and updated_patch.model_name != db_model.model_name)
+        or any(name in patch_params and patch_params[name] != params.get(name) for name in protected_params)
+        or any(name in patch_info and patch_info[name] != info.get(name) for name in protected_info)
+    ):
+        raise HTTPException(
+            400, "Managed account identity cannot be edited; use card configuration for credentials and concurrency"
+        )
+
+
 def update_db_model(db_model: Deployment, updated_patch: updateDeployment) -> PrismaCompatibleUpdateDBModel:
+    _validate_managed_model_patch(db_model, updated_patch)
     if updated_patch.model_info is not None:
         _raise_if_ptu_cost_attribution_disabled(updated_patch.model_info.model_dump(exclude_none=True))
     merged_model_name: Final = updated_patch.model_name or db_model.model_name

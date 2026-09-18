@@ -21,10 +21,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 
-import { AccountPoolProviderPolicyFields } from "./AccountPoolProviderPolicyFields";
-import { getAccountPolicy, saveAccountPolicy, type AccountPolicy, type PolicyView } from "./AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
-import { buildAccountPoolPolicyOptions, type AccountPoolPolicyOptions } from "./accountPoolPolicyOptions";
+import { AccountPoolProviderPolicyFields } from "@/app/(dashboard)/account-pool/AccountPoolProviderPolicyFields";
+import {
+  getAccountPolicy,
+  saveAccountPolicy,
+  type AccountPolicy,
+  type PolicyView,
+} from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import {
+  buildAccountPoolPolicyOptions,
+  type AccountPoolPolicyOptions,
+} from "@/app/(dashboard)/account-pool/accountPoolPolicyOptions";
 
 type Routing = NonNullable<AccountPolicy["routing"]>;
 type Transport = NonNullable<AccountPolicy["transport"]>;
@@ -115,7 +123,7 @@ const FieldCard = ({ children, className = "" }: { children: ReactNode; classNam
   <div className={`min-w-0 rounded-lg border border-border bg-background p-4 ${className}`}>{children}</div>
 );
 
-export function AccountPoolPolicyDialog({
+export function RuntimePolicyDialog({
   accessToken,
   environment,
   environments,
@@ -211,7 +219,6 @@ function PolicyForm({
   const [policy, setPolicy] = useState<FormPolicy>(initial);
   const [busy, setBusy] = useState(false);
   const [aliases, setAliases] = useState(policy.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
-  const [statuses, setStatuses] = useState(policy.routing.retryable_statuses.join(", "));
   const codex = policy.codex ?? codexDefaults;
   const claude = policy.claude ?? claudeDefaults;
   const kimi = policy.kimi ?? kimiDefaults;
@@ -222,10 +229,6 @@ function PolicyForm({
     value,
   }));
   const selectedGroup = groupOptions.find((option) => option.value === policy.group) ?? null;
-  const preferredAccountOptions = [
-    { label: environment.name, value: environment.id, description: environment.id },
-    ...options.accounts,
-  ];
   const list = (input: string) =>
     input
       .split(",")
@@ -373,15 +376,6 @@ function PolicyForm({
       allowCustomValues: true,
     },
   };
-  const preferredAccountIdsField: MultiFieldProps = {
-    label: t("accountPool.policy.preferred_account_ids"),
-    description: description("preferred_account_ids"),
-    selected: policy.routing.preferred_account_ids,
-    control: {
-      entries: preferredAccountOptions,
-      change: (preferredAccountIds) => updateRouting("preferred_account_ids", preferredAccountIds),
-    },
-  };
   const excludedModelsField: MultiFieldProps = {
     label: t("accountPool.policy.excluded_models"),
     description: description("excluded_models"),
@@ -406,13 +400,6 @@ function PolicyForm({
         const split = item.indexOf("=");
         return { alias: item.slice(0, split).trim(), target: item.slice(split + 1).trim() };
       }),
-      routing: {
-        ...policy.routing,
-        preferred_account_ids: policy.routing.preferred_account_ids.filter((id) =>
-          preferredAccountOptions.some((option) => option.value === id),
-        ),
-        retryable_statuses: list(statuses).map(Number),
-      },
     };
     setBusy(true);
     try {
@@ -515,34 +502,11 @@ function PolicyForm({
         </dl>
       </section>
       <section className="grid gap-3">
-        <div className="space-y-1">
-          <h3 className="font-medium">{t("accountPool.policy.accountScope")}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.accountScopeDescription")}</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <p className="text-sm text-muted-foreground">{t("accountPool.credentials.exclusiveHint")}</p>
-          {multiField(preferredAccountIdsField)}
-        </div>
-      </section>
-      <section className="grid gap-3">
         <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {selectField(t("accountPool.policy.strategy"), description("strategy"), policy.routing.strategy, {
-            entries: ["auto", "random", "priority", "quota", "plan", "expiry", "custom"],
-            change: (next) => updateRouting("strategy", next as Routing["strategy"]),
-          })}
-          {numberField(t("accountPool.policy.priority"), description("priority"), policy.routing.priority, (next) =>
-            updateRouting("priority", next),
-          )}
-          {numberField(t("accountPool.policy.weight"), description("weight"), policy.routing.weight, (next) =>
-            updateRouting("weight", next),
-          )}
-          {numberField(
-            t("accountPool.policy.session_affinity_ttl"),
-            description("session_affinity_ttl"),
-            policy.routing.session_affinity_ttl,
-            (next) => updateRouting("session_affinity_ttl", next),
-          )}
+          <p className="text-sm text-muted-foreground">
+            卡片之间的权重、优先级、回退和会话亲和性使用 LiteLLM 路由设置；虚拟密钥指定卡片时仅在该卡片内调用。
+          </p>
           {numberField(
             t("accountPool.policy.quota_reserve_percent"),
             description("quota_reserve_percent"),
@@ -567,41 +531,9 @@ function PolicyForm({
             policy.routing.token_budget_window_seconds,
             (next) => updateRouting("token_budget_window_seconds", next),
           )}
-          {numberField(
-            t("accountPool.policy.max_attempts"),
-            description("max_attempts"),
-            policy.routing.max_attempts,
-            (next) => updateRouting("max_attempts", next),
-          )}
-          {numberField(
-            t("accountPool.policy.backoff_ms"),
-            description("backoff_ms"),
-            policy.routing.backoff_ms,
-            (next) => updateRouting("backoff_ms", next),
-          )}
-          {textField(
-            t("accountPool.policy.retryable_statuses"),
-            description("retryable_statuses"),
-            statuses,
-            setStatuses,
-          )}
+          <p className="text-sm text-muted-foreground">重试次数和退避使用 LiteLLM 模型重试设置及虚拟密钥路由设置。</p>
           {multiField(excludedModelsField)}
           {textField(t("accountPool.policy.model_aliases"), description("model_aliases"), aliases, setAliases)}
-          {toggleField(t("accountPool.policy.is_backup"), description("is_backup"), policy.routing.is_backup, (next) =>
-            updateRouting("is_backup", next),
-          )}
-          {toggleField(
-            t("accountPool.policy.session_affinity"),
-            description("session_affinity"),
-            policy.routing.session_affinity,
-            (next) => updateRouting("session_affinity", next),
-          )}
-          {toggleField(
-            t("accountPool.policy.fallback_enabled"),
-            description("fallback_enabled"),
-            policy.routing.fallback_enabled,
-            (next) => updateRouting("fallback_enabled", next),
-          )}
         </div>
       </section>
       <section className="grid gap-3">

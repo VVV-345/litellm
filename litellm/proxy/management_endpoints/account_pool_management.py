@@ -26,9 +26,6 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolSettingsView,
     BatchJob,
     BatchRequest,
-    CardKeyChange,
-    CardKeyIssue,
-    CardKeyStatus,
     CodexReviewPackage,
     PolicyUpdate,
     PolicyView,
@@ -57,56 +54,6 @@ def create_management_router(
         if response.is_error:
             raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")
         return response.content
-
-    @router.get("/cards/{card_id}/key/status")
-    async def key_status(card_id: UUID, response: Response) -> CardKeyStatus | None:
-        response.headers["Cache-Control"] = "no-store"
-        return parse_response(await call("GET", f"/api/cards/{card_id}/key/status"), TypeAdapter(CardKeyStatus | None))
-
-    @router.post("/cards/{card_id}/key")
-    async def create_key(card_id: UUID, response: Response) -> CardKeyIssue:
-        response.headers["Cache-Control"] = "no-store"
-        issued: Final = parse_response(await call("POST", f"/api/cards/{card_id}/key"), TypeAdapter(CardKeyIssue))
-        from litellm.proxy.management_endpoints.account_pool_integration import register_card_key
-
-        try:
-            await register_card_key(issued.key, status=issued.status)
-        except Exception:
-            await call(
-                "DELETE",
-                f"/api/cards/{card_id}/key",
-                CardKeyChange(expected_key_id=issued.status.key_id).model_dump_json().encode(),
-            )
-            raise
-        return issued
-
-    @router.post("/cards/{card_id}/key/rotate")
-    async def rotate_key(card_id: UUID, request: CardKeyChange, response: Response) -> CardKeyIssue:
-        response.headers["Cache-Control"] = "no-store"
-        issued: Final = parse_response(
-            await call("POST", f"/api/cards/{card_id}/key/rotate", request.model_dump_json().encode()),
-            TypeAdapter(CardKeyIssue),
-        )
-        from litellm.proxy.management_endpoints.account_pool_integration import block_card_keys, register_card_key
-
-        try:
-            await block_card_keys(request.expected_key_id)
-            await register_card_key(issued.key, status=issued.status)
-        except Exception:
-            await call(
-                "DELETE",
-                f"/api/cards/{card_id}/key",
-                CardKeyChange(expected_key_id=issued.status.key_id).model_dump_json().encode(),
-            )
-            raise
-        return issued
-
-    @router.delete("/cards/{card_id}/key", status_code=204)
-    async def revoke_key(card_id: UUID, request: CardKeyChange) -> None:
-        await call("DELETE", f"/api/cards/{card_id}/key", request.model_dump_json().encode())
-        from litellm.proxy.management_endpoints.account_pool_integration import block_card_keys
-
-        await block_card_keys(request.expected_key_id)
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
@@ -179,20 +126,10 @@ def create_management_router(
             TypeAdapter(PolicyView),
         )
 
-    @router.get("/settings")
-    async def get_settings() -> AccountPoolSettingsView:
-        return parse_response(await call("GET", "/api/settings"), TypeAdapter(AccountPoolSettingsView))
-
     @router.get("/settings/history")
     async def settings_history() -> tuple[AccountPoolSettingsHistoryEntry, ...]:
         return parse_response(
             await call("GET", "/api/settings/history"), TypeAdapter(tuple[AccountPoolSettingsHistoryEntry, ...])
-        )
-
-    @router.put("/settings")
-    async def update_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView:
-        return parse_response(
-            await call("PUT", "/api/settings", request.model_dump_json().encode()), TypeAdapter(AccountPoolSettingsView)
         )
 
     @router.post("/settings/preview")

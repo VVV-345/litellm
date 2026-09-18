@@ -27,6 +27,8 @@ import AccessGroupBudgetsPanel from "@/app/(dashboard)/models-and-endpoints/pane
 import PriceDataPanel from "@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSearchParams } from "next/navigation";
+import ModelRuntimeConfiguration from "@/components/Settings/RuntimeSettings/ModelRuntimeConfiguration";
 
 type ModelTabSlug =
   | "add"
@@ -88,6 +90,8 @@ export default function ModelsAndEndpointsPage() {
   const queryClient = useQueryClient();
   const { modelId, teamId, close } = useModelDetailRouting();
   const { availableModelAccessGroups, allModelsOnProxy } = useModelDashboardData();
+  const searchParams = useSearchParams();
+  const accountId = searchParams?.get("account_id");
 
   const [activeKey, setActiveKey] = useState<string>(BASE_TAB_KEY);
   const [lastRefreshed, setLastRefreshed] = useState("");
@@ -176,6 +180,12 @@ export default function ModelsAndEndpointsPage() {
         </div>
 
         <CostOptimizationFeedbackBanner />
+        {isAdmin && accountId && (
+          <ModelRuntimeConfiguration
+            accountId={accountId}
+            initialPolicy={searchParams?.get("account_policy") === "true"}
+          />
+        )}
 
         {modelId ? (
           <ModelInfoView
@@ -204,7 +214,9 @@ export default function ModelsAndEndpointsPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2 pb-1">
                 {lastRefreshed && (
-                  <span className="text-xs text-muted-foreground">{t("models.lastRefreshed", { time: lastRefreshed })}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("models.lastRefreshed", { time: lastRefreshed })}
+                  </span>
                 )}
                 <Button variant="ghost" size="icon-sm" onClick={handleRefreshClick} aria-label={t("models.refresh")}>
                   <RefreshCw />

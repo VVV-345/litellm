@@ -804,58 +804,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account_pool/cards/{card_id}/key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Create Key */
-        post: operations["create_key_account_pool_cards__card_id__key_post"];
-        /** Revoke Key */
-        delete: operations["revoke_key_account_pool_cards__card_id__key_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/cards/{card_id}/key/rotate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Rotate Key */
-        post: operations["rotate_key_account_pool_cards__card_id__key_rotate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/cards/{card_id}/key/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Key Status */
-        get: operations["key_status_account_pool_cards__card_id__key_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/account_pool/credentials": {
         parameters: {
             query?: never;
@@ -1572,24 +1520,6 @@ export interface paths {
         /** Commands */
         get: operations["commands_account_pool_releases__version_id__commands_get"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Settings */
-        get: operations["get_settings_account_pool_settings_get"];
-        /** Update Settings */
-        put: operations["update_settings_account_pool_settings_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3913,6 +3843,40 @@ export interface paths {
          * @description Update a pass-through endpoint by ID.
          */
         post: operations["update_pass_through_endpoints_config_pass_through_endpoint__endpoint_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Runtime Configuration */
+        get: operations["read_runtime_configuration_config_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/runtime/{section}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Runtime Configuration */
+        put: operations["update_runtime_configuration_config_runtime__section__put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -26715,42 +26679,6 @@ export interface components {
              */
             status: "cancelled";
         };
-        /** CardKeyChange */
-        CardKeyChange: {
-            /**
-             * Expected Key Id
-             * Format: uuid
-             */
-            expected_key_id: string;
-        };
-        /** CardKeyIssue */
-        CardKeyIssue: {
-            /** Key */
-            key: string;
-            status: components["schemas"]["CardKeyStatus"];
-        };
-        /** CardKeyStatus */
-        CardKeyStatus: {
-            /**
-             * Card Id
-             * Format: uuid
-             */
-            card_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Key Id
-             * Format: uuid
-             */
-            key_id: string;
-            /** Last Used At */
-            last_used_at: string | null;
-            /** Revoked At */
-            revoked_at: string | null;
-        };
         /** ChatCompletionAnnotation */
         ChatCompletionAnnotation: {
             /**
@@ -43556,136 +43484,6 @@ export interface operations {
             };
         };
     };
-    create_key_account_pool_cards__card_id__key_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                card_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CardKeyIssue"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    revoke_key_account_pool_cards__card_id__key_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                card_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CardKeyChange"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rotate_key_account_pool_cards__card_id__key_rotate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                card_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CardKeyChange"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CardKeyIssue"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    key_status_account_pool_cards__card_id__key_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                card_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CardKeyStatus"] | null;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     credentials_account_pool_credentials_get: {
         parameters: {
             query?: never;
@@ -45161,59 +44959,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReleaseCommands"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_settings_account_pool_settings_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolSettingsView"];
-                };
-            };
-        };
-    };
-    update_settings_account_pool_settings_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AccountPoolSettingsUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolSettingsView"];
                 };
             };
             /** @description Validation Error */
@@ -48985,6 +48730,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_runtime_configuration_config_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsView"];
+                };
+            };
+        };
+    };
+    update_runtime_configuration_config_runtime__section__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: "common" | "access" | "network" | "quota" | "streaming" | "advanced" | "payload";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolSettingsView"];
                 };
             };
             /** @description Validation Error */

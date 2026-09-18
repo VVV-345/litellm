@@ -6,13 +6,14 @@ import { KeyIcon, RefreshIcon, TrashIcon } from "@heroicons/react/outline";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ModelRuntimeConfiguration from "@/components/Settings/RuntimeSettings/ModelRuntimeConfiguration";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { applyPtuModelInfo } from "../utils/ptuModelInfo";
 import { usePtuCostAttributionEnabled } from "@/app/(dashboard)/hooks/uiSettings/usePtuCostAttributionEnabled";
 import { ArrowLeft, CheckIcon, CopyIcon, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { copyToClipboard as utilCopyToClipboard } from "../utils/dataUtils";
-import { stripMaskedSecrets } from "../utils/maskedSecretUtils";
+import { editableModelParams } from "../utils/managedModelParams";
 import { truncateString } from "../utils/textUtils";
 import AutoRouterConnectionTest from "./add_model/auto_router_connection_test";
 import { AutoRouterTestTarget, buildAutoRouterTestTargets } from "./add_model/build_auto_router_test_targets";
@@ -323,6 +324,8 @@ export default function ModelInfoView({
         tpm: values.tpm,
         rpm: values.rpm,
         max_retries: values.max_retries,
+        weight: values.weight,
+        order: values.order,
         timeout: values.timeout,
         stream_timeout: values.stream_timeout,
         tags: values.tags,
@@ -428,7 +431,10 @@ export default function ModelInfoView({
       // seeds this form masks secrets, and any save re-sends the whole params blob;
       // without this strip a masked value would be re-encrypted over the real secret.
       // Credential rotation has its own dedicated path (UpdateModelCredentialsModal).
-      const safeLitellmParams = stripMaskedSecrets(updatedLitellmParams);
+      const safeLitellmParams = editableModelParams(
+        updatedLitellmParams,
+        localModelData.model_info?.managed_by === "account_pool",
+      );
 
       const updateData = {
         model_name: values.model_name,
@@ -625,7 +631,7 @@ export default function ModelInfoView({
             </Button>
           )}
 
-          {!isAnyAutoRouter && (
+          {!isAnyAutoRouter && modelData.model_info?.managed_by !== "account_pool" && (
             <>
               <Button
                 variant="outline"
@@ -663,6 +669,9 @@ export default function ModelInfoView({
         </div>
       </div>
 
+      {isAdmin && typeof modelData.model_info.account_pool_environment_id === "string" && (
+        <ModelRuntimeConfiguration accountId={modelData.model_info.account_pool_environment_id} />
+      )}
       <Tabs defaultValue="overview">
         <TabsList variant="line" className="mb-6 h-auto w-full justify-start rounded-none border-b p-0">
           <TabsTrigger value="overview" className="flex-none rounded-none px-4 py-2">

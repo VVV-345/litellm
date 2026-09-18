@@ -35,6 +35,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     Resolution,
     RoutingReason,
 )
+from litellm.proxy.management_endpoints.account_pool_integration import ForwardRetryPolicy
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_retry import (
     StreamBootstrap,
@@ -242,6 +243,18 @@ async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
         await report(control, attempt.result)
 
 
+def retry_allowed(request: Request, resolution: Resolution, status: int, attempt_number: int) -> bool:
+    native: Final = getattr(request.state, "account_pool_retry_policy", None)
+    if isinstance(native, ForwardRetryPolicy):
+        return attempt_number <= native.retries(status)
+    return status in resolution.policy.routing.retryable_statuses
+
+
+def retry_backoff(request: Request, resolution: Resolution) -> int:
+    native: Final = getattr(request.state, "account_pool_retry_policy", None)
+    return native.backoff_ms if isinstance(native, ForwardRetryPolicy) else resolution.policy.routing.backoff_ms
+
+
 async def forward(
     request: Request,
     payload: dict[str, JsonValue],
@@ -255,7 +268,13 @@ async def forward(
 ) -> None:
     routing: Final = resolution.policy.routing
     allow_retry: Final = replay_safe(payload)
-    max_attempts: Final = routing.max_attempts if allow_retry else 1
+    native_retry: Final = getattr(request.state, "account_pool_retry_policy", None)
+    configured_attempts: Final = (
+        1 + max(native_retry.rate_limit, native_retry.timeout, native_retry.server_error)
+        if isinstance(native_retry, ForwardRetryPolicy)
+        else routing.max_attempts
+    )
+    max_attempts: Final = configured_attempts if allow_retry else 1
     bound_id: Final = (
         resolution.sticky_account_id if not allow_retry and resolution.sticky_account_id else resolution.card_id
     )
@@ -453,7 +472,7 @@ async def forward_candidate(
         await asyncio.shield(finish_attempt(control, attempt))
     if not completed:
         delay: Final = max(
-            backoff_seconds(resolution.policy.routing.backoff_ms, same_card_attempt),
+            backoff_seconds(retry_backoff(request, resolution), same_card_attempt),
             attempt.result.retry_after_seconds if actual_next_index == route_index else 0,
             attempt.result.model_cooldown_seconds if actual_next_index == route_index else 0,
         )
@@ -561,7 +580,7 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None
-                        and response.status_code in resolution.policy.routing.retryable_statuses
+                        and retry_allowed(request, resolution, response.status_code, attempt.attempt_number)
                         and asyncio.get_running_loop().time() < deadline
                     )
                     attempt.outcome(
@@ -635,7 +654,10 @@ async def execute(
             499 if disconnected else 504 if isinstance(error, (TimeoutError, httpx.TimeoutException)) else 502
         )
         retry_connection: Final = (
-            next_id is not None and isinstance(error, _SAFE_CONNECT_FAILURES) and not attempt.started
+            next_id is not None
+            and isinstance(error, _SAFE_CONNECT_FAILURES)
+            and not attempt.started
+            and retry_allowed(request, resolution, status, attempt.attempt_number)
         )
         attempt.outcome(
             status,
@@ -892,7 +914,7 @@ async def guarded_stream_response(
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
-                bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
+                retry_allowed(request, resolution, bootstrap.state.error_status, attempt.attempt_number)
                 and bootstrap.state.error_code
                 in (
                     "server_error",

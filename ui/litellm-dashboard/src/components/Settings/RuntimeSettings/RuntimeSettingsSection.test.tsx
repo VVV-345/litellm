@@ -5,17 +5,17 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountPoolSettingsPanel } from "./AccountPoolSettingsPanel";
-import type { AccountPoolSettings } from "./AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { RuntimeSettingsSection } from "./RuntimeSettingsSection";
+import type { AccountPoolSettings } from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const getSettings = vi.fn();
 const updateSettings = vi.fn();
 const listProxyProfiles = vi.fn();
 const toastSuccess = vi.fn();
 
-vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./AccountPoolManagementApi")>();
+vi.mock("@/app/(dashboard)/account-pool/AccountPoolManagementApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolManagementApi")>();
   return {
     ...original,
     getAccountPoolSettings: (...args: unknown[]) => getSettings(...args),
@@ -23,8 +23,8 @@ vi.mock("./AccountPoolManagementApi", async (importOriginal) => {
   };
 });
 
-vi.mock("./AccountPoolApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./AccountPoolApi")>();
+vi.mock("@/app/(dashboard)/account-pool/AccountPoolApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolApi")>();
   return {
     ...original,
     listAccountPoolProxyProfiles: (...args: unknown[]) => listProxyProfiles(...args),
@@ -94,14 +94,14 @@ const reloadRequiredSettingsView = {
   requires_reload: true,
 };
 
-const renderPanel = () =>
+const renderPanel = (category: "streaming" | "network" = "streaming") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <AccountPoolSettingsPanel accessToken="token" environments={[card]} />
+      <RuntimeSettingsSection accessToken="token" environments={[card]} category={category} />
     </QueryClientProvider>,
   );
 
-describe("AccountPoolSettingsPanel", () => {
+describe("RuntimeSettingsSection", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     getSettings.mockResolvedValue({ version: 4, values: settings, requires_reload: false });
@@ -113,7 +113,7 @@ describe("AccountPoolSettingsPanel", () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(await screen.findByRole("tab", { name: /流式传输|Streaming/i }));
+    await screen.findByRole("switch", { name: /允许流式传输|Allow streaming/i });
     expect(screen.getByRole("switch", { name: /允许流式传输|Allow streaming/i })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /新增配置|Add configuration/i }));
     await user.click(screen.getByRole("switch", { name: /继承全局配置|Inherit global configuration/i }));
@@ -148,9 +148,8 @@ describe("AccountPoolSettingsPanel", () => {
 
   it("does not expose the unsupported WebSocket transport setting", async () => {
     const user = userEvent.setup();
-    renderPanel();
-
-    await user.click(await screen.findByRole("tab", { name: /网络|Network/i }));
+    renderPanel("network");
+    await screen.findAllByRole("button", { name: /保存配置|Save configuration/i });
 
     expect(screen.queryByRole("switch", { name: /启用 WebSocket|Enable WebSocket/i })).not.toBeInTheDocument();
   });

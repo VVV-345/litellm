@@ -1,9 +1,6 @@
 "use client";
 
-import { AccountKeyDialog } from "./AccountKeyDialog";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
 import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
-import { parseAsString, useQueryState } from "nuqs";
 import { teamListCall as v2TeamListCall } from "@/app/(dashboard)/hooks/teams/useTeams";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { KeyResponse, Team } from "@/components/key_team_helpers/key_list";
@@ -19,15 +16,14 @@ export default function ApiKeysDashboard() {
   const { userId: userID, userRole, userEmail, accessToken, premiumUser } = useAuthorized();
   const { setUserRole, setUserEmail } = useAuth();
   const searchParams = useSearchParams()!;
-  const [accountId, setAccountId] = useQueryState("account_id", parseAsString);
   const canManageAccounts = canManageAccountPool(userRole, false);
-  const accounts = useAccountPoolQuery(accessToken, canManageAccounts, false);
+  const accountId = canManageAccounts ? searchParams.get("account_id") : null;
 
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [keys, setKeys] = useState<KeyResponse[] | null>([]);
   const [createClicked, setCreateClicked] = useState<boolean>(false);
 
-  const autoOpenCreate = searchParams.get("create") === "true";
+  const autoOpenCreate = searchParams.get("create") === "true" || Boolean(accountId);
   const prefillData: CreateKeyPrefillData | undefined = useMemo(() => {
     if (!autoOpenCreate) return undefined;
 
@@ -37,7 +33,7 @@ export default function ApiKeysDashboard() {
     const modelsParam = searchParams.get("models");
     const keyType = searchParams.get("key_type");
 
-    if (!ownedBy && !teamId && !keyAlias && !modelsParam && !keyType) {
+    if (!ownedBy && !teamId && !keyAlias && !modelsParam && !keyType && !accountId) {
       return undefined;
     }
 
@@ -60,13 +56,14 @@ export default function ApiKeysDashboard() {
       : undefined;
 
     return {
+      account_id: accountId ?? undefined,
       owned_by: validatedOwnedBy,
       team_id: teamId?.trim() || undefined,
       key_alias: sanitizedKeyAlias,
       models: sanitizedModels && sanitizedModels.length > 0 ? sanitizedModels : undefined,
       key_type: validatedKeyType,
     };
-  }, [searchParams, autoOpenCreate]);
+  }, [searchParams, autoOpenCreate, accountId]);
 
   const addKey = (data: KeyResponse) => {
     setKeys((prevData) => (prevData ? [...prevData, data] : [data]));
@@ -85,37 +82,6 @@ export default function ApiKeysDashboard() {
 
   return (
     <>
-      {canManageAccounts && (
-        <div className="mx-6 mt-4 flex flex-wrap items-center gap-3 rounded-lg border p-4">
-          <label htmlFor="key-account">账号专用密钥</label>
-          <select
-            id="key-account"
-            className="rounded-md border bg-background px-3 py-2"
-            value={accountId ?? ""}
-            onChange={(event) => void setAccountId(event.target.value || null)}
-          >
-            <option value="">选择账号以管理专用密钥</option>
-            {accountId && !accounts.data?.some((account) => account.id === accountId) && (
-              <option value={accountId}>{accountId}</option>
-            )}
-            {accounts.data?.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-          {accounts.isError && <p role="alert">账号列表读取失败，请刷新重试</p>}
-        </div>
-      )}
-      {canManageAccounts && accountId && accessToken && (
-        <AccountKeyDialog
-          key={accountId}
-          accessToken={accessToken}
-          cardId={accountId}
-          name={accounts.data?.find((account) => account.id === accountId)?.name ?? accountId}
-          onClose={() => void setAccountId(null)}
-        />
-      )}
       <UserDashboard
         userID={userID}
         userRole={userRole}

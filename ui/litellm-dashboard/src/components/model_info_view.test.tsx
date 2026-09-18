@@ -975,6 +975,31 @@ describe("ModelInfoView", () => {
     expect(updatePayload.litellm_params).not.toHaveProperty("output_cost_per_token");
   });
 
+  it("saves native routing on managed models without changing forwarding credentials", async () => {
+    const managed = {
+      ...defaultModelData,
+      model_info: { ...defaultModelData.model_info, managed_by: "account_pool" },
+      litellm_params: { ...defaultModelData.litellm_params, weight: 1, order: 0 },
+    };
+    mockUseModelsInfo.mockReturnValue({ data: { data: [managed] }, isLoading: false, error: null });
+    mockModelInfoV1Call.mockResolvedValue({ data: [managed] });
+    const user = userEvent.setup();
+    render(<ModelInfoView {...DEFAULT_ADMIN_PROPS} />, { wrapper });
+    await user.click(await screen.findByRole("button", { name: /edit settings/i }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "路由权重" }), { target: { value: "7" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "路由优先级" }), { target: { value: "2" } });
+    expect(screen.queryByRole("button", { name: "Update API Key" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Enter API base")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(mockModelPatchUpdateCall).toHaveBeenCalled());
+    const payload = mockModelPatchUpdateCall.mock.calls[0][1];
+    expect(Number(payload.litellm_params.weight)).toBe(7);
+    expect(Number(payload.litellm_params.order)).toBe(2);
+    expect(payload.litellm_params).not.toHaveProperty("api_base");
+    expect(payload.litellm_params).not.toHaveProperty("api_key");
+    expect(payload.litellm_params).not.toHaveProperty("litellm_credential_name");
+  });
+
   it("never re-sends a masked secret on save (regression: masked auth value must not overwrite the real secret)", async () => {
     // /model/info redacts secrets by masking (e.g. "azur****BBCC"), not removing them.
     // A plain save re-PATCHes the whole litellm_params blob; if the masked value were

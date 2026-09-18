@@ -296,20 +296,9 @@ export const AccountPoolCard = ({
             )}
         </div>
         {environment.supplier === "openai_codex" && <AccountPoolCardQuota environment={environment} />}
-        {policyValues && (
-          <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
-            <div>
-              <p className="text-xs text-muted-foreground">{t("accountPool.policy.strategy")}</p>
-              <p className="mt-1 font-medium">
-                {t(`accountPool.policy.options.${policyValues.routing?.strategy ?? "auto"}`)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">{t("accountPool.policy.weight")}</p>
-              <p className="mt-1 font-medium">{policyValues.routing?.weight ?? 1}</p>
-            </div>
-          </div>
-        )}
+        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+          路由策略、权重和优先级在 LiteLLM 模型设置中管理
+        </p>
         {providerSummary && (
           <div className="grid gap-1 border-t border-border pt-3">
             <p className="text-xs text-muted-foreground">{t("accountPool.policy.providerSummary")}</p>

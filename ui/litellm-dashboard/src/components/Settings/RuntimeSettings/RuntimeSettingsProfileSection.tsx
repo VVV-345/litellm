@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 export type SettingsProfile<TValues> = {
   id: string;
@@ -48,7 +48,7 @@ type Props<TValues> = {
   ) => ReactNode;
 };
 
-export const AccountPoolSettingsProfileSection = <TValues,>({
+export const RuntimeSettingsProfileSection = <TValues,>({
   moduleName,
   globalValues,
   profiles,
