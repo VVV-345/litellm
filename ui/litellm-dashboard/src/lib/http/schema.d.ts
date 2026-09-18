@@ -40769,6 +40769,8 @@ export interface components {
             cooldown_time?: number | null;
             /** Enable Tag Filtering */
             enable_tag_filtering?: boolean | null;
+            /** Enable Weighted Failover */
+            enable_weighted_failover?: boolean | null;
             /** Fallbacks */
             fallbacks?: {
                 [key: string]: unknown;

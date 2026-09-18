@@ -140,17 +140,37 @@ async def test_stateful_continuation_cannot_move_to_a_different_card():
 
 
 def test_router_setting_updates_take_effect_and_roundtrip():
+    from litellm.proxy._types import ConfigYAML
+
     router = Router()
     try:
-        router.update_settings(
-            account_pool_routing={"selection": "expiry", "session_affinity": True, "session_affinity_ttl_seconds": 900}
+        request = ConfigYAML.model_validate(
+            {
+                "router_settings": {
+                    "account_pool_routing": {
+                        "selection": "expiry",
+                        "session_affinity": True,
+                        "session_affinity_ttl_seconds": 900,
+                    },
+                    "enable_weighted_failover": True,
+                }
+            }
         )
+        persisted = request.router_settings.model_dump(exclude_none=True)
+        router.update_settings(**persisted)
+        assert router.get_settings()["enable_weighted_failover"] is True
         assert router.get_settings()["account_pool_routing"] == {
             "selection": "expiry",
             "session_affinity": True,
             "session_affinity_ttl_seconds": 900,
         }
         assert any(type(callback).__name__ == "DeploymentAffinityCheck" for callback in router.optional_callbacks)
+        reloaded = Router(**persisted)
+        try:
+            assert reloaded.get_settings()["account_pool_routing"] == router.get_settings()["account_pool_routing"]
+            assert reloaded.get_settings()["enable_weighted_failover"] is True
+        finally:
+            reloaded.discard()
     finally:
         router.discard()
 

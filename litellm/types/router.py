@@ -134,6 +134,7 @@ class UpdateRouterConfig(BaseModel):
     context_window_fallbacks: list[dict] | None = None
     model_group_alias: dict[str, str | dict] | None = {}
     enable_tag_filtering: bool | None = None
+    enable_weighted_failover: bool | None = None
     tag_routing_prefix: str | None = None
     account_pool_routing: AccountPoolRoutingConfig | None = None
 
