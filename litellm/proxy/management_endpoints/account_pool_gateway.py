@@ -6,10 +6,11 @@ import asyncio
 import hashlib
 import io
 import os
+import time
 from collections.abc import Callable
 from types import MappingProxyType
-from typing import Final, TypedDict
-from uuid import NAMESPACE_URL, UUID, uuid5
+from typing import Final, TypedDict, cast
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from fastapi import HTTPException
@@ -38,6 +39,7 @@ from litellm.proxy.management_endpoints.account_pool_integration import (
     verify_ticket,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
+from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     DefaultWebSocketDialer,
     WebSocketDialer,
@@ -162,6 +164,7 @@ class AccountPoolGatewayMiddleware:
         self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        ingress_started: Final = time.perf_counter()
         reset: Final = pool_identity.set(None)
         try:
             if scope["type"] in ("http", "websocket") and scope.get("path", "").startswith(INTERNAL_PREFIX):
@@ -169,6 +172,8 @@ class AccountPoolGatewayMiddleware:
             else:
 
                 async def track_outcome(message: Message) -> None:
+                    if message["type"] == "http.response.start":
+                        scope.setdefault("state", {})["account_pool_http_status"] = message["status"]
                     if (
                         message["type"] == "http.response.start"
                         and message["status"] >= 400
@@ -188,6 +193,12 @@ class AccountPoolGatewayMiddleware:
                                     "Account pool final outcome persistence failed: %s", request_id
                                 )
                     await send(message)
+                    if message["type"] == "http.response.body" and not message.get("more_body", False):
+                        final_id: Final = scope.get("state", {}).get("account_pool_request_id")
+                        if isinstance(final_id, UUID):
+                            RequestTiming(final_id, started=ingress_started).report(
+                                cast(int, scope["state"].get("account_pool_http_status", 500))
+                            )
 
                 await self.app(scope, receive, track_outcome)
         finally:
@@ -281,17 +292,22 @@ class AccountPoolGatewayMiddleware:
         try:
             async with self.client_factory() as client:
                 control: Final = self.control_factory(client)
-                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key))
+                initial_resolution: Final = (
+                    None if isinstance(control, TrustedControl) else await control.resolve(ResolveRequest(card_key=key))
+                )
                 payload: Final = await read_payload(request)
                 model: Final = payload.get("model")
                 if not isinstance(model, str) or not model.strip() or len(model) > 256:
                     raise ValueError("Invalid model")
                 session: Final = session_hash(headers, model)
-                resolution: Final = (
-                    initial_resolution
-                    if session is None
-                    else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
-                )
+                timing: Final = RequestTiming(getattr(request.state, "account_pool_request_id", None) or uuid4())
+                with timing.phase("resolve"):
+                    resolution: Final = (
+                        initial_resolution
+                        if initial_resolution is not None and session is None
+                        else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
+                    )
+                timing.report(200)
                 image_tools: Final = payload.get("tools")
                 has_images: Final = isinstance(image_tools, list) and any(
                     isinstance(item, dict) and item.get("type") == "image_generation" for item in image_tools

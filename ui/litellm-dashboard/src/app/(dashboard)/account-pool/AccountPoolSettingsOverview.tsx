@@ -1,7 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { ArrowUpRight, Check, ChevronDown, CircleHelp, Layers3, RefreshCw, Settings2 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { apiClient } from "@/components/networking";
 import { Button } from "@/components/ui/button";
 import { migratedHref } from "@/utils/migratedPages";
@@ -129,12 +131,130 @@ const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
   max_retry_interval: "旧重试最大间隔",
 };
 
+const nativeLabels: Record<string, string> = {
+  account_pool_routing: "号池账号选择与会话亲和性",
+  routing_strategy: "负载均衡策略",
+  num_retries: "失败重试次数",
+  retry_after: "重试等待（秒）",
+  timeout: "请求超时（秒）",
+  allowed_fails: "冷却前允许失败次数",
+  cooldown_time: "冷却时间（秒）",
+  fallbacks: "模型回退规则",
+  context_window_fallbacks: "上下文超限回退",
+  model_group_alias: "模型别名",
+  model_group_retry_policy: "按模型重试策略",
+  retry_policy: "按错误类型重试策略",
+  routing_strategy_args: "负载均衡参数",
+  max_parallel_requests: "最大并发请求",
+  max_retries: "最大重试次数",
+  model_group_affinity_config: "按模型会话亲和性",
+  routing_groups: "路由分组",
+  enable_tag_filtering: "标签过滤",
+  tag_routing_prefix: "标签路由前缀",
+  stream_timeout: "流式超时（秒）",
+  max_fallbacks: "最大回退次数",
+  content_policy_fallbacks: "内容策略回退",
+  disable_cooldowns: "禁用冷却",
+  enable_pre_call_checks: "调用前检查",
+  enable_health_check_routing: "健康检查选路",
+  health_check_staleness_threshold: "健康快照有效期（秒）",
+  health_check_ignore_transient_errors: "忽略临时健康错误",
+  enable_weighted_failover: "同模型部署故障切换",
+  deployment_affinity_ttl_seconds: "会话亲和性有效期（秒）",
+  optional_pre_call_checks: "可选调用前检查",
+  set_verbose: "详细诊断日志",
+  drop_params: "过滤不支持的参数",
+  request_timeout: "默认请求超时",
+  global_max_parallel_requests: "全局最大并发",
+  master_key: "管理密钥",
+  database_url: "数据库连接",
+  alerting: "告警渠道",
+  store_model_in_db: "数据库模型配置",
+  background_health_checks: "后台健康检查",
+  health_check_interval: "健康检查间隔",
+  max_request_size_mb: "请求大小上限（MB）",
+  max_batch_file_size_mb: "批处理文件上限（MB）",
+  max_response_size_mb: "响应大小上限（MB）",
+  proxy_config_reload_interval_seconds: "配置刷新间隔（秒）",
+  allow_requests_on_db_unavailable: "数据库不可用时允许请求",
+};
+
+function SettingValue({ value }: { value: unknown }) {
+  if (typeof value === "boolean")
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${value ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}
+      >
+        {value && <Check className="size-3" aria-hidden="true" />}
+        {value ? "开启" : "关闭"}
+      </span>
+    );
+  const hasEntries = value !== null && typeof value === "object" && Object.keys(value).length > 0;
+  if (hasEntries)
+    return (
+      <details className="group/value w-full rounded-lg bg-muted/40 text-left">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
+          {Array.isArray(value) ? `${value.length} 项配置` : `${Object.keys(value).length} 项规则`}
+          <ChevronDown className="size-3.5 transition-transform group-open/value:rotate-180" aria-hidden="true" />
+        </summary>
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all border-t px-3 py-2 text-xs leading-relaxed">
+          {valueText(value)}
+        </pre>
+      </details>
+    );
+  return (
+    <span className={`text-sm ${value == null ? "text-muted-foreground" : "font-medium tabular-nums"}`}>
+      {valueText(value)}
+    </span>
+  );
+}
+
+function OverviewCard({
+  title,
+  href,
+  scope,
+  children,
+  legacy = false,
+}: {
+  title: string;
+  href: string;
+  scope: string;
+  children: ReactNode;
+  legacy?: boolean;
+}) {
+  return (
+    <section
+      className={`min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm ${legacy ? "border-amber-500/30" : "border-border"}`}
+    >
+      <div className="border-b bg-muted/20 p-5">
+        <Link
+          href={settingHref(href)}
+          className="group flex items-center justify-between gap-3 font-semibold hover:text-primary"
+        >
+          <span className="flex items-center gap-2.5">
+            <span
+              className={`rounded-lg p-2 ${legacy ? "bg-amber-500/10 text-amber-700" : "bg-primary/10 text-primary"}`}
+            >
+              <Settings2 className="size-4" aria-hidden="true" />
+            </span>
+            {title}
+          </span>
+          <ArrowUpRight className="size-4 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
+        </Link>
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">{scope}</p>
+        {legacy && <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">保留旧值 · 未完整接入</p>}
+      </div>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
 type NativeField = { field_name: string; field_value: unknown };
 const valueText = (value: unknown): string => {
   if (value === undefined) return "接口未返回";
   if (value === null) return "未设置 / 继承默认";
   if (typeof value === "boolean") return value ? "开启" : "关闭";
-  if (Array.isArray(value) && value.length === 0) return "无";
+  if (typeof value === "object" && Object.keys(value).length === 0) return "无";
   if (typeof value === "object") return JSON.stringify(value, null, 2);
   return String(value);
 };
@@ -165,78 +285,152 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
     void router.refetch();
     void general.refetch();
   };
+  const busy = runtime.isFetching || router.isFetching || general.isFetching;
+  const failures = [runtime, router, general].filter((query) => query.isError).length;
+  const runtimeFallback = runtime.isError ? "读取失败" : "正在读取…";
+  const syncStatus = runtime.data?.requires_reload
+    ? "需重新加载，请检查账号同步状态"
+    : "已保存，执行状态以账号同步结果为准";
+  const sources = busy ? "正在读取服务端" : "运行配置 · 路由 · 全局设置";
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">全局设置总览</h2>
-          <p className="text-sm text-muted-foreground">
-            显示服务端当前返回的全局配置。卡片、模型、团队或密钥可有独立覆盖；保存状态不等于所有账号已同步。
-          </p>
+    <div className="space-y-6">
+      <div className="rounded-2xl border bg-gradient-to-br from-primary/5 via-background to-background p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <span className="rounded-xl bg-primary/10 p-3 text-primary">
+              <Layers3 className="size-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight">全局设置总览</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                一处查看当前设置，点击卡片标题前往修改。单卡、模型、团队和密钥的独立配置可能覆盖全局默认值。
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" onClick={refresh} disabled={busy}>
+            <RefreshCw className={`mr-2 size-4 ${busy ? "animate-spin" : ""}`} aria-hidden="true" />
+            {busy ? "正在刷新" : "刷新总览"}
+          </Button>
         </div>
-        <Button variant="outline" onClick={refresh}>
-          刷新总览
-        </Button>
-      </div>
-      {runtime.isPending && <p>正在读取运行配置…</p>}
-      {runtime.isError && <p role="alert">运行配置读取失败，请刷新重试</p>}
-      {runtime.data && (
-        <>
-          <p className="text-sm">
-            配置版本 {runtime.data.version} · 更新时间 {runtime.data.updated_at ?? "未记录"} ·{" "}
-            {runtime.data.requires_reload ? "需重新加载，请检查账号同步状态" : "已保存，请以各账号同步状态核对执行情况"}
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs text-muted-foreground">运行配置</p>
+            <p className="mt-2 text-sm font-semibold">
+              {runtime.data ? `配置版本 ${runtime.data.version}` : runtimeFallback}
+            </p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs text-muted-foreground">保存与同步</p>
+            <p className="mt-2 text-sm font-semibold">{runtime.data ? syncStatus : "等待配置数据"}</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs text-muted-foreground">数据来源</p>
+            <p className="mt-2 text-sm font-semibold">{failures ? `${failures} 个来源读取失败` : sources}</p>
+          </div>
+        </div>
+        {runtime.data?.updated_at && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            运行配置更新时间：{new Date(runtime.data.updated_at).toLocaleString("zh-CN")}
           </p>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {groups.map((group) => (
-              <section key={group.title} className="space-y-3 rounded-lg border p-4">
-                <Link className="font-medium text-primary underline" href={settingHref(group.href)}>
-                  {group.title}
-                </Link>
-                <p className="text-sm text-muted-foreground">{group.scope}</p>
-                <dl className="space-y-2">
-                  {group.fields.map((field) => (
-                    <div key={field}>
-                      <dt className="text-sm">
-                        {fieldLabels[field] ?? (field.endsWith("_profiles") ? "命名配置与卡片绑定" : field)}
+        )}
+      </div>
+      {runtime.isPending && <p role="status">正在读取运行配置…</p>}
+      {runtime.isError && (
+        <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          运行配置读取失败，请刷新重试
+        </p>
+      )}
+      <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        {[
+          {
+            title: "LiteLLM 路由、重试与回退",
+            query: router,
+            fields: router.data?.fields,
+            href: "router-settings?tab=loadbalancing",
+            scope: "原生路由当前值；团队或密钥可配置独立规则",
+          },
+          {
+            title: "LiteLLM 全局设置",
+            query: general,
+            fields: general.data,
+            href: "router-settings?tab=general",
+            scope: "网关全局默认值，未设置的项目沿用系统默认",
+          },
+        ].map((section) => (
+          <OverviewCard key={section.title} title={section.title} href={section.href} scope={section.scope}>
+            {section.query.isPending && <p className="text-sm text-muted-foreground">正在读取…</p>}
+            {section.query.isError && (
+              <p role="alert" className="text-sm text-destructive">
+                {section.title}读取失败，请刷新重试
+              </p>
+            )}
+            <dl className="divide-y divide-border/60">
+              {section.fields?.slice(0, 6).map((field) => (
+                <div
+                  key={field.field_name}
+                  className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0"
+                >
+                  <dt className="text-sm text-muted-foreground" title={field.field_name}>
+                    {nativeLabels[field.field_name] ?? field.field_name}
+                  </dt>
+                  <dd className="min-w-0 max-w-full text-right">
+                    <SettingValue value={field.field_value} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {(section.fields?.length ?? 0) > 6 && (
+              <details className="mt-4 border-t pt-3">
+                <summary className="cursor-pointer text-xs font-medium text-primary">
+                  查看其余 {(section.fields?.length ?? 0) - 6} 项设置
+                </summary>
+                <dl className="mt-3 space-y-3">
+                  {section.fields?.slice(6).map((field) => (
+                    <div key={field.field_name} className="space-y-1">
+                      <dt className="break-words text-xs text-muted-foreground" title={field.field_name}>
+                        {nativeLabels[field.field_name] ?? field.field_name}
                       </dt>
-                      <dd className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/30 p-2 text-xs">
-                        {valueText(runtime.data.values[field])}
+                      <dd>
+                        <SettingValue value={field.field_value} />
                       </dd>
                     </div>
                   ))}
                 </dl>
-              </section>
-            ))}
-          </div>
-        </>
-      )}
-      {[
-        {
-          title: "LiteLLM 路由、重试与回退",
-          query: router,
-          fields: router.data?.fields,
-          href: "router-settings?tab=loadbalancing",
-        },
-        { title: "LiteLLM 全局设置", query: general, fields: general.data, href: "router-settings?tab=general" },
-      ].map((section) => (
-        <section key={section.title} className="space-y-3 rounded-lg border p-4">
-          <Link className="font-medium text-primary underline" href={settingHref(section.href)}>
-            {section.title}
-          </Link>
-          {section.query.isPending && <p>正在读取…</p>}
-          {section.query.isError && <p role="alert">{section.title}读取失败，请刷新重试</p>}
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {section.fields?.map((field) => (
-              <div key={field.field_name}>
-                <dt className="text-sm">{field.field_name}</dt>
-                <dd className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/30 p-2 text-xs">
-                  {valueText(field.field_value)}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      ))}
+              </details>
+            )}
+          </OverviewCard>
+        ))}
+        {runtime.data &&
+          groups.map((group) => (
+            <OverviewCard
+              key={group.title}
+              title={group.title}
+              href={group.href}
+              scope={group.scope}
+              legacy={group.title === "保留的旧路由值"}
+            >
+              <dl className="divide-y divide-border/60">
+                {group.fields.map((field) => (
+                  <div
+                    key={field}
+                    className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0"
+                  >
+                    <dt className="text-sm text-muted-foreground">
+                      {fieldLabels[field] ?? (field.endsWith("_profiles") ? "命名配置与卡片绑定" : field)}
+                    </dt>
+                    <dd className="min-w-0 max-w-full text-right">
+                      <SettingValue value={runtime.data.values[field]} />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </OverviewCard>
+          ))}
+      </div>
+      <p className="flex items-start gap-2 rounded-xl bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
+        <CircleHelp className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        总览展示服务端保存的当前值。修改后请同时检查卡片同步状态；标注为旧值的设置，不代表已经生效。
+      </p>
     </div>
   );
 }

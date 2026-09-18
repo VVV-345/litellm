@@ -31,7 +31,10 @@ const RoutingStrategySelector: React.FC<RoutingStrategySelectorProps> = ({
           value={selectedStrategy}
           onValueChange={(strategy: string | null) => strategy && onStrategyChange(strategy)}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger
+            className="w-full"
+            aria-label={routerFieldsMetadata["routing_strategy"]?.ui_field_name || "Routing Strategy"}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

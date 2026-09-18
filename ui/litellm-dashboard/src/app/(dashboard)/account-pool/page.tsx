@@ -346,7 +346,7 @@ export default function AccountPoolPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList variant="line" className="h-auto w-full justify-start overflow-x-auto rounded-none border-b p-0">
+          <TabsList variant="line" className="h-auto w-full flex-wrap justify-start rounded-none border-b p-0">
             <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.dashboard")}
             </TabsTrigger>

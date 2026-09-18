@@ -3,6 +3,7 @@ import LatencyBasedConfiguration from "./LatencyBasedConfiguration";
 import ReliabilityRetriesSection from "./ReliabilityRetriesSection";
 import RoutingStrategySelector from "./RoutingStrategySelector";
 import TagFilteringToggle from "./TagFilteringToggle";
+import { AccountPoolRoutingFields } from "./AccountPoolRoutingFields";
 import { useTranslation } from "react-i18next";
 
 export interface RouterSettingsFormValue {
@@ -80,6 +81,12 @@ const RouterSettingsForm: React.FC<RouterSettingsFormProps> = ({
       )}
 
       {/* Other Settings */}
+      <AccountPoolRoutingFields
+        value={value.routerSettings.account_pool_routing}
+        onChange={(account_pool_routing) =>
+          onChange({ ...value, routerSettings: { ...value.routerSettings, account_pool_routing } })
+        }
+      />
       <ReliabilityRetriesSection routerSettings={value.routerSettings} routerFieldsMetadata={routerFieldsMetadata} />
     </div>
   );

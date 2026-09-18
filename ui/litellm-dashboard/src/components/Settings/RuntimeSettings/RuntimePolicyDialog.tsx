@@ -86,7 +86,7 @@ const antigravityDefaults: Antigravity = {
 const capabilityDescriptions: Partial<Record<NonNullable<PolicyView["capabilities"]>[number]["name"], string>> = {
   routing: "使用 LiteLLM 原生设置；旧卡片路由字段不决定当前跨卡路由",
   retry: "使用 LiteLLM 原生重试设置",
-  plan_expiry: "尚未等价迁移，仅保留旧值",
+  plan_expiry: "在 LiteLLM Router Settings 中设置套餐、额度和到期时间偏好",
   provider_settings: "同步到供应商运行环境，以上方同步结果为准",
 };
 const defaults: FormPolicy = {
@@ -515,8 +515,9 @@ function PolicyForm({
           <div className="mt-3 space-y-3">
             <p>
               权重、优先级和备用标记只在首次同步时初始化 LiteLLM 模型的 weight/order，之后以模型编辑中的值为准。
-              旧版按额度、套餐、到期时间或指定账号顺序跨卡选卡，以及会话亲和性和有效期，尚未等价迁移，不参与当前跨卡选卡。
-              旧重试与回退字段保留，但实际请求使用 LiteLLM 的重试和回退设置。
+              额度、套餐、到期时间偏好及会话亲和性已在 LiteLLM Router Settings
+              中提供新设置；此处旧值不会自动覆盖原生设置。旧指定账号顺序尚未迁移。 旧重试与回退字段保留，但实际请求使用
+              LiteLLM 的重试和回退设置。
             </p>
             <dl className="grid gap-2 sm:grid-cols-2">
               {(

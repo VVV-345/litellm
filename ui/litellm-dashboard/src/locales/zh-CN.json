@@ -6666,7 +6666,7 @@
       "failures": "故障数",
       "traffic": "总流量",
       "tokens": "输入 + 输出 Token",
-      "cards": "启用卡片",
+      "cards": "可用卡片",
       "enabled": "当前可参与路由",
       "overview": "号池运行概览",
       "overviewDescription": "按供应商查看卡片状态、请求处理和当前运行配置",

@@ -150,6 +150,33 @@ async def test_reconcile_is_idempotent_for_an_unchanged_snapshot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_quota_refresh_updates_selection_without_reloading_deployments():
+    from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots
+
+    environment = GatewayEnvironment.model_validate(
+        {
+            **_environment(routable=True).model_dump(),
+            "quota": {"plan_type": "plus", "windows": [{"remaining_percent": 0}]},
+            "model_aliases": {"public": "actual"},
+            "quota_reserve_percent": 10,
+        }
+    )
+    store = FakeDeploymentStore(desired_deployments((environment,)))
+    previous = snapshots.values
+    try:
+        assert await reconcile(FakeGatewayClient((environment,)), store) is False
+        snapshot = snapshots.values[str(environment.id)]
+        assert snapshot.quota.remaining_percent == 0
+        assert snapshot.quota_reserve_percent == 10
+        assert snapshot.model_aliases == {"public": "actual"}
+        assert snapshot.plan_rank is not None
+        assert store.reload_count == 0
+        assert store.upserted == []
+    finally:
+        snapshots.replace(previous)
+
+
+@pytest.mark.asyncio
 async def test_reconcile_unblocks_a_managed_deployment_when_it_is_still_desired() -> None:
     environment: Final = _environment(routable=True)
     desired: Final = desired_deployments((environment,))[0]

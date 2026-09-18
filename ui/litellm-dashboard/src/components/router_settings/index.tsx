@@ -4,6 +4,7 @@ import { toast } from "@/lib/toast";
 import { getCallbacksCall, getRouterSettingsCall, setCallbacksCall } from "../networking";
 import RouterSettingsForm, { RouterSettingsFormValue } from "./RouterSettingsForm";
 import { useTranslation } from "react-i18next";
+import { accountPoolRoutingValue } from "./AccountPoolRoutingFields";
 
 interface RouterSettingsProps {
   accessToken: string | null;
@@ -87,6 +88,11 @@ const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, 
     }
 
     const router_settings = formValue.routerSettings;
+    const affinityTtl = accountPoolRoutingValue(router_settings.account_pool_routing).session_affinity_ttl_seconds;
+    if (!Number.isInteger(affinityTtl) || affinityTtl < 60 || affinityTtl > 86400) {
+      toast.error("会话亲和性有效期必须为 60 至 86400 秒的整数");
+      return;
+    }
 
     const numberKeys = new Set(["allowed_fails", "cooldown_time", "num_retries", "timeout", "retry_after"]);
     const jsonKeys = new Set(["model_group_alias"]);
@@ -133,6 +139,7 @@ const RouterSettings: React.FC<RouterSettingsProps> = ({ accessToken, userRole, 
           if (tabOwnedKeys.has(key)) {
             return null;
           }
+          if (key === "account_pool_routing") return [key, value];
           if (key !== "routing_strategy_args" && key !== "routing_strategy" && key !== "enable_tag_filtering") {
             const inputEl = document.querySelector(`input[name="${key}"]`) as HTMLInputElement | null;
             const parsed = parseInputValue(key, inputEl?.value, value);

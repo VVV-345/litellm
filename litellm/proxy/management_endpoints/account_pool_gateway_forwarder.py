@@ -45,6 +45,7 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
+from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
 from litellm.types.llms.openai import (
     AllMessageValues,
@@ -173,6 +174,7 @@ class Attempt:
     def __init__(
         self, lease: Lease, endpoint: str, send: Send, detail: str | None = None, log: RequestLog | None = None
     ) -> None:
+        self.timing: Final = RequestTiming(lease.request_id, lease.attempt)
         self.log: Final = log
         self.stream_state: Final = EventStream(responses_api=endpoint == "/v1/responses")
         self.result = FinishRequest(
@@ -384,7 +386,10 @@ async def forward_candidate(
         ),
         allow_session_rebind=route_index > 0 or sticky_unavailable,
     )
-    lease: Final = await control.acquire(acquisition)
+    acquisition_timing: Final = RequestTiming(request_id, attempt_number)
+    with acquisition_timing.phase("acquire"):
+        lease: Final = await control.acquire(acquisition)
+    acquisition_timing.report(409 if isinstance(lease, AcquireRejected) else 200)
     if isinstance(lease, AcquireRejected):
         if lease.reason in ("configuration", "session"):
             return False, rejection_reasons | frozenset((lease.reason,))
@@ -454,9 +459,10 @@ async def forward_candidate(
     )
     attempt: Final = Attempt(lease, request.url.path, send, debug_detail, log)
     try:
-        completed: Final = await execute(
-            request, payload, route, resolution, client, attempt, next_id, seconds, deadline
-        )
+        with attempt.timing.phase("upstream_and_delivery"):
+            completed: Final = await execute(
+                request, payload, route, resolution, client, attempt, next_id, seconds, deadline
+            )
         switch_unavailable: Final = (
             not completed and attempt.result.http_status == 429 and route_index + 1 < len(selected)
         )
@@ -469,7 +475,9 @@ async def forward_candidate(
                 next_account_id=str(selected[actual_next_index].account.id),
             )
     finally:
-        await asyncio.shield(finish_attempt(control, attempt))
+        with attempt.timing.phase("persist_and_release"):
+            await asyncio.shield(finish_attempt(control, attempt))
+        attempt.timing.report(attempt.result.http_status)
     if not completed:
         delay: Final = max(
             backoff_seconds(retry_backoff(request, resolution), same_card_attempt),
@@ -568,7 +576,8 @@ async def execute(
                 content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode(),
                 timeout=seconds,
             )
-            response: Final = await selected_client.send(upstream, stream=True)
+            with attempt.timing.phase("upstream_headers"):
+                response: Final = await selected_client.send(upstream, stream=True)
             try:
                 cost_usd: Final = upstream_response_cost(response.headers)
                 attempt.record_cost(cost_usd)
@@ -580,6 +589,9 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None
+                        and not (
+                            public_status == 429 and getattr(request.state, "account_pool_standard_accounting", False)
+                        )
                         and retry_allowed(request, resolution, response.status_code, attempt.attempt_number)
                         and asyncio.get_running_loop().time() < deadline
                     )
@@ -915,6 +927,10 @@ async def guarded_stream_response(
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
                 retry_allowed(request, resolution, bootstrap.state.error_status, attempt.attempt_number)
+                and not (
+                    bootstrap.state.error_status == 429
+                    and getattr(request.state, "account_pool_standard_accounting", False)
+                )
                 and bootstrap.state.error_code
                 in (
                     "server_error",

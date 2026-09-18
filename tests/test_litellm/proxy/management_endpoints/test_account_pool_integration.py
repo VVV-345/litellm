@@ -213,6 +213,49 @@ def test_internal_forward_enforces_ticket_and_correlates_without_spend_sync(sign
     assert control.finished[0].spend_sync_state == "standard"
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_native_quota_failure_returns_to_router_without_waiting_on_same_card(signing_secret, stream):
+    from litellm.proxy.management_endpoints.account_pool_integration import ForwardRetryPolicy
+
+    _, original = setup_gateway(lambda _: httpx.Response(200))
+    control = InternalControl(original.resolution)
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _: (
+                    httpx.Response(
+                        200,
+                        headers={"content-type": "text/event-stream"},
+                        content='data: {"error":{"code":"rate_limit_exceeded","type":"rate_limit_error"}}\n\n',
+                    )
+                    if stream
+                    else httpx.Response(
+                        429, json={"error": {"code": "rate_limit_exceeded"}}, headers={"retry-after": "60"}
+                    )
+                )
+            )
+        ),
+    )
+    identity = PoolIdentity(key_hash="test-key-hash", request_id=uuid4())
+    card = control.resolution.card_id
+    ticket = create_ticket(
+        identity, card, retry_policy=ForwardRetryPolicy(rate_limit=3, timeout=3, server_error=3, backoff_ms=0)
+    )
+    with TestClient(app) as client:
+        result = client.post(
+            INTERNAL_PREFIX + str(card) + "/v1/chat/completions",
+            json={"model": "model-a", "messages": [{"role": "user", "content": "hello"}], "stream": stream},
+            headers={"Authorization": "Bearer " + ticket},
+        )
+    assert result.status_code == 429
+    assert len(control.acquisitions) == 1
+    assert len(control.finished) == 1
+    assert control.finished[0].model_cooldown_seconds == 60
+
+
 def test_router_filters_shared_model_and_rejects_explicit_foreign_deployment(signing_secret):
     card, other = uuid4(), uuid4()
     router = Router(
@@ -423,6 +466,9 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
         "stream_usage",
         "stream_finish_usage",
         "error",
+        "quota_failover",
+        "quota_bound",
+        "quota_tool",
         "stream_refusal",
         "stream_tool_refusal",
         "stream_late_refusal",
@@ -435,7 +481,18 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
 )
 async def test_real_router_http_request_enters_pool_before_upstream(signing_secret, monkeypatch, protocol):
     _, original = setup_gateway(lambda _: httpx.Response(200))
-    control = InternalControl(original.resolution)
+
+    class MultipleCardControl(Control):
+        async def resolve(self, request):
+            assert request.card_key == ""
+            assert request.trusted_card_id in [item.id for item in self.resolution.candidates]
+            return self.resolution.model_copy(update={"card_id": request.trusted_card_id})
+
+    control = (
+        MultipleCardControl(original.resolution)
+        if protocol.startswith("quota_")
+        else InternalControl(original.resolution)
+    )
     from litellm.proxy.management_endpoints.account_pool_management_models import CodexPolicy
 
     control.resolution = control.resolution.model_copy(
@@ -471,6 +528,8 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
         response_body["object"] = "response.compaction"
 
     def upstream(request):
+        if protocol.startswith("quota_") and original.resolution.card_id.hex in request.url.host:
+            return httpx.Response(429, json={"error": {"message": "quota exhausted", "type": "rate_limit_error"}})
         expected_path = (
             "/v1/responses/compact"
             if protocol == "compact"
@@ -596,13 +655,39 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                     "output_cost_per_token": 0.0000012,
                     "cache_read_input_token_cost": 0.00000005,
                 },
-                "model_info": {"id": str(card), "account_pool_environment_id": str(card), "managed_by": "account_pool"},
+                "model_info": {
+                    "id": str(candidate_id),
+                    "account_pool_environment_id": str(candidate_id),
+                    "managed_by": "account_pool",
+                },
             }
+            for candidate_id in (
+                [item.id for item in control.resolution.candidates] if protocol.startswith("quota_") else [card]
+            )
         ],
         num_retries=3,
         retry_after=0,
+        enable_weighted_failover=protocol.startswith("quota_"),
+        account_pool_routing={"selection": "quota"},
     )
-    token = pool_identity.set(PoolIdentity(key_hash="standard-virtual-key", request_id=uuid4()))
+    from datetime import datetime, timezone
+
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
+
+    previous_snapshots = snapshots.values
+    snapshots.replace(
+        {
+            str(item.id): RoutingSnapshot(
+                quota=RoutingQuota(remaining_percent=90 - index * 10, observed_at=datetime.now(timezone.utc))
+            )
+            for index, item in enumerate(control.resolution.candidates)
+        }
+    )
+    token = pool_identity.set(
+        PoolIdentity(
+            key_hash="standard-virtual-key", request_id=uuid4(), card_id=card if protocol == "quota_bound" else None
+        )
+    )
     logged = asyncio.Queue()
 
     async def on_success(kwargs, response_obj, start_time, end_time):
@@ -645,6 +730,23 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                 assert "private upstream error details" not in str(failure.value)
                 logging_kwargs = await asyncio.to_thread(failures.get, timeout=5)
                 assert logging_kwargs["standard_logging_object"]["status"] == "failure"
+        elif protocol in ("quota_bound", "quota_tool"):
+            from litellm import RateLimitError
+
+            with pytest.raises(RateLimitError):
+                await router.acompletion(
+                    model="model-a",
+                    messages=[{"role": "user", "content": "hello"}],
+                    **(
+                        {
+                            "tools": [
+                                {"type": "function", "function": {"name": "test", "parameters": {"type": "object"}}}
+                            ]
+                        }
+                        if protocol == "quota_tool"
+                        else {}
+                    ),
+                )
         elif protocol == "responses":
             response = await router.aresponses(model="model-a", input="hello")
             assert response.usage.total_tokens == 7
@@ -711,8 +813,12 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
             assert response.choices[0].message.content == "through pool"
             assert response.usage.total_tokens == 7
-        expected_attempts = 4 if protocol == "error" else 1
+        expected_attempts = 4 if protocol == "error" else 2 if protocol == "quota_failover" else 1
         assert len(control.acquisitions) == expected_attempts
+        if protocol == "quota_failover":
+            assert [item.account_id for item in control.acquisitions] == [
+                item.id for item in control.resolution.candidates
+            ]
         finish_deadline = time.monotonic() + 5
         while len(control.finished) < expected_attempts and time.monotonic() < finish_deadline:
             await asyncio.sleep(0.01)
@@ -724,6 +830,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             assert control.finished[0].cache_read_input_tokens == assembled.usage.prompt_tokens_details.cached_tokens
     finally:
         pool_identity.reset(token)
+        snapshots.replace(previous_snapshots)
         router.discard()
         server.should_exit = True
         thread.join(timeout=5)
@@ -787,6 +894,7 @@ async def test_native_fallback_cannot_replay_unsafe_pool_request(unsafe):
 @pytest.mark.asyncio
 async def test_pool_responses_stream_skips_outer_replay_wrapper():
     from unittest.mock import MagicMock
+
     from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 
     router = Router(model_list=[])

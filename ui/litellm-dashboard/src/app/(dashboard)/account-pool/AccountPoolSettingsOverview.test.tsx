@@ -50,7 +50,8 @@ describe("global settings overview", () => {
   });
   it("shows server values, card overrides and direct destinations without editors", async () => {
     renderOverview();
-    expect(await screen.findByText(/配置版本 17/)).toHaveTextContent("需重新加载");
+    expect(await screen.findByText(/配置版本 17/)).toBeInTheDocument();
+    expect(screen.getByText(/需重新加载/)).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("关闭")).toBeInTheDocument();
     expect(screen.getByText(/Card streaming/)).toHaveTextContent("card-a");

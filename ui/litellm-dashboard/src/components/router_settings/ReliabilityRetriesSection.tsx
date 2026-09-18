@@ -27,6 +27,7 @@ const ReliabilityRetriesSection: React.FC<ReliabilityRetriesSectionProps> = ({
               param != "context_window_fallbacks" &&
               param != "routing_strategy_args" &&
               param != "routing_strategy" &&
+              param != "account_pool_routing" &&
               param != "enable_tag_filtering" &&
               param != "retry_policy" &&
               param != "model_group_retry_policy" &&

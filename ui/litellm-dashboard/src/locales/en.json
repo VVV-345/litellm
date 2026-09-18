@@ -6666,7 +6666,7 @@
       "failures": "Failures",
       "traffic": "Total traffic",
       "tokens": "Input + output tokens",
-      "cards": "Enabled cards",
+      "cards": "Available cards",
       "enabled": "Available for routing",
       "overview": "Pool overview",
       "overviewDescription": "Review card status, request processing, and runtime settings by provider",

@@ -106,6 +106,13 @@ class RetryPolicy(BaseModel):
     InternalServerErrorRetries: int | None = None
 
 
+class AccountPoolRoutingConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    selection: Literal["native", "quota", "plan", "expiry"] = "native"
+    session_affinity: bool = False
+    session_affinity_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+
+
 class UpdateRouterConfig(BaseModel):
     """
     Set of params that you can modify via `router.update_settings()`.
@@ -128,6 +135,7 @@ class UpdateRouterConfig(BaseModel):
     model_group_alias: dict[str, str | dict] | None = {}
     enable_tag_filtering: bool | None = None
     tag_routing_prefix: str | None = None
+    account_pool_routing: AccountPoolRoutingConfig | None = None
 
     model_config = ConfigDict(protected_namespaces=())
 

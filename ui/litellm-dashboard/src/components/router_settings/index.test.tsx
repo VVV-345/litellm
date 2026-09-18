@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, renderWithProviders, screen, waitFor } from "../../../tests/test-utils";
 import userEvent from "@testing-library/user-event";
@@ -5,7 +6,7 @@ import RouterSettings from "./index";
 
 // The strategy select only renders once getRouterSettingsCall resolves, so awaiting it is how a
 // test knows the loaded settings are on screen.
-const findStrategySelect = () => screen.findByRole("combobox");
+const findStrategySelect = () => screen.findByRole("combobox", { name: "Routing Strategy" });
 
 vi.mock("@/components/networking", () => ({
   getCallbacksCall: vi.fn(),
@@ -55,7 +56,8 @@ const defaultProps = {
 };
 
 describe("RouterSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
     vi.clearAllMocks();
     vi.mocked(getCallbacksCall).mockResolvedValue(mockCallbacksResponse);
     vi.mocked(getRouterSettingsCall).mockResolvedValue(mockRouterSettingsResponse);
@@ -182,5 +184,26 @@ describe("RouterSettings", () => {
       expect(toast.fromError).toHaveBeenCalled();
     });
     expect(toast.success).not.toHaveBeenCalled();
+  });
+  it("saves account selection and native session settings as a structured value", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RouterSettings {...defaultProps} />);
+    await findStrategySelect();
+    await user.click(screen.getByRole("switch", { name: "同一会话优先使用同一卡片" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "会话亲和性有效期（秒）" }), { target: { value: "900" } });
+    await user.click(screen.getByRole("combobox", { name: "同优先级卡片偏好" }));
+    await user.click(await screen.findByRole("option", { name: "优先高等级套餐" }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() =>
+      expect(setCallbacksCall).toHaveBeenCalledWith("test-token", {
+        router_settings: expect.objectContaining({
+          account_pool_routing: {
+            selection: "plan",
+            session_affinity: true,
+            session_affinity_ttl_seconds: 900,
+          },
+        }),
+      }),
+    );
   });
 });

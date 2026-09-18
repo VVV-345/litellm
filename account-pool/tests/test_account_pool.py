@@ -1360,6 +1360,42 @@ async def test_global_settings_reapply_saved_policy_after_cli_runtime_defaults(t
     assert policies.policy.runtime_error is None
 
 
+@pytest.mark.asyncio
+async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: Path) -> None:
+    from account_pool.policies import ModelAlias
+
+    quota = QuotaSnapshot(
+        observed_at=utc_now(),
+        plan_type="plus",
+        windows=(QuotaWindow(name="daily", used_percent=40, remaining_percent=60, window_minutes=1440),),
+    )
+    record = _record(status=EnvironmentStatus.READY).model_copy(update={"quota": quota})
+    policy = PolicyView(
+        card_id=record.id,
+        policy=AccountPolicy(
+            routing=RoutingPolicy(quota_reserve_percent=10, quota_snapshot_max_age=120),
+            model_aliases=(ModelAlias(alias="public", target=record.enabled_models[0]),),
+        ),
+    )
+    runtime = FakeRuntime()
+    cli = FakeCLIProxy()
+    service = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        policies=RecordingPolicies(policy),
+    )
+    exported = (await service.list_gateway_environments())[0]
+    assert exported.quota == quota
+    assert exported.quota_reserve_percent == 10
+    assert exported.quota_snapshot_max_age == 120
+    assert exported.model_aliases == {"public": record.enabled_models[0]}
+
+
 def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> None:
     observation: Final = _QuotaObservation(
         observed_at=utc_now(),

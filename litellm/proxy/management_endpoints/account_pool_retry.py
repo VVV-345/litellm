@@ -9,13 +9,35 @@ import random
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Final
+from typing import Final, cast
 
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream
 
 
 def replay_safe(payload: Mapping[str, object]) -> bool:
-    return not any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "background"))
+    if any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "background")):
+        return False
+    inputs: Final = payload.get("input")
+    if isinstance(inputs, list) and any(
+        isinstance(item, Mapping)
+        and (
+            cast(Mapping[str, object], item).get("encrypted_content")
+            or cast(Mapping[str, object], item).get("type")
+            in ("function_call", "function_call_output", "item_reference")
+        )
+        for item in cast(list[object], inputs)
+    ):
+        return False
+    messages: Final = payload.get("messages")
+    return not isinstance(messages, list) or not any(
+        isinstance(message, Mapping)
+        and (
+            cast(Mapping[str, object], message).get("tool_calls")
+            or cast(Mapping[str, object], message).get("function_call")
+            or cast(Mapping[str, object], message).get("role") in ("tool", "function")
+        )
+        for message in cast(list[object], messages)
+    )
 
 
 def retry_after(headers: Mapping[str, str]) -> int:

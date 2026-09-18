@@ -86,4 +86,11 @@ describe("account pool dashboard selectors", () => {
     expect(accountPoolVisibleModels(withModels)).toEqual(["a", "b", "c"]);
     expect(accountPoolHiddenModelCount(withModels)).toBe(1);
   });
+  it("excludes pending authorization and configuration from available cards", () => {
+    const ready = environment("ready", "openai_codex");
+    const waiting = { ...ready, id: "waiting", status: "awaiting_authorization" as const };
+    const pending = { ...ready, id: "pending", configuration_pending: true };
+    expect(summarizeAccountPoolDashboard([ready, waiting, pending], new Map()).enabledCards).toBe(1);
+  });
+
 });

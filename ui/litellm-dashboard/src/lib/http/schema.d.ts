@@ -24334,6 +24334,25 @@ export interface components {
             /** Window Minutes */
             window_minutes: number;
         };
+        /** AccountPoolRoutingConfig */
+        AccountPoolRoutingConfig: {
+            /**
+             * Selection
+             * @default native
+             * @enum {string}
+             */
+            selection: "native" | "quota" | "plan" | "expiry";
+            /**
+             * Session Affinity
+             * @default false
+             */
+            session_affinity: boolean;
+            /**
+             * Session Affinity Ttl Seconds
+             * @default 3600
+             */
+            session_affinity_ttl_seconds: number;
+        };
         /** AccountPoolSettings */
         AccountPoolSettings: {
             /**
@@ -40739,6 +40758,7 @@ export interface components {
          * @description Set of params that you can modify via `router.update_settings()`.
          */
         UpdateRouterConfig: {
+            account_pool_routing?: components["schemas"]["AccountPoolRoutingConfig"] | null;
             /** Allowed Fails */
             allowed_fails?: number | null;
             /** Context Window Fallbacks */

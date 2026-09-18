@@ -104,7 +104,7 @@ async def get_router_settings(
                     continue
                 if hasattr(llm_router, field.field_name):
                     value = getattr(llm_router, field.field_name)
-                    current_values[field.field_name] = value
+                    current_values[field.field_name] = value.model_dump() if isinstance(value, BaseModel) else value
 
         # Merge with config values (config takes precedence)
         current_values.update(router_settings_from_config)

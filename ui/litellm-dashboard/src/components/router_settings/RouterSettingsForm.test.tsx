@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import RouterSettingsForm from "./RouterSettingsForm";
@@ -19,6 +20,9 @@ const baseProps = {
 };
 
 describe("RouterSettingsForm", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+  });
   it("should render", () => {
     render(<RouterSettingsForm {...baseProps} />);
     expect(screen.getByText("Routing Settings")).toBeInTheDocument();
@@ -26,7 +30,7 @@ describe("RouterSettingsForm", () => {
 
   it("should not show the strategy selector when no strategies are provided", () => {
     render(<RouterSettingsForm {...baseProps} />);
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Routing Strategy" })).not.toBeInTheDocument();
   });
 
   it("should show the strategy selector when strategies are available", () => {
@@ -35,7 +39,7 @@ describe("RouterSettingsForm", () => {
       availableRoutingStrategies: ["simple-shuffle", "latency-based-routing"],
     };
     render(<RouterSettingsForm {...props} />);
-    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Routing Strategy" })).toBeInTheDocument();
   });
 
   it("should not render LatencyBasedConfiguration for non-latency strategies", () => {
@@ -72,7 +76,7 @@ describe("RouterSettingsForm", () => {
     };
     render(<RouterSettingsForm {...props} />);
 
-    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("combobox", { name: "Routing Strategy" }));
     await user.click(await screen.findByRole("option", { name: /latency-based-routing/ }));
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ selectedStrategy: "latency-based-routing" }));
@@ -83,7 +87,7 @@ describe("RouterSettingsForm", () => {
     const user = userEvent.setup();
     render(<RouterSettingsForm {...baseProps} onChange={onChange} />);
 
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: /Tag Filtering/ }));
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ enableTagFiltering: true }));
   });

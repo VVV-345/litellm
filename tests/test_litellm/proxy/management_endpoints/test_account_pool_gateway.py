@@ -1433,3 +1433,14 @@ def test_responses_stream_errors_keep_sdk_fields_and_sequence() -> None:
     assert error["param"] is None
     assert "private details" not in payload.decode()
     assert state.failed
+
+
+@pytest.mark.parametrize("payload", [
+    {"input": [{"type": "reasoning", "encrypted_content": "opaque"}]},
+    {"input": [{"type": "function_call_output", "output": "done"}]},
+    {"messages": [{"role": "tool", "content": "done"}]},
+    {"messages": [{"role": "assistant", "tool_calls": [{"id": "call"}]}]},
+])
+def test_stateful_payloads_without_tools_definition_are_not_replayed(payload):
+    from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
+    assert replay_safe(payload) is False

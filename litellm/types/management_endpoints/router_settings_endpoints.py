@@ -92,6 +92,22 @@ ROUTING_STRATEGY_DESCRIPTIONS: Final[dict[str, str]] = {
 # Define all available router settings fields
 ROUTER_SETTINGS_FIELDS: Final[list[RouterSettingsField]] = [
     RouterSettingsField(
+        field_name="enable_weighted_failover",
+        field_type="Boolean",
+        field_value=None,
+        field_description="simple-shuffle 策略下，失败后尝试同模型的其他可用部署；仍受密钥卡片范围和请求重放限制",
+        field_default=False,
+        ui_field_name="同模型部署故障切换",
+    ),
+    RouterSettingsField(
+        field_name="account_pool_routing",
+        field_type="Dictionary",
+        field_value=None,
+        field_description="号池候选卡片的额度、套餐、到期时间偏好及会话亲和性；权限、原生顺序和负载均衡继续生效",
+        field_default={"selection": "native", "session_affinity": False, "session_affinity_ttl_seconds": 3600},
+        ui_field_name="号池账号选择",
+    ),
+    RouterSettingsField(
         field_name="routing_strategy",
         field_type="String",
         field_value=None,

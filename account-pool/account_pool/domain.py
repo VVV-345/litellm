@@ -536,6 +536,12 @@ class GatewayEnvironment(BaseModel):
     public_models: tuple[str, ...] | None = None
     routing_weight: int = Field(default=1, ge=1, le=10000)
     routing_order: int = 0
+    quota: QuotaSnapshot = Field(default_factory=QuotaSnapshot)
+    model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
+    model_cooldowns: tuple[ModelCooldown, ...] = ()
+    model_aliases: dict[str, str] = Field(default_factory=dict)
+    quota_reserve_percent: float = 0
+    quota_snapshot_max_age: int = 300
     api_base: str
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)

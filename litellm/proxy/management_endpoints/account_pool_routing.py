@@ -84,10 +84,14 @@ def quota_available(account: Candidate, policy: AccountPolicy, model: str) -> bo
 
 
 def plan_rank(account: Candidate) -> int | None:
-    raw_plan: Final = (account.plan_type or "").strip().lower()
+    return plan_priority(account.plan_type, account.auth_file_plan_type)
+
+
+def plan_priority(plan_type: str | None, auth_file_plan_type: str | None) -> int | None:
+    raw_plan: Final = (plan_type or "").strip().lower()
     if not raw_plan:
         return None
-    normalized_auth_plan: Final = (account.auth_file_plan_type or "").strip().lower().replace("_", "-")
+    normalized_auth_plan: Final = (auth_file_plan_type or "").strip().lower().replace("_", "-")
     if "enterprise" in raw_plan or any(token in raw_plan for token in ("edu", "health", "gov", "teacher")):
         return 700
     if "ultra" in raw_plan or "heavy" in raw_plan:

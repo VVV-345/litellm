@@ -10,16 +10,46 @@ from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
 from litellm.models.model import LiteLLM_ProxyModelTable
+from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
+from litellm.proxy.management_endpoints.account_pool_routing import plan_priority
 from litellm.repositories.model_repository import ModelRepository
 
 _MANAGED_BY: Final = "account_pool"
 _CREATED_BY: Final = "account-pool-reconciler"
 _DEFAULT_MANAGER_URL: Final = "http://account-pool:8091"
 _DEFAULT_INTERVAL_SECONDS: Final = 30.0
+
+
+class QuotaWindow(BaseModel):
+    remaining_percent: float
+
+
+class QuotaSnapshot(BaseModel):
+    observed_at: AwareDatetime | None = None
+    plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    subscription_active_until: AwareDatetime | None = None
+    windows: tuple[QuotaWindow, ...] = ()
+
+    def routing_quota(self) -> RoutingQuota:
+        return RoutingQuota(
+            remaining_percent=min((window.remaining_percent for window in self.windows), default=None),
+            observed_at=self.observed_at,
+        )
+
+
+class ModelQuota(BaseModel):
+    model: str
+    quota: QuotaSnapshot
+
+
+class ModelCooldown(BaseModel):
+    model: str
+    retry_at: AwareDatetime
 
 
 class GatewayEnvironment(BaseModel):
@@ -32,6 +62,12 @@ class GatewayEnvironment(BaseModel):
     public_models: tuple[str, ...] | None = None
     routing_weight: int | None = Field(default=None, ge=1, le=10000)
     routing_order: int | None = None
+    quota: QuotaSnapshot = Field(default_factory=QuotaSnapshot)
+    model_quotas: tuple[ModelQuota, ...] = ()
+    model_cooldowns: tuple[ModelCooldown, ...] = ()
+    model_aliases: dict[str, str] = Field(default_factory=dict)
+    quota_reserve_percent: float = 0
+    quota_snapshot_max_age: int = 300
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -195,7 +231,25 @@ def desired_deployments(environments: tuple[GatewayEnvironment, ...]) -> tuple[M
 
 
 async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> bool:
-    desired: Final = desired_deployments(await client.list_environments())
+    environments: Final = await client.list_environments()
+    snapshots.replace(
+        {
+            str(environment.id): RoutingSnapshot(
+                quota=environment.quota.routing_quota(),
+                model_quotas={
+                    item.model: item.quota.routing_quota() for item in environment.model_quotas if item.quota.windows
+                },
+                model_cooldowns={item.model: item.retry_at for item in environment.model_cooldowns},
+                model_aliases=environment.model_aliases,
+                quota_reserve_percent=environment.quota_reserve_percent,
+                quota_snapshot_max_age=environment.quota_snapshot_max_age,
+                plan_rank=plan_priority(environment.quota.plan_type, environment.quota.auth_file_plan_type),
+                subscription_active_until=environment.quota.subscription_active_until,
+            )
+            for environment in environments
+        }
+    )
+    desired: Final = desired_deployments(environments)
     current: Final = await store.list_managed()
     desired_by_id: Final = {deployment.id: deployment for deployment in desired}
     current_by_id: Final = {deployment.id: deployment for deployment in current}

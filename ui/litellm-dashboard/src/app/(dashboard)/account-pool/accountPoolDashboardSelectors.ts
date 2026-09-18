@@ -46,7 +46,14 @@ export const summarizeAccountPoolDashboard = (
   const completedRequests = totals.successfulRequests + totals.failedRequests;
   return {
     totalCards: environments.length,
-    enabledCards: environments.filter((environment) => environment.enabled && !environment.manual_cooldown).length,
+    enabledCards: environments.filter(
+      (environment) =>
+        environment.enabled &&
+        !environment.manual_cooldown &&
+        environment.status === "ready" &&
+        !environment.configuration_pending &&
+        environment.enabled_models.length > 0,
+    ).length,
     ...totals,
     successRate: completedRequests === 0 ? null : (totals.successfulRequests / completedRequests) * 100,
   };

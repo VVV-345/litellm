@@ -196,6 +196,7 @@ from litellm.types.llms.openai import (
 from litellm.types.router import (
     CONFIGURABLE_CLIENTSIDE_AUTH_PARAMS,
     VALID_LITELLM_ENVIRONMENTS,
+    AccountPoolRoutingConfig,
     AlertingConfig,
     AllowedFailsPolicy,
     AssistantsTypedDict,
@@ -646,6 +647,7 @@ class Router:
         background_health_check_model_groups: Sequence[str] | None = None,
         enable_weighted_failover: bool = False,
         fallback_access_check: FallbackAccessCheck | None = None,
+        account_pool_routing: AccountPoolRoutingConfig | dict[str, object] | None = None,
     ) -> None:
         """
         Initialize the Router class with the given parameters for caching, reliability, and routing strategy.
@@ -830,6 +832,7 @@ class Router:
         self._routing_group_rows: tuple[DeploymentTypedDict, ...] | None = None
         self._init_routing_groups(None)
 
+        self.account_pool_routing = AccountPoolRoutingConfig.model_validate(account_pool_routing or {})
         self.deployment_affinity_ttl_seconds = deployment_affinity_ttl_seconds
         self.model_group_affinity_config = model_group_affinity_config
         warn_on_unknown_model_group_affinity_flags(model_group_affinity_config)
@@ -1023,7 +1026,7 @@ class Router:
         # If model_group_affinity_config is set but no global affinity checks were
         # enabled, we still need the DeploymentAffinityCheck callback (with global
         # flags all False) so per-group config can activate affinity per model group.
-        if self.model_group_affinity_config:
+        if self.model_group_affinity_config or self.account_pool_routing.session_affinity:
             self._ensure_deployment_affinity_callback()
 
         if self.alerting_config is not None:
@@ -11203,6 +11206,7 @@ class Router:
             "enable_weighted_failover",
             "enable_tag_filtering",
             "tag_routing_prefix",
+            "account_pool_routing",
         ]
 
         for var in vars_to_include:
@@ -11215,6 +11219,7 @@ class Router:
             ):
                 _settings_to_return[var] = self.lowestlatency_logger.routing_args.json()
 
+        _settings_to_return["account_pool_routing"] = self.account_pool_routing.model_dump()
         _settings_to_return["routing_groups"] = [group.model_dump() for group in self._routing_groups.values()]
         return _settings_to_return
 
@@ -11241,6 +11246,7 @@ class Router:
             "enable_weighted_failover",
             "enable_tag_filtering",
             "tag_routing_prefix",
+            "account_pool_routing",
         ]
 
         _int_settings: Final = [
@@ -11259,6 +11265,10 @@ class Router:
                 if var in _int_settings:
                     _casted_value = int(kwargs[var])
                     setattr(self, var, _casted_value)
+                elif var == "account_pool_routing":
+                    self.account_pool_routing = AccountPoolRoutingConfig.model_validate(kwargs[var] or {})
+                    if self.account_pool_routing.session_affinity:
+                        self._ensure_deployment_affinity_callback()
                 elif var == "routing_groups":
                     self._routing_groups_input = kwargs[var]
                     rebuild_routing_groups = True
@@ -12025,6 +12035,28 @@ class Router:
 
         healthy_deployments = self._filter_blocked_deployments(healthy_deployments)
 
+        if "litellm.proxy.management_endpoints.account_pool_integration" in sys.modules:
+            from litellm.proxy.management_endpoints.account_pool_native_routing import (
+                continuation_deployments,
+                effective_config,
+                eligible_deployments,
+                now_utc,
+                session_metadata,
+                snapshots,
+            )
+
+            healthy_deployments = litellm.utils._get_excluded_filtered_deployments(
+                healthy_deployments, excluded_deployment_ids=request_kwargs.get("_excluded_deployment_ids")
+            )
+            healthy_deployments = continuation_deployments(healthy_deployments, request_kwargs)
+            healthy_deployments = eligible_deployments(healthy_deployments, model, snapshots.values, now_utc())
+            if any(item.get("model_info", {}).get("account_pool_environment_id") for item in healthy_deployments):
+                pool_session: Final = session_metadata(effective_config(self.account_pool_routing))
+                if pool_session:
+                    self._ensure_deployment_affinity_callback()
+                    pool_metadata_key: Final = self._get_metadata_variable_name_from_kwargs(request_kwargs)
+                    request_kwargs[pool_metadata_key] = {**(request_kwargs.get(pool_metadata_key) or {}), **pool_session}
+
         healthy_deployments = await self.async_callback_filter_deployments(
             model=model,
             healthy_deployments=healthy_deployments,
@@ -12079,6 +12111,18 @@ class Router:
             cast(list[dict], healthy_deployments),
             excluded_deployment_ids=_excluded_deployment_ids,
         )
+
+        if "litellm.proxy.management_endpoints.account_pool_integration" in sys.modules:
+            from litellm.proxy.management_endpoints.account_pool_native_routing import (
+                effective_config,
+                now_utc,
+                preferred_deployments,
+                snapshots,
+            )
+
+            healthy_deployments = preferred_deployments(
+                healthy_deployments, model, effective_config(self.account_pool_routing), snapshots.values, now_utc()
+            )
 
         if len(healthy_deployments) == 0:
             exception: Final = await async_raise_no_deployment_exception(

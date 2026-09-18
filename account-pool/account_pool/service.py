@@ -888,6 +888,12 @@ class EnvironmentService:
         return tuple(
             endpoint.model_copy(
                 update={
+                    "quota": record.quota,
+                    "model_quotas": record.model_quotas,
+                    "model_cooldowns": record.model_cooldowns,
+                    "model_aliases": {alias.alias: alias.target for alias in policy.model_aliases},
+                    "quota_reserve_percent": policy.routing.quota_reserve_percent,
+                    "quota_snapshot_max_age": policy.routing.quota_snapshot_max_age,
                     "routing_weight": policy.routing.weight,
                     "routing_order": (20001 if policy.routing.is_backup else 0) - policy.routing.priority,
                     "public_models": tuple(
