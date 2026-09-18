@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18next from "@/i18n";
@@ -15,6 +15,9 @@ vi.mock("./panels/HealthStatusPanel", () => ({ default: () => <div data-testid="
 vi.mock("./panels/ModelRetrySettingsPanel", () => ({ default: () => <div data-testid="panel-retry" /> }));
 vi.mock("./panels/ModelGroupAliasPanel", () => ({ default: () => <div data-testid="panel-alias" /> }));
 vi.mock("./panels/PriceDataPanel", () => ({ default: () => <div data-testid="panel-price" /> }));
+
+const searchState = { value: "" };
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(searchState.value) }));
 
 const detailState = { modelId: null as string | null, teamId: null as string | null };
 vi.mock("./detailNavigation", () => ({
@@ -54,6 +57,7 @@ const renderPage = () => {
 describe("ModelsAndEndpointsPage", () => {
   beforeEach(async () => {
     await i18next.changeLanguage("en");
+    searchState.value = "";
     detailState.modelId = null;
     detailState.teamId = null;
     mockUseAuthorized.mockReturnValue(ADMIN);
@@ -71,6 +75,13 @@ describe("ModelsAndEndpointsPage", () => {
     expect(getByRole("tab", { name: "LLM Credentials" })).toBeInTheDocument();
     expect(getByRole("tab", { name: "Health Status" })).toBeInTheDocument();
     expect(getByTestId("panel-all-models")).toBeInTheDocument();
+  });
+
+  it("opens the requested settings tab and ignores unsupported legacy modal parameters", () => {
+    searchState.value = "tab=retry-settings&account_policy=true";
+    renderPage();
+    expect(screen.getByTestId("panel-retry")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("switches tabs in-memory, mounting only the active panel", async () => {

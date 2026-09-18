@@ -83,6 +83,12 @@ const antigravityDefaults: Antigravity = {
   signature_cache_enabled: true,
   signature_bypass_strict: false,
 };
+const capabilityDescriptions: Partial<Record<NonNullable<PolicyView["capabilities"]>[number]["name"], string>> = {
+  routing: "使用 LiteLLM 原生设置；旧卡片路由字段不决定当前跨卡路由",
+  retry: "使用 LiteLLM 原生重试设置",
+  plan_expiry: "尚未等价迁移，仅保留旧值",
+  provider_settings: "同步到供应商运行环境，以上方同步结果为准",
+};
 const defaults: FormPolicy = {
   tags: [],
   group: "",
@@ -495,7 +501,8 @@ function PolicyForm({
                 {t(`accountPool.policy.capabilities.${capability.name}`)}
               </dt>
               <dd className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-                {t(`accountPool.policy.capabilityStatus.${capability.status}`)}
+                {capabilityDescriptions[capability.name] ??
+                  t(`accountPool.policy.capabilityStatus.${capability.status}`)}
               </dd>
             </div>
           ))}
@@ -503,6 +510,38 @@ function PolicyForm({
       </section>
       <section className="grid gap-3">
         <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
+        <details className="rounded-lg border p-3 text-sm">
+          <summary>旧版路由设置与迁移状态</summary>
+          <div className="mt-3 space-y-3">
+            <p>
+              权重、优先级和备用标记只在首次同步时初始化 LiteLLM 模型的 weight/order，之后以模型编辑中的值为准。
+              旧版按额度、套餐、到期时间或指定账号顺序跨卡选卡，以及会话亲和性和有效期，尚未等价迁移，不参与当前跨卡选卡。
+              旧重试与回退字段保留，但实际请求使用 LiteLLM 的重试和回退设置。
+            </p>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  "strategy",
+                  "priority",
+                  "weight",
+                  "is_backup",
+                  "preferred_account_ids",
+                  "session_affinity",
+                  "session_affinity_ttl",
+                  "fallback_enabled",
+                  "max_attempts",
+                  "backoff_ms",
+                  "retryable_statuses",
+                ] as const
+              ).map((field) => (
+                <div key={field}>
+                  <dt className="font-medium">{t(`accountPool.policy.${field}`)}</dt>
+                  <dd className="break-all text-muted-foreground">{JSON.stringify(policy.routing[field])}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </details>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <p className="text-sm text-muted-foreground">
             卡片之间的权重、优先级、回退和会话亲和性使用 LiteLLM 路由设置；虚拟密钥指定卡片时仅在该卡片内调用。

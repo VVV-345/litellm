@@ -1,12 +1,17 @@
 """验证标准统计的账号归属、缓存用量和数据库故障边界。"""
 
 from datetime import datetime, timedelta, timezone
+import os
+from types import SimpleNamespace
 from typing import Final
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
+from litellm.proxy.db.prisma_client import PrismaWrapper
+from litellm.proxy.db.routing_prisma_wrapper import RoutingPrismaWrapper
 from litellm.proxy.management_endpoints.account_pool_observability import standard_dashboard
 
 
@@ -50,3 +55,37 @@ async def test_standard_dashboard_does_not_hide_database_failure_as_zero_request
     with pytest.raises(HTTPException) as failure:
         await standard_dashboard(unavailable)
     assert failure.value.status_code == 503
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("replica", [False, True])
+async def test_statistics_use_dynamic_prisma_query_and_read_replica(replica: bool) -> None:
+    query: Final = AsyncMock(return_value=[])
+    writer_query: Final = AsyncMock(side_effect=AssertionError("read should use replica"))
+    reader: Final = PrismaWrapper(SimpleNamespace(query_raw=query))
+    database: Final = (
+        RoutingPrismaWrapper(PrismaWrapper(SimpleNamespace(query_raw=writer_query)), reader) if replica else reader
+    )
+    with patch("litellm.proxy.proxy_server.prisma_client", SimpleNamespace(db=database)):
+        report: Final = await standard_dashboard()
+    assert report.summary.total_requests == 0
+    query.assert_awaited_once()
+    writer_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_statistics_query_against_postgres_prisma_binding() -> None:
+    database_url: Final = os.getenv("ACCOUNT_POOL_STATS_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("requires a LiteLLM PostgreSQL database")
+    from prisma import Prisma
+
+    client: Final = Prisma(datasource={"url": database_url})
+    await client.connect()
+    try:
+        with patch("litellm.proxy.proxy_server.prisma_client", SimpleNamespace(db=PrismaWrapper(client))):
+            report: Final = await standard_dashboard()
+        assert report.statistics_source == "litellm"
+        assert report.summary.total_requests >= 0
+    finally:
+        await client.disconnect()

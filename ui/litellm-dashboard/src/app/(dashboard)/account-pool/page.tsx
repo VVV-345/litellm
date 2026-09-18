@@ -6,7 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -30,6 +30,7 @@ import { toast } from "@/lib/toast";
 import { migratedHref } from "@/utils/migratedPages";
 
 import { AccountPoolCard } from "./AccountPoolCard";
+import { AccountPoolSettingsOverview } from "./AccountPoolSettingsOverview";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
 import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
@@ -39,6 +40,8 @@ import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
 import { AccountPoolReleasesPanel } from "./AccountPoolReleasesPanel";
 import { RuntimeSettingsSection } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
+import { RuntimeConfigDialog } from "@/components/Settings/RuntimeSettings/RuntimeConfigDialog";
+import { RuntimePolicyDialog } from "@/components/Settings/RuntimeSettings/RuntimePolicyDialog";
 import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
 import {
   getAccountPoolDashboardStats,
@@ -66,6 +69,17 @@ import { useAccountPoolQuery } from "./useAccountPoolQuery";
 import { useProxyGatewayQuery } from "./useProxyGateways";
 
 const PAGE_SIZE = 24;
+const POOL_TABS = [
+  "dashboard",
+  "providers",
+  "oauth",
+  "credentials",
+  "quotas",
+  "proxy-layer",
+  "upstream-sync",
+  "releases",
+  "settings-overview",
+];
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
   "all",
   "provisioning",
@@ -82,10 +96,17 @@ export default function AccountPoolPage() {
   const { t } = useTranslation();
   const { accessToken, userRole, isViewOnly } = useAuthorized();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams?.get("tab") ?? "dashboard";
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
+  const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
+  const activeTab = POOL_TABS.includes(selectedTab) ? selectedTab : "dashboard";
+  const setActiveTab = (value: string) => setTabSelection({ query: requestedTab, value });
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
@@ -157,6 +178,11 @@ export default function AccountPoolPage() {
       .catch((error: unknown) => toast.fromError(error))
       .finally(() => setRefreshingQuotas(false));
   };
+  const closePolicy = () => {
+    setPolicyEnvironment(null);
+    void policiesQuery.refetch();
+    void environmentsQuery.refetch();
+  };
   const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
   if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
@@ -173,20 +199,14 @@ export default function AccountPoolPage() {
       environment={environment}
       requestStats={requestStats}
       proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
-      onConfigure={(current) =>
-        router.push(`${migratedHref("models-and-endpoints")}?account_id=${encodeURIComponent(current.id)}`)
-      }
+      onConfigure={setConfigEnvironment}
       onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
       onAuthorize={(current) => authorizeMutation.mutate(current)}
       onDelete={setDeleteEnvironment}
       onManageKey={(current) =>
         router.push(`${migratedHref("api-keys")}?create=true&account_id=${encodeURIComponent(current.id)}`)
       }
-      onManagePolicy={(current) =>
-        router.push(
-          `${migratedHref("models-and-endpoints")}?account_id=${encodeURIComponent(current.id)}&account_policy=true`,
-        )
-      }
+      onManagePolicy={setPolicyEnvironment}
       onViewLogs={(current) => {
         router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(current.id)}`);
       }}
@@ -351,6 +371,9 @@ export default function AccountPoolPage() {
             <TabsTrigger value="releases" className="flex-none rounded-none px-4 py-2">
               版本管理
             </TabsTrigger>
+            <TabsTrigger value="settings-overview" className="flex-none rounded-none px-4 py-2">
+              全局设置总览
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="pt-4">
             {environmentsQuery.isLoading || environmentsQuery.isError ? (
@@ -372,7 +395,10 @@ export default function AccountPoolPage() {
           <TabsContent value="providers" className="pt-4">
             <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
             {accessToken && (
-              <details className="my-4 rounded-lg border p-4">
+              <details
+                className="my-4 rounded-lg border p-4"
+                open={searchParams?.get("section") === "common" || undefined}
+              >
                 <summary>新卡片默认配置</summary>
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="common" />
               </details>
@@ -432,7 +458,10 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="quotas" className="pt-4">
             {accessToken && (
-              <details className="mb-4 rounded-lg border p-4">
+              <details
+                className="mb-4 rounded-lg border p-4"
+                open={searchParams?.get("section") === "quota" || undefined}
+              >
                 <summary>配额耗尽策略</summary>
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="quota" />
               </details>
@@ -448,7 +477,10 @@ export default function AccountPoolPage() {
             {accessToken && activeTab === "releases" && (
               <>
                 <AccountPoolReleasesPanel accessToken={accessToken} />
-                <details className="mt-6 rounded-lg border p-4">
+                <details
+                  className="mt-6 rounded-lg border p-4"
+                  open={searchParams?.get("section") === "plugins" || undefined}
+                >
                   <summary>运行插件管理</summary>
                   <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />
                 </details>
@@ -457,6 +489,9 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="upstream-sync" className="pt-4">
             {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
+          </TabsContent>
+          <TabsContent value="settings-overview" className="pt-4">
+            {accessToken && <AccountPoolSettingsOverview accessToken={accessToken} />}
           </TabsContent>
         </Tabs>
       </div>
@@ -473,6 +508,34 @@ export default function AccountPoolPage() {
             if (!open) setAuthorization(null);
           }}
           onCreated={() => void environmentsQuery.refetch()}
+        />
+      )}
+      {configEnvironment && (
+        <RuntimeConfigDialog
+          key={configEnvironment.id}
+          accessToken={accessToken}
+          environment={configEnvironment}
+          open
+          onOpenChange={(open) => !open && setConfigEnvironment(null)}
+          onRefresh={() => void environmentsQuery.refetch()}
+          onSaved={() => {
+            setConfigEnvironment(null);
+            void environmentsQuery.refetch();
+          }}
+        />
+      )}
+      {policyEnvironment && accessToken && (
+        <RuntimePolicyDialog
+          key={policyEnvironment.id}
+          accessToken={accessToken}
+          environment={policyEnvironment}
+          environments={environments}
+          policies={policies}
+          onOpenRuntimeConfig={() => {
+            setConfigEnvironment(policyEnvironment);
+            setPolicyEnvironment(null);
+          }}
+          onClose={closePolicy}
         />
       )}
       <AlertDialog

@@ -111,6 +111,11 @@ class RouteChecks:
             if RouteChecks._route_matches_allowed_route(route=route, allowed_route=allowed_route):
                 return True
 
+        from litellm.proxy.management_endpoints.account_pool_integration import legacy_card_route_alias_allowed
+
+        if legacy_card_route_alias_allowed(route, valid_token):
+            return True
+
         ## check if 'allowed_route' is a field name in LiteLLMRoutes
         if any(allowed_route in LiteLLMRoutes._member_names_ for allowed_route in valid_token.allowed_routes):
             for allowed_route in valid_token.allowed_routes:

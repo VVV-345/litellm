@@ -17,6 +17,35 @@ from litellm.proxy.auth.auth_checks_organization import _user_is_org_admin
 from litellm.proxy.auth.route_checks import RouteChecks
 
 
+@pytest.mark.parametrize("route", ["models", "chat/completions", "responses", "responses/compact", "images/generations"])
+@pytest.mark.parametrize("versioned", [True, False])
+def test_legacy_card_route_alias_retains_explicit_endpoint_scope(route: str, versioned: bool) -> None:
+    granted = ("/v1/" if versioned else "/") + route
+    alias = ("/" if versioned else "/v1/") + route
+    metadata = {
+        "account_pool_card_id": "00000000-0000-4000-8000-000000000001",
+        "account_pool_binding_id": "00000000-0000-4000-8000-000000000002",
+    }
+    auth = UserAPIKeyAuth(allowed_routes=[granted], metadata=metadata)
+    assert RouteChecks.is_virtual_key_allowed_to_call_route(alias, auth)
+    assert auth.allowed_routes == [granted]
+    assert auth.metadata == metadata
+    for denied in ("/key/generate", "/config/update", "/v1/embeddings", "/v1/realtime"):
+        with pytest.raises(HTTPException) as error:
+            RouteChecks.is_virtual_key_allowed_to_call_route(denied, auth)
+        assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("metadata", [{}, {"account_pool_card_id": "00000000-0000-4000-8000-000000000001"},
+    {"account_pool_card_id": "invalid", "account_pool_binding_id": "invalid"}])
+def test_native_or_invalid_card_key_does_not_expand_explicit_route_permissions(metadata) -> None:
+    with pytest.raises(HTTPException) as error:
+        RouteChecks.is_virtual_key_allowed_to_call_route(
+            "/models", UserAPIKeyAuth(allowed_routes=["/v1/models"], metadata=metadata)
+        )
+    assert error.value.status_code == 403
+
+
 def test_non_admin_config_update_route_rejected():
     """Test that non-admin users are rejected when trying to call /config/update"""
 

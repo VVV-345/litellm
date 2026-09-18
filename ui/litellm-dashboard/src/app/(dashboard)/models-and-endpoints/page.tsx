@@ -93,7 +93,10 @@ export default function ModelsAndEndpointsPage() {
   const searchParams = useSearchParams();
   const accountId = searchParams?.get("account_id");
 
-  const [activeKey, setActiveKey] = useState<string>(BASE_TAB_KEY);
+  const requestedTab = searchParams?.get("tab") ?? BASE_TAB_KEY;
+  const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
+  const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
+  const setActiveKey = (value: string) => setTabSelection({ query: requestedTab, value });
   const [lastRefreshed, setLastRefreshed] = useState("");
 
   const isInternalUser = userRole && internalUserRoles.includes(userRole);
@@ -127,6 +130,7 @@ export default function ModelsAndEndpointsPage() {
     [canCreate, isAdmin],
   );
 
+  const activeKey = visibleSlugs.some((slug) => (slug || BASE_TAB_KEY) === selectedTab) ? selectedTab : BASE_TAB_KEY;
   const allModelsLabel = isAdmin ? t("models.allModels") : t("models.yourModels");
   const tabLabel = (slug: "" | ModelTabSlug): React.ReactNode => {
     if (!slug) return allModelsLabel;
@@ -180,12 +184,7 @@ export default function ModelsAndEndpointsPage() {
         </div>
 
         <CostOptimizationFeedbackBanner />
-        {isAdmin && accountId && (
-          <ModelRuntimeConfiguration
-            accountId={accountId}
-            initialPolicy={searchParams?.get("account_policy") === "true"}
-          />
-        )}
+        {isAdmin && accountId && <ModelRuntimeConfiguration accountId={accountId} />}
 
         {modelId ? (
           <ModelInfoView

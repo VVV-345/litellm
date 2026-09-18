@@ -127,6 +127,24 @@ class KeyAuthScope(BaseModel):
     router_settings: UpdateRouterConfig | None = None
 
 
+class LegacyRouteScope(BaseModel):
+    metadata: CardScope = Field(default_factory=CardScope)
+    allowed_routes: tuple[str, ...] | None = None
+
+
+def legacy_card_route_alias_allowed(route: str, auth: UserAPIKeyAuth) -> bool:
+    if route not in CARD_ROUTES:
+        return False
+    try:
+        scope: Final = LegacyRouteScope.model_validate(auth, from_attributes=True)
+    except ValueError:
+        return False
+    if scope.metadata.card_id is None or scope.metadata.binding_id is None:
+        return False
+    alias: Final = route.removeprefix("/v1") if route.startswith("/v1/") else "/v1" + route
+    return alias in CARD_ROUTES and alias in (scope.allowed_routes or ())
+
+
 class CardName(BaseModel):
     name: str
 

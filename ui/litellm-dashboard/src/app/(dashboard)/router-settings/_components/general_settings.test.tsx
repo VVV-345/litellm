@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import i18next from "@/i18n";
 import GeneralSettings from "./general_settings";
+import { toast } from "@/lib/toast";
 import { deleteConfigFieldSetting, getGeneralSettingsCall, updateConfigFieldSetting } from "@/components/networking";
 
 vi.mock("@/components/networking", () => ({
@@ -11,6 +12,8 @@ vi.mock("@/components/networking", () => ({
   updateConfigFieldSetting: vi.fn().mockResolvedValue({}),
   deleteConfigFieldSetting: vi.fn().mockResolvedValue({}),
 }));
+
+vi.mock("@/lib/toast", () => ({ toast: { fromError: vi.fn() } }));
 
 vi.mock("@/components/router_settings", () => ({ default: () => null }));
 vi.mock("@/components/Settings/RouterSettings/Fallbacks/Fallbacks", () => ({ default: () => null }));
@@ -72,6 +75,21 @@ describe("GeneralSettings General tab", () => {
     vi.mocked(getGeneralSettingsCall).mockResolvedValue([...SETTINGS_FIXTURE.map((s) => ({ ...s }))]);
     vi.mocked(updateConfigFieldSetting).mockClear();
     vi.mocked(deleteConfigFieldSetting).mockClear();
+  });
+
+  it("reports a rejected update without marking the setting as saved", async () => {
+    const user = userEvent.setup();
+    const failure = new Error("save failed");
+    vi.mocked(getGeneralSettingsCall).mockResolvedValue(
+      SETTINGS_FIXTURE.map((item) => ({ ...item, stored_in_db: null })),
+    );
+    vi.mocked(updateConfigFieldSetting).mockRejectedValueOnce(failure);
+    renderWithProviders(<GeneralSettings accessToken="token" userRole="Admin" userID="admin" />);
+    await user.click(screen.getByRole("tab", { name: "General" }));
+    const row = await settingsRow("max_ui_session_budget");
+    await user.click(within(row).getByRole("button", { name: "Update" }));
+    expect(toast.fromError).toHaveBeenCalledWith(failure);
+    expect(within(row).getByText("Not Set")).toBeInTheDocument();
   });
 
   it("updates max_ui_session_budget with its own value, not the value at its filtered index", async () => {

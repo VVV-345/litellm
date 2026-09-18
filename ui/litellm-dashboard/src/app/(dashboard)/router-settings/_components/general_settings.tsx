@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
@@ -10,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getGeneralSettingsCall, updateConfigFieldSetting, deleteConfigFieldSetting } from "@/components/networking";
 import { Trash2 } from "lucide-react";
+import { toast } from "@/lib/toast";
 import { StatusBadge } from "@/components/shared/table_cells";
 import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
@@ -191,6 +193,19 @@ export const PromptCachingPanel: React.FC<{
 const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, userRole, userID }) => {
   const { t } = useTranslation();
   const [generalSettings, setGeneralSettings] = useState<generalSettingsItem[]>([]);
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams?.get("tab") ?? "loadbalancing";
+  const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
+  const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
+  const availableTabs = [
+    "loadbalancing",
+    "routing-groups",
+    "fallbacks",
+    "prompt-caching",
+    "general",
+    ...(canManageAccountPool(userRole, false) ? ["streaming", "payload"] : []),
+  ];
+  const activeTab = availableTabs.includes(selectedTab) ? selectedTab : "loadbalancing";
 
   useEffect(() => {
     if (!accessToken) {
@@ -210,7 +225,7 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
     setGeneralSettings(updatedSettings);
   };
 
-  const handleUpdateField = (fieldName: string) => {
+  const handleUpdateField = async (fieldName: string) => {
     if (!accessToken) {
       return;
     }
@@ -221,7 +236,7 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
       return;
     }
     try {
-      updateConfigFieldSetting(accessToken, fieldName, fieldValue);
+      await updateConfigFieldSetting(accessToken, fieldName, fieldValue);
       // update value in state
 
       const updatedSettings = generalSettings.map((setting) =>
@@ -229,17 +244,17 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
       );
       setGeneralSettings(updatedSettings);
     } catch (error) {
-      // do something
+      toast.fromError(error);
     }
   };
 
-  const handleResetField = (fieldName: string) => {
+  const handleResetField = async (fieldName: string) => {
     if (!accessToken) {
       return;
     }
 
     try {
-      deleteConfigFieldSetting(accessToken, fieldName);
+      await deleteConfigFieldSetting(accessToken, fieldName);
       // update value in state
 
       const updatedSettings = generalSettings.map((setting) =>
@@ -249,7 +264,7 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
       );
       setGeneralSettings(updatedSettings);
     } catch (error) {
-      // do something
+      toast.fromError(error);
     }
   };
 
@@ -259,7 +274,11 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
 
   return (
     <div className="w-full">
-      <Tabs defaultValue="loadbalancing" className="h-[75vh] w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setTabSelection({ query: requestedTab, value })}
+        className="h-[75vh] w-full"
+      >
         <TabsList variant="line" className="mx-8 mt-4">
           <TabsTrigger value="loadbalancing">{t("ui.Loadbalancing")}</TabsTrigger>
           <TabsTrigger value="routing-groups">{t("ui.Routing Groups")}</TabsTrigger>

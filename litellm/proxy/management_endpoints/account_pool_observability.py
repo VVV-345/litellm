@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
-from typing import Final, Literal, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, cast
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -29,7 +29,7 @@ WITH attributed AS (
              s.metadata::jsonb ->> 'account_pool_request_id', s.request_id) AS pool_request_id
     FROM "LiteLLM_SpendLogs" s
     LEFT JOIN "LiteLLM_ProxyModelTable" m ON m.model_id = s.model_id
-    WHERE s."startTime" >= $1
+    WHERE s."startTime" >= ($1::timestamptz AT TIME ZONE 'UTC')
 ), final_requests AS (
     SELECT DISTINCT ON (pool_request_id) * FROM attributed
     WHERE account_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -94,7 +94,6 @@ class AccountPoolDashboardStats(BaseModel):
     occurred_from: datetime
 
 
-@runtime_checkable
 class StatisticsDatabase(Protocol):
     async def query_raw(self, sql: str, since: datetime) -> object: ...
 
@@ -104,9 +103,7 @@ async def query_standard_stats(sql: str, since: datetime) -> object:
 
     if prisma_client is None:
         raise HTTPException(503, "LiteLLM statistics database is unavailable")
-    database: Final = prisma_client.db
-    if not isinstance(database, StatisticsDatabase):
-        raise HTTPException(503, "LiteLLM statistics database is unavailable")
+    database: Final = cast(StatisticsDatabase, prisma_client.db)
     try:
         return await database.query_raw(sql, since)
     except Exception as exc:

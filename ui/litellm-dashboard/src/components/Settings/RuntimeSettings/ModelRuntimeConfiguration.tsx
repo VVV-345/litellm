@@ -10,13 +10,7 @@ import { Button } from "@/components/ui/button";
 import { RuntimeConfigDialog } from "./RuntimeConfigDialog";
 import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
 
-export default function ModelRuntimeConfiguration({
-  accountId,
-  initialPolicy = false,
-}: {
-  accountId: string;
-  initialPolicy?: boolean;
-}) {
+export default function ModelRuntimeConfiguration({ accountId }: { accountId: string }) {
   const { accessToken, userRole } = useAuthorized();
   const allowed = canManageAccountPool(userRole, false);
   const accounts = useAccountPoolQuery(accessToken, allowed, false);
@@ -26,7 +20,7 @@ export default function ModelRuntimeConfiguration({
     enabled: allowed && Boolean(accessToken),
     retry: false,
   });
-  const [editing, setEditing] = useState<"runtime" | "policy" | null>(initialPolicy ? "policy" : null);
+  const [editing, setEditing] = useState<"runtime" | "policy" | null>(null);
   if (!allowed || !accessToken) return null;
   if (accounts.isPending || policies.isPending) return <p>正在读取卡片配置…</p>;
   if (accounts.isError || policies.isError) return <p role="alert">卡片配置读取失败，请刷新重试</p>;

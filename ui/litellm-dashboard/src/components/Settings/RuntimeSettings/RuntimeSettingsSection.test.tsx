@@ -94,7 +94,7 @@ const reloadRequiredSettingsView = {
   requires_reload: true,
 };
 
-const renderPanel = (category: "streaming" | "network" = "streaming") =>
+const renderPanel = (category: "streaming" | "network" | "quota" = "streaming") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RuntimeSettingsSection accessToken="token" environments={[card]} category={category} />
@@ -107,6 +107,18 @@ describe("RuntimeSettingsSection", () => {
     getSettings.mockResolvedValue({ version: 4, values: settings, requires_reload: false });
     updateSettings.mockResolvedValue({ version: 5, values: settings, requires_reload: false });
     listProxyProfiles.mockResolvedValue([]);
+  });
+
+  it("marks unsupported quota switching as inactive and preserves the old values", async () => {
+    getSettings.mockResolvedValue({
+      version: 4,
+      values: { ...settings, quota_switch_project: true },
+      requires_reload: false,
+    });
+    renderPanel("quota");
+    expect(await screen.findByText(/目前不生效/)).toBeInTheDocument();
+    expect(screen.getByText(/旧值开启，当前不执行/)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /切换项目/ })).not.toBeInTheDocument();
   });
 
   it("opens streaming settings and saves a named configuration with one selected card", async () => {
