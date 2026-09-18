@@ -45,7 +45,7 @@ from httpx import Proxy
 from httpx._utils import get_environment_proxies
 from openai.lib import _parsing, _pydantic
 from openai.types.chat.completion_create_params import ResponseFormat
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from tiktoken import Encoding
 from tokenizers import Tokenizer
 
@@ -5380,6 +5380,22 @@ def _get_model_cost_key(potential_key: str) -> str | None:
 
 def _get_model_info_from_model_cost(key: str) -> dict:
     return litellm.model_cost[key]
+
+
+def account_pool_model_cost(model: str, configured: Mapping[str, object]) -> dict[str, object]:
+    base_model: Final = configured.get("base_model") or model
+    try:
+        resolved: Final = litellm.get_model_info(model=str(base_model))
+        published: Final = TypeAdapter(Mapping[str, object]).validate_python(
+            _get_model_info_from_model_cost(resolved["key"])
+        )
+    except Exception:  # noqa: BLE001  # Unmapped pool models may only have administrator-supplied prices.
+        return {**configured, "base_model": base_model}
+    return {
+        **published,
+        **{key: value for key, value in configured.items() if value is not None},
+        "base_model": base_model,
+    }
 
 
 def _check_provider_match(model_info: dict, custom_llm_provider: str | None) -> bool:

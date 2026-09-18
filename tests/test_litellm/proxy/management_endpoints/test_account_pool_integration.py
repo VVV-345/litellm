@@ -9,7 +9,7 @@ import threading
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx
 import pytest
@@ -457,29 +457,56 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "protocol",
+    "protocol,catalog_pricing",
     [
-        "chat",
-        "responses",
-        "compact",
-        "stream",
-        "stream_usage",
-        "stream_finish_usage",
-        "error",
-        "quota_failover",
-        "quota_bound",
-        "quota_tool",
-        "stream_refusal",
-        "stream_tool_refusal",
-        "stream_late_refusal",
-        "responses_stream",
-        "responses_stream_error",
-        "responses_stream_refusal",
-        "responses_stream_untyped_error",
-        "responses_stream_truncated",
-    ],
+        (protocol, False)
+        for protocol in (
+            "chat",
+            "responses",
+            "compact",
+            "stream",
+            "stream_usage",
+            "stream_finish_usage",
+            "error",
+            "quota_failover",
+            "quota_bound",
+            "quota_tool",
+            "stream_refusal",
+            "stream_tool_refusal",
+            "stream_late_refusal",
+            "responses_stream",
+            "responses_stream_error",
+            "responses_stream_refusal",
+            "responses_stream_untyped_error",
+            "responses_stream_truncated",
+        )
+    ]
+    + [("stream_usage", True), ("responses_stream", True)],
 )
-async def test_real_router_http_request_enters_pool_before_upstream(signing_secret, monkeypatch, protocol):
+async def test_real_router_http_request_enters_pool_before_upstream(
+    signing_secret, monkeypatch, protocol, catalog_pricing
+):
+    import litellm
+
+    rates = {
+        "input_cost_per_token": 0.0000002,
+        "output_cost_per_token": 0.0000012,
+        "cache_read_input_token_cost": 0.00000005,
+    }
+    if catalog_pricing:
+        monkeypatch.setattr(litellm, "model_cost", litellm.model_cost.copy())
+        litellm.register_model(
+            {
+                "openai/model-a": {**rates, "litellm_provider": "openai", "mode": "chat"},
+                "openai/pool-cheap-response-model": {
+                    "input_cost_per_token": 1e-9,
+                    "output_cost_per_token": 1e-9,
+                    "litellm_provider": "openai",
+                    "mode": "chat",
+                },
+            },
+            persist_across_reloads=False,
+        )
     _, original = setup_gateway(lambda _: httpx.Response(200))
 
     class MultipleCardControl(Control):
@@ -624,11 +651,24 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             )
         return httpx.Response(200, json=response_body)
 
+    def upstream_with_reported_model(request):
+        result = upstream(request)
+        assert b'"model-a"' in request.content
+        return (
+            httpx.Response(
+                result.status_code,
+                headers={"content-type": result.headers["content-type"], "x-litellm-response-cost": "123"},
+                content=result.content.replace(b'"model-a"', b'"pool-cheap-response-model"'),
+            )
+            if catalog_pricing
+            else result
+        )
+
     app = FastAPI()
     app.add_middleware(
         AccountPoolGatewayMiddleware,
         control_factory=lambda _: control,
-        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream_with_reported_model)),
     )
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -651,12 +691,17 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                     "api_base": f"http://127.0.0.1:{port}/invalid",
                     "max_parallel_requests": 4,
                     "num_retries": 0,
-                    "input_cost_per_token": 0.0000002,
-                    "output_cost_per_token": 0.0000012,
-                    "cache_read_input_token_cost": 0.00000005,
+                    **(
+                        {}
+                        if catalog_pricing
+                        else {
+                            key: value * (2 if protocol == "quota_failover" and candidate_id != card else 1)
+                            for key, value in rates.items()
+                        }
+                    ),
                 },
                 "model_info": {
-                    "id": str(candidate_id),
+                    "id": str(uuid5(NAMESPACE_URL, f"litellm-account-pool:{candidate_id.hex}:model-a")),
                     "account_pool_environment_id": str(candidate_id),
                     "managed_by": "account_pool",
                 },
@@ -673,6 +718,9 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
     from datetime import datetime, timezone
 
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
+    from litellm.proxy import proxy_server
+
+    monkeypatch.setattr(proxy_server, "llm_router", router)
 
     previous_snapshots = snapshots.values
     snapshots.replace(
@@ -692,6 +740,9 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
 
     async def on_success(kwargs, response_obj, start_time, end_time):
         await logged.put((kwargs, response_obj))
+
+    if protocol == "quota_failover":
+        monkeypatch.setattr(litellm, "_async_success_callback", [*litellm._async_success_callback, on_success])
 
     failures = queue.Queue()
 
@@ -717,6 +768,11 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                 assert chunks[-1].type == "response.completed"
                 logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
                 assert logging_kwargs["standard_logging_object"]["status"] == "success"
+                assert logging_kwargs["response_cost"] == pytest.approx(
+                    5 * rates["input_cost_per_token"] + 2 * rates["output_cost_per_token"]
+                )
+                if catalog_pricing:
+                    assert chunks[-1].response.model == "pool-cheap-response-model"
             else:
                 with pytest.raises(Exception) as failure:
                     await consume()
@@ -810,9 +866,14 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
                 card
             )
         else:
-            response = await router.acompletion(model="model-a", messages=[{"role": "user", "content": "hello"}])
+            response = await router.acompletion(
+                model="model-a", messages=[{"role": "user", "content": "hello"}], success_callback=[on_success]
+            )
             assert response.choices[0].message.content == "through pool"
             assert response.usage.total_tokens == 7
+            if protocol == "quota_failover":
+                logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
+                assert logging_kwargs["response_cost"] == pytest.approx(0.0000068)
         expected_attempts = 4 if protocol == "error" else 2 if protocol == "quota_failover" else 1
         assert len(control.acquisitions) == expected_attempts
         if protocol == "quota_failover":
@@ -824,6 +885,10 @@ async def test_real_router_http_request_enters_pool_before_upstream(signing_secr
             await asyncio.sleep(0.01)
         assert len(control.finished) == expected_attempts
         assert control.finished[0].spend_sync_state == "standard"
+        if catalog_pricing:
+            assert control.finished[0].cost_usd == pytest.approx(logging_kwargs["response_cost"])
+        if protocol == "quota_failover":
+            assert control.finished[-1].cost_usd == pytest.approx(logging_kwargs["response_cost"])
         if protocol in ("stream", "stream_usage", "stream_finish_usage"):
             assert control.finished[0].input_tokens == assembled.usage.prompt_tokens
             assert control.finished[0].output_tokens == assembled.usage.completion_tokens

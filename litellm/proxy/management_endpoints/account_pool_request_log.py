@@ -142,7 +142,8 @@ class RequestLog:
         self.responses: frozenset[str] = frozenset()
         self.failure = False
         self.finished = False
-        self.service_tier: str | None = None
+        requested_tier: Final = payload.get("service_tier")
+        self.service_tier: str | None = requested_tier if isinstance(requested_tier, str) else None
         self.websocket_cost = 0.0
         self.websocket_cost_known = True
         self.websocket_pending = False
@@ -262,6 +263,7 @@ class RequestLog:
     async def finish(self, result: FinishRequest) -> FinishRequest:
         enriched: Final = result.model_copy(
             update={
+                "cost_usd": None if self.standard_accounting else result.cost_usd,
                 "session_id": self.session_id,
                 "proxy_endpoint": self.proxy_endpoint,
                 "input_tokens": self.input_tokens if self.input_tokens is not None else result.input_tokens,

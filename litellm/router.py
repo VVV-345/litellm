@@ -8220,6 +8220,8 @@ class Router:
         User-specified cache fields always win; only ``None``/missing entries
         are inherited. No-op when the backend model has no canonical entry.
         """
+        if model_info.get("managed_by") == "account_pool":
+            return
         cache_fields: Final = (
             "cache_creation_input_token_cost",
             "cache_creation_input_token_cost_above_1hr",
@@ -8257,6 +8259,8 @@ class Router:
         ``get_model_info`` synthesizes a zero for tiered-only backends, and
         storing that zero would mark the deployment as explicitly priced free.
         """
+        if model_info.get("managed_by") == "account_pool":
+            return
         tiers: Final = model_info.get("tiered_pricing")
         if not isinstance(tiers, list) or not tiers:
             return
@@ -9376,7 +9380,11 @@ class Router:
 
         if model_id is not None:
             litellm.register_model(
-                model_cost={model_id: model_info},
+                model_cost={
+                    model_id: litellm.utils.account_pool_model_cost(model, model_info)
+                    if model_info.get("managed_by") == "account_pool"
+                    else model_info
+                },
                 persist_across_reloads=False,
                 warning_display_name=model,
             )

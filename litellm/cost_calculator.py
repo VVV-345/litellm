@@ -780,7 +780,10 @@ def _select_model_name_for_cost_calc(
         else None
     )
 
-    if custom_pricing is True:
+    pool_entry: Final = litellm.model_cost.get(router_model_id or "", {})
+    if pool_entry.get("managed_by") == "account_pool":
+        return_model = router_model_id
+    elif custom_pricing is True:
         if router_model_id is not None and router_model_id in litellm.model_cost:
             entry: Final = litellm.model_cost[router_model_id]
             if (
@@ -1273,11 +1276,18 @@ def completion_cost(
             router_model_id=router_model_id,
         )
 
-        potential_model_names: Final = [
-            selected_model,
-            _get_response_model(completion_response),
-        ]
-        if model is not None:
+        pool_entry: Final = litellm.model_cost.get(router_model_id or "", {})
+        pool_pricing: Final = pool_entry.get("managed_by") == "account_pool"
+        if (
+            pool_pricing
+            and not pool_entry.get("tiered_pricing")
+            and any(pool_entry.get(key) is None for key in ("input_cost_per_token", "output_cost_per_token"))
+        ):
+            raise ValueError("Account pool deployment has incomplete token pricing; configure its model costs")
+        potential_model_names: Final = (
+            [selected_model] if pool_pricing else [selected_model, _get_response_model(completion_response)]
+        )
+        if model is not None and not pool_pricing:
             potential_model_names.append(model)
 
         for idx, model in enumerate(potential_model_names):

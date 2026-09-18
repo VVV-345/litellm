@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Final
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 
@@ -94,6 +95,169 @@ def test_partial_deployment_catalog_retains_builtin_token_rates(monkeypatch) -> 
     assert price.rates["input_cost_per_token"] == 0.002
     assert price.rates["output_cost_per_token"] == 0.003
     assert price.rates["cache_read_input_token_cost"] == 0
+
+
+@pytest.mark.parametrize(
+    "overrides,service_tier,prompt_tokens,expected",
+    [
+        ({}, None, 100, 0.208),
+        ({"input_cost_per_token": 0.002}, None, 100, 0.228),
+        ({"output_cost_per_token": 0.004}, None, 100, 0.048),
+        ({"cache_read_input_token_cost": 0}, None, 100, 0.2),
+        ({"input_cost_per_token": 0, "output_cost_per_token": 0, "cache_read_input_token_cost": 0}, None, 100, 0),
+        ({}, "priority", 100, 0.416),
+        ({}, None, 300000, 600.832),
+        (
+            {
+                "tiered_pricing": [
+                    {
+                        "range": [0, 1000000],
+                        "input_cost_per_token": 0.003,
+                        "output_cost_per_token": 0.01,
+                        "cache_read_input_token_cost": 0.0002,
+                    }
+                ]
+            },
+            None,
+            100,
+            0.126,
+        ),
+    ],
+)
+def test_model_table_native_spend_and_full_log_share_deployment_prices(
+    monkeypatch, overrides, service_tier, prompt_tokens, expected
+) -> None:
+    import litellm
+    from litellm import Router
+    from litellm.proxy.proxy_server import _enrich_model_info_with_litellm_data
+    from litellm.utils import _invalidate_model_cost_lowercase_map
+
+    account: Final = uuid4()
+    identifier: Final = str(uuid5(NAMESPACE_URL, f"litellm-account-pool:{account.hex}:billing-alias"))
+    published: Final = {
+        "input_cost_per_token": 0.001,
+        "output_cost_per_token": 0.036,
+        "cache_read_input_token_cost": 0.0001,
+        "input_cost_per_token_priority": 0.002,
+        "output_cost_per_token_priority": 0.072,
+        "cache_read_input_token_cost_priority": 0.0002,
+        "input_cost_per_token_above_272k_tokens": 0.002,
+        "output_cost_per_token_above_272k_tokens": 0.192,
+        "cache_read_input_token_cost_above_272k_tokens": 0.0004,
+        "litellm_provider": "openai",
+        "mode": "chat",
+    }
+    monkeypatch.setattr(litellm, "model_cost", litellm.model_cost.copy())
+    litellm.register_model(
+        {
+            "openai/pool-upstream-alias": {**published, "cache_read_input_token_cost": 0},
+            "openai/pool-catalog-model": published,
+            "openai/pool-response-model": {**published, "input_cost_per_token": 1e-9},
+        },
+        persist_across_reloads=False,
+    )
+    router: Final = Router(
+        model_list=[
+            {
+                "model_name": "billing-alias",
+                "litellm_params": {"model": "openai/pool-upstream-alias", "api_key": "test", **overrides},
+                "model_info": {
+                    "id": identifier,
+                    "managed_by": "account_pool",
+                    "account_pool_environment_id": str(account),
+                    "base_model": "openai/pool-catalog-model",
+                },
+            }
+        ]
+    )
+    try:
+        response: Final = litellm.ModelResponse(
+            model="pool-response-model",
+            usage=litellm.Usage(
+                prompt_tokens=prompt_tokens, completion_tokens=5, prompt_tokens_details={"cached_tokens": 80}
+            ),
+        )
+        displayed: Final = _enrich_model_info_with_litellm_data(deepcopy(router.model_list[0]))["model_info"]
+        snapshot: Final = price_snapshot(str(account), "billing-alias", router)
+        for key in ("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost"):
+            assert snapshot.rates[key] == displayed[key]
+        cost: Final = litellm.completion_cost(
+            completion_response=response,
+            model="openai/pool-upstream-alias",
+            custom_llm_provider="openai",
+            router_model_id=identifier,
+            service_tier=service_tier,
+        )
+        assert cost == pytest.approx(expected)
+        assert response.model == "pool-response-model"
+        full_log: Final = estimate_cost(
+            FinishRequest(
+                lease_id=uuid4(),
+                http_status=200,
+                message="done",
+                endpoint="/v1/responses",
+                input_tokens=prompt_tokens,
+                output_tokens=5,
+                cache_read_input_tokens=80,
+            ),
+            snapshot,
+            {"input_tokens": prompt_tokens, "output_tokens": 5},
+            service_tier,
+        )
+        assert full_log.cost_usd == pytest.approx(cost)
+
+        litellm.model_cost = {"openai/pool-catalog-model": {**published, "output_cost_per_token": 0.072}}
+        _invalidate_model_cost_lowercase_map()
+        router._replay_model_cost_registrations()
+        refreshed: Final = price_snapshot(str(account), "billing-alias", router)
+        assert refreshed.rates["output_cost_per_token"] == overrides.get("output_cost_per_token", 0.072)
+        assert snapshot.rates["output_cost_per_token"] == overrides.get("output_cost_per_token", 0.036)
+    finally:
+        router.discard()
+
+
+def test_unpriced_pool_does_not_fall_back_to_a_cheaper_response_model(monkeypatch) -> None:
+    import litellm
+    from litellm import Router
+
+    monkeypatch.setattr(litellm, "model_cost", litellm.model_cost.copy())
+    litellm.register_model(
+        {
+            "openai/pool-cheap-test": {
+                "input_cost_per_token": 1e-9,
+                "output_cost_per_token": 1e-9,
+                "litellm_provider": "openai",
+                "mode": "chat",
+            }
+        },
+        persist_across_reloads=False,
+    )
+    router: Final = Router(
+        model_list=[
+            {
+                "model_name": "unpriced-pool",
+                "litellm_params": {"model": "openai/unpriced-pool", "api_key": "test"},
+                "model_info": {"id": "unpriced-pool-deployment", "managed_by": "account_pool"},
+            }
+        ]
+    )
+    response: Final = litellm.ModelResponse(
+        model="pool-cheap-test",
+        usage=litellm.Usage(prompt_tokens=100, completion_tokens=5),
+    )
+    try:
+        with pytest.raises(ValueError, match="incomplete token pricing"):
+            litellm.completion_cost(
+                completion_response=response,
+                model="openai/unpriced-pool",
+                router_model_id="unpriced-pool-deployment",
+                custom_llm_provider="openai",
+            )
+        assert litellm.completion_cost(
+            completion_response=response, model="openai/unpriced-pool", custom_llm_provider="openai"
+        ) == pytest.approx(105e-9)
+    finally:
+        router.discard()
 
 
 class Database:

@@ -19,6 +19,7 @@ from litellm.litellm_core_utils.llm_cost_calc.utils import generic_cost_per_toke
 from litellm.proxy.db.daily_spend_bulk_upsert import DAILY_SPEND_TABLES, build_bulk_upsert, merge_by_conflict_key
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest, Lease
 from litellm.types.utils import ModelInfo, Usage
+from litellm.utils import account_pool_model_cost
 
 
 @runtime_checkable
@@ -74,9 +75,8 @@ def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = Non
     if not isinstance(catalog_map, PriceCatalog):
         return PriceSnapshot(model=model, model_id=model_id)
     mapped: Final = catalog_map.get(model_id)
-    catalog_model: Final = model.removeprefix("openai/")
-    catalog: Final = TypeAdapter(dict[str, JsonValue]).validate_python(
-        catalog_map.get(model) or catalog_map.get(catalog_model) or catalog_map.get(f"openai/{model}") or {}
+    catalog: Final = account_pool_model_cost(
+        str(params.get("model") or model), {"base_model": info.get("base_model") or params.get("base_model")}
     )
     deployment_catalog: Final = TypeAdapter(dict[str, JsonValue]).validate_python(mapped or {})
     rates: Final = {
@@ -84,14 +84,22 @@ def price_snapshot(account_id: str, model: str, lookup: ModelLookup | None = Non
         for key, value in {**catalog, **deployment_catalog, **configured}.items()
         if "cost" in key and isinstance(value, (int, float)) and not isinstance(value, bool)
     }
+    configured_tiers: Final = params.get("tiered_pricing", info.get("tiered_pricing"))
+    tiers: Final = TypeAdapter(list[dict[str, JsonValue]]).validate_python(
+        configured_tiers
+        if configured_tiers is not None
+        else deployment_catalog.get("tiered_pricing") or catalog.get("tiered_pricing") or []
+    )
     return PriceSnapshot(
         model=model_id if mapped and not configured else model,
         model_id=model_id,
-        source="configured" if configured or mapped else "catalog" if catalog else "unknown",
+        source="configured"
+        if configured or configured_tiers is not None
+        else "catalog"
+        if rates or tiers
+        else "unknown",
         rates=rates,
-        tiered_pricing=TypeAdapter(list[dict[str, JsonValue]]).validate_python(
-            deployment_catalog.get("tiered_pricing") or catalog.get("tiered_pricing") or []
-        ),
+        tiered_pricing=tiers,
     )
 
 
@@ -110,7 +118,9 @@ def estimate_cost(
     if price.source == "unknown" or usage is None or result.input_tokens is None or result.output_tokens is None:
         return result.model_copy(update={"cost_source": "unknown", "cost_details": details})
     try:
-        if "input_cost_per_token" not in price.rates or "output_cost_per_token" not in price.rates:
+        if not price.tiered_pricing and (
+            "input_cost_per_token" not in price.rates or "output_cost_per_token" not in price.rates
+        ):
             return result.model_copy(update={"cost_source": "unknown", "cost_details": details})
         native: Final = result.endpoint.endswith("/messages")
         tokens: Final = result.input_tokens + (

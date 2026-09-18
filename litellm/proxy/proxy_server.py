@@ -12973,6 +12973,17 @@ def _enrich_model_info_with_litellm_data(
     """
     # provided model_info in config.yaml
     model_info: Final = model.get("model_info", {})
+    if model_info.get("managed_by") == "account_pool":
+        pool_params: Final = model.get("litellm_params") or {}
+        pool_configured: Final = {
+            **model_info,
+            **{
+                key: value
+                for key, value in pool_params.items()
+                if key in litellm.types.utils.CustomPricingLiteLLMParams.model_fields and value is not None
+            },
+        }
+        model_info.update(litellm.utils.account_pool_model_cost(pool_params.get("model", ""), pool_configured))
     if debug is True:
         _openai_client = "None"
         if llm_router is not None:
