@@ -63,6 +63,7 @@ def create_release_router(
                         }
                     ),
                     content=body.model_dump_json().encode() if body else None,
+                    timeout=300 if isinstance(body, ReleaseAction) and body.action == "apply" else 30,
                 )
         except httpx.HTTPError as error:
             raise HTTPException(503, "部署管理服务暂时不可用；服务切换期间请稍后刷新") from error

@@ -37473,6 +37473,7 @@ export interface components {
              * @default 300
              */
             expires_in_seconds: number;
+            rollback?: components["schemas"]["RollbackInspection"] | null;
             /** Token */
             token: string;
         };
@@ -37520,6 +37521,8 @@ export interface components {
             phase: string;
             /** Recovery Id */
             recovery_id?: string | null;
+            /** Rollback State */
+            rollback_state?: string | null;
             /**
              * Status
              * @enum {string}
@@ -38006,6 +38009,68 @@ export interface components {
             roles?: {
                 [key: string]: string[];
             };
+        };
+        /** RollbackAlternative */
+        RollbackAlternative: {
+            /** Commit */
+            commit: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Version Id */
+            version_id: string;
+        };
+        /** RollbackCheck */
+        RollbackCheck: {
+            /** Detail */
+            detail: string;
+            /** Key */
+            key: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "compatible" | "blocked" | "unverified";
+            /** Title */
+            title: string;
+        };
+        /** RollbackInspection */
+        RollbackInspection: {
+            /**
+             * Alternatives
+             * @default []
+             */
+            alternatives: components["schemas"]["RollbackAlternative"][];
+            /**
+             * Alternatives Checked
+             * @default 0
+             */
+            alternatives_checked: number;
+            /**
+             * Alternatives Total
+             * @default 0
+             */
+            alternatives_total: number;
+            /** Checks */
+            checks: components["schemas"]["RollbackCheck"][];
+            /** Current Commit */
+            current_commit: string;
+            /** Impacts */
+            impacts: string[];
+            /**
+             * Scope
+             * @default 核对镜像中的结构定义、关键读写代码与部署配置，不连接业务数据库执行迁移，也不代表上游调用测试通过。
+             */
+            scope: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "compatible" | "blocked" | "unverified";
+            /** Target Commit */
+            target_commit: string;
         };
         /** RouterFieldsResponse */
         RouterFieldsResponse: {

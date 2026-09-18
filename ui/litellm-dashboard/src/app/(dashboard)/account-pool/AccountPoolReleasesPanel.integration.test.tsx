@@ -12,6 +12,7 @@ import {
   releaseCommands,
   type ReleaseView,
   type ReleaseJob,
+  type ReleaseConfirmation,
 } from "./AccountPoolReleasesApi";
 
 vi.mock("./AccountPoolReleasesApi", () => ({
@@ -45,6 +46,17 @@ const pair = (char: string): NonNullable<ReleaseView["current"]> => ({
 });
 const current = pair("b");
 const old = pair("a");
+const report: NonNullable<ReleaseConfirmation["rollback"]> = {
+  current_commit: current.commit,
+  target_commit: old.commit,
+  status: "compatible",
+  checks: [{ key: "database", title: "数据库结构", status: "compatible", detail: "两版结构一致" }],
+  impacts: ["回退时会短暂中断请求"],
+  alternatives: [],
+  alternatives_checked: 0,
+  alternatives_total: 0,
+  scope: "静态检查，不执行数据库恢复",
+};
 const view: ReleaseView = {
   current,
   versions: [
@@ -101,6 +113,7 @@ describe("project releases", () => {
       delay_seconds: 0,
       expires_in_seconds: 300,
       current_commit: current.commit,
+      rollback: action.action === "apply" ? report : null,
     }));
     const queuedJob: ReleaseJob = {
       id: "job",
@@ -126,11 +139,11 @@ describe("project releases", () => {
   it("protects the current version and applies the selected archive with explicit confirmation", async () => {
     const user = userEvent.setup();
     mount();
-    expect(await screen.findByRole("button", { name: "应用" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "检查并回退" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
     await user.click(screen.getByRole("combobox", { name: "选择备份版本" }));
     await user.click(await screen.findByRole("option", { name: /旧版本备注/ }));
-    await user.click(screen.getByRole("button", { name: "应用" }));
+    await user.click(screen.getByRole("button", { name: "检查并回退" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/切换到 aaaaaaaaaa/)).toBeInTheDocument();
     expect(prepareRelease).toHaveBeenCalledWith("admin", { action: "apply", version_id: old.id, revision: 3 });
@@ -171,6 +184,7 @@ describe("project releases", () => {
           delay_seconds: delay,
           expires_in_seconds: 300,
           current_commit: current.commit,
+          rollback: report,
         }}
         title="确认操作"
         description="请核对目标"
@@ -188,5 +202,61 @@ describe("project releases", () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     act(() => vi.advanceTimersByTime(300000));
     expect(screen.getByRole("button", { name: "确认执行" })).toBeDisabled();
+  });
+
+  it.each(["blocked", "unverified"] as const)("shows %s findings without allowing execution", (status) => {
+    render(
+      <AccountPoolReleaseConfirmation
+        confirmation={{
+          token: "",
+          action: { action: "apply", revision: 3, text: "" },
+          expires_in_seconds: 300,
+          delay_seconds: 0,
+          current_commit: current.commit,
+          rollback: {
+            ...report,
+            status,
+            checks: [{ key: "logs", title: "日志与费用记录", status, detail: "旧版日志读写差异尚未验证" }],
+            impacts: ["完整日志查询可能不可用"],
+          },
+        }}
+        title="回退检查与确认"
+        description="请核对检查结果"
+        busy={false}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("旧版日志读写差异尚未验证")).toBeInTheDocument();
+    expect(screen.getByText("完整日志查询可能不可用")).toBeInTheDocument();
+    expect(screen.getByText("保留当前业务数据")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "暂不可回退" })).toBeDisabled();
+  });
+
+  it("rechecks an alternative version before issuing a new confirmation", async () => {
+    vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
+      token: "",
+      expires_in_seconds: 300,
+      action: { text: "", ...action },
+      delay_seconds: 0,
+      current_commit: current.commit,
+      rollback: {
+        ...report,
+        status: "unverified",
+        alternatives: [{ version_id: "d".repeat(24), commit: "d".repeat(40), note: "已检查的备份" }],
+      },
+    }));
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("combobox", { name: "选择备份版本" }));
+    await user.click(await screen.findByRole("option", { name: /旧版本备注/ }));
+    await user.click(screen.getByRole("button", { name: "检查并回退" }));
+    await user.click(await screen.findByRole("button", { name: "选择并复查" }));
+    expect(prepareRelease).toHaveBeenLastCalledWith("admin", {
+      action: "apply",
+      version_id: "d".repeat(24),
+      revision: 3,
+    });
+    expect(executeRelease).not.toHaveBeenCalled();
   });
 });

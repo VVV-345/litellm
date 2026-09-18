@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Final, Protocol
 
+from account_pool.release_compatibility import RollbackEvidence, compare_evidence, configuration_checks, evidence_state
 from account_pool.release_models import (
     ReleaseAction,
     ReleaseBackup,
@@ -17,6 +18,9 @@ from account_pool.release_models import (
     ReleasePair,
     ReleaseVersion,
     ReleaseView,
+    RollbackAlternative,
+    RollbackCheck,
+    RollbackInspection,
 )
 from account_pool.release_store import DEFAULT_GUIDE, ReleaseError, ReleaseStore, file_hash, write_private
 
@@ -28,6 +32,7 @@ class ReleaseRuntime(Protocol):
     def running_compose(self) -> bytes: ...
     def export(self, pair: ReleasePair, destination: Path) -> None: ...
     def fingerprint(self, pair: ReleasePair) -> str: ...
+    def evidence(self, pair: ReleasePair) -> RollbackEvidence: ...
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
     def pull(self, tag: str) -> ReleasePair: ...
@@ -142,9 +147,145 @@ class ReleaseService:
             raise ReleaseError("此操作不接受镜像标签")
         if action.action == "note" and len(action.text) > 500:
             raise ReleaseError("版本备注最多 500 字")
+        if action.action == "apply" and view.current is not None:
+            report, state = self.inspect_rollback(view.current, action.version_id or "", alternatives=True)
+            if self.runtime.current().id != view.current.id or self.store.settings()[0] != action.revision:
+                raise ReleaseError("检查期间版本或备份发生变化，请重新检查")
+            if report.status != "compatible":
+                return ReleaseConfirmation(
+                    token="", action=action, delay_seconds=5, current_commit=view.current.commit, rollback=report
+                )
+            prepared: Final = self.store.prepare(action, actor, view.current.id, view.current.commit, state)
+            return prepared.model_copy(update={"rollback": report})
         return self.store.prepare(
             action, actor, view.current.id if view.current else None, view.current.commit if view.current else None
         )
+
+    def inspect_rollback(
+        self,
+        current: ReleasePair,
+        version_id: str,
+        *,
+        alternatives: bool = False,
+    ) -> tuple[RollbackInspection, str]:
+        saved: Final = self.store.backup(version_id)
+        if saved is None:
+            raise ReleaseError("目标备份不存在")
+        configuration: Final = self.runtime.running_compose()
+        try:
+            evidence: Final = self.runtime.evidence(current)
+        except (ReleaseError, ValueError):
+            return RollbackInspection(
+                current_commit=current.commit,
+                target_commit=saved.pair.commit,
+                status="unverified",
+                checks=(
+                    RollbackCheck(
+                        key="current",
+                        title="当前版本检查依据",
+                        status="unverified",
+                        detail="无法读取当前镜像的结构与读写代码，请检查部署服务后重试。",
+                    ),
+                ),
+                impacts=("当前版本检查未完成，暂时无法比较功能影响。",),
+            ), ""
+        checks, impacts, state = self._inspect_backup(saved, evidence, configuration)
+        status: Final = (
+            "blocked"
+            if any(item.status == "blocked" for item in checks)
+            else ("unverified" if any(item.status == "unverified" for item in checks) else "compatible")
+        )
+        candidates: Final = (
+            tuple(
+                (backup, note)
+                for _, backup, note in self.store.entries()
+                if backup and backup.pair.id not in (current.id, version_id) and self.available(backup)
+            )
+            if alternatives
+            else ()
+        )
+        # 每次最多核对五个近期备份，未检查的版本不列为推荐，避免拖住管理接口。
+        recommendations: Final = tuple(
+            RollbackAlternative(version_id=backup.pair.id, commit=backup.pair.commit, note=note)
+            for backup, note in candidates[:5]
+            for candidate_checks, _, _ in (self._inspect_backup(backup, evidence, configuration),)
+            if all(item.status == "compatible" for item in candidate_checks)
+        )
+        return RollbackInspection(
+            current_commit=current.commit,
+            target_commit=saved.pair.commit,
+            status=status,
+            checks=checks,
+            impacts=impacts,
+            alternatives=recommendations,
+            alternatives_checked=min(5, len(candidates)),
+            alternatives_total=len(candidates),
+        ), state
+
+    def _inspect_backup(
+        self,
+        saved: ReleaseBackup,
+        current: RollbackEvidence,
+        configuration: bytes,
+    ) -> tuple[tuple[RollbackCheck, ...], tuple[str, ...], str]:
+        try:
+            directory: Final = self.verify(saved)
+        except ReleaseError as error:
+            return (
+                (RollbackCheck(key="backup", title="镜像备份完整性", status="blocked", detail=str(error)),),
+                ("备份无法读取，尚不能确认目标版本的功能差异。",),
+                "",
+            )
+        try:
+            target: Final = self.runtime.evidence(saved.pair)
+            target_config: Final = (directory / "compose.json").read_bytes()
+            checks: Final = (
+                RollbackCheck(
+                    key="backup",
+                    title="镜像备份完整性",
+                    status="compatible",
+                    detail="两份镜像归档与部署配置的校验和通过。",
+                ),
+                *compare_evidence(current, target),
+                *configuration_checks(configuration, target_config),
+                RollbackCheck(
+                    key="fingerprint",
+                    title="备份结构记录",
+                    status="compatible"
+                    if saved.schema_fingerprint == self.runtime.fingerprint(saved.pair)
+                    else "unverified",
+                    detail="备份结构记录与镜像一致。"
+                    if saved.schema_fingerprint == self.runtime.fingerprint(saved.pair)
+                    else "备份结构记录与当前检查方式不同，请先重新扫描备份。",
+                ),
+            )
+            missing: Final = tuple(
+                f"{feature}：目标镜像未检测到对应实现，回退后该功能可能不可用。"
+                for feature in current.features
+                if feature not in target.features
+            )
+            impacts: Final = missing + (
+                "功能检查覆盖密钥显示、完整日志、请求耗时、卡片路由与版本管理接口；其他历史行为差异尚未验证。",
+                "回退时会短暂中断请求，健康检查失败会尝试恢复原运行版本。",
+            )
+            return (
+                checks,
+                impacts,
+                evidence_state(current, configuration, evidence_state(target, target_config, saved.archive_sha256)),
+            )
+        except (ReleaseError, ValueError, KeyError):
+            return (
+                (
+                    RollbackCheck(
+                        key="evidence",
+                        title="镜像兼容性证据",
+                        status="unverified",
+                        detail="本机目标镜像或结构文件无法读取，请先扫描备份并确认镜像可用。",
+                    ),
+                ),
+                ("目标镜像缺少可读取的检查依据，无法确认具体功能影响。",),
+                "",
+            )
 
     def execute(self, token: str, actor: str) -> ReleaseJob:
         view: Final = self.view()
@@ -300,6 +441,8 @@ class ReleaseService:
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
+        if action.action == "apply":
+            self._require_rollback_check(job, current)
         self.phase(job, "替换服务并检查健康", recovery.pair.id)
         self.runtime.apply(target, configuration)
 
@@ -311,6 +454,7 @@ class ReleaseService:
         saved: Final = self.store.backup(action.version_id or "")
         if saved is None:
             raise ReleaseError("目标备份不存在")
+        self._require_rollback_check(job, current)
         self.phase(job, "校验并导入备份镜像")
         directory: Final = self.verify(saved)
         self.runtime.load(saved.pair, directory / "images.tar.gz")
@@ -319,6 +463,11 @@ class ReleaseService:
         if saved.schema_fingerprint != self.runtime.fingerprint(current):
             raise ReleaseError("两个版本的数据库结构或持久化配置格式不同，不能直接回退；请先完成兼容性处理")
         return saved.pair, (directory / "compose.json").read_bytes()
+
+    def _require_rollback_check(self, job: ReleaseJob, current: ReleasePair) -> None:
+        report, state = self.inspect_rollback(current, job.action.version_id or "")
+        if report.status != "compatible" or not state or state != job.rollback_state:
+            raise ReleaseError("回退检查未通过或配置已变化，请重新检查并确认；未替换服务")
 
     def _recover(self, job: ReleaseJob, message: str) -> None:
         self.phase(job, "恢复原运行版本")

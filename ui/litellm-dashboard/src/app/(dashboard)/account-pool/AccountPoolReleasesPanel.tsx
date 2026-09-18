@@ -24,7 +24,7 @@ import {
 } from "./AccountPoolReleasesApi";
 
 const actionTitles: Record<ReleaseAction["action"], string> = {
-  apply: "应用备份版本",
+  apply: "回退检查与确认",
   delete: "删除镜像备份",
   note: "保存版本备注",
   guide: "保存回退说明",
@@ -85,6 +85,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
     onSuccess: (confirmation, context) =>
       setPending({ confirmation, description: context.description, before: context.before }),
     onError: (error) => {
+      setPending(null);
       toast.fromError(error);
       void refresh();
     },
@@ -110,6 +111,11 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
   const prepare = (action: Omit<ReleaseAction, "revision">, description: string, before?: string) => {
     if (!data) return;
     preparation.mutate({ action: { ...action, revision: data.revision }, description, before });
+  };
+  const selectRollback = (id: string) => {
+    setSelectedId(id);
+    setNote(null);
+    prepare({ action: "apply", version_id: id }, "重新核对所选版本的兼容性，确认后才会切换服务。");
   };
   if (!data)
     return (
@@ -175,6 +181,12 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
           {data.job.message && <p className="mt-1 text-muted-foreground">{data.job.message}</p>}
         </div>
       )}
+      {preparation.isPending && preparation.variables.action.action === "apply" && (
+        <p role="status" className="flex items-center gap-2 rounded-xl border bg-muted/30 p-4 text-sm">
+          <RefreshCw className="size-4 shrink-0 animate-spin" />
+          正在检查镜像、配置和功能差异，暂未切换服务…
+        </p>
+      )}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {selected ? (
           <ReleaseVersionCard
@@ -203,7 +215,13 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
           key={pending.confirmation.token}
           {...pending}
           title={actionTitles[pending.confirmation.action.action]}
-          busy={execution.isPending}
+          busy={execution.isPending || preparation.isPending}
+          stale={
+            pending.confirmation.action.revision !== data.revision ||
+            pending.confirmation.current_commit !== data.current?.commit ||
+            jobPending
+          }
+          onSelectVersion={selectRollback}
           onClose={() => setPending(null)}
           onConfirm={() => execution.mutate(pending.confirmation.token)}
         />

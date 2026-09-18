@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import gzip
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Final
 
 import pytest
 from account_pool.release_app import release_application, worker_lock
+from account_pool.release_compatibility import RollbackEvidence, compare_evidence, configuration_checks
 from account_pool.release_models import ReleaseAction, ReleaseJob, ReleasePair
 from account_pool.release_runtime import ReleaseSettings, image_pair
 from account_pool.release_service import ReleaseService
@@ -56,6 +58,8 @@ class Runtime:
         self.fail_export = False
         self.fail_apply: str | None = None
         self.changed_schema: str | None = None
+        self.configuration: str | None = None
+        self.missing_feature: str | None = None
 
     def current(self) -> ReleasePair:
         return self.running
@@ -64,10 +68,20 @@ class Runtime:
         return (CURRENT, OLD)
 
     def compose(self) -> bytes:
-        return b'{"services":{"litellm":{},"account-pool":{}}}'
+        return json.dumps(
+            {
+                "services": {
+                    "litellm": {
+                        "command": ["--use_v2_migration_resolver"],
+                        "entrypoint": ["docker/prod_entrypoint.sh"],
+                    },
+                    "account-pool": {},
+                }
+            }
+        ).encode()
 
     def running_compose(self) -> bytes:
-        return self.compose()
+        return self.configuration.encode() if self.configuration else self.compose()
 
     def export(self, pair: ReleasePair, destination: Path) -> None:
         self.events += ("export:" + pair.id,)
@@ -78,6 +92,16 @@ class Runtime:
 
     def fingerprint(self, pair: ReleasePair) -> str:
         return "changed" if self.changed_schema == pair.id else "identical-schema"
+
+    def evidence(self, pair: ReleasePair) -> RollbackEvidence:
+        return RollbackEvidence(
+            self.fingerprint(pair),
+            "pool",
+            "credentials",
+            "logs",
+            "startup",
+            () if pair.id == self.missing_feature else ("完整日志查询",),
+        )
 
     def load(self, pair: ReleasePair, archive: Path) -> None:
         assert ReleasePair.model_validate_json(gzip.decompress(archive.read_bytes())).id == pair.id
@@ -181,6 +205,7 @@ def test_invalid_backups_and_incompatibility_never_replace_current(
 ) -> None:
     service, runtime, clock = setup
     service.backup(OLD, runtime.compose())
+    job: Final = queued(service, clock, action(service, "apply", version_id=OLD.id))
     if failure == "export":
         runtime.fail_export = True
     if failure == "archive":
@@ -189,7 +214,7 @@ def test_invalid_backups_and_incompatibility_never_replace_current(
     if failure == "schema":
         runtime.changed_schema = CURRENT.id
     runner: Final = ReleaseService(service.store, runtime, 10**30) if failure == "space" else service
-    runner.run(queued(runner, clock, action(runner, "apply", version_id=OLD.id)))
+    runner.run(job)
     assert runtime.running == CURRENT
     assert not any(event.startswith("apply:") for event in runtime.events)
     assert service.store.jobs()[0].status == "failed"
@@ -321,3 +346,55 @@ def test_validation_rejects_paths_docker_socket_and_mixed_commits(tmp_path: Path
         ReleaseSettings.model_validate({"token": "t" * 32, "docker_host": "tcp://attacker:2375"})
     with pytest.raises(ReleaseError, match="不一致"):
         image_pair((OLD.images[0], CURRENT.images[1]))
+
+
+def test_inspection_shows_evidence_impacts_and_only_verified_alternatives(
+    setup: tuple[ReleaseService, Runtime, Clock],
+) -> None:
+    service, runtime, _ = setup
+    service.backup(OLD, runtime.compose())
+    service.backup(NEW, runtime.compose())
+    runtime.changed_schema = OLD.id
+    runtime.missing_feature = OLD.id
+    confirmation: Final = service.prepare(action(service, "apply", version_id=OLD.id), "admin")
+    assert confirmation.token == ""
+    assert confirmation.rollback is not None
+    assert confirmation.rollback.status == "unverified"
+    assert confirmation.rollback.alternatives[0].version_id == NEW.id
+    assert any("完整日志查询" in item for item in confirmation.rollback.impacts)
+    assert not any(event.startswith(("load:", "apply:")) for event in runtime.events)
+    assert service.store.jobs() == ()
+
+
+def test_unchecked_ticket_and_post_confirmation_configuration_change_cannot_apply(
+    setup: tuple[ReleaseService, Runtime, Clock],
+) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    unchecked: Final = service.store.prepare(
+        action(service, "apply", version_id=OLD.id), "admin", CURRENT.id, CURRENT.commit
+    )
+    clock.now += 5
+    with pytest.raises(ReleaseError, match="兼容性检查"):
+        service.execute(unchecked.token, "admin")
+    job: Final = queued(service, clock, action(service, "apply", version_id=OLD.id))
+    runtime.configuration = '{"services":{"litellm":{},"account-pool":{"environment":{"SECRET":"do-not-display"}}}}'
+    service.run(job)
+    assert runtime.running == CURRENT
+    assert not any(event.startswith("apply:") for event in runtime.events)
+    assert "do-not-display" not in service.store.jobs()[0].model_dump_json()
+
+
+@pytest.mark.parametrize("command", ([], ["--use_v2_migration_resolver", "--use_prisma_db_push"]))
+def test_unsafe_startup_is_blocked_without_returning_configuration(command: list[str]) -> None:
+    config: Final = json.dumps(
+        {"services": {"litellm": {"command": command, "environment": {"SECRET": "do-not-display"}}, "account-pool": {}}}
+    ).encode()
+    checks: Final = configuration_checks(config, config)
+    assert next(item for item in checks if item.key == "migration").status == "blocked"
+    assert "do-not-display" not in str(checks)
+
+
+def test_missing_evidence_is_never_reported_as_compatible() -> None:
+    empty: Final = RollbackEvidence("", "", "", "", "", ())
+    assert all(check.status == "unverified" for check in compare_evidence(empty, empty))

@@ -18,7 +18,7 @@ from account_pool.release_models import ReleaseAction, ReleaseBackup, ReleaseCon
 
 DEFAULT_GUIDE: Final = """更新与回退
 正常更新前自动备份当前运行版本；已有完整备份就跳过。备份失败不会替换服务。
-选择备份版本，点击应用，等待 5 秒后确认。恢复直接使用备份镜像，不需要重新构建。
+选择备份版本，点击检查并回退，核对兼容性、功能影响与可选版本，通过后等待 5 秒确认。恢复直接使用备份镜像，不需要重新构建。
 删除会真正删除备份文件，等待 10 秒后确认。当前运行版本不能删除。
 
 从旧代码继续修改
@@ -54,6 +54,7 @@ class ReleaseStore:
                 "CREATE TABLE IF NOT EXISTS confirmations (token TEXT PRIMARY KEY, actor TEXT, payload TEXT, "
                 "current_id TEXT, not_before REAL, expires REAL);"
                 "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, payload TEXT);"
+                "CREATE TABLE IF NOT EXISTS rollback_checks (token TEXT PRIMARY KEY, state TEXT NOT NULL);"
             )
             db.execute("INSERT OR IGNORE INTO settings VALUES (1, 0, ?)", (DEFAULT_GUIDE,))
 
@@ -119,13 +120,19 @@ class ReleaseStore:
             db.execute("UPDATE settings SET revision=revision+1 WHERE id=1")
 
     def prepare(
-        self, action: ReleaseAction, actor: str, current_id: str | None, current_commit: str | None
+        self,
+        action: ReleaseAction,
+        actor: str,
+        current_id: str | None,
+        current_commit: str | None,
+        rollback_state: str | None = None,
     ) -> ReleaseConfirmation:
         token: Final = secrets.token_hex(32)
         delay: Final = 10 if action.action == "delete" else 5
         now: Final = self.clock()
         with self.connection() as db:
             db.execute("DELETE FROM confirmations WHERE expires<?", (now,))
+            db.execute("DELETE FROM rollback_checks WHERE token NOT IN (SELECT token FROM confirmations)")
             db.execute(
                 "INSERT INTO confirmations VALUES (?,?,?,?,?,?)",
                 (
@@ -137,6 +144,11 @@ class ReleaseStore:
                     now + 300,
                 ),
             )
+            if rollback_state:
+                db.execute(
+                    "INSERT INTO rollback_checks VALUES (?,?)",
+                    (hashlib.sha256(token.encode()).hexdigest(), rollback_state),
+                )
         return ReleaseConfirmation(token=token, action=action, delay_seconds=delay, current_commit=current_commit)
 
     def consume(self, token: str, actor: str, current_id: str | None) -> ReleaseJob:
@@ -159,6 +171,14 @@ class ReleaseStore:
                 db.execute("SELECT revision FROM settings WHERE id=1").fetchone()
             )[0]
             action: Final = ReleaseAction.model_validate_json(row[1])
+            checked: Final = TypeAdapter(tuple[str] | None).validate_python(
+                db.execute(
+                    "SELECT state FROM rollback_checks WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),)
+                ).fetchone()
+            )
+            rollback_state: Final = checked[0] if checked else None
+            if action.action == "apply" and rollback_state is None:
+                raise ReleaseError("该回退尚未通过兼容性检查，请重新检查")
             if revision != action.revision or row[2] != current_id:
                 raise ReleaseError("版本或备注已变化，请刷新后重新确认")
             pending: Final = TypeAdapter[tuple[int] | None](tuple[int] | None).validate_python(
@@ -176,9 +196,11 @@ class ReleaseStore:
                 created_at=now,
                 updated_at=now,
                 expected_current_id=current_id,
+                rollback_state=rollback_state,
             )
             db.execute("INSERT INTO jobs VALUES (?,?)", (job.id, job.model_dump_json()))
             db.execute("DELETE FROM confirmations WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),))
+            db.execute("DELETE FROM rollback_checks WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),))
         return job
 
     def jobs(self) -> tuple[ReleaseJob, ...]:

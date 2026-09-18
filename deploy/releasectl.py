@@ -42,7 +42,9 @@ def call(token: str, path: str = "", body: dict[str, object] | None = None) -> d
         },
     )
     try:
-        with cast(HTTPResponse, urlopen(request, timeout=35)) as response:
+        with cast(
+            HTTPResponse, urlopen(request, timeout=310 if body and body.get("action") == "apply" else 35)
+        ) as response:
             return record(cast(object, json.loads(response.read())))
     except HTTPError as error:
         detail: Final = record(cast(object, json.loads(error.read()))).get("detail", "请求失败")
@@ -73,6 +75,11 @@ def main() -> None:
         **({"version_id": target} if action in ("apply", "delete") else {}),
     }
     confirmation: Final = call(token, "/prepare", body)
+    if action == "apply":
+        inspection: Final = record(confirmation.get("rollback"))
+        output(json.dumps(inspection, ensure_ascii=False, indent=2))
+        if inspection.get("status") != "compatible" or not confirmation.get("token"):
+            raise SystemExit("该版本未通过回退检查，未提交切换任务")
     output(f"操作：{action}，目标：{target or '当前项目'}，当前 commit：{confirmation['current_commit']}")
     output("删除将移除备份归档；切换会短暂中断服务。数据库和认证文件不随镜像回退。")
     for seconds in range(int(str(confirmation["delay_seconds"])), 0, -1):

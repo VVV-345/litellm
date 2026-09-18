@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+from functools import lru_cache
 from pathlib import Path
 from threading import Timer
 from typing import Final, Protocol
@@ -21,6 +22,7 @@ from pydantic import BaseModel, Field, JsonValue, SecretStr, TypeAdapter, field_
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from account_pool.config import Settings
+from account_pool.release_compatibility import FEATURES, RollbackEvidence, digest_sources
 from account_pool.release_models import ReleaseImage, ReleasePair
 from account_pool.release_store import ReleaseError, write_private
 
@@ -310,10 +312,101 @@ class DockerReleaseRuntime:
             if process.stdout:
                 process.stdout.close()
 
+    @lru_cache(maxsize=24)
     def fingerprint(self, pair: ReleasePair) -> str:
         return hashlib.sha256(
             b"\n".join(self._schema(image) for image in sorted(pair.images, key=lambda item: item.service))
         ).hexdigest()
+
+    @lru_cache(maxsize=24)
+    def evidence(self, pair: ReleasePair) -> RollbackEvidence:
+        proxy: Final = next(image for image in pair.images if image.service == "litellm")
+        pool: Final = next(image for image in pair.images if image.service == "account-pool")
+        proxy_sources: Final = self._inspection_sources(proxy)
+        pool_sources: Final = self._inspection_sources(pool)
+        return RollbackEvidence(
+            database=hashlib.sha256(self._schema(proxy)).hexdigest(),
+            pool=hashlib.sha256(self._schema(pool)).hexdigest(),
+            credentials=digest_sources(
+                {**pool_sources, **proxy_sources},
+                (
+                    "secrets.py",
+                    "repository.py",
+                    "management_repository.py",
+                    "service.py",
+                    "credential-client",
+                    "virtual_key_secret.py",
+                    "encrypt_decrypt_utils.py",
+                ),
+            ),
+            logs=digest_sources(proxy_sources, ("account_pool_full_logs.py",)),
+            startup=digest_sources(
+                proxy_sources, ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
+            ),
+            features=tuple(
+                title
+                for filename, (title, marker) in FEATURES.items()
+                if filename in proxy_sources and marker.encode() in proxy_sources[filename]
+            ),
+        )
+
+    def _inspection_sources(self, image: ReleaseImage) -> dict[str, bytes]:
+        name: Final = "litellm-release-inspect-" + uuid4().hex
+        self.run("create", "--name", name, "--network", "none", "--entrypoint", "/bin/true", image.image_id)
+        try:
+            if image.service == "account-pool":
+                return {
+                    **self._read_sources(name, "/app/account_pool"),
+                    "credential-client": self._read_sources(
+                        name, "/app/account_pool/channels/cliproxyapi/client.py"
+                    ).get("client.py", b""),
+                }
+            venv: Final = self._read_sources(name, "/app/.venv/pyvenv.cfg")
+            version: Final = re.search(rb"(?m)^version(?:_info)?\s*=\s*(3\.\d+)", venv.get("pyvenv.cfg", b""))
+            if version is None:
+                return {}
+            packages: Final = "/app/.venv/lib/python" + version[1].decode("ascii") + "/site-packages/"
+            return {
+                **self._read_sources(name, packages + "litellm/proxy/management_endpoints"),
+                **self._read_sources(name, packages + "litellm/proxy/management_helpers/virtual_key_secret.py"),
+                **self._read_sources(name, packages + "litellm/proxy/common_utils/encrypt_decrypt_utils.py"),
+                **self._read_sources(name, packages + "litellm/proxy/proxy_cli.py"),
+                **self._read_sources(name, packages + "litellm_proxy_extras/utils.py"),
+                **self._read_sources(name, "/app/docker/prod_entrypoint.sh"),
+                "migration-history": self._migration_history(name, packages + "litellm_proxy_extras/migrations"),
+            }
+        finally:
+            self.run("rm", "-v", name)
+
+    def _migration_history(self, container: str, path: str) -> bytes:
+        try:
+            content: Final = self.run("cp", f"{container}:{path}", "-", timeout=60)
+        except ReleaseError:
+            return b""
+        with tarfile.open(fileobj=io.BytesIO(content)) as archive:
+            return b"\n".join(
+                sorted(
+                    member.name.encode() + b":" + hashlib.sha256(stream.read()).hexdigest().encode()
+                    for member in archive.getmembers()
+                    if member.isfile() and member.name.endswith(".sql") and member.size < 8 * 1024 * 1024
+                    for stream in (archive.extractfile(member),)
+                    if stream is not None
+                )
+            )
+
+    def _read_sources(self, container: str, path: str) -> dict[str, bytes]:
+        try:
+            content: Final = self.run("cp", f"{container}:{path}", "-", timeout=60)
+        except ReleaseError:
+            return {}
+        with tarfile.open(fileobj=io.BytesIO(content)) as archive:
+            return {
+                Path(member.name).name: stream.read()
+                for member in archive.getmembers()
+                if member.isfile() and member.size <= 8 * 1024 * 1024 and member.name.endswith((".py", ".cfg", ".sh"))
+                for stream in (archive.extractfile(member),)
+                if stream is not None
+            }
 
     def _schema(self, image: ReleaseImage) -> bytes:
         name: Final = "litellm-release-inspect-" + uuid4().hex

@@ -79,7 +79,7 @@ export function ReleaseVersionCard({
               )
             }
           >
-            应用
+            检查并回退
           </Button>
           <Button
             variant="destructive"

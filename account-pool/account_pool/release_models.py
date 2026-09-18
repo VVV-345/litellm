@@ -63,6 +63,32 @@ class ReleaseConfirmation(BaseModel):
     delay_seconds: int
     expires_in_seconds: int = 300
     current_commit: str | None
+    rollback: RollbackInspection | None = None
+
+
+class RollbackCheck(BaseModel):
+    key: str
+    title: str
+    status: Literal["compatible", "blocked", "unverified"]
+    detail: str
+
+
+class RollbackAlternative(BaseModel):
+    version_id: ReleaseId
+    commit: Commit
+    note: str = ""
+
+
+class RollbackInspection(BaseModel):
+    current_commit: Commit
+    target_commit: Commit
+    status: Literal["compatible", "blocked", "unverified"]
+    checks: tuple[RollbackCheck, ...]
+    impacts: tuple[str, ...]
+    alternatives: tuple[RollbackAlternative, ...] = ()
+    alternatives_checked: int = 0
+    alternatives_total: int = 0
+    scope: str = "核对镜像中的结构定义、关键读写代码与部署配置，不连接业务数据库执行迁移，也不代表上游调用测试通过。"
 
 
 class ReleaseExecute(BaseModel):
@@ -79,6 +105,7 @@ class ReleaseJob(BaseModel):
     updated_at: float
     recovery_id: ReleaseId | None = None
     expected_current_id: ReleaseId | None = None
+    rollback_state: str | None = None
 
 
 class ReleaseView(BaseModel):

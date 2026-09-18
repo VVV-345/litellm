@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Final
 
 import pytest
+from account_pool.release_compatibility import digest_sources
 from account_pool.release_models import ReleasePair
 from account_pool.release_runtime import (
     ContainerInspection,
@@ -123,3 +124,49 @@ def test_first_backup_captures_actual_mounts_ports_and_environment() -> None:
         {"type": "bind", "source": "/opt/original", "target": "/config", "read_only": True},
     ]
     assert config["ports"] == [{"target": 4000, "protocol": "tcp", "host_ip": "127.0.0.1", "published": "4001"}]
+
+
+class InspectionCommands:
+    def __init__(self) -> None:
+        self.calls: tuple[tuple[str, ...], ...] = ()
+
+    def __call__(self, *args: str, timeout: int = 120) -> bytes:
+        self.calls += (args,)
+        if args[0] != "cp":
+            return b""
+        source: Final = args[1].partition(":")[2]
+        files: Final = {
+            "/app/.venv/pyvenv.cfg": {"pyvenv.cfg": b"version_info = 3.13.15\n"},
+            "/app/.venv/lib/python3.13/site-packages/litellm/proxy/management_endpoints": {
+                "account_pool_full_logs.py": b"class FullLogStore: pass",
+                "account_pool_full_log_api.py": b"def create_full_log_router(): pass",
+            },
+            "/app/.venv/lib/python3.13/site-packages/litellm_proxy_extras/migrations": {
+                "migrations/001/migration.sql": b"CREATE TABLE example(id INTEGER);",
+            },
+        }.get(source, {Path(source).name: b"source"})
+        output: Final = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            for name, body in files.items():
+                member: Final = tarfile.TarInfo(name)
+                member.size = len(body)
+                archive.addfile(member, io.BytesIO(body))
+        return output.getvalue()
+
+
+def test_static_inspection_reads_installed_sources_without_starting_target(tmp_path: Path) -> None:
+    command: Final = InspectionCommands()
+    runtime: Final = DockerReleaseRuntime(
+        ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
+        command,
+    )
+    image_runtime: Final = DockerReleaseRuntime(runtime.settings, Commands())
+    image: Final = next(item for item in image_runtime.current().images if item.service == "litellm")
+    sources: Final = runtime._inspection_sources(image)
+    assert b"create_full_log_router" in sources["account_pool_full_log_api.py"]
+    assert sources["migration-history"]
+    assert "encrypt_decrypt_utils.py" in sources
+    assert command.calls[0][:6] == ("create", "--name", command.calls[0][2], "--network", "none", "--entrypoint")
+    assert command.calls[-1] == ("rm", "-v", command.calls[0][2])
+    assert not any(call[0] in ("start", "run", "exec") for call in command.calls)
+    assert digest_sources({"migration-history": b""}, ("migration-history",)) == ""
