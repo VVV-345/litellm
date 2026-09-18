@@ -612,7 +612,7 @@ class EnvironmentService:
             return Failure(FailureCode.UPSTREAM, "plugin runtime operation failed")
 
     async def upload_auth_file(
-        self, environment_id: UUID, filename: str, content: bytes, content_type: str | None
+        self, environment_id: UUID, filename: str, content: bytes, content_type: str | None, *, replace: bool = False
     ) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(environment_id)
         async with lock, self._ownership.operation(environment_id):
@@ -623,6 +623,10 @@ class EnvironmentService:
                 return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
             if record.status is EnvironmentStatus.DELETING:
                 return Failure(FailureCode.CONFLICT, "environment is being deleted")
+            if not replace and (record.auth_file_name is not None or record.credential_fingerprints):
+                return Failure(
+                    FailureCode.CONFLICT, "该卡片已有凭证，一张卡片只能绑定一个凭证。如需替换，请使用“更换文件”"
+                )
             try:
                 identity: Final = credential_identity(content, record.supplier.value, self._secrets)
                 await self._ownership.claim(record.id, identity.fingerprints)

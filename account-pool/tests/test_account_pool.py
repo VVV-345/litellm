@@ -4190,7 +4190,7 @@ async def test_delete_auth_file_does_not_report_success_after_version_conflict(t
 @pytest.mark.asyncio
 async def test_duplicate_upload_rejected_before_touching_second_card(tmp_path: Path) -> None:
     first: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
-    second: Final = _record(status=EnvironmentStatus.READY)
+    second: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     cli: Final = FakeCLIProxy()
     service: Final = _service(first, cli, tmp_path)
     await service._repository.save(second)
@@ -4199,8 +4199,45 @@ async def test_duplicate_upload_rejected_before_touching_second_card(tmp_path: P
     assert isinstance(first_result, Success)
     second_result: Final = await service.upload_auth_file(second.id, "renamed.json", content, "application/json")
     assert isinstance(second_result, Failure) and second_result.code is FailureCode.CONFLICT
+    assert "已绑定其他卡片" in second_result.message
     assert len(cli.upload_calls) == 1
     assert await service._repository.get(second.id) == second
+
+
+@pytest.mark.asyncio
+async def test_upload_to_occupied_card_requires_explicit_replacement(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    content: Final = b'{"refresh_token":"replacement-secret","email":"replacement@example.test"}'
+
+    rejected: Final = await service.upload_auth_file(record.id, "new.json", content, "application/json")
+
+    assert isinstance(rejected, Failure) and rejected.code is FailureCode.CONFLICT
+    assert "更换文件" in rejected.message
+    assert await service._repository.get(record.id) == record
+    assert cli.upload_calls == []
+    assert cli.cancel_calls == []
+    replaced: Final = await service.upload_auth_file(record.id, "new.json", content, "application/json", replace=True)
+    assert isinstance(replaced, Success)
+    assert len(cli.upload_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_uploads_to_one_card_keep_the_first_credential(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    results: Final = await asyncio.gather(
+        service.upload_auth_file(record.id, "first.json", b'{"refresh_token":"first-secret"}', "application/json"),
+        service.upload_auth_file(record.id, "second.json", b'{"refresh_token":"second-secret"}', "application/json"),
+    )
+    assert isinstance(results[0], Success)
+    assert isinstance(results[1], Failure) and results[1].code is FailureCode.CONFLICT
+    durable: Final = await service._repository.get(record.id)
+    assert durable is not None and durable.auth_file_name == "first.json"
+    assert durable.status is EnvironmentStatus.READY
+    assert len(cli.upload_calls) == 1
 
 
 @pytest.mark.asyncio

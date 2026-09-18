@@ -186,7 +186,7 @@ describe("AccountPoolCredentialsPanel", () => {
     await user.upload(dialog.getByLabelText(/Auth file|认证文件/i), file);
     await user.click(dialog.getByRole("button", { name: /Confirm replacement|确认更换/i }));
 
-    await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file));
+    await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file, true));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(deleteAuthFile).not.toHaveBeenCalled();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "credentials", "token"] });
@@ -236,13 +236,45 @@ describe("AccountPoolCredentialsPanel", () => {
     expect(screen.getByRole("dialog")).toBeVisible();
     pending.reject(new Error("Validation failed"));
 
-    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(/retry|重试/i);
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent("Validation failed");
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "environments"] });
     expect(screen.getByLabelText(/Auth file|认证文件/i)).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /Confirm replacement|确认更换/i }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(uploadAuthFile).toHaveBeenCalledTimes(2);
-    expect(uploadAuthFile).toHaveBeenLastCalledWith("token", environment.id, file);
+    expect(uploadAuthFile).toHaveBeenLastCalledWith("token", environment.id, file, true);
+    expect(deleteAuthFile).not.toHaveBeenCalled();
+  });
+
+  it("prevents adding a second credential and sends uploads only to an explicitly selected empty card", async () => {
+    const user = userEvent.setup();
+    const emptyCard = {
+      ...environment,
+      id: "empty-card",
+      name: "Empty card",
+      status: "error",
+    } as AccountPoolEnvironment;
+    uploadAuthFile.mockRejectedValueOnce(new Error("该账号或凭证已绑定其他卡片"));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment, emptyCard]} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("test-account.json");
+    await user.click(screen.getByRole("button", { name: /Upload auth file|上传认证文件/i }));
+    const dialog = within(screen.getByRole("dialog"));
+    const target = dialog.getByRole("combobox", { name: /Target card|目标卡片/i });
+    expect(target).toHaveValue("");
+    expect(dialog.getByRole("option", { name: /plus02/ })).toBeDisabled();
+    const file = new File(["{}"], "a-long-auth-file-name-that-must-stay-separate-from-the-button.json");
+    await user.upload(dialog.getByLabelText(/Auth file|认证文件/i), file);
+    expect(dialog.getByText(file.name)).toBeVisible();
+    expect(dialog.getByRole("button", { name: /Upload auth file|上传认证文件/i })).toBeDisabled();
+    await user.selectOptions(target, emptyCard.id);
+    await user.click(dialog.getByRole("button", { name: /Upload auth file|上传认证文件/i }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("该账号或凭证已绑定其他卡片");
+    expect(uploadAuthFile).toHaveBeenCalledWith("token", emptyCard.id, file, false);
+    expect(screen.getByText("test-account.json")).toBeVisible();
     expect(deleteAuthFile).not.toHaveBeenCalled();
   });
 });

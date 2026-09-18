@@ -1,7 +1,7 @@
 /** 本文件展示凭据文件的脱敏状态和所属卡片，不返回任何令牌或完整配置。 */
 
 import { Download, FileKey2, FileUp, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+import { extractProxyErrorMessage } from "@/lib/http/client";
 
 import { formatDateTime } from "./AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
@@ -51,6 +52,7 @@ export const AccountPoolCredentialsPanel = ({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadCardId, setUploadCardId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const uploadInput = useRef<HTMLInputElement>(null);
   const [replaceCredential, setReplaceCredential] = useState<(typeof credentials)[number] | null>(null);
   const [editCredential, setEditCredential] = useState<(typeof credentials)[number] | null>(null);
   const [editFields, setEditFields] = useState("{}");
@@ -61,6 +63,12 @@ export const AccountPoolCredentialsPanel = ({
     retry: false,
   });
   const credentials = query.data ?? [];
+  const uploadTargets = environments.filter(
+    (environment) =>
+      environment.channel === "cliproxyapi" &&
+      environment.status !== "deleting" &&
+      !credentials.some((credential) => credential.card_id === environment.id),
+  );
   const refreshStatusQuery = useQuery({
     queryKey: ["account-pool", "auth-file-refresh", accessToken],
     queryFn: () => getAccountPoolAuthFileRefreshStatus(accessToken!),
@@ -88,7 +96,10 @@ export const AccountPoolCredentialsPanel = ({
   const uploadMutation = useMutation({
     mutationFn: () => {
       if (!uploadCardId || uploadFile === null) throw new Error(t("accountPool.credentials.fileRequired"));
-      return uploadAccountPoolAuthFile(accessToken!, uploadCardId, uploadFile);
+      if (replaceCredential === null && !uploadTargets.some((environment) => environment.id === uploadCardId)) {
+        throw new Error(t("accountPool.credentials.alreadyBound"));
+      }
+      return uploadAccountPoolAuthFile(accessToken!, uploadCardId, uploadFile, replaceCredential !== null);
     },
     onSuccess: () => {
       toast.success(t(replaceCredential ? "accountPool.credentials.replaced" : "accountPool.credentials.uploaded"));
@@ -106,9 +117,7 @@ export const AccountPoolCredentialsPanel = ({
     uploadMutation.reset();
     setReplaceCredential(credential);
     setUploadFile(null);
-    setUploadCardId(
-      credential?.card_id ?? environments.find((environment) => environment.channel === "cliproxyapi")?.id ?? "",
-    );
+    setUploadCardId(credential?.card_id ?? "");
     setUploadOpen(true);
   };
   const closeUpload = () => {
@@ -239,7 +248,7 @@ export const AccountPoolCredentialsPanel = ({
             <Button
               type="button"
               size="sm"
-              disabled={uploadMutation.isPending || accessToken === null}
+              disabled={uploadMutation.isPending || accessToken === null || query.isPending || query.isError}
               onClick={() => openUpload(null)}
             >
               <Plus />
@@ -411,14 +420,29 @@ export const AccountPoolCredentialsPanel = ({
                 disabled={replaceCredential !== null || uploadMutation.isPending}
                 onChange={(event) => setUploadCardId(event.target.value)}
               >
+                <option value="" disabled>
+                  {t("accountPool.credentials.selectTarget")}
+                </option>
                 {environments
                   .filter((environment) => environment.channel === "cliproxyapi")
                   .map((environment) => (
-                    <option key={environment.id} value={environment.id}>
+                    <option
+                      key={environment.id}
+                      value={environment.id}
+                      disabled={
+                        replaceCredential === null && !uploadTargets.some((target) => target.id === environment.id)
+                      }
+                    >
                       {environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}
+                      {credentials.some((credential) => credential.card_id === environment.id)
+                        ? ` · ${t("accountPool.credentials.bound")}`
+                        : ""}
                     </option>
                   ))}
               </select>
+              {replaceCredential === null && (
+                <p className="text-xs text-muted-foreground">{t("accountPool.credentials.alreadyBound")}</p>
+              )}
             </div>
             {replaceCredential && (
               <p className="break-all text-sm text-muted-foreground">
@@ -430,16 +454,32 @@ export const AccountPoolCredentialsPanel = ({
             <div className="grid gap-1">
               <Label htmlFor="account-pool-auth-file">{t("accountPool.credentials.file")}</Label>
               <Input
+                ref={uploadInput}
                 id="account-pool-auth-file"
                 type="file"
-                accept=".json,.yaml,.yml"
+                className="sr-only"
+                accept=".json"
                 disabled={uploadMutation.isPending}
-                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                  setUploadFile(event.target.files?.[0] ?? null);
+                  uploadMutation.reset();
+                }}
               />
+              <Button
+                type="button"
+                variant="outline"
+                className="justify-self-start"
+                disabled={uploadMutation.isPending}
+                onClick={() => uploadInput.current?.click()}
+              >
+                <FileUp />
+                {t("accountPool.credentials.chooseFile")}
+              </Button>
+              {uploadFile && <p className="min-w-0 break-all text-sm">{uploadFile.name}</p>}
             </div>
             {uploadMutation.isError && (
               <p role="alert" className="text-sm text-destructive">
-                {t("accountPool.credentials.uploadFailed")}
+                {extractProxyErrorMessage(uploadMutation.error)}
               </p>
             )}
           </div>
@@ -450,7 +490,12 @@ export const AccountPoolCredentialsPanel = ({
             <Button
               type="button"
               onClick={() => uploadMutation.mutate()}
-              disabled={uploadMutation.isPending || uploadFile === null || !uploadCardId}
+              disabled={
+                uploadMutation.isPending ||
+                uploadFile === null ||
+                !uploadCardId ||
+                (replaceCredential === null && !uploadTargets.some((environment) => environment.id === uploadCardId))
+              }
             >
               {uploadMutation.isPending
                 ? t("accountPool.credentials.uploading")

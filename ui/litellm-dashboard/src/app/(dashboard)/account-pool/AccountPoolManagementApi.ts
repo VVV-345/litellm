@@ -90,10 +90,11 @@ export const getAccountPoolDashboardStats = (accessToken: string): Promise<Accou
 export const listAccountPoolCredentials = (accessToken: string) =>
   apiClient.get<AccountPoolCredential[]>("/account_pool/auth-files", { accessToken });
 
-export const uploadAccountPoolAuthFile = (accessToken: string, cardId: string, file: File) => {
+export const uploadAccountPoolAuthFile = (accessToken: string, cardId: string, file: File, replace = false) => {
   const form: FormData = new FormData();
   form.append("card_id", cardId);
   form.append("file", file, file.name);
+  form.append("replace", String(replace));
   return apiClient.post<components["schemas"]["AccountPoolEnvironment"]>("/account_pool/auth-files", {
     accessToken,
     rawBody: form,

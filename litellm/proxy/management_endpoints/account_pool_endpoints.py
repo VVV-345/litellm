@@ -570,6 +570,7 @@ def create_account_pool_router(
         card_id: Annotated[UUID, Form()],
         file: Annotated[UploadFile, File()],
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        replace: Annotated[bool, Form()] = False,
     ) -> AccountPoolEnvironment:
         _require_proxy_admin(user_api_key_dict)
         filename: Final = file.filename or "auth.json"
@@ -581,7 +582,7 @@ def create_account_pool_router(
         response: Final = await _manager_request_multipart(
             client_factory,
             "/api/auth-files",
-            {"card_id": str(card_id)},
+            {"card_id": str(card_id), "replace": str(replace).lower()},
             filename,
             content,
             file.content_type,

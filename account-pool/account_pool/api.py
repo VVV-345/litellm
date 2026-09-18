@@ -332,12 +332,13 @@ def create_router(
     async def upload_auth_file(
         card_id: Annotated[UUID, Form()],
         file: Annotated[UploadFile, File()],
+        replace: Annotated[bool, Form()] = False,
     ) -> EnvironmentView:
         filename: Final = _validate_upload_filename(file.filename or "auth.json")
         content: Final = await file.read(16 * 1024 * 1024 + 1)
         if len(content) > 16 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
-        return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type))
+        return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type, replace=replace))
 
     @router.get("/api/environments/{environment_id}/auth-file/download", dependencies=[Depends(require_manager)])
     async def download_auth_file(environment_id: UUID) -> StreamingResponse:

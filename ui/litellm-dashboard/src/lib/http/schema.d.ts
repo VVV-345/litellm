@@ -26117,6 +26117,11 @@ export interface components {
             card_id: string;
             /** File */
             file: string;
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
         };
         /** Body_upload_logo_upload_logo_post */
         Body_upload_logo_upload_logo_post: {

@@ -11,12 +11,22 @@ import {
   refreshAccountPoolAuthFiles,
   setAccountPoolAuthFileRefreshInterval,
   submitAccountPoolBatch,
+  uploadAccountPoolAuthFile,
   type AccountPolicy,
 } from "./AccountPoolManagementApi";
 
 const getMock = vi.fn();
 const postMock = vi.fn();
 const putMock = vi.fn();
+
+it.each([false, true])("passes explicit credential replacement intent: %s", async (replace) => {
+  const file = new File(["{}"], "auth.json", { type: "application/json" });
+  await uploadAccountPoolAuthFile("token", "card", file, replace);
+  const options = postMock.mock.lastCall?.[1] as { rawBody: FormData };
+  expect(options.rawBody.get("card_id")).toBe("card");
+  expect(options.rawBody.get("replace")).toBe(String(replace));
+  expect(options.rawBody.get("file")).toBeInstanceOf(File);
+});
 
 vi.mock("@/components/networking", () => ({
   apiClient: {

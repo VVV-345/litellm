@@ -221,6 +221,28 @@ def _manager_factory() -> AccountPoolManagerClient:
     )
 
 
+@pytest.mark.parametrize("replace", [None, "true"])
+def test_auth_file_upload_forwards_explicit_replacement_and_preserves_conflict(replace: str | None) -> None:
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/api/auth-files"
+            assert b'name="replace"\r\n\r\n' + (replace or "false").encode() in request.content
+            return httpx.Response(409, json={"detail": "card already has a credential"}, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+
+    user: Final = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    form: Final = {"card_id": str(_ENVIRONMENT_ID), **({"replace": replace} if replace else {})}
+    with TestClient(_app(user, factory)) as client:
+        response: Final = client.post(
+            "/account_pool/auth-files", data=form, files={"file": ("auth.json", b"{}", "application/json")}
+        )
+    assert response.status_code == 409
+    assert "card already has a credential" in response.text
+
+
 def test_proxy_forwards_auth_file_refresh_controls() -> None:
     requests: Final[list[tuple[str, str, bytes]]] = []
 
