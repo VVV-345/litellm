@@ -173,6 +173,7 @@ class Attempt:
         self, lease: Lease, endpoint: str, send: Send, detail: str | None = None, log: RequestLog | None = None
     ) -> None:
         self.log: Final = log
+        self.stream_state: Final = EventStream(responses_api=endpoint == "/v1/responses")
         self.result = FinishRequest(
             lease_id=lease.lease_id,
             endpoint=endpoint,
@@ -653,16 +654,12 @@ async def execute(
                 attempt.emit,
             )
         elif attempt.started and not disconnected:
-            stream_error: Final = {
+            stream_error: Final[dict[str, JsonValue]] = {
                 "message": "Upstream stream interrupted",
                 "code": "stream_interrupted",
                 "status_code": status,
             }
-            envelope: Final = (
-                {"type": "error", "sequence_number": 0, "error": stream_error}
-                if request.url.path == "/v1/responses"
-                else {"error": stream_error}
-            )
+            envelope: Final = attempt.stream_state.error_envelope(stream_error)
             await attempt.emit(
                 {
                     "type": "http.response.body",
@@ -885,7 +882,7 @@ async def guarded_stream_response(
     cost_usd: float | None,
     deadline: float,
 ) -> bool:
-    if request.url.path == "/v1/responses" and (next_id is None or not replay_safe(payload)):
+    if next_id is None or not replay_safe(payload):
         await stream_response(request, response, attempt, cost_usd)
         return True
     bootstrap: Final = StreamBootstrap(response.aiter_bytes())
@@ -895,9 +892,7 @@ async def guarded_stream_response(
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
-                next_id is not None
-                and replay_safe(payload)
-                and bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
+                bootstrap.state.error_status in resolution.policy.routing.retryable_statuses
                 and bootstrap.state.error_code
                 in (
                     "server_error",
@@ -948,7 +943,7 @@ async def stream_response(
     cost_usd: float | None,
     source: AsyncIterator[bytes] | None = None,
 ) -> None:
-    state: Final = EventStream(responses_api=request.url.path == "/v1/responses")
+    state: Final = attempt.stream_state
 
     async def chunks() -> AsyncIterator[bytes]:
         async for chunk in source if source is not None else response.aiter_bytes():

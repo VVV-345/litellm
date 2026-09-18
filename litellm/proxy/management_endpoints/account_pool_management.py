@@ -7,8 +7,7 @@ from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import TypeAdapter
 
 from litellm.proxy._types import UserAPIKeyAuth
@@ -18,8 +17,6 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolCredentialDeleteRequest,
     AccountPoolCredentialMutationResult,
     AccountPoolCredentialRequest,
-    AccountPoolLogClearResult,
-    AccountPoolLogStorageStats,
     AccountPoolPluginManifest,
     AccountPoolPluginRecord,
     AccountPoolSettingsHistoryEntry,
@@ -33,10 +30,6 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     CardKeyIssue,
     CardKeyStatus,
     CodexReviewPackage,
-    ErrorLogDetail,
-    ErrorLogPage,
-    ErrorLogQuery,
-    ErrorStats,
     PolicyUpdate,
     PolicyView,
     UpstreamSyncDispatch,
@@ -56,9 +49,6 @@ def create_management_router(
         require_admin(user)
 
     router: Final = APIRouter(dependencies=[Depends(authorize)])
-    from litellm.proxy.management_endpoints.account_pool_full_log_api import create_full_log_router
-
-    router.include_router(create_full_log_router())
 
     async def call(
         method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None = None
@@ -118,30 +108,6 @@ def create_management_router(
 
         await block_card_keys(request.expected_key_id)
 
-    @router.get("/logs")
-    async def logs(query: Annotated[ErrorLogQuery, Query()]) -> ErrorLogPage:
-        params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True))
-        return parse_response(await call("GET", f"/api/logs?{params}"), TypeAdapter(ErrorLogPage))
-
-    @router.get("/logs/export", response_class=PlainTextResponse)
-    async def export_logs(query: Annotated[ErrorLogQuery, Query()]) -> PlainTextResponse:
-        params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True))
-        payload: Final = await call("GET", f"/api/logs/export?{params}")
-        return PlainTextResponse(
-            payload,
-            media_type="application/x-ndjson",
-            headers={"Content-Disposition": "attachment; filename=account-pool-logs.ndjson"},
-        )
-
-    @router.delete("/logs", response_model=AccountPoolLogClearResult)
-    async def clear_logs(older_than_days: Literal["7", "14", "30", "45"] | None = None) -> AccountPoolLogClearResult:
-        params: Final = "" if older_than_days is None else f"?older_than_days={older_than_days}"
-        return parse_response(await call("DELETE", f"/api/logs{params}"), TypeAdapter(AccountPoolLogClearResult))
-
-    @router.get("/logs/storage", response_model=AccountPoolLogStorageStats)
-    async def log_storage() -> AccountPoolLogStorageStats:
-        return parse_response(await call("GET", "/api/logs/storage"), TypeAdapter(AccountPoolLogStorageStats))
-
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
     async def credentials() -> tuple[AccountPoolCredential, ...]:
@@ -197,10 +163,6 @@ def create_management_router(
     @router.delete("/plugins/{plugin_id}", status_code=204)
     async def uninstall_plugin(plugin_id: str) -> None:
         await call("DELETE", f"/api/plugins/{plugin_id}")
-
-    @router.get("/logs/{event_id}")
-    async def log_detail(event_id: UUID) -> ErrorLogDetail:
-        return parse_response(await call("GET", f"/api/logs/{event_id}"), TypeAdapter(ErrorLogDetail))
 
     @router.get("/environments/{card_id}/policy")
     async def get_policy(card_id: UUID) -> PolicyView:
@@ -300,12 +262,6 @@ def create_management_router(
             await call("GET", "/api/upstream-sync/codex-review"),
             TypeAdapter(CodexReviewPackage),
         )
-
-    @router.get("/stats", response_model=ErrorStats)
-    async def stats(query: Annotated[ErrorLogQuery, Query()]) -> ErrorStats:
-        params: Final = httpx.QueryParams(query.model_dump(mode="json", exclude_none=True, exclude={"limit", "offset"}))
-        path: Final = "/api/stats" if not params else f"/api/stats?{params}"
-        return parse_response(await call("GET", path), TypeAdapter(ErrorStats))
 
     return router
 

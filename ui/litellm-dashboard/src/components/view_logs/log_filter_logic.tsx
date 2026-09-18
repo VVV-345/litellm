@@ -109,6 +109,7 @@ export function useLogFilterLogic({
   activeTab,
   isLiveTail,
   excludeInternalHealthChecks,
+  accountId,
   startTime,
   endTime,
   pagination,
@@ -123,6 +124,7 @@ export function useLogFilterLogic({
   activeTab: string;
   isLiveTail: boolean;
   excludeInternalHealthChecks: boolean;
+  accountId?: string;
   startTime: string;
   endTime: string;
   pagination: PaginationState;
@@ -147,6 +149,8 @@ export function useLogFilterLogic({
       sortBy,
       sortOrder,
       excludeInternalHealthChecks,
+      accountId,
+      accessToken,
     ],
     queryFn: async () => {
       if (!accessToken || !token || !userRole || !userID) {
@@ -172,6 +176,7 @@ export function useLogFilterLogic({
         params: {
           api_key: getFilterValue(columnFilters, LOG_FILTER_IDS.KEY_HASH),
           team_id: getFilterValue(columnFilters, LOG_FILTER_IDS.TEAM_ID),
+          account_id: accountId,
           request_id: getFilterValue(columnFilters, LOG_FILTER_IDS.REQUEST_ID),
           session_id: getFilterValue(columnFilters, LOG_FILTER_IDS.SESSION_ID),
           user_id: userIdFilter,

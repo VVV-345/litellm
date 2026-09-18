@@ -21,6 +21,7 @@ from litellm.proxy.management_endpoints.account_pool_management import create_ma
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
+from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
 
@@ -1032,3 +1033,10 @@ async def _reconcile_after_saved_change() -> None:
 
 
 router: Final = create_account_pool_router()
+
+
+async def _log_manager_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
+    return await _manager_request(_default_client, method, path, body)
+
+
+request_log_router: Final = create_request_log_router(_log_manager_request, _require_proxy_admin)

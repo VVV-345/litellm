@@ -8,6 +8,15 @@ vi.mock("../GuardrailViewer/GuardrailViewer", () => ({
   default: ({ data }: { data: unknown }) => <div data-testid="guardrail-viewer">{JSON.stringify(data)}</div>,
 }));
 
+vi.mock("../RequestDiagnostics", () => ({
+  RequestDiagnostics: ({ requestId }: { requestId: string }) => (
+    <div data-testid="request-diagnostics">{requestId}</div>
+  ),
+}));
+vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
+  default: () => ({ userRole: "Admin", isViewOnly: false }),
+}));
+
 const createLogEntry = (overrides: Partial<LogEntry> = {}): LogEntry =>
   ({
     request_id: "chatcmpl-test-id",
@@ -488,4 +497,18 @@ describe("LogDetailContent", () => {
     expect(descriptions).toBeInTheDocument();
     expect(within(descriptions).getByText("-")).toBeInTheDocument();
   });
+});
+
+it("opens account diagnostics using the nested spend metadata request ID", () => {
+  render(
+    <LogDetailContent
+      accessToken="test"
+      logEntry={createLogEntry({
+        messages: [],
+        response: null,
+        metadata: { status: "success", spend_logs_metadata: { account_pool_request_id: "pool-request-one" } },
+      })}
+    />,
+  );
+  expect(screen.getByTestId("request-diagnostics")).toHaveTextContent("pool-request-one");
 });

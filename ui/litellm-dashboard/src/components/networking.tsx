@@ -2020,6 +2020,7 @@ export const userFilterUICall = async (accessToken: string, params: URLSearchPar
  * Optional query params for /spend/logs/ui - matches backend spend_management_endpoints.py
  */
 interface UiSpendLogsParams {
+  account_id?: string;
   api_key?: string;
   team_id?: string;
   request_id?: string;

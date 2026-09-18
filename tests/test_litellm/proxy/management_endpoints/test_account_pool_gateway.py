@@ -62,7 +62,17 @@ async def test_stream_bootstrap_bounds_buffer_and_replays_every_byte() -> None:
 
 
 @pytest.mark.asyncio
-async def test_responses_without_retry_budget_forwards_handshake_before_waiting_for_output() -> None:
+@pytest.mark.parametrize(
+    "path,handshake,terminal",
+    [
+        ("/v1/responses", b'data: {"type":"response.created"}\n\n', b'data: {"type":"response.completed"}\n\n'),
+        ("/v1/chat/completions", b'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n', b"data: [DONE]\n\n"),
+    ],
+)
+@pytest.mark.parametrize("with_tools", [False, True])
+async def test_nonreplayable_stream_forwards_handshake_before_waiting_for_output(
+    path: str, handshake: bytes, terminal: bytes, with_tools: bool
+) -> None:
     from starlette.requests import Request
 
     from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, guarded_stream_response
@@ -86,25 +96,33 @@ async def test_responses_without_retry_budget_forwards_handshake_before_waiting_
     assert isinstance(lease, Lease)
 
     async def send(message):
-        if message["type"] == "http.response.body" and b"response.created" in message.get("body", b""):
+        if message["type"] == "http.response.body" and handshake in message.get("body", b""):
             delivered.set()
 
     class Upstream(httpx.AsyncByteStream):
         async def __aiter__(self):
-            yield b'data: {"type":"response.created"}\n\n'
+            yield handshake
             await asyncio.wait_for(delivered.wait(), timeout=1)
-            yield b'data: {"type":"response.completed"}\n\n'
+            yield terminal
 
     request: Final = Request(
-        {"type": "http", "path": "/v1/responses", "method": "POST", "headers": [], "asgi": {"spec_version": "2.4"}}
+        {"type": "http", "path": path, "method": "POST", "headers": [], "asgi": {"spec_version": "2.4"}}
     )
-    selected: Final = routes(control.resolution, "model-a", "/v1/responses", Headers())
+    selected: Final = routes(control.resolution, "model-a", path, Headers())
     assert not isinstance(selected, Rejected)
-    attempt: Final = Attempt(lease, "/v1/responses", send)
+    attempt: Final = Attempt(lease, path, send)
     response: Final = httpx.Response(200, stream=Upstream())
     try:
         assert await guarded_stream_response(
-            request, response, {"stream": True}, selected[0], control.resolution, attempt, None, None, float("inf")
+            request,
+            response,
+            {"stream": True, **({"tools": [{"type": "function"}]} if with_tools else {})},
+            selected[0],
+            control.resolution,
+            attempt,
+            lease.account_id if with_tools else None,
+            None,
+            float("inf"),
         )
     finally:
         await response.aclose()
@@ -1037,7 +1055,9 @@ def test_codex_retries_obey_card_budget_and_tool_replay_boundary(stream_error, t
             json={"model": "model-a", "stream": True, "tools": tools},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
-    assert response.status_code == (502 if stream_error else 503)
+    assert response.status_code == (200 if stream_error else 503)
+    if stream_error:
+        assert json.loads(response.text.strip().removeprefix("data: "))["error"]["status_code"] == 502
     assert len(control.acquisitions) == len(control.finished) == (1 if tools else 10)
     assert control.acquisitions[0].account_id == control.resolution.card_id
     assert not control.finished[-1].retryable
@@ -1086,9 +1106,10 @@ def test_stream_refusal_before_content_returns_400_without_retry(with_tools: boo
             json={"model": "model-a", "stream": True, **({"tools": [{"type": "function"}]} if with_tools else {})},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == code
-    assert response.json()["error"]["type"] == "invalid_request_error"
+    assert response.status_code == (200 if with_tools else 400)
+    error = json.loads(response.text.strip().split("data: ")[-1])["error"] if with_tools else response.json()["error"]
+    assert error["code"] == code
+    assert error["type"] == "invalid_request_error"
     assert "private upstream" not in response.text and "internal-secret" not in response.text
     assert len(control.acquisitions) == len(control.finished) == 1
     assert control.finished[0].http_status == 400
@@ -1373,3 +1394,42 @@ def test_truncated_stream_keeps_trusted_upstream_cost() -> None:
 
     assert response.status_code == 200
     assert control.finished[0].cost_usd == 0.00042
+
+
+@pytest.mark.parametrize("reason", ["max_output_tokens", "content_filter"])
+def test_responses_incomplete_preserves_terminal_details_and_usage(reason: str) -> None:
+    from litellm.proxy.management_endpoints.account_pool_stream import EventStream
+
+    payload: Final = {
+        "type": "response.incomplete",
+        "response": {
+            "id": "resp-test",
+            "status": "incomplete",
+            "incomplete_details": {"reason": reason},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
+    }
+    frame: Final = b"data: " + json.dumps(payload).encode()
+    stream: Final = EventStream(responses_api=True)
+    assert stream.observe(frame) == frame + b"\n\n"
+    assert stream.terminal
+    assert not stream.failed
+    assert stream.meaningful
+    assert stream.input_tokens == 10
+    assert stream.output_tokens == 5
+
+
+def test_responses_stream_errors_keep_sdk_fields_and_sequence() -> None:
+    from litellm.proxy.management_endpoints.account_pool_stream import EventStream
+
+    state: Final = EventStream(responses_api=True)
+    state.observe(b'data: {"type":"response.output_text.delta","sequence_number":12,"delta":"partial"}')
+    payload: Final = state.observe(b'data: {"type":"error","code":"server_error","message":"private details"}')
+    error: Final = json.loads(payload.removeprefix(b"data: "))
+    assert error["type"] == "error"
+    assert error["sequence_number"] == 13
+    assert error["message"] == "Upstream stream reported an error"
+    assert error["code"] == "server_error"
+    assert error["param"] is None
+    assert "private details" not in payload.decode()
+    assert state.failed

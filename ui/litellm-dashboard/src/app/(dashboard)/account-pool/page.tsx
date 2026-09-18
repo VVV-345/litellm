@@ -6,7 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -28,14 +28,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { migratedHref } from "@/utils/migratedPages";
-import SpendLogsTable from "@/components/view_logs";
 
 import { AccountPoolCard } from "./AccountPoolCard";
 import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
 import { AccountPoolConfigDialog } from "./AccountPoolConfigDialog";
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
-import { AccountPoolKeyDialog } from "./AccountPoolKeyDialog";
-import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
 import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
@@ -85,16 +82,15 @@ const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
 
 export default function AccountPoolPage() {
   const { t } = useTranslation();
-  const { accessToken, userRole, isViewOnly, userId, token, premiumUser } = useAuthorized();
+  const { accessToken, userRole, isViewOnly } = useAuthorized();
+  const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [keyEnvironment, setKeyEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
-  const [logCardId, setLogCardId] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
@@ -185,11 +181,10 @@ export default function AccountPoolPage() {
       onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
       onAuthorize={(current) => authorizeMutation.mutate(current)}
       onDelete={setDeleteEnvironment}
-      onManageKey={setKeyEnvironment}
+      onManageKey={(current) => router.push(`${migratedHref("api-keys")}?account_id=${encodeURIComponent(current.id)}`)}
       onManagePolicy={setPolicyEnvironment}
       onViewLogs={(current) => {
-        setLogCardId(current.id);
-        setActiveTab("logs");
+        router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(current.id)}`);
       }}
       tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
       group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
@@ -326,20 +321,6 @@ export default function AccountPoolPage() {
           </div>
         </div>
 
-        <nav aria-label="LiteLLM 统一管理" className="flex flex-wrap gap-4 text-sm">
-          <Link href={migratedHref("api-keys")} className="text-primary underline">
-            虚拟密钥与预算
-          </Link>
-          <Link href={migratedHref("guardrails")} className="text-primary underline">
-            防护栏
-          </Link>
-          <Link href={migratedHref("usage")} className="text-primary underline">
-            用量与费用
-          </Link>
-          <Link href={migratedHref("logs")} className="text-primary underline">
-            标准调用日志
-          </Link>
-        </nav>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList variant="line" className="h-auto w-full justify-start overflow-x-auto rounded-none border-b p-0">
             <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
@@ -362,9 +343,6 @@ export default function AccountPoolPage() {
             </TabsTrigger>
             <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.proxyLayer")}
-            </TabsTrigger>
-            <TabsTrigger value="logs" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.logs")}
             </TabsTrigger>
             <TabsTrigger value="plugins" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.plugins")}
@@ -459,25 +437,6 @@ export default function AccountPoolPage() {
           <TabsContent value="settings" className="pt-4">
             {accessToken && <AccountPoolSettingsPanel accessToken={accessToken} environments={environments} />}
           </TabsContent>
-          <TabsContent value="logs" className="pt-4">
-            {accessToken && (
-              <AccountPoolLogsPanel
-                key={logCardId ?? "all"}
-                accessToken={accessToken}
-                environments={environments}
-                initialCardId={logCardId}
-                standardLogs={
-                  <SpendLogsTable
-                    userID={userId}
-                    userRole={userRole}
-                    token={token}
-                    accessToken={accessToken}
-                    premiumUser={premiumUser}
-                  />
-                }
-              />
-            )}
-          </TabsContent>
           <TabsContent value="plugins" className="pt-4">
             {accessToken && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
           </TabsContent>
@@ -516,14 +475,6 @@ export default function AccountPoolPage() {
             setConfigEnvironment(null);
             void environmentsQuery.refetch();
           }}
-        />
-      )}
-      {keyEnvironment && accessToken && (
-        <AccountPoolKeyDialog
-          accessToken={accessToken}
-          cardId={keyEnvironment.id}
-          name={keyEnvironment.name}
-          onClose={() => setKeyEnvironment(null)}
         />
       )}
       {policyEnvironment && accessToken && (

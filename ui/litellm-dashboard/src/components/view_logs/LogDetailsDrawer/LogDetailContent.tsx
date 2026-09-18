@@ -1,3 +1,6 @@
+import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { RequestDiagnostics } from "../RequestDiagnostics";
 import { useState } from "react";
 import { Check, ChevronDown, ChevronRight, CircleAlert, Copy, Info } from "lucide-react";
 import moment from "moment";
@@ -58,14 +61,19 @@ export interface LogDetailContentProps {
  * be reused for both single-log and session-mode views.
  */
 export function LogDetailContent({ logEntry, isLoadingDetails = false, accessToken }: LogDetailContentProps) {
+  const { userRole, isViewOnly } = useAuthorized();
   const metadata = logEntry.metadata || {};
+  const poolRequestId: unknown =
+    metadata.account_pool_request_id ?? metadata.spend_logs_metadata?.account_pool_request_id;
   const hasError = metadata.status === "failure";
   const errorInfo = hasError ? metadata.error_information : null;
 
   const hasMessages = checkHasMessages(logEntry.messages);
   const hasResponse = checkHasResponse(logEntry.response);
   // Don't show "missing data" warning while details are still loading
-  const missingData = !hasMessages && !hasResponse && !hasError && !isLoadingDetails;
+  const hasDiagnostics =
+    !!accessToken && canManageAccountPool(userRole, isViewOnly) && typeof poolRequestId === "string";
+  const missingData = !hasMessages && !hasResponse && !hasError && !isLoadingDetails && !hasDiagnostics;
 
   // Guardrail data
   const guardrailInfo = metadata?.guardrail_information;
@@ -149,6 +157,10 @@ export function LogDetailContent({ logEntry, isLoadingDetails = false, accessTok
           </CardContent>
         </Card>
       </div>
+
+      {accessToken && canManageAccountPool(userRole, isViewOnly) && typeof poolRequestId === "string" && (
+        <RequestDiagnostics key={poolRequestId} accessToken={accessToken} requestId={poolRequestId} />
+      )}
 
       {/* Routing */}
       <RoutingDecisionCard decision={metadata?.routing_decision as RoutingDecision | undefined} />

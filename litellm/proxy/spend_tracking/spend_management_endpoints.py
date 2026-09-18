@@ -2229,6 +2229,9 @@ async def ui_view_spend_logs(
         default=None,
         description="Filter spend logs by session_id (partial string match)",
     ),
+    account_id: str | None = fastapi.Query(
+        default=None, description="Filter logs by account pool card or final account"
+    ),
     team_id: str | None = fastapi.Query(
         default=None,
         description="Filter spend logs by team_id",
@@ -2416,6 +2419,16 @@ async def ui_view_spend_logs(
 
         # Build metadata filters
         metadata_filters: Final = []
+        if isinstance(account_id, str):
+            where_conditions["AND"] = where_conditions.get("AND", []) + [
+                {
+                    "OR": [
+                        {"metadata": {"path": [*prefix, field], "equals": json.dumps(account_id)}}
+                        for prefix in ((), ("spend_logs_metadata",))
+                        for field in ("account_pool_card_id", "account_pool_account_id")
+                    ]
+                }
+            ]
         if key_alias is not None:
             metadata_filters.append(
                 {
@@ -2600,6 +2613,15 @@ async def ui_view_spend_logs(
         if max_spend is not None:
             sql_conditions.append(f"spend <= ${p}")
             sql_params.append(max_spend)
+            p += 1
+
+        if isinstance(account_id, str):
+            sql_conditions.append(
+                f"(metadata->>'account_pool_card_id' = ${p} OR metadata->>'account_pool_account_id' = ${p} "
+                f"OR metadata->'spend_logs_metadata'->>'account_pool_card_id' = ${p} "
+                f"OR metadata->'spend_logs_metadata'->>'account_pool_account_id' = ${p})"
+            )
+            sql_params.append(account_id)
             p += 1
 
         # Metadata JSON filters (PostgreSQL JSONB operators)

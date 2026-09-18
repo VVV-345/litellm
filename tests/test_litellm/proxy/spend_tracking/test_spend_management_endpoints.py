@@ -5867,3 +5867,28 @@ def test_scoped_spend_report_range_at_max_allowed(client, monkeypatch):
         mock_prisma.db.query_raw.assert_awaited_once()
     finally:
         app.dependency_overrides.pop(ps.user_api_key_auth, None)
+
+
+@pytest.mark.asyncio
+async def test_ui_account_filter_is_parameterized_and_matches_nested_metadata(client, monkeypatch):
+    queries = []
+    prisma = make_ui_spend_logs_mock_prisma(
+        [], lambda _: [], query_observer=lambda sql, params: queries.append((sql, params))
+    )
+    monkeypatch.setattr("litellm.proxy.proxy_server.prisma_client", prisma)
+    app.dependency_overrides[ps.user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN, user_id="admin"
+    )
+    account = "account' OR 1=1 --"
+    try:
+        start, end = _default_date_range()
+        response = client.get("/spend/logs/ui", params={"account_id": account, "start_date": start, "end_date": end})
+        assert response.status_code == 200, response.text
+        assert queries
+        for sql, params in queries:
+            assert account not in sql
+            assert account in params
+            assert "metadata->>'account_pool_account_id'" in sql
+            assert "metadata->'spend_logs_metadata'->>'account_pool_account_id'" in sql
+    finally:
+        app.dependency_overrides.pop(ps.user_api_key_auth, None)

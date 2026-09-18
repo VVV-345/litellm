@@ -1,6 +1,6 @@
 /** 本文件验证完整会话阅读时的历史去重和不同流式协议的回复提取。 */
 import { describe, expect, it } from "vitest";
-import { requestInstructions, requestMessages, responseText } from "./AccountPoolConversation";
+import { requestInstructions, requestMessages, responseText } from "./logConversation";
 
 describe("account pool conversations", () => {
   it("keeps every WebSocket response without duplicate terminal frames and reads developer prompts", () => {

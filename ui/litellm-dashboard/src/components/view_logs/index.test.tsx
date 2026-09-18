@@ -1,3 +1,7 @@
+vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({
+  useAccountPoolQuery: () => ({ data: [], isError: false }),
+}));
+import i18n from "@/i18n";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,7 +64,8 @@ const renderAs = (sessionRole: string, organizations: unknown[] = []) => {
 const tabNames = () => screen.getAllByRole("tab").map((tab) => tab.textContent);
 
 describe("SpendLogsTable", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     useAuthorizedMock.mockReturnValue({ userId: "user-1", userRole: "Admin" });
     useOrganizationsMock.mockReturnValue({ data: [] });
   });
@@ -68,7 +73,15 @@ describe("SpendLogsTable", () => {
   it("renders the four log tabs", () => {
     renderAs("Admin");
 
-    for (const label of ["Request Logs", "Audit Logs", "Deleted Keys", "Deleted Teams"]) {
+    for (const label of [
+      "Request Logs",
+      "运行日志",
+      "完整日志",
+      "日志设置",
+      "Audit Logs",
+      "Deleted Keys",
+      "Deleted Teams",
+    ]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
   });
@@ -92,6 +105,7 @@ describe("SpendLogsTable", () => {
       expect(screen.getByRole("tab", { name: "Request Logs" })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: "Deleted Keys" })).toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: "Audit Logs" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "完整日志" })).not.toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: "Deleted Teams" })).not.toBeInTheDocument();
     });
 
@@ -194,4 +208,15 @@ describe("SpendLogsTable", () => {
       expect(screen.getByRole("tab", { name: "Request Logs" })).toBeInTheDocument();
     });
   });
+});
+
+it.each(["unknown", "audit logs", "settings"])("falls back from an unavailable URL tab %s", async (logView) => {
+  await i18n.changeLanguage("en");
+  useAuthorizedMock.mockReturnValue({ userId: "user-1", userRole: "Internal User" });
+  useOrganizationsMock.mockReturnValue({ data: [] });
+  renderWithProviders(<SpendLogsTable {...defaultProps} userRole="Internal User" />, {
+    searchParams: { log_view: logView },
+  });
+  expect(screen.getByRole("tab", { name: "Request Logs" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByTestId("request-logs-panel")).toHaveTextContent("active");
 });

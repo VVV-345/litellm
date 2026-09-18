@@ -1,17 +1,17 @@
 /** 本文件管理单张卡片凭据，明文仅保留在当前弹窗内存中。 */
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getProxyBaseUrl } from "@/components/networking";
 import { toast } from "@/lib/toast";
-import { formatDateTime } from "./AccountPoolFormatters";
-import { getCardKeyStatus, issueCardKey, revokeCardKey } from "./AccountPoolManagementApi";
+import { formatDateTime } from "@/app/(dashboard)/account-pool/AccountPoolFormatters";
+import { getCardKeyStatus, issueCardKey, revokeCardKey } from "./accountKeyApi";
 
-export function AccountPoolKeyDialog({
+export function AccountKeyDialog({
   accessToken,
   cardId,
   name,
@@ -23,11 +23,12 @@ export function AccountPoolKeyDialog({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const [plaintext, setPlaintext] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmation, setConfirmation] = useState<"rotate" | "revoke" | null>(null);
   const query = useQuery({
-    queryKey: ["account-pool", "key-status", cardId, accessToken],
+    queryKey: ["keys", "account-status", cardId, accessToken],
     queryFn: () => getCardKeyStatus(accessToken, cardId),
     retry: false,
   });
@@ -45,7 +46,7 @@ export function AccountPoolKeyDialog({
         setPlaintext(result.key);
       }
       setConfirmation(null);
-      await query.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["keys"] });
     } catch (error) {
       toast.fromError(error);
       await query.refetch();
@@ -66,7 +67,7 @@ export function AccountPoolKeyDialog({
           <DialogDescription>{t("accountPool.keys.description")}</DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          此密钥同步到“虚拟密钥”，可设置预算和防护栏；每次调用仍受当前卡片的模型、额度、冷却和并发限制
+          此密钥可在下方虚拟密钥列表设置预算和护栏；每次调用仍受对应账号的模型、额度、冷却和并发限制
         </p>
         <Input readOnly aria-label="Base URL" value={`${getProxyBaseUrl().replace(/\/$/, "")}/v1`} />
         {query.isPending && <p role="status">{t("accountPool.management.loading")}</p>}

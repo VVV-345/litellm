@@ -1,15 +1,10 @@
-/** 本文件封装卡片 Key、管理策略和日志请求，不在查询缓存中保存 Key 明文。 */
+/** 本文件封装账号策略、供应商配置和额度管理请求。 */
 
 import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
 
-export type CardKeyStatus = components["schemas"]["CardKeyStatus"];
-export type CardKeyIssue = components["schemas"]["CardKeyIssue"];
 export type PolicyView = components["schemas"]["PolicyView"];
 export type AccountPolicy = components["schemas"]["AccountPolicy"];
-export type LogEvent = components["schemas"]["ErrorLogRecord"];
-export type LogPage = components["schemas"]["ErrorLogPage"];
-export type LogDetail = components["schemas"]["ErrorLogDetail"];
 export type ErrorStats = Omit<
   components["schemas"]["ErrorStats"],
   "statistics_source" | "cache_read_input_tokens" | "cache_creation_input_tokens"
@@ -33,13 +28,6 @@ export type QuotaSettingsValues = components["schemas"]["QuotaSettingsValues"];
 export type StreamingSettingsValues = components["schemas"]["StreamingSettingsValues"];
 export type AccountPoolCredential = components["schemas"]["AccountPoolCredential"];
 export type AccountPoolQuotaRefreshResult = components["schemas"]["AccountPoolQuotaRefreshResult"];
-export type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
-export type AccountPoolLogStorageStats = {
-  backend: "postgresql";
-  location: string;
-  row_count: number;
-  allocated_bytes: number;
-};
 export type AccountPoolQuotaRefreshStatus = {
   interval_minutes: 5 | 15 | 30 | 60;
   running: boolean;
@@ -73,28 +61,6 @@ export interface AccountPoolDashboardStats {
 }
 export type BatchJob = components["schemas"]["BatchJob"];
 export type BatchAction = components["schemas"]["BatchRequest"]["action"];
-export type LogFilters = {
-  occurred_from?: string;
-  occurred_to?: string;
-  channel?: string;
-  supplier?: string;
-  card_id?: string;
-  environment_id?: string;
-  account_id?: string;
-  card_key_id?: string;
-  request_id?: string;
-  session_id?: string;
-  final_status?: string;
-  http_status?: number;
-  endpoint?: string;
-  model?: string;
-  stage?: string;
-  error_category?: string;
-  retryable?: boolean;
-  switched_account?: boolean;
-  limit?: number;
-  offset?: number;
-};
 
 export const createAccountPoolJobId = (): string => {
   const randomBytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
@@ -107,20 +73,7 @@ export const createAccountPoolJobId = (): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-const cardPath = (cardId: string) => `/account_pool/cards/${encodeURIComponent(cardId)}/key`;
 const policyPath = (cardId: string) => `/account_pool/environments/${encodeURIComponent(cardId)}/policy`;
-
-export const getCardKeyStatus = (accessToken: string, cardId: string) =>
-  apiClient.get<CardKeyStatus | null>(`${cardPath(cardId)}/status`, { accessToken });
-
-export const issueCardKey = (accessToken: string, cardId: string, expectedKeyId?: string) =>
-  apiClient.post<CardKeyIssue>(`${cardPath(cardId)}${expectedKeyId ? "/rotate" : ""}`, {
-    accessToken,
-    ...(expectedKeyId ? { body: { expected_key_id: expectedKeyId } } : {}),
-  });
-
-export const revokeCardKey = (accessToken: string, cardId: string, expectedKeyId: string) =>
-  apiClient.delete<void>(cardPath(cardId), { accessToken, body: { expected_key_id: expectedKeyId } });
 
 export const getAccountPolicy = (accessToken: string, cardId: string) =>
   apiClient.get<PolicyView>(policyPath(cardId), { accessToken });
@@ -130,15 +83,6 @@ export const listAccountPolicies = (accessToken: string) =>
 
 export const saveAccountPolicy = (accessToken: string, cardId: string, version: number, policy: AccountPolicy) =>
   apiClient.put<PolicyView>(policyPath(cardId), { accessToken, body: { version, policy } });
-
-export const listAccountPoolLogs = (accessToken: string, query: LogFilters) =>
-  apiClient.get<LogPage>("/account_pool/logs", { accessToken, query });
-
-export const getAccountPoolLog = (accessToken: string, eventId: string) =>
-  apiClient.get<LogDetail>(`/account_pool/logs/${encodeURIComponent(eventId)}`, { accessToken });
-
-export const getAccountPoolStats = (accessToken: string, query: LogFilters = {}) =>
-  apiClient.get<ErrorStats>("/account_pool/stats", { accessToken, query });
 
 export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
   apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
@@ -234,15 +178,6 @@ export const setAccountPoolQuotaRefreshInterval = (
     body: { interval_minutes: intervalMinutes },
   });
 
-export const clearAccountPoolLogs = (accessToken: string, olderThanDays?: 7 | 14 | 30 | 45) =>
-  apiClient.delete<AccountPoolLogClearResult>("/account_pool/logs", {
-    accessToken,
-    query: olderThanDays ? { older_than_days: olderThanDays } : undefined,
-  });
-
-export const getAccountPoolLogStorage = (accessToken: string) =>
-  apiClient.get<AccountPoolLogStorageStats>("/account_pool/logs/storage", { accessToken });
-
 export const listAccountPoolPlugins = (accessToken: string) =>
   apiClient.get<AccountPoolPluginRecord[]>("/account_pool/plugins", { accessToken });
 
@@ -316,10 +251,6 @@ export const putCardAccountPoolPluginConfig = (
     `/account_pool/environments/${encodeURIComponent(cardId)}/plugins/${encodeURIComponent(pluginId)}/config`,
     { accessToken, body: config },
   );
-
-export const exportAccountPoolLogs = async (accessToken: string, query: LogFilters): Promise<Blob> => {
-  return apiClient.requestBlob("GET", "/account_pool/logs/export", { accessToken, query });
-};
 
 export const getAccountPoolSettings = (accessToken: string) =>
   apiClient.get<AccountPoolSettingsView>("/account_pool/settings", { accessToken });

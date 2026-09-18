@@ -447,6 +447,9 @@ from litellm.proxy.logging_endpoints.callback_logs_endpoints import (
     rust_control_plane_router,
 )
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
+    request_log_router,
+)
+from litellm.proxy.management_endpoints.account_pool_endpoints import (
     router as account_pool_router,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
@@ -8606,6 +8609,7 @@ async def async_data_generator(
     verbose_proxy_logger.debug("inside generator")
     stream_completed = False
     client_disconnected = False
+    last_sequence_number = -1  # rebind-ok: tracks the last event emitted by the streaming iterator
     try:
         error_message: str | None = None
         requested_model_from_client: Final = _get_client_requested_model_for_streaming(request_data=request_data)
@@ -8668,6 +8672,11 @@ async def async_data_generator(
                 yield ": ping\n\n"
                 continue
             chunk = cast(Any, item)  # cast-ok: sentinel already handled above, item is a real chunk here
+            sequence_number: Final = getattr(item, "sequence_number", None)
+            if isinstance(sequence_number, int):
+                last_sequence_number = max(
+                    last_sequence_number, sequence_number
+                )  # rebind-ok: sequence advances per event
             if needs_per_chunk_hook:
                 ### CALL HOOKS ### - modify outgoing data
                 chunk, _str_so_far = await _apply_streaming_chunk_hooks(
@@ -8817,7 +8826,20 @@ async def async_data_generator(
             param=getattr(e, "param", "None"),
             code=getattr(e, "status_code", 500),
         )
-        error_returned: Final = json.dumps({"error": proxy_exception.to_dict()})
+        error_fields: Final = proxy_exception.to_dict()
+        responses_stream: Final = request is not None and request.url.path.rstrip("/").endswith("/responses")
+        error_returned: Final = json.dumps(
+            {
+                "type": "error",
+                "sequence_number": last_sequence_number + 1,
+                "message": error_fields["message"],
+                "code": error_fields["code"],
+                "param": error_fields.get("param"),
+                "error": error_fields,
+            }
+            if responses_stream
+            else {"error": error_fields}
+        )
         stream_completed = True
         yield f"data: {error_returned}\n\n"
     finally:
@@ -18005,6 +18027,7 @@ app.include_router(model_management_router)
 app.include_router(model_access_group_management_router)
 app.include_router(auto_router_management_router)
 app.include_router(account_pool_router)
+app.include_router(request_log_router)
 app.include_router(tag_management_router)
 app.include_router(workflow_management_router)
 app.include_router(memory_router)

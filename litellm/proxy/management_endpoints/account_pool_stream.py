@@ -58,6 +58,7 @@ class EventStream:
         self.output_tokens: int | None = None
         self.cache_read_input_tokens: int | None = None
         self.cache_creation_input_tokens: int | None = None
+        self.last_sequence_number = -1
 
     def feed(self, chunk: bytes) -> tuple[bytes, ...]:
         parts: Final = _DELIMITER.split(self.pending + chunk)
@@ -74,11 +75,21 @@ class EventStream:
             self.observe_payload(_JSON.validate_json(payload))
         if self.failed:
             error: Final = self.public_error()
-            envelope: Final = (
-                {"type": "error", "sequence_number": 0, "error": error} if self.responses_api else {"error": error}
-            )
+            envelope: Final = self.error_envelope(error)
             return b"data: " + json.dumps(envelope).encode() + b"\n\n"
         return frame + b"\n\n"
+
+    def error_envelope(self, error: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if not self.responses_api:
+            return {"error": error}
+        return {
+            "type": "error",
+            "sequence_number": self.last_sequence_number + 1,
+            "message": error.get("message"),
+            "code": error.get("code"),
+            "param": error.get("param"),
+            "error": error,
+        }
 
     def public_error(self) -> dict[str, JsonValue]:
         message: Final = (
@@ -103,6 +114,9 @@ class EventStream:
         return final
 
     def observe_payload(self, event: dict[str, JsonValue]) -> None:
+        sequence_number: Final = event.get("sequence_number")
+        if type(sequence_number) is int:
+            self.last_sequence_number = max(self.last_sequence_number, sequence_number)
         kind: Final = event.get("type")
         choices: Final = event.get("choices")
         has_output: Final = not isinstance(choices, list) or any(
@@ -138,9 +152,11 @@ class EventStream:
             self.cache_read_input_tokens = cache_read
         if cache_created is not None:
             self.cache_creation_input_tokens = cache_created
+        if self.responses_api and event.get("type") == "response.incomplete":
+            self.meaningful = True
         if event.get("type") in ("response.completed", "response.incomplete", "message_stop"):
             self.terminal = True
-        if event.get("type") in ("error", "response.failed", "response.incomplete") or event.get("error") is not None:
+        if event.get("type") in ("error", "response.failed") or event.get("error") is not None:
             self.failed = True
             self.terminal = True
             response: Final = event.get("response")

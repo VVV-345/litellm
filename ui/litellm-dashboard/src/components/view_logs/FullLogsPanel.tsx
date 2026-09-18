@@ -5,8 +5,6 @@ import { Database, MessagesSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { getAccountPoolSettings, updateAccountPoolSettings } from "./AccountPoolManagementApi";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
 import {
@@ -16,9 +14,9 @@ import {
   listFullLogs,
   type FullLogFilters,
   type FullLogSummary,
-} from "./AccountPoolFullLogsApi";
-import { requestInstructions, requestMessages, responseText } from "./AccountPoolConversation";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+} from "./fullLogsApi";
+import { requestInstructions, requestMessages, responseText } from "./logConversation";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const number = (value: number | null | undefined) => (value == null ? "未知" : value.toLocaleString());
 
@@ -29,7 +27,7 @@ function logStatus(log: FullLogSummary): string {
 
 export function FullLogContent({ accessToken, eventId }: { accessToken: string; eventId: string }) {
   const query = useQuery({
-    queryKey: ["account-pool", "full-body", accessToken, eventId],
+    queryKey: ["logs", "full-body", accessToken, eventId],
     queryFn: () => getFullLog(accessToken, eventId),
     gcTime: 0,
     retry: false,
@@ -119,7 +117,7 @@ export function FullLogDialog({
   );
 }
 
-export function AccountPoolFullLogsPanel({
+export function FullLogsPanel({
   accessToken,
   environments,
   initialCardId,
@@ -139,29 +137,6 @@ export function AccountPoolFullLogsPanel({
   const [busy, setBusy] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [skipFailed, setSkipFailed] = useState<boolean | null>(null);
-  const settings = useQuery({
-    queryKey: ["account-pool", "settings", accessToken],
-    queryFn: () => getAccountPoolSettings(accessToken),
-    retry: false,
-  });
-  const saveLogging = async () => {
-    if (!settings.data || skipFailed === null) return;
-    setBusy(true);
-    try {
-      await updateAccountPoolSettings(accessToken, {
-        version: settings.data.version,
-        values: { ...settings.data.values, full_log_skip_failed: skipFailed },
-      });
-      await settings.refetch();
-      setSkipFailed(null);
-      toast.success("完整日志设置已保存");
-    } catch (error) {
-      toast.fromError(error);
-    } finally {
-      setBusy(false);
-    }
-  };
   const resetFilters = () => {
     setFilters({ card_id: initialCardId });
     setSession("");
@@ -173,12 +148,12 @@ export function AccountPoolFullLogsPanel({
     setExpanded(null);
   };
   const query = useQuery({
-    queryKey: ["account-pool", "full-logs", accessToken, filters],
+    queryKey: ["logs", "full-logs", accessToken, filters],
     queryFn: () => listFullLogs(accessToken, filters),
     retry: false,
   });
   const storage = useQuery({
-    queryKey: ["account-pool", "full-log-storage", accessToken],
+    queryKey: ["logs", "full-log-storage", accessToken],
     queryFn: () => fullLogStorage(accessToken),
     retry: false,
   });
@@ -230,7 +205,7 @@ export function AccountPoolFullLogsPanel({
         <div className="flex min-w-0 gap-3">
           <Database className="mt-1 size-5 shrink-0" />
           <div className="min-w-0">
-            <h3 className="text-sm font-medium">完整日志独立存储</h3>
+            <h3 className="text-sm font-medium">完整日志存储</h3>
             <p className="mt-1 break-all text-xs text-muted-foreground">
               {storage.data?.location ?? "正在读取存储信息"}
             </p>
@@ -262,26 +237,8 @@ export function AccountPoolFullLogsPanel({
           </Button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">
-        在“设置 / 日志”开启完整记录。只有开启后的请求会保存正文，关闭不会删除已有记录。
-      </p>
-      <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
-        <Switch
-          id="full-log-skip-failed"
-          checked={skipFailed ?? settings.data?.values.full_log_skip_failed ?? false}
-          disabled={busy || !settings.data}
-          onCheckedChange={setSkipFailed}
-        />
-        <label htmlFor="full-log-skip-failed">失败请求不保存完整日志</label>
-        <Button disabled={busy || skipFailed === null || !settings.data} onClick={() => void saveLogging()}>
-          保存
-        </Button>
-        <p className="w-full text-xs text-muted-foreground">
-          开启后，失败和中断请求仍保留错误、用量和成本摘要；已有完整日志继续保留
-        </p>
-        {settings.isError && <p role="alert">日志设置读取失败，请刷新重试</p>}
-      </div>
-      <form className="flex flex-wrap gap-2" onSubmit={searchSession}>
+      <p className="text-sm text-muted-foreground">在“日志设置”开启完整记录后，新请求会保存正文；已有记录继续可查</p>
+      <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={searchSession}>
         <Input
           aria-label="完整日志模型"
           placeholder="模型"
@@ -324,7 +281,7 @@ export function AccountPoolFullLogsPanel({
           onChange={(event) => setSession(event.target.value)}
         />
         <Button type="submit" variant="outline">
-          查询会话
+          查询日志
         </Button>
         <Button type="button" variant="ghost" onClick={resetFilters}>
           重置筛选
@@ -388,7 +345,7 @@ export function AccountPoolFullLogsPanel({
       {query.data?.items.length === 0 && (
         <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
           <MessagesSquare className="mx-auto mb-3 size-8" />
-          暂无完整日志；开启后发起新请求即可记录
+          当前筛选下暂无完整日志；可调整筛选，或在日志设置开启后记录新请求
         </div>
       )}
       {query.data?.items.map((log) => (

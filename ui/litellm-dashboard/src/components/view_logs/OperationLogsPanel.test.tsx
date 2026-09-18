@@ -5,20 +5,20 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountPoolLogsPanel } from "./AccountPoolLogsPanel";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { OperationLogsPanel } from "./OperationLogsPanel";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const listLogs = vi.fn();
 const getLog = vi.fn();
 const getStats = vi.fn();
 const exportLogs = vi.fn();
 
-vi.mock("./AccountPoolManagementApi", () => ({
-  listAccountPoolLogs: (...args: unknown[]) => listLogs(...args),
-  getAccountPoolLog: (...args: unknown[]) => getLog(...args),
-  getAccountPoolStats: (...args: unknown[]) => getStats(...args),
-  exportAccountPoolLogs: (...args: unknown[]) => exportLogs(...args),
-  getAccountPoolLogStorage: async () => ({ row_count: 0, allocated_bytes: 0 }),
+vi.mock("./operationLogsApi", () => ({
+  listOperationLogs: (...args: unknown[]) => listLogs(...args),
+  getOperationLog: (...args: unknown[]) => getLog(...args),
+  getOperationStats: (...args: unknown[]) => getStats(...args),
+  exportOperationLogs: (...args: unknown[]) => exportLogs(...args),
+  getOperationLogStorage: async () => ({ row_count: 0, allocated_bytes: 0 }),
 }));
 
 const log = {
@@ -64,20 +64,7 @@ const stats = {
   recent_errors: [],
 };
 
-describe("AccountPoolLogsPanel", () => {
-  it("opens standard logs by default and preserves account-specific diagnostics", async () => {
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <AccountPoolLogsPanel accessToken="token" environments={[]} standardLogs={<p>LiteLLM 标准记录</p>} />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByRole("tab", { name: "标准调用日志" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("LiteLLM 标准记录")).toBeVisible();
-    expect(listLogs).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("tab", { name: "账号运行记录" }));
-    expect(await screen.findByRole("row", { name: /Request completed/ })).toBeVisible();
-  });
-
+describe("OperationLogsPanel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     listLogs.mockResolvedValue({ items: [log], has_more: false });
@@ -95,7 +82,7 @@ describe("AccountPoolLogsPanel", () => {
     });
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <AccountPoolLogsPanel accessToken="token" environments={[]} />
+        <OperationLogsPanel accessToken="token" environments={[]} />
       </QueryClientProvider>,
     );
     const row = await screen.findByRole("row", { name: /Request completed/ });
@@ -114,7 +101,7 @@ describe("AccountPoolLogsPanel", () => {
     const user = userEvent.setup();
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <AccountPoolLogsPanel accessToken="token" environments={[]} />
+        <OperationLogsPanel accessToken="token" environments={[]} />
       </QueryClientProvider>,
     );
 
@@ -124,19 +111,16 @@ describe("AccountPoolLogsPanel", () => {
     expect(await screen.findAllByText(/卡片优先账号|Preferred card account/i)).not.toHaveLength(0);
   });
 
-  it("keeps the selected card name and applies filters to rows, stats and export", async () => {
+  it("keeps the page account filter across query, export and filter reset", async () => {
     const user = userEvent.setup();
     exportLogs.mockRejectedValue(new Error("test export"));
     const card = { id: log.card_id, name: "测试账号" } as AccountPoolEnvironment;
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <AccountPoolLogsPanel accessToken="token" environments={[card]} />
+        <OperationLogsPanel accessToken="token" environments={[card]} initialCardId={card.id} />
       </QueryClientProvider>,
     );
     await screen.findByRole("row", { name: /Request completed/ });
-    await user.click(screen.getByRole("combobox", { name: "卡片" }));
-    await user.click(screen.getByRole("option", { name: "测试账号" }));
-    expect(screen.getByRole("combobox", { name: "卡片" })).toHaveTextContent("测试账号");
     await user.click(screen.getByRole("combobox", { name: "请求结果" }));
     await user.click(screen.getByRole("option", { name: "失败" }));
     fireEvent.change(screen.getByLabelText("HTTP 状态码"), { target: { value: "429" } });
@@ -150,6 +134,8 @@ describe("AccountPoolLogsPanel", () => {
     await user.click(screen.getByRole("button", { name: "重置筛选" }));
     expect(screen.getByLabelText("HTTP 状态码")).toHaveValue(null);
     expect(screen.getByLabelText("会话 ID")).toHaveValue("");
-    expect(screen.getByRole("combobox", { name: "卡片" })).not.toHaveTextContent(card.id);
+    await waitFor(() =>
+      expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ card_id: card.id, offset: 0 })),
+    );
   });
 });

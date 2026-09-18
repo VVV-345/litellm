@@ -23,7 +23,7 @@ from litellm.proxy.management_endpoints.account_pool_full_logs import (
     full_log_store,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest, Lease
-from litellm.proxy.management_endpoints.account_pool_management import create_management_router
+from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog, clean_content, conversation_id
 from litellm.proxy.management_endpoints.account_pool_routing import Route
 from tests.test_litellm.proxy.management_endpoints.test_account_pool_gateway import _KEY, setup_gateway
@@ -242,17 +242,17 @@ def test_full_log_api_requires_admin_and_does_not_call_daily_log_cleanup(store: 
             raise HTTPException(403)
 
     app: Final = FastAPI()
-    app.include_router(create_management_router(forbidden_manager, require_admin), prefix="/account_pool")
+    app.include_router(create_request_log_router(forbidden_manager, require_admin))
     app.dependency_overrides[user_api_key_auth] = lambda: "viewer"
     with TestClient(app) as client:
-        assert client.get("/account_pool/full-logs").status_code == 403
-        assert client.delete("/account_pool/full-logs").status_code == 403
+        assert client.get("/logs/full").status_code == 403
+        assert client.delete("/logs/full").status_code == 403
         app.dependency_overrides[user_api_key_auth] = lambda: "admin"
-        response: Final = client.get("/account_pool/full-logs")
+        response: Final = client.get("/logs/full")
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store"
-        assert client.delete("/account_pool/full-logs?older_than_days=30").json() == {"deleted": 0}
-        assert client.get(f"/account_pool/full-logs/{uuid4()}").status_code == 404
+        assert client.delete("/logs/full?older_than_days=30").json() == {"deleted": 0}
+        assert client.get(f"/logs/full/{uuid4()}").status_code == 404
 
 
 def test_storage_failure_does_not_change_response_or_skip_daily_log(store: FullLogStore) -> None:

@@ -17,13 +17,13 @@ export type FullLogFilters = {
 };
 
 export const listFullLogs = (accessToken: string, query: FullLogFilters) =>
-  apiClient.get<components["schemas"]["FullLogPage"]>("/account_pool/full-logs", { accessToken, query });
+  apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query });
 export const getFullLog = (accessToken: string, id: string) =>
-  apiClient.get<FullLogRecord>(`/account_pool/full-logs/${encodeURIComponent(id)}`, { accessToken });
+  apiClient.get<FullLogRecord>(`/logs/full/${encodeURIComponent(id)}`, { accessToken });
 export const fullLogStorage = (accessToken: string) =>
-  apiClient.get<components["schemas"]["FullLogStorageStats"]>("/account_pool/full-logs/storage", { accessToken });
+  apiClient.get<components["schemas"]["FullLogStorageStats"]>("/logs/full/storage", { accessToken });
 export const clearFullLogs = (accessToken: string, days: number | null) =>
-  apiClient.delete<{ deleted: number }>("/account_pool/full-logs", {
+  apiClient.delete<{ deleted: number }>("/logs/full", {
     accessToken,
     query: days == null ? {} : { older_than_days: days },
   });

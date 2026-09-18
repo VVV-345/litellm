@@ -12165,3 +12165,58 @@ async def test_load_config_router_authorizes_fallback_targets_against_the_callin
     router, _, _ = await ProxyConfig().load_config(router=None, config_file_path=str(config_file))
 
     assert router.fallback_access_check is router_fallback_access_check
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/v1/responses", "/v1/chat/completions"])
+async def test_async_data_generator_error_preserves_endpoint_protocol(path):
+    from starlette.requests import Request
+
+    async def failing_stream():
+        from openai.types.responses import ResponseTextDeltaEvent
+
+        yield ResponseTextDeltaEvent(
+            type="response.output_text.delta",
+            sequence_number=8,
+            item_id="msg_1",
+            output_index=0,
+            content_index=0,
+            delta="OK",
+            logprobs=[],
+        )
+        raise litellm.APIError(
+            message="Upstream stream interrupted", status_code=502, llm_provider="openai", model="model-a"
+        )
+        yield
+
+    logging = MagicMock()
+    logging.post_call_failure_hook = AsyncMock()
+    with (
+        patch("litellm.proxy.proxy_server.proxy_logging_obj", logging),
+        patch(
+            "litellm.proxy.proxy_server.ProxyBaseLLMRequestProcessing._finalize_streaming_generator_cleanup",
+            new=AsyncMock(),
+        ),
+        patch("litellm.proxy.proxy_server.llm_router", None),
+    ):
+        logging.needs_iterator_wrap.return_value = False
+        logging.needs_per_chunk_streaming_hook.return_value = False
+        chunks = [
+            chunk
+            async for chunk in proxy_server_module.async_data_generator(
+                failing_stream(),
+                UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN),
+                {"model": "model-a", "stream": True},
+                Request({"type": "http", "path": path, "method": "POST", "headers": []}),
+            )
+        ]
+    error = json.loads(chunks[-1].removeprefix("data: ").strip())
+    assert error["error"]["code"] == "502"
+    assert "Upstream stream interrupted" in error["error"]["message"]
+    if path.endswith("responses"):
+        assert error["type"] == "error"
+        assert "Upstream stream interrupted" in error["message"]
+        assert error["sequence_number"] == 9
+    else:
+        assert "type" not in error
+    logging.post_call_failure_hook.assert_awaited_once()

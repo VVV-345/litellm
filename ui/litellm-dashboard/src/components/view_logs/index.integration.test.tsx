@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,11 +59,13 @@ const renderAs = (sessionRole: string, organizations: unknown[] = []) => {
 };
 
 describe("SpendLogsTable network access by role", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     testQueryClient.clear();
     vi.clearAllMocks();
     useOrganizationsMock.mockReturnValue({ data: [] });
     fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("/account_pool/environments")) return jsonResponse([]);
       if (String(url).includes("/audit")) {
         return jsonResponse(emptyAuditLogs);
       }

@@ -25,8 +25,8 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
 )
 
 
-def create_full_log_router() -> APIRouter:
-    router: Final = APIRouter(prefix="/full-logs")
+def create_full_log_router(*, prefix: str = "/full-logs") -> APIRouter:
+    router: Final = APIRouter(prefix=prefix)
 
     async def _logs(query: Annotated[FullLogQuery, Query()], response: Response) -> FullLogPage:
         response.headers["Cache-Control"] = "no-store"

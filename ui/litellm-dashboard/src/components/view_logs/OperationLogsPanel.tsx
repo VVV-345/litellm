@@ -1,7 +1,6 @@
 /** 本文件展示日常日志和完整日志入口，日常列表只读取摘要。 */
 
-import { AccountPoolFullLogsPanel, FullLogDialog } from "./AccountPoolFullLogsPanel";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FullLogDialog } from "./FullLogsPanel";
 import { Database, Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,19 +11,19 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatDateTime } from "./AccountPoolFormatters";
+import { formatDateTime } from "@/app/(dashboard)/account-pool/AccountPoolFormatters";
 import {
-  clearAccountPoolLogs,
-  exportAccountPoolLogs,
-  getAccountPoolLog,
-  getAccountPoolLogStorage,
-  getAccountPoolStats,
-  listAccountPoolLogs,
+  clearOperationLogs,
+  exportOperationLogs,
+  getOperationLog,
+  getOperationLogStorage,
+  getOperationStats,
+  listOperationLogs,
   type LogDetail,
   type LogFilters,
-} from "./AccountPoolManagementApi";
+} from "./operationLogsApi";
 import { toast } from "@/lib/toast";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
   style: "currency",
@@ -75,7 +74,7 @@ const detailFieldValue = (
   return event[field] ?? unavailable;
 };
 
-function AccountPoolDailyLogsPanel({
+export function OperationLogsPanel({
   accessToken,
   environments,
   initialCardId,
@@ -104,25 +103,25 @@ function AccountPoolDailyLogsPanel({
   };
   const pageQuery = { ...filters, offset, limit: 50 };
   const query = useQuery({
-    queryKey: ["account-pool", "logs", accessToken, filters, offset],
-    queryFn: () => listAccountPoolLogs(accessToken, pageQuery),
+    queryKey: ["logs", "logs", accessToken, filters, offset],
+    queryFn: () => listOperationLogs(accessToken, pageQuery),
     retry: false,
   });
   const detailQuery = {
-    queryKey: ["account-pool", "log-detail", accessToken, eventId],
-    queryFn: () => getAccountPoolLog(accessToken, eventId!),
+    queryKey: ["logs", "log-detail", accessToken, eventId],
+    queryFn: () => getOperationLog(accessToken, eventId!),
     enabled: eventId !== null,
     retry: false,
   };
   const detail = useQuery(detailQuery);
   const stats = useQuery({
-    queryKey: ["account-pool", "stats", accessToken, filters],
-    queryFn: () => getAccountPoolStats(accessToken, filters),
+    queryKey: ["logs", "stats", accessToken, filters],
+    queryFn: () => getOperationStats(accessToken, filters),
     retry: false,
   });
   const storage = useQuery({
-    queryKey: ["account-pool", "log-storage", accessToken],
-    queryFn: () => getAccountPoolLogStorage(accessToken),
+    queryKey: ["logs", "log-storage", accessToken],
+    queryFn: () => getOperationLogStorage(accessToken),
     retry: false,
   });
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
@@ -145,11 +144,11 @@ function AccountPoolDailyLogsPanel({
   };
   const downloadLogs = async () => {
     try {
-      const blob = await exportAccountPoolLogs(accessToken, pageQuery);
+      const blob = await exportOperationLogs(accessToken, pageQuery);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "account-pool-logs.ndjson";
+      anchor.download = "operation-logs.ndjson";
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -159,7 +158,7 @@ function AccountPoolDailyLogsPanel({
   const clearLogs = async () => {
     if (!window.confirm(t("accountPool.logs.clearConfirm"))) return;
     try {
-      const result = await clearAccountPoolLogs(
+      const result = await clearOperationLogs(
         accessToken,
         retentionDays === "all" ? undefined : (Number(retentionDays) as 7 | 14 | 30 | 45),
       );
@@ -234,10 +233,6 @@ function AccountPoolDailyLogsPanel({
         </div>
       )}
       <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={submitFilters}>
-        {choice(
-          "card_id",
-          environments.map((environment) => ({ value: environment.id, label: environment.name })),
-        )}
         {choice(
           "channel",
           ["cliproxyapi"].map((value) => ({ value, label: t(`accountPool.channel.${value}`) })),
@@ -376,7 +371,7 @@ function AccountPoolDailyLogsPanel({
             重置筛选
           </Button>
           <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            {t("accountPool.refresh")}
+            {t("ui.Refresh")}
           </Button>
           <Button type="button" variant="outline" onClick={() => void downloadLogs()}>
             <Download />
@@ -651,32 +646,5 @@ function AccountPoolDailyLogsPanel({
       </Dialog>
       <FullLogDialog accessToken={accessToken} eventId={fullEventId} onClose={() => setFullEventId(null)} />
     </div>
-  );
-}
-
-export function AccountPoolLogsPanel(props: {
-  accessToken: string;
-  environments: AccountPoolEnvironment[];
-  initialCardId?: string;
-  standardLogs?: import("react").ReactNode;
-}) {
-  return (
-    <Tabs defaultValue={props.standardLogs && !props.initialCardId ? "standard" : "daily"} className="grid gap-4">
-      <TabsList>
-        {props.standardLogs && <TabsTrigger value="standard">标准调用日志</TabsTrigger>}
-        <TabsTrigger value="daily">账号运行记录</TabsTrigger>
-        <TabsTrigger value="full">完整请求记录</TabsTrigger>
-      </TabsList>
-      {props.standardLogs && <TabsContent value="standard">{props.standardLogs}</TabsContent>}
-      <TabsContent value="daily">
-        <p className="mb-3 text-sm text-muted-foreground">
-          账号调度、重试和运行事件用于排错；调用结果与费用请查看标准调用日志
-        </p>
-        <AccountPoolDailyLogsPanel {...props} />
-      </TabsContent>
-      <TabsContent value="full">
-        <AccountPoolFullLogsPanel {...props} />
-      </TabsContent>
-    </Tabs>
   );
 }

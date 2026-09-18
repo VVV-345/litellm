@@ -1219,127 +1219,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account_pool/full-logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Logs */
-        get: operations["_logs_account_pool_full_logs_get"];
-        put?: never;
-        post?: never;
-        /** Clear */
-        delete: operations["_clear_account_pool_full_logs_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/full-logs/storage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Storage */
-        get: operations["_storage_account_pool_full_logs_storage_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/full-logs/{event_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Detail */
-        get: operations["_detail_account_pool_full_logs__event_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Logs */
-        get: operations["logs_account_pool_logs_get"];
-        put?: never;
-        post?: never;
-        /** Clear Logs */
-        delete: operations["clear_logs_account_pool_logs_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/logs/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Export Logs */
-        get: operations["export_logs_account_pool_logs_export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/logs/storage": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Log Storage */
-        get: operations["log_storage_account_pool_logs_storage_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/logs/{event_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Log Detail */
-        get: operations["log_detail_account_pool_logs__event_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/account_pool/openai-compatible": {
         parameters: {
             query?: never;
@@ -1763,23 +1642,6 @@ export interface paths {
         put?: never;
         /** Rollback Settings */
         post: operations["rollback_settings_account_pool_settings_rollback_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Stats */
-        get: operations["stats_account_pool_stats_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9362,6 +9224,162 @@ export interface paths {
         put?: never;
         /** Login */
         post: operations["login_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/full": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Logs */
+        get: operations["_logs_logs_full_get"];
+        put?: never;
+        post?: never;
+        /** Clear */
+        delete: operations["_clear_logs_full_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/full/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Storage */
+        get: operations["_storage_logs_full_storage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/full/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["_detail_logs_full__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Logs */
+        get: operations["logs_logs_operations_get"];
+        put?: never;
+        post?: never;
+        /** Clear Logs */
+        delete: operations["clear_logs_logs_operations_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/operations/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Logs */
+        get: operations["export_logs_logs_operations_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/operations/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stats */
+        get: operations["stats_logs_operations_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/operations/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Log Storage */
+        get: operations["log_storage_logs_operations_storage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/operations/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Log Detail */
+        get: operations["log_detail_logs_operations__event_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["get_settings_logs_settings_get"];
+        /** Update Settings */
+        put: operations["update_settings_logs_settings_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -37853,6 +37871,70 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** RequestLogSettings */
+        RequestLogSettings: {
+            /**
+             * Daily Log Retention Days
+             * @default 30
+             */
+            daily_log_retention_days: number;
+            /**
+             * Debug Logging Enabled
+             * @default false
+             */
+            debug_logging_enabled: boolean;
+            /**
+             * Error Logs Max Files
+             * @default 10
+             */
+            error_logs_max_files: number;
+            /**
+             * File Logging Enabled
+             * @default false
+             */
+            file_logging_enabled: boolean;
+            /**
+             * Full Log Retention Days
+             * @default 30
+             */
+            full_log_retention_days: number;
+            /**
+             * Full Log Skip Failed
+             * @default false
+             */
+            full_log_skip_failed: boolean;
+            /**
+             * Full Logging Enabled
+             * @default false
+             */
+            full_logging_enabled: boolean;
+            /**
+             * Logs Max Total Size Mb
+             * @default 0
+             */
+            logs_max_total_size_mb: number;
+            /**
+             * Request Log Enabled
+             * @default false
+             */
+            request_log_enabled: boolean;
+            /**
+             * Usage Statistics Enabled
+             * @default false
+             */
+            usage_statistics_enabled: boolean;
+        };
+        /** RequestLogSettingsView */
+        RequestLogSettingsView: {
+            /**
+             * Requires Reload
+             * @default false
+             */
+            requires_reload: boolean;
+            values: components["schemas"]["RequestLogSettings"];
+            /** Version */
+            version: number;
+        };
         /** ResetSpendRequest */
         ResetSpendRequest: {
             /** Reset To */
@@ -44479,310 +44561,6 @@ export interface operations {
             };
         };
     };
-    _logs_account_pool_full_logs_get: {
-        parameters: {
-            query?: {
-                card_id?: string | null;
-                request_id?: string | null;
-                session_id?: string | null;
-                model?: string | null;
-                http_status?: number | null;
-                incomplete?: boolean | null;
-                occurred_from?: string | null;
-                occurred_to?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FullLogPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    _clear_account_pool_full_logs_delete: {
-        parameters: {
-            query?: {
-                older_than_days?: ("7" | "14" | "30" | "45") | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    _storage_account_pool_full_logs_storage_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FullLogStorageStats"];
-                };
-            };
-        };
-    };
-    _detail_account_pool_full_logs__event_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                event_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FullLogRecord"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    logs_account_pool_logs_get: {
-        parameters: {
-            query?: {
-                occurred_from?: string | null;
-                occurred_to?: string | null;
-                channel?: ("openai_compatible" | "cliproxyapi") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
-                card_id?: string | null;
-                environment_id?: string | null;
-                account_id?: string | null;
-                card_key_id?: string | null;
-                request_id?: string | null;
-                session_id?: string | null;
-                model?: string | null;
-                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
-                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
-                retryable?: boolean | null;
-                switched_account?: boolean | null;
-                final_status?: ("succeeded" | "failed" | "retrying") | null;
-                http_status?: number | null;
-                endpoint?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorLogPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    clear_logs_account_pool_logs_delete: {
-        parameters: {
-            query?: {
-                older_than_days?: ("7" | "14" | "30" | "45") | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    export_logs_account_pool_logs_export_get: {
-        parameters: {
-            query?: {
-                occurred_from?: string | null;
-                occurred_to?: string | null;
-                channel?: ("openai_compatible" | "cliproxyapi") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
-                card_id?: string | null;
-                environment_id?: string | null;
-                account_id?: string | null;
-                card_key_id?: string | null;
-                request_id?: string | null;
-                session_id?: string | null;
-                model?: string | null;
-                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
-                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
-                retryable?: boolean | null;
-                switched_account?: boolean | null;
-                final_status?: ("succeeded" | "failed" | "retrying") | null;
-                http_status?: number | null;
-                endpoint?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/plain": string;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    log_storage_account_pool_logs_storage_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolLogStorageStats"];
-                };
-            };
-        };
-    };
-    log_detail_account_pool_logs__event_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                event_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorLogDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     create_openai_compatible_account_pool_openai_compatible_post: {
         parameters: {
             query?: never;
@@ -45522,56 +45300,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolSettingsView"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stats_account_pool_stats_get: {
-        parameters: {
-            query?: {
-                occurred_from?: string | null;
-                occurred_to?: string | null;
-                channel?: ("openai_compatible" | "cliproxyapi") | null;
-                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
-                card_id?: string | null;
-                environment_id?: string | null;
-                account_id?: string | null;
-                card_key_id?: string | null;
-                request_id?: string | null;
-                session_id?: string | null;
-                model?: string | null;
-                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
-                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
-                retryable?: boolean | null;
-                switched_account?: boolean | null;
-                final_status?: ("succeeded" | "failed" | "retrying") | null;
-                http_status?: number | null;
-                endpoint?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorStats"];
                 };
             };
             /** @description Validation Error */
@@ -55463,6 +55191,413 @@ export interface operations {
             };
         };
     };
+    _logs_logs_full_get: {
+        parameters: {
+            query?: {
+                card_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                model?: string | null;
+                http_status?: number | null;
+                incomplete?: boolean | null;
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    _clear_logs_full_delete: {
+        parameters: {
+            query?: {
+                older_than_days?: ("7" | "14" | "30" | "45") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    _storage_logs_full_storage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogStorageStats"];
+                };
+            };
+        };
+    };
+    _detail_logs_full__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logs_logs_operations_get: {
+        parameters: {
+            query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
+                card_id?: string | null;
+                environment_id?: string | null;
+                account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_logs_logs_operations_delete: {
+        parameters: {
+            query?: {
+                older_than_days?: ("7" | "14" | "30" | "45") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_logs_logs_operations_export_get: {
+        parameters: {
+            query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
+                card_id?: string | null;
+                environment_id?: string | null;
+                account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_logs_operations_stats_get: {
+        parameters: {
+            query?: {
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                channel?: ("openai_compatible" | "cliproxyapi") | null;
+                supplier?: ("openai_compatible" | "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai" | "gemini" | "gemini_interactions" | "vertex") | null;
+                card_id?: string | null;
+                environment_id?: string | null;
+                account_id?: string | null;
+                card_key_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                model?: string | null;
+                stage?: ("provisioning" | "authorization" | "validation" | "configuration" | "quota" | "cleanup" | "authentication" | "routing" | "connection" | "upstream" | "response" | "card_key") | null;
+                error_category?: ("authentication" | "authorization" | "rate_limit" | "timeout" | "connection" | "invalid_request" | "upstream" | "configuration" | "unknown") | null;
+                retryable?: boolean | null;
+                switched_account?: boolean | null;
+                final_status?: ("succeeded" | "failed" | "retrying") | null;
+                http_status?: number | null;
+                endpoint?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    log_storage_logs_operations_storage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogStorageStats"];
+                };
+            };
+        };
+    };
+    log_detail_logs_operations__event_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorLogDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_logs_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestLogSettingsView"];
+                };
+            };
+        };
+    };
+    update_settings_logs_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestLogSettingsView"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestLogSettingsView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_budgets_management_v1_budgets_get: {
         parameters: {
             query?: never;
@@ -62014,6 +62149,8 @@ export interface operations {
                 request_id?: string | null;
                 /** @description Filter spend logs by session_id (partial string match) */
                 session_id?: string | null;
+                /** @description Filter logs by account pool card or final account */
+                account_id?: string | null;
                 /** @description Filter spend logs by team_id */
                 team_id?: string | null;
                 /** @description Filter logs with spend greater than or equal to this value */
@@ -62126,6 +62263,8 @@ export interface operations {
                 request_id?: string | null;
                 /** @description Filter spend logs by session_id (partial string match) */
                 session_id?: string | null;
+                /** @description Filter logs by account pool card or final account */
+                account_id?: string | null;
                 /** @description Filter spend logs by team_id */
                 team_id?: string | null;
                 /** @description Filter logs with spend greater than or equal to this value */

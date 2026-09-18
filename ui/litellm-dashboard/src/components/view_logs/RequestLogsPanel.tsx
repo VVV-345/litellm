@@ -34,6 +34,7 @@ interface RequestLogsPanelProps {
   userRole: string;
   userID: string;
   isActive: boolean;
+  accountId?: string;
 }
 
 interface SessionComposition {
@@ -42,7 +43,14 @@ interface SessionComposition {
   mcp: number;
 }
 
-export default function RequestLogsPanel({ accessToken, token, userRole, userID, isActive }: RequestLogsPanelProps) {
+export default function RequestLogsPanel({
+  accessToken,
+  token,
+  userRole,
+  userID,
+  isActive,
+  accountId,
+}: RequestLogsPanelProps) {
   const { t } = useTranslation();
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: PAGE_SIZE });
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_LOGS_SORTING);
@@ -88,6 +96,7 @@ export default function RequestLogsPanel({ accessToken, token, userRole, userID,
     userRole,
     userID,
     columnFilters,
+    accountId,
     activeTab: isActive ? "request logs" : "inactive",
     isLiveTail,
     excludeInternalHealthChecks,

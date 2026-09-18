@@ -83,7 +83,7 @@ const defaults: AccountPoolSettings = {
   streaming_rules: [],
 };
 
-const categories = ["common", "access", "network", "logging", "quota", "streaming", "advanced", "payload"] as const;
+const categories = ["common", "access", "network", "quota", "streaming", "advanced", "payload"] as const;
 const oauthAliasChannels = ["codex", "claude", "antigravity", "kimi", "xai", "gemini", "vertex", "aistudio"] as const;
 const routingModes = ["auto", "priority", "random", "quota"] as const;
 
@@ -679,92 +679,6 @@ export const AccountPoolSettingsPanel = ({ accessToken, environments }: Props) =
                 onSave={() => void save()}
                 renderValues={renderNetwork}
               />
-            </TabsContent>
-
-            <TabsContent value="logging">
-              <div className="grid gap-5 pt-4">
-                <section className="grid gap-4 rounded-lg border bg-muted/15 p-4">
-                  <div>
-                    <h3 className="text-sm font-semibold">{t("accountPool.settings.globalConfiguration")}</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.settings.loggingGlobalOnly")}</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <ToggleSetting
-                      id="logging-full"
-                      label="记录完整日志（输入、提示词、回复和工具调用）"
-                      checked={values.full_logging_enabled ?? false}
-                      disabled={busy}
-                      onChange={(enabled) => update("full_logging_enabled", enabled)}
-                    />
-                    <NumberSetting
-                      id="logging-daily-retention"
-                      label="日常日志保留天数"
-                      value={values.daily_log_retention_days ?? 30}
-                      disabled={busy}
-                      onChange={(days) => update("daily_log_retention_days", days)}
-                    />
-                    <NumberSetting
-                      id="logging-full-retention"
-                      label="完整日志保留天数"
-                      value={values.full_log_retention_days ?? 30}
-                      disabled={busy}
-                      onChange={(days) => update("full_log_retention_days", days)}
-                    />
-                    <p className="text-xs text-muted-foreground sm:col-span-2">
-                      日常日志始终记录。完整日志独立存储；关闭后停止采集新请求正文，已有记录按保留期限清理。保存后生效。
-                    </p>
-                    <ToggleSetting
-                      id="logging-file"
-                      label={t("accountPool.settings.fileLogging")}
-                      checked={values.file_logging_enabled}
-                      disabled={busy}
-                      onChange={(file_logging_enabled) => update("file_logging_enabled", file_logging_enabled)}
-                    />
-                    <ToggleSetting
-                      id="logging-debug"
-                      label={t("accountPool.settings.debugLogging")}
-                      checked={values.debug_logging_enabled}
-                      disabled={busy}
-                      onChange={(debug_logging_enabled) => update("debug_logging_enabled", debug_logging_enabled)}
-                    />
-                    <ToggleSetting
-                      id="logging-request"
-                      label={t("accountPool.settings.requestLog")}
-                      checked={values.request_log_enabled}
-                      disabled={busy}
-                      onChange={(request_log_enabled) => update("request_log_enabled", request_log_enabled)}
-                    />
-                    <ToggleSetting
-                      id="logging-usage"
-                      label={t("accountPool.settings.usageStatistics")}
-                      checked={values.usage_statistics_enabled}
-                      disabled={busy}
-                      onChange={(usage_statistics_enabled) =>
-                        update("usage_statistics_enabled", usage_statistics_enabled)
-                      }
-                    />
-                    <NumberSetting
-                      id="logging-size"
-                      label={t("accountPool.settings.logsMaxSize")}
-                      value={values.logs_max_total_size_mb}
-                      disabled={busy}
-                      onChange={(logs_max_total_size_mb) => update("logs_max_total_size_mb", logs_max_total_size_mb)}
-                    />
-                    <NumberSetting
-                      id="logging-files"
-                      label={t("accountPool.settings.errorLogsMaxFiles")}
-                      value={values.error_logs_max_files}
-                      disabled={busy}
-                      onChange={(error_logs_max_files) => update("error_logs_max_files", error_logs_max_files)}
-                    />
-                  </div>
-                </section>
-                <div className="flex justify-end border-t pt-4">
-                  <Button type="button" disabled={busy} onClick={() => void save()}>
-                    {t("accountPool.settings.save")}
-                  </Button>
-                </div>
-              </div>
             </TabsContent>
 
             <TabsContent value="quota">
