@@ -3853,7 +3853,7 @@ async def reveal_virtual_key(
     db: Final = cast("Prisma", prisma_client.db)  # cast-ok: PrismaClient owns the generated Prisma client
     secret: Final = await db.litellm_virtualkeysecret.find_unique(where={"token": data.token})
     if secret is None:
-        raise HTTPException(409, "此旧密钥只保存了哈希，无法恢复完整值。原密钥仍可使用；需要查看时请主动重新生成并更新客户端")
+        raise HTTPException(409, "此旧密钥只保存了哈希，无法恢复完整值。原密钥仍可使用；需要查看时请新建密钥并更新客户端")
     plaintext: Final = open_virtual_key(secret.ciphertext, data.token)
     if plaintext is None:
         raise HTTPException(503, "密钥暂时无法解密，请检查服务器加密配置")
