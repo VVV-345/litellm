@@ -25,6 +25,20 @@ from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsView
 
 
+def test_expired_window_does_not_keep_model_exhausted():
+    from account_pool.domain import QuotaWindow
+    from account_pool.quota import routing_quota_state
+
+    now = utc_now()
+    quota = QuotaSnapshot(observed_at=now, windows=(
+        QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300, resets_at=now),
+        QuotaWindow(name="week", remaining_percent=65, used_percent=35, window_minutes=10080, resets_at=now + timedelta(days=1)),
+    ))
+    assert routing_quota_state(quota, now) == (65, None)
+    assert routing_quota_state(quota, now + timedelta(days=2)) == (None, None)
+    assert routing_quota_state(quota, now - timedelta(seconds=1)) == (0, now)
+
+
 def _record(*, manual_cooldown: bool = False, enabled: bool = True):
     now: Final = utc_now()
     return EnvironmentRecord(

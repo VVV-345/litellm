@@ -217,9 +217,10 @@ async def test_expired_overload_allows_recovery_without_clearing_credential_fail
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("code", ("auth_unavailable", "refresh_token_invalidated", "refresh_token_reused"))
+@pytest.mark.parametrize("code", ("auth_unavailable", "refresh_token_invalidated", "refresh_token_reused", "unauthorized"))
 @pytest.mark.parametrize("status", ("error", "active"))
-async def test_authentication_error_blocks_false_available_credentials(code: str, status: str) -> None:
+@pytest.mark.parametrize("plain", (False, True))
+async def test_authentication_error_blocks_false_available_credentials(code: str, status: str, plain: bool) -> None:
     record: Final = _record().model_copy(update={"auth_file_name": "selected.json"})
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -233,7 +234,7 @@ async def test_authentication_error_blocks_false_available_credentials(code: str
                             "provider": "codex",
                             "unavailable": False,
                             "status": status,
-                            "status_message": json.dumps({"error": {"code": code}}),
+                            "status_message": "unauthorized" if plain else json.dumps({"error": {"code": code}}),
                         }
                     ]
                 },

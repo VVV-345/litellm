@@ -217,7 +217,7 @@ async def test_candidate_preserves_per_model_quota_for_gateway_routing() -> None
                                 used_percent=75,
                                 remaining_percent=25,
                                 window_minutes=300,
-                                resets_at=observed_at,
+                                resets_at=observed_at + timedelta(hours=1),
                             ),
                         ),
                     ),

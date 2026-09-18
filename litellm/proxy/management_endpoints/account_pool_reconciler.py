@@ -14,7 +14,12 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
 from litellm.models.model import LiteLLM_ProxyModelTable
-from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
+from litellm.proxy.management_endpoints.account_pool_native_routing import (
+    RoutingQuota,
+    RoutingQuotaWindow,
+    RoutingSnapshot,
+    snapshots,
+)
 from litellm.proxy.management_endpoints.account_pool_routing import plan_priority
 from litellm.repositories.model_repository import ModelRepository
 
@@ -26,6 +31,7 @@ _DEFAULT_INTERVAL_SECONDS: Final = 30.0
 
 class QuotaWindow(BaseModel):
     remaining_percent: float
+    resets_at: AwareDatetime | None = None
 
 
 class QuotaSnapshot(BaseModel):
@@ -39,6 +45,7 @@ class QuotaSnapshot(BaseModel):
         return RoutingQuota(
             remaining_percent=min((window.remaining_percent for window in self.windows), default=None),
             observed_at=self.observed_at,
+            windows=tuple(RoutingQuotaWindow(remaining_percent=w.remaining_percent, resets_at=w.resets_at) for w in self.windows),
         )
 
 

@@ -29,6 +29,7 @@ from account_pool.gateway_contracts import (
 from account_pool.gateway_repository import LeaseRepository
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
+from account_pool.quota import routing_quota_state
 from account_pool.settings import (
     AccountPoolSettings,
     AccountPoolSettingsRepository,
@@ -162,6 +163,8 @@ class GatewayService:
         effective_settings: Final = (
             settings_for_card(global_settings, record.id) if global_settings is not None else None
         )
+        now: Final = utc_now()
+        remaining, observed = routing_quota_state(record.quota, now)
         return Candidate(
             id=record.id,
             channel=record.channel,
@@ -177,16 +180,17 @@ class GatewayService:
             model_prefix=endpoint.model_prefix,
             concurrency_limit=endpoint.concurrency_limit,
             policy=effective_policy,
-            remaining_percent=min((window.remaining_percent for window in record.quota.windows), default=None),
-            quota_observed_at=record.quota.observed_at,
+            remaining_percent=remaining,
+            quota_observed_at=observed,
             model_quotas=tuple(
                 CandidateModelQuota(
                     model=item.model,
-                    remaining_percent=min(window.remaining_percent for window in item.quota.windows),
-                    observed_at=item.quota.observed_at,
+                    remaining_percent=remaining,
+                    observed_at=observed,
                 )
                 for item in record.model_quotas
                 if item.quota.windows
+                for remaining, observed in (routing_quota_state(item.quota, now),)
             ),
             model_cooldowns=tuple(
                 CandidateModelCooldown.model_validate(item.model_dump()) for item in record.model_cooldowns

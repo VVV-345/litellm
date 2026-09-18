@@ -16,10 +16,25 @@ from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check impor
 from litellm.types.router import AccountPoolRoutingConfig
 
 
+class RoutingQuotaWindow(BaseModel):
+    remaining_percent: float
+    resets_at: AwareDatetime | None = None
+
+
 class RoutingQuota(BaseModel):
     model_config = ConfigDict(frozen=True)
     remaining_percent: float | None = Field(default=None, ge=0, le=100)
     observed_at: AwareDatetime | None = None
+    windows: tuple[RoutingQuotaWindow, ...] = ()
+
+    def effective(self, now: datetime) -> tuple[float | None, datetime | None]:
+        if not self.windows:
+            return self.remaining_percent, self.observed_at
+        active: Final = tuple(w for w in self.windows if w.resets_at is None or w.resets_at > now)
+        return (
+            min((w.remaining_percent for w in active), default=None),
+            self.observed_at if len(active) == len(self.windows) else None,
+        )
 
 
 class RoutingSnapshot(BaseModel):
@@ -62,14 +77,15 @@ def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     if snapshot.subscription_active_until is not None and snapshot.subscription_active_until <= now:
         return False
     quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
-    if quota.remaining_percent is not None and quota.remaining_percent <= snapshot.quota_reserve_percent:
+    remaining, observed = quota.effective(now)
+    if remaining is not None and remaining <= snapshot.quota_reserve_percent:
         return False
     if snapshot.quota_reserve_percent == 0:
         return True
     return (
-        quota.remaining_percent is not None
-        and quota.observed_at is not None
-        and (now - quota.observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
+        remaining is not None
+        and observed is not None
+        and (now - observed).total_seconds() <= snapshot.quota_snapshot_max_age
     )
 
 
@@ -85,10 +101,11 @@ def eligible_deployments(
 
 def rank(snapshot: RoutingSnapshot, model: str, selection: str, now: datetime) -> tuple[float, float]:
     quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
+    remaining_percent, observed_at = quota.effective(now)
     fresh: Final = (
-        quota.observed_at is not None and (now - quota.observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
+        observed_at is not None and (now - observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
     )
-    remaining: Final = -quota.remaining_percent if fresh and quota.remaining_percent is not None else float("inf")
+    remaining: Final = -remaining_percent if fresh and remaining_percent is not None else float("inf")
     if selection == "plan":
         return (-float(snapshot.plan_rank) if snapshot.plan_rank is not None else float("inf"), remaining)
     if selection == "expiry":

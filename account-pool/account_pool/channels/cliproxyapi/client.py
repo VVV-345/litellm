@@ -697,13 +697,14 @@ class HttpCLIProxyClient:
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)
         upstream_code: Final = _upstream_code(auth_file.status_message or "")
-        authentication_failed: Final = auth_file.status == "error" and upstream_code in {
+        authentication_failed: Final = auth_file.status == "error" and (upstream_code in {
             "auth_unavailable",
             "authentication_error",
             "invalid_api_key",
             "refresh_token_invalidated",
             "refresh_token_reused",
-        }
+            "unauthorized",
+        } or (auth_file.status_message or "").strip().lower() == "unauthorized")
         overload_elapsed: Final = (
             auth_file.next_retry_after is not None
             and auth_file.next_retry_after <= now

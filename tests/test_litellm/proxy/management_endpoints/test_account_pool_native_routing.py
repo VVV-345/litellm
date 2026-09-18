@@ -72,6 +72,20 @@ def test_explicit_card_order_only_narrows_existing_candidates_and_preserves_dire
     assert preferred_deployments([], "shared", config, {}, now) == []
 
 
+def test_elapsed_quota_window_allows_probe_without_claiming_fresh_quota():
+    from litellm.proxy.management_endpoints.account_pool_reconciler import QuotaSnapshot
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+
+    now = datetime.now(timezone.utc)
+    quota = QuotaSnapshot.model_validate({"observed_at": now - timedelta(hours=1), "windows": [
+        {"remaining_percent": 0, "resets_at": now - timedelta(seconds=1)},
+        {"remaining_percent": 65, "resets_at": now + timedelta(days=1)},
+    ]}).routing_quota()
+    assert available(RoutingSnapshot(model_quotas={"shared": quota}), "shared", now)
+    assert not available(RoutingSnapshot(model_quotas={"shared": quota}, quota_reserve_percent=10), "shared", now)
+    assert not available(RoutingSnapshot(model_quotas={"shared": quota}), "shared", now - timedelta(seconds=2))
+
+
 @pytest.mark.asyncio
 async def test_router_filters_exhausted_card_before_native_order_and_honors_scope():
     first, second = uuid4(), uuid4()

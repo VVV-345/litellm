@@ -529,6 +529,14 @@ def _provider_reset_at(stem: str, signals: Mapping[str, str], observed_at: datet
             return None
 
 
+def routing_quota_state(quota: QuotaSnapshot, now: datetime) -> tuple[float | None, datetime | None]:
+    active: Final = tuple(w for w in quota.windows if w.resets_at is None or w.resets_at > now)
+    return (
+        min((w.remaining_percent for w in active), default=None),
+        quota.observed_at if len(active) == len(quota.windows) else None,
+    )
+
+
 def effective_cooldown_until(
     record: EnvironmentRecord,
     upstream_cooldown_until: datetime | None,

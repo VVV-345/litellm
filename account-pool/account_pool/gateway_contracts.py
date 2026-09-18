@@ -56,7 +56,7 @@ class CandidateModelQuota(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     model: str
-    remaining_percent: float = Field(ge=0, le=100)
+    remaining_percent: float | None = Field(default=None, ge=0, le=100)
     observed_at: AwareDatetime | None = None
 
 
