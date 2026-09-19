@@ -198,7 +198,9 @@ class ErrorLogRepository(Protocol):
         self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
     ) -> ErrorStats: ...
 
-    async def prune(self, before: datetime) -> int: ...
+    async def prune(self, before: datetime, limit: int | None = None) -> int: ...
+
+    async def limit_rows(self, max_rows: int) -> int: ...
 
     async def storage(self) -> LogStorageStats: ...
 
@@ -289,15 +291,14 @@ class ErrorLogService:
     async def maintain(self, stopped: asyncio.Event) -> None:
         while not stopped.is_set():
             try:
-                retention: Final = (
-                    (await self.settings.get()).values.daily_log_retention_days
-                    if self.settings
-                    else self.retention_days
-                )
-                await self.repository.prune(utc_now() - timedelta(days=retention))
+                settings: Final = (await self.settings.get()).values if self.settings else None
+                retention: Final = settings.daily_log_retention_days if settings else self.retention_days
+                await self.repository.prune(utc_now() - timedelta(days=retention), limit=1000)
+                if settings and settings.daily_log_max_rows:
+                    await self.repository.limit_rows(settings.daily_log_max_rows)
             except Exception:
                 _LOGGER.error("Account pool log retention failed")
             try:
-                await asyncio.wait_for(stopped.wait(), timeout=3600)
+                await asyncio.wait_for(stopped.wait(), timeout=60)
             except TimeoutError:
                 continue

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Final, TypeVar, cast
+from typing import TYPE_CHECKING, Final, TypeVar, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -15,6 +15,9 @@ from litellm.proxy.management_endpoints.account_pool_session import has_signed_h
 from litellm.responses.utils import ResponsesAPIRequestUtils
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
 from litellm.types.router import AccountPoolRoutingConfig
+
+if TYPE_CHECKING:
+    from litellm import Router
 
 
 class RoutingQuotaWindow(BaseModel):
@@ -103,9 +106,7 @@ def eligible_deployments(
 def rank(snapshot: RoutingSnapshot, model: str, selection: str, now: datetime) -> tuple[float, float]:
     quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
     remaining_percent, observed_at = quota.effective(now)
-    fresh: Final = (
-        observed_at is not None and (now - observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
-    )
+    fresh: Final = observed_at is not None and (now - observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
     remaining: Final = -remaining_percent if fresh and remaining_percent is not None else float("inf")
     if selection == "plan":
         return (-float(snapshot.plan_rank) if snapshot.plan_rank is not None else float("inf"), remaining)
@@ -166,7 +167,9 @@ def effective_config(default: AccountPoolRoutingConfig) -> AccountPoolRoutingCon
     )
 
 
-def session_metadata(config: AccountPoolRoutingConfig, request: Mapping[str, object] | None = None) -> dict[str, object]:
+def session_metadata(
+    config: AccountPoolRoutingConfig, request: Mapping[str, object] | None = None
+) -> dict[str, object]:
     identity: Final = pool_identity.get()
     if not config.session_affinity or identity is None:
         return {}
@@ -185,7 +188,9 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def continuation_deployments(deployments: Sequence[Deployment], request: Mapping[str, object]) -> list[Deployment]:
+def continuation_deployments(
+    deployments: Sequence[Deployment], request: Mapping[str, object], router: Router | None = None
+) -> list[Deployment]:
     previous: Final = request.get("previous_response_id")
     pinned: Final = (
         ResponsesAPIRequestUtils.get_model_id_from_response_id(previous)
@@ -205,9 +210,19 @@ def continuation_deployments(deployments: Sequence[Deployment], request: Mapping
     )
     if not pool_candidates:
         return list(deployments)
+    origin: Final = router.get_deployment(model_id=pinned) if router is not None else None
+    boundary: Final = (
+        EncryptedContentAffinityCheck._encryption_boundary_key(origin.litellm_params)  # pyright: ignore[reportPrivateUsage]  # Reuse native boundary matching across models.
+        if origin is not None and not isinstance(previous, str)
+        else None
+    )
     return [
         item
         for item in deployments
         if isinstance(item.get("model_info"), Mapping)
-        and cast(Mapping[str, object], item["model_info"]).get("id") == pinned
+        and (
+            cast(Mapping[str, object], item["model_info"]).get("id") == pinned
+            or boundary is not None
+            and EncryptedContentAffinityCheck._encryption_boundary_key(item.get("litellm_params")) == boundary  # pyright: ignore[reportPrivateUsage]  # Keep native boundary matching authoritative.
+        )
     ]

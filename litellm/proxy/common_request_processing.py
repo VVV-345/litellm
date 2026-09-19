@@ -1899,6 +1899,11 @@ class ProxyBaseLLMRequestProcessing:
                 if alias_target is not None:
                     self.data["model"] = alias_target
 
+        if llm_router is not None:
+            from litellm.proxy.management_endpoints.account_pool_signature import foreign_history_recovery
+
+            self.data.update(foreign_history_recovery(self.data, llm_router))
+
         self.data["litellm_call_id"] = request.headers.get("x-litellm-call-id", str(uuid.uuid4()))
         DDSpanTagger.tag_call_id(self.data.get("litellm_call_id"))
         DDSpanTagger.tag_request(

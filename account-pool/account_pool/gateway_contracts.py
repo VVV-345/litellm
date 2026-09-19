@@ -104,6 +104,11 @@ class Resolution(BaseModel):
     candidates: tuple[Candidate, ...]
     full_logging_enabled: bool = False
     full_log_skip_failed: bool = False
+    full_log_success_enabled: bool = True
+    full_log_sample_percent: int = Field(default=100, ge=0, le=100)
+    full_log_max_body_kb: int = Field(default=16384, ge=1, le=32768)
+    full_log_max_storage_mb: int = Field(default=0, ge=0, le=100000)
+    log_redact_fields: tuple[str, ...] = ()
     full_log_retention_days: int = 30
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"

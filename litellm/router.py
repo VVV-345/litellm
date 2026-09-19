@@ -12083,7 +12083,7 @@ class Router:
             healthy_deployments = litellm.utils._get_excluded_filtered_deployments(
                 healthy_deployments, excluded_deployment_ids=request_kwargs.get("_excluded_deployment_ids")
             )
-            healthy_deployments = continuation_deployments(healthy_deployments, request_kwargs)
+            healthy_deployments = continuation_deployments(healthy_deployments, request_kwargs, self)
             healthy_deployments = eligible_deployments(healthy_deployments, model, snapshots.values, now_utc())
             if any(item.get("model_info", {}).get("account_pool_environment_id") for item in _pre_cooldown_deployments):
                 pool_session: Final = session_metadata(

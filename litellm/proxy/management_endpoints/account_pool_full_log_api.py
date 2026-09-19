@@ -71,8 +71,12 @@ class FullLogMaintenance:
             )
             response.raise_for_status()
             settings: Final = AccountPoolSettingsView.model_validate_json(response.content)
-        await asyncio.to_thread(full_log_store().prune, settings.values.full_log_retention_days)
-        self.next_check = time.monotonic() + 3600
+        from litellm.proxy.management_endpoints.request_log_runtime import runtime_logging
+
+        await asyncio.to_thread(runtime_logging.apply, settings.values)
+        await asyncio.to_thread(full_log_store().prune, settings.values.full_log_retention_days, 1000)
+        await asyncio.to_thread(full_log_store().limit_storage, settings.values.full_log_max_storage_mb)
+        self.next_check = time.monotonic() + 60
 
 
 @cache

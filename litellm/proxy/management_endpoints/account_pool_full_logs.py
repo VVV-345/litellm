@@ -199,6 +199,19 @@ class FullLogStore:
                 ),
             )
 
+    def limit_storage(self, max_storage_mb: int) -> int:
+        if not self.path.exists() or max_storage_mb <= 0:
+            return 0
+        with self.connection() as connection:
+            deleted: Final = connection.execute(
+                "DELETE FROM conversations WHERE event_id IN ("
+                "SELECT event_id FROM (SELECT event_id, sum(length(body) + length(summary)) OVER "
+                "(ORDER BY started_at DESC, event_id DESC) AS running_bytes FROM conversations) "
+                "WHERE running_bytes > ? ORDER BY running_bytes DESC LIMIT 1000)",
+                (max_storage_mb * 1024 * 1024,),
+            ).rowcount
+        return deleted
+
     def reject_request(self, request_id: UUID) -> None:
         now: Final = datetime.now(timezone.utc).timestamp()
         with self.connection() as connection:
@@ -277,14 +290,18 @@ class FullLogStore:
             )
         return None if row is None else FullLogRecord.model_validate_json(gzip.decompress(row[0]))
 
-    def prune(self, days: int | None) -> int:
+    def prune(self, days: int | None, limit: int | None = None) -> int:
         if not self.path.exists():
             return 0
         before: Final = (
             (datetime.now(timezone.utc) - timedelta(days=days)).timestamp() if days is not None else float("inf")
         )
         with self.connection() as connection:
-            deleted: Final = connection.execute("DELETE FROM conversations WHERE started_at < ?", (before,)).rowcount
+            deleted: Final = connection.execute(
+                "DELETE FROM conversations WHERE event_id IN (SELECT event_id FROM conversations "
+                "WHERE started_at < ? ORDER BY started_at LIMIT ?)",
+                (before, limit if limit is not None else -1),
+            ).rowcount
         return deleted
 
     def storage(self) -> FullLogStorageStats:

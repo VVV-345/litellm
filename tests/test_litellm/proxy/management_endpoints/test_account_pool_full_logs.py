@@ -424,3 +424,84 @@ def test_timing_is_persistent_request_scoped_and_independent_of_body_storage(sto
         connection.execute("UPDATE request_timings SET recorded_at = 0")
     store.save_timing(uuid4(), (phase,))
     assert reopened.timing(request_id) == ()
+
+
+@pytest.mark.parametrize("percent,success,expected", [(0, True, 0), (100, True, 1), (0, False, 1)])
+def test_success_sampling_preserves_failures_and_usage(store, percent, success, expected):
+    client, control = setup_gateway(
+        lambda _: httpx.Response(
+            200 if success else 400,
+            json={
+                "choices": [{"message": {"content": "answer"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+            },
+        )
+    )
+    control.resolution = control.resolution.model_copy(
+        update={"full_logging_enabled": True, "full_log_sample_percent": percent}
+    )
+    with client:
+        client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_KEY}"},
+            json={"model": "model-a", "messages": [{"role": "user", "content": "go"}]},
+        )
+    assert store.storage().row_count == expected
+    assert len(control.finished) == 1
+    if success:
+        assert control.finished[0].input_tokens == 5
+        assert control.finished[0].output_tokens == 2
+
+
+def test_custom_redaction_and_capture_limit_do_not_modify_upstream_payload(store):
+    captured = []
+
+    def upstream(request):
+        captured.append(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "x" * 3000}}]})
+
+    client, control = setup_gateway(upstream)
+    control.resolution = control.resolution.model_copy(
+        update={"full_logging_enabled": True, "full_log_max_body_kb": 1, "log_redact_fields": ("email",)}
+    )
+    with client:
+        response = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_KEY}"},
+            json={
+                "model": "model-a",
+                "email": "private@example.com",
+                "messages": [{"role": "user", "content": "go"}],
+                "encrypted_content": "secret-thinking",
+            },
+        )
+    assert response.status_code == 200 and b"private@example.com" in captured[0]
+    record = store.detail(store.query(FullLogQuery()).items[0].event_id)
+    assert record.request["email"] == record.request["encrypted_content"] == "[REDACTED]"
+    assert record.truncated and record.result.full_log_state == "truncated"
+
+
+@pytest.mark.asyncio
+async def test_full_log_capacity_keeps_newest_records_and_reuses_existing_store(store):
+    import secrets
+
+    log = request_log("http")
+    await log.finish(
+        FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", http_status=200, message="ok")
+    )
+    original = store.detail(log.lease.lease_id)
+    for index in range(4):
+        record = original.model_copy(
+            update={
+                "event_id": uuid4(),
+                "started_at": original.started_at + timedelta(seconds=index + 1),
+                "response": secrets.token_hex(400000),
+            }
+        )
+        store.append(record)
+    store.limit_storage(1)
+    with store.connection() as connection:
+        total = connection.execute("SELECT sum(length(body) + length(summary)) FROM conversations").fetchone()[0]
+    assert total <= 1024 * 1024
+    assert store.query(FullLogQuery()).items[0].event_id == record.event_id
+    assert store.storage().row_count < 5

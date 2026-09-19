@@ -33,6 +33,22 @@ class RequestLogSettings(BaseModel):
 
     full_logging_enabled: bool = False
     full_log_skip_failed: bool = False
+    full_log_success_enabled: bool = True
+    full_log_sample_percent: int = Field(default=100, ge=0, le=100)
+    full_log_max_body_kb: int = Field(default=16384, ge=1, le=32768)
+    full_log_max_storage_mb: int = Field(default=0, ge=0, le=100000)
+    daily_log_max_rows: int = Field(default=0, ge=0, le=10000000)
+    log_redact_fields: tuple[Annotated[str, Field(min_length=1, max_length=128)], ...] = Field(
+        default=(), max_length=100
+    )
+    runtime_log_level: Literal["inherit", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "inherit"
+    runtime_log_format: Literal["inherit", "text", "json"] = "inherit"
+    runtime_log_console: bool = True
+    runtime_log_file: bool = False
+    runtime_log_max_mb: int = Field(default=100, ge=1, le=1000)
+    runtime_log_backups: int = Field(default=5, ge=1, le=100)
+    runtime_log_stacktrace: bool = True
+    runtime_log_quiet_dependencies: bool = True
     daily_log_retention_days: int = Field(default=30, ge=1, le=3650)
     full_log_retention_days: int = Field(default=30, ge=1, le=3650)
     file_logging_enabled: bool = False
@@ -100,6 +116,9 @@ def create_request_log_router(
         saved: Final = parse_response(
             await call("PUT", "/api/settings", merged.model_dump_json().encode()), TypeAdapter(AccountPoolSettingsView)
         )
+        from litellm.proxy.management_endpoints.account_pool_full_log_api import full_log_maintenance
+
+        full_log_maintenance().next_check = 0.0
         return RequestLogSettingsView(
             version=saved.version,
             values=RequestLogSettings.model_validate(

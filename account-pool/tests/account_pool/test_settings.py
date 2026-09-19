@@ -38,6 +38,21 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
+def test_log_options_keep_legacy_payload_readable_and_restore_versioned_settings():
+    from account_pool.settings import LOG_OPTION_FIELDS, restored_settings, stored_log_options, stored_settings
+
+    values = AccountPoolSettings(full_log_sample_percent=25, runtime_log_level="WARNING", log_redact_fields=("email",))
+    legacy = stored_settings(values)
+    options = stored_log_options(values)
+    assert not LOG_OPTION_FIELDS.intersection(legacy)
+    assert legacy["full_logging_enabled"] is False
+    assert options["full_log_sample_percent"] == 25
+    assert restored_settings(legacy, options) == values
+    old_view = restored_settings(legacy, {})
+    assert old_view.full_log_sample_percent == 100
+    assert old_view.runtime_log_level == "inherit"
+
+
 class MemorySettingsRepository:
     def __init__(self) -> None:
         defaults: Final = AccountPoolSettings()

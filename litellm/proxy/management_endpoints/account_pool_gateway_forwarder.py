@@ -23,6 +23,7 @@ from typing_extensions import ReadOnly
 
 from litellm._logging import redact_secrets, verbose_proxy_logger
 from litellm.litellm_core_utils import token_counter as token_counter_module
+from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
@@ -619,7 +620,7 @@ async def execute(
                         attempt.outcome(
                             400,
                             "Retrying without incompatible thinking state",
-                            detail="signature_recovery: removed incompatible thinking state; retained complete text history",
+                            detail="signature_recovery: removed incompatible thinking state; retained complete conversation and paired client tools",
                         )
                         return await execute(
                             request,
@@ -632,6 +633,15 @@ async def execute(
                             seconds,
                             deadline,
                             signature_recovered=True,
+                        )
+                    if signature_error(error_payload):
+                        reason: Final = (
+                            "retry_exhausted"
+                            if signature_recovered
+                            else signature_recovery_reason(payload) or "no_removable_state"
+                        )
+                        attempt.outcome(
+                            400, "Incompatible thinking history", detail=f"signature_recovery: {reason}; same_card=true"
                         )
                     if attempt.log is not None:
                         attempt.log.capture(json.dumps(error_payload).encode())
@@ -688,7 +698,7 @@ async def execute(
                                 attempt.outcome(
                                     400,
                                     "Retrying without incompatible thinking state",
-                                    detail="signature_recovery: removed incompatible thinking state before output; retained complete text history",
+                                    detail="signature_recovery: removed incompatible thinking state before output; retained complete conversation and paired client tools",
                                 )
                                 return await execute(
                                     request,
@@ -703,12 +713,30 @@ async def execute(
                                     signature_recovered=True,
                                 )
                             await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
+                            if attempt.stream_state.signature_rejected:
+                                attempt.outcome(
+                                    attempt.result.http_status,
+                                    attempt.result.message,
+                                    detail="signature_recovery: output_started; same_card=true",
+                                )
                             return True
                         finally:
                             await bootstrap.close()
-                    return await guarded_stream_response(
+                    completed: Final = await guarded_stream_response(
                         request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline
                     )
+                    if attempt.stream_state.signature_rejected:
+                        stream_reason: Final = (
+                            "retry_exhausted"
+                            if signature_recovered
+                            else signature_recovery_reason(payload) or "no_removable_state"
+                        )
+                        attempt.outcome(
+                            attempt.result.http_status,
+                            attempt.result.message,
+                            detail=f"signature_recovery: {stream_reason}; same_card=true",
+                        )
+                    return completed
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
                     parsed: Final = _JSON.validate_json(data)

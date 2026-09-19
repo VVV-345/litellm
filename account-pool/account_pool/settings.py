@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
-from typing import Final, Literal, Protocol, TypeVar
+from typing import Annotated, Final, Literal, Protocol, TypeVar
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 from account_pool.repository import database_connection
 
@@ -202,6 +202,22 @@ class AccountPoolSettings(BaseModel):
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
     full_logging_enabled: bool = False
     full_log_skip_failed: bool = False
+    full_log_success_enabled: bool = True
+    full_log_sample_percent: int = Field(default=100, ge=0, le=100)
+    full_log_max_body_kb: int = Field(default=16384, ge=1, le=32768)
+    full_log_max_storage_mb: int = Field(default=0, ge=0, le=100000)
+    daily_log_max_rows: int = Field(default=0, ge=0, le=10000000)
+    log_redact_fields: tuple[Annotated[str, Field(min_length=1, max_length=128)], ...] = Field(
+        default=(), max_length=100
+    )
+    runtime_log_level: Literal["inherit", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "inherit"
+    runtime_log_format: Literal["inherit", "text", "json"] = "inherit"
+    runtime_log_console: bool = True
+    runtime_log_file: bool = False
+    runtime_log_max_mb: int = Field(default=100, ge=1, le=1000)
+    runtime_log_backups: int = Field(default=5, ge=1, le=100)
+    runtime_log_stacktrace: bool = True
+    runtime_log_quiet_dependencies: bool = True
     daily_log_retention_days: int = Field(default=30, ge=1, le=3650)
     full_log_retention_days: int = Field(default=30, ge=1, le=3650)
     file_logging_enabled: bool = False
@@ -418,6 +434,43 @@ class AccountPoolSettingsRepository(Protocol):
     async def rollback(self, expected_version: int, target_version: int) -> AccountPoolSettingsView | None: ...
 
 
+LOG_OPTION_FIELDS: Final = frozenset(
+    (
+        "full_log_success_enabled",
+        "full_log_sample_percent",
+        "full_log_max_body_kb",
+        "full_log_max_storage_mb",
+        "daily_log_max_rows",
+        "log_redact_fields",
+        "runtime_log_level",
+        "runtime_log_format",
+        "runtime_log_console",
+        "runtime_log_file",
+        "runtime_log_max_mb",
+        "runtime_log_backups",
+        "runtime_log_stacktrace",
+        "runtime_log_quiet_dependencies",
+    )
+)
+
+
+def stored_settings(values: AccountPoolSettings) -> dict[str, object]:
+    return values.model_dump(mode="json", exclude=set(LOG_OPTION_FIELDS))
+
+
+def stored_log_options(values: AccountPoolSettings) -> dict[str, object]:
+    return values.model_dump(mode="json", include=set(LOG_OPTION_FIELDS))
+
+
+def restored_settings(payload: object, log_options: object) -> AccountPoolSettings:
+    return AccountPoolSettings.model_validate(
+        {
+            **TypeAdapter(dict[str, JsonValue]).validate_python(payload),
+            **TypeAdapter(dict[str, JsonValue]).validate_python(log_options),
+        }
+    )
+
+
 _SCHEMA: Final = (
     """
     CREATE TABLE IF NOT EXISTS account_pool_settings_history (
@@ -435,6 +488,8 @@ _SCHEMA: Final = (
         updated_at timestamptz NOT NULL
     )
     """,
+    "ALTER TABLE account_pool_settings ADD COLUMN IF NOT EXISTS log_options jsonb NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE account_pool_settings_history ADD COLUMN IF NOT EXISTS log_options jsonb NOT NULL DEFAULT '{}'::jsonb",
 )
 
 
@@ -454,7 +509,7 @@ class PostgresAccountPoolSettingsRepository:
                 VALUES (true, 0, %s, %s)
                 ON CONFLICT (singleton) DO NOTHING
                 """,
-                (Jsonb(defaults.model_dump(mode="json")), now),
+                (Jsonb(stored_settings(defaults)), now),
             )
             await connection.execute(
                 """
@@ -462,39 +517,41 @@ class PostgresAccountPoolSettingsRepository:
                 VALUES (0, %s, %s, 'initial')
                 ON CONFLICT (version) DO NOTHING
                 """,
-                (Jsonb(defaults.model_dump(mode="json")), now),
+                (Jsonb(stored_settings(defaults)), now),
             )
 
     async def get(self) -> AccountPoolSettingsView:
         async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute("SELECT version, payload, updated_at FROM account_pool_settings")
+            cursor: Final = await connection.execute(
+                "SELECT version, payload, log_options, updated_at FROM account_pool_settings"
+            )
             row: Final = await cursor.fetchone()
         if row is None:
             return AccountPoolSettingsView(version=0, values=AccountPoolSettings())
         return AccountPoolSettingsView(
             version=int(row["version"]),
-            values=AccountPoolSettings.model_validate(row["payload"]),
+            values=restored_settings(row["payload"], row["log_options"]),
             updated_at=row["updated_at"],
         )
 
     async def save(self, request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView | None:
         async with database_connection(self._database_url) as connection:
             current: Final = await connection.execute(
-                "SELECT version, payload FROM account_pool_settings WHERE singleton FOR UPDATE"
+                "SELECT version, payload, log_options FROM account_pool_settings WHERE singleton FOR UPDATE"
             )
             row: Final = await current.fetchone()
             if row is None or int(row["version"]) != request.version:
                 return None
             now: Final = datetime.now(timezone.utc)
-            previous: Final = AccountPoolSettings.model_validate(row["payload"])
+            previous: Final = restored_settings(row["payload"], row["log_options"])
             next_version: Final = request.version + 1
             await connection.execute(
-                "UPDATE account_pool_settings SET version = %s, payload = %s, updated_at = %s WHERE singleton",
-                (next_version, Jsonb(request.values.model_dump(mode="json")), now),
+                "UPDATE account_pool_settings SET version = %s, payload = %s, log_options = %s, updated_at = %s WHERE singleton",
+                (next_version, Jsonb(stored_settings(request.values)), Jsonb(stored_log_options(request.values)), now),
             )
             await connection.execute(
-                "INSERT INTO account_pool_settings_history (version, payload, created_at, source) VALUES (%s, %s, %s, 'update')",
-                (next_version, Jsonb(request.values.model_dump(mode="json")), now),
+                "INSERT INTO account_pool_settings_history (version, payload, log_options, created_at, source) VALUES (%s, %s, %s, %s, 'update')",
+                (next_version, Jsonb(stored_settings(request.values)), Jsonb(stored_log_options(request.values)), now),
             )
         return AccountPoolSettingsView(
             version=next_version,
@@ -506,13 +563,13 @@ class PostgresAccountPoolSettingsRepository:
     async def history(self) -> tuple[AccountPoolSettingsHistoryEntry, ...]:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                "SELECT version, payload, created_at, source FROM account_pool_settings_history ORDER BY version DESC LIMIT 100"
+                "SELECT version, payload, log_options, created_at, source FROM account_pool_settings_history ORDER BY version DESC LIMIT 100"
             )
             rows: Final = await cursor.fetchall()
         return tuple(
             AccountPoolSettingsHistoryEntry(
                 version=int(row["version"]),
-                values=AccountPoolSettings.model_validate(row["payload"]),
+                values=restored_settings(row["payload"], row["log_options"]),
                 created_at=row["created_at"],
                 source=row["source"],
             )
@@ -522,28 +579,28 @@ class PostgresAccountPoolSettingsRepository:
     async def rollback(self, expected_version: int, target_version: int) -> AccountPoolSettingsView | None:
         async with database_connection(self._database_url) as connection:
             current: Final = await connection.execute(
-                "SELECT version, payload FROM account_pool_settings WHERE singleton FOR UPDATE"
+                "SELECT version, payload, log_options FROM account_pool_settings WHERE singleton FOR UPDATE"
             )
             current_row: Final = await current.fetchone()
             if current_row is None or int(current_row["version"]) != expected_version:
                 return None
-            current_values: Final = AccountPoolSettings.model_validate(current_row["payload"])
+            current_values: Final = restored_settings(current_row["payload"], current_row["log_options"])
             target: Final = await connection.execute(
-                "SELECT payload FROM account_pool_settings_history WHERE version = %s", (target_version,)
+                "SELECT payload, log_options FROM account_pool_settings_history WHERE version = %s", (target_version,)
             )
             target_row: Final = await target.fetchone()
             if target_row is None:
                 return None
-            values: Final = AccountPoolSettings.model_validate(target_row["payload"])
+            values: Final = restored_settings(target_row["payload"], target_row["log_options"])
             now: Final = datetime.now(timezone.utc)
             next_version: Final = expected_version + 1
             await connection.execute(
-                "UPDATE account_pool_settings SET version = %s, payload = %s, updated_at = %s WHERE singleton",
-                (next_version, Jsonb(values.model_dump(mode="json")), now),
+                "UPDATE account_pool_settings SET version = %s, payload = %s, log_options = %s, updated_at = %s WHERE singleton",
+                (next_version, Jsonb(stored_settings(values)), Jsonb(stored_log_options(values)), now),
             )
             await connection.execute(
-                "INSERT INTO account_pool_settings_history (version, payload, created_at, source) VALUES (%s, %s, %s, 'rollback')",
-                (next_version, Jsonb(values.model_dump(mode="json")), now),
+                "INSERT INTO account_pool_settings_history (version, payload, log_options, created_at, source) VALUES (%s, %s, %s, %s, 'rollback')",
+                (next_version, Jsonb(stored_settings(values)), Jsonb(stored_log_options(values)), now),
             )
         return AccountPoolSettingsView(
             version=next_version,

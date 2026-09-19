@@ -30,7 +30,6 @@ from litellm.proxy.management_endpoints.account_pool_stream import cache_usage_t
 
 _VALUE: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
-_MAX_CONTENT: Final = 16 * 1024 * 1024
 _SECRET_FIELDS: Final = frozenset(
     (
         "authorization",
@@ -45,6 +44,10 @@ _SECRET_FIELDS: Final = frozenset(
         "password",
         "secret",
         "proxy-authorization",
+        "encrypted_content",
+        "signature",
+        "thought_signature",
+        "thoughtsignature",
     )
 )
 
@@ -56,14 +59,16 @@ def conversation_id(headers: Headers, key_id: str, payload: Mapping[str, object]
     return "pool-" + hashlib.sha256(f"{key_id}:{session}".encode()).hexdigest()
 
 
-def clean_content(value: JsonValue, secrets: tuple[str, ...]) -> JsonValue:
+def clean_content(value: JsonValue, secrets: tuple[str, ...], extra_fields: tuple[str, ...] = ()) -> JsonValue:
     if isinstance(value, dict):
         return {
-            name: "[REDACTED]" if name.lower() in _SECRET_FIELDS else clean_content(item, secrets)
+            name: "[REDACTED]"
+            if name.lower() in _SECRET_FIELDS or name.casefold() in extra_fields
+            else clean_content(item, secrets, extra_fields)
             for name, item in value.items()
         }
     if isinstance(value, list):
-        return [clean_content(item, secrets) for item in value]
+        return [clean_content(item, secrets, extra_fields) for item in value]
     if not isinstance(value, str):
         return value
     scrubbed: Final = redact_secrets(reduce(lambda text, secret: text.replace(secret, "[REDACTED]"), secrets, value))
@@ -75,8 +80,9 @@ def clean_content(value: JsonValue, secrets: tuple[str, ...]) -> JsonValue:
         except ValueError:
             return "[无效链接]"
         return urlunsplit((url.scheme, url.netloc.rsplit("@", 1)[-1], url.path, "", ""))
+    sensitive_names: Final = "|".join(re.escape(name) for name in sorted(_SECRET_FIELDS | frozenset(extra_fields)))
     return re.sub(
-        r'(?i)(["\']?(?:access_token|refresh_token|id_token|api_key|authorization|cookie|password|client_secret)["\']?\s*[:=]\s*["\']?)[^"\'\s,}]+',
+        rf'(?i)(["\']?(?:{sensitive_names})["\']?\s*[:=]\s*["\']?)[^"\'\s,}}]+',
         r"\1[REDACTED]",
         re.sub(r"\b(?:cpk_|sk-)[A-Za-z0-9_-]{12,}\b", "[REDACTED]", scrubbed),
     )
@@ -100,6 +106,10 @@ class RequestLog:
         self.standard_accounting: Final = standard_accounting
         self.enabled: Final = resolution.full_logging_enabled
         self.skip_failed: Final = resolution.full_log_skip_failed
+        self.keep_success: Final = resolution.full_log_success_enabled
+        self.sample_percent: Final = resolution.full_log_sample_percent
+        self.max_content: Final = resolution.full_log_max_body_kb * 1024
+        self.redact_fields: Final = tuple(field.casefold() for field in resolution.log_redact_fields)
         self.session_id: Final = conversation_id(headers, str(lease.key_id), payload)
         self.proxy_endpoint: Final = route.account.proxy_endpoint
         self.requested_model: Final = str(payload.get("model", lease.model))
@@ -122,10 +132,10 @@ class RequestLog:
             )
         except Exception:  # noqa: BLE001  # 计价组件故障不能阻止转发已取得租约的请求。
             self.price = PriceSnapshot(model=lease.model, model_id="")
-        self.request: Final = clean_content(payload, self.secrets) if self.enabled else None
+        self.truncated = self.enabled and len(_VALUE.dump_json(payload)) > self.max_content
+        self.request: Final = self._bounded_request(payload) if self.enabled else None
         self.response = io.BytesIO() if self.enabled else None
         self.client_frames = io.BytesIO() if self.enabled and transport == "websocket" else None
-        self.truncated = False
         self.usage: dict[str, JsonValue] | None = None
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
@@ -140,11 +150,16 @@ class RequestLog:
         self.websocket_cost_known = True
         self.websocket_pending = False
 
+    def _bounded_request(self, payload: JsonValue) -> JsonValue:
+        if self.truncated:
+            return {"truncated": True, "message": "请求正文超过采集上限，未保存正文"}
+        return clean_content(payload, self.secrets, self.redact_fields)
+
     def capture(self, data: bytes, *, incoming: bool = False) -> None:
         buffer: Final = self.client_frames if incoming else self.response
         if buffer is None:
             return
-        room: Final = _MAX_CONTENT - buffer.tell()
+        room: Final = max(0, self.max_content - buffer.tell())
         if len(data) > room:
             self.truncated = True
         buffer.write(data[:room])
@@ -235,7 +250,7 @@ class RequestLog:
             return None
         raw: Final = buffer.getvalue().decode("utf-8", errors="replace")
         try:
-            return clean_content(_VALUE.validate_json(raw), self.secrets)
+            return clean_content(_VALUE.validate_json(raw), self.secrets, self.redact_fields)
         except ValueError:
             events: Final = tuple(
                 line[5:].strip() if line.startswith("data:") else line.strip()
@@ -243,14 +258,16 @@ class RequestLog:
                 if (line.startswith("data:") or self.transport == "websocket") and line.strip() != "data: [DONE]"
             )
             return (
-                [self._clean_event(event) for event in events if event] if events else clean_content(raw, self.secrets)
+                [self._clean_event(event) for event in events if event]
+                if events
+                else clean_content(raw, self.secrets, self.redact_fields)
             )
 
     def _clean_event(self, raw: str) -> JsonValue:
         try:
-            return clean_content(_VALUE.validate_json(raw), self.secrets)
+            return clean_content(_VALUE.validate_json(raw), self.secrets, self.redact_fields)
         except ValueError:
-            return clean_content(raw, self.secrets)
+            return clean_content(raw, self.secrets, self.redact_fields)
 
     async def finish(self, result: FinishRequest) -> FinishRequest:
         enriched: Final = result.model_copy(
@@ -284,7 +301,13 @@ class RequestLog:
             else estimate
         )
         synced: Final = await self._sync(priced)
-        keep_full: Final = self.enabled and not (self.skip_failed and self.incomplete(synced))
+        keep_full: Final = self.enabled and (
+            not self.skip_failed
+            if self.incomplete(synced)
+            else self.keep_success
+            and int(hashlib.sha256((self.session_id or str(self.lease.request_id)).encode()).hexdigest()[:8], 16) % 100
+            < self.sample_percent
+        )
         return await self._save_full(synced) if keep_full else synced
 
     def incomplete(self, result: FinishRequest) -> bool:

@@ -159,7 +159,7 @@ class MemoryLogs:
             recent_errors=tuple(event for event in matching if event.final_status == "failed")[-10:],
         )
 
-    async def prune(self, before: datetime) -> None:
+    async def prune(self, before: datetime, limit: int | None = None) -> None:
         self.events = tuple(event for event in self.events if event.occurred_at >= before)
 
     async def clear(self) -> int:

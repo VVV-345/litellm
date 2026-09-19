@@ -275,6 +275,20 @@ async def _sync_settings_or_restore(
         "full_log_skip_failed",
         "daily_log_retention_days",
         "full_log_retention_days",
+        "full_log_success_enabled",
+        "full_log_sample_percent",
+        "full_log_max_body_kb",
+        "full_log_max_storage_mb",
+        "daily_log_max_rows",
+        "log_redact_fields",
+        "runtime_log_level",
+        "runtime_log_format",
+        "runtime_log_console",
+        "runtime_log_file",
+        "runtime_log_max_mb",
+        "runtime_log_backups",
+        "runtime_log_stacktrace",
+        "runtime_log_quiet_dependencies",
     }
     if applied.values.model_dump(exclude=local_fields) == previous.values.model_dump(exclude=local_fields):
         return True

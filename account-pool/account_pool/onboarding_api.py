@@ -1,14 +1,15 @@
 """提供管理员上号接口，密码仅通过显式读取返回并禁止缓存。"""
 
 from collections.abc import Awaitable, Callable
-from typing import Final
+from typing import Final, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 
-from account_pool.domain import AuthorizationView
+from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.domain import AuthorizationFlow, AuthorizationView
 from account_pool.onboarding_models import (
     OnboardingAction,
     OnboardingImport,
@@ -16,10 +17,13 @@ from account_pool.onboarding_models import (
     OnboardingItem,
     OnboardingPreview,
     OnboardingSecrets,
+    OnboardingSupplier,
+    OnboardingSupplierOption,
     OnboardingTarget,
     OnboardingTargetView,
 )
 from account_pool.onboarding_service import OnboardingService
+from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.result import Failure
 
 
@@ -39,6 +43,26 @@ class OnboardingRoute(APIRoute):
 
 def create_onboarding_router(service: OnboardingService, authorize: Callable[..., None]) -> APIRouter:
     router: Final = APIRouter(prefix="/api/onboarding", dependencies=[Depends(authorize)], route_class=OnboardingRoute)
+
+    @router.get("/suppliers")
+    async def suppliers() -> tuple[OnboardingSupplierOption, ...]:
+        registry: Final = SupplierRegistry.default()
+        return tuple(
+            OnboardingSupplierOption(
+                supplier=family.supplier.value,
+                display_name=family.display_name,
+                authentication=family.authentication,
+                oauth=family.available
+                and family.supplier.value in get_args(OnboardingSupplier)
+                and definition is not None
+                and definition.authorization_flow is not AuthorizationFlow.DIRECT_CREDENTIAL,
+                auth_file=family.available and family.supplier.value in get_args(OnboardingSupplier),
+                description=family.description,
+            )
+            for family in PROVIDER_FAMILIES
+            if family.supplier is not None
+            for definition in (registry.definitions.get(family.supplier),)
+        )
 
     @router.post("/preview")
     async def preview(request: OnboardingImport) -> tuple[OnboardingPreview, ...]:

@@ -1269,6 +1269,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/onboarding/suppliers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Suppliers */
+        get: operations["suppliers_account_pool_onboarding_suppliers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/onboarding/targets": {
         parameters: {
             query?: never;
@@ -24536,6 +24553,11 @@ export interface components {
              */
             common_profiles: components["schemas"]["CommonSettingsProfile"][];
             /**
+             * Daily Log Max Rows
+             * @default 0
+             */
+            daily_log_max_rows: number;
+            /**
              * Daily Log Retention Days
              * @default 30
              */
@@ -24579,20 +24601,45 @@ export interface components {
              */
             force_model_prefix: boolean;
             /**
+             * Full Log Max Body Kb
+             * @default 16384
+             */
+            full_log_max_body_kb: number;
+            /**
+             * Full Log Max Storage Mb
+             * @default 0
+             */
+            full_log_max_storage_mb: number;
+            /**
              * Full Log Retention Days
              * @default 30
              */
             full_log_retention_days: number;
+            /**
+             * Full Log Sample Percent
+             * @default 100
+             */
+            full_log_sample_percent: number;
             /**
              * Full Log Skip Failed
              * @default false
              */
             full_log_skip_failed: boolean;
             /**
+             * Full Log Success Enabled
+             * @default true
+             */
+            full_log_success_enabled: boolean;
+            /**
              * Full Logging Enabled
              * @default false
              */
             full_logging_enabled: boolean;
+            /**
+             * Log Redact Fields
+             * @default []
+             */
+            log_redact_fields: string[];
             /**
              * Logs Max Total Size Mb
              * @default 0
@@ -24681,6 +24728,48 @@ export interface components {
              * @default 120
              */
             request_timeout_seconds: number;
+            /**
+             * Runtime Log Backups
+             * @default 5
+             */
+            runtime_log_backups: number;
+            /**
+             * Runtime Log Console
+             * @default true
+             */
+            runtime_log_console: boolean;
+            /**
+             * Runtime Log File
+             * @default false
+             */
+            runtime_log_file: boolean;
+            /**
+             * Runtime Log Format
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_format: "inherit" | "text" | "json";
+            /**
+             * Runtime Log Level
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_level: "inherit" | "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+            /**
+             * Runtime Log Max Mb
+             * @default 100
+             */
+            runtime_log_max_mb: number;
+            /**
+             * Runtime Log Quiet Dependencies
+             * @default true
+             */
+            runtime_log_quiet_dependencies: boolean;
+            /**
+             * Runtime Log Stacktrace
+             * @default true
+             */
+            runtime_log_stacktrace: boolean;
             /**
              * Streaming Enabled
              * @default true
@@ -35585,6 +35674,21 @@ export interface components {
             /** Supplier Password */
             supplier_password: string;
         };
+        /** OnboardingSupplierOption */
+        OnboardingSupplierOption: {
+            /** Auth File */
+            auth_file: boolean;
+            /** Authentication */
+            authentication: string;
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** Oauth */
+            oauth: boolean;
+            /** Supplier */
+            supplier: string;
+        };
         /** OnboardingTarget */
         OnboardingTarget: {
             /**
@@ -38235,6 +38339,11 @@ export interface components {
         /** RequestLogSettings */
         RequestLogSettings: {
             /**
+             * Daily Log Max Rows
+             * @default 0
+             */
+            daily_log_max_rows: number;
+            /**
              * Daily Log Retention Days
              * @default 30
              */
@@ -38255,20 +38364,45 @@ export interface components {
              */
             file_logging_enabled: boolean;
             /**
+             * Full Log Max Body Kb
+             * @default 16384
+             */
+            full_log_max_body_kb: number;
+            /**
+             * Full Log Max Storage Mb
+             * @default 0
+             */
+            full_log_max_storage_mb: number;
+            /**
              * Full Log Retention Days
              * @default 30
              */
             full_log_retention_days: number;
+            /**
+             * Full Log Sample Percent
+             * @default 100
+             */
+            full_log_sample_percent: number;
             /**
              * Full Log Skip Failed
              * @default false
              */
             full_log_skip_failed: boolean;
             /**
+             * Full Log Success Enabled
+             * @default true
+             */
+            full_log_success_enabled: boolean;
+            /**
              * Full Logging Enabled
              * @default false
              */
             full_logging_enabled: boolean;
+            /**
+             * Log Redact Fields
+             * @default []
+             */
+            log_redact_fields: string[];
             /**
              * Logs Max Total Size Mb
              * @default 0
@@ -38279,6 +38413,48 @@ export interface components {
              * @default false
              */
             request_log_enabled: boolean;
+            /**
+             * Runtime Log Backups
+             * @default 5
+             */
+            runtime_log_backups: number;
+            /**
+             * Runtime Log Console
+             * @default true
+             */
+            runtime_log_console: boolean;
+            /**
+             * Runtime Log File
+             * @default false
+             */
+            runtime_log_file: boolean;
+            /**
+             * Runtime Log Format
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_format: "inherit" | "text" | "json";
+            /**
+             * Runtime Log Level
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_level: "inherit" | "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+            /**
+             * Runtime Log Max Mb
+             * @default 100
+             */
+            runtime_log_max_mb: number;
+            /**
+             * Runtime Log Quiet Dependencies
+             * @default true
+             */
+            runtime_log_quiet_dependencies: boolean;
+            /**
+             * Runtime Log Stacktrace
+             * @default true
+             */
+            runtime_log_stacktrace: boolean;
             /**
              * Usage Statistics Enabled
              * @default false
@@ -45062,6 +45238,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suppliers_account_pool_onboarding_suppliers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSupplierOption"][];
                 };
             };
         };

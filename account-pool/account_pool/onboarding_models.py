@@ -114,3 +114,13 @@ class OnboardingAuthorization(BaseModel):
     ssh_command: str | None
     user_code: str | None
     expires_at: AwareDatetime
+
+
+class OnboardingSupplierOption(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    supplier: str
+    display_name: str
+    authentication: str
+    oauth: bool
+    auth_file: bool
+    description: str

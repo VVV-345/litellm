@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Final, Literal
 
 import httpx
+import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -77,3 +78,77 @@ def test_migrated_routes_require_admin_and_pool_no_longer_owns_logs() -> None:
             assert client.get(path).status_code == 403
         for path in ("/account_pool/logs", "/account_pool/full-logs", "/account_pool/stats"):
             assert client.get(path).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("full_log_sample_percent", 101),
+        ("full_log_max_body_kb", 0),
+        ("runtime_log_level", "TRACE"),
+        ("daily_log_max_rows", -1),
+    ],
+)
+def test_log_settings_validate_new_controls(key, value):
+    from pydantic import ValidationError
+
+    from litellm.proxy.management_endpoints.request_log_endpoints import RequestLogSettings
+
+    with pytest.raises(ValidationError):
+        RequestLogSettings.model_validate({key: value})
+
+
+def test_runtime_formatter_reuses_redaction_and_optional_stacktrace():
+    import logging
+
+    from litellm._logging import JsonFormatter
+    from litellm.proxy.management_endpoints.request_log_runtime import RuntimeFormatter
+
+    try:
+        raise ValueError("private-stack-marker")
+    except ValueError as error:
+        record = logging.LogRecord(
+            "LiteLLM Proxy",
+            logging.ERROR,
+            "test.py",
+            1,
+            "request failed",
+            (),
+            (type(error), error, error.__traceback__),
+        )
+    without = RuntimeFormatter(JsonFormatter(), False).format(record)
+    with_trace = RuntimeFormatter(JsonFormatter(), True).format(record)
+    assert "private-stack-marker" not in without and "private-stack-marker" in with_trace
+    assert record.exc_info is not None
+
+
+def test_async_runtime_output_is_bounded_and_drains_without_losing_traceback():
+    import io
+    import logging
+    from queue import Queue
+
+    from litellm._logging import JsonFormatter
+    from litellm.proxy.management_endpoints.request_log_runtime import (
+        RuntimeFormatter,
+        RuntimeQueueHandler,
+        RuntimeQueueListener,
+    )
+
+    output = io.StringIO()
+    sink = logging.StreamHandler(output)
+    sink.setFormatter(RuntimeFormatter(JsonFormatter(), True))
+    pending = Queue(maxsize=1)
+    handler = RuntimeQueueHandler(pending)
+    try:
+        raise ValueError("traceback-preserved")
+    except ValueError as error:
+        record = logging.LogRecord("qa", logging.ERROR, "qa.py", 1, "event", (), (type(error), error, error.__traceback__))
+    handler.handle(record)
+    handler.handle(record)
+    assert handler.dropped == 1
+    assert output.getvalue() == ""
+    listener = RuntimeQueueListener(pending, sink)
+    listener.start()
+    listener.stop()
+    assert "traceback-preserved" in output.getvalue()
+    assert record.exc_info is not None

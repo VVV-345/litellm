@@ -29,13 +29,9 @@ export const listOnboardingTargets = (accessToken: string) =>
 export const saveOnboardingTarget = (accessToken: string, body: OnboardingTarget) =>
   apiClient.put<OnboardingTarget>(`${base}/targets`, { accessToken, body });
 
-export const onboardingSuppliers = [
-  ["openai_codex", "OpenAI Codex"],
-  ["anthropic_claude", "Claude"],
-  ["google_antigravity", "Antigravity"],
-  ["kimi", "Kimi"],
-  ["xai", "xAI"],
-] as const;
+export type OnboardingSupplierOption = components["schemas"]["OnboardingSupplierOption"];
+export const listOnboardingSuppliers = (accessToken: string) =>
+  apiClient.get<OnboardingSupplierOption[]>(`${base}/suppliers`, { accessToken });
 
 export const onboardingStates: Record<OnboardingItem["state"], string> = {
   awaiting_mailbox: "待准备邮箱",

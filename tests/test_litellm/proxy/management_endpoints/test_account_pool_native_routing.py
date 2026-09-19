@@ -335,3 +335,79 @@ async def test_native_messages_stream_reuses_gateway_retry_boundary(monkeypatch)
         await stream.aclose()
         pool_identity.reset(reset)
         router.discard()
+
+
+@pytest.mark.asyncio
+async def test_model_switch_uses_native_encryption_boundary_without_expanding_key_scope():
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+    from litellm.responses.utils import ResponsesAPIRequestUtils
+
+    first, second = uuid4(), uuid4()
+    origin = deployment(first)
+    origin["litellm_params"]["api_base"] = "http://card-a/v1"
+    same_card = {
+        **deployment(first),
+        "model_name": "other",
+        "model_info": {"id": "other-a", "account_pool_environment_id": str(first)},
+        "litellm_params": {"model": "openai/gpt-5.6-terra", "api_key": "test", "api_base": "http://card-a/v1"},
+    }
+    other_card = {
+        **deployment(second),
+        "model_name": "other",
+        "litellm_params": {"model": "openai/gpt-5.6-terra", "api_key": "test", "api_base": "http://card-b/v1"},
+    }
+    router = Router(
+        model_list=[origin, same_card, other_card],
+        enable_pre_call_checks=True,
+        optional_pre_call_checks=["encrypted_content_affinity"],
+    )
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    encoded = ResponsesAPIRequestUtils._build_encrypted_item_id(str(first), "rs_old")
+    try:
+        selected = await router.async_get_available_deployment(
+            model="other",
+            request_kwargs={"input": [{"type": "reasoning", "id": encoded, "encrypted_content": "opaque"}]},
+        )
+        assert selected["model_info"]["id"] == "other-a"
+        pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4(), card_id=second))
+        with pytest.raises((BadRequestError, RouterRateLimitError, RouterRateLimitErrorBasic, ServiceUnavailableError)):
+            await router.async_get_available_deployment(
+                model="other",
+                request_kwargs={"input": [{"type": "reasoning", "id": encoded, "encrypted_content": "opaque"}]},
+            )
+    finally:
+        pool_identity.reset(reset)
+        router.discard()
+
+
+def test_foreign_signed_history_is_recovered_before_native_affinity_without_bypassing_scope():
+    from litellm.proxy.management_endpoints.account_pool_signature import foreign_history_recovery
+    from litellm.responses.utils import ResponsesAPIRequestUtils
+
+    card = uuid4()
+    router = Router(model_list=[deployment(card)])
+    model = deployment(card)["model_name"]
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4(), card_id=card))
+    history = [
+        {"role": "user", "content": "compute"},
+        {
+            "type": "reasoning",
+            "id": ResponsesAPIRequestUtils._build_encrypted_item_id("foreign", "rs_old"),
+            "encrypted_content": "opaque",
+        },
+        {"type": "function_call", "call_id": "c1", "name": "sum", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "c1", "output": "2"},
+    ]
+    try:
+        payload = {"model": model, "input": history}
+        recovered = foreign_history_recovery(payload, router)
+        assert recovered["input"] == [history[0], history[2], history[3]]
+        assert len(payload["input"]) == 4
+        assert foreign_history_recovery({**payload, "previous_response_id": "resp_old"}, router) == {}
+        assert foreign_history_recovery({**payload, "input": history[:-1]}, router) == {}
+        local = {**history[1], "id": ResponsesAPIRequestUtils._build_encrypted_item_id(str(card), "rs_old")}
+        assert foreign_history_recovery({**payload, "input": [history[0], local, *history[2:]]}, router) == {}
+        assert pool_identity.get().card_id == card
+    finally:
+        pool_identity.reset(reset)
+        router.discard()

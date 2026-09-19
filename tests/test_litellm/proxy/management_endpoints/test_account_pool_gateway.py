@@ -1592,3 +1592,133 @@ def test_responses_encrypted_state_recovery_preserves_text_history():
     assert requests[1]["input"] == [requests[0]["input"][i] for i in (0, 2, 3)]
     assert requests[1]["prompt_cache_key"] == "session"
     assert "signature_recovery" in control.finished[0].detail
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("style", ["responses", "messages", "chat"])
+def test_signature_recovery_keeps_complete_client_tool_history(stream, style):
+    from copy import deepcopy
+
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    histories = {
+        "responses": {
+            "input": [
+                {"role": "user", "content": "read a file"},
+                {"type": "reasoning", "encrypted_content": "foreign", "summary": []},
+                {"type": "function_call", "call_id": "call-1", "name": "read", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "call-1", "output": "file contents"},
+            ],
+            "tools": [{"type": "function", "name": "read", "parameters": {"type": "object"}}],
+        },
+        "messages": {
+            "messages": [
+                {"role": "user", "content": "read a file"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "old", "signature": "foreign"},
+                        {"type": "tool_use", "id": "call-1", "name": "read", "input": {}},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "file contents"}],
+                },
+            ],
+            "tools": [{"name": "read", "input_schema": {"type": "object"}}],
+        },
+        "chat": {
+            "messages": [
+                {"role": "user", "content": "read a file"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning_content": "old",
+                    "tool_calls": [
+                        {"type": "function", "id": "call-1", "function": {"name": "read", "arguments": "{}"}}
+                    ],
+                },
+                {"role": "tool", "tool_call_id": "call-1", "content": "file contents"},
+            ],
+            "tools": [{"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}}],
+        },
+    }
+    payload = {"model": "model-a", "stream": stream, **histories[style]}
+    original = deepcopy(payload)
+    expected = recover_signature_history(payload)
+    assert expected is not None and expected["tools"] == payload["tools"]
+    requests = []
+
+    def upstream(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            if stream:
+                return httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    content='data: {"type":"response.created"}\n\ndata: {"type":"error","error":{"code":"thinking_signature_invalid"}}\n\n',
+                )
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+        return (
+            httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content='data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n',
+            )
+            if stream
+            else httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+        )
+
+    client, control = setup_gateway(upstream, max_attempts=3)
+    path = {"responses": "/v1/responses", "messages": "/v1/messages", "chat": "/v1/chat/completions"}[style]
+    with client:
+        response = client.post(path, headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert response.status_code == 200
+    assert requests == [original, expected]
+    assert payload == original
+    assert len(control.acquisitions) == 1
+    assert "signature_recovery" in control.finished[0].detail
+
+
+@pytest.mark.parametrize(
+    "history,tools",
+    [
+        ([{"type": "function_call_output", "call_id": "missing", "output": "done"}], []),
+        ([{"type": "function_call", "call_id": "missing", "name": "read", "arguments": "{}"}], []),
+        (
+            [
+                {"type": "function_call_output", "call_id": "c", "output": "done"},
+                {"type": "function_call", "call_id": "c"},
+            ],
+            [],
+        ),
+        ([], [{"type": "web_search"}]),
+        ([], [{"type": "mcp", "server_url": "https://example.com"}]),
+    ],
+)
+def test_signature_recovery_rejects_incomplete_tools_and_server_side_actions(history, tools):
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    assert (
+        recover_signature_history(
+            {
+                "tools": tools,
+                "input": [
+                    {"role": "user", "content": "go"},
+                    {"type": "reasoning", "encrypted_content": "old"},
+                    *history,
+                ],
+            }
+        )
+        is None
+    )
+
+
+def test_signature_recovery_does_not_change_unsigned_thinking_requests_or_accept_malformed_blocks():
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    unsigned = {"thinking": {"type": "enabled", "budget_tokens": 1024}, "messages": [{"role": "user", "content": "hello"}]}
+    assert recover_signature_history(unsigned) is None
+    malformed = {"messages": [{"role": "user", "content": [{"type": {"unexpected": "object"}}]}]}
+    assert recover_signature_history(malformed) is None

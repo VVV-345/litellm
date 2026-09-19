@@ -20,6 +20,7 @@ from litellm.proxy.management_endpoints.account_pool_onboarding_models import (
     OnboardingItem,
     OnboardingPreview,
     OnboardingSecrets,
+    OnboardingSupplierOption,
     OnboardingTarget,
     OnboardingTargetView,
 )
@@ -51,6 +52,10 @@ def create_onboarding_router(
         if response.is_error:
             raise HTTPException(response.status_code, "上号操作未完成，请刷新后重试或检查卡片状态")
         return response.content
+
+    @router.get("/suppliers")
+    async def suppliers() -> tuple[OnboardingSupplierOption, ...]:
+        return parse_response(await call("GET", "/suppliers"), TypeAdapter(tuple[OnboardingSupplierOption, ...]))
 
     @router.post("/preview")
     async def preview(request: OnboardingImport) -> tuple[OnboardingPreview, ...]:

@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
 
 const { get, post, put } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
-vi.mock("@/components/networking", () => ({ apiClient: { get, post, put } }));
+vi.mock("@/components/networking", () => ({ serverRootPath: "", apiClient: { get, post, put } }));
 const item = {
   id: "one",
   job_id: "job",
@@ -32,7 +32,29 @@ const mount = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  get.mockImplementation(async (path: string) => (path.endsWith("/items") ? [item] : []));
+  get.mockImplementation(async (path: string) => {
+    if (path.endsWith("/items")) return [item];
+    if (path.endsWith("/suppliers"))
+      return [
+        { supplier: "openai_codex", display_name: "Codex", authentication: "OAuth", oauth: true, auth_file: true },
+        {
+          supplier: "anthropic_claude",
+          display_name: "Claude",
+          authentication: "OAuth",
+          oauth: true,
+          auth_file: true,
+        },
+        { supplier: "gemini", display_name: "Gemini", authentication: "API Key", oauth: false, auth_file: false },
+        {
+          supplier: "vertex",
+          display_name: "Vertex",
+          authentication: "服务账号 JSON",
+          oauth: false,
+          auth_file: false,
+        },
+      ];
+    return [];
+  });
   post.mockResolvedValue({
     mailbox_password: "mail-only-secret",
     supplier_password: "provider-only-secret",
@@ -63,6 +85,8 @@ describe("onboarding workflows", () => {
     const user = userEvent.setup();
     mount();
     await user.click(screen.getByRole("tab", { name: "OAuth 上号" }));
+    expect(await screen.findByRole("option", { name: /Gemini/ })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /Vertex/ })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("模型供应商"), { target: { value: "anthropic_claude" } });
     fireEvent.change(screen.getByLabelText("邮箱类型"), { target: { value: "mail" } });
     expect(screen.getByLabelText("模型供应商")).toHaveValue("anthropic_claude");

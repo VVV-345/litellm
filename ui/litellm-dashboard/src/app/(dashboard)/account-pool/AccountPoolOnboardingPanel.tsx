@@ -1,6 +1,8 @@
 /** 在号池内展示独立的文件导入和 OAuth 上号工作流。 */
 "use client";
 
+import Link from "next/link";
+import { migratedHref } from "@/utils/migratedPages";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileJson, Mail, RefreshCw } from "lucide-react";
@@ -12,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import {
   listOnboarding,
-  onboardingSuppliers,
+  listOnboardingSuppliers,
   parseMailboxAccounts,
   previewOnboarding,
   submitOnboarding,
@@ -31,6 +33,14 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   const [request, setRequest] = useState<OnboardingImport | null>(null);
   const [preview, setPreview] = useState<OnboardingPreview[]>([]);
   const [busy, setBusy] = useState(false);
+  const suppliersQuery = useQuery({
+    queryKey: ["account-pool", "onboarding-suppliers", accessToken],
+    queryFn: () => listOnboardingSuppliers(accessToken),
+  });
+  const supported =
+    suppliersQuery.data?.some(
+      (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
+    ) ?? false;
   const queryKey = ["account-pool", "onboarding", accessToken];
   const query = useQuery({ queryKey, queryFn: () => listOnboarding(accessToken), refetchInterval: 5000 });
   const reset = () => {
@@ -44,6 +54,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     reset();
     setBusy(true);
     try {
+      if (!supported) throw new Error("当前供应商不支持此上号方式，请选择其他供应商");
       if (files.length === 0 || files.length > (source === "oauth" ? 1 : 100))
         throw new Error("认证文件每批最多 100 个，邮箱账号表每批选择一个文件");
       if (
@@ -97,6 +108,13 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
 
   return (
     <div className="space-y-5">
+      <p className="text-sm text-muted-foreground">
+        供应商目录与卡片统一；仅支持 API Key 或服务账号的供应商，请到
+        <Link href={migratedHref("account-pool?tab=providers")} className="ml-1 underline">
+          提供商设置
+        </Link>
+        添加凭证。
+      </p>
       <Tabs
         value={source}
         onValueChange={(value) => {
@@ -133,16 +151,23 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   <select
                     id="onboarding-supplier"
                     className="h-9 w-full rounded-md border bg-background px-3"
-                    disabled={busy}
+                    disabled={busy || suppliersQuery.isPending}
                     value={supplier}
                     onChange={(event) => {
                       setSupplier(event.target.value as OnboardingImport["supplier"]);
                       reset();
                     }}
                   >
-                    {onboardingSuppliers.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
+                    {(suppliersQuery.data ?? []).map((item) => (
+                      <option
+                        key={item.supplier}
+                        value={item.supplier}
+                        disabled={!item[source === "oauth" ? "oauth" : "auth_file"]}
+                      >
+                        {item.display_name}
+                        {item[source === "oauth" ? "oauth" : "auth_file"]
+                          ? ""
+                          : `（${item.authentication}，请在提供商添加）`}
                       </option>
                     ))}
                   </select>
@@ -176,7 +201,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     type="file"
                     accept=".json,application/json"
                     multiple={source === "auth_file"}
-                    disabled={busy}
+                    disabled={busy || !supported}
                     onChange={(event) => {
                       void readFiles(Array.from(event.target.files ?? []));
                       event.target.value = "";
@@ -212,6 +237,14 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   </details>
                 </div>
               )}
+              {suppliersQuery.isError && (
+                <p role="alert" className="text-sm text-destructive">
+                  供应商目录读取失败，请刷新重试
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                目录与提供商模块保持一致。灰色项使用其他认证方式，可在提供商中添加。
+              </p>
               <p className="text-sm text-muted-foreground">
                 新卡片沿用现有全局默认配置。命名：供应商-套餐-账号；套餐读取不到时标记“套餐待识别”。
               </p>

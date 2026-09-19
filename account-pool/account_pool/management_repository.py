@@ -331,17 +331,28 @@ class PostgresErrorLogRepository:
             recent_errors=tuple(ErrorLogRecord.model_validate(row["payload"]) for row in errors),
         )
 
-    async def prune(self, before: datetime) -> int:
+    async def prune(self, before: datetime, limit: int | None = None) -> int:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                "DELETE FROM account_pool_error_log WHERE occurred_at < %s", (before,)
+                "DELETE FROM account_pool_error_log WHERE event_id IN (SELECT event_id FROM account_pool_error_log "
+                "WHERE occurred_at < %s ORDER BY occurred_at LIMIT %s)",
+                (before, limit),
+            )
+        return cursor.rowcount
+
+    async def limit_rows(self, max_rows: int) -> int:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "DELETE FROM account_pool_error_log WHERE event_id IN ("
+                "SELECT event_id FROM account_pool_error_log ORDER BY occurred_at DESC, event_id DESC OFFSET %s LIMIT 1000)",
+                (max_rows,),
             )
         return cursor.rowcount
 
     async def storage(self) -> LogStorageStats:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                "SELECT count(*) AS row_count, pg_total_relation_size('account_pool_error_log') AS allocated_bytes"
+                "SELECT count(*) AS row_count, pg_total_relation_size('account_pool_error_log') AS allocated_bytes FROM account_pool_error_log"
             )
             row: Final = await cursor.fetchone()
         return LogStorageStats(

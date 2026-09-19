@@ -1,16 +1,55 @@
 """识别签名拒绝并重建无工具副作用的完整请求，不生成签名或恢复上游隐藏状态。"""
 
 from collections.abc import Mapping
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
+from litellm.litellm_core_utils.signature_recovery import recover_signature_history
 from litellm.llms.anthropic.common_utils import (
     is_anthropic_invalid_thinking_block_error,
-    strip_thinking_blocks_from_anthropic_messages,
+)
+from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
+
+if TYPE_CHECKING:
+    from litellm import Router
+
+
+class _PoolModelInfo(BaseModel):
+    account_pool_environment_id: str | None = None
+
+
+class _PoolDeployment(BaseModel):
+    model_info: _PoolModelInfo | None = Field(default_factory=_PoolModelInfo)
+
+
+_DEPLOYMENTS: Final = TypeAdapter(tuple[_PoolDeployment, ...])
+_PAYLOAD: Final = TypeAdapter(dict[str, JsonValue])
+_HISTORY_FIELDS: Final = frozenset(
+    ("input", "messages", "tools", "functions", "previous_response_id", "conversation", "background", "thinking")
 )
 
-_HISTORY: Final = TypeAdapter(list[dict[str, JsonValue]])
+
+def foreign_history_recovery(payload: Mapping[str, object], router: "Router") -> dict[str, JsonValue]:
+    from litellm._logging import verbose_proxy_logger
+    from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+
+    identity: Final = pool_identity.get()
+    model: Final = payload.get("model")
+    if identity is None or not isinstance(model, str):
+        return {}
+    origin: Final = EncryptedContentAffinityCheck._extract_model_id_from_input(payload.get("input"))  # pyright: ignore[reportPrivateUsage]  # Reuse the native marker decoder.
+    if origin is None or router.get_deployment(model_id=origin) is not None:
+        return {}
+    candidates: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=model) or [])
+    if not any(item.model_info is not None and item.model_info.account_pool_environment_id for item in candidates):
+        return {}
+    history: Final = _PAYLOAD.validate_python({key: value for key, value in payload.items() if key in _HISTORY_FIELDS})
+    recovered: Final = recover_signature_history(history)
+    if recovered is None:
+        return {}
+    verbose_proxy_logger.info("Account pool signature recovery: foreign origin; request_id=%s", identity.request_id)
+    return {key: value for key, value in recovered.items() if key in ("input", "messages")}
 
 
 def signature_error(error: JsonValue) -> bool:
@@ -25,62 +64,5 @@ def signature_error(error: JsonValue) -> bool:
     )
 
 
-def text_history_item(item: JsonValue) -> bool:
-    if not isinstance(item, dict) or item.get("tool_calls") or item.get("function_call"):
-        return False
-    if item.get("type") == "reasoning":
-        return True
-    if item.get("type") not in (None, "message") or item.get("role") not in (
-        "user",
-        "assistant",
-        "system",
-        "developer",
-    ):
-        return False
-    content: Final = item.get("content")
-    return (
-        isinstance(content, str)
-        or isinstance(content, list)
-        and all(
-            isinstance(block, dict)
-            and block.get("type") in ("text", "input_text", "output_text", "thinking", "redacted_thinking")
-            for block in content
-        )
-    )
-
-
 def safe_signature_recovery(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
-    if any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "functions", "background")):
-        return None
-    history: Final = payload.get("messages", payload.get("input"))
-    if not isinstance(history, list):
-        return None
-    if not all(text_history_item(item) for item in history):
-        return None
-    first_role: Final = next(
-        (
-            item.get("role")
-            for item in history
-            if isinstance(item, dict) and item.get("role") not in ("system", "developer")
-        ),
-        None,
-    )
-    if first_role != "user":
-        return None
-    if not any(isinstance(item, dict) and item.get("role") == "user" and item.get("content") for item in history):
-        return None
-    stripped: Final = _HISTORY.validate_python(strip_thinking_blocks_from_anthropic_messages(history))
-    cleaned_history: Final[list[JsonValue]] = [
-        {
-            key: value
-            for key, value in item.items()
-            if key not in ("thinking_blocks", "reasoning_content", "encrypted_content")
-        }
-        for item in stripped
-        if item.get("type") != "reasoning"
-    ]
-    cleaned: Final[dict[str, JsonValue]] = {
-        **payload,
-        "messages" if "messages" in payload else "input": cleaned_history,
-    }
-    return cleaned if cleaned != payload else None
+    return recover_signature_history(payload)

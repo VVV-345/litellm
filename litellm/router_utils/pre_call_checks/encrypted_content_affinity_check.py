@@ -152,7 +152,7 @@ class EncryptedContentAffinityCheck(CustomLogger):
     @staticmethod
     def _encryption_boundary_key(
         litellm_params: Any,
-    ) -> tuple | None:
+    ) -> tuple[str, str] | None:
         """
         ``(api_base, api_key)`` pair identifying an Azure resource. Two
         deployments sharing both are interchangeable for ``encrypted_content``
@@ -171,7 +171,7 @@ class EncryptedContentAffinityCheck(CustomLogger):
             return None
         api_base: Final = getter("api_base")
         api_key: Final = getter("api_key")
-        if not api_base or not api_key:
+        if not isinstance(api_base, str) or not isinstance(api_key, str) or not api_base or not api_key:
             return None
         return (api_base, api_key)
 
