@@ -92,6 +92,10 @@ describe("account card local configuration", () => {
   it("opens the selected card policy, switches to runtime configuration and saves without navigation", async () => {
     const user = userEvent.setup();
     renderPage();
+    const tabs = screen.getAllByRole("tab");
+    const onboardingIndex = tabs.findIndex((tab) => tab.textContent === "自动化上号");
+    expect(onboardingIndex).toBe(4);
+    expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);
     fireEvent.doubleClick(await screen.findByTestId(`account-pool-card-${environment.id}`));
     expect(await screen.findByRole("dialog")).toHaveTextContent(environment.name);
     await user.click(await screen.findByRole("button", { name: /保存配置|Save configuration/i }));

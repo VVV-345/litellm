@@ -1167,6 +1167,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/onboarding/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit */
+        post: operations["submit_account_pool_onboarding_imports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Items */
+        get: operations["items_account_pool_onboarding_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/items/{item_id}/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Action */
+        post: operations["action_account_pool_onboarding_items__item_id__action_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/items/{item_id}/authorization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Authorization */
+        get: operations["authorization_account_pool_onboarding_items__item_id__authorization_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/items/{item_id}/secrets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Secrets */
+        post: operations["secrets_account_pool_onboarding_items__item_id__secrets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview */
+        post: operations["preview_account_pool_onboarding_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/onboarding/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Targets */
+        get: operations["targets_account_pool_onboarding_targets_get"];
+        /** Save Target */
+        put: operations["save_target_account_pool_onboarding_targets_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/openai-compatible": {
         parameters: {
             query?: never;
@@ -35294,6 +35414,248 @@ export interface components {
              */
             status: number;
         };
+        /** OnboardingAction */
+        OnboardingAction: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "start" | "retry" | "pause" | "mailbox_ready" | "generate_password";
+            /** Mailbox Password */
+            mailbox_password?: string | null;
+        };
+        /** OnboardingAuthorization */
+        OnboardingAuthorization: {
+            /** Authorization Url */
+            authorization_url: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "browser_oauth" | "device_code";
+            /** Ssh Command */
+            ssh_command: string | null;
+            /** User Code */
+            user_code: string | null;
+        };
+        /** OnboardingEntry */
+        OnboardingEntry: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /** Label */
+            label: string;
+            /**
+             * Mailbox Password
+             * @default
+             */
+            mailbox_password: string;
+            /**
+             * Supplier Password
+             * @default
+             */
+            supplier_password: string;
+        };
+        /** OnboardingImport */
+        OnboardingImport: {
+            /** Entries */
+            entries: components["schemas"]["OnboardingEntry"][];
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Mailbox
+             * @default mail
+             * @enum {string}
+             */
+            mailbox: "outlook" | "gmail" | "mail";
+            /**
+             * Prepare Mailbox
+             * @default true
+             */
+            prepare_mailbox: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "auth_file" | "oauth";
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
+        };
+        /** OnboardingImportResult */
+        OnboardingImportResult: {
+            /** Items */
+            items: components["schemas"]["OnboardingItem"][];
+            /** Preview */
+            preview: components["schemas"]["OnboardingPreview"][];
+        };
+        /** OnboardingItem */
+        OnboardingItem: {
+            /**
+             * Attempts
+             * @default 0
+             */
+            attempts: number;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Card Name */
+            card_name?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /** Label */
+            label: string;
+            /** Mailbox */
+            mailbox?: ("outlook" | "gmail" | "mail") | null;
+            /** Message */
+            message: string;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "auth_file" | "oauth";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "awaiting_mailbox" | "standby" | "queued" | "running" | "awaiting_authorization" | "ready" | "cooling_down" | "disabled" | "failed";
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** OnboardingPreview */
+        OnboardingPreview: {
+            /** Index */
+            index: number;
+            /** Label */
+            label: string;
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "valid" | "invalid" | "duplicate";
+        };
+        /** OnboardingSecrets */
+        OnboardingSecrets: {
+            /** Mailbox Password */
+            mailbox_password: string;
+            /** Proposed Password */
+            proposed_password?: string | null;
+            /** Supplier Password */
+            supplier_password: string;
+        };
+        /** OnboardingTarget */
+        OnboardingTarget: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
+        };
+        /** OnboardingTargetView */
+        OnboardingTargetView: {
+            /**
+             * Awaiting Mailbox
+             * @default 0
+             */
+            awaiting_mailbox: number;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * In Progress
+             * @default 0
+             */
+            in_progress: number;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Ready
+             * @default 0
+             */
+            ready: number;
+            /**
+             * Shortage
+             * @default 0
+             */
+            shortage: number;
+            /**
+             * Standby
+             * @default 0
+             */
+            standby: number;
+            /**
+             * Supplier
+             * @enum {string}
+             */
+            supplier: "openai_codex" | "anthropic_claude" | "google_antigravity" | "kimi" | "xai";
+        };
         /**
          * OpenIdConnectSecurityScheme
          * @description Defines a security scheme using OpenID Connect.
@@ -44508,6 +44870,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_account_pool_onboarding_imports_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    items_account_pool_onboarding_items_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingItem"][];
+                };
+            };
+        };
+    };
+    action_account_pool_onboarding_items__item_id__action_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    authorization_account_pool_onboarding_items__item_id__authorization_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    secrets_account_pool_onboarding_items__item_id__secrets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSecrets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_account_pool_onboarding_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingPreview"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    targets_account_pool_onboarding_targets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingTargetView"][];
+                };
+            };
+        };
+    };
+    save_target_account_pool_onboarding_targets_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingTarget"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingTarget"];
                 };
             };
             /** @description Validation Error */

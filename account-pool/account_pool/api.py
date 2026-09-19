@@ -34,6 +34,8 @@ from account_pool.domain import (
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
+from account_pool.onboarding_api import create_onboarding_router
+from account_pool.onboarding_service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -192,6 +194,7 @@ def create_router(
     policies: PolicyRepository | None = None,
     gateway_service: GatewayService | None = None,
     batch_service: BatchService | None = None,
+    onboarding_service: OnboardingService | None = None,
     settings: AccountPoolSettingsRepository | None = None,
     plugins: PluginService | None = None,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
@@ -647,6 +650,8 @@ def create_router(
         )
     if gateway_service is not None:
         router.include_router(create_gateway_router(gateway_service, require_manager))
+    if onboarding_service is not None:
+        router.include_router(create_onboarding_router(onboarding_service, require_manager))
     if batch_service is not None:
         router.include_router(create_batch_router(batch_service, require_manager))
     return router

@@ -19,6 +19,7 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
+from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
 from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
@@ -982,6 +983,7 @@ def create_account_pool_router(
             )
 
     router.include_router(create_management_router(management_request, _require_proxy_admin))
+    router.include_router(create_onboarding_router(management_request, _require_proxy_admin))
     router.include_router(create_release_router(_require_proxy_admin, release_client_factory))
     return router
 

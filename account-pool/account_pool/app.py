@@ -31,6 +31,8 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
+from account_pool.onboarding_repository import PostgresOnboardingRepository
+from account_pool.onboarding_service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -98,6 +100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         leases,
         sync_policy=service.sync_policy,
     )
+    onboarding_repository: Final = PostgresOnboardingRepository(resolved.database_url)
+    onboarding_service: Final = OnboardingService(onboarding_repository, environments, service, secrets)
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
@@ -127,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await policies.initialize()
         await leases.initialize()
         await batches.initialize()
+        await onboarding_repository.initialize()
         await settings_repository.initialize()
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
@@ -147,6 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
+        onboarding_task: Final = asyncio.create_task(onboarding_service.run_until_cancelled(retry_stopped))
         batch_task: Final = asyncio.create_task(batch_service.run_until_cancelled(retry_stopped))
         retry_task: Final = asyncio.create_task(
             _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
@@ -164,10 +170,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             network_retry_task.cancel()
             log_retention_task.cancel()
             batch_task.cancel()
+            onboarding_task.cancel()
             quota_refresh_task.cancel()
             auth_refresh_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
+            await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
             try:
@@ -209,6 +217,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 model_cooldowns=cooldown_client.read_model_cooldowns,
             ),
             batch_service=batch_service,
+            onboarding_service=onboarding_service,
             settings=settings_repository,
             plugins=plugin_service,
             sync_settings=sync_global_settings,

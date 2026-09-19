@@ -35,6 +35,7 @@ import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
 import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
+import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
@@ -74,6 +75,7 @@ const POOL_TABS = [
   "providers",
   "oauth",
   "credentials",
+  "onboarding",
   "quotas",
   "proxy-layer",
   "upstream-sync",
@@ -359,6 +361,7 @@ export default function AccountPoolPage() {
             <TabsTrigger value="credentials" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.credentials")}
             </TabsTrigger>
+            <TabsTrigger value="onboarding" className="flex-none rounded-none px-4 py-2">自动化上号</TabsTrigger>
             <TabsTrigger value="quotas" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.quotas")}
             </TabsTrigger>
@@ -455,6 +458,9 @@ export default function AccountPoolPage() {
           </TabsContent>
           <TabsContent value="credentials" className="pt-4">
             <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
+          </TabsContent>
+          <TabsContent value="onboarding" className="pt-4">
+            {accessToken && activeTab === "onboarding" && <AccountPoolOnboardingPanel accessToken={accessToken} />}
           </TabsContent>
           <TabsContent value="quotas" className="pt-4">
             {accessToken && (

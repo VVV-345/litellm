@@ -946,7 +946,9 @@ class EnvironmentService:
             result.expires_in_seconds,
         )
 
-    async def create_environment(self, request: CreateEnvironmentRequest) -> Result[AuthorizationView]:
+    async def create_environment(
+        self, request: CreateEnvironmentRequest, *, environment_id: UUID | None = None
+    ) -> Result[AuthorizationView]:
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
@@ -967,7 +969,7 @@ class EnvironmentService:
         proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
         now: Final = utc_now()
         record: Final = EnvironmentRecord(
-            id=uuid4(),
+            id=environment_id or uuid4(),
             version=0,
             desired_state=EnvironmentStatus.PROVISIONING,
             operation_id=request.operation_id or str(uuid4()),
@@ -1088,6 +1090,52 @@ class EnvironmentService:
             ),
         )
 
+    async def create_auth_file_environment(
+        self, request: CreateEnvironmentRequest, environment_id: UUID, filename: str, content: bytes
+    ) -> Result[EnvironmentView]:
+        existing: Final = await self._repository.get(environment_id)
+        if existing is not None:
+            if existing.status is EnvironmentStatus.DELETING or not existing.enabled or existing.manual_cooldown:
+                return Failure(FailureCode.CONFLICT, "卡片已停用、冷却或删除，请先检查卡片状态")
+            if existing.status is EnvironmentStatus.READY and not existing.configuration_pending:
+                return Success(to_view(existing))
+            try:
+                await self._channel(existing).provision(existing)
+            except Exception:
+                return Failure(FailureCode.UPSTREAM, "卡片运行环境启动失败，可重试原任务")
+            return await self.upload_auth_file(environment_id, filename, content, "application/json", replace=True)
+        lock: Final = await self._lock_for(environment_id)
+        async with lock, self._ownership.operation(environment_id):
+            return await self._create_direct_credential_environment(
+                name=request.name,
+                supplier=request.supplier,
+                operation_id=request.operation_id,
+                credential_content=content,
+                write_credential=lambda channel, record, _: self._cli_proxy.upload_auth_file(
+                    record, filename, content, "application/json"
+                ),
+                auth_file=True,
+                environment_id=environment_id,
+            )
+
+    async def pending_authorization(self, environment_id: UUID) -> Result[AuthorizationView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None or record.oauth_authorization_url is None or record.oauth_expires_at is None:
+            return Failure(FailureCode.NOT_FOUND, "暂无待完成的授权")
+        if record.oauth_expires_at <= utc_now() or record.oauth_state_consumed_at is not None:
+            return Failure(FailureCode.CONFLICT, "授权已过期或完成，请刷新任务")
+        return Success(self._authorization_view(record))
+
+    async def resume_onboarding_oauth(self, environment_id: UUID) -> Result[AuthorizationView]:
+        record: Final = await self._repository.get(environment_id)
+        if record is None or record.status is EnvironmentStatus.DELETING or not record.enabled or record.manual_cooldown:
+            return Failure(FailureCode.CONFLICT, "卡片不可恢复，请先检查状态")
+        try:
+            await self._channel(record).provision(record)
+        except Exception:
+            return Failure(FailureCode.UPSTREAM, "卡片运行环境恢复失败")
+        return await self.authorize_environment(environment_id)
+
     async def create_vertex_environment(
         self,
         request: CreateVertexEnvironmentRequest,
@@ -1112,12 +1160,14 @@ class EnvironmentService:
         operation_id: str | None,
         credential_content: bytes,
         write_credential: Callable[[EnvironmentChannel, EnvironmentRecord, str], Awaitable[None]],
+        auth_file: bool = False,
+        environment_id: UUID | None = None,
     ) -> Result[EnvironmentView]:
         try:
             supplier_definition: Final = self._channels.get(ChannelKind.CLIPROXYAPI).supplier(supplier)
         except (KeyError, UnsupportedChannelError) as error:
             return Failure(FailureCode.INVALID, str(error))
-        if not supplier_definition.accepts_direct_api_key and supplier is not SupplierKind.VERTEX:
+        if not auth_file and not supplier_definition.accepts_direct_api_key and supplier is not SupplierKind.VERTEX:
             return Failure(FailureCode.INVALID, "supplier does not accept direct credentials")
         if operation_id is not None:
             existing: Final = await self._find_by_operation_id(operation_id)
@@ -1134,7 +1184,7 @@ class EnvironmentService:
         except CredentialConflict as error:
             return Failure(FailureCode.INVALID, str(error))
         record: Final = EnvironmentRecord(
-            id=uuid4(),
+            id=environment_id or uuid4(),
             version=0,
             desired_state=EnvironmentStatus.VALIDATING,
             operation_id=operation_id or str(uuid4()),
@@ -1142,7 +1192,7 @@ class EnvironmentService:
             provider=Provider.OPENAI,
             channel=ChannelKind.CLIPROXYAPI,
             supplier=supplier,
-            authorization_flow=AuthorizationFlow.DIRECT_CREDENTIAL,
+            authorization_flow=supplier_definition.authorization_flow if auth_file else AuthorizationFlow.DIRECT_CREDENTIAL,
             status=EnvironmentStatus.PROVISIONING,
             enabled=True,
             manual_cooldown=False,
@@ -1199,8 +1249,8 @@ class EnvironmentService:
             pending: Final = observed.model_copy(
                 update={
                     "version": validating.version + 1,
-                    "status": EnvironmentStatus.READY,
-                    "desired_state": EnvironmentStatus.READY,
+                    "status": observed.status if auth_file else EnvironmentStatus.READY,
+                    "desired_state": observed.status if auth_file else EnvironmentStatus.READY,
                     "configuration_pending": True,
                     "desired_configuration_version": validating.desired_configuration_version + 1,
                     "desired_configuration": desired,
