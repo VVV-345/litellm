@@ -1446,6 +1446,9 @@ async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> Non
         request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
     )
     document: Final = yaml.safe_load(config.content)
+    assert document["routing"]["session-affinity"] is True
+    assert document["request-retry"] == 0
+    assert document["max-retry-credentials"] == 1
     assert document["plugins"] == {"enabled": False, "dir": "/data/plugins"}
     assert document["payload"]["override"] == [
         {
@@ -1493,6 +1496,9 @@ async def test_apply_global_settings_clears_oauth_aliases_when_empty() -> None:
         request for request in requests if request.url.path.endswith("/config.yaml") and request.method == "PUT"
     )
     document: Final = yaml.safe_load(config.content)
+    assert document["routing"]["session-affinity"] is True
+    assert document["request-retry"] == 0
+    assert document["max-retry-credentials"] == 1
     assert document["plugins"] == {"enabled": False, "dir": "/data/plugins"}
     assert document["payload"] == {
         "default": [],

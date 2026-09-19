@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
+import { DataTablePagination } from "@/components/shared/DataTable/DataTablePagination";
+import { ConversationRecordView, ConversationExport } from "./ConversationRecordView";
 import {
   clearFullLogs,
   fullLogStorage,
@@ -15,7 +17,6 @@ import {
   type FullLogFilters,
   type FullLogSummary,
 } from "./fullLogsApi";
-import { requestInstructions, requestMessages, responseText } from "./logConversation";
 import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
 
 const number = (value: number | null | undefined) => (value == null ? "未知" : value.toLocaleString());
@@ -35,59 +36,7 @@ export function FullLogContent({ accessToken, eventId }: { accessToken: string; 
   if (query.isPending) return <p role="status">正在读取完整日志…</p>;
   if (query.isError) return <p role="alert">完整日志未保存、已清理或暂时不可用</p>;
   const log = query.data;
-  const instructions = requestInstructions(log.request);
-  return (
-    <div className="grid min-w-0 gap-4">
-      {(log.incomplete || log.truncated) && (
-        <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          {log.incomplete ? "回复未完成，以下为已收到的内容。" : ""}
-          {log.truncated ? "内容超过保存上限，记录已截断。" : ""}
-        </p>
-      )}
-      {requestMessages(log.request).map((message, index) => (
-        <article key={index} className="rounded-xl border bg-muted/30 p-4">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            {message.role === "user" ? "用户输入" : message.role}
-          </p>
-          <pre className="whitespace-pre-wrap break-words font-sans text-sm">{message.content}</pre>
-        </article>
-      ))}
-      <article className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">模型回复 · {log.model}</p>
-        <pre className="whitespace-pre-wrap break-words font-sans text-sm">{responseText(log.response)}</pre>
-      </article>
-      {instructions && (
-        <details className="rounded-lg border p-3">
-          <summary className="cursor-pointer text-sm">提示词</summary>
-          <pre className="mt-3 whitespace-pre-wrap break-words text-xs">{instructions}</pre>
-        </details>
-      )}
-      <dl className="grid grid-cols-2 gap-3 rounded-lg border p-3 text-xs sm:grid-cols-4">
-        {[
-          ["输入", log.result.input_tokens],
-          ["输出", log.result.output_tokens],
-          ["缓存读取", log.result.cache_read_input_tokens],
-          ["缓存写入", log.result.cache_creation_input_tokens],
-        ].map(([name, value]) => (
-          <div key={String(name)}>
-            <dt className="text-muted-foreground">{name}</dt>
-            <dd className="mt-1 font-mono">{number(value as number | null | undefined)}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="break-all text-xs text-muted-foreground">
-        代理：{log.result.proxy_endpoint ?? "未知"} · 估算成本：
-        {log.result.cost_usd == null ? "价格或用量未知" : `$${log.result.cost_usd.toFixed(8)}`} · 会话：
-        {log.session_id ?? "未关联"}
-      </p>
-      <details className="min-w-0 rounded-lg border p-3">
-        <summary className="cursor-pointer text-sm">原始完整记录（包含历史上下文、工具调用和计价依据）</summary>
-        <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-all text-xs">
-          {JSON.stringify(log, null, 2)}
-        </pre>
-      </details>
-    </div>
-  );
+  return <ConversationRecordView log={log} />;
 }
 
 export function FullLogDialog({
@@ -109,7 +58,7 @@ export function FullLogDialog({
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>完整日志</DialogTitle>
-          <DialogDescription>本轮输入与回复，原始上下文保存在完整记录中</DialogDescription>
+          <DialogDescription>按角色查看输入、思考与工具调用，支持完整上下文和导出</DialogDescription>
         </DialogHeader>
         {eventId && <FullLogContent accessToken={accessToken} eventId={eventId} />}
       </DialogContent>
@@ -137,6 +86,8 @@ export function FullLogsPanel({
   const [busy, setBusy] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const pageSize = filters.limit ?? 50;
+  const offset = filters.offset ?? 0;
   const resetFilters = () => {
     setFilters({ card_id: initialCardId });
     setSession("");
@@ -169,6 +120,7 @@ export function FullLogsPanel({
     }
     setFilters({
       ...filters,
+      key_id: session.trim() === filters.session_id ? filters.key_id : undefined,
       session_id: session.trim() || undefined,
       model: model.trim() || undefined,
       request_id: requestId.trim() || undefined,
@@ -178,6 +130,17 @@ export function FullLogsPanel({
       offset: 0,
     });
     setExpanded(null);
+  };
+  const openSession = (log: FullLogSummary) => {
+    if (!log.session_id) return;
+    setSession(log.session_id);
+    setModel("");
+    setRequestId("");
+    setResultFilter("all");
+    setFrom("");
+    setTo("");
+    setFilters({ card_id: initialCardId, key_id: log.key_id, session_id: log.session_id, offset: 0, limit: pageSize });
+    setExpanded(log.event_id);
   };
   const clear = async () => {
     if (
@@ -192,6 +155,7 @@ export function FullLogsPanel({
       toast.success(`已清理 ${result.deleted} 条完整日志`);
       setExpanded(null);
       setEventId(null);
+      setFilters({ ...filters, offset: 0 });
       await Promise.all([query.refetch(), storage.refetch()]);
     } catch {
       toast.error("完整日志清理失败，请重试");
@@ -299,6 +263,18 @@ export function FullLogsPanel({
           </Button>
         )}
       </form>
+      {filters.session_id && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-primary/5 p-4">
+          <div className="min-w-0">
+            <h3 className="font-medium">会话时间线</h3>
+            <p className="mt-1 break-all text-xs text-muted-foreground">{filters.session_id}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              按请求发生时间排列；每轮可切换本轮内容与完整上下文，重试单独标记
+            </p>
+          </div>
+          <ConversationExport accessToken={accessToken} filters={filters} />
+        </div>
+      )}
       {query.data?.totals && (
         <div className="grid grid-cols-2 gap-3 rounded-xl border p-4 text-sm sm:grid-cols-4">
           <div>
@@ -348,10 +324,11 @@ export function FullLogsPanel({
           当前筛选下暂无完整日志；可调整筛选，或在日志设置开启后记录新请求
         </div>
       )}
-      {query.data?.items.map((log) => (
+      {query.data?.items.map((log, index) => (
         <article key={log.event_id} className="min-w-0 rounded-xl border p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
+              {filters.session_id && <p className="mb-1 text-xs text-primary">记录 {offset + index + 1}</p>}
               <p className="break-all text-sm font-medium">
                 {environments.find((item) => item.id === log.card_id)?.name ?? log.card_id} · {log.model}
               </p>
@@ -376,14 +353,7 @@ export function FullLogsPanel({
                 </Button>
               )}
               {log.session_id && !filters.session_id && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSession(log.session_id!);
-                    setFilters({ ...filters, session_id: log.session_id!, offset: 0 });
-                  }}
-                >
+                <Button variant="ghost" size="sm" onClick={() => openSession(log)}>
                   查看会话
                 </Button>
               )}
@@ -396,22 +366,23 @@ export function FullLogsPanel({
           )}
         </article>
       ))}
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          disabled={!filters.offset}
-          onClick={() => setFilters({ ...filters, offset: Math.max(0, (filters.offset ?? 0) - 50) })}
-        >
-          上一页
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!query.data?.has_more}
-          onClick={() => setFilters({ ...filters, offset: (filters.offset ?? 0) + 50 })}
-        >
-          下一页
-        </Button>
-      </div>
+      {query.data && (
+        <DataTablePagination
+          page={Math.floor(offset / pageSize)}
+          pageSize={pageSize}
+          rowCount={query.data.totals?.attempts ?? 0}
+          showPageJump
+          isLoading={query.isFetching}
+          onPageChange={(page) => {
+            setFilters({ ...filters, offset: page * pageSize });
+            setExpanded(null);
+          }}
+          onPageSizeChange={(limit) => {
+            setFilters({ ...filters, limit, offset: 0 });
+            setExpanded(null);
+          }}
+        />
+      )}
       <FullLogDialog accessToken={accessToken} eventId={eventId} onClose={() => setEventId(null)} />
     </div>
   );

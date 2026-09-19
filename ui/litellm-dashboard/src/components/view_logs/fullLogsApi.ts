@@ -6,6 +6,7 @@ export type FullLogSummary = components["schemas"]["FullLogSummary"];
 export type FullLogRecord = components["schemas"]["FullLogRecord"];
 export type FullLogFilters = {
   card_id?: string;
+  key_id?: string;
   request_id?: string;
   session_id?: string;
   model?: string;
@@ -14,6 +15,7 @@ export type FullLogFilters = {
   occurred_from?: string;
   occurred_to?: string;
   offset?: number;
+  limit?: number;
 };
 
 export const listFullLogs = (accessToken: string, query: FullLogFilters) =>

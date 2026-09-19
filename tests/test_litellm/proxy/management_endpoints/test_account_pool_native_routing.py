@@ -73,8 +73,8 @@ def test_explicit_card_order_only_narrows_existing_candidates_and_preserves_dire
 
 
 def test_elapsed_quota_window_allows_probe_without_claiming_fresh_quota():
-    from litellm.proxy.management_endpoints.account_pool_reconciler import QuotaSnapshot
     from litellm.proxy.management_endpoints.account_pool_native_routing import available
+    from litellm.proxy.management_endpoints.account_pool_reconciler import QuotaSnapshot
 
     now = datetime.now(timezone.utc)
     quota = QuotaSnapshot.model_validate({"observed_at": now - timedelta(hours=1), "windows": [
@@ -250,3 +250,88 @@ def test_timing_records_failed_phase_without_request_contents(caplog):
     assert output["status"] == 503
     assert output["phases_ms"]["resolve"] >= 0
     assert "private content" not in record.getMessage()
+
+
+@pytest.mark.asyncio
+async def test_body_session_pins_signed_history_and_refuses_unavailable_card():
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.router_utils.pre_call_checks.deployment_affinity_check import DeploymentAffinityCheck
+
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second)])
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    body = {"metadata": {"user_id": '{"session_id":"body-session"}'}, "messages": [
+        {"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]},
+        {"role": "user", "content": "continue"},
+    ]}
+    try:
+        cache_key = DeploymentAffinityCheck.get_session_affinity_cache_key("shared", "body-session", "caller")
+        await router.cache.async_set_cache(cache_key, {"model_id": str(second)}, ttl=3600)
+        selected = await router.async_get_available_deployment(model="shared", request_kwargs=body)
+        assert selected["model_info"]["id"] == str(second)
+        snapshots.replace({str(second): RoutingSnapshot(quota=RoutingQuota(remaining_percent=0))})
+        with pytest.raises(ServiceUnavailableError, match="signed state"):
+            await router.async_get_available_deployment(model="shared", request_kwargs=body)
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_signed_pin_error_cannot_be_bypassed_by_outer_retry_or_fallback():
+    from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
+    calls = []
+    async def unavailable(**kwargs):
+        calls.append(kwargs["model"])
+        raise AccountPoolSessionUnavailableError(message="signed state unavailable", model="shared", llm_provider="account_pool")
+    router = Router(model_list=[deployment(uuid4())], num_retries=3, fallbacks=[{"shared": ["backup"]}])
+    try:
+        with pytest.raises(AccountPoolSessionUnavailableError):
+            await router.async_function_with_fallbacks(model="shared", original_function=unavailable)
+        assert calls == ["shared"]
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_signed_pool_request_cannot_fallback_before_gateway_acquisition():
+    from litellm.exceptions import ServiceUnavailableError
+    calls = []
+    async def unavailable(**kwargs):
+        calls.append(kwargs["model"])
+        raise ServiceUnavailableError(message="no cards", model="shared", llm_provider="account_pool")
+    router = Router(model_list=[deployment(uuid4())], num_retries=0, fallbacks=[{"shared": ["backup"]}])
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    try:
+        with pytest.raises(ServiceUnavailableError):
+            await router.async_function_with_fallbacks(model="shared", original_function=unavailable,
+                messages=[{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}])
+        assert calls == ["shared"]
+    finally:
+        pool_identity.reset(reset)
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_native_messages_stream_reuses_gateway_retry_boundary(monkeypatch):
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    router = Router(model_list=[deployment(uuid4())])
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    async def chunks():
+        yield b'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"busy"}}\n\n'
+    stream = chunks()
+    async def provider(**kwargs):
+        return stream
+    try:
+        response = await router._aanthropic_messages_with_streaming_fallbacks(
+            original_function=provider, model="shared", stream=True, litellm_metadata={},
+            messages=[{"role": "user", "content": "go"}])
+        assert await anext(response) == b'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"busy"}}\n\n'
+        with pytest.raises(StopAsyncIteration):
+            await anext(response)
+    finally:
+        await stream.aclose()
+        pool_identity.reset(reset)
+        router.discard()

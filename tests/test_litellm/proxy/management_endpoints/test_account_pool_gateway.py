@@ -628,8 +628,8 @@ def test_card_key_forwards_only_to_bound_target_with_internal_credentials() -> N
         assert request.headers["authorization"] == "Bearer internal-secret"
         assert "x-api-key" not in request.headers and "cookie" not in request.headers
         assert "x-account-pool-card-id" not in request.headers
-        assert request.headers["session-id"] == "codex-session"
-        assert request.headers["x-claude-code-session-id"] == "claude-session"
+        assert UUID(request.headers["session-id"]).version == 5
+        assert "x-claude-code-session-id" not in request.headers
         assert request.headers["anthropic-beta"] == "context-1m"
         assert request.headers["x-codex-turn-metadata"] == '{"turn_id":"turn-1"}'
         assert request.url.query == b"api-version=2026-09-01&feature=one&feature=two"
@@ -1444,3 +1444,151 @@ def test_responses_stream_errors_keep_sdk_fields_and_sequence() -> None:
 def test_stateful_payloads_without_tools_definition_are_not_replayed(payload):
     from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
     assert replay_safe(payload) is False
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("reject_again", [False, True])
+def test_signature_recovery_is_once_on_same_card_before_output(stream: bool, reject_again: bool) -> None:
+    captured = []
+    payload = {"model": "model-a", "stream": stream, "messages": [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": [{"type": "thinking", "thinking": "prior", "signature": "old"},
+                                             {"type": "text", "text": "answer"}]},
+        {"role": "user", "content": "continue"},
+    ], "metadata": {"user_id": '{"session_id":"session-a"}'}}
+
+    def upstream(request):
+        captured.append(request)
+        rejected = len(captured) == 1 or reject_again
+        if not stream:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}}) if rejected else httpx.Response(
+                200, json={"type": "message", "content": [{"type": "text", "text": "ok"}]})
+        body = 'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":7}}}\n\n'
+        body += ('event: error\ndata: {"type":"error","error":{"type":"invalid_request_error","message":"Invalid signature in thinking block"}}\n\n'
+                 if rejected else 'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n')
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/messages", headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert len(captured) == 2
+    assert captured[0].url == captured[1].url
+    assert captured[0].headers["x-claude-code-session-id"] == captured[1].headers["x-claude-code-session-id"]
+    assert json.loads(captured[0].content) == payload
+    cleaned = json.loads(captured[1].content)
+    assert cleaned["messages"][1]["content"] == [{"type": "text", "text": "answer"}]
+    assert cleaned["messages"][0] == payload["messages"][0]
+    assert len(control.acquisitions) == len(control.finished) == 1
+    assert "signature_recovery" in control.finished[0].detail
+    assert control.finished[0].http_status == (400 if reject_again else 200)
+    if stream:
+        assert response.text.count("event: message_start") == 1
+        assert ("event: error" in response.text) == reject_again
+    else:
+        assert response.status_code == (400 if reject_again else 200)
+
+
+def test_native_messages_tool_stream_is_unchanged_and_never_replayed() -> None:
+    captured = []
+    frames = ('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-1","name":"run","input":{}}}\n\n'
+              'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}\n\n'
+              'event: message_stop\ndata: {"type":"message_stop"}\n\n')
+    def upstream(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, content=frames, headers={"content-type": "text/event-stream"})
+    payload = {"model": "model-a", "stream": True, "system": "rules", "thinking": {"type": "enabled", "budget_tokens": 1024},
+               "tools": [{"name": "run", "input_schema": {"type": "object"}}],
+               "messages": [{"role": "user", "content": "go"}]}
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/messages", headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert captured == [payload]
+    assert response.text == frames
+    assert control.finished[0].http_status == 200
+
+
+@pytest.mark.parametrize("extra", [
+    {"tools": [{"type": "function"}]}, {"previous_response_id": "resp_old"},
+    {"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}]},
+    {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+])
+def test_signature_error_does_not_replay_tool_or_partial_history(extra) -> None:
+    captured = []
+    def upstream(request):
+        captured.append(request)
+        return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/messages", headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "messages": [{"role": "user", "content": "go"},
+                {"role": "assistant", "content": [{"type": "thinking", "signature": "old"}, {"type": "text", "text": "hi"}]}], **extra})
+    assert response.status_code == 400
+    assert len(captured) == len(control.acquisitions) == 1
+
+
+@pytest.mark.parametrize("payload", [
+    {"messages": [{"role": "assistant", "content": [{"type": "tool_use", "id": "call", "input": {}}]}]},
+    {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+    {"input": [{"type": "custom_tool_call", "call_id": "call", "input": "run"}]},
+])
+def test_native_tool_history_is_not_replayable(payload) -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
+    assert replay_safe(payload) is False
+
+
+def test_forwarded_session_is_stable_per_key_and_preserves_agent_identity() -> None:
+    captured = []
+    def upstream(request):
+        captured.append(request)
+        return httpx.Response(200, json={"type": "message", "content": [{"type": "text", "text": "ok"}]})
+    client, control = setup_gateway(upstream)
+    with client:
+        for index in range(3):
+            if index == 2:
+                control.resolution = control.resolution.model_copy(update={"key_id": uuid4()})
+            assert client.post("/v1/messages", headers={"Authorization": f"Bearer {_KEY}", "x-claude-code-agent-id": "worker"},
+                               json={"model": "model-a", "metadata": {"user_id": '{"session_id":"same"}'},
+                                     "messages": [{"role": "user", "content": "go"}]}).status_code == 200
+    assert captured[0].headers["x-claude-code-session-id"] == captured[1].headers["x-claude-code-session-id"]
+    assert captured[0].headers["x-claude-code-session-id"] != captured[2].headers["x-claude-code-session-id"]
+    assert all(request.headers["x-claude-code-agent-id"] == "worker" for request in captured)
+
+
+
+def test_signature_stream_error_after_output_never_replays():
+    captured = []
+    def upstream(request):
+        captured.append(request)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=(
+            'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"already sent"}}\n\n'
+            'data: {"type":"error","error":{"code":"thinking_signature_invalid"}}\n\n'))
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/messages", headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "stream": True, "messages": [{"role": "user", "content": "go"},
+                {"role": "assistant", "content": [{"type": "thinking", "signature": "old"}, {"type": "text", "text": "old reply"}]}]})
+    assert len(captured) == 1
+    assert response.text.count("already sent") == 1
+    assert "thinking_signature_invalid" in response.text
+    assert control.finished[0].http_status == 400
+
+
+
+def test_responses_encrypted_state_recovery_preserves_text_history():
+    requests = []
+    def upstream(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}}) if len(requests) == 1 else httpx.Response(
+            200, json={"id": "resp-new", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}]})
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "prompt_cache_key": "session", "input": [
+                {"role": "user", "content": "first"},
+                {"type": "reasoning", "encrypted_content": "old", "summary": []},
+                {"role": "assistant", "content": "answer"}, {"role": "user", "content": "continue"}]})
+    assert response.status_code == 200
+    assert len(requests) == 2
+    assert requests[1]["input"] == [requests[0]["input"][i] for i in (0, 2, 3)]
+    assert requests[1]["prompt_cache_key"] == "session"
+    assert "signature_recovery" in control.finished[0].detail

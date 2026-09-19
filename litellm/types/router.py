@@ -112,7 +112,7 @@ class AccountPoolRoutingConfig(BaseModel):
     preferred_account_ids: tuple[
         Annotated[str, Field(pattern=r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")], ...
     ] = ()
-    session_affinity: bool = False
+    session_affinity: bool = True
     session_affinity_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
 
 

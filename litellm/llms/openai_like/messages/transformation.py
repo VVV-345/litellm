@@ -1,5 +1,7 @@
 from typing import Any, Final
 
+import httpx
+
 import litellm
 from litellm.llms.anthropic.experimental_pass_through.messages.transformation import (
     AnthropicMessagesConfig,
@@ -52,6 +54,11 @@ class OpenAILikeAnthropicMessagesConfig(AnthropicMessagesConfig):
 
     def should_filter_anthropic_beta_headers(self) -> bool:
         return False
+
+    def should_retry_anthropic_messages_on_http_error(self, e: httpx.HTTPStatusError, litellm_params: dict) -> bool:
+        if "/account_pool/internal/forward/" in str(e.request.url):
+            return False
+        return super().should_retry_anthropic_messages_on_http_error(e, litellm_params)
 
     def get_complete_url(
         self,

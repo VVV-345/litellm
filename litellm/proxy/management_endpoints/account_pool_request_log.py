@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import io
 import re
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from functools import reduce
 from typing import Final, Literal
@@ -24,6 +25,7 @@ from litellm.proxy.management_endpoints.account_pool_accounting import (
 from litellm.proxy.management_endpoints.account_pool_full_logs import FullLogRecord, full_log_store
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest, Lease, Resolution
 from litellm.proxy.management_endpoints.account_pool_routing import Route
+from litellm.proxy.management_endpoints.account_pool_session import session_identifier
 from litellm.proxy.management_endpoints.account_pool_stream import cache_usage_tokens, usage_tokens
 
 _VALUE: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
@@ -45,20 +47,10 @@ _SECRET_FIELDS: Final = frozenset(
         "proxy-authorization",
     )
 )
-_SESSION_HEADERS: Final = (
-    "x-litellm-session-id",
-    "x-claude-code-session-id",
-    "x-session-id",
-    "session-id",
-    "session_id",
-    "thread-id",
-    "conversation_id",
-    "x-session-affinity",
-)
 
 
-def conversation_id(headers: Headers, key_id: str) -> str | None:
-    session: Final = next((headers[name] for name in _SESSION_HEADERS if headers.get(name)), None)
+def conversation_id(headers: Headers, key_id: str, payload: Mapping[str, object] | None = None) -> str | None:
+    session: Final = session_identifier(headers, payload or {})
     if not session or len(session) > 512:
         return None
     return "pool-" + hashlib.sha256(f"{key_id}:{session}".encode()).hexdigest()
@@ -108,7 +100,7 @@ class RequestLog:
         self.standard_accounting: Final = standard_accounting
         self.enabled: Final = resolution.full_logging_enabled
         self.skip_failed: Final = resolution.full_log_skip_failed
-        self.session_id: Final = conversation_id(headers, str(lease.key_id))
+        self.session_id: Final = conversation_id(headers, str(lease.key_id), payload)
         self.proxy_endpoint: Final = route.account.proxy_endpoint
         self.requested_model: Final = str(payload.get("model", lease.model))
         self.secrets: Final = tuple(

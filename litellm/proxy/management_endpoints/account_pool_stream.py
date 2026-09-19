@@ -45,8 +45,9 @@ def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | No
 
 
 class EventStream:
-    def __init__(self, *, responses_api: bool = False) -> None:
+    def __init__(self, *, responses_api: bool = False, anthropic_messages: bool = False) -> None:
         self.responses_api: Final = responses_api
+        self.anthropic_messages: Final = anthropic_messages
         self.pending = b""
         self.terminal = False
         self.failed = False
@@ -54,6 +55,7 @@ class EventStream:
         self.error_code: str | None = None
         self.error_type: str | None = None
         self.error_status = 502
+        self.signature_rejected = False
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
         self.cache_read_input_tokens: int | None = None
@@ -76,10 +78,20 @@ class EventStream:
         if self.failed:
             error: Final = self.public_error()
             envelope: Final = self.error_envelope(error)
-            return b"data: " + json.dumps(envelope).encode() + b"\n\n"
+            return self.error_frame(envelope)
         return frame + b"\n\n"
 
+    def error_frame(self, envelope: dict[str, JsonValue]) -> bytes:
+        return (
+            (b"event: error\n" if self.anthropic_messages else b"")
+            + b"data: "
+            + json.dumps(envelope).encode()
+            + b"\n\n"
+        )
+
     def error_envelope(self, error: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if self.anthropic_messages:
+            return {"type": "error", "error": error}
         if not self.responses_api:
             return {"error": error}
         return {
@@ -93,7 +105,9 @@ class EventStream:
 
     def public_error(self) -> dict[str, JsonValue]:
         message: Final = (
-            "Upstream rejected the prompt (invalid_prompt)"
+            "The previous thinking state is incompatible with this upstream. Start a new conversation or resend complete history without stale thinking state."
+            if self.error_code in ("thinking_signature_invalid", "invalid_encrypted_content")
+            else "Upstream rejected the prompt (invalid_prompt)"
             if self.error_code == "invalid_prompt"
             else "Upstream rejected the request: invalid_request_error content_policy_violation"
             if self.error_code == "content_policy_violation"
@@ -135,6 +149,7 @@ class EventStream:
             not in (
                 "response.created",
                 "response.in_progress",
+                "message_start",
                 "ping",
                 "error",
                 "response.failed",
@@ -162,6 +177,9 @@ class EventStream:
             response: Final = event.get("response")
             nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
             error: Final = nested if isinstance(nested, dict) else event
+            from litellm.proxy.management_endpoints.account_pool_signature import signature_error
+
+            self.signature_rejected = signature_error(error)
             code: Final = error.get("code") or error.get("type")
             self.error_code = code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
             error_type: Final = error.get("type")
@@ -182,6 +200,8 @@ class EventStream:
                     "invalid_request",
                     "context_length_exceeded",
                     "invalid_prompt",
+                    "thinking_signature_invalid",
+                    "invalid_encrypted_content",
                     "content_policy_violation",
                 )
                 or self.error_type == "invalid_request_error"

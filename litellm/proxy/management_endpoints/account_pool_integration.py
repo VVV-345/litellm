@@ -31,11 +31,13 @@ INTERNAL_PREFIX: Final = "/account_pool/internal/forward/"
 CARD_ROUTES: Final = (
     "/models",
     "/chat/completions",
+    "/messages",
     "/responses",
     "/responses/compact",
     "/images/generations",
     "/v1/models",
     "/v1/chat/completions",
+    "/v1/messages",
     "/v1/responses",
     "/v1/responses/compact",
     "/v1/images/generations",
@@ -372,7 +374,9 @@ def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
                 "session_id",
                 "conversation_id",
                 "x-claude-code-session-id",
+                "x-claude-code-agent-id",
                 "thread-id",
+                "thread_id",
                 "x-session-affinity",
             )
         ),

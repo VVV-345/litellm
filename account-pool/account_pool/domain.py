@@ -548,6 +548,7 @@ class GatewayEnvironment(BaseModel):
     headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
     model_prefix: str = ""
     custom_llm_provider: str = "openai"
+    supported_endpoints: tuple[str, ...] = ()
 
 
 class CreateEnvironmentRequest(BaseModel):

@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from functools import cache, reduce
 from types import MappingProxyType
 from typing import Final, Protocol, TypedDict, cast
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from openai.types.responses.response_create_params import ResponseInputParam
@@ -44,6 +44,8 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
     retry_after,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
+from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
+from litellm.proxy.management_endpoints.account_pool_signature import safe_signature_recovery, signature_error
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
@@ -90,8 +92,13 @@ _HEADERS: Final = frozenset(
         "x-app",
         "x-client-request-id",
         "x-claude-code-session-id",
+        "x-claude-code-agent-id",
         "x-claude-remote-session-id",
         "x-session-id",
+        "x-litellm-session-id",
+        "thread-id",
+        "thread_id",
+        "x-codex-turn-state",
         "x-session-affinity",
         "session-id",
         "session_id",
@@ -176,7 +183,9 @@ class Attempt:
     ) -> None:
         self.timing: Final = RequestTiming(lease.request_id, lease.attempt)
         self.log: Final = log
-        self.stream_state: Final = EventStream(responses_api=endpoint == "/v1/responses")
+        self.stream_state: Final = EventStream(
+            responses_api=endpoint == "/v1/responses", anthropic_messages=endpoint == "/v1/messages"
+        )
         self.result = FinishRequest(
             lease_id=lease.lease_id,
             endpoint=endpoint,
@@ -189,6 +198,7 @@ class Attempt:
         self.send: Final = send
         self.request_id: Final = lease.request_id
         self.account_id: Final = lease.account_id
+        self.key_id: Final = lease.key_id
         self.attempt_number: Final = lease.attempt
 
     async def emit(self, message: Message) -> None:
@@ -523,7 +533,9 @@ async def execute(
     next_id: UUID | None,
     seconds: int,
     deadline: float = float("inf"),
+    signature_recovered: bool = False,
 ) -> bool:
+    recovery_payload: Final = safe_signature_recovery(payload) if not signature_recovered else None
     provider_header_names: Final = frozenset(name.lower() for name, _ in route.account.headers)
     client_headers: Final = tuple(
         (name, value)
@@ -536,7 +548,12 @@ async def execute(
         else route.model
     )
     body: Final = {**payload, "model": upstream_model}  # mutable-ok: JSON encoding requires a concrete object
-    credential: Final = select_gateway_credential(route.account.credentials, attempt.request_id, route.account.api_key)
+    credential_session: Final = session_identifier(request.headers, payload)
+    credential_identity: Final = (
+        uuid5(NAMESPACE_URL, f"{attempt.key_id}:{credential_session}") if credential_session else attempt.request_id
+    )
+    forward_session: Final = credential_session is not None and route.account.supplier != "openai_compatible"
+    credential: Final = select_gateway_credential(route.account.credentials, credential_identity, route.account.api_key)
     selected_client: Final = (
         client
         if credential.proxy_url is None
@@ -561,7 +578,21 @@ async def execute(
         )
         host_headers: Final = (("host", host_header),) if host_header is not None else ()
         headers: Final = (
-            *client_headers,
+            *(
+                (name, value)
+                for name, value in client_headers
+                if not forward_session or name.lower() not in SESSION_HEADERS
+            ),
+            *(
+                (
+                    (
+                        ("x-claude-code-session-id" if request.url.path == "/v1/messages" else "session-id"),
+                        str(credential_identity),
+                    ),
+                )
+                if forward_session
+                else ()
+            ),
             *provider_headers,
             *host_headers,
             ("authorization", f"Bearer {credential.api_key}"),
@@ -583,6 +614,25 @@ async def execute(
                 attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
                     error_payload, code = await upstream_error_payload(response, (credential.api_key,))
+                    if response.status_code == 400 and recovery_payload is not None and signature_error(error_payload):
+                        await response.aclose()
+                        attempt.outcome(
+                            400,
+                            "Retrying without incompatible thinking state",
+                            detail="signature_recovery: removed incompatible thinking state; retained complete text history",
+                        )
+                        return await execute(
+                            request,
+                            recovery_payload,
+                            route,
+                            resolution,
+                            client,
+                            attempt,
+                            None,
+                            seconds,
+                            deadline,
+                            signature_recovered=True,
+                        )
                     if attempt.log is not None:
                         attempt.log.capture(json.dumps(error_payload).encode())
                         attempt.log.observe(error_payload)
@@ -624,6 +674,38 @@ async def execute(
                 if payload.get("stream") is True:
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise ValueError("Upstream did not return an event stream")
+                    if recovery_payload is not None:
+                        bootstrap: Final = StreamBootstrap(response.aiter_bytes())
+                        try:
+                            await bootstrap.prepare()
+                            if (
+                                bootstrap.state.failed
+                                and not bootstrap.state.meaningful
+                                and bootstrap.state.signature_rejected
+                            ):
+                                await bootstrap.close()
+                                await response.aclose()
+                                attempt.outcome(
+                                    400,
+                                    "Retrying without incompatible thinking state",
+                                    detail="signature_recovery: removed incompatible thinking state before output; retained complete text history",
+                                )
+                                return await execute(
+                                    request,
+                                    recovery_payload,
+                                    route,
+                                    resolution,
+                                    client,
+                                    attempt,
+                                    None,
+                                    seconds,
+                                    deadline,
+                                    signature_recovered=True,
+                                )
+                            await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
+                            return True
+                        finally:
+                            await bootstrap.close()
                     return await guarded_stream_response(
                         request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline
                     )
@@ -698,7 +780,7 @@ async def execute(
                 {
                     "type": "http.response.body",
                     "more_body": False,
-                    "body": b"data: " + json.dumps(envelope).encode() + b"\n\n",
+                    "body": attempt.stream_state.error_frame(envelope),
                 }
             )
         return True

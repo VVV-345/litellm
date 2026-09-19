@@ -11,6 +11,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
 from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+from litellm.proxy.management_endpoints.account_pool_session import has_signed_history, session_identifier
 from litellm.responses.utils import ResponsesAPIRequestUtils
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
 from litellm.types.router import AccountPoolRoutingConfig
@@ -165,36 +166,18 @@ def effective_config(default: AccountPoolRoutingConfig) -> AccountPoolRoutingCon
     )
 
 
-def session_metadata(config: AccountPoolRoutingConfig) -> dict[str, object]:
+def session_metadata(config: AccountPoolRoutingConfig, request: Mapping[str, object] | None = None) -> dict[str, object]:
     identity: Final = pool_identity.get()
     if not config.session_affinity or identity is None:
         return {}
-    session: Final = next(
-        (
-            value
-            for name, value in identity.headers
-            if name
-            in (
-                "x-litellm-session-id",
-                "x-session-id",
-                "session-id",
-                "session_id",
-                "conversation_id",
-                "x-claude-code-session-id",
-                "thread-id",
-                "x-session-affinity",
-            )
-            and value
-            and len(value) <= 512
-        ),
-        None,
-    )
+    session: Final = session_identifier(dict(identity.headers), request or {})
     if session is None:
         return {}
     return {
         "session_id": session,
         "user_api_key_hash": identity.key_hash,
         SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY: config.session_affinity_ttl_seconds,
+        "account_pool_signed_continuation": has_signed_history(dict(request or {})),
     }
 
 

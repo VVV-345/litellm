@@ -67,7 +67,7 @@ const stats = {
 describe("OperationLogsPanel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    listLogs.mockResolvedValue({ items: [log], has_more: false });
+    listLogs.mockResolvedValue({ items: [log], has_more: false, total: 1 });
     getLog.mockResolvedValue({ event: log, attempts: [log], has_more: false });
     getStats.mockResolvedValue(stats);
   });
@@ -79,6 +79,7 @@ describe("OperationLogsPanel", () => {
         { ...log, event_id: "unknown", message: "No usage reported", input_tokens: null, output_tokens: null },
       ],
       has_more: false,
+      total: 2,
     });
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -90,11 +91,12 @@ describe("OperationLogsPanel", () => {
     expect(within(row).getByRole("cell", { name: "10" })).toBeInTheDocument();
     expect(within(row).getByRole("cell", { name: "5" })).toBeInTheDocument();
     expect(within(row).getByRole("cell", { name: "8" })).toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "0" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: "$0.00042" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "缓存写入" })).not.toBeInTheDocument();
     expect(within(row).getByRole("cell", { name: "80.0%" })).toBeInTheDocument();
     expect(within(row).getByText("50 ms")).toBeInTheDocument();
     const unknown = screen.getByRole("row", { name: /No usage reported/ });
-    expect(within(unknown).getAllByRole("cell", { name: "暂无数据" })).toHaveLength(5);
+    expect(within(unknown).getAllByRole("cell", { name: "暂无数据" })).toHaveLength(4);
   });
 
   it("shows reported cost coverage and the selected route reason", async () => {
@@ -105,7 +107,7 @@ describe("OperationLogsPanel", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("$0.00042")).toBeInTheDocument();
+    expect(await screen.findAllByText("$0.00042")).toHaveLength(2);
     expect(screen.getByText(/1.*3/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Request completed" }));
     expect(await screen.findAllByText(/卡片优先账号|Preferred card account/i)).not.toHaveLength(0);
@@ -136,6 +138,26 @@ describe("OperationLogsPanel", () => {
     expect(screen.getByLabelText("会话 ID")).toHaveValue("");
     await waitFor(() =>
       expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ card_id: card.id, offset: 0 })),
+    );
+  });
+
+  it("jumps pages and changes page size in 运行 logs requests", async () => {
+    const user = userEvent.setup();
+    listLogs.mockResolvedValue({ items: [log], has_more: true, total: 205, totals: { attempts: 205 } });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <OperationLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+    const jump = await screen.findByRole("spinbutton", { name: "跳转页码" });
+    await waitFor(() => expect(jump).toBeEnabled());
+    fireEvent.change(jump, { target: { value: "3" } });
+    await user.click(screen.getByRole("button", { name: "跳转" }));
+    await waitFor(() => expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ offset: 100 })));
+    await user.click(screen.getByTestId("pagination-page-size"));
+    await user.click(screen.getByRole("option", { name: "100" }));
+    await waitFor(() =>
+      expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ offset: 0, limit: 100 })),
     );
   });
 });

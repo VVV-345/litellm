@@ -1,6 +1,7 @@
 /** 本文件展示日常日志和完整日志入口，日常列表只读取摘要。 */
 
 import { FullLogDialog } from "./FullLogsPanel";
+import { DataTablePagination } from "@/components/shared/DataTable/DataTablePagination";
 import { Database, Download, Trash2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -89,6 +90,7 @@ export function OperationLogsPanel({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
   const [eventId, setEventId] = useState<string | null>(null);
   const [fullEventId, setFullEventId] = useState<string | null>(null);
   const [validationError, setValidationError] = useState(false);
@@ -101,9 +103,9 @@ export function OperationLogsPanel({
     setOffset(0);
     setValidationError(false);
   };
-  const pageQuery = { ...filters, offset, limit: 50 };
+  const pageQuery = { ...filters, offset, limit: pageSize };
   const query = useQuery({
-    queryKey: ["logs", "logs", accessToken, filters, offset],
+    queryKey: ["logs", "logs", accessToken, filters, offset, pageSize],
     queryFn: () => listOperationLogs(accessToken, pageQuery),
     retry: false,
   });
@@ -163,6 +165,7 @@ export function OperationLogsPanel({
         retentionDays === "all" ? undefined : (Number(retentionDays) as 7 | 14 | 30 | 45),
       );
       toast.success(t("accountPool.logs.cleared", { count: result.deleted }));
+      setOffset(0);
       await Promise.all([query.refetch(), stats.refetch(), storage.refetch()]);
     } catch (error) {
       toast.fromError(error);
@@ -440,7 +443,7 @@ export function OperationLogsPanel({
                   "input_tokens",
                   "output_tokens",
                   "cache_read_input_tokens",
-                  "cache_creation_input_tokens",
+                  "cost_usd",
                   "cache_rate",
                   "duration_ms",
                   "result",
@@ -451,7 +454,7 @@ export function OperationLogsPanel({
                     className={`whitespace-nowrap px-3 py-3 font-medium ${field.endsWith("tokens") || field === "duration_ms" ? "text-right" : ""}`}
                     scope="col"
                   >
-                    {t(`accountPool.logs.${field}`)}
+                    {field === "cost_usd" ? "费用（USD）" : t(`accountPool.logs.${field}`)}
                   </th>
                 ))}
               </tr>
@@ -476,9 +479,7 @@ export function OperationLogsPanel({
                   <td className="min-w-36 max-w-56 break-words px-3 py-3 font-mono">
                     {event.model ?? t("accountPool.dashboard.unknown")}
                   </td>
-                  {(
-                    ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"] as const
-                  ).map((field) => (
+                  {(["input_tokens", "output_tokens", "cache_read_input_tokens"] as const).map((field) => (
                     <td key={field} className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">
                       {event[field] == null ? (
                         <span className="text-muted-foreground">{t("accountPool.dashboard.unknown")}</span>
@@ -487,6 +488,9 @@ export function OperationLogsPanel({
                       )}
                     </td>
                   ))}
+                  <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">
+                    {formatCost(event.cost_usd) ?? "计价未知"}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right font-mono tabular-nums">
                     {event.cache_rate == null ? (
                       <span className="text-muted-foreground">{t("accountPool.dashboard.unknown")}</span>
@@ -523,22 +527,18 @@ export function OperationLogsPanel({
           {query.data.items.length === 0 && (
             <p className="p-6 text-center text-muted-foreground">{t("accountPool.logs.empty")}</p>
           )}
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="outline"
-              disabled={offset === 0}
-              onClick={() => setOffset((current) => Math.max(0, current - 50))}
-            >
-              {t("accountPool.previousPage")}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!query.data.has_more}
-              onClick={() => setOffset((current) => current + 50)}
-            >
-              {t("accountPool.nextPage")}
-            </Button>
-          </div>
+          <DataTablePagination
+            page={Math.floor(offset / pageSize)}
+            pageSize={pageSize}
+            rowCount={query.data.total}
+            showPageJump
+            isLoading={query.isFetching}
+            onPageChange={(page) => setOffset(page * pageSize)}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setOffset(0);
+            }}
+          />
         </div>
       )}
       <Dialog

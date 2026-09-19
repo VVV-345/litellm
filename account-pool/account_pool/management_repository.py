@@ -193,9 +193,15 @@ class PostgresErrorLogRepository:
                 (Jsonb(filters), *(value for _, value in conditions), query.limit + 1, query.offset),
             )
             rows: Final = await cursor.fetchall()
+            count_cursor: Final = await connection.execute(
+                sql.SQL("SELECT count(*) AS total FROM account_pool_error_log WHERE {}").format(where),
+                (Jsonb(filters), *(value for _, value in conditions)),
+            )
+            count_row: Final = await count_cursor.fetchone()
         return ErrorLogPage(
             items=tuple(ErrorLogRecord.model_validate(row["payload"]) for row in rows[: query.limit]),
             has_more=len(rows) > query.limit,
+            total=TypeAdapter(int).validate_python(count_row["total"] if count_row else 0),
         )
 
     async def detail(self, event_id: UUID) -> ErrorLogDetail | None:

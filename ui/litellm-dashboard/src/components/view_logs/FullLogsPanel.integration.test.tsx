@@ -1,6 +1,6 @@
 /** 本文件验证完整日志按需加载、会话查看及独立清理交互。 */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FullLogsPanel } from "./FullLogsPanel";
@@ -92,7 +92,7 @@ describe("FullLogsPanel", () => {
     expect(await screen.findByText("private question")).toBeInTheDocument();
     expect(screen.getByText("partial answer")).toBeInTheDocument();
     expect(screen.getByText(/回复未完成/)).toBeInTheDocument();
-    expect(screen.getByText(/估算成本：价格或用量未知/)).toBeInTheDocument();
+    expect(screen.getByText("计价未知")).toBeInTheDocument();
   });
   it("filters the conversation and cleans only the selected complete-log range", async () => {
     const user = userEvent.setup();
@@ -106,5 +106,42 @@ describe("FullLogsPanel", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "完整日志清理范围" }), "7");
     await user.click(screen.getByRole("button", { name: "清理" }));
     expect(clearFullLogs).toHaveBeenCalledWith("admin", 7);
+  });
+
+  it("jumps pages and changes page size in 完整 logs requests", async () => {
+    const user = userEvent.setup();
+    vi.mocked(listFullLogs).mockResolvedValue({
+      items: [log],
+      has_more: true,
+      totals: {
+        attempts: 205,
+        requests: 205,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        unknown_cost_attempts: 205,
+      },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <FullLogsPanel accessToken="admin" environments={[]} />
+      </QueryClientProvider>,
+    );
+    const jump = await screen.findByRole("spinbutton", { name: "跳转页码" });
+    await waitFor(() => expect(jump).toBeEnabled());
+    fireEvent.change(jump, { target: { value: "3" } });
+    await user.click(screen.getByRole("button", { name: "跳转" }));
+    await waitFor(() =>
+      expect(vi.mocked(listFullLogs)).toHaveBeenLastCalledWith("admin", expect.objectContaining({ offset: 100 })),
+    );
+    await user.click(screen.getByTestId("pagination-page-size"));
+    await user.click(screen.getByRole("option", { name: "100" }));
+    await waitFor(() =>
+      expect(vi.mocked(listFullLogs)).toHaveBeenLastCalledWith(
+        "admin",
+        expect.objectContaining({ offset: 0, limit: 100 }),
+      ),
+    );
   });
 });

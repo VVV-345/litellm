@@ -18,7 +18,7 @@ export const accountPoolRoutingValue = (value: unknown): AccountPoolRoutingValue
   return {
     selection: source.selection ?? "native",
     preferred_account_ids: source.preferred_account_ids ?? [],
-    session_affinity: source.session_affinity ?? false,
+    session_affinity: source.session_affinity ?? true,
     session_affinity_ttl_seconds: source.session_affinity_ttl_seconds ?? 3600,
   };
 };
@@ -161,8 +161,8 @@ export function AccountPoolRoutingFields({
             onChange={(event) => onChange({ ...current, session_affinity_ttl_seconds: Number(event.target.value) })}
           />
           <p className="text-xs leading-5 text-muted-foreground">
-            需要客户端传递会话标识，复用 LiteLLM
-            原生亲和性。卡片不可用时，普通新请求可重新选卡；有状态的续接请求不能保证跨账号继续。
+            支持客户端会话头、Claude 会话信息与
+            prompt_cache_key。卡片不可用时，普通请求可以重新选卡；携带思考签名的续接请求会停止切换，避免隐藏状态不兼容。
           </p>
         </div>
       </div>

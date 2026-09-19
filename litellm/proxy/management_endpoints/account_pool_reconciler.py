@@ -78,6 +78,7 @@ class GatewayEnvironment(BaseModel):
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
+    supported_endpoints: tuple[str, ...] = ()
 
 
 _GATEWAY_ENVIRONMENTS: Final = TypeAdapter(tuple[GatewayEnvironment, ...])
@@ -97,6 +98,7 @@ class ManagedDeployment:
     routing_weight: int | None = field(default=None, compare=False)
     routing_order: int | None = field(default=None, compare=False)
     native_routing_migrated: bool = False
+    supported_endpoints: tuple[str, ...] = ()
 
     @property
     def routing_defaults(self) -> dict[str, object]:
@@ -126,6 +128,7 @@ class ManagedDeployment:
             "account_pool_environment_id": self.environment_id,
             "account_pool_model": self.model_name,
             "account_pool_native_routing": self.native_routing_migrated,
+            "supported_endpoints": self.supported_endpoints,
         }
 
 
@@ -339,6 +342,7 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         api_key="account-pool-internal",
         max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
+        supported_endpoints=environment.supported_endpoints,
         blocked=not environment.routable,
         routing_weight=environment.routing_weight,
         routing_order=environment.routing_order,
@@ -387,6 +391,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         max_parallel_requests=max_parallel_requests,
         blocked=blocked,
         native_routing_migrated=info.get("account_pool_native_routing") is True,
+        supported_endpoints=TypeAdapter(tuple[str, ...]).validate_python(info.get("supported_endpoints", ())),
     )
 
 

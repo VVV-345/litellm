@@ -7,7 +7,7 @@ import hashlib
 import io
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Final, TypedDict, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -39,6 +39,7 @@ from litellm.proxy.management_endpoints.account_pool_integration import (
     verify_ticket,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
+from litellm.proxy.management_endpoints.account_pool_session import session_identifier
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     DefaultWebSocketDialer,
@@ -47,21 +48,12 @@ from litellm.proxy.management_endpoints.account_pool_websocket import (
 )
 
 _BODY: Final = TypeAdapter(dict[str, JsonValue])
-_PATHS: Final = frozenset(("/v1/chat/completions", "/v1/responses", "/v1/responses/compact", "/v1/images/generations"))
+_PATHS: Final = frozenset(
+    ("/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1/responses/compact", "/v1/images/generations")
+)
 _WEBSOCKET_PATHS: Final = frozenset(("/v1/responses", "/v1/realtime"))
 _MAX_BODY: Final = 16 * 1024 * 1024
 _NO_STORE_HEADERS: Final = MappingProxyType({"Cache-Control": "no-store"})
-_SESSION_HEADERS: Final = (
-    "x-litellm-session-id",
-    "thread-id",
-    "conversation_id",
-    "x-claude-code-session-id",
-    "x-session-id",
-    "session-id",
-    "session_id",
-    "x-session-affinity",
-    "x-client-request-id",
-)
 
 
 class _ModelEntry(TypedDict):
@@ -299,7 +291,7 @@ class AccountPoolGatewayMiddleware:
                 model: Final = payload.get("model")
                 if not isinstance(model, str) or not model.strip() or len(model) > 256:
                     raise ValueError("Invalid model")
-                session: Final = session_hash(headers, model)
+                session: Final = session_hash(headers, model, payload)
                 timing: Final = RequestTiming(getattr(request.state, "account_pool_request_id", None) or uuid4())
                 with timing.phase("resolve"):
                     resolution: Final = (
@@ -399,8 +391,8 @@ async def read_payload(request: Request) -> dict[str, JsonValue]:
     return _BODY.validate_json(buffer.getvalue())
 
 
-def session_hash(headers: Headers, model: str) -> str | None:
-    session: Final = next((value for name in _SESSION_HEADERS if (value := headers.get(name))), None)
+def session_hash(headers: Headers, model: str, payload: Mapping[str, object] | None = None) -> str | None:
+    session: Final = session_identifier(headers, payload or {})
     if not session:
         return None
     if len(session) > 512:

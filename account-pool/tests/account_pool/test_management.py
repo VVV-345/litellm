@@ -600,3 +600,37 @@ async def test_provider_quota_error_logs_safe_endpoint_status_and_request_id(man
     assert event.error_category == "rate_limit"
     assert event.retryable is True
     assert "req-safe" in event.message
+
+
+@pytest.mark.asyncio
+async def test_log_total_uses_the_same_filters_even_when_page_is_empty(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from account_pool import management_repository
+    from account_pool.error_logs import ErrorLogQuery
+    calls = []
+
+    class Cursor:
+        async def fetchall(self):
+            return []
+        async def fetchone(self):
+            return {"total": 235}
+
+    class Connection:
+        async def execute(self, statement, params):
+            calls.append((statement.as_string(), params))
+            return Cursor()
+
+    @asynccontextmanager
+    async def connection(_):
+        yield Connection()
+
+    monkeypatch.setattr(management_repository, "database_connection", connection)
+    query = ErrorLogQuery(model="model", http_status=400, limit=25, offset=250)
+    page = await management_repository.PostgresErrorLogRepository("test").query(query)
+    assert page.total == 235
+    assert page.items == ()
+    assert page.has_more is False
+    assert calls[0][0].split(" WHERE ")[1].split(" ORDER BY ")[0] == calls[1][0].split(" WHERE ")[1]
+    assert calls[0][1][0].obj == calls[1][1][0].obj == {"model": "model", "http_status": 400}
+    assert calls[0][1][-2:] == (26, 250)

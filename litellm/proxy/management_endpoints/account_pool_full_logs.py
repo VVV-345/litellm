@@ -71,6 +71,7 @@ class FullLogStorageStats(BaseModel):
 
 class FullLogQuery(BaseModel):
     card_id: UUID | None = None
+    key_id: UUID | None = None
     request_id: UUID | None = None
     session_id: str | None = Field(default=None, max_length=128)
     model: str | None = Field(default=None, max_length=256)
@@ -221,6 +222,7 @@ class FullLogStore:
                 ("card_id = ?", str(query.card_id) if query.card_id else None),
                 ("request_id = ?", str(query.request_id) if query.request_id else None),
                 ("session_id = ?", query.session_id),
+                ("json_extract(summary, '$.key_id') = ?", str(query.key_id) if query.key_id else None),
                 ("json_extract(summary, '$.model') = ?", query.model),
                 ("json_extract(summary, '$.result.http_status') = ?", query.http_status),
                 ("json_extract(summary, '$.incomplete') = ?", query.incomplete),

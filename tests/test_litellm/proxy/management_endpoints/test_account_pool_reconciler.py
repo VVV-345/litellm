@@ -228,3 +228,14 @@ async def test_native_routing_migrates_after_manager_upgrade_and_preserves_nativ
     assert saved["litellm_params"] == edited
     assert saved["blocked"] is True
     assert saved["model_info"]["account_pool_native_routing"] is True
+
+
+def test_messages_native_capability_is_advertised_only_when_channel_supports_it() -> None:
+    from litellm.llms.anthropic.experimental_pass_through.messages.handler import (
+        _deployment_passes_through_anthropic_messages,
+    )
+
+    generic = _environment(routable=True)
+    native = generic.model_copy(update={"supported_endpoints": ("/v1/messages",)})
+    assert _deployment_passes_through_anthropic_messages(desired_deployments((native,))[0].model_info)
+    assert not _deployment_passes_through_anthropic_messages(desired_deployments((generic,))[0].model_info)

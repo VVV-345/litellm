@@ -202,6 +202,7 @@ class CLIProxyAPIChannel:
             api_base=f"http://cliproxy-{record.id.hex}:8317/v1",
             api_key=self._secrets.derive(record.id, SecretPurpose.GATEWAY),
             custom_llm_provider="openai",
+            supported_endpoints=("/v1/messages",),
         )
 
 

@@ -15,7 +15,11 @@ from litellm.proxy.management_endpoints.account_pool_stream import EventStream
 
 
 def replay_safe(payload: Mapping[str, object]) -> bool:
-    if any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "background")):
+    from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+
+    if has_signed_history(dict(payload)):
+        return False
+    if any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "functions", "background")):
         return False
     inputs: Final = payload.get("input")
     if isinstance(inputs, list) and any(
@@ -23,7 +27,7 @@ def replay_safe(payload: Mapping[str, object]) -> bool:
         and (
             cast(Mapping[str, object], item).get("encrypted_content")
             or cast(Mapping[str, object], item).get("type")
-            in ("function_call", "function_call_output", "item_reference")
+            in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "item_reference")
         )
         for item in cast(list[object], inputs)
     ):
@@ -35,6 +39,8 @@ def replay_safe(payload: Mapping[str, object]) -> bool:
             cast(Mapping[str, object], message).get("tool_calls")
             or cast(Mapping[str, object], message).get("function_call")
             or cast(Mapping[str, object], message).get("role") in ("tool", "function")
+            or isinstance(content := cast(Mapping[str, object], message).get("content"), list)
+            and any(isinstance(block, dict) and block.get("type") in ("tool_use", "tool_result") for block in content)
         )
         for message in cast(list[object], messages)
     )

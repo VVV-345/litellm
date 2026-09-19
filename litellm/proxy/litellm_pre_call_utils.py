@@ -686,6 +686,13 @@ def _get_anthropic_session_id_from_metadata(metadata: object) -> str | None:
     if not isinstance(user_id, str):
         return None
 
+    if user_id.lstrip().startswith("{"):
+        try:
+            parsed: Final = json.loads(user_id)
+        except (ValueError, TypeError):
+            return None
+        return _get_anthropic_session_id_from_metadata({"user_id": parsed}) if isinstance(parsed, dict) else None
+
     session_marker: Final = "_session_"
     session_marker_index: Final = user_id.rfind(session_marker)
     if session_marker_index == -1:

@@ -23,9 +23,9 @@ from litellm.proxy.management_endpoints.account_pool_full_logs import (
     full_log_store,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest, Lease
-from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog, clean_content, conversation_id
 from litellm.proxy.management_endpoints.account_pool_routing import Route
+from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 from tests.test_litellm.proxy.management_endpoints.test_account_pool_gateway import _KEY, setup_gateway
 
 
@@ -100,6 +100,11 @@ async def test_full_log_filters_apply_to_rows_and_totals(store: FullLogStore) ->
     assert page.totals.input_tokens == 7
     assert store.query(FullLogQuery(occurred_to=datetime.now(timezone.utc) - timedelta(days=1))).totals.attempts == 0
     assert store.query(FullLogQuery(model="' OR 1=1 --")).items == ()
+    scoped = store.query(FullLogQuery(key_id=log.lease.key_id, limit=1))
+    assert len(scoped.items) == scoped.totals.attempts == 1
+    assert scoped.items[0].key_id == log.lease.key_id
+    assert store.query(FullLogQuery(key_id=log.lease.key_id, offset=1)).items == ()
+    assert store.query(FullLogQuery(key_id=log.lease.key_id, offset=1)).totals.attempts == 1
 
 
 @pytest.mark.asyncio

@@ -24383,7 +24383,7 @@ export interface components {
             selection: "native" | "quota" | "plan" | "expiry" | "ordered";
             /**
              * Session Affinity
-             * @default false
+             * @default true
              */
             session_affinity: boolean;
             /**
@@ -29125,6 +29125,11 @@ export interface components {
             has_more: boolean;
             /** Items */
             items: components["schemas"]["ErrorLogRecord"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
         };
         /** ErrorLogRecord */
         ErrorLogRecord: {
@@ -55185,6 +55190,7 @@ export interface operations {
         parameters: {
             query?: {
                 card_id?: string | null;
+                key_id?: string | null;
                 request_id?: string | null;
                 session_id?: string | null;
                 model?: string | null;

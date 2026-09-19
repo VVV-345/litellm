@@ -1026,7 +1026,7 @@ class Router:
         # If model_group_affinity_config is set but no global affinity checks were
         # enabled, we still need the DeploymentAffinityCheck callback (with global
         # flags all False) so per-group config can activate affinity per model group.
-        if self.model_group_affinity_config or self.account_pool_routing.session_affinity:
+        if self.model_group_affinity_config:
             self._ensure_deployment_affinity_callback()
 
         if self.alerting_config is not None:
@@ -3548,9 +3548,17 @@ class Router:
             if pool_caller is None:
                 raise ValueError("Account pool deployments require authenticated proxy ingress")
             pool_account: Final = UUID(str(pool_environment))
+            from litellm.proxy.management_endpoints.account_pool_session import session_identifier
+
+            pool_session_id: Final = session_identifier(dict(pool_caller.headers), kwargs)
+            pool_forward_identity: Final = (
+                pool_caller.model_copy(update={"headers": (*pool_caller.headers, ("x-session-id", pool_session_id))})
+                if pool_session_id and not any(name == "x-session-id" for name, _ in pool_caller.headers)
+                else pool_caller
+            )
             kwargs["api_base"] = forwarding_base(pool_account)
             kwargs["api_key"] = create_ticket(
-                pool_caller,
+                pool_forward_identity,
                 pool_account,
                 forwarding_retry_policy(
                     pool_caller,
@@ -5318,6 +5326,10 @@ class Router:
 
         response: Final = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)
 
+        pool_metadata: Final = kwargs.get("litellm_metadata") or kwargs.get("metadata")
+        if isinstance(pool_metadata, dict) and pool_metadata.get("account_pool_attempt"):
+            return response
+
         if kwargs.get("stream") and hasattr(response, "__aiter__"):
             return await self._aanthropic_messages_streaming_iterator(
                 response=cast("AsyncIterator[bytes]", response),  # cast-ok: stream=True always returns a byte iterator
@@ -6877,6 +6889,19 @@ class Router:
             raise e
 
         from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
+        from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
+
+        if isinstance(e, AccountPoolSessionUnavailableError):
+            raise e
+
+        from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+        from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+
+        if pool_identity.get() is not None and has_signed_history(kwargs) and any(
+            (item.get("model_info") or {}).get("account_pool_environment_id")
+            for item in (self.get_model_list(model_name=original_model_group) or [])
+        ):
+            raise e
 
         pool_attempt: Final = (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get(
             "account_pool_attempt"
@@ -7262,7 +7287,9 @@ class Router:
         except Exception as e:
             current_attempt = None
             original_exception = e
-            if _metadata.get("account_pool_attempt"):
+            from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
+
+            if _metadata.get("account_pool_attempt") or isinstance(e, AccountPoolSessionUnavailableError):
                 raise
             deployment_num_retries: Final = getattr(e, "num_retries", None)
 
@@ -12058,8 +12085,15 @@ class Router:
             )
             healthy_deployments = continuation_deployments(healthy_deployments, request_kwargs)
             healthy_deployments = eligible_deployments(healthy_deployments, model, snapshots.values, now_utc())
-            if any(item.get("model_info", {}).get("account_pool_environment_id") for item in healthy_deployments):
-                pool_session: Final = session_metadata(effective_config(self.account_pool_routing))
+            if any(item.get("model_info", {}).get("account_pool_environment_id") for item in _pre_cooldown_deployments):
+                pool_session: Final = session_metadata(
+                    effective_config(self.account_pool_routing),
+                    {
+                        **request_kwargs,
+                        **({"messages": messages} if messages is not None else {}),
+                        **({"input": input} if input is not None else {}),
+                    }
+                )
                 if pool_session:
                     self._ensure_deployment_affinity_callback()
                     pool_metadata_key: Final = self._get_metadata_variable_name_from_kwargs(request_kwargs)

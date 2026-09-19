@@ -318,3 +318,12 @@ def test_json_provider_messages_config_probes_capabilities_under_provider_slug()
     )
     assert JSONProviderAnthropicMessagesConfig(provider).custom_llm_provider == "exampleprovider"
     assert OpenAILikeAnthropicMessagesConfig().custom_llm_provider == "anthropic"
+
+
+@pytest.mark.parametrize("base,retry", [("https://host/v1/messages", True), ("http://localhost/account_pool/internal/forward/card/v1/messages", False)])
+def test_pool_gateway_owns_signature_recovery_without_provider_double_retry(config, base, retry):
+    import httpx
+    request = httpx.Request("POST", base)
+    response = httpx.Response(400, request=request, json={"error": {"message": "Invalid signature in thinking block"}})
+    error = httpx.HTTPStatusError("invalid signature", request=request, response=response)
+    assert config.should_retry_anthropic_messages_on_http_error(error, {}) is retry

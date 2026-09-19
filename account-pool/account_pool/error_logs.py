@@ -146,6 +146,7 @@ class ErrorLogPage(BaseModel):
 
     items: tuple[ErrorLogRecord, ...]
     has_more: bool
+    total: int = Field(default=0, ge=0)
 
 
 class ErrorLogDetail(BaseModel):

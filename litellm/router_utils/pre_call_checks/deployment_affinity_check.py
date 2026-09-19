@@ -494,6 +494,19 @@ class DeploymentAffinityCheck(CustomLogger):
                         )
                         return [session_deployment]
                     else:
+                        if any(
+                            md.get("account_pool_signed_continuation") is True
+                            for md in self._iter_metadata_dicts(request_kwargs)
+                        ):
+                            from litellm.proxy.management_endpoints.account_pool_session import (
+                                AccountPoolSessionUnavailableError,
+                            )
+
+                            raise AccountPoolSessionUnavailableError(
+                                message="The account holding this conversation's signed state is unavailable. Retry later or start a new conversation.",
+                                model=model,
+                                llm_provider="account_pool",
+                            )
                         verbose_router_logger.debug(
                             "DeploymentAffinityCheck: session-id pinned deployment=%s not found in healthy_deployments",
                             session_model_id,

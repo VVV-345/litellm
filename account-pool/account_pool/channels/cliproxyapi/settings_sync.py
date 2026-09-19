@@ -187,6 +187,7 @@ def _gateway_retry_settings(document: Mapping[str, object], supplier: SupplierKi
     codex: Final = supplier == SupplierKind.OPENAI_CODEX
     return {
         "request-retry": 0,
+        "routing": {**_yaml_section(document, "routing"), "session-affinity": True},
         "max-retry-credentials": 1,
         "max-retry-interval": 0,
         "transient-error-cooldown-seconds": 1,
