@@ -24,7 +24,7 @@ from account_pool.domain import (
     SupplierKind,
 )
 from account_pool.policies import AccountPolicy
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 from account_pool.settings import AccountPoolSettings
 
 

@@ -16,7 +16,7 @@ from uuid import UUID
 from pydantic import JsonValue, TypeAdapter
 
 from account_pool.repository import database_connection
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
 

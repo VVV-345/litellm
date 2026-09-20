@@ -1,28 +1,5 @@
-"""本模块定义号池服务统一使用的结果类型。"""
+"""兼容旧导入路径，实际结果类型位于共享基础模块。"""
 
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import Generic, TypeVar
+from account_pool.shared.result import Failure, FailureCode, Result, Success
 
-T = TypeVar("T")
-
-
-class FailureCode(StrEnum):
-    NOT_FOUND = "not_found"
-    CONFLICT = "conflict"
-    INVALID = "invalid"
-    UPSTREAM = "upstream"
-
-
-@dataclass(frozen=True, slots=True)
-class Success(Generic[T]):
-    value: T
-
-
-@dataclass(frozen=True, slots=True)
-class Failure:
-    code: FailureCode
-    message: str
-
-
-Result = Success[T] | Failure
+__all__ = ["Failure", "FailureCode", "Result", "Success"]

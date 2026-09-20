@@ -11,10 +11,11 @@ import {
   measureAccountPoolProxyGatewayDelays,
   switchAccountPoolProxyGateway,
 } from "./AccountPoolApi";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
 export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolean) =>
   useQuery({
-    queryKey: ["account-pool", "proxy-gateways", accessToken],
+    queryKey: accountPoolQueryKeys.proxyGateways(accessToken),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolProxyGateways(accessToken);
@@ -29,7 +30,7 @@ export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolea
 export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
   const queryClient = useQueryClient();
   const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
-  const delaysKey = ["account-pool", "proxy-gateway-delays", accessToken];
+  const delaysKey = accountPoolQueryKeys.proxyGatewayDelays(accessToken);
   const delaysQuery = useQuery({
     queryKey: delaysKey,
     queryFn: () => {
@@ -43,7 +44,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     refetchOnWindowFocus: false,
   });
   const configurationQuery = useQuery({
-    queryKey: ["account-pool", "proxy-gateway-configuration", accessToken],
+    queryKey: accountPoolQueryKeys.proxyGatewayConfiguration(accessToken),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return getAccountPoolProxyGatewayConfiguration(accessToken);
@@ -53,7 +54,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     staleTime: 60_000,
   });
   const nodesQuery = useQuery({
-    queryKey: ["account-pool", "proxy-gateway-nodes", accessToken],
+    queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolClashNodes(accessToken);
@@ -62,7 +63,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     retry: false,
   });
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["account-pool", "proxy-gateways"] });
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewaysRoot });
     void queryClient.resetQueries({ queryKey: delaysKey });
   };
   const switchMutation = useMutation({

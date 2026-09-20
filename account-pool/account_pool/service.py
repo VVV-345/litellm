@@ -55,7 +55,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_logs import ErrorLogService, LogStage
-from account_pool.error_safety import safe_error
+from account_pool.shared.error_safety import safe_error
 from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView
 from account_pool.ports import (
     CLIProxyClient,
@@ -66,8 +66,8 @@ from account_pool.ports import (
 )
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.quota import ProviderQuotaError
-from account_pool.result import Failure, FailureCode, Result, Success
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
+from account_pool.shared.result import Failure, FailureCode, Result, Success
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 
 T = TypeVar("T")

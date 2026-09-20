@@ -12,7 +12,7 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
-from account_pool.error_safety import safe_error
+from account_pool.shared.error_safety import safe_error
 from account_pool.gateway_contracts import RoutingReason
 from account_pool.quota import ProviderQuotaError
 from account_pool.settings import AccountPoolSettingsRepository

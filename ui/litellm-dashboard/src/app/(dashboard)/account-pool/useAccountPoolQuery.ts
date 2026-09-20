@@ -4,12 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 
 import { listAccountPoolEnvironments } from "./AccountPoolApi";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
-export const ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY = ["account-pool", "environments"] as const;
+export const ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY = accountPoolQueryKeys.environmentsRoot;
 
 export const useAccountPoolQuery = (accessToken: string | null, enabled: boolean, poll = true) =>
   useQuery<AccountPoolEnvironment[]>({
-    queryKey: [...ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY, accessToken],
+    queryKey: accountPoolQueryKeys.environments(accessToken),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolEnvironments(accessToken);

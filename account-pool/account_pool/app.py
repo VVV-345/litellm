@@ -39,7 +39,7 @@ from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
-from account_pool.secrets import EnvironmentSecretDeriver
+from account_pool.shared.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
 from account_pool.upstream_sync import GitHubUpstreamSyncService

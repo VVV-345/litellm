@@ -32,7 +32,7 @@ from account_pool.domain import (
     configured_proxy_url,
     utc_now,
 )
-from account_pool.secrets import EnvironmentSecretDeriver, StateCipher
+from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 
 
 class _Model(BaseModel):

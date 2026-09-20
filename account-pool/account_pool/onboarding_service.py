@@ -37,8 +37,8 @@ from account_pool.onboarding_models import (
 from account_pool.onboarding_repository import OnboardingRepository, StoredOnboarding
 from account_pool.ports import EnvironmentRepository
 from account_pool.quota import routing_quota_state
-from account_pool.result import Failure, FailureCode, Result, Success
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
+from account_pool.shared.result import Failure, FailureCode, Result, Success
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 from account_pool.service import EnvironmentService
 
 _LOGGER: Final = logging.getLogger(__name__)

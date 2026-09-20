@@ -21,7 +21,7 @@ from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.gateway_repository import CooldownRepository
 from account_pool.policies import AccountPolicy, PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
 from account_pool.ports import EnvironmentRepository
-from account_pool.result import Failure, FailureCode, Result, Success
+from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.service import EnvironmentService
 
 

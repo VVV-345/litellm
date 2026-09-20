@@ -24,7 +24,7 @@ from account_pool.onboarding_models import (
 )
 from account_pool.onboarding_service import OnboardingService
 from account_pool.provider_families import PROVIDER_FAMILIES
-from account_pool.result import Failure
+from account_pool.shared.result import Failure
 
 
 class OnboardingRoute(APIRoute):

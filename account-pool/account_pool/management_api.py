@@ -31,7 +31,7 @@ from account_pool.policies import (
     policy_validation_error,
 )
 from account_pool.ports import EnvironmentRepository
-from account_pool.result import Failure, Result
+from account_pool.shared.result import Failure, Result
 from account_pool.settings import (
     AccountPoolSettings,
     AccountPoolSettingsHistoryEntry,

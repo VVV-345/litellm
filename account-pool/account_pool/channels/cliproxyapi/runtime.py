@@ -9,7 +9,7 @@ from uuid import UUID
 from account_pool.compose_renderer import render_cli_proxy_config, render_compose
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.domain import EnvironmentRecord
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 
 class CLIProxyAPIRuntime:

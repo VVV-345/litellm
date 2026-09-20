@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { listAccountPoolProviderFamilies, type AccountPoolProviderFamily } from "./AccountPoolApi";
 import type { AccountPoolSupplier } from "./AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
 interface AccountPoolProviderFamiliesProps {
   accessToken: string | null;
@@ -40,7 +41,7 @@ const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolSuppl
 export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPoolProviderFamiliesProps) => {
   const { t } = useTranslation();
   const query = useQuery({
-    queryKey: ["account-pool", "provider-families", accessToken],
+    queryKey: accountPoolQueryKeys.providerFamilies(accessToken),
     queryFn: () => listAccountPoolProviderFamilies(accessToken!),
     enabled: accessToken !== null,
     retry: false,

@@ -26,6 +26,7 @@ import { extractProxyErrorMessage } from "@/lib/http/client";
 import { formatDateTime } from "./AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import {
   deleteAccountPoolAuthFile,
   deleteAccountPoolCredential,
@@ -57,7 +58,7 @@ export const AccountPoolCredentialsPanel = ({
   const [editCredential, setEditCredential] = useState<(typeof credentials)[number] | null>(null);
   const [editFields, setEditFields] = useState("{}");
   const query = useQuery({
-    queryKey: ["account-pool", "credentials", accessToken],
+    queryKey: accountPoolQueryKeys.credentials(accessToken),
     queryFn: () => listAccountPoolCredentials(accessToken!),
     enabled: accessToken !== null,
     retry: false,
@@ -70,7 +71,7 @@ export const AccountPoolCredentialsPanel = ({
       !credentials.some((credential) => credential.card_id === environment.id),
   );
   const refreshStatusQuery = useQuery({
-    queryKey: ["account-pool", "auth-file-refresh", accessToken],
+    queryKey: accountPoolQueryKeys.authFileRefresh(accessToken),
     queryFn: () => getAccountPoolAuthFileRefreshStatus(accessToken!),
     enabled: accessToken !== null,
     retry: false,
@@ -79,9 +80,9 @@ export const AccountPoolCredentialsPanel = ({
   const refreshMutation = useMutation({
     mutationFn: () => refreshAccountPoolAuthFiles(accessToken!),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "auth-file-refresh", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.authFileRefresh(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -89,7 +90,7 @@ export const AccountPoolCredentialsPanel = ({
     mutationFn: (intervalMinutes: AccountPoolAuthFileRefreshStatus["interval_minutes"]) =>
       setAccountPoolAuthFileRefreshInterval(accessToken!, intervalMinutes),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "auth-file-refresh", accessToken] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.authFileRefresh(accessToken) });
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -108,8 +109,8 @@ export const AccountPoolCredentialsPanel = ({
       setReplaceCredential(null);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -131,8 +132,8 @@ export const AccountPoolCredentialsPanel = ({
       patchAccountPoolAuthFileStatus(accessToken!, environment.id, !enabled),
     onSuccess: () => {
       toast.success(t("accountPool.credentials.statusUpdated"));
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -154,8 +155,8 @@ export const AccountPoolCredentialsPanel = ({
     try {
       await deleteAccountPoolAuthFile(accessToken!, credential.card_id);
       toast.success(t("accountPool.credentials.removed"));
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
     } catch (error) {
       toast.fromError(error);
     }
@@ -176,8 +177,8 @@ export const AccountPoolCredentialsPanel = ({
       await patchAccountPoolAuthFileFields(accessToken!, editCredential.card_id, fields);
       toast.success(t("accountPool.credentials.fieldsUpdated"));
       setEditCredential(null);
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-      void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
     } catch (error) {
       toast.fromError(error);
     }
@@ -193,8 +194,8 @@ export const AccountPoolCredentialsPanel = ({
     })
       .then(() => {
         toast.success(t("accountPool.credentials.removed"));
-        void queryClient.invalidateQueries({ queryKey: ["account-pool", "credentials", accessToken] });
-        void queryClient.invalidateQueries({ queryKey: ["account-pool", "environments"] });
+        void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+        void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
       })
       .catch((error: unknown) => toast.fromError(error));
   };

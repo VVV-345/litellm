@@ -56,7 +56,7 @@ from account_pool.quota import (
 )
 from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.quota import parse_quota as parse_quota_snapshot
-from account_pool.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _QuotaObservation = QuotaObservation
 

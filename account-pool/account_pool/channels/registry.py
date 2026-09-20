@@ -15,7 +15,7 @@ from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import AuthorizationFlow, ChannelKind, SupplierKind
-from account_pool.secrets import EnvironmentSecretDeriver
+from account_pool.shared.secrets import EnvironmentSecretDeriver
 
 
 @dataclass(frozen=True, slots=True)

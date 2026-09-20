@@ -14,7 +14,7 @@ import {
 } from "./AccountPoolApi";
 import { canAuthorizeEnvironment, canDeleteEnvironment, canToggleEnvironment } from "./AccountPoolPermissions";
 import { toUpdateRequest } from "./AccountPoolTypes";
-import { ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY } from "./useAccountPoolQuery";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import type { AccountPoolAuthorization, AccountPoolEnvironment } from "./AccountPoolTypes";
 
 const isSavedWithPendingReconcile = (error: unknown): boolean =>
@@ -56,7 +56,7 @@ export const useAccountPoolMutations = (
 ) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
   const updateMutation = useMutation({
     mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) => {
       if (!accessToken) throw new Error("Access token required");

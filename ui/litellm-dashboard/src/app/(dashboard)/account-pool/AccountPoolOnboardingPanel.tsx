@@ -23,6 +23,7 @@ import {
 } from "./AccountPoolOnboardingApi";
 import { AccountPoolOnboardingTasks } from "./AccountPoolOnboardingTasks";
 import { AccountPoolOnboardingTarget } from "./AccountPoolOnboardingTarget";
+import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
 export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: string }) {
   const client = useQueryClient();
@@ -34,14 +35,14 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   const [preview, setPreview] = useState<OnboardingPreview[]>([]);
   const [busy, setBusy] = useState(false);
   const suppliersQuery = useQuery({
-    queryKey: ["account-pool", "onboarding-suppliers", accessToken],
+    queryKey: accountPoolQueryKeys.onboardingSuppliers(accessToken),
     queryFn: () => listOnboardingSuppliers(accessToken),
   });
   const supported =
     suppliersQuery.data?.some(
       (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
     ) ?? false;
-  const queryKey = ["account-pool", "onboarding", accessToken];
+  const queryKey = accountPoolQueryKeys.onboarding(accessToken);
   const query = useQuery({ queryKey, queryFn: () => listOnboarding(accessToken), refetchInterval: 5000 });
   const reset = () => {
     setRequest(null);
