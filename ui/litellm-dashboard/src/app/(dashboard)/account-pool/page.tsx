@@ -82,6 +82,8 @@ const POOL_TABS = [
   "releases",
   "settings-overview",
 ];
+const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
+const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard", "providers"]);
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
   "all",
   "provisioning",
@@ -115,19 +117,26 @@ export default function AccountPoolPage() {
   const [page, setPage] = useState(1);
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
   const canManage = canManageAccountPool(userRole, isViewOnly);
-  const environmentsQuery = useAccountPoolQuery(accessToken, canManage);
+  const dataTabActive = ACCOUNT_POOL_DATA_TABS.has(activeTab);
+  const cardTabActive = ACCOUNT_POOL_CARD_TABS.has(activeTab);
+  const dashboardActive = activeTab === "dashboard";
+  const environmentsQuery = useAccountPoolQuery(accessToken, canManage, dataTabActive);
   const quotaRefreshStatusQuery = useQuery({
     queryKey: ["account-pool", "quota-refresh-status", accessToken],
     queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
-    enabled: canManage && accessToken !== null,
+    enabled: canManage && accessToken !== null && (dashboardActive || activeTab === "quotas"),
     retry: false,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
   });
-  const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage);
+  const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
     queryKey: ["account-pool", "policies", accessToken],
     queryFn: () => listAccountPolicies(accessToken!),
-    enabled: canManage && accessToken !== null,
+    enabled: canManage && accessToken !== null && cardTabActive,
     retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   };
   const policiesQuery = useQuery(policiesQueryOptions);
   const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
@@ -144,9 +153,10 @@ export default function AccountPoolPage() {
   const dashboardStatsQuery = useQuery({
     queryKey: ["account-pool", "dashboard-stats", accessToken],
     queryFn: () => getAccountPoolDashboardStats(accessToken!),
-    enabled: canManage && accessToken !== null,
+    enabled: canManage && accessToken !== null && dashboardActive,
     retry: false,
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
   const statsByCard = useMemo(
     () =>
@@ -361,7 +371,9 @@ export default function AccountPoolPage() {
             <TabsTrigger value="credentials" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.credentials")}
             </TabsTrigger>
-            <TabsTrigger value="onboarding" className="flex-none rounded-none px-4 py-2">自动化上号</TabsTrigger>
+            <TabsTrigger value="onboarding" className="flex-none rounded-none px-4 py-2">
+              自动化上号
+            </TabsTrigger>
             <TabsTrigger value="quotas" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.quotas")}
             </TabsTrigger>

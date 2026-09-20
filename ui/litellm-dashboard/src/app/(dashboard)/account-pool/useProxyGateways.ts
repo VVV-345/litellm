@@ -22,6 +22,7 @@ export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolea
     enabled: enabled && accessToken !== null,
     retry: false,
     staleTime: 15_000,
+    refetchOnWindowFocus: false,
     refetchInterval: 30_000,
   });
 
