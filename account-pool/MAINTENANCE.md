@@ -40,6 +40,8 @@
 
 所有账号池查询键由 `hooks/accountPoolQueryKeys.ts` 定义。代理和策略选项通过 `hooks/accountPoolOptions.ts` 复用；页面仍负责权限、加载时机、刷新间隔和缓存时长。版本命令列表刷新使用 `releaseCommandsRoot(token)`，具体版本查询使用 `releaseCommands(token, pairId)`，避免把带 `undefined` 的具体键误用为前缀
 
+控制台原 `components/networking.tsx` 现在是兼容导出层，实现位于 `src/lib/http/api-modules/`。`clientState.ts` 唯一持有客户端、Worker 地址、鉴权头与错误处理状态；其余模块按模型、密钥、团队、日志、护栏、MCP 等业务组织，日期格式化放在 `dates.ts`。已有导入和 mock 路径保持有效，新业务可直接引用对应实现模块，不能反向导入兼容层
+
 提交 `2bccb7863c` 删除了经引用核对无调用方的 `AccountPoolScopePanel`、10 个前端 API 包装，并移除未使用的类型或缩小类型导出范围。服务端对应接口保留；现有页面使用的卡片插件、凭据删除、运行配置保存和镜像回退接口均保留
 
 ## 后端目录
@@ -50,7 +52,17 @@
 | `account_pool/application/environment_state.py` | 配置补偿和冷却状态判断 |
 | `account_pool/application/profile_updates.py` | 命名配置与卡片原配置的差异计算 |
 | `account_pool/application/plugin_validation.py` | 插件来源和版本校验 |
+| `account_pool/application/environments/contracts.py` | 生命周期常量和显式回调协议 |
+| `account_pool/application/environments/provisioning.py` | 创建环境及初始凭据验证 |
+| `account_pool/application/environments/authorization.py` | OAuth、回调与授权验证恢复 |
+| `account_pool/application/environments/auth_files.py` | 认证文件上传、替换、删除与状态修改 |
+| `account_pool/application/environments/configuration.py` | 配置更新、版本对账及冷却检查 |
+| `account_pool/application/environments/settings_sync.py` | 全局设置和策略同步及失败补偿 |
+| `account_pool/application/environments/deletion.py` | 删除步骤及清理进度持久化 |
+| `account_pool/application/environments/plugins.py` | 插件操作与校验编排 |
 | `account_pool/channels/cliproxyapi/protocol.py` | 管理协议响应模型 |
+| `account_pool/channels/cliproxyapi/transport.py` | 共用 HTTP 客户端的传输和鉴权 |
+| `account_pool/channels/cliproxyapi/provider_quota.py` | 供应商额度探测、失败回退及串行凭据调用 |
 | `account_pool/channels/cliproxyapi/provider_requests.py` | 供应商额度请求参数和错误信息提取 |
 | `account_pool/channels/cliproxyapi/quota_state.py` | 主动额度、被动额度与缓存合并 |
 | `account_pool/providers/usage/codex.py` | Codex 额度和订阅解析 |
@@ -59,7 +71,7 @@
 | `account_pool/providers/usage/common.py` | 复用 JSON、数值、时间和额度窗口解析 |
 | `account_pool/shared/` | 错误脱敏、结果类型与密钥基础设施 |
 
-`EnvironmentService` 保留事务、锁、授权及配置恢复的编排；`HttpCLIProxyClient` 保留网络请求和供应商调用顺序。解析模块不导入客户端或服务编排，避免循环依赖
+`EnvironmentService` 负责组装操作对象、共用环境锁及刷新入口；事务、授权和配置恢复以完整操作搬入 `application/environments/`。组合对象只接收所需仓库、通道与类型化回调，不使用 mixin、动态代理或独立锁。`HttpCLIProxyClient` 仍持有连接和凭据锁的生命周期，传输及供应商额度对象使用同一实例，保留原调用顺序。解析模块不导入客户端或服务编排
 
 `account_pool.provider_quota` 继续作为原有公开导入入口。`AuthorizationStart`、`_AuthFile` 及现有测试使用的服务导入名称保持可用。旧的 `result`、`secrets`、`error_safety` 和 `cliproxy` 兼容入口继续保留，不能仅凭当前内部引用数删除
 
@@ -223,3 +235,52 @@ npm run build
 每轮交接记录起始与完成提交、移动路径、复用入口、删除依据、兼容方式、检查命令与实际结果、未完成项，以及是否已推送、构建或部署。临时校验脚本和 `.git/` 内日志只用于当前工作区取证；后续维护不能依赖这些未提交文件，文档中应留下可重新执行的命令
 
 后续修改目录或公开入口时，同时更新本文目录表。问题修复后在新的日期及提交下补充验证结果，保留历史记录，避免把一次局部整理写成全项目清理完毕
+
+## 2026-09-20 续轮记录
+
+本轮从 `f35f3f83b2` 的未提交修复继续，快进拉取确认上游没有新提交。Windows Git 的默认 TLS 后端首次握手失败，使用单次命令 `git -c http.sslBackend=openssl pull --ff-only` 成功，没有修改全局配置
+
+代码提交为 `6270748365`（表格 Hook、类型 fixture、共享护栏类型及测试语言），`6b0f4ca8a9`（网络请求模块拆分），`ca38cc5613`（环境服务与 CLIProxyAPI 客户端拆分）。以下验证针对这三次提交组成的工作树，不将上轮的通过次数计入本轮
+
+### 变更与兼容
+
+三个表格把翻译 Hook 移到组件顶层，列工厂接收翻译函数，缓存依赖包括语言变化。回归覆盖加载状态变化后的第二次渲染、排序和语言切换。测试公共授权数据改为类型化 fixture；预算编辑器仅补全既有新旧字段的输入类型，运行时字段处理没有改变
+
+全量 TypeScript 继续检查测试源码，通过 `tests/globals.d.ts` 引入 Vitest 全局类型，仅排除生成目录 `out`。组件测试默认使用英文，号池目录使用中文；中文运行日志测试显式设定中文。语言切换用例继续操作真实 i18n 实例，不靠屏蔽翻译绕过断言
+
+`networking.tsx` 从 8135 行缩为 414 行，`service.py` 从 2327 行缩为 795 行，CLIProxyAPI `client.py` 从 1323 行缩为 776 行。兼容入口保留原函数、类型和调用参数，新增网络测试验证兼容入口与直接导入共用客户端，并在切换 Worker 后使用新的 URL 和鉴权头。152 项原有 raw-fetch 抑制随实现进入允许传输的 `lib/http/` 后移除；其余需要保留的规则按实际文件搬迁，没有提高原有违规总额
+
+后端用不可变 dataclass 组合操作，依赖由原服务注入；原环境锁、凭据所有权、仓库、网络连接和凭据请求锁均共用。操作内部的条件持久化、锁作用域、补偿和调用顺序没有拆散。前端 395 个顶层定义及后端 135 个方法做过 AST 核对，排除导出修饰和内部方法重命名后实现保持一致。AST 核对只是迁移证据，仍结合以下回归和构建结果判断
+
+### 本轮验证
+
+| 检查 | 命令或范围 | 结果 |
+| --- | --- | --- |
+| 前端源码与测试类型 | `npx tsc --noEmit --incremental false` | 通过 |
+| Vitest 类型项目 | `npm run test:types` | 4 项通过，另一个收集文件含 0 项类型用例 |
+| 本轮修改及直接调用方 | 显式列出测试路径，`npx vitest run ... --maxWorkers=2` | 47 文件、1135 项通过 |
+| 号池、密钥创建和日志 | 号池 feature、页面及密钥和日志测试共 33 文件 | 232 项先通过，运行日志修正测试语言后该文件 4 项通过，最终覆盖 234 个不同用例 |
+| 运行设置 | `RuntimeSettingsSection`、`RuntimeSettingsProfileSection`、`RuntimePolicyDialog` | 3 文件、11 项通过 |
+| ESLint | `npx eslint . --prune-suppressions`，随后检查本轮文件 | 全量 0 错误、2640 警告；变更范围 0 错误 |
+| Manager | `.venv/Scripts/python.exe -m pytest account-pool/tests -q` | 最后一次 498 项通过 |
+| 原生号池网关 | 本文网关命令，2 个 worker、120 秒用例超时 | 276 项通过，1 项需要 PostgreSQL 的检查跳过 |
+| Next.js | 隔离源码副本中 `npm run build -- --webpack` | 52 页面构建通过；字体 TLS 重试导致编译耗时 17.6 分钟 |
+| Python 未定义名称 | 本文 `ruff --select F821,F822,F823` 命令 | 通过 |
+| 数据迁移扫描 | `check_migrations_no_data_rewrites.py` | 162 份迁移通过，本轮未修改迁移 |
+| Manager 打包 | `uv build --wheel --out-dir .git/continuation-wheel ./account-pool` | wheel 成功，101 个条目，包含新环境操作和传输模块 |
+
+Manager 和网关测试进程设置 `LITELLM_LOCAL_MODEL_COST_MAP=True`，使用仓库价格表以排除测试初始化时的远程读取。所有原始结果记录在工作区 `.git/continuation-*.log`，后续执行以本文命令重新验证，不依赖这些本地日志仍然存在
+
+### 残留与边界
+
+Python 严格类型检查并未全绿：相同配置和导入路径下，搬迁前两个原文件有 63 条诊断，搬迁后入口及新模块有 70 条。按规则和消息比较没有新的诊断内容，7 条增量是旧私有名称在多个模块被引用后重复报告。现有问题涉及私有名称跨模块使用、旧兼容重载的类型收窄、JSON 输入类型及部分通道协议定义；后续需要独立完善契约和回归，不能把本次未定义名称检查通过写成严格类型检查通过
+
+2640 个前端 lint 警告也没有在本轮全量清理。仍未进行真实供应商 Key、生产数据库升级或容器启动验证；本轮没有修改生产部署、路由、计费和重试默认值，也没有部署服务器。用户原有 `tsconfig.tsbuildinfo` 改动完整保留且未提交
+
+### 维护经验
+
+搬迁可变模块状态时必须保留 ES module 实时绑定，不能把 `proxyBaseUrl` 复制为初始化快照，也不能在每个业务文件构造新客户端。用跨模块请求测试验证切换地址和自定义鉴权头，比只断言导出存在更有效
+
+类拆分使用显式协议和依赖注入，让调用方持有锁与连接的生命周期。将内部方法改成可跨对象调用的名称前先查同名方法；本轮 `_create_direct_credential_environment` 去掉下划线曾与公开方法冲突，回归检出后改为 `provision_direct_credential_environment`，再次通过完整 Manager 回归。机械搬迁校验必须检查名称唯一性，不能仅把定义放进字典而静默覆盖
+
+共享测试 fixture 引用真实角色工具时，调用方应部分 mock 模块并保留其余导出。固定测试语言与生产默认语言是不同职责，不应为旧英文断言改变中文产品默认值。新密钥默认隐藏的测试先点击显示按钮，再检查内容，保留实际用户操作流程

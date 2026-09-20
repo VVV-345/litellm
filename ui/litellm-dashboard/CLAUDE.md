@@ -39,3 +39,7 @@ Treat query caching, lazy module loading, and keeping a view mounted as separate
 After moving tests, inspect the actual collected filenames and counts. Prefer an unambiguous path fragment such as `account-pool/page.integration.test.tsx` when route-group parentheses interfere with matching. Knip reports for configured test setup files require manual confirmation before deletion
 
 Report `tsc`, the Vitest type project, and `next build` separately. Next.js 16.2.11 filters test-file diagnostics during its build, while the Vitest type project ignores source errors. Neither result alone establishes that all source and test types pass. Use an isolated checkout for builds that would overwrite existing `.next`, `out`, or TypeScript artifacts, and state which bundler was verified
+
+Network implementations live in `src/lib/http/api-modules/`; `components/networking.tsx` is the compatibility export layer. All domains share `clientState.ts`. Preserve live URL and auth-header bindings, and never import the compatibility layer back into an implementation module. Verify worker switching through both direct and compatibility imports
+
+Set test language explicitly when assertions depend on localized text. The shared component setup uses English, with Chinese for account-pool suites; other localized suites can override it in their own setup. Shared authorization fixtures call role helpers, so partial role mocks must retain those exports

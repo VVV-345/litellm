@@ -133,3 +133,5 @@ Keep behavior-preserving moves separate from changes to defaults, API contracts,
 Static unused-code reports are candidates for investigation. Check configuration entrypoints, dynamic imports, packaging, and external consumers before deleting an export, module, or endpoint. An unused frontend wrapper does not establish that its backend endpoint is unused
 
 Report validation by commit, command, scope, and result. Distinguish source type checks, test type checks, production builds, mocked integration tests, and real service checks. Record skipped checks and unresolved findings explicitly; previous passing counts are historical evidence and must not be presented as a fresh run
+
+When splitting stateful modules, keep a single owner for clients, locks, repositories, and mutable routing state. Preserve live bindings and explicit compatibility exports. Before renaming extracted methods, check for collisions with existing public methods, and verify both the moved implementation and the forwarding signature
