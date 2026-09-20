@@ -3,6 +3,7 @@
 import { SortingState } from "@tanstack/react-table";
 import { KeyRound } from "lucide-react";
 import React, { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CredentialItem } from "@/components/networking";
 import { DataTable } from "@/components/shared/DataTable";
@@ -38,12 +39,13 @@ const CredentialsTable: React.FC<CredentialsTableProps> = ({
   onDelete,
   isLoading = false,
 }) => {
+  const { t } = useTranslation();
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
 
-  const columns = useMemo(
-    () => getCredentialsTableColumns({ canModifyCredentials, onEdit, onDelete }),
-    [canModifyCredentials, onEdit, onDelete],
-  );
+  const columns = useMemo(() => {
+    const columnDeps = { t, canModifyCredentials, onEdit, onDelete };
+    return getCredentialsTableColumns(columnDeps);
+  }, [t, canModifyCredentials, onEdit, onDelete]);
 
   return (
     <DataTable

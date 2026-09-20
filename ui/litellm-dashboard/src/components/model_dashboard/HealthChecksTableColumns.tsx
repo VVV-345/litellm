@@ -201,6 +201,7 @@ function compareSentinels(
 }
 
 export interface HealthChecksTableColumnsDeps {
+  t: TFunction;
   modelHealthStatuses: Record<string, HealthStatus>;
   getDisplayModelName: (model: HealthCheckData) => string;
   onRunHealthCheck: (modelId: string) => void;
@@ -211,6 +212,7 @@ export interface HealthChecksTableColumnsDeps {
 }
 
 export const getHealthChecksTableColumns = ({
+  t,
   modelHealthStatuses,
   getDisplayModelName,
   onRunHealthCheck,
@@ -219,7 +221,6 @@ export const getHealthChecksTableColumns = ({
   onSelectModel,
   teams,
 }: HealthChecksTableColumnsDeps): ColumnDef<HealthCheckData>[] => {
-  const { t } = useTranslation();
   return [
   createSelectionColumn<HealthCheckData>({
     rowAriaLabel: (row) => `Select ${row.original.model_info?.id ?? row.original.model_name}`,
