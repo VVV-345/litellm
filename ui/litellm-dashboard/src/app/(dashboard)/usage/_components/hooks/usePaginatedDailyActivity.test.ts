@@ -127,7 +127,7 @@ describe("mergeDailyResults", () => {
     });
     const merged = mergeDailyResults([withExtra(2)], [withExtra(3)]);
 
-    expect(merged[0].metrics).toHaveProperty("future_savings_spend", 5);
+    expect((merged[0].metrics as Record<string, number>).future_savings_spend).toBe(5);
   });
 });
 

@@ -46,7 +46,6 @@ import GuardrailProviderFields from "./guardrail_provider_fields";
 import PiiConfiguration from "./pii_configuration";
 import ToolPermissionRulesEditor, { ToolPermissionConfig } from "./tool_permission/ToolPermissionRulesEditor";
 import { useTranslation } from "react-i18next";
-import type { GuardrailSettings } from "./guardrailSettings";
 
 const DEFAULT_ON_ITEMS = [
   { label: "Yes", value: true },
@@ -76,7 +75,31 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
   const form = useForm<GuardrailFormValues>({ defaultValues: {} });
   const [selectedPiiEntities, setSelectedPiiEntities] = useState<string[]>([]);
   const [selectedPiiActions, setSelectedPiiActions] = useState<{ [key: string]: string }>({});
-  const [guardrailSettings, setGuardrailSettings] = useState<GuardrailSettings | null>(null);
+  const [guardrailSettings, setGuardrailSettings] = useState<{
+    supported_entities: string[];
+    supported_actions: string[];
+    pii_entity_categories: Array<{
+      category: string;
+      entities: string[];
+    }>;
+    supported_modes: string[];
+    content_filter_settings?: {
+      prebuilt_patterns: Array<{
+        name: string;
+        display_name: string;
+        category: string;
+        description: string;
+      }>;
+      pattern_categories: string[];
+      supported_actions: string[];
+      content_categories?: Array<{
+        name: string;
+        display_name: string;
+        description: string;
+        default_action: string;
+      }>;
+    };
+  } | null>(null);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
   const [hasUnsavedContentFilterChanges, setHasUnsavedContentFilterChanges] = useState(false);
   const emptyToolPermissionConfig: ToolPermissionConfig = {

@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders, screen, testQueryClient, waitFor } from "@/../tests/test-utils";
 
 import { AutoRoutersPanel } from "./AutoRoutersPanel";
-import type { AutoRouterDeployment } from "@/app/(dashboard)/hooks/models/useModels";
 
 const { modelInfoCall, modelDeleteCall } = vi.hoisted(() => ({
   modelInfoCall: vi.fn(),
@@ -96,7 +95,7 @@ const DEPLOYMENTS = [
   },
 ];
 
-const pageOf = (data: AutoRouterDeployment[]) => ({
+const pageOf = (data: typeof DEPLOYMENTS) => ({
   data,
   total_count: data.length,
   current_page: 1,

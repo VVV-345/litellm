@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -26,7 +25,7 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => mockUseAuthorized(),
 }));
 
-const DEFAULT_AUTH = authorizationFixture({
+const DEFAULT_AUTH = {
   accessToken: "test-access-token",
   userId: "test-user-id",
   userRole: "Admin",
@@ -35,7 +34,7 @@ const DEFAULT_AUTH = authorizationFixture({
   premiumUser: false,
   disabledPersonalKeyCreation: null,
   showSSOBanner: false,
-});
+};
 
 const buildUserListResponse = (page: number, totalPages: number, userCount = 2): UserListResponse => ({
   page,
@@ -43,7 +42,6 @@ const buildUserListResponse = (page: number, totalPages: number, userCount = 2):
   total: totalPages * userCount,
   total_pages: totalPages,
   users: Array.from({ length: userCount }, (_, i) => ({
-    models: [],
     user_id: `user-${page}-${i}`,
     user_email: `user-${page}-${i}@example.com`,
     user_alias: null,

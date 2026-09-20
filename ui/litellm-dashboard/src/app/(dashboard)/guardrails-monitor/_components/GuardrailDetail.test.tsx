@@ -138,7 +138,7 @@ describe("GuardrailDetail", () => {
   });
 
   it("should not request anything without an access token", () => {
-    renderDetail({ accessToken: "" });
+    renderDetail({ accessToken: null });
     expect(mockGetGuardrailsUsageDetail).not.toHaveBeenCalled();
     expect(mockGetGuardrailsUsageLogs).not.toHaveBeenCalled();
   });

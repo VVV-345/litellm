@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { ComplexityRouterConfigPayload } from "../add_model/build_complexity_router_config";
 
 import {
   MANAGED_COMPLEXITY_ROUTER_KEYS,
@@ -9,9 +8,7 @@ import {
 } from "./edit_auto_router_modal";
 
 // The custom-tier router these cases round-trip, so a variant differs only by what it overrides.
-const storedCustomConfig = (overrides: Partial<ComplexityRouterConfigPayload> = {}): ComplexityRouterConfigPayload => ({
-  session_affinity: false,
-  deployment_affinity: true,
+const storedCustomConfig = (overrides: Record<string, unknown> = {}) => ({
   tiers: { CASUAL: ["gpt-4o-mini"], AUDIT: ["o1"] },
   tier_definitions: [
     { name: "CASUAL", description: "small talk" },

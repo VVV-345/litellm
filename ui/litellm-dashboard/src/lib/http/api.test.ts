@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchClient } from "./api";
-import type { components } from "./schema";
 import {
   registerAuthHeaderNameGetter,
   registerAuthTokenGetter,
@@ -11,21 +10,6 @@ import {
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-
-const keyRequest: components["schemas"]["GenerateKeyRequest"] = {
-  key_alias: "my-key",
-  aliases: {},
-  allowed_cache_controls: [],
-  allowed_routes: [],
-  auto_rotate: false,
-  config: {},
-  key_type: "default",
-  metadata: {},
-  model_max_budget: {},
-  models: [],
-  permissions: {},
-  spend: 0,
-};
 
 const capturingFetch = (response: Response) => {
   const requests: Request[] = [];
@@ -100,11 +84,11 @@ describe("typed api client middleware", () => {
     const { streamBodiedInits } = spyOnRequestConstruction();
     const { fetch, requests } = capturingFetch(jsonResponse(200, { key: "sk-new" }));
 
-    await fetchClient.POST("/key/generate", { fetch, body: keyRequest });
+    await fetchClient.POST("/key/generate", { fetch, body: { key_alias: "my-key" } });
 
     expect(streamBodiedInits()).toEqual([]);
     expect(requests[0].headers.get("Authorization")).toBe("Bearer sk-test");
-    expect(await requests[0].text()).toBe(JSON.stringify(keyRequest));
+    expect(await requests[0].text()).toBe(JSON.stringify({ key_alias: "my-key" }));
   });
 
   it("keeps the POST body as bytes when a different runtime base url is registered", async () => {
@@ -113,7 +97,7 @@ describe("typed api client middleware", () => {
     const { streamBodiedInits } = spyOnRequestConstruction();
     const { fetch, requests } = capturingFetch(jsonResponse(200, { key: "sk-new" }));
 
-    await fetchClient.POST("/key/generate", { fetch, body: keyRequest });
+    await fetchClient.POST("/key/generate", { fetch, body: { key_alias: "my-key" } });
 
     expect(streamBodiedInits()).toEqual([]);
     const sent = requests[0];
@@ -121,7 +105,7 @@ describe("typed api client middleware", () => {
     expect(sent.method).toBe("POST");
     expect(sent.headers.get("Authorization")).toBe("Bearer sk-test");
     expect(sent.headers.get("Content-Type")).toBe("application/json");
-    expect(await sent.text()).toBe(JSON.stringify(keyRequest));
+    expect(await sent.text()).toBe(JSON.stringify({ key_alias: "my-key" }));
   });
 
   it("reads the base url on every call, so a base registered after import still takes effect", async () => {

@@ -74,7 +74,6 @@ vi.mock("@/app/(dashboard)/hooks/organizations/useOrganizations", () => ({
 }));
 
 const mockKey: KeyResponse = {
-  key_type: null,
   token: "88a145505dd6e87e2ea166fcef1e4b53948dbdb32af6431dfd05ec06b571ee52",
   token_id: "key-1",
   key_name: "test-key",
@@ -99,10 +98,7 @@ const mockKey: KeyResponse = {
   allowed_routes: [],
   permissions: {},
   model_spend: { "gpt-3.5-turbo": 2.5, "gpt-4": 3.0 },
-  model_max_budget: {
-    "gpt-3.5-turbo": { budget_limit: 50, time_period: "30d" },
-    "gpt-4": { budget_limit: 50, time_period: "30d" },
-  },
+  model_max_budget: { "gpt-3.5-turbo": 50, "gpt-4": 50 },
   soft_budget_cooldown: false,
   blocked: false,
   litellm_budget_table: {},
@@ -415,7 +411,6 @@ it("repoints ?key= to the rotated hash once the regenerate dialog is dismissed",
 
   await user.click(await screen.findByRole("button", { name: /regenerate key/i }));
   await user.click(await screen.findByRole("button", { name: /^Regenerate$/ }));
-  await user.click(await screen.findByRole("button", { name: "显示密钥" }));
   expect(await screen.findAllByText("sk-rotated-plaintext")).not.toHaveLength(0);
   expect(lastKeyParam(onUrlUpdate)).toBeUndefined();
 

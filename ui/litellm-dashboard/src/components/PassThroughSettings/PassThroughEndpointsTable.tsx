@@ -2,7 +2,6 @@
 
 import { Waypoints } from "lucide-react";
 import { useMemo } from "react";
-import { useTranslation } from "react-i18next";
 
 import { DataTable } from "@/components/shared/DataTable";
 
@@ -34,10 +33,9 @@ export function PassThroughEndpointsTable({
   onEndpointClick,
   onDeleteClick,
 }: PassThroughEndpointsTableProps) {
-  const { t } = useTranslation();
   const columns = useMemo(
-    () => getPassThroughEndpointsTableColumns({ t, onEndpointClick, onDeleteClick }),
-    [t, onEndpointClick, onDeleteClick],
+    () => getPassThroughEndpointsTableColumns({ onEndpointClick, onDeleteClick }),
+    [onEndpointClick, onDeleteClick],
   );
 
   return (

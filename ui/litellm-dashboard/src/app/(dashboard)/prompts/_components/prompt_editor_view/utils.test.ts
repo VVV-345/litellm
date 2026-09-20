@@ -11,7 +11,6 @@ import {
 describe("extractVariables", () => {
   it("should extract variables from messages", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -29,7 +28,6 @@ describe("extractVariables", () => {
 
   it("should extract variables from developer message", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -44,7 +42,6 @@ describe("extractVariables", () => {
 
   it("should extract variables from both messages and developer message", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -62,7 +59,6 @@ describe("extractVariables", () => {
 
   it("should return empty array when no variables present", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -77,7 +73,6 @@ describe("extractVariables", () => {
 
   it("should handle duplicate variables", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -97,7 +92,6 @@ describe("extractVariables", () => {
 describe("convertToDotPrompt", () => {
   it("should convert basic prompt to dot prompt format", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -118,7 +112,6 @@ describe("convertToDotPrompt", () => {
 
   it("should include config parameters when set", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {
@@ -139,7 +132,6 @@ describe("convertToDotPrompt", () => {
 
   it("should include input schema with variables", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -156,7 +148,6 @@ describe("convertToDotPrompt", () => {
 
   it("should include developer message when present", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -171,7 +162,6 @@ describe("convertToDotPrompt", () => {
 
   it("should include tools when present", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},
@@ -193,7 +183,6 @@ describe("convertToDotPrompt", () => {
 
   it("should handle multiple messages with different roles", () => {
     const prompt: PromptType = {
-      environment: "production",
       name: "test",
       model: "gpt-4",
       config: {},

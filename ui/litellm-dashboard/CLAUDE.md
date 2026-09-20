@@ -40,6 +40,6 @@ After moving tests, inspect the actual collected filenames and counts. Prefer an
 
 Report `tsc`, the Vitest type project, and `next build` separately. Next.js 16.2.11 filters test-file diagnostics during its build, while the Vitest type project ignores source errors. Neither result alone establishes that all source and test types pass. Use an isolated checkout for builds that would overwrite existing `.next`, `out`, or TypeScript artifacts, and state which bundler was verified
 
-Network implementations live in `src/lib/http/api-modules/`; `components/networking.tsx` is the compatibility export layer. All domains share `clientState.ts`. Preserve live URL and auth-header bindings, and never import the compatibility layer back into an implementation module. Verify worker switching through both direct and compatibility imports
+Native network implementations remain in `components/networking.tsx`; its previous extraction into `src/lib/http/api-modules/` was reverted at the user's request. Limit further structural cleanup to account-pool code and the imports needed to connect it to native pages. Do not split native modules again without an explicit scope change
 
-Set test language explicitly when assertions depend on localized text. The shared component setup uses English, with Chinese for account-pool suites; other localized suites can override it in their own setup. Shared authorization fixtures call role helpers, so partial role mocks must retain those exports
+Set test language explicitly when new account-pool assertions depend on localized text. The shared component setup uses the application's existing i18n initialization; the separate English default and shared authorization fixture introduced during native cleanup were reverted

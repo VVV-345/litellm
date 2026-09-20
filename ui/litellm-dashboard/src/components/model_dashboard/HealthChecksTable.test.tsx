@@ -1,17 +1,12 @@
 /* @vitest-environment jsdom */
 import type { PaginationState, RowSelectionState } from "@tanstack/react-table";
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import i18n from "@/i18n";
+import { describe, expect, it, vi } from "vitest";
 
 import { HealthChecksTable } from "./HealthChecksTable";
 import type { HealthCheckData, HealthStatus } from "./HealthChecksTableColumns";
-
-beforeEach(async () => {
-  await i18n.changeLanguage("en");
-});
 
 const makeRow = (overrides: Partial<HealthCheckData> & { id: string }): HealthCheckData => {
   const { id, ...rest } = overrides;
@@ -123,36 +118,6 @@ describe("HealthChecksTable client sorting", () => {
 });
 
 describe("HealthChecksTable rows", () => {
-  it("keeps rows after loading finishes with stable callbacks", () => {
-    const props = {
-      data: [makeRow({ id: "deployment-9" })],
-      rowCount: 1,
-      pagination: { pageIndex: 0, pageSize: 50 },
-      onPaginationChange: vi.fn(),
-      rowSelection: {},
-      onRowSelectionChange: vi.fn(),
-      modelHealthStatuses: {},
-      getDisplayModelName: (model: HealthCheckData) => model.model_name,
-      onRunHealthCheck: vi.fn(),
-      onShowError: vi.fn(),
-      onShowSuccess: vi.fn(),
-    };
-    const { rerender } = render(<HealthChecksTable {...props} isLoading />);
-    rerender(<HealthChecksTable {...props} isLoading={false} />);
-    expect(screen.getByText("deployment-9")).toBeInTheDocument();
-    expect(screen.getByTestId("run-health-check-btn")).toBeEnabled();
-  });
-
-  it("updates the model column when the language changes", async () => {
-    render(<Harness data={[makeRow({ id: "deployment-9" })]} />);
-    expect(screen.getByText("Model ID")).toBeInTheDocument();
-    await act(async () => {
-      await i18n.changeLanguage("zh-CN");
-    });
-    expect(screen.getByText(i18n.getFixedT("zh-CN")("ui.Model ID"))).toBeInTheDocument();
-    expect(screen.queryByText("Model ID")).not.toBeInTheDocument();
-  });
-
   it("renders the live checking cell while a row is loading and disables its run button", () => {
     render(<Harness data={[makeRow({ id: "busy", health_loading: true, health_status: "checking" })]} />);
 

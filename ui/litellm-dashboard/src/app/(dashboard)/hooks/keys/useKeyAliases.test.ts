@@ -149,10 +149,9 @@ describe("useInfiniteKeyAliases", () => {
 
   it("should include search in query key so search changes refetch from page 1", async () => {
     const wrapper = createWrapper();
-    const initialProps: { search?: string } = { search: undefined };
     const { result, rerender } = renderHook(({ search }: { search?: string }) => useInfiniteKeyAliases(50, search), {
       wrapper,
-      initialProps,
+      initialProps: { search: undefined },
     });
 
     await waitFor(() => {

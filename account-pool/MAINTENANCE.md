@@ -45,7 +45,7 @@
 
 认证文件的查询、上传、替换、编辑和删除由 `hooks/useAccountPoolCredentials.ts` 编排，页面保留展示与文件输入引用。该 Hook 共用凭据与卡片缓存失效函数，但分别保留各操作的 `onSuccess` 和 `onSettled` 时机。认证文件与额度页面使用 `components/shared/AccountPoolRefreshIntervalSelect.tsx`，调用方仍提供默认值、保存请求和文案
 
-控制台原 `components/networking.tsx` 现在是兼容导出层，实现位于 `src/lib/http/api-modules/`。`clientState.ts` 唯一持有客户端、Worker 地址、鉴权头与错误处理状态；其余模块按模型、密钥、团队、日志、护栏、MCP 等业务组织，日期格式化放在 `dates.ts`。已有导入和 mock 路径保持有效，新业务可直接引用对应实现模块，不能反向导入兼容层
+控制台请求实现保留在原生 `components/networking.tsx` 中。此前拆出的 `src/lib/http/api-modules/` 已按用户要求通过 Git revert 撤销，后续不得再依赖该目录。号池继续使用已有 HTTP 客户端和自身 `features/account-pool/api/`，不需要改变原生请求模块的内部组织
 
 提交 `2bccb7863c` 删除了经引用核对无调用方的 `AccountPoolScopePanel`、10 个前端 API 包装，并移除未使用的类型或缩小类型导出范围。服务端对应接口保留；现有页面使用的卡片插件、凭据删除、运行配置保存和镜像回退接口均保留
 
@@ -249,6 +249,8 @@ npm run build
 
 ## 2026-09-20 续轮记录
 
+本节为历史记录：其中原生控制台的 `6270748365` 和 `6b0f4ca8a9` 已在后续回退中撤销；下列测试结果仅描述当时版本。号池后端拆分保留，当前回退状态见文末
+
 本轮从 `f35f3f83b2` 的未提交修复继续，快进拉取确认上游没有新提交。Windows Git 的默认 TLS 后端首次握手失败，使用单次命令 `git -c http.sslBackend=openssl pull --ff-only` 成功，没有修改全局配置
 
 代码提交为 `6270748365`（表格 Hook、类型 fixture、共享护栏类型及测试语言），`6b0f4ca8a9`（网络请求模块拆分），`ca38cc5613`（环境服务与 CLIProxyAPI 客户端拆分）。以下验证针对这三次提交组成的工作树，不将上轮的通过次数计入本轮
@@ -329,3 +331,23 @@ Python 严格类型检查并未全绿：相同配置和导入路径下，搬迁�
 管理 API 中相似的错误处理未合并：`api._unwrap` 按错误类型返回 404、409、422 或 502，`management_api.unwrap` 则固定返回 409。OAuth 上号接口另有明确的 404/409 契约，不能仅因代码相似就改变错误映射。路由注册、事务和补偿集中在同一编排模块的部分也不按文件行数强行拆散
 
 Windows 上机械迁移应保留原文件换行，避免只改一个导入却出现全文件差异。临时脚本和详细日志位于本地 `.git/pool-scope-*`，不作为仓库运行依赖；后续按上述命令重新验证
+
+## 2026-09-20 撤销原生控制台整理
+
+按用户要求，从 `99de1839c7` 执行 `git revert --no-commit 6b0f4ca8a9` 和 `git revert --no-commit 6270748365`，以新提交保留撤销记录，不改写已推送历史。两次撤销均无冲突；涉及的 98 个文件与 `f35f3f83b2` 对比一致
+
+撤销范围包括公共请求层的 35 个拆分模块、原生表格 Hook 修复、护栏共享类型、原生预算输入类型、Playground/MCP 表达式清理，以及同批次测试、类型配置和 lint 基线调整。`networking.tsx` 恢复原实现；原生请求路径和更早的号池功能集成没有回退
+
+保留 `e561c19fc7`、`2bccb7863c`、`ca38cc5613`、`99de1839c7` 中的号池解耦，包含 `features/account-pool/`、环境服务组合、供应商额度模块、认证文件 Hook 和刷新控件。原生页面连接号池新目录所需的导入调整及共享号池查询继续保留。对比确认号池前后端实现相对回退起点没有变化
+
+### 回退验证与已知限制
+
+显式选择 25 个号池 feature 测试文件，以及号池页面、原生请求层、密钥创建、日志和运行设置的 9 个调用方文件，执行 `npx vitest run ... --maxWorkers=2`，34 文件、304 项通过。其中恢复后的 `networking.test.ts` 有 41 项通过
+
+生产源码类型检查通过：使用临时 TypeScript 配置继承控制台配置、关闭 incremental，仅纳入 `next-env.d.ts` 和 `src/**/*.ts(x)`，排除 `*.test.*`、`*.test-d.*`。该检查未写入用户已有 `tsconfig.tsbuildinfo`，也未改变仓库的类型检查范围
+
+隔离副本 `.git/native-revert-build/dashboard` 中执行 `npm run build -- --webpack` 成功，生成 52 个页面；编译阶段耗时 13.4 分钟。副本使用原控制台依赖和配置，未覆盖工作区 `.next`、`out` 或类型缓存。构建结果不代替上面的全量类型检查，也不代表已验证所有浏览器交互
+
+全量 `npx tsc --noEmit --incremental false` 未通过，恢复了整理前的 1401 条诊断：1398 条来自测试文件，3 条来自本地 `out/rollback-qa/main.tsx`。原生三个表格的 Hook 问题也随修复提交的撤销恢复，不能将本次 304 项通过描述成这些问题已经解决。此次回退不重新加入用户要求撤销的原生修复
+
+本轮没有修改 Python 实现、数据库、认证文件、运行日志或服务器部署，没有重新运行此前的 Manager 和网关回归，也没有进行真实供应商调用。历史检查结果仍留在上文，只对各自当时版本有效

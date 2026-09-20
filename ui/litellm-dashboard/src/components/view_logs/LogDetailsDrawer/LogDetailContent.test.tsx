@@ -505,7 +505,7 @@ it("opens account diagnostics using the nested spend metadata request ID", () =>
       accessToken="test"
       logEntry={createLogEntry({
         messages: [],
-        response: undefined,
+        response: null,
         metadata: { status: "success", spend_logs_metadata: { account_pool_request_id: "pool-request-one" } },
       })}
     />,

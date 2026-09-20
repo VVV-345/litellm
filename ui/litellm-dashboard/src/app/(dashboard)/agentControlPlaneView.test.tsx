@@ -1,13 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { AgentControlPlaneView } from "./layout";
-import type { createApiClient } from "@/lib/http/client";
 
-const { getMock } = vi.hoisted(() => ({
-  getMock: vi
-    .fn<(...args: Parameters<ReturnType<typeof createApiClient>["get"]>) => Promise<{ session_claim: string }>>()
-    .mockResolvedValue({ session_claim: "claim" }),
-}));
+const { getMock } = vi.hoisted(() => ({ getMock: vi.fn(() => Promise.resolve({ session_claim: "claim" })) }));
 
 const pluginModeValue = {
   mode: "litellm-platform-plugin" as string,
@@ -77,7 +72,7 @@ describe("AgentControlPlaneView iframe", () => {
     await waitFor(() => expect(getMock).toHaveBeenCalled());
     const [path, opts] = getMock.mock.calls[0];
     expect(path).toBe("/api/plugins/auth-token");
-    expect(opts?.query).toEqual({ plugin_name: "reports-plugin" });
+    expect(opts.query).toEqual({ plugin_name: "reports-plugin" });
 
     pluginModeValue.activePlugin = {
       name: "litellm-platform-plugin",

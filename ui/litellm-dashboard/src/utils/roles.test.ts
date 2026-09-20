@@ -93,7 +93,6 @@ describe("roles", () => {
     it("should return true when user is admin of at least one team", () => {
       const teams: Team[] = [
         {
-          spend: 0,
           team_id: "team-1",
           team_alias: "Test Team 1",
           models: [],
@@ -107,7 +106,6 @@ describe("roles", () => {
           members_with_roles: [{ user_id: "user-1", user_email: "user1@test.com", role: "user" }],
         },
         {
-          spend: 0,
           team_id: "team-2",
           team_alias: "Test Team 2",
           models: [],
@@ -127,7 +125,6 @@ describe("roles", () => {
     it("should return false when user is not admin of any team", () => {
       const teams: Team[] = [
         {
-          spend: 0,
           team_id: "team-1",
           team_alias: "Test Team 1",
           models: [],
@@ -141,7 +138,6 @@ describe("roles", () => {
           members_with_roles: [{ user_id: "user-1", user_email: "user1@test.com", role: "user" }],
         },
         {
-          spend: 0,
           team_id: "team-2",
           team_alias: "Test Team 2",
           models: [],

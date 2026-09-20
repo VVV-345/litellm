@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders } from "@/../tests/test-utils";
 import { screen, fireEvent } from "@testing-library/react";
@@ -46,7 +45,7 @@ const pendingSubmission = {
   submitted_at: "2026-05-09T00:00:00Z",
 };
 
-const baseAuth = authorizationFixture({
+const baseAuth = {
   token: "test-token",
   accessToken: "test-token",
   userId: "user-1",
@@ -54,7 +53,7 @@ const baseAuth = authorizationFixture({
   premiumUser: false,
   disabledPersonalKeyCreation: null,
   showSSOBanner: false,
-});
+};
 
 describe("TeamGuardrailsTab — approve/reject role gate", () => {
   const mockUseAuthorized = vi.mocked(useAuthorized);
@@ -97,8 +96,8 @@ describe("TeamGuardrailsTab — approve/reject role gate", () => {
     expect(screen.getByRole("button", { name: /reject/i })).toBeInTheDocument();
   });
 
-  it("hides Approve and Reject buttons when userRole is empty (defaults to non-admin)", async () => {
-    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: "" });
+  it("hides Approve and Reject buttons when userRole is undefined (defaults to non-admin)", async () => {
+    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: undefined });
     renderWithProviders(<TeamGuardrailsTab accessToken="test-token" />);
 
     await screen.findByText("test-pending-guardrail");

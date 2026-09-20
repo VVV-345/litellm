@@ -188,7 +188,7 @@ describe("AutoRouterBenchmarksTab", () => {
     mockHook({ data: response([group(), group({ router_name: "gpt-auto" })]) });
     renderTab();
 
-    const tile = screen.getByText("Avg saved per session").closest<HTMLElement>('[data-slot="card"]');
+    const tile = screen.getByText("Avg saved per session").closest('[data-slot="card"]');
     if (!tile) throw new Error("expected avg saved per session to render as a metric tile");
 
     expect(within(tile).getByText("$23.13")).toBeInTheDocument();

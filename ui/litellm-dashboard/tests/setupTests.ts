@@ -1,12 +1,7 @@
 import "@testing-library/jest-dom";
-import i18n from "@/i18n";
+import "@/i18n";
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, expect, vi } from "vitest";
-
-beforeEach(async () => {
-  const isAccountPoolTest = expect.getState().testPath?.replaceAll("\\", "/").includes("/account-pool/");
-  await i18n.changeLanguage(isAccountPoolTest ? "zh-CN" : "en");
-});
+import { afterEach, vi } from "vitest";
 
 const ensureTestLocalStorage = () => {
   if (typeof window === "undefined" || typeof window.Storage === "undefined") {

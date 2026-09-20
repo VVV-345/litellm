@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,7 +34,7 @@ describe("TopKeyView", () => {
   const mockKeyInfoV1Call = vi.mocked(networking.keyInfoV1Call);
   const mockTransformKeyInfo = vi.mocked(transformKeyInfo.transformKeyInfo);
 
-  const mockAuth = authorizationFixture({
+  const mockAuth = {
     token: "mock-token",
     accessToken: "test-token",
     userId: "user-1",
@@ -44,7 +43,7 @@ describe("TopKeyView", () => {
     premiumUser: true,
     disabledPersonalKeyCreation: false,
     showSSOBanner: false,
-  });
+  };
 
   const mockSetTopKeysLimit = vi.fn();
 

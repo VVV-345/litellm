@@ -154,9 +154,6 @@ const optionByContent = (label: string): HTMLElement | undefined =>
 
 describe("KeyEditView", () => {
   const MOCK_KEY_DATA: KeyResponse = {
-    key_type: null,
-    last_active: null,
-    project_id: null,
     token: "test-token-123",
     token_id: "test-token-123",
     key_name: "sk-...TUuw",

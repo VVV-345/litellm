@@ -2,43 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { clearTokenCookies } from "@/utils/cookieUtils";
 import * as Networking from "./networking";
 import { migratedHref } from "@/utils/migratedPages";
-import * as ClientState from "@/lib/http/api-modules/clientState";
-import { getPromptsList } from "@/lib/http/api-modules/prompts";
-import { credentialListCall } from "@/lib/http/api-modules/credentials";
-
-describe("networking compatibility and shared runtime", () => {
-  afterEach(() => {
-    Networking.switchToWorkerUrl(null);
-    Networking.setGlobalLitellmHeaderName("Authorization");
-    vi.unstubAllGlobals();
-  });
-
-  it("shares the client and live worker URL across direct imports and the compatibility entrypoint", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
-      async () =>
-        new Response(JSON.stringify({ prompts: [], credentials: [] }), {
-          headers: { "Content-Type": "application/json" },
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    expect(Networking.apiClient).toBe(ClientState.apiClient);
-    expect(Networking.getPromptsList).toBe(getPromptsList);
-    Networking.setGlobalLitellmHeaderName("x-test-key");
-    Networking.switchToWorkerUrl("https://first.example");
-    expect(ClientState.proxyBaseUrl).toBe("https://first.example");
-    await getPromptsList("test-token");
-    Networking.switchToWorkerUrl("https://second.example");
-    expect(Networking.proxyBaseUrl).toBe("https://second.example");
-    await credentialListCall("test-token");
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
-      "https://first.example/prompts/list",
-      "https://second.example/credentials",
-    ]);
-    for (const [, options] of fetchMock.mock.calls) {
-      expect(new Headers(options?.headers).get("x-test-key")).toBe("Bearer test-token");
-    }
-  });
-});
 
 vi.mock("@/utils/cookieUtils", () => ({
   clearTokenCookies: vi.fn(),

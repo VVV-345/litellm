@@ -2,15 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import OrganizationDropdown from "./OrganizationDropdown";
-import type { Organization } from "../networking";
 
-const MOCK_ORGS: Organization[] = [
+const MOCK_ORGS = [
   {
-    updated_by: "",
-    litellm_budget_table: null,
-    teams: [],
-    users: [],
-    members: [],
     organization_id: "org-1",
     organization_alias: "Engineering",
     budget_id: "",
@@ -23,11 +17,6 @@ const MOCK_ORGS: Organization[] = [
     updated_at: "",
   },
   {
-    updated_by: "",
-    litellm_budget_table: null,
-    teams: [],
-    users: [],
-    members: [],
     organization_id: "org-2",
     organization_alias: "Sales",
     budget_id: "",

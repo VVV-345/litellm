@@ -1,7 +1,6 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import i18n from "@/i18n";
 
 import { PassThroughEndpointsTable } from "./PassThroughEndpointsTable";
 import type { passThroughItem } from "./PassThroughSettings";
@@ -32,26 +31,8 @@ const defaultProps = {
 };
 
 describe("PassThroughEndpointsTable", () => {
-  beforeEach(async () => {
-    await i18n.changeLanguage("en");
+  beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("keeps rows after loading finishes with stable callbacks", () => {
-    const { rerender } = render(<PassThroughEndpointsTable {...defaultProps} isLoading />);
-    rerender(<PassThroughEndpointsTable {...defaultProps} />);
-    expect(screen.getByText("/v1/rerank")).toBeInTheDocument();
-    expect(screen.getByText("/bria")).toBeInTheDocument();
-  });
-
-  it("updates the actions column when the language changes", async () => {
-    render(<PassThroughEndpointsTable {...defaultProps} />);
-    expect(screen.getByText("Actions")).toBeInTheDocument();
-    await act(async () => {
-      await i18n.changeLanguage("zh-CN");
-    });
-    expect(screen.getByText(i18n.getFixedT("zh-CN")("ui.Actions"))).toBeInTheDocument();
-    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
   });
 
   it("should render a row per endpoint with path and target", () => {

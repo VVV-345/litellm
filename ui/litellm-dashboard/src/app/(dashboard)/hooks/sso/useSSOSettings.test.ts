@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,11 +16,6 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
 
 const mockSSOSettingsResponse: SSOSettingsResponse = {
   values: {
-    saml_idp_metadata_url: null,
-    saml_idp_metadata_xml: null,
-    saml_sp_entity_id: null,
-    saml_allow_unsolicited: null,
-    generic_scope: null,
     google_client_id: "test-google-client-id",
     google_client_secret: "test-google-client-secret",
     microsoft_client_id: "test-microsoft-client-id",
@@ -77,18 +71,16 @@ describe("useSSOSettings", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue(
-      authorizationFixture({
-        accessToken: "test-access-token",
-        userId: "test-user-id",
-        userRole: "Admin",
-        token: "test-token",
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    mockUseAuthorized.mockReturnValue({
+      accessToken: "test-access-token",
+      userId: "test-user-id",
+      userRole: "Admin",
+      token: "test-token",
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -143,18 +135,16 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when accessToken is missing", async () => {
-    mockUseAuthorized.mockReturnValue(
-      authorizationFixture({
-        accessToken: null,
-        userId: "test-user-id",
-        userRole: "Admin",
-        token: null,
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    mockUseAuthorized.mockReturnValue({
+      accessToken: null,
+      userId: "test-user-id",
+      userRole: "Admin",
+      token: null,
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -166,18 +156,16 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when userId is missing", async () => {
-    mockUseAuthorized.mockReturnValue(
-      authorizationFixture({
-        accessToken: "test-access-token",
-        userId: null,
-        userRole: "Admin",
-        token: "test-token",
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    mockUseAuthorized.mockReturnValue({
+      accessToken: "test-access-token",
+      userId: null,
+      userRole: "Admin",
+      token: "test-token",
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -189,18 +177,16 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when userRole is missing", async () => {
-    mockUseAuthorized.mockReturnValue(
-      authorizationFixture({
-        accessToken: "test-access-token",
-        userId: "test-user-id",
-        userRole: undefined,
-        token: "test-token",
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    mockUseAuthorized.mockReturnValue({
+      accessToken: "test-access-token",
+      userId: "test-user-id",
+      userRole: null,
+      token: "test-token",
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -212,18 +198,16 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when all auth values are missing", async () => {
-    mockUseAuthorized.mockReturnValue(
-      authorizationFixture({
-        accessToken: null,
-        userId: null,
-        userRole: undefined,
-        token: null,
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    mockUseAuthorized.mockReturnValue({
+      accessToken: null,
+      userId: null,
+      userRole: null,
+      token: null,
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -250,11 +234,6 @@ describe("useSSOSettings", () => {
   it("should return empty values when API returns minimal data", async () => {
     const minimalResponse: SSOSettingsResponse = {
       values: {
-        saml_idp_metadata_url: null,
-        saml_idp_metadata_xml: null,
-        saml_sp_entity_id: null,
-        saml_allow_unsolicited: null,
-        generic_scope: null,
         google_client_id: null,
         google_client_secret: null,
         microsoft_client_id: null,

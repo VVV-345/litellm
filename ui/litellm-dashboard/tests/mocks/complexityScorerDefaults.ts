@@ -1,5 +1,4 @@
 import { vi } from "vitest";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { ComplexityScorerDefaults } from "@/components/networking";
 
 /**
@@ -24,10 +23,11 @@ export const SHIPPED_SCORER_DEFAULTS: ComplexityScorerDefaults = {
   },
 };
 
-export const LOADED_SCORER_DEFAULTS_QUERY = new QueryObserver(new QueryClient(), {
-  queryKey: ["test-complexity-scorer-defaults"],
-  queryFn: async () => SHIPPED_SCORER_DEFAULTS,
-  initialData: SHIPPED_SCORER_DEFAULTS,
-}).getCurrentResult();
+export const LOADED_SCORER_DEFAULTS_QUERY = {
+  data: SHIPPED_SCORER_DEFAULTS,
+  isPending: false,
+  isError: false,
+  refetch: vi.fn(),
+};
 
 export const useComplexityScorerDefaults = vi.fn(() => LOADED_SCORER_DEFAULTS_QUERY);

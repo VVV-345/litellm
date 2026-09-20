@@ -233,6 +233,9 @@
     },
     "react-hooks/set-state-in-effect": {
       "count": 1
+    },
+    "react/no-unescaped-entities": {
+      "count": 2
     }
   },
   "src/app/(dashboard)/guardrails/_components/content_filter/CompetitorIntentConfiguration.tsx": {
@@ -704,6 +707,9 @@
     },
     "max-lines": {
       "count": 1
+    },
+    "no-nested-ternary": {
+      "count": 6
     },
     "react-hooks/set-state-in-effect": {
       "count": 4
@@ -1764,7 +1770,7 @@
   },
   "src/components/mcp_tools/McpCrudPermissionPanel.tsx": {
     "no-nested-ternary": {
-      "count": 1
+      "count": 3
     }
   },
   "src/components/mcp_tools/types.tsx": {
@@ -1814,6 +1820,21 @@
   "src/components/networking.tsx": {
     "local/filename-pascal-case": {
       "count": 1
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-params": {
+      "count": 23
+    },
+    "no-nested-ternary": {
+      "count": 5
+    },
+    "no-restricted-syntax": {
+      "count": 152
+    },
+    "prefer-const": {
+      "count": 32
     }
   },
   "src/components/object_permissions_view.tsx": {
@@ -2449,119 +2470,6 @@
     },
     "react-hooks/set-state-in-effect": {
       "count": 1
-    }
-  },
-  "src/lib/http/api-modules/analytics.ts": {
-    "max-params": {
-      "count": 1
-    },
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/auth.ts": {
-    "prefer-const": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/clientState.ts": {
-    "no-nested-ternary": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/dailyActivity.ts": {
-    "max-params": {
-      "count": 7
-    }
-  },
-  "src/lib/http/api-modules/guardrails.ts": {
-    "max-params": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/health.ts": {
-    "prefer-const": {
-      "count": 4
-    }
-  },
-  "src/lib/http/api-modules/keys.ts": {
-    "max-params": {
-      "count": 3
-    },
-    "prefer-const": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/logs.ts": {
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/mcpOAuth.ts": {
-    "no-nested-ternary": {
-      "count": 4
-    }
-  },
-  "src/lib/http/api-modules/mcpTools.ts": {
-    "max-params": {
-      "count": 1
-    },
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/modelTests.ts": {
-    "prefer-const": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/models.ts": {
-    "max-params": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/passThrough.ts": {
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/policies.ts": {
-    "max-params": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/settings.ts": {
-    "prefer-const": {
-      "count": 4
-    }
-  },
-  "src/lib/http/api-modules/tags.ts": {
-    "prefer-const": {
-      "count": 4
-    }
-  },
-  "src/lib/http/api-modules/teams.ts": {
-    "max-params": {
-      "count": 3
-    },
-    "prefer-const": {
-      "count": 2
-    }
-  },
-  "src/lib/http/api-modules/users.ts": {
-    "max-params": {
-      "count": 2
-    },
-    "prefer-const": {
-      "count": 1
-    }
-  },
-  "src/lib/http/api-modules/vectorStores.ts": {
-    "max-params": {
-      "count": 1
-    },
-    "prefer-const": {
-      "count": 6
     }
   },
   "src/utils/dataUtils.test.ts": {

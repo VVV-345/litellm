@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import * as useAuthorizedModule from "@/app/(dashboard)/hooks/useAuthorized";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -100,7 +99,7 @@ const lastModelsInfoCall = (): ModelsInfoArgs => modelsInfoCalls[modelsInfoCalls
 
 const SEARCH_SETTLE_MS = 400;
 
-const MOCK_AUTHORIZED = authorizationFixture({
+const MOCK_AUTHORIZED = {
   isLoading: false,
   isAuthorized: true,
   token: "mock-token",
@@ -111,7 +110,7 @@ const MOCK_AUTHORIZED = authorizationFixture({
   premiumUser: true,
   disabledPersonalKeyCreation: false,
   showSSOBanner: false,
-});
+};
 
 const mockSetSelectedModelGroup = vi.fn();
 const mockSetSelectedModelId = vi.fn();

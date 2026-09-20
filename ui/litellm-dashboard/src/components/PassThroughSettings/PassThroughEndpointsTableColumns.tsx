@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
-import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 
 import type { passThroughItem } from "./PassThroughSettings";
 
@@ -108,103 +108,100 @@ function EndpointRowActions({ endpoint, onEndpointClick, onDeleteClick }: Endpoi
 }
 
 interface PassThroughEndpointsTableColumnsDeps {
-  t: TFunction;
   onEndpointClick: (endpointId: string) => void;
   onDeleteClick: (endpointId: string) => void;
 }
 
 export const getPassThroughEndpointsTableColumns = ({
-  t,
   onEndpointClick,
   onDeleteClick,
 }: PassThroughEndpointsTableColumnsDeps): ColumnDef<passThroughItem>[] => {
+  const { t } = useTranslation();
   return [
-    {
-      id: "id",
-      accessorKey: "id",
-      meta: { title: "ID" },
-      header: "ID",
-      size: 190,
-      enableSorting: false,
-      cell: ({ row }) => {
-        const endpointId = row.original.id;
-        if (!endpointId) return <span className="font-mono text-xs text-muted-foreground">—</span>;
-        return (
-          <IdentityCell
-            title={endpointId}
-            titleClassName="font-mono text-xs font-normal"
-            onClick={() => onEndpointClick(endpointId)}
-          />
-        );
-      },
+  {
+    id: "id",
+    accessorKey: "id",
+    meta: { title: "ID" },
+    header: "ID",
+    size: 190,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const endpointId = row.original.id;
+      if (!endpointId) return <span className="font-mono text-xs text-muted-foreground">—</span>;
+      return (
+        <IdentityCell
+          title={endpointId}
+          titleClassName="font-mono text-xs font-normal"
+          onClick={() => onEndpointClick(endpointId)}
+        />
+      );
     },
-    {
-      id: "path",
-      accessorKey: "path",
-      meta: { title: "Path" },
-      header: "Path",
-      size: 200,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <span className="block max-w-60 truncate text-sm font-medium" title={row.original.path}>
-          {row.original.path}
-        </span>
-      ),
-    },
-    {
-      id: "target",
-      accessorKey: "target",
-      meta: { title: "Target" },
-      header: "Target",
-      size: 240,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <span className="block max-w-72 truncate text-sm" title={row.original.target}>
-          {row.original.target}
-        </span>
-      ),
-    },
-    {
-      id: "methods",
-      meta: { title: "Methods", skeleton: "chips" },
-      header: () => <HeaderWithTooltip title="Methods" tooltip="HTTP methods supported by this endpoint" />,
-      size: 150,
-      enableSorting: false,
-      cell: ({ row }) => <MethodsCell methods={row.original.methods} />,
-    },
-    {
-      id: "auth",
-      accessorKey: "auth",
-      meta: { title: "Authentication", skeleton: "badge" },
-      header: () => (
-        <HeaderWithTooltip title="Authentication" tooltip="LiteLLM Virtual Key required to call endpoint" />
-      ),
-      size: 140,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <StatusBadge tone={row.original.auth ? "success" : "neutral"} label={row.original.auth ? "Yes" : "No"} />
-      ),
-    },
-    {
-      id: "headers",
-      meta: { title: "Headers" },
-      header: "Headers",
-      size: 180,
-      enableSorting: false,
-      cell: ({ row }) => <HeadersCell value={row.original.headers || {}} />,
-    },
-    {
-      id: "actions",
-      meta: { className: "text-right", headerClassName: "text-right" },
-      header: () => <span className="sr-only">{t("ui.Actions")}</span>,
-      size: 64,
-      enableSorting: false,
-      enableHiding: false,
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <EndpointRowActions endpoint={row.original} onEndpointClick={onEndpointClick} onDeleteClick={onDeleteClick} />
-        </div>
-      ),
-    },
-  ];
+  },
+  {
+    id: "path",
+    accessorKey: "path",
+    meta: { title: "Path" },
+    header: "Path",
+    size: 200,
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span className="block max-w-60 truncate text-sm font-medium" title={row.original.path}>
+        {row.original.path}
+      </span>
+    ),
+  },
+  {
+    id: "target",
+    accessorKey: "target",
+    meta: { title: "Target" },
+    header: "Target",
+    size: 240,
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span className="block max-w-72 truncate text-sm" title={row.original.target}>
+        {row.original.target}
+      </span>
+    ),
+  },
+  {
+    id: "methods",
+    meta: { title: "Methods", skeleton: "chips" },
+    header: () => <HeaderWithTooltip title="Methods" tooltip="HTTP methods supported by this endpoint" />,
+    size: 150,
+    enableSorting: false,
+    cell: ({ row }) => <MethodsCell methods={row.original.methods} />,
+  },
+  {
+    id: "auth",
+    accessorKey: "auth",
+    meta: { title: "Authentication", skeleton: "badge" },
+    header: () => <HeaderWithTooltip title="Authentication" tooltip="LiteLLM Virtual Key required to call endpoint" />,
+    size: 140,
+    enableSorting: false,
+    cell: ({ row }) => (
+      <StatusBadge tone={row.original.auth ? "success" : "neutral"} label={row.original.auth ? "Yes" : "No"} />
+    ),
+  },
+  {
+    id: "headers",
+    meta: { title: "Headers" },
+    header: "Headers",
+    size: 180,
+    enableSorting: false,
+    cell: ({ row }) => <HeadersCell value={row.original.headers || {}} />,
+  },
+  {
+    id: "actions",
+    meta: { className: "text-right", headerClassName: "text-right" },
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
+    size: 64,
+    enableSorting: false,
+    enableHiding: false,
+    cell: ({ row }) => (
+      <div className="flex justify-end">
+        <EndpointRowActions endpoint={row.original} onEndpointClick={onEndpointClick} onDeleteClick={onDeleteClick} />
+      </div>
+    ),
+  },
+];
 };

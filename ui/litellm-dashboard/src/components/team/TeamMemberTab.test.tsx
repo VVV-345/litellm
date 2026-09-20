@@ -1,4 +1,3 @@
-import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,8 +13,7 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: vi.fn(),
 }));
 
-vi.mock("@/utils/roles", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/utils/roles")>()),
+vi.mock("@/utils/roles", () => ({
   isUserTeamAdminForSingleTeam: vi.fn(() => false),
   isProxyAdminRole: vi.fn(() => false),
 }));
@@ -103,20 +101,18 @@ describe("TeamMembersComponent", () => {
       refetch: vi.fn(),
     } as any);
 
-    vi.mocked(useAuthorized).mockReturnValue(
-      authorizationFixture({
-        isLoading: false,
-        isAuthorized: true,
-        userId: "test-user-id",
-        userRole: "Admin",
-        accessToken: "test-token",
-        token: "test-token",
-        userEmail: "test@example.com",
-        premiumUser: false,
-        disabledPersonalKeyCreation: null,
-        showSSOBanner: false,
-      }),
-    );
+    vi.mocked(useAuthorized).mockReturnValue({
+      isLoading: false,
+      isAuthorized: true,
+      userId: "test-user-id",
+      userRole: "Admin",
+      accessToken: "test-token",
+      token: "test-token",
+      userEmail: "test@example.com",
+      premiumUser: false,
+      disabledPersonalKeyCreation: null,
+      showSSOBanner: false,
+    });
   });
 
   it("should render", () => {

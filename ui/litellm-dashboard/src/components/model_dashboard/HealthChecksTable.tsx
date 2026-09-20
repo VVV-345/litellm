@@ -63,7 +63,6 @@ export function HealthChecksTable({
 
   const columns = useMemo(() => {
     const columnDeps = {
-      t,
       modelHealthStatuses,
       getDisplayModelName,
       onRunHealthCheck,
@@ -73,7 +72,7 @@ export function HealthChecksTable({
       teams,
     };
     return getHealthChecksTableColumns(columnDeps);
-  }, [t, modelHealthStatuses, getDisplayModelName, onRunHealthCheck, onShowError, onShowSuccess, onSelectModel, teams]);
+  }, [modelHealthStatuses, getDisplayModelName, onRunHealthCheck, onShowError, onShowSuccess, onSelectModel, teams]);
 
   return (
     <DataTable

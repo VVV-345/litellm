@@ -201,7 +201,6 @@ function compareSentinels(
 }
 
 export interface HealthChecksTableColumnsDeps {
-  t: TFunction;
   modelHealthStatuses: Record<string, HealthStatus>;
   getDisplayModelName: (model: HealthCheckData) => string;
   onRunHealthCheck: (modelId: string) => void;
@@ -212,7 +211,6 @@ export interface HealthChecksTableColumnsDeps {
 }
 
 export const getHealthChecksTableColumns = ({
-  t,
   modelHealthStatuses,
   getDisplayModelName,
   onRunHealthCheck,
@@ -221,204 +219,201 @@ export const getHealthChecksTableColumns = ({
   onSelectModel,
   teams,
 }: HealthChecksTableColumnsDeps): ColumnDef<HealthCheckData>[] => {
+  const { t } = useTranslation();
   return [
-    createSelectionColumn<HealthCheckData>({
-      rowAriaLabel: (row) => `Select ${row.original.model_info?.id ?? row.original.model_name}`,
-    }),
-    {
-      id: "model_id",
-      accessorFn: (row) => row.model_info?.id ?? "",
-      meta: { title: t("ui.Model ID") },
-      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model ID")} variant="header-cycle" />,
-      size: 220,
-      enableSorting: true,
-      sortingFn: "alphanumeric",
-      cell: ({ row }) => {
-        const modelId = row.original.model_info?.id ?? "";
-        return (
-          <IdentityCell
-            title={modelId}
-            titleClassName="font-mono text-xs text-primary"
-            onClick={onSelectModel ? () => onSelectModel(modelId) : undefined}
-          />
-        );
-      },
+  createSelectionColumn<HealthCheckData>({
+    rowAriaLabel: (row) => `Select ${row.original.model_info?.id ?? row.original.model_name}`,
+  }),
+  {
+    id: "model_id",
+    accessorFn: (row) => row.model_info?.id ?? "",
+    meta: { title: t("ui.Model ID") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model ID")} variant="header-cycle" />,
+    size: 220,
+    enableSorting: true,
+    sortingFn: "alphanumeric",
+    cell: ({ row }) => {
+      const modelId = row.original.model_info?.id ?? "";
+      return (
+        <IdentityCell
+          title={modelId}
+          titleClassName="font-mono text-xs text-primary"
+          onClick={onSelectModel ? () => onSelectModel(modelId) : undefined}
+        />
+      );
     },
-    {
-      id: "model_name",
-      accessorKey: "model_name",
-      meta: { title: t("ui.Model Name") },
-      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model Name")} variant="header-cycle" />,
-      size: 200,
-      enableSorting: true,
-      sortingFn: "alphanumeric",
-      cell: ({ row }) => {
-        const displayName = getDisplayModelName(row.original) || row.original.model_name;
-        return (
-          <span className="block max-w-50 truncate text-sm font-medium" title={displayName}>
-            {displayName}
-          </span>
-        );
-      },
-    },
-    {
-      id: "team_id",
-      accessorFn: (row) => row.model_info?.team_id ?? "",
-      meta: { title: t("ui.Team Alias") },
-      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Team Alias")} variant="header-cycle" />,
-      size: 160,
-      enableSorting: true,
-      sortingFn: "alphanumeric",
-      cell: ({ row }) => {
-        const teamId = row.original.model_info?.team_id;
-        if (!teamId) {
-          return <span className="text-sm text-muted-foreground">-</span>;
-        }
-        const teamAlias = teams?.find((team) => team.team_id === teamId)?.team_alias || teamId;
-        return (
-          <span className="block max-w-40 truncate text-sm" title={teamAlias}>
-            {teamAlias}
-          </span>
-        );
-      },
-    },
-    {
-      id: "health_status",
-      accessorKey: "health_status",
-      meta: { title: t("ui.Health Status"), skeleton: "badge" },
-      header: ({ column }) => (
-        <DataTableSortHeader column={column} title={t("ui.Health Status")} variant="header-cycle" />
-      ),
-      size: 170,
-      enableSorting: true,
-      sortingFn: (rowA, rowB) => {
-        const statusA = (rowA.getValue("health_status") as string) || "unknown";
-        const statusB = (rowB.getValue("health_status") as string) || "unknown";
-        const orderA = HEALTH_STATUS_ORDER[statusA] ?? 4;
-        const orderB = HEALTH_STATUS_ORDER[statusB] ?? 4;
-        return orderA - orderB;
-      },
-      cell: ({ row }) => {
-        const model = row.original;
-
-        if (model.health_loading) {
-          return (
-            <div className="flex items-center space-x-2">
-              <DotPulse className="size-2 bg-indigo-500" />
-              <span className="text-sm text-muted-foreground">{t("ui.Checking...")}</span>
-            </div>
-          );
-        }
-
-        const modelId = model.model_info?.id ?? "";
-        const displayName = getDisplayModelName(model) || model.model_name;
-        const successResponse = modelHealthStatuses[modelId]?.successResponse;
-        const hasSuccessResponse = model.health_status === "healthy" && successResponse !== undefined;
-
-        return (
-          <div className="flex items-center space-x-2">
-            <HealthStatusBadge status={model.health_status} />
-            {hasSuccessResponse && (
-              <DetailButton
-                label={t("ui.View response details")}
-                testId="view-health-success-btn"
-                className="text-success hover:bg-success/10 "
-                onClick={() => onShowSuccess(displayName, successResponse)}
-              />
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      id: "health_error",
-      accessorKey: "health_error",
-      meta: { title: t("ui.Error Details") },
-      header: t("ui.Error Details"),
-      size: 240,
-      enableSorting: false,
-      cell: ({ row }) => {
-        const model = row.original;
-        const modelId = model.model_info?.id ?? "";
-        const healthStatus = modelHealthStatuses[modelId];
-
-        if (!healthStatus?.error) {
-          return <span className="text-sm text-muted-foreground">{t("ui.No errors")}</span>;
-        }
-
-        const cleanedError = healthStatus.error;
-        const fullError = healthStatus.fullError || healthStatus.error;
-        const displayName = getDisplayModelName(model) || model.model_name;
-
-        return (
-          <div className="flex items-center space-x-2">
-            <span className="block max-w-50 truncate text-sm text-destructive" title={cleanedError}>
-              {cleanedError}
-            </span>
-            {fullError !== cleanedError && (
-              <DetailButton
-                label={t("ui.View full error details")}
-                testId="view-health-error-btn"
-                className="text-destructive hover:bg-destructive/10 "
-                onClick={() => onShowError(displayName, cleanedError, fullError)}
-              />
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      id: "last_check",
-      accessorKey: "last_check",
-      meta: { title: t("ui.Last Check") },
-      header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Last Check")} variant="header-cycle" />,
-      size: 170,
-      enableSorting: true,
-      sortingFn: (rowA, rowB) => {
-        const rawA = (rowA.getValue("last_check") as string) || NEVER_CHECKED;
-        const rawB = (rowB.getValue("last_check") as string) || NEVER_CHECKED;
-        const sentinel = compareSentinels(rawA, rawB, [NEVER_CHECKED], [CHECK_IN_PROGRESS]);
-        return sentinel ?? compareDatesDesc(rawA, rawB);
-      },
-      cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground">
-          {row.original.health_loading ? t("ui.Check in progress...") : row.original.last_check}
+  },
+  {
+    id: "model_name",
+    accessorKey: "model_name",
+    meta: { title: t("ui.Model Name") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model Name")} variant="header-cycle" />,
+    size: 200,
+    enableSorting: true,
+    sortingFn: "alphanumeric",
+    cell: ({ row }) => {
+      const displayName = getDisplayModelName(row.original) || row.original.model_name;
+      return (
+        <span className="block max-w-50 truncate text-sm font-medium" title={displayName}>
+          {displayName}
         </span>
-      ),
+      );
     },
-    {
-      id: "last_success",
-      accessorKey: "last_success",
-      meta: { title: t("ui.Last Success") },
-      header: ({ column }) => (
-        <DataTableSortHeader column={column} title={t("ui.Last Success")} variant="header-cycle" />
-      ),
-      size: 170,
-      enableSorting: true,
-      sortingFn: (rowA, rowB) => {
-        const rawA = (rowA.getValue("last_success") as string) || NEVER_SUCCEEDED;
-        const rawB = (rowB.getValue("last_success") as string) || NEVER_SUCCEEDED;
-        const sentinel = compareSentinels(rawA, rawB, [NEVER_SUCCEEDED, NONE], []);
-        return sentinel ?? compareDatesDesc(rawA, rawB);
-      },
-      cell: ({ row }) => {
-        const modelId = row.original.model_info?.id ?? "";
-        const lastSuccess = modelHealthStatuses[modelId]?.lastSuccess || t("ui.None");
-        return <span className="text-sm text-muted-foreground">{lastSuccess}</span>;
-      },
+  },
+  {
+    id: "team_id",
+    accessorFn: (row) => row.model_info?.team_id ?? "",
+    meta: { title: t("ui.Team Alias") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Team Alias")} variant="header-cycle" />,
+    size: 160,
+    enableSorting: true,
+    sortingFn: "alphanumeric",
+    cell: ({ row }) => {
+      const teamId = row.original.model_info?.team_id;
+      if (!teamId) {
+        return <span className="text-sm text-muted-foreground">-</span>;
+      }
+      const teamAlias = teams?.find((team) => team.team_id === teamId)?.team_alias || teamId;
+      return (
+        <span className="block max-w-40 truncate text-sm" title={teamAlias}>
+          {teamAlias}
+        </span>
+      );
     },
-    {
-      id: "actions",
-      meta: { title: t("ui.Actions"), className: "text-right", headerClassName: "text-right" },
-      header: () => <span className="sr-only">{t("ui.Actions")}</span>,
-      size: 80,
-      enableSorting: false,
-      enableHiding: false,
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <RunHealthCheckButton model={row.original} onRunHealthCheck={onRunHealthCheck} />
+  },
+  {
+    id: "health_status",
+    accessorKey: "health_status",
+    meta: { title: t("ui.Health Status"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Health Status")} variant="header-cycle" />,
+    size: 170,
+    enableSorting: true,
+    sortingFn: (rowA, rowB) => {
+      const statusA = (rowA.getValue("health_status") as string) || "unknown";
+      const statusB = (rowB.getValue("health_status") as string) || "unknown";
+      const orderA = HEALTH_STATUS_ORDER[statusA] ?? 4;
+      const orderB = HEALTH_STATUS_ORDER[statusB] ?? 4;
+      return orderA - orderB;
+    },
+    cell: ({ row }) => {
+      const model = row.original;
+
+      if (model.health_loading) {
+        return (
+          <div className="flex items-center space-x-2">
+            <DotPulse className="size-2 bg-indigo-500" />
+            <span className="text-sm text-muted-foreground">{t("ui.Checking...")}</span>
+          </div>
+        );
+      }
+
+      const modelId = model.model_info?.id ?? "";
+      const displayName = getDisplayModelName(model) || model.model_name;
+      const successResponse = modelHealthStatuses[modelId]?.successResponse;
+      const hasSuccessResponse = model.health_status === "healthy" && successResponse !== undefined;
+
+      return (
+        <div className="flex items-center space-x-2">
+          <HealthStatusBadge status={model.health_status} />
+          {hasSuccessResponse && (
+            <DetailButton
+              label={t("ui.View response details")}
+              testId="view-health-success-btn"
+              className="text-success hover:bg-success/10 "
+              onClick={() => onShowSuccess(displayName, successResponse)}
+            />
+          )}
         </div>
-      ),
+      );
     },
-  ];
+  },
+  {
+    id: "health_error",
+    accessorKey: "health_error",
+    meta: { title: t("ui.Error Details") },
+    header: t("ui.Error Details"),
+    size: 240,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const model = row.original;
+      const modelId = model.model_info?.id ?? "";
+      const healthStatus = modelHealthStatuses[modelId];
+
+      if (!healthStatus?.error) {
+        return <span className="text-sm text-muted-foreground">{t("ui.No errors")}</span>;
+      }
+
+      const cleanedError = healthStatus.error;
+      const fullError = healthStatus.fullError || healthStatus.error;
+      const displayName = getDisplayModelName(model) || model.model_name;
+
+      return (
+        <div className="flex items-center space-x-2">
+          <span className="block max-w-50 truncate text-sm text-destructive" title={cleanedError}>
+            {cleanedError}
+          </span>
+          {fullError !== cleanedError && (
+            <DetailButton
+              label={t("ui.View full error details")}
+              testId="view-health-error-btn"
+              className="text-destructive hover:bg-destructive/10 "
+              onClick={() => onShowError(displayName, cleanedError, fullError)}
+            />
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    id: "last_check",
+    accessorKey: "last_check",
+    meta: { title: t("ui.Last Check") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Last Check")} variant="header-cycle" />,
+    size: 170,
+    enableSorting: true,
+    sortingFn: (rowA, rowB) => {
+      const rawA = (rowA.getValue("last_check") as string) || NEVER_CHECKED;
+      const rawB = (rowB.getValue("last_check") as string) || NEVER_CHECKED;
+      const sentinel = compareSentinels(rawA, rawB, [NEVER_CHECKED], [CHECK_IN_PROGRESS]);
+      return sentinel ?? compareDatesDesc(rawA, rawB);
+    },
+    cell: ({ row }) => (
+      <span className="text-sm text-muted-foreground">
+        {row.original.health_loading ? t("ui.Check in progress...") : row.original.last_check}
+      </span>
+    ),
+  },
+  {
+    id: "last_success",
+    accessorKey: "last_success",
+    meta: { title: t("ui.Last Success") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Last Success")} variant="header-cycle" />,
+    size: 170,
+    enableSorting: true,
+    sortingFn: (rowA, rowB) => {
+      const rawA = (rowA.getValue("last_success") as string) || NEVER_SUCCEEDED;
+      const rawB = (rowB.getValue("last_success") as string) || NEVER_SUCCEEDED;
+      const sentinel = compareSentinels(rawA, rawB, [NEVER_SUCCEEDED, NONE], []);
+      return sentinel ?? compareDatesDesc(rawA, rawB);
+    },
+    cell: ({ row }) => {
+      const modelId = row.original.model_info?.id ?? "";
+      const lastSuccess = modelHealthStatuses[modelId]?.lastSuccess || t("ui.None");
+      return <span className="text-sm text-muted-foreground">{lastSuccess}</span>;
+    },
+  },
+  {
+    id: "actions",
+    meta: { title: t("ui.Actions"), className: "text-right", headerClassName: "text-right" },
+    header: () => <span className="sr-only">{t("ui.Actions")}</span>,
+    size: 80,
+    enableSorting: false,
+    enableHiding: false,
+    cell: ({ row }) => (
+      <div className="flex justify-end">
+        <RunHealthCheckButton model={row.original} onRunHealthCheck={onRunHealthCheck} />
+      </div>
+    ),
+  },
+];
 };

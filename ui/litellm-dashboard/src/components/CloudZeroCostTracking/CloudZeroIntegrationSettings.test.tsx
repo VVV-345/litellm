@@ -28,12 +28,12 @@ vi.mock("@/app/(dashboard)/hooks/cloudzero/useCloudZeroExport", () => ({
 
 describe("CloudZeroIntegrationSettings", () => {
   let queryClient: QueryClient;
-  const mockSettings = {
+  const mockSettings: CloudZeroSettings = {
     connection_id: "test-connection-id",
     api_key_masked: "****",
     timezone: "UTC",
     status: "Active",
-  } satisfies CloudZeroSettings;
+  };
 
   beforeEach(() => {
     queryClient = new QueryClient({
