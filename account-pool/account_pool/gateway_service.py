@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from account_pool.application.quota_state import routing_quota_state
 from account_pool.card_keys import CardKeyService
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord, GatewayEnvironment, ModelCooldown, utc_now
@@ -29,7 +30,6 @@ from account_pool.gateway_contracts import (
 from account_pool.gateway_repository import LeaseRepository
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
-from account_pool.quota import routing_quota_state
 from account_pool.settings import (
     AccountPoolSettings,
     AccountPoolSettingsRepository,

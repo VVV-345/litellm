@@ -1,14 +1,12 @@
 /** 本文件展示凭据文件的脱敏状态和所属卡片，不返回任何令牌或完整配置。 */
 
 import { Download, FileKey2, FileUp, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -20,26 +18,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/lib/toast";
 import { extractProxyErrorMessage } from "@/lib/http/client";
 
 import { formatDateTime } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
-import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
-import {
-  deleteAccountPoolAuthFile,
-  deleteAccountPoolCredential,
-  downloadAccountPoolAuthFile,
-  getAccountPoolAuthFileRefreshStatus,
-  listAccountPoolCredentials,
-  patchAccountPoolAuthFileStatus,
-  patchAccountPoolAuthFileFields,
-  refreshAccountPoolAuthFiles,
-  setAccountPoolAuthFileRefreshInterval,
-  type AccountPoolAuthFileRefreshStatus,
-  uploadAccountPoolAuthFile,
-} from "../../api/AccountPoolManagementApi";
+import { useAccountPoolCredentials } from "../../hooks/useAccountPoolCredentials";
+import { AccountPoolRefreshIntervalSelect } from "../shared/AccountPoolRefreshIntervalSelect";
 
 export const AccountPoolCredentialsPanel = ({
   accessToken,
@@ -49,156 +34,33 @@ export const AccountPoolCredentialsPanel = ({
   environments: readonly AccountPoolEnvironment[];
 }) => {
   const { t, i18n } = useTranslation();
-  const queryClient = useQueryClient();
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadCardId, setUploadCardId] = useState("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
-  const [replaceCredential, setReplaceCredential] = useState<(typeof credentials)[number] | null>(null);
-  const [editCredential, setEditCredential] = useState<(typeof credentials)[number] | null>(null);
-  const [editFields, setEditFields] = useState("{}");
-  const query = useQuery({
-    queryKey: accountPoolQueryKeys.credentials(accessToken),
-    queryFn: () => listAccountPoolCredentials(accessToken!),
-    enabled: accessToken !== null,
-    retry: false,
-  });
-  const credentials = query.data ?? [];
-  const uploadTargets = environments.filter(
-    (environment) =>
-      environment.channel === "cliproxyapi" &&
-      environment.status !== "deleting" &&
-      !credentials.some((credential) => credential.card_id === environment.id),
-  );
-  const refreshStatusQuery = useQuery({
-    queryKey: accountPoolQueryKeys.authFileRefresh(accessToken),
-    queryFn: () => getAccountPoolAuthFileRefreshStatus(accessToken!),
-    enabled: accessToken !== null,
-    retry: false,
-  });
-  const refreshStatus = refreshStatusQuery.data;
-  const refreshMutation = useMutation({
-    mutationFn: () => refreshAccountPoolAuthFiles(accessToken!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.authFileRefresh(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-    },
-    onError: (error: Error) => toast.fromError(error),
-  });
-  const intervalMutation = useMutation({
-    mutationFn: (intervalMinutes: AccountPoolAuthFileRefreshStatus["interval_minutes"]) =>
-      setAccountPoolAuthFileRefreshInterval(accessToken!, intervalMinutes),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.authFileRefresh(accessToken) });
-    },
-    onError: (error: Error) => toast.fromError(error),
-  });
-  const uploadMutation = useMutation({
-    mutationFn: () => {
-      if (!uploadCardId || uploadFile === null) throw new Error(t("accountPool.credentials.fileRequired"));
-      if (replaceCredential === null && !uploadTargets.some((environment) => environment.id === uploadCardId)) {
-        throw new Error(t("accountPool.credentials.alreadyBound"));
-      }
-      return uploadAccountPoolAuthFile(accessToken!, uploadCardId, uploadFile, replaceCredential !== null);
-    },
-    onSuccess: () => {
-      toast.success(t(replaceCredential ? "accountPool.credentials.replaced" : "accountPool.credentials.uploaded"));
-      setUploadOpen(false);
-      setUploadFile(null);
-      setReplaceCredential(null);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-    },
-    onError: (error: Error) => toast.fromError(error),
-  });
-  const openUpload = (credential: (typeof credentials)[number] | null) => {
-    uploadMutation.reset();
-    setReplaceCredential(credential);
-    setUploadFile(null);
-    setUploadCardId(credential?.card_id ?? "");
-    setUploadOpen(true);
-  };
-  const closeUpload = () => {
-    if (uploadMutation.isPending) return;
-    setUploadOpen(false);
-    setUploadFile(null);
-    setReplaceCredential(null);
-  };
-  const toggleMutation = useMutation({
-    mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) =>
-      patchAccountPoolAuthFileStatus(accessToken!, environment.id, !enabled),
-    onSuccess: () => {
-      toast.success(t("accountPool.credentials.statusUpdated"));
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-    },
-    onError: (error: Error) => toast.fromError(error),
-  });
-  const downloadCredential = async (credential: (typeof credentials)[number]) => {
-    try {
-      const blob = await downloadAccountPoolAuthFile(accessToken!, credential.card_id);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${credential.card_name}.json`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      toast.fromError(error);
-    }
-  };
-  const deleteAuthFile = async (credential: (typeof credentials)[number]) => {
-    if (!window.confirm(t("accountPool.credentials.removeConfirm"))) return;
-    try {
-      await deleteAccountPoolAuthFile(accessToken!, credential.card_id);
-      toast.success(t("accountPool.credentials.removed"));
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-    } catch (error) {
-      toast.fromError(error);
-    }
-  };
-  const saveAuthFileFields = async () => {
-    if (!editCredential) return;
-    let fields: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(editFields);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-        throw new Error("fields must be an object");
-      fields = parsed as Record<string, unknown>;
-    } catch (error) {
-      toast.fromError(error);
-      return;
-    }
-    try {
-      await patchAccountPoolAuthFileFields(accessToken!, editCredential.card_id, fields);
-      toast.success(t("accountPool.credentials.fieldsUpdated"));
-      setEditCredential(null);
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-    } catch (error) {
-      toast.fromError(error);
-    }
-  };
-  const removeCredential = (credential: (typeof credentials)[number]) => {
-    const environment = environments.find((item) => item.id === credential.card_id);
-    const index = Number.parseInt(credential.auth_index ?? "", 10) - 1;
-    if (!environment || !Number.isInteger(index) || index < 0) return;
-    if (!window.confirm(t("accountPool.credentials.removeConfirm"))) return;
-    void deleteAccountPoolCredential(accessToken!, environment.id, {
-      version: environment.version,
-      credential_index: index,
-    })
-      .then(() => {
-        toast.success(t("accountPool.credentials.removed"));
-        void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
-        void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
-      })
-      .catch((error: unknown) => toast.fromError(error));
-  };
+  const {
+    query,
+    credentials,
+    refreshStatus,
+    refreshMutation,
+    intervalMutation,
+    uploadOpen,
+    uploadCardId,
+    setUploadCardId,
+    uploadFile,
+    setUploadFile,
+    replaceCredential,
+    uploadTargets,
+    uploadMutation,
+    openUpload,
+    closeUpload,
+    toggleMutation,
+    downloadCredential,
+    deleteAuthFile,
+    editCredential,
+    setEditCredential,
+    editFields,
+    setEditFields,
+    saveAuthFileFields,
+    removeCredential,
+  } = useAccountPoolCredentials(accessToken, environments);
   return (
     <div className="grid gap-5">
       <div className="flex items-start justify-between gap-3">
@@ -207,24 +69,13 @@ export const AccountPoolCredentialsPanel = ({
           <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.credentials.description")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={String(refreshStatus?.interval_minutes ?? 15)}
-            onValueChange={(value) =>
-              intervalMutation.mutate(Number(value) as AccountPoolAuthFileRefreshStatus["interval_minutes"])
-            }
+          <AccountPoolRefreshIntervalSelect
+            value={refreshStatus?.interval_minutes ?? 15}
+            onChange={(value) => intervalMutation.mutate(value)}
             disabled={intervalMutation.isPending || accessToken === null}
-          >
-            <SelectTrigger className="w-40" aria-label={t("accountPool.credentials.refreshInterval")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {([5, 15, 30, 60] as const).map((minutes) => (
-                <SelectItem key={minutes} value={String(minutes)}>
-                  {t("accountPool.credentials.everyMinutes", { minutes })}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            label={t("accountPool.credentials.refreshInterval")}
+            formatOption={(minutes) => t("accountPool.credentials.everyMinutes", { minutes })}
+          />
           <Button
             type="button"
             variant="outline"

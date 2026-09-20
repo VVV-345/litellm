@@ -6,7 +6,7 @@ from typing import Final
 
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.domain import AuthorizationFlow, SupplierKind
-from account_pool.quota import parse_provider_quota
+from account_pool.providers.usage.signals import parse_provider_quota
 
 DEFINITION: Final = SupplierDefinition(
     kind=SupplierKind.GOOGLE_ANTIGRAVITY,

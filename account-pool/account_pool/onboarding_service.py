@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
+from account_pool.application.quota_state import routing_quota_state
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.credential_ownership import CredentialConflict, credential_identity
 from account_pool.domain import (
@@ -36,10 +37,9 @@ from account_pool.onboarding_models import (
 )
 from account_pool.onboarding_repository import OnboardingRepository, StoredOnboarding
 from account_pool.ports import EnvironmentRepository
-from account_pool.quota import routing_quota_state
+from account_pool.service import EnvironmentService
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
-from account_pool.service import EnvironmentService
 
 _LOGGER: Final = logging.getLogger(__name__)
 _ACTIVE: Final = frozenset({"queued", "running", "awaiting_authorization"})

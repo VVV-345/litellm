@@ -49,13 +49,12 @@ from account_pool.provider_quota import (
     parse_xai_quota,
     parse_xai_user_id,
 )
-from account_pool.quota import (
-    ProviderQuotaError,
-    ProviderQuotaRefresh,
+from account_pool.providers.usage.antigravity import (
     parse_antigravity_assist,
     parse_antigravity_onboard_project,
     parse_antigravity_quota,
 )
+from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh
 
 
 @dataclass(frozen=True, slots=True)

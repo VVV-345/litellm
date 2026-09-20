@@ -2,6 +2,8 @@
 
 本文记录号池整理解耦的操作方法、复用入口和校验经验，供后续维护及 Agent 执行同类任务时使用。适用范围包括独立号池服务、号池前端，以及 LiteLLM 密钥、日志、路由和运行设置页面对这些模块的引用
 
+2026-09-20 用户收紧后续整理范围：只整理号池模块；LiteLLM 原生模块不继续解耦。号池接入代码按依赖进行验证，不能以复用或统一风格为由扩大到原生控制台和网关实现
+
 开发约束见 [根目录规范](../CLAUDE.md)、[Manager 规范](AGENTS.md)和[前端规范](../ui/litellm-dashboard/CLAUDE.md)。本文保存操作细节及带日期的检查记录；规范文件只保留需要持续遵守的规则
 
 ## 职责与目标
@@ -35,10 +37,13 @@
 | `components/proxy/` | 代理管理 |
 | `components/plugins/` | 卡片插件 |
 | `components/upstream/` | 上游同步 |
+| `components/shared/` | 号池内有多个调用方的展示控件，继续复用原生 UI 基础控件 |
 
 测试跟随对应模块。密钥、日志、路由和运行设置页直接从 `@/features/account-pool/` 引用功能，不再依赖账号池页面目录。通用控件继续复用 `components/ui`，没有新增一套下拉、按钮或弹窗实现
 
 所有账号池查询键由 `hooks/accountPoolQueryKeys.ts` 定义。代理和策略选项通过 `hooks/accountPoolOptions.ts` 复用；页面仍负责权限、加载时机、刷新间隔和缓存时长。版本命令列表刷新使用 `releaseCommandsRoot(token)`，具体版本查询使用 `releaseCommands(token, pairId)`，避免把带 `undefined` 的具体键误用为前缀
+
+认证文件的查询、上传、替换、编辑和删除由 `hooks/useAccountPoolCredentials.ts` 编排，页面保留展示与文件输入引用。该 Hook 共用凭据与卡片缓存失效函数，但分别保留各操作的 `onSuccess` 和 `onSettled` 时机。认证文件与额度页面使用 `components/shared/AccountPoolRefreshIntervalSelect.tsx`，调用方仍提供默认值、保存请求和文案
 
 控制台原 `components/networking.tsx` 现在是兼容导出层，实现位于 `src/lib/http/api-modules/`。`clientState.ts` 唯一持有客户端、Worker 地址、鉴权头与错误处理状态；其余模块按模型、密钥、团队、日志、护栏、MCP 等业务组织，日期格式化放在 `dates.ts`。已有导入和 mock 路径保持有效，新业务可直接引用对应实现模块，不能反向导入兼容层
 
@@ -69,11 +74,17 @@
 | `account_pool/providers/usage/claude.py` | Claude 额度和套餐解析 |
 | `account_pool/providers/usage/xai.py` | xAI 账单与额度解析 |
 | `account_pool/providers/usage/common.py` | 复用 JSON、数值、时间和额度窗口解析 |
+| `account_pool/providers/usage/contracts.py` | 额度观测、刷新结果和供应商错误类型 |
+| `account_pool/providers/usage/antigravity.py` | Antigravity 项目、套餐、额度及汇总解析 |
+| `account_pool/providers/usage/signals.py` | 各供应商响应头中的额度窗口解析 |
+| `account_pool/application/quota_state.py` | 额度窗口有效性与冷却状态计算 |
 | `account_pool/shared/` | 错误脱敏、结果类型与密钥基础设施 |
 
 `EnvironmentService` 负责组装操作对象、共用环境锁及刷新入口；事务、授权和配置恢复以完整操作搬入 `application/environments/`。组合对象只接收所需仓库、通道与类型化回调，不使用 mixin、动态代理或独立锁。`HttpCLIProxyClient` 仍持有连接和凭据锁的生命周期，传输及供应商额度对象使用同一实例，保留原调用顺序。解析模块不导入客户端或服务编排
 
 `account_pool.provider_quota` 继续作为原有公开导入入口。`AuthorizationStart`、`_AuthFile` 及现有测试使用的服务导入名称保持可用。旧的 `result`、`secrets`、`error_safety` 和 `cliproxy` 兼容入口继续保留，不能仅凭当前内部引用数删除
+
+`account_pool.quota` 也保留为兼容入口，继续导出原来的领域类型、解析器和状态计算函数。内部调用直接依赖上述对应模块；供应商解析器通过 `providers.usage.contracts` 获取额度契约，避免为了结果类型反向导入加载所有解析器的兼容入口。Antigravity 的 JSON 校验复用 `common.parse_model`，旧 `_parse_model` 调用仍有效
 
 ## 操作流程
 
@@ -284,3 +295,37 @@ Python 严格类型检查并未全绿：相同配置和导入路径下，搬迁�
 类拆分使用显式协议和依赖注入，让调用方持有锁与连接的生命周期。将内部方法改成可跨对象调用的名称前先查同名方法；本轮 `_create_direct_credential_environment` 去掉下划线曾与公开方法冲突，回归检出后改为 `provision_direct_credential_environment`，再次通过完整 Manager 回归。机械搬迁校验必须检查名称唯一性，不能仅把定义放进字典而静默覆盖
 
 共享测试 fixture 引用真实角色工具时，调用方应部分 mock 模块并保留其余导出。固定测试语言与生产默认语言是不同职责，不应为旧英文断言改变中文产品默认值。新密钥默认隐藏的测试先点击显示按钮，再检查内容，保留实际用户操作流程
+
+## 2026-09-20 号池范围续轮
+
+起始提交为 `6d97d0b071`，快进拉取无新提交。本节随本轮实现一起提交；范围仅为 `account-pool/` 和前端 `features/account-pool/`，没有修改 LiteLLM 原生模块。用户已有 `tsconfig.tsbuildinfo` 改动保留且不提交
+
+额度模块原先同时包含供应商协议模型、响应头解析、Antigravity 响应解析和路由状态计算。本轮将 37 个定义按目录表分离，机械搬迁时逐个核对 AST，再让 Antigravity 的四处 JSON 校验复用已有 `common.parse_model`。窗口过期、未知额度、手动冷却、套餐和模型汇总优先级保持原实现。内部服务使用直接导入，旧 `quota` 路径保留公开类型和解析器
+
+认证文件页面将操作编排移到专用 Hook，凭据与环境刷新复用同一个函数。上传无论成功或失败均刷新缓存，编辑、删除和启停继续仅在成功后刷新。保留同卡替换、不允许向已有凭据卡片再次上传、失败后留在弹窗重试、取消时清空文件、按凭据索引与卡片版本删除等行为。刷新档位控件复用原生 Select，两个页面继续使用各自默认值和接口，没有统一其查询或轮询策略
+
+### 验证记录
+
+| 检查 | 命令或范围 | 本轮结果 |
+| --- | --- | --- |
+| 修改前基线 | `pytest account-pool/tests -q`，相关两个前端测试文件 | Manager 498 项、前端 8 项通过 |
+| Manager | `pytest account-pool/tests -q`，设置 `LITELLM_LOCAL_MODEL_COST_MAP=True` | 504 项通过 |
+| 额度解析 | `pytest account-pool/tests/account_pool/test_quota.py -q` | 26 项通过，含旧导出对象一致性和异常 JSON 回退 |
+| 号池网关 | 本文网关命令，显式 `test_account_pool_*.py`，2 workers | 276 项通过，1 项需要 PostgreSQL 的检查跳过 |
+| 前端相关行为 | `npx vitest run src/features/account-pool/components/credentials/AccountPoolCredentialsPanel.integration.test.tsx src/features/account-pool/components/dashboard/AccountPoolQuotaPanel.test.tsx --maxWorkers=2` | 11 项通过，新增编辑字段校验、删除索引与版本、切换 Token 查询隔离 |
+| 前端类型 | `npx tsc --noEmit --incremental false` | 通过，不写用户类型缓存 |
+| Python 严格类型 | `basedpyright` 检查 `quota.py` 与四个新模块 | 0 错误、0 警告 |
+| Python 静态检查 | 本轮 Python 文件的 Ruff `F821,F822,F823,I` | 通过 |
+| 前端 lint | 本轮五个 TS/TSX 文件的 ESLint | 0 错误、10 条既有或随实现移动的警告 |
+| 未使用代码扫描 | `npx knip --reporter json`，筛选号池路径 | 号池未使用文件和问题条目均为 0；全库其他条目不在本轮处理范围 |
+| Manager 打包 | `uv build --wheel --out-dir .git/pool-scope-wheel ./account-pool` | 构建成功，105 个条目，四个新模块均在包内 |
+
+本轮未执行 Dashboard 生产构建、Docker 启动、真实供应商调用或服务器部署。严格类型检查仅覆盖表中指定模块；将既有 `common.py` 也作为独立检查目标时仍有 8 条私有辅助函数“未使用”诊断，其调用方实际在其他供应商模块中，因此没有按报告删除。不能将局部类型通过写成整个 Manager 严格类型通过
+
+### 复用边界
+
+检查兼容导出时也要检查原文件导入后间接暴露的类型。本轮最初只保留本地定义，Manager 测试发现 `ProviderEndpointFailure` 的旧导入路径丢失；补回领域类型导出后，完整回归通过。新增契约层可以避免各解析器为了获取结果类型反向加载整个兼容入口
+
+管理 API 中相似的错误处理未合并：`api._unwrap` 按错误类型返回 404、409、422 或 502，`management_api.unwrap` 则固定返回 409。OAuth 上号接口另有明确的 404/409 契约，不能仅因代码相似就改变错误映射。路由注册、事务和补偿集中在同一编排模块的部分也不按文件行数强行拆散
+
+Windows 上机械迁移应保留原文件换行，避免只改一个导入却出现全文件差异。临时脚本和详细日志位于本地 `.git/pool-scope-*`，不作为仓库运行依赖；后续按上述命令重新验证

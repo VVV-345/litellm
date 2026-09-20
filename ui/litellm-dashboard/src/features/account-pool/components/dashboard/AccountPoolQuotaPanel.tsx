@@ -7,8 +7,8 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
+import { AccountPoolRefreshIntervalSelect } from "../shared/AccountPoolRefreshIntervalSelect";
 
 import {
   formatDateTime,
@@ -78,24 +78,13 @@ export const AccountPoolQuotaPanel = ({
           <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.quotas.description")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={String(refreshStatus?.interval_minutes ?? 5)}
-            onValueChange={(value) =>
-              void saveInterval(Number(value) as AccountPoolQuotaRefreshStatus["interval_minutes"])
-            }
+          <AccountPoolRefreshIntervalSelect
+            value={refreshStatus?.interval_minutes ?? 5}
+            onChange={(value) => void saveInterval(value)}
             disabled={intervalSaving || !accessToken}
-          >
-            <SelectTrigger className="w-40" aria-label={t("accountPool.quotas.refreshInterval")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {([5, 15, 30, 60] as const).map((minutes) => (
-                <SelectItem key={minutes} value={String(minutes)}>
-                  {t("accountPool.quotas.everyMinutes", { minutes })}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            label={t("accountPool.quotas.refreshInterval")}
+            formatOption={(minutes) => t("accountPool.quotas.everyMinutes", { minutes })}
+          />
           <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
             <RefreshCw className={refreshing || refreshStatus?.running ? "animate-spin" : undefined} />
             {t("accountPool.quotas.refresh")}

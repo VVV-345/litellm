@@ -25,6 +25,38 @@ from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsView
 
 
+def test_quota_compatibility_exports_share_contract_and_parser_identity() -> None:
+    from account_pool import quota
+    from account_pool.application import quota_state
+    from account_pool.domain import ProviderEndpointFailure
+    from account_pool.providers.usage import antigravity, contracts, signals
+
+    for name in ("QuotaObservation", "ProviderQuotaRefresh", "ProviderQuotaError"):
+        assert getattr(quota, name) is getattr(contracts, name)
+    for name in ("AntigravityAssist", "parse_antigravity_assist", "parse_antigravity_onboard_project", "parse_antigravity_quota"):
+        assert getattr(quota, name) is getattr(antigravity, name)
+    assert quota.parse_quota is signals.parse_quota
+    assert quota.parse_provider_quota is signals.parse_provider_quota
+    assert quota.routing_quota_state is quota_state.routing_quota_state
+    assert quota.effective_cooldown_until is quota_state.effective_cooldown_until
+    assert quota.ProviderEndpointFailure is ProviderEndpointFailure
+
+
+@pytest.mark.parametrize("body", [None, "{", "[]", "null", '{"models": []}'])
+def test_antigravity_shared_validation_preserves_invalid_response_fallback(body: str | None) -> None:
+    now: Final = utc_now()
+    if body != '{"models": []}':
+        assert parse_antigravity_assist(body) is None
+        assert parse_antigravity_onboard_project(body) == (None, None, False)
+    if body is not None:
+        assert parse_antigravity_quota(body, None, now) is None
+    valid_models: Final = '{"models":{"model-a":{"quotaInfo":{"remainingFraction":0.4}}}}'
+    result: Final = parse_antigravity_quota(valid_models, None, now, summary_body=body)
+    assert result is not None
+    assert result.model_quotas[0].model == "model-a"
+    assert result.model_quotas[0].quota.windows[0].remaining_percent == 40
+
+
 def test_expired_window_does_not_keep_model_exhausted():
     from account_pool.domain import QuotaWindow
     from account_pool.quota import routing_quota_state

@@ -32,6 +32,9 @@ def _parse_model(model: type[ModelT], body: str | None) -> ModelT | None:
         return None
 
 
+parse_model: Final = _parse_model
+
+
 def _json_value(body: str | None) -> JsonValue | None:
     if body is None:
         return None

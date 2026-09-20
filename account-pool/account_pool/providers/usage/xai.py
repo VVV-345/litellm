@@ -20,7 +20,7 @@ from account_pool.providers.usage.common import (
     _text,
     _window,
 )
-from account_pool.quota import ProviderQuotaRefresh
+from account_pool.providers.usage.contracts import ProviderQuotaRefresh
 
 
 def parse_xai_user_id(body: str | None) -> str | None:

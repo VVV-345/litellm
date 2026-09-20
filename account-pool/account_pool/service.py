@@ -72,8 +72,8 @@ from account_pool.ports import (
     EnvironmentRuntime,
     ProxyProfileRepository,
 )
+from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
-from account_pool.quota import ProviderQuotaError
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
 from account_pool.shared.error_safety import safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success

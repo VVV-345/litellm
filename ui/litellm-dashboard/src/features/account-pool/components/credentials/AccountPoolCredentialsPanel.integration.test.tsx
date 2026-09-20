@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,8 @@ const refreshAuthFiles = vi.fn();
 const setAuthFileRefreshInterval = vi.fn();
 const uploadAuthFile = vi.fn();
 const deleteAuthFile = vi.fn();
+const patchAuthFileFields = vi.fn();
+const deleteCredential = vi.fn();
 
 vi.mock("../../api/AccountPoolManagementApi", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../api/AccountPoolManagementApi")>();
@@ -25,6 +27,8 @@ vi.mock("../../api/AccountPoolManagementApi", async (importOriginal) => {
     setAccountPoolAuthFileRefreshInterval: (...args: unknown[]) => setAuthFileRefreshInterval(...args),
     uploadAccountPoolAuthFile: (...args: unknown[]) => uploadAuthFile(...args),
     deleteAccountPoolAuthFile: (...args: unknown[]) => deleteAuthFile(...args),
+    patchAccountPoolAuthFileFields: (...args: unknown[]) => patchAuthFileFields(...args),
+    deleteAccountPoolCredential: (...args: unknown[]) => deleteCredential(...args),
   };
 });
 
@@ -76,6 +80,8 @@ describe("AccountPoolCredentialsPanel", () => {
       },
     ]);
     patchAuthFileStatus.mockResolvedValue(environment);
+    patchAuthFileFields.mockResolvedValue(environment);
+    deleteCredential.mockResolvedValue(environment);
     uploadAuthFile.mockResolvedValue(environment);
     getAuthFileRefreshStatus.mockResolvedValue({
       interval_minutes: 15,
@@ -112,6 +118,80 @@ describe("AccountPoolCredentialsPanel", () => {
     expect(await screen.findByText("test-account@example.test")).toBeInTheDocument();
     expect(screen.getByText("account-identity-123")).toBeInTheDocument();
     expect(screen.getByText("test-account.json")).toBeInTheDocument();
+  });
+
+  it("rejects non-object fields and refreshes credentials and cards after a valid edit", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: /编辑认证字段|Edit auth fields/i }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByRole("textbox"), { target: { value: "[]" } });
+    await user.click(dialog.getByRole("button", { name: /保存|Save/i }));
+    expect(patchAuthFileFields).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeVisible();
+    fireEvent.change(dialog.getByRole("textbox"), { target: { value: '{"prefix":"team-a"}' } });
+    await user.click(dialog.getByRole("button", { name: /保存|Save/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(patchAuthFileFields).toHaveBeenCalledWith("token", environment.id, { prefix: "team-a" });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "credentials", "token"] });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["account-pool", "environments"] });
+  });
+
+  it("keeps credential index and card version when deleting a direct API credential", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    listCredentials.mockResolvedValue([
+      {
+        id: "credential-2",
+        card_id: environment.id,
+        card_name: environment.name,
+        kind: "api_key",
+        auth_index: "2",
+        enabled: true,
+        supplier: environment.supplier,
+        status: "ready",
+        model_count: 1,
+      },
+    ]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: /删除凭据|Remove credential/i }));
+    await waitFor(() =>
+      expect(deleteCredential).toHaveBeenCalledWith("token", environment.id, {
+        version: environment.version,
+        credential_index: 1,
+      }),
+    );
+    expect(deleteAuthFile).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("reloads credential data under the new token when authorization changes", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("test-account.json");
+    listCredentials.mockResolvedValue([]);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <AccountPoolCredentialsPanel accessToken="other-token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(listCredentials).toHaveBeenCalledWith("other-token"));
+    expect(screen.queryByText("test-account.json")).not.toBeInTheDocument();
+    expect(getAuthFileRefreshStatus).toHaveBeenCalledWith("other-token");
   });
 
   it("shows and updates authentication refresh controls", async () => {

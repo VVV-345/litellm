@@ -9,7 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.domain import ModelCooldown, ProviderEndpointFailure
-from account_pool.quota import QuotaObservation
+from account_pool.providers.usage.contracts import QuotaObservation
 
 
 @dataclass(frozen=True, slots=True)

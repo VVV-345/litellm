@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Final
 
 from account_pool.domain import ProviderEndpointFailure, QuotaBalance, QuotaSnapshot, QuotaWindow
-from account_pool.quota import ProviderQuotaRefresh
+from account_pool.providers.usage.contracts import ProviderQuotaRefresh
 
 
 def _merge_quota_snapshots(

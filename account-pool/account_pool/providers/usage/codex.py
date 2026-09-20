@@ -23,7 +23,7 @@ from account_pool.providers.usage.common import (
     _text_value,
     _window,
 )
-from account_pool.quota import ProviderQuotaRefresh
+from account_pool.providers.usage.contracts import ProviderQuotaRefresh
 
 
 class _CodexWindow(BaseModel):

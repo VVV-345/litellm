@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from account_pool.domain import AuthorizationFlow, QuotaSnapshot, SupplierKind
-from account_pool.quota import QuotaObservation
+from account_pool.providers.usage.contracts import QuotaObservation
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,7 @@ from weakref import WeakValueDictionary
 import httpx
 from pydantic import TypeAdapter
 
+from account_pool.application.quota_state import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.channels.cliproxyapi.protocol import (
     AuthorizationStart as AuthorizationStart,
 )
@@ -54,13 +55,8 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
-from account_pool.quota import (
-    ProviderQuotaError,
-    ProviderQuotaRefresh,
-    QuotaObservation,
-)
-from account_pool.quota import effective_cooldown_until as effective_cooldown_until_value
-from account_pool.quota import parse_quota as parse_quota_snapshot
+from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh, QuotaObservation
+from account_pool.providers.usage.signals import parse_quota as parse_quota_snapshot
 from account_pool.shared.secrets import EnvironmentSecretDeriver
 
 _QuotaObservation = QuotaObservation
