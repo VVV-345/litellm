@@ -3,43 +3,42 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
-import json
-import secrets as token_secrets
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime, timedelta
-from typing import Final, Literal, TypeVar
-from uuid import UUID, uuid4
+from datetime import datetime
+from typing import Final, Literal
+from uuid import UUID
 
-from pydantic import HttpUrl, TypeAdapter
-
-from account_pool.application.authorization import (
-    _authorization_expires_at,
-    _replace_state,
-)
 from account_pool.application.environment_state import (
     _AutomaticCooldownState,
-    _configuration_requires_reconciliation,
     _cooldown_active,
     _cooldown_elapsed,
-    _cooldown_until_after_update,
-    _status_after_update,
 )
+from account_pool.application.environments.auth_files import EnvironmentAuthFiles
+from account_pool.application.environments.authorization import EnvironmentAuthorization
+from account_pool.application.environments.configuration import EnvironmentConfigurationOperations
+from account_pool.application.environments.contracts import (
+    DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS as _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
+)
+from account_pool.application.environments.contracts import (
+    DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS as _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
+)
+from account_pool.application.environments.contracts import AuthorizationConflict as _AuthorizationConflict
+from account_pool.application.environments.contracts import T as T
+from account_pool.application.environments.deletion import EnvironmentDeletion
+from account_pool.application.environments.plugins import EnvironmentPlugins
+from account_pool.application.environments.provisioning import EnvironmentProvisioning
+from account_pool.application.environments.settings_sync import EnvironmentSettingsSync
 from account_pool.application.plugin_validation import (
     _plugin_store_approves as _plugin_store_approves,
 )
 from account_pool.application.profile_updates import (
     _ExplicitProfileUpdate,
-    explicit_profile_update,
 )
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashProxyNode
-from account_pool.cleanup import compose_removed, directory_removed, routes_removed
 from account_pool.config import Settings, validate_proxy_profile_url
-from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
+from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
 from account_pool.domain import (
-    AuthorizationFlow,
     AuthorizationInstructionFlow,
     AuthorizationView,
     ChannelKind,
@@ -53,18 +52,14 @@ from account_pool.domain import (
     EnvironmentView,
     GatewayEnvironment,
     OAuthCallback,
-    OpenAICompatibleConfiguration,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
-    Provider,
     ProxyMode,
     ProxyProfile,
-    QuotaSnapshot,
     SettingsProfileBaselines,
     SupplierKind,
     UpdateEnvironmentRequest,
     configuration_from_record,
-    configured_proxy_url,
     to_view,
     utc_now,
 )
@@ -79,30 +74,12 @@ from account_pool.ports import (
 )
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.quota import ProviderQuotaError
-from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
-from account_pool.shared.error_safety import safe_error as _safe_error
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
+from account_pool.shared.error_safety import safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
-from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
+from account_pool.shared.secrets import EnvironmentSecretDeriver
 
-T = TypeVar("T")
-_HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
-
-
-async def _constant_async(value: T) -> T:
-    return value
-
-
-class _AuthorizationConflict(Exception):
-    """授权回调未能持久化到可路由状态时阻止成功响应。"""
-
-
-# 授权完成后允许保留用户主动停用或冷却状态，不能把有效凭据误判为验证失败。
-_AUTHORIZATION_COMPLETE_STATUSES: Final = frozenset(
-    (EnvironmentStatus.READY, EnvironmentStatus.DISABLED, EnvironmentStatus.COOLING_DOWN)
-)
-_AUTHORIZATION_VALIDATION_TIMEOUT: Final = timedelta(minutes=2)
-_DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS: Final = 20.0
-_DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS: Final = 0.5
+_safe_error: Final = safe_error
 
 
 class EnvironmentService:
@@ -139,6 +116,88 @@ class EnvironmentService:
         self._policies: Final = policies
         self._direct_credential_validation_timeout_seconds: Final = direct_credential_validation_timeout_seconds
         self._direct_credential_validation_interval_seconds: Final = direct_credential_validation_interval_seconds
+
+        self._settings_sync_operations: Final = EnvironmentSettingsSync(
+            _apply_and_persist_configuration=self._apply_and_persist_configuration,
+            _cli_proxy=self._cli_proxy,
+            _lock_for=self._lock_for,
+            _ownership=self._ownership,
+            _policies=self._policies,
+            _proxy_profiles=self._proxy_profiles,
+            _repository=self._repository,
+            update_environment=self.update_environment,
+        )
+        self._plugins_operations: Final = EnvironmentPlugins(
+            _cli_proxy=self._cli_proxy,
+            _log_event=self._log_event,
+            _repository=self._repository,
+        )
+        self._auth_files_operations: Final = EnvironmentAuthFiles(
+            _apply_and_persist_configuration=self._apply_and_persist_configuration,
+            _channel=self._channel,
+            _cli_proxy=self._cli_proxy,
+            _gateway_environment=self._gateway_environment,
+            _lock_for=self._lock_for,
+            _log_event=self._log_event,
+            _ownership=self._ownership,
+            _refresh_if_needed=self._refresh_if_needed,
+            _repository=self._repository,
+            _secrets=self._secrets,
+            _wait_for_direct_credential=self._wait_for_direct_credential,
+        )
+        self._provisioning_operations: Final = EnvironmentProvisioning(
+            _account_pool_settings=self._account_pool_settings,
+            _apply_and_persist_configuration=self._apply_and_persist_configuration,
+            _authorization_view=self._authorization_view,
+            _callback_state=self._callback_state,
+            _channel=self._channel,
+            _channels=self._channels,
+            _cli_proxy=self._cli_proxy,
+            _default_proxy=self._default_proxy,
+            _direct_credential_validation_interval_seconds=self._direct_credential_validation_interval_seconds,
+            _direct_credential_validation_timeout_seconds=self._direct_credential_validation_timeout_seconds,
+            _find_by_operation_id=self._find_by_operation_id,
+            _lock_for=self._lock_for,
+            _log_event=self._log_event,
+            _ownership=self._ownership,
+            _proxy_profiles=self._proxy_profiles,
+            _repository=self._repository,
+            _secrets=self._secrets,
+            _settings=self._settings,
+            authorize_environment=self.authorize_environment,
+            upload_auth_file=self.upload_auth_file,
+        )
+        self._authorization_operations: Final = EnvironmentAuthorization(
+            _apply_and_persist_configuration=self._apply_and_persist_configuration,
+            _channel=self._channel,
+            _channels=self._channels,
+            _gateway_environment=self._gateway_environment,
+            _lock_for=self._lock_for,
+            _log_event=self._log_event,
+            _ownership=self._ownership,
+            _repository=self._repository,
+            _secrets=self._secrets,
+            _settings=self._settings,
+            _start_authorization=self._start_authorization,
+        )
+        self._configuration_operations: Final = EnvironmentConfigurationOperations(
+            _channel=self._channel,
+            _lock_for=self._lock_for,
+            _log_event=self._log_event,
+            _ownership=self._ownership,
+            _proxy_profiles=self._proxy_profiles,
+            _refresh_if_needed=self._refresh_if_needed,
+            _repository=self._repository,
+            delete_environment=self.delete_environment,
+        )
+        self._deletion_operations: Final = EnvironmentDeletion(
+            _channel=self._channel,
+            _lock_for=self._lock_for,
+            _log_event=self._log_event,
+            _ownership=self._ownership,
+            _persist_cleanup_progress=self._persist_cleanup_progress,
+            _repository=self._repository,
+        )
 
     async def _account_pool_settings(self) -> AccountPoolSettings:
         if self._global_settings is None:
@@ -238,45 +297,11 @@ class EnvironmentService:
         return await self._proxy_profiles.list()
 
     async def sync_global_settings(
-        self,
-        settings: AccountPoolSettings,
-        *,
-        rollback_on_failure: bool = True,
+        self, settings: AccountPoolSettings, *, rollback_on_failure: bool = True
     ) -> tuple[UUID, ...]:
-        records: Final = await self._repository.list()
-        policies: Final = () if self._policies is None else await self._policies.list()
-        policies_by_card: Final = {policy.card_id: policy for policy in policies}
-        updates: Final = tuple(self._explicit_profile_update(record, settings) for record in records)
-        results: Final = await asyncio.gather(
-            *(
-                self._sync_global_settings_for_record(
-                    record,
-                    settings,
-                    update,
-                    policies_by_card.get(record.id),
-                )
-                for record, update in zip(records, updates)
-            ),
-            return_exceptions=True,
+        return await self._settings_sync_operations.sync_global_settings(
+            settings, rollback_on_failure=rollback_on_failure
         )
-        failed: Final = tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
-        if not failed or not rollback_on_failure:
-            return failed
-        rollback_targets: Final = tuple(
-            (record, update.request.operation_id)
-            for record, update in zip(records, updates)
-            if update is not None and update.request.operation_id is not None
-        )
-        rollback_results: Final = await asyncio.gather(
-            *(self._restore_settings_configuration(record, operation_id) for record, operation_id in rollback_targets),
-            return_exceptions=True,
-        )
-        rollback_failed: Final = tuple(
-            record.id
-            for (record, _), result in zip(rollback_targets, rollback_results)
-            if isinstance(result, Exception)
-        )
-        return tuple(dict.fromkeys((*failed, *rollback_failed)))
 
     async def _sync_global_settings_for_record(
         self,
@@ -285,138 +310,26 @@ class EnvironmentService:
         update: _ExplicitProfileUpdate | None,
         policy: PolicyView | None,
     ) -> None:
-        if record.status is EnvironmentStatus.DELETING:
-            return
-        effective: Final = settings_for_card(settings, record.id)
-        configured: Final = await self._apply_explicit_profile_configuration(record, update)
-        if configured.channel is not ChannelKind.CLIPROXYAPI:
-            return
-        await self._cli_proxy.apply_global_settings(configured, effective)
-        if policy is None:
-            return
-        try:
-            await self._cli_proxy.apply_policy(configured, policy.policy)
-        except Exception:
-            await self._set_policy_runtime_status(
-                policy,
-                "failed",
-                "policy runtime synchronization failed",
-                require_current=False,
-            )
-            raise
-        await self._set_policy_runtime_status(policy, "synced")
+        return await self._settings_sync_operations.sync_global_settings_for_record(record, settings, update, policy)
 
     def _explicit_profile_update(
-        self,
-        record: EnvironmentRecord,
-        settings: AccountPoolSettings,
+        self, record: EnvironmentRecord, settings: AccountPoolSettings
     ) -> _ExplicitProfileUpdate | None:
-        return explicit_profile_update(record, settings)
+        return self._settings_sync_operations.explicit_profile_update(record, settings)
 
     async def _apply_explicit_profile_configuration(
-        self,
-        record: EnvironmentRecord,
-        update: _ExplicitProfileUpdate | None,
+        self, record: EnvironmentRecord, update: _ExplicitProfileUpdate | None
     ) -> EnvironmentRecord:
-        if update is None:
-            return record
-        result: Final = await self.update_environment(
-            record.id,
-            update.request,
-            settings_profile_baselines=update.baselines,
-        )
-        if isinstance(result, Failure):
-            raise ValueError(result.message)
-        return await self._repository.get(record.id) or record
+        return await self._settings_sync_operations.apply_explicit_profile_configuration(record, update)
 
     async def _restore_settings_configuration(self, snapshot: EnvironmentRecord, operation_id: str) -> None:
-        lock: Final = await self._lock_for(snapshot.id)
-        async with lock, self._ownership.operation(snapshot.id):
-            current: Final = await self._repository.get(snapshot.id)
-            if current is None:
-                raise ValueError("environment not found during settings rollback")
-            # 只撤销本次设置同步写入，不能覆盖同步期间发生的其他卡片编辑。
-            if current.operation_id != operation_id:
-                return
-            desired: Final = await self._configuration_for_snapshot(snapshot)
-            pending: Final = current.model_copy(
-                update={
-                    "version": current.version + 1,
-                    "name": snapshot.name,
-                    "concurrency_limit": snapshot.concurrency_limit,
-                    "enabled": snapshot.enabled,
-                    "manual_cooldown": snapshot.manual_cooldown,
-                    "proxy_mode": snapshot.proxy_mode,
-                    "proxy_profile_id": snapshot.proxy_profile_id,
-                    "enabled_models": snapshot.enabled_models,
-                    "settings_profile_baselines": snapshot.settings_profile_baselines,
-                    "status": snapshot.status,
-                    "desired_state": snapshot.status,
-                    "operation_id": snapshot.operation_id,
-                    "desired_configuration_version": current.desired_configuration_version + 1,
-                    "desired_configuration": desired,
-                    "configuration_pending": True,
-                    "configuration_last_error": None,
-                    "cooldown_until": snapshot.cooldown_until,
-                    "automatic_cooldown": snapshot.automatic_cooldown,
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            claimed: Final = await self._repository.save_if_version(pending, current.version)
-            if claimed is None:
-                raise ValueError("environment changed during settings rollback")
-            applied: Final = await self._apply_and_persist_configuration(claimed, desired)
-            if isinstance(applied, Failure):
-                raise ValueError(applied.message)
-            completed: Final = await self._repository.get(snapshot.id)
-            if completed is None:
-                raise ValueError("environment disappeared during settings rollback")
-            normalized: Final = completed.model_copy(
-                update={
-                    "version": completed.version + 1,
-                    "desired_state": snapshot.desired_state,
-                    "operation_id": snapshot.operation_id,
-                    "status": snapshot.status,
-                    "configuration_last_error": snapshot.configuration_last_error,
-                    "last_error": snapshot.last_error,
-                    "updated_at": utc_now(),
-                }
-            )
-            if await self._repository.save_if_version(normalized, completed.version) is None:
-                raise ValueError("environment changed while finalizing settings rollback")
+        return await self._settings_sync_operations.restore_settings_configuration(snapshot, operation_id)
 
     async def _configuration_for_snapshot(self, snapshot: EnvironmentRecord) -> EnvironmentConfiguration:
-        proxy_url: Final = await self._proxy_url_for_snapshot(snapshot)
-        previous: Final = snapshot.desired_configuration
-        return EnvironmentConfiguration(
-            name=snapshot.name,
-            concurrency_limit=snapshot.concurrency_limit,
-            enabled=snapshot.enabled,
-            manual_cooldown=snapshot.manual_cooldown,
-            proxy_mode=snapshot.proxy_mode,
-            proxy_profile_id=snapshot.proxy_profile_id,
-            enabled_models=snapshot.enabled_models,
-            proxy_url=proxy_url,
-            credential_enabled=(
-                previous.credential_enabled
-                if previous is not None
-                else snapshot.enabled and not snapshot.manual_cooldown and not snapshot.automatic_cooldown
-            ),
-        )
+        return await self._settings_sync_operations.configuration_for_snapshot(snapshot)
 
     async def _proxy_url_for_snapshot(self, snapshot: EnvironmentRecord) -> str:
-        if snapshot.proxy_mode is ProxyMode.DEFAULT_GATEWAY:
-            return ""
-        stored_proxy_url: Final = configured_proxy_url(snapshot)
-        if stored_proxy_url:
-            return validate_proxy_profile_url(stored_proxy_url)
-        if snapshot.proxy_profile_id is None:
-            raise ValueError("proxy profile is missing during settings rollback")
-        profile_url: Final = await self._proxy_profiles.get_url(snapshot.proxy_profile_id)
-        if profile_url is None:
-            raise ValueError("proxy profile is unavailable during settings rollback")
-        return validate_proxy_profile_url(profile_url)
+        return await self._settings_sync_operations.proxy_url_for_snapshot(snapshot)
 
     async def _set_policy_runtime_status(
         self,
@@ -426,122 +339,51 @@ class EnvironmentService:
         *,
         require_current: bool = True,
     ) -> None:
-        if self._policies is None:
-            return
-        saved: Final = await self._policies.set_runtime_status(policy.card_id, policy.version, status, error)
-        if require_current and saved is None:
-            raise ValueError("policy changed during runtime synchronization")
+        return await self._settings_sync_operations.set_policy_runtime_status(
+            policy, status, error, require_current=require_current
+        )
 
     async def sync_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        if record.channel is ChannelKind.CLIPROXYAPI and record.status is not EnvironmentStatus.DELETING:
-            await self._cli_proxy.apply_policy(record, policy)
+        return await self._settings_sync_operations.sync_policy(record, policy)
 
     async def list_card_plugins(self, environment_id: UUID) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(environment_id, lambda record: self._cli_proxy.list_plugins(record))
+        return await self._plugins_operations.list_card_plugins(environment_id)
 
     async def list_card_plugin_store(self, environment_id: UUID) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(environment_id, lambda record: self._cli_proxy.list_plugin_store(record))
+        return await self._plugins_operations.list_card_plugin_store(environment_id)
 
     async def install_card_plugin(
         self, environment_id: UUID, plugin_id: str, version: str, source: str | None
     ) -> Result[Mapping[str, object]]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        if record.channel is not ChannelKind.CLIPROXYAPI:
-            return Failure(FailureCode.INVALID, "plugins are supported by CLIProxyAPI cards only")
-        try:
-            store: Final = await self._cli_proxy.list_plugin_store(record)
-            if not _plugin_store_approves(store, plugin_id, version, source):
-                return Failure(
-                    FailureCode.INVALID, "plugin id, version, or source is not approved by the card plugin store"
-                )
-            return Success(await self._cli_proxy.install_plugin(record, plugin_id, version, source))
-        except Exception as error:
-            await self._log_event(record, "configuration", error)
-            return Failure(FailureCode.UPSTREAM, "plugin runtime operation failed")
+        return await self._plugins_operations.install_card_plugin(environment_id, plugin_id, version, source)
 
     async def set_card_plugin_enabled(
         self, environment_id: UUID, plugin_id: str, enabled: bool
     ) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.set_plugin_enabled(record, plugin_id, enabled)
-        )
+        return await self._plugins_operations.set_card_plugin_enabled(environment_id, plugin_id, enabled)
 
     async def uninstall_card_plugin(self, environment_id: UUID, plugin_id: str) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.uninstall_plugin(record, plugin_id)
-        )
+        return await self._plugins_operations.uninstall_card_plugin(environment_id, plugin_id)
 
     async def get_card_plugin_config(self, environment_id: UUID, plugin_id: str) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.get_plugin_config(record, plugin_id)
-        )
+        return await self._plugins_operations.get_card_plugin_config(environment_id, plugin_id)
 
     async def put_card_plugin_config(
         self, environment_id: UUID, plugin_id: str, config: Mapping[str, object]
     ) -> Result[Mapping[str, object]]:
-        return await self._plugin_call(
-            environment_id, lambda record: self._cli_proxy.put_plugin_config(record, plugin_id, config)
-        )
+        return await self._plugins_operations.put_card_plugin_config(environment_id, plugin_id, config)
 
     async def _plugin_call(
         self, environment_id: UUID, operation: Callable[[EnvironmentRecord], Awaitable[Mapping[str, object]]]
     ) -> Result[Mapping[str, object]]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        if record.channel is not ChannelKind.CLIPROXYAPI:
-            return Failure(FailureCode.INVALID, "plugins are supported by CLIProxyAPI cards only")
-        try:
-            return Success(await operation(record))
-        except Exception as error:
-            await self._log_event(record, "configuration", error)
-            return Failure(FailureCode.UPSTREAM, "plugin runtime operation failed")
+        return await self._plugins_operations.plugin_call(environment_id, operation)
 
     async def upload_auth_file(
         self, environment_id: UUID, filename: str, content: bytes, content_type: str | None, *, replace: bool = False
     ) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.channel is not ChannelKind.CLIPROXYAPI:
-                return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
-            if record.status is EnvironmentStatus.DELETING:
-                return Failure(FailureCode.CONFLICT, "environment is being deleted")
-            if not replace and (record.auth_file_name is not None or record.credential_fingerprints):
-                return Failure(
-                    FailureCode.CONFLICT, "该卡片已有凭证，一张卡片只能绑定一个凭证。如需替换，请使用“更换文件”"
-                )
-            try:
-                identity: Final = credential_identity(content, record.supplier.value, self._secrets)
-                await self._ownership.claim(record.id, identity.fingerprints)
-            except CredentialConflict as error:
-                return Failure(FailureCode.CONFLICT, str(error))
-            blocked: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "configuration_pending": False,
-                    "oauth_state": None,
-                    "oauth_provider_state": None,
-                    "oauth_expires_at": None,
-                    "oauth_state_signature": None,
-                    "oauth_state_consumed_at": None,
-                    "oauth_authorization_url": None,
-                    "authorization_user_code": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            claimed_upload: Final = await self._repository.save_if_version(blocked, record.version)
-            if claimed_upload is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return await self._upload_auth_file_locked(
-                claimed_upload, filename, content, content_type, record.oauth_provider_state or record.oauth_state
-            )
+        return await self._auth_files_operations.upload_auth_file(
+            environment_id, filename, content, content_type, replace=replace
+        )
 
     async def _upload_auth_file_locked(
         self,
@@ -551,200 +393,26 @@ class EnvironmentService:
         content_type: str | None,
         pending_state: str | None,
     ) -> Result[EnvironmentView]:
-        channel: Final = self._channel(record)
-        try:
-            if pending_state is not None:
-                await channel.cancel_oauth_session(record, pending_state)
-            await self._cli_proxy.upload_auth_file(record, filename, content, content_type)
-            identity: Final = credential_identity(content, record.supplier.value, self._secrets)
-            uploaded: Final = record.model_copy(
-                update={
-                    "auth_file_name": filename,
-                    "credential_fingerprints": identity.fingerprints,
-                    "credential_email": identity.email,
-                    "credential_account_id": identity.account_id,
-                }
-            )
-            observed: Final = await self._wait_for_direct_credential(channel, uploaded)
-        except Exception as error:
-            failed: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "auth_file_name": filename,
-                    "credential_fingerprints": (),
-                    "last_error": "认证文件替换或验证失败，卡片已停止接单，请重试上传或删除",
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save_if_version(failed, record.version)
-            await self._log_event(record, "authentication", error)
-            return Failure(FailureCode.UPSTREAM, f"auth file validation failed: {_safe_error(error)}")
-        completed: Final = observed.model_copy(
-            update={
-                "version": record.version + 1,
-                "desired_state": observed.status,
-                "oauth_state": None,
-                "oauth_expires_at": None,
-                "oauth_state_consumed_at": None,
-                "oauth_state_signature": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "authorization_user_code": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
+        return await self._auth_files_operations.upload_auth_file_locked(
+            record, filename, content, content_type, pending_state
         )
-        initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
-        desired: Final = initial_desired.model_copy(update={"enabled_models": completed.enabled_models})
-        pending: Final = completed.model_copy(
-            update={
-                "configuration_pending": True,
-                "desired_configuration_version": completed.desired_configuration_version + 1,
-                "desired_configuration": desired,
-                "configuration_last_error": None,
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(pending, record.version)
-        if claimed is None:
-            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-        reconciled: Final = await self._apply_and_persist_configuration(claimed, desired)
-        if isinstance(reconciled, Failure):
-            return reconciled
-        persisted: Final = await self._repository.get(record.id)
-        if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
-            return Failure(FailureCode.CONFLICT, "auth file validation did not reach a usable state")
-        if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
-            return Failure(FailureCode.CONFLICT, "auth file validation is still being reconciled")
-        await self._ownership.retain(record.id, persisted.credential_fingerprints)
-        await self._log_event(persisted, "authentication", None)
-        return Success(to_view(persisted))
 
     async def download_auth_file(self, environment_id: UUID) -> Result[tuple[bytes, str, str]]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
-            return Failure(FailureCode.INVALID, "this card has no downloadable auth file")
-        try:
-            content, content_type = await self._cli_proxy.download_auth_file(record, record.auth_file_name)
-        except Exception as error:
-            await self._log_event(record, "authentication", error)
-            return Failure(FailureCode.UPSTREAM, "auth file download failed")
-        return Success((content, content_type, record.auth_file_name))
+        return await self._auth_files_operations.download_auth_file(environment_id)
 
     async def delete_auth_file(self, environment_id: UUID) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.channel is not ChannelKind.CLIPROXYAPI:
-                return Failure(FailureCode.INVALID, "this card has no auth file")
-            if record.status is EnvironmentStatus.DELETING:
-                return Failure(FailureCode.CONFLICT, "environment is being deleted")
-            blocked: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "configuration_pending": False,
-                    "oauth_state": None,
-                    "oauth_provider_state": None,
-                    "oauth_expires_at": None,
-                    "oauth_state_signature": None,
-                    "oauth_state_consumed_at": None,
-                    "oauth_authorization_url": None,
-                    "authorization_user_code": None,
-                    "available_models": (),
-                    "enabled_models": (),
-                    "updated_at": utc_now(),
-                }
-            )
-            saved: Final = await self._repository.save_if_version(blocked, record.version)
-            if saved is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                state: Final = record.oauth_provider_state or record.oauth_state
-                if state is not None:
-                    await self._channel(record).cancel_oauth_session(record, state)
-                await self._cli_proxy.delete_auth_file(saved, record.auth_file_name or "")
-            except Exception as error:
-                await self._log_event(saved, "authentication", error)
-                return Failure(FailureCode.UPSTREAM, "认证文件清理失败，卡片已停止接单，请重试删除")
-            cleared: Final = saved.model_copy(
-                update={
-                    "version": saved.version + 1,
-                    "auth_file_name": None,
-                    "auth_index": None,
-                    "auth_file_disabled": False,
-                    "quota": QuotaSnapshot(),
-                    "model_quotas": (),
-                    "cooldown_until": None,
-                    "automatic_cooldown": False,
-                    "credential_fingerprints": (),
-                    "credential_email": None,
-                    "credential_account_id": None,
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            completed: Final = await self._repository.save_if_version(cleared, saved.version)
-            if completed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed while deleting the credential")
-            await self._ownership.retain(record.id)
-            return Success(to_view(completed))
+        return await self._auth_files_operations.delete_auth_file(environment_id)
 
     async def patch_auth_file_status(self, environment_id: UUID, disabled: bool) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
-                return Failure(FailureCode.INVALID, "this card has no auth file")
-            if record.status is EnvironmentStatus.DELETING:
-                return Failure(FailureCode.CONFLICT, "environment is being deleted")
-            try:
-                await self._cli_proxy.patch_auth_file_status(record, record.auth_file_name, record.auth_index, disabled)
-            except Exception as error:
-                await self._log_event(record, "authentication", error)
-                return Failure(FailureCode.UPSTREAM, "auth file status update failed")
-        refreshed: Final = await self._refresh_if_needed(record, credential_state_changed=True, wait_for_lock=True)
-        return Success(to_view(refreshed))
+        return await self._auth_files_operations.patch_auth_file_status(environment_id, disabled)
 
     async def patch_auth_file_fields(
         self, environment_id: UUID, fields: Mapping[str, object]
     ) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
-                return Failure(FailureCode.INVALID, "this card has no auth file")
-            if not fields or not set(fields).issubset({"priority", "prefix", "proxy_url"}):
-                return Failure(FailureCode.INVALID, "auth file fields are required")
-            try:
-                await self._cli_proxy.patch_auth_file_fields(record, record.auth_file_name, fields)
-            except Exception as error:
-                await self._log_event(record, "authentication", error)
-                return Failure(FailureCode.UPSTREAM, "auth file fields update failed")
-        refreshed: Final = await self._refresh_if_needed(record, wait_for_lock=True)
-        return Success(to_view(refreshed))
+        return await self._auth_files_operations.patch_auth_file_fields(environment_id, fields)
 
     async def get_auth_file_models(self, environment_id: UUID) -> Result[tuple[str, ...]]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None:
-            return Failure(FailureCode.NOT_FOUND, "environment not found")
-        if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
-            return Failure(FailureCode.INVALID, "this card has no auth file")
-        try:
-            return Success(await self._cli_proxy.get_auth_file_models(record, record.auth_file_name))
-        except Exception as error:
-            await self._log_event(record, "authentication", error)
-            return Failure(FailureCode.UPSTREAM, "auth file model query failed")
+        return await self._auth_files_operations.get_auth_file_models(environment_id)
 
     async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
         return await self._proxy_gateways.list_gateways()
@@ -815,230 +483,37 @@ class EnvironmentService:
         return self._gateway_environment(record)
 
     async def _start_authorization(
-        self,
-        record: EnvironmentRecord,
+        self, record: EnvironmentRecord
     ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]:
-        channel: Final = self._channel(record)
-        result: Final = await channel.start_authorization(record)
-        supplier: Final = channel.supplier(record.supplier)
-        if supplier.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
-            raise RuntimeError("direct credential suppliers do not use authorization instructions")
-        callback_state: Final = self._callback_state(record)
-        callback_url: Final = _replace_state(result.authorization_url, callback_state)
-        return (
-            result.provider_state,
-            callback_state,
-            callback_url,
-            supplier.authorization_flow,
-            result.user_code,
-            result.expires_in_seconds,
-        )
+        return await self._provisioning_operations.start_authorization(record)
 
     async def create_environment(
         self, request: CreateEnvironmentRequest, *, environment_id: UUID | None = None
     ) -> Result[AuthorizationView]:
-        try:
-            channel_definition: Final = self._channels.get(request.channel)
-            supplier_definition: Final = channel_definition.supplier(request.supplier)
-        except (KeyError, UnsupportedChannelError) as error:
-            return Failure(FailureCode.INVALID, str(error))
-        if supplier_definition.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
-            return Failure(FailureCode.INVALID, "direct credential suppliers require the credential creation endpoint")
-        if request.operation_id is not None:
-            existing: Final = await self._find_by_operation_id(request.operation_id)
-            if existing is not None:
-                if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
-                    return Success(self._authorization_view(existing))
-                return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
-        pool_settings: Final = await self._account_pool_settings()
-        proxy_result: Final = await self._default_proxy(pool_settings)
-        if isinstance(proxy_result, Failure):
-            return proxy_result
-        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
-        now: Final = utc_now()
-        record: Final = EnvironmentRecord(
-            id=environment_id or uuid4(),
-            version=0,
-            desired_state=EnvironmentStatus.PROVISIONING,
-            operation_id=request.operation_id or str(uuid4()),
-            name=request.name,
-            provider=Provider.OPENAI,
-            channel=request.channel,
-            supplier=request.supplier,
-            authorization_flow=supplier_definition.authorization_flow,
-            status=EnvironmentStatus.PROVISIONING,
-            enabled=True,
-            manual_cooldown=False,
-            concurrency_limit=pool_settings.default_concurrency_limit,
-            proxy_mode=proxy_mode,
-            proxy_profile_id=proxy_profile_id,
-            desired_configuration=(
-                EnvironmentConfiguration(
-                    name=request.name,
-                    concurrency_limit=pool_settings.default_concurrency_limit,
-                    enabled=True,
-                    manual_cooldown=False,
-                    proxy_mode=proxy_mode,
-                    proxy_profile_id=proxy_profile_id,
-                    enabled_models=(),
-                    proxy_url=proxy_url,
-                    credential_enabled=True,
-                )
-                if proxy_mode is ProxyMode.PROFILE
-                else None
-            ),
-            available_models=(),
-            enabled_models=(),
-            auth_file_name=None,
-            auth_index=None,
-            quota=QuotaSnapshot(),
-            model_quotas=(),
-            cooldown_until=None,
-            oauth_state=None,
-            oauth_expires_at=None,
-            oauth_state_consumed_at=None,
-            oauth_state_signature=None,
-            oauth_provider_state=None,
-            oauth_authorization_url=None,
-            last_error=None,
-            created_at=now,
-            updated_at=now,
-        )
-        await self._repository.save(record)
-        try:
-            channel: Final = self._channel(record)
-            await channel.provision(record)
-            (
-                provider_state,
-                callback_state,
-                callback_url,
-                authorization_flow,
-                authorization_user_code,
-                expires_in_seconds,
-            ) = await self._start_authorization(record)
-            validated_authorization_url: Final = _HTTP_URL_ADAPTER.validate_python(callback_url)
-        except Exception as error:
-            failed: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save(failed)
-            await self._log_event(failed, "provisioning", error)
-            return Failure(FailureCode.UPSTREAM, "environment provisioning failed")
-        expires_at: Final = _authorization_expires_at(authorization_flow, expires_in_seconds)
-        awaiting: Final = record.model_copy(
-            update={
-                "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                "oauth_state": callback_state,
-                "oauth_expires_at": expires_at,
-                "oauth_state_consumed_at": None,
-                "oauth_state_signature": callback_state.rpartition(".")[2],
-                "oauth_provider_state": provider_state,
-                "oauth_authorization_url": callback_url,
-                "authorization_flow": authorization_flow,
-                "authorization_user_code": authorization_user_code,
-                "updated_at": utc_now(),
-            }
-        )
-        await self._repository.save(awaiting)
-        command: Final = (
-            (
-                f"ssh -N -L {self._channels.channel(awaiting.channel).supplier(awaiting.supplier).callback_port}:127.0.0.1:"
-                f"{self._settings.callback_port} {self._settings.ssh_user}@{self._settings.ssh_host}"
-            )
-            if awaiting.authorization_flow is AuthorizationFlow.BROWSER_OAUTH
-            else None
-        )
-        return Success(
-            AuthorizationView(
-                environment=to_view(awaiting),
-                flow=awaiting.authorization_flow,
-                authorization_url=validated_authorization_url,
-                ssh_command=command,
-                user_code=awaiting.authorization_user_code,
-                expires_at=expires_at,
-            )
-        )
+        return await self._provisioning_operations.create_environment(request, environment_id=environment_id)
 
     async def create_direct_credential_environment(
         self, request: CreateDirectCredentialEnvironmentRequest
     ) -> Result[EnvironmentView]:
-        return await self._create_direct_credential_environment(
-            name=request.name,
-            supplier=request.supplier,
-            operation_id=request.operation_id,
-            credential_content=json.dumps({"api_key": request.credential.api_key}).encode(),
-            write_credential=lambda channel, record, proxy_url: channel.write_direct_api_key(
-                record, request.credential, proxy_url
-            ),
-        )
+        return await self._provisioning_operations.create_direct_credential_environment(request)
 
     async def create_auth_file_environment(
         self, request: CreateEnvironmentRequest, environment_id: UUID, filename: str, content: bytes
     ) -> Result[EnvironmentView]:
-        existing: Final = await self._repository.get(environment_id)
-        if existing is not None:
-            if existing.status is EnvironmentStatus.DELETING or not existing.enabled or existing.manual_cooldown:
-                return Failure(FailureCode.CONFLICT, "卡片已停用、冷却或删除，请先检查卡片状态")
-            if existing.status is EnvironmentStatus.READY and not existing.configuration_pending:
-                return Success(to_view(existing))
-            try:
-                await self._channel(existing).provision(existing)
-            except Exception:
-                return Failure(FailureCode.UPSTREAM, "卡片运行环境启动失败，可重试原任务")
-            return await self.upload_auth_file(environment_id, filename, content, "application/json", replace=True)
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            return await self._create_direct_credential_environment(
-                name=request.name,
-                supplier=request.supplier,
-                operation_id=request.operation_id,
-                credential_content=content,
-                write_credential=lambda channel, record, _: self._cli_proxy.upload_auth_file(
-                    record, filename, content, "application/json"
-                ),
-                auth_file=True,
-                environment_id=environment_id,
-            )
+        return await self._provisioning_operations.create_auth_file_environment(
+            request, environment_id, filename, content
+        )
 
     async def pending_authorization(self, environment_id: UUID) -> Result[AuthorizationView]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None or record.oauth_authorization_url is None or record.oauth_expires_at is None:
-            return Failure(FailureCode.NOT_FOUND, "暂无待完成的授权")
-        if record.oauth_expires_at <= utc_now() or record.oauth_state_consumed_at is not None:
-            return Failure(FailureCode.CONFLICT, "授权已过期或完成，请刷新任务")
-        return Success(self._authorization_view(record))
+        return await self._provisioning_operations.pending_authorization(environment_id)
 
     async def resume_onboarding_oauth(self, environment_id: UUID) -> Result[AuthorizationView]:
-        record: Final = await self._repository.get(environment_id)
-        if record is None or record.status is EnvironmentStatus.DELETING or not record.enabled or record.manual_cooldown:
-            return Failure(FailureCode.CONFLICT, "卡片不可恢复，请先检查状态")
-        try:
-            await self._channel(record).provision(record)
-        except Exception:
-            return Failure(FailureCode.UPSTREAM, "卡片运行环境恢复失败")
-        return await self.authorize_environment(environment_id)
+        return await self._provisioning_operations.resume_onboarding_oauth(environment_id)
 
     async def create_vertex_environment(
-        self,
-        request: CreateVertexEnvironmentRequest,
-        filename: str,
-        content: bytes,
+        self, request: CreateVertexEnvironmentRequest, filename: str, content: bytes
     ) -> Result[EnvironmentView]:
-        return await self._create_direct_credential_environment(
-            name=request.name,
-            supplier=SupplierKind.VERTEX,
-            operation_id=request.operation_id,
-            credential_content=content,
-            write_credential=lambda channel, record, _: channel.import_vertex_credential(
-                record, filename, content, request.location
-            ),
-        )
+        return await self._provisioning_operations.create_vertex_environment(request, filename, content)
 
     async def _create_direct_credential_environment(
         self,
@@ -1051,740 +526,91 @@ class EnvironmentService:
         auth_file: bool = False,
         environment_id: UUID | None = None,
     ) -> Result[EnvironmentView]:
-        try:
-            supplier_definition: Final = self._channels.get(ChannelKind.CLIPROXYAPI).supplier(supplier)
-        except (KeyError, UnsupportedChannelError) as error:
-            return Failure(FailureCode.INVALID, str(error))
-        if not auth_file and not supplier_definition.accepts_direct_api_key and supplier is not SupplierKind.VERTEX:
-            return Failure(FailureCode.INVALID, "supplier does not accept direct credentials")
-        if operation_id is not None:
-            existing: Final = await self._find_by_operation_id(operation_id)
-            if existing is not None:
-                return Success(to_view(existing))
-        pool_settings: Final = await self._account_pool_settings()
-        proxy_result: Final = await self._default_proxy(pool_settings)
-        if isinstance(proxy_result, Failure):
-            return proxy_result
-        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
-        now: Final = utc_now()
-        try:
-            identity: Final = credential_identity(credential_content, supplier.value, self._secrets)
-        except CredentialConflict as error:
-            return Failure(FailureCode.INVALID, str(error))
-        record: Final = EnvironmentRecord(
-            id=environment_id or uuid4(),
-            version=0,
-            desired_state=EnvironmentStatus.VALIDATING,
-            operation_id=operation_id or str(uuid4()),
+        return await self._provisioning_operations.provision_direct_credential_environment(
             name=name,
-            provider=Provider.OPENAI,
-            channel=ChannelKind.CLIPROXYAPI,
             supplier=supplier,
-            authorization_flow=supplier_definition.authorization_flow if auth_file else AuthorizationFlow.DIRECT_CREDENTIAL,
-            status=EnvironmentStatus.PROVISIONING,
-            enabled=True,
-            manual_cooldown=False,
-            concurrency_limit=pool_settings.default_concurrency_limit,
-            proxy_mode=proxy_mode,
-            proxy_profile_id=proxy_profile_id,
-            available_models=(),
-            enabled_models=(),
-            auth_file_name=None,
-            auth_index=None,
-            credential_fingerprints=identity.fingerprints,
-            credential_email=identity.email,
-            credential_account_id=identity.account_id,
-            quota=QuotaSnapshot(),
-            model_quotas=(),
-            cooldown_until=None,
-            oauth_state=None,
-            oauth_expires_at=None,
-            oauth_state_consumed_at=None,
-            oauth_state_signature=None,
-            oauth_provider_state=None,
-            oauth_authorization_url=None,
-            authorization_user_code=None,
-            last_error=None,
-            created_at=now,
-            updated_at=now,
+            operation_id=operation_id,
+            credential_content=credential_content,
+            write_credential=write_credential,
+            auth_file=auth_file,
+            environment_id=environment_id,
         )
-        try:
-            await self._ownership.claim(record.id, identity.fingerprints)
-        except CredentialConflict as error:
-            return Failure(FailureCode.CONFLICT, str(error))
-        try:
-            await self._repository.save(record)
-        except Exception:
-            await self._ownership.retain(record.id)
-            return Failure(FailureCode.UPSTREAM, "credential card could not be persisted")
-        try:
-            channel: Final = self._channel(record)
-            await channel.provision(record)
-            await write_credential(channel, record, proxy_url)
-            validating: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.VALIDATING,
-                    "desired_state": EnvironmentStatus.VALIDATING,
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save(validating)
-            observed: Final = await self._wait_for_direct_credential(channel, validating)
-            desired: Final = configuration_from_record(observed, proxy_url).model_copy(
-                update={"enabled_models": observed.enabled_models}
-            )
-            pending: Final = observed.model_copy(
-                update={
-                    "version": validating.version + 1,
-                    "status": observed.status if auth_file else EnvironmentStatus.READY,
-                    "desired_state": observed.status if auth_file else EnvironmentStatus.READY,
-                    "configuration_pending": True,
-                    "desired_configuration_version": validating.desired_configuration_version + 1,
-                    "desired_configuration": desired,
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save(pending)
-            reconciled: Final = await self._apply_and_persist_configuration(pending, desired)
-            if isinstance(reconciled, Failure):
-                return reconciled
-            return reconciled
-        except Exception:
-            current: Final = await self._repository.get(record.id) or record
-            public_error: Final = RuntimeError("Direct credential validation failed")
-            failed: Final = current.model_copy(
-                update={
-                    "version": current.version + 1,
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "configuration_pending": False,
-                    "last_error": str(public_error),
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save(failed)
-            await self._log_event(failed, "authentication", public_error)
-            return Failure(FailureCode.UPSTREAM, "direct credential validation failed")
 
     async def _wait_for_direct_credential(
         self, channel: EnvironmentChannel, record: EnvironmentRecord
     ) -> EnvironmentRecord:
-        deadline: Final = asyncio.get_running_loop().time() + self._direct_credential_validation_timeout_seconds
-        last_error: Exception | None = None
-        while asyncio.get_running_loop().time() < deadline:
-            try:
-                observed: Final = await channel.read_account(record)
-                if observed.available_models and await channel.data_plane_health_check(observed):
-                    return observed
-            except Exception as error:
-                last_error = error
-            await asyncio.sleep(self._direct_credential_validation_interval_seconds)
-        if last_error is not None:
-            raise RuntimeError(_safe_error(last_error)) from last_error
-        raise RuntimeError("credential was saved but no models became available")
+        return await self._provisioning_operations.wait_for_direct_credential(channel, record)
 
     async def create_openai_compatible(self, request: CreateEnvironmentRequest) -> Result[EnvironmentView]:
-        if request.provider_family != "openai_compatible" or request.openai_compatible is None:
-            return Failure(FailureCode.INVALID, "openai_compatible configuration is required")
-        configuration: Final = request.openai_compatible
-        if request.operation_id is not None:
-            existing: Final = await self._find_by_operation_id(request.operation_id)
-            if existing is not None:
-                return Success(to_view(existing))
-        now: Final = utc_now()
-        environment_id: Final = uuid4()
-        cipher: Final = StateCipher(self._secrets)
-        proxy_urls: Final = tuple(
-            await asyncio.gather(
-                *(
-                    self._proxy_profiles.get_url(item.proxy_profile_id)
-                    if item.proxy_profile_id is not None
-                    else _constant_async(None)
-                    for item in configuration.api_keys
-                )
-            )
-        )
-        if any(
-            item.proxy_profile_id is not None and proxy_url is None
-            for item, proxy_url in zip(configuration.api_keys, proxy_urls)
-        ):
-            return Failure(FailureCode.INVALID, "proxy profile is unavailable")
-        try:
-            validated_proxy_urls: Final = tuple(
-                validate_proxy_profile_url(proxy_url) if proxy_url is not None else None for proxy_url in proxy_urls
-            )
-        except ValueError:
-            return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
-        encrypted_credentials: Final = tuple(
-            {
-                "api_key_ciphertext": cipher.seal(environment_id, item.api_key),
-                "proxy_profile_id": item.proxy_profile_id,
-                "proxy_url": proxy_url,
-                "weight": item.weight,
-            }
-            for item, proxy_url in zip(configuration.api_keys, validated_proxy_urls)
-        )
-        encrypted_headers: Final = (
-            cipher.seal(environment_id, json.dumps(configuration.headers, ensure_ascii=False))
-            if configuration.headers
-            else None
-        )
-        upstream_models: Final = tuple(dict.fromkeys(configuration.custom_models or (configuration.test_model,)))
-        models: Final = tuple(
-            f"{configuration.prefix}{model}" if configuration.prefix else model for model in upstream_models
-        )
-        pool_settings: Final = await self._account_pool_settings()
-        proxy_result: Final = await self._default_proxy(pool_settings)
-        if isinstance(proxy_result, Failure):
-            return proxy_result
-        proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
-        record: Final = EnvironmentRecord(
-            id=environment_id,
-            operation_id=request.operation_id or str(uuid4()),
-            name=request.name,
-            provider=Provider.OPENAI,
-            channel=ChannelKind.OPENAI_COMPATIBLE,
-            supplier=SupplierKind.OPENAI_COMPATIBLE,
-            openai_compatible=OpenAICompatibleConfiguration(
-                base_url=str(configuration.base_url),
-                prefix=configuration.prefix,
-                priority=configuration.priority,
-                test_model=configuration.test_model,
-                credentials=tuple(encrypted_credentials),
-                headers_ciphertext=encrypted_headers,
-                custom_models=upstream_models,
-            ),
-            desired_state=EnvironmentStatus.READY,
-            status=EnvironmentStatus.VALIDATING,
-            configuration_pending=True,
-            desired_configuration_version=1,
-            observed_configuration_version=0,
-            enabled=True,
-            manual_cooldown=False,
-            concurrency_limit=pool_settings.default_concurrency_limit,
-            proxy_mode=proxy_mode,
-            proxy_profile_id=proxy_profile_id,
-            desired_configuration=(
-                EnvironmentConfiguration(
-                    name=request.name,
-                    concurrency_limit=pool_settings.default_concurrency_limit,
-                    enabled=True,
-                    manual_cooldown=False,
-                    proxy_mode=proxy_mode,
-                    proxy_profile_id=proxy_profile_id,
-                    enabled_models=models,
-                    proxy_url=proxy_url,
-                    credential_enabled=True,
-                )
-                if proxy_mode is ProxyMode.PROFILE
-                else None
-            ),
-            available_models=models,
-            enabled_models=models,
-            auth_file_name=None,
-            auth_index=None,
-            quota=QuotaSnapshot(),
-            cooldown_until=None,
-            automatic_cooldown=False,
-            oauth_state=None,
-            oauth_expires_at=None,
-            oauth_state_consumed_at=None,
-            oauth_state_signature=None,
-            oauth_provider_state=None,
-            oauth_authorization_url=None,
-            authorization_flow=AuthorizationFlow.BROWSER_OAUTH,
-            authorization_user_code=None,
-            last_error=None,
-            created_at=now,
-            updated_at=now,
-        )
-        await self._repository.save(record)
-        try:
-            observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(record)
-        except Exception as error:
-            failed: Final = record.model_copy(
-                update={
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": EnvironmentStatus.ERROR,
-                    "configuration_pending": False,
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save(failed)
-            return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
-        ready: Final = observed.model_copy(
-            update={
-                "version": record.version + 1,
-                "desired_state": EnvironmentStatus.READY,
-                "status": EnvironmentStatus.READY,
-                "configuration_pending": False,
-                "observed_configuration_version": record.desired_configuration_version,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        await self._repository.save(ready)
-        return Success(to_view(ready))
+        return await self._provisioning_operations.create_openai_compatible(request)
 
     async def add_openai_compatible_credential(
         self, environment_id: UUID, request: OpenAICompatibleCredentialRequest
     ) -> Result[EnvironmentView]:
-        return Failure(FailureCode.INVALID, "一张卡片只能使用一个凭证，请新建卡片，或删除旧卡片后重新创建")
+        return await self._provisioning_operations.add_openai_compatible_credential(environment_id, request)
 
     async def delete_openai_compatible_credential(
-        self,
-        environment_id: UUID,
-        request: OpenAICompatibleCredentialDeleteRequest,
+        self, environment_id: UUID, request: OpenAICompatibleCredentialDeleteRequest
     ) -> Result[EnvironmentView]:
-        """删除单张 OpenAI 兼容凭据，至少保留一张凭据以避免卡片失去路由身份。"""
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            configuration: Final = record.openai_compatible
-            if record.channel is not ChannelKind.OPENAI_COMPATIBLE or configuration is None:
-                return Failure(FailureCode.INVALID, "credentials can only be removed from OpenAI-compatible cards")
-            if request.version != record.version:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            if len(configuration.credentials) <= 1:
-                return Failure(FailureCode.INVALID, "an OpenAI-compatible card must retain at least one credential")
-            if request.credential_index >= len(configuration.credentials):
-                return Failure(FailureCode.NOT_FOUND, "credential not found")
-            credentials: Final = tuple(
-                credential
-                for index, credential in enumerate(configuration.credentials)
-                if index != request.credential_index
-            )
-            candidate: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "openai_compatible": configuration.model_copy(update={"credentials": credentials}),
-                    "configuration_pending": True,
-                    "desired_configuration_version": record.desired_configuration_version + 1,
-                    "updated_at": utc_now(),
-                }
-            )
-            saved: Final = await self._repository.save_if_version(candidate, record.version)
-            if saved is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                observed: Final = await self._channels.channel(ChannelKind.OPENAI_COMPATIBLE).read_account(saved)
-            except Exception as error:
-                failed: Final = saved.model_copy(
-                    update={
-                        "status": EnvironmentStatus.ERROR,
-                        "configuration_pending": False,
-                        "last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                await self._repository.save_if_version(failed, saved.version)
-                return Failure(FailureCode.UPSTREAM, "OpenAI-compatible credential validation failed")
-            ready: Final = observed.model_copy(
-                update={
-                    "version": saved.version + 1,
-                    "status": EnvironmentStatus.READY if saved.enabled else EnvironmentStatus.DISABLED,
-                    "configuration_pending": False,
-                    "observed_configuration_version": saved.desired_configuration_version,
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            await self._repository.save_if_version(ready, saved.version)
-            return Success(to_view(ready))
+        return await self._provisioning_operations.delete_openai_compatible_credential(environment_id, request)
 
     async def authorize_environment(
-        self,
-        environment_id: UUID,
-        operation_id: str | None = None,
+        self, environment_id: UUID, operation_id: str | None = None
     ) -> Result[AuthorizationView]:
-        """为已有 Compose 环境创建新的、一次性的 OAuth state，不重建可复用资源。"""
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if record.status is EnvironmentStatus.DELETING:
-                return Failure(FailureCode.CONFLICT, "environment is being deleted")
-            if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
-                return Failure(FailureCode.INVALID, "direct credential cards do not use OAuth authorization")
-            if (
-                operation_id is not None
-                and record.operation_id == operation_id
-                and record.oauth_authorization_url is not None
-                and record.oauth_expires_at is not None
-                and record.oauth_state_consumed_at is None
-                and record.oauth_expires_at > utc_now()
-            ):
-                return Success(self._authorization_view(record))
-            blocked: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                    "configuration_pending": False,
-                    "auth_file_name": None,
-                    "auth_index": None,
-                    "credential_fingerprints": (),
-                    "credential_email": None,
-                    "credential_account_id": None,
-                    "oauth_state": None,
-                    "oauth_expires_at": None,
-                    "oauth_state_consumed_at": None,
-                    "oauth_state_signature": None,
-                    "oauth_authorization_url": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            claimed: Final = await self._repository.save_if_version(blocked, record.version)
-            if claimed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return await self._authorize_prepared(claimed, operation_id)
+        return await self._authorization_operations.authorize_environment(environment_id, operation_id)
 
     async def _authorize_prepared(
         self, record: EnvironmentRecord, operation_id: str | None
     ) -> Result[AuthorizationView]:
-        try:
-            channel: Final = self._channel(record)
-            await channel.ensure_control_plane_connections(record.id)
-            result: Final = await self._start_authorization(record)
-            provider_state, callback_state, callback_url, flow, user_code, expires_in = result
-            _HTTP_URL_ADAPTER.validate_python(callback_url)
-        except Exception as error:
-            await self._persist_authorization_failure(record, str(error))
-            return Failure(FailureCode.UPSTREAM, "environment authorization failed")
-        expires_at: Final = _authorization_expires_at(flow, expires_in)
-        authorized: Final = record.model_copy(
-            update={
-                "version": record.version + 1,
-                "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
-                "operation_id": operation_id or str(uuid4()),
-                "oauth_state": callback_state,
-                "oauth_expires_at": expires_at,
-                "oauth_state_consumed_at": None,
-                "oauth_state_signature": callback_state.rpartition(".")[2],
-                "oauth_provider_state": provider_state,
-                "oauth_authorization_url": callback_url,
-                "authorization_flow": flow,
-                "authorization_user_code": user_code,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        saved: Final = await self._repository.save_if_version(authorized, record.version)
-        if saved is None:
-            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-        return Success(self._authorization_view(saved))
+        return await self._authorization_operations.authorize_prepared(record, operation_id)
 
     async def cancel_oauth_session(self, environment_id: UUID) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            state: Final = record.oauth_provider_state or record.oauth_state
-            if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION or state is None:
-                return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
-            try:
-                await self._channel(record).cancel_oauth_session(record, state)
-            except Exception as error:
-                await self._log_event(record, "authorization", error)
-                return Failure(FailureCode.UPSTREAM, "OAuth session cancellation failed")
-            restored_status: Final = (
-                EnvironmentStatus.READY
-                if record.auth_file_name is not None and record.enabled and not record.manual_cooldown
-                else EnvironmentStatus.COOLING_DOWN
-                if record.manual_cooldown
-                else EnvironmentStatus.DISABLED
-                if not record.enabled
-                else EnvironmentStatus.AWAITING_AUTHORIZATION
-            )
-            cancelled: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "status": restored_status,
-                    "desired_state": restored_status,
-                    "oauth_state": None,
-                    "oauth_expires_at": None,
-                    "oauth_state_signature": None,
-                    "oauth_provider_state": None,
-                    "oauth_authorization_url": None,
-                    "authorization_user_code": None,
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            saved: Final = await self._repository.save_if_version(cancelled, record.version)
-            if saved is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return Success(to_view(saved))
+        return await self._authorization_operations.cancel_oauth_session(environment_id)
 
     async def submit_oauth_callback(
-        self,
-        callback: OAuthCallback,
-        environment_id: UUID | None = None,
+        self, callback: OAuthCallback, environment_id: UUID | None = None
     ) -> Result[EnvironmentView]:
-        located: Final = await self._repository.find_by_oauth_state(callback.state)
-        if located is None:
-            return Failure(FailureCode.NOT_FOUND, "unknown or expired OAuth state")
-        # 与重新授权共用环境锁，避免旧 callback 在新 state 写入后产生上游副作用。
-        lock: Final = await self._lock_for(located.id)
-        async with lock, self._ownership.operation(located.id):
-            current: Final = await self._repository.find_by_oauth_state(callback.state)
-            if current is None:
-                return Failure(FailureCode.NOT_FOUND, "unknown or expired OAuth state")
-            return await self._submit_oauth_callback_locked(callback, environment_id, current)
+        return await self._authorization_operations.submit_oauth_callback(callback, environment_id)
 
     async def _submit_oauth_callback_locked(
-        self,
-        callback: OAuthCallback,
-        environment_id: UUID | None,
-        record: EnvironmentRecord,
+        self, callback: OAuthCallback, environment_id: UUID | None, record: EnvironmentRecord
     ) -> Result[EnvironmentView]:
-        if environment_id is not None and record.id != environment_id:
-            return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
-        if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION:
-            return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")
-        if record.oauth_state_consumed_at is not None:
-            return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
-        if record.oauth_state_signature is None or not self._valid_state_signature(record, callback.state):
-            return Failure(FailureCode.CONFLICT, "invalid OAuth state")
-        if record.oauth_state_consumed_at is None and (
-            record.oauth_expires_at is None or record.oauth_expires_at <= utc_now()
-        ):
-            await self._persist_authorization_failure(record, "OAuth authorization expired")
-            return Failure(FailureCode.CONFLICT, "OAuth authorization expired")
-        consumed_at: Final = utc_now()
-        consumed: Final = await self._consume_oauth_state(callback.state, consumed_at)
-        if consumed is None:
-            return Failure(FailureCode.CONFLICT, "OAuth callback has already been consumed")
-        if environment_id is not None and consumed.id != environment_id:
-            return Failure(FailureCode.CONFLICT, "OAuth state does not belong to this environment")
-        if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, callback.state):
-            return Failure(FailureCode.CONFLICT, "invalid OAuth state")
-        if callback.code is None or not callback.code.strip():
-            failure_reason: Final = (
-                callback.error or callback.error_description or "OAuth authorization was not completed"
-            )
-            await self._persist_authorization_failure(consumed, failure_reason)
-            return Failure(FailureCode.CONFLICT, "OAuth authorization was not completed")
-        provider_state: Final = consumed.oauth_provider_state or callback.state
-        provider_callback: Final = callback.model_copy(update={"state": provider_state})
-        try:
-            channel: Final = self._channel(consumed)
-            await channel.submit_callback(consumed, provider_callback)
-        except Exception as error:
-            await self._persist_authorization_failure(consumed, str(error))
-            return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
-        validating: Final = consumed.model_copy(
-            update={
-                "version": consumed.version + 1,
-                "status": EnvironmentStatus.VALIDATING,
-                "desired_state": EnvironmentStatus.VALIDATING,
-                "oauth_expires_at": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
-        if claimed is None:
-            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-        try:
-            validation: Final = await self._complete_authorization(claimed)
-        except _AuthorizationConflict:
-            return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
-        if isinstance(validation, Failure):
-            return validation
-        validated: Final = validation.value
-        if validated.status is EnvironmentStatus.READY and not self._gateway_environment(validated).routable:
-            return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
-        return Success(to_view(validated))
+        return await self._authorization_operations.submit_oauth_callback_locked(callback, environment_id, record)
 
     async def _find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
-        return await self._repository.find_by_operation_id(operation_id)
+        return await self._authorization_operations.find_by_operation_id(operation_id)
 
     async def _consume_oauth_state(self, state: str, consumed_at: datetime) -> EnvironmentRecord | None:
-        return await self._repository.consume_oauth_state(state, consumed_at)
+        return await self._authorization_operations.consume_oauth_state(state, consumed_at)
 
-    async def _persist_authorization_failure(
-        self,
-        record: EnvironmentRecord,
-        message: str,
-    ) -> EnvironmentRecord:
-        failed: Final = record.model_copy(
-            update={
-                "version": record.version + 1,
-                "status": EnvironmentStatus.ERROR,
-                "desired_state": EnvironmentStatus.ERROR,
-                "last_error": _safe_error(RuntimeError(message)),
-                "oauth_state": None,
-                "oauth_expires_at": None,
-                "oauth_state_signature": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "updated_at": utc_now(),
-            }
-        )
-        saved: Final = await self._repository.save_if_version(failed, record.version)
-        if saved is not None:
-            await self._log_event(saved, "authorization", RuntimeError(message))
-        return saved or await self._repository.get(record.id) or record
+    async def _persist_authorization_failure(self, record: EnvironmentRecord, message: str) -> EnvironmentRecord:
+        return await self._authorization_operations.persist_authorization_failure(record, message)
 
     def _state_signature(self, environment_id: UUID, state: str) -> str:
-        key: Final = self._secrets.derive(environment_id, SecretPurpose.OAUTH_STATE).encode("ascii")
-        message: Final = f"{environment_id.hex}:{state}".encode()
-        return hmac.new(key, message, hashlib.sha256).hexdigest()
+        return self._authorization_operations.state_signature(environment_id, state)
 
     def _callback_state(self, record: EnvironmentRecord) -> str:
-        nonce: Final = token_secrets.token_urlsafe(32)
-        signature: Final = self._state_signature(record.id, nonce)
-        # state 本身不携带凭据，只使用随机值和环境绑定签名，防止跨环境转发与重放。
-        return f"{nonce}.{signature}"
+        return self._authorization_operations.callback_state(record)
 
     def _valid_state_signature(self, record: EnvironmentRecord, state: str) -> bool:
-        nonce, separator, signature = state.rpartition(".")
-        if not separator or not nonce or not signature:
-            return False
-        expected: Final = self._state_signature(record.id, nonce)
-        return hmac.compare_digest(signature, expected) and (
-            record.oauth_state_signature is None or hmac.compare_digest(record.oauth_state_signature, signature)
-        )
+        return self._authorization_operations.valid_state_signature(record, state)
 
     def _authorization_view(self, record: EnvironmentRecord) -> AuthorizationView:
-        if record.oauth_authorization_url is None or record.oauth_expires_at is None:
-            raise RuntimeError("authorization operation has no active credentials")
-        if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
-            raise RuntimeError("direct credential cards do not have authorization instructions")
-        supplier: Final = self._channels.get(record.channel).supplier(record.supplier)
-        return AuthorizationView(
-            environment=to_view(record),
-            flow=record.authorization_flow,
-            authorization_url=_HTTP_URL_ADAPTER.validate_python(record.oauth_authorization_url),
-            ssh_command=(
-                (
-                    f"ssh -N -L {supplier.callback_port}:127.0.0.1:{self._settings.callback_port} "
-                    f"{self._settings.ssh_user}@{self._settings.ssh_host}"
-                )
-                if record.authorization_flow is AuthorizationFlow.BROWSER_OAUTH and supplier.callback_port is not None
-                else None
-            ),
-            user_code=record.authorization_user_code,
-            expires_at=record.oauth_expires_at,
-        )
+        return self._authorization_operations.authorization_view(record)
 
     async def _validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        started_at: Final = record.oauth_state_consumed_at or record.created_at
-        remaining: Final = (started_at + _AUTHORIZATION_VALIDATION_TIMEOUT - utc_now()).total_seconds()
-        if remaining <= 0:
-            return await self._persist_validation_retry(record, "Account channel did not become ready")
-        try:
-            # 限制包含底层连接退避在内的总耗时，避免 SDK 重试长期占住环境锁。
-            async with asyncio.timeout(min(15.0, remaining)):
-                channel: Final = self._channel(record)
-                observed: Final = await channel.read_account(record)
-                healthy: Final = await channel.data_plane_health_check(observed)
-        except Exception as error:
-            return await self._persist_validation_retry(record, _safe_error(error))
-        if not healthy:
-            return await self._persist_validation_retry(record, "Account channel data plane validation failed")
-        return observed
+        return await self._authorization_operations.validate_authorized(record)
 
     async def _persist_validation_retry(self, record: EnvironmentRecord, message: str) -> EnvironmentRecord:
-        now: Final = utc_now()
-        # 授权消费时间已持久化，重复检查和 Manager 重启都不能延长启动等待期限。
-        started_at: Final = record.oauth_state_consumed_at or record.created_at
-        expired: Final = now - started_at >= _AUTHORIZATION_VALIDATION_TIMEOUT
-        status: Final = EnvironmentStatus.ERROR if expired else EnvironmentStatus.VALIDATING
-        updated: Final = record.model_copy(
-            update={
-                "version": record.version + 1,
-                "status": status,
-                "desired_state": status,
-                "last_error": (
-                    f"Account channel startup validation timed out: {message}"
-                    if expired
-                    else f"Waiting for account channel startup; retrying: {message}"
-                ),
-                "updated_at": now,
-            }
-        )
-        saved: Final = await self._repository.save_if_version(updated, record.version)
-        if saved is None:
-            raise _AuthorizationConflict
-        await self._log_event(saved, "validation", RuntimeError(message), retryable=not expired)
-        return saved
+        return await self._authorization_operations.persist_validation_retry(record, message)
 
     async def _complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
-        validated: Final = await self._validate_authorized(record)
-        if validated.status is EnvironmentStatus.VALIDATING:
-            return Failure(FailureCode.CONFLICT, "Account authorization received; waiting for channel startup")
-        if validated.status not in _AUTHORIZATION_COMPLETE_STATUSES:
-            return Failure(FailureCode.UPSTREAM, "environment authorization validation failed")
-        completed: Final = validated.model_copy(
-            update={
-                "version": record.version + 1,
-                "status": validated.status,
-                "desired_state": validated.status,
-                "oauth_expires_at": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        if completed.status is not EnvironmentStatus.READY:
-            normalized: Final = completed.model_copy(
-                update={
-                    "configuration_pending": False,
-                    "observed_configuration_version": completed.desired_configuration_version,
-                    "configuration_last_error": None,
-                }
-            )
-            saved_completed: Final = await self._repository.save_if_version(normalized, record.version)
-            if saved_completed is None:
-                raise _AuthorizationConflict
-            return Success(saved_completed)
-        initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
-        desired: Final = (
-            initial_desired.model_copy(update={"enabled_models": completed.enabled_models})
-            if not initial_desired.enabled_models and completed.enabled_models
-            else initial_desired
-        )
-        pending: Final = completed.model_copy(
-            update={
-                "configuration_pending": True,
-                "desired_configuration_version": completed.desired_configuration_version + 1,
-                "desired_configuration": desired,
-                "configuration_last_error": None,
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(pending, record.version)
-        if claimed is None:
-            raise _AuthorizationConflict
-        reconciled: Final = await self._apply_and_persist_configuration(claimed, desired)
-        if isinstance(reconciled, Failure):
-            return reconciled
-        persisted: Final = await self._repository.get(claimed.id)
-        if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
-            raise _AuthorizationConflict
-        if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
-            raise _AuthorizationConflict
-        return Success(persisted)
+        return await self._authorization_operations.complete_authorization(record)
 
     async def _persist_cleanup_progress(
-        self,
-        record: EnvironmentRecord,
-        progress: CleanupProgress,
+        self, record: EnvironmentRecord, progress: CleanupProgress
     ) -> EnvironmentRecord | None:
-        updated: Final = record.model_copy(update={"cleanup_progress": progress, "updated_at": utc_now()})
-        return await self._repository.save_if_version(updated, record.version)
+        return await self._authorization_operations.persist_cleanup_progress(record, progress)
 
     async def update_environment(
         self,
@@ -1793,321 +619,43 @@ class EnvironmentService:
         *,
         settings_profile_baselines: SettingsProfileBaselines | Literal["preserve"] = "preserve",
     ) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if request.operation_id is not None and record.operation_id == request.operation_id:
-                if (
-                    record.configuration_pending
-                    or record.desired_configuration_version > record.observed_configuration_version
-                ):
-                    desired: Final = record.desired_configuration or configuration_from_record(record)
-                    return await self._apply_and_persist_configuration(record, desired)
-                return Success(to_view(record))
-            if record.auth_file_name is None and record.status not in (
-                EnvironmentStatus.AWAITING_AUTHORIZATION,
-                EnvironmentStatus.ERROR,
-            ):
-                if record.channel is not ChannelKind.OPENAI_COMPATIBLE:
-                    return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
-            if request.version != record.version:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            if (
-                record.configuration_pending
-                or record.desired_configuration_version > record.observed_configuration_version
-            ):
-                return Failure(FailureCode.CONFLICT, "environment configuration is still being applied")
-            unknown_models: Final = frozenset(request.enabled_models).difference(record.available_models)
-            if unknown_models:
-                return Failure(FailureCode.INVALID, "enabled_models contains unsupported models")
-            profile_result: Final = await self._resolve_proxy(request)
-            if isinstance(profile_result, Failure):
-                return profile_result
-            automatic_cooldown: Final = await self._automatic_cooldown_before_update(record, request.manual_cooldown)
-            credential_enabled: Final = (
-                request.enabled
-                and not request.manual_cooldown
-                and automatic_cooldown
-                in (
-                    _AutomaticCooldownState.NONE,
-                    _AutomaticCooldownState.RECOVERED,
-                )
-            )
-            status: Final = _status_after_update(record, request, automatic_cooldown)
-            cooldown_until: Final = _cooldown_until_after_update(record, request.manual_cooldown, automatic_cooldown)
-            desired_configuration: Final = EnvironmentConfiguration(
-                name=request.name,
-                concurrency_limit=request.concurrency_limit,
-                enabled=request.enabled,
-                manual_cooldown=request.manual_cooldown,
-                proxy_mode=request.proxy_mode,
-                proxy_profile_id=request.proxy_profile_id,
-                enabled_models=request.enabled_models,
-                proxy_url=profile_result.value,
-                credential_enabled=credential_enabled,
-            )
-            updated: Final = record.model_copy(
-                update={
-                    "name": request.name,
-                    "version": record.version + 1,
-                    "configuration_pending": True,
-                    "desired_state": status,
-                    "operation_id": request.operation_id or str(uuid4()),
-                    "desired_configuration_version": record.desired_configuration_version + 1,
-                    "desired_configuration": desired_configuration,
-                    "configuration_last_error": None,
-                    "concurrency_limit": request.concurrency_limit,
-                    "enabled": request.enabled,
-                    "manual_cooldown": request.manual_cooldown,
-                    "proxy_mode": request.proxy_mode,
-                    "proxy_profile_id": request.proxy_profile_id,
-                    "enabled_models": request.enabled_models,
-                    "auth_file_disabled": (
-                        not credential_enabled
-                        if record.channel is ChannelKind.CLIPROXYAPI and record.auth_file_name is not None
-                        else record.auth_file_disabled
-                    ),
-                    "settings_profile_baselines": (
-                        record.settings_profile_baselines
-                        if settings_profile_baselines == "preserve"
-                        else settings_profile_baselines
-                    ),
-                    "status": status,
-                    "cooldown_until": cooldown_until,
-                    "automatic_cooldown": automatic_cooldown
-                    in (
-                        _AutomaticCooldownState.ACTIVE,
-                        _AutomaticCooldownState.BLOCKED,
-                    ),
-                    "last_error": None,
-                    "updated_at": utc_now(),
-                }
-            )
-            claimed: Final = await self._repository.save_if_version(updated, record.version)
-            if claimed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return await self._apply_and_persist_configuration(claimed, desired_configuration)
+        return await self._configuration_operations.update_environment(
+            environment_id, request, settings_profile_baselines=settings_profile_baselines
+        )
 
     async def reconcile_pending_configurations(self) -> tuple[EnvironmentView, ...]:
-        """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
-        records: Final = await self._repository.list()
-        results: Final = await asyncio.gather(
-            *(
-                self._reconcile_configuration(record)
-                for record in records
-                if _configuration_requires_reconciliation(record)
-            )
-        )
-        return tuple(result.value for result in results if isinstance(result, Success))
+        return await self._configuration_operations.reconcile_pending_configurations()
 
     async def reconcile_pending_authorizations(self) -> None:
-        """关闭页面后仍由后台继续验证已接收的授权，不重复领取或写入凭据。"""
-        records: Final = await self._repository.list()
-        await asyncio.gather(
-            *(self._refresh_if_needed(record) for record in records if record.status is EnvironmentStatus.VALIDATING)
-        )
+        return await self._configuration_operations.reconcile_pending_authorizations()
 
     async def reconcile_pending_deletions(self) -> None:
-        """后台重试已进入删除态但尚未完成资源回收的卡片。"""
-        records: Final = await self._repository.list()
-        await asyncio.gather(
-            *(
-                self.delete_environment(record.id, record.operation_id)
-                for record in records
-                if record.status is EnvironmentStatus.DELETING
-            )
-        )
+        return await self._configuration_operations.reconcile_pending_deletions()
 
     async def _reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:
-        lock: Final = await self._lock_for(record.id)
-        async with lock, self._ownership.operation(record.id):
-            # 锁等待期间记录可能已删除、完成或进入删除态，重新读取后禁止执行陈旧副作用。
-            current: Final = await self._repository.get(record.id)
-            if current is None:
-                return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if current.status is EnvironmentStatus.DELETING or not _configuration_requires_reconciliation(current):
-                return Success(to_view(current))
-            desired: Final = current.desired_configuration or configuration_from_record(current)
-            return await self._apply_and_persist_configuration(current, desired)
+        return await self._configuration_operations.reconcile_configuration(record)
 
     async def _apply_and_persist_configuration(
-        self,
-        record: EnvironmentRecord,
-        desired: EnvironmentConfiguration,
+        self, record: EnvironmentRecord, desired: EnvironmentConfiguration
     ) -> Result[EnvironmentView]:
-        try:
-            channel: Final = self._channel(record)
-            await channel.apply_configuration(record, desired)
-        except Exception as error:
-            # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
-            failed: Final = record.model_copy(
-                update={
-                    "version": record.version + 1,
-                    "configuration_pending": True,
-                    "status": EnvironmentStatus.ERROR,
-                    "desired_state": record.desired_state or record.status,
-                    "configuration_last_error": _safe_error(error),
-                    "last_error": _safe_error(error),
-                    "updated_at": utc_now(),
-                }
-            )
-            saved_failed: Final = await self._repository.save_if_version(failed, record.version)
-            if saved_failed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            await self._log_event(saved_failed, "configuration", error, retryable=True)
-            return Failure(FailureCode.UPSTREAM, "environment configuration failed")
-        completed: Final = record.model_copy(
-            update={
-                "configuration_pending": False,
-                "observed_configuration_version": record.desired_configuration_version,
-                "configuration_last_error": None,
-                "last_error": None,
-                "status": record.desired_state or record.status,
-                "updated_at": utc_now(),
-            }
-        )
-        saved: Final = await self._repository.save_if_version(completed, record.version)
-        if saved is None:
-            return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-        await self._log_event(saved, "configuration", None)
-        return Success(to_view(saved))
+        return await self._configuration_operations.apply_and_persist_configuration(record, desired)
 
     async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
-        lock: Final = await self._lock_for(environment_id)
-        async with lock, self._ownership.operation(environment_id):
-            record: Final = await self._repository.get(environment_id)
-            if record is None:
-                await self._ownership.retain(environment_id)
-                return Success(None)
-            requested_operation: Final = operation_id or record.operation_id or str(uuid4())
-            if record.status is EnvironmentStatus.DELETING and operation_id is not None:
-                if record.operation_id not in (None, operation_id):
-                    return Failure(FailureCode.CONFLICT, "environment deletion is owned by another operation")
-            deleting: EnvironmentRecord | None = (
-                record
-                if record.status is EnvironmentStatus.DELETING
-                else await self._repository.save_if_version(
-                    record.model_copy(
-                        update={
-                            "version": record.version + 1,
-                            "status": EnvironmentStatus.DELETING,
-                            "desired_state": EnvironmentStatus.DELETING,
-                            "enabled": False,
-                            "operation_id": requested_operation,
-                            "cleanup_progress": CleanupProgress(),
-                            "updated_at": utc_now(),
-                        }
-                    ),
-                    record.version,
-                )
-            )
-            if deleting is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-
-            progress: CleanupProgress = deleting.cleanup_progress
-            deleting_with_routes: Final = (
-                deleting
-                if progress.routes_removed
-                else await self._persist_cleanup_progress(
-                    deleting,
-                    routes_removed(progress),
-                )
-            )
-            if deleting_with_routes is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                deleting_with_compose: Final = await self._remove_compose_step(deleting_with_routes)
-            except Exception as error:
-                failed_compose: Final = deleting_with_routes.model_copy(
-                    update={
-                        "last_error": _safe_error(error),
-                        "configuration_last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                await self._repository.save_if_version(failed_compose, deleting_with_routes.version)
-                await self._log_event(failed_compose, "cleanup", error, retryable=True)
-                return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
-            if deleting_with_compose is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                deleting_with_directory: Final = await self._remove_directory_step(deleting_with_compose)
-            except Exception as error:
-                failed_directory: Final = deleting_with_compose.model_copy(
-                    update={
-                        "last_error": _safe_error(error),
-                        "configuration_last_error": _safe_error(error),
-                        "updated_at": utc_now(),
-                    }
-                )
-                await self._repository.save_if_version(failed_directory, deleting_with_compose.version)
-                await self._log_event(failed_directory, "cleanup", error, retryable=True)
-                return Failure(FailureCode.UPSTREAM, "environment cleanup failed")
-            if deleting_with_directory is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            try:
-                await self._repository.delete(environment_id)
-                await self._ownership.retain(environment_id)
-            except Exception as error:
-                failed_delete: Final = deleting_with_directory.model_copy(
-                    update={"last_error": _safe_error(error), "updated_at": utc_now()}
-                )
-                await self._repository.save_if_version(failed_delete, deleting_with_directory.version)
-                await self._log_event(failed_delete, "cleanup", error, retryable=True)
-                return Failure(FailureCode.UPSTREAM, "environment metadata cleanup failed")
-            await self._log_event(deleting_with_directory, "cleanup", None)
-            return Success(None)
+        return await self._deletion_operations.delete_environment(environment_id, operation_id)
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
-        if record.cleanup_progress.compose_removed:
-            return record
-        if record.channel is ChannelKind.OPENAI_COMPATIBLE:
-            return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
-        channel: Final = self._channel(record)
-        await channel.remove_compose(record)
-        return await self._persist_cleanup_progress(record, compose_removed(record.cleanup_progress))
+        return await self._deletion_operations.remove_compose_step(record)
 
     async def _remove_directory_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
-        if record.cleanup_progress.directory_removed:
-            return record
-        if record.channel is ChannelKind.OPENAI_COMPATIBLE:
-            return await self._persist_cleanup_progress(record, directory_removed())
-        channel: Final = self._channel(record)
-        await channel.remove_directory(record.id)
-        return await self._persist_cleanup_progress(record, directory_removed())
+        return await self._deletion_operations.remove_directory_step(record)
 
     async def _automatic_cooldown_before_update(
-        self,
-        record: EnvironmentRecord,
-        manual_cooldown: bool,
+        self, record: EnvironmentRecord, manual_cooldown: bool
     ) -> _AutomaticCooldownState:
-        # 自动冷却必须先通过真实数据面探活，配置保存不能成为绕过额度保护的入口。
-        if manual_cooldown:
-            return _AutomaticCooldownState.ACTIVE if record.cooldown_until is not None else _AutomaticCooldownState.NONE
-        if record.status is EnvironmentStatus.AWAITING_AUTHORIZATION:
-            # 授权完成前数据面必然不健康，探活只会误报 BLOCKED，保持等待授权状态即可。
-            return _AutomaticCooldownState.NONE
-        if record.cooldown_until is not None:
-            if record.cooldown_until > utc_now():
-                return _AutomaticCooldownState.ACTIVE
-            return (
-                _AutomaticCooldownState.RECOVERED
-                if await self._data_plane_health_check(record)
-                else _AutomaticCooldownState.BLOCKED
-            )
-        if record.manual_cooldown:
-            return _AutomaticCooldownState.RECOVERED
-        return (
-            _AutomaticCooldownState.ACTIVE
-            if record.status == EnvironmentStatus.COOLING_DOWN
-            else _AutomaticCooldownState.NONE
-        )
+        return await self._configuration_operations.automatic_cooldown_before_update(record, manual_cooldown)
 
     async def _data_plane_health_check(self, record: EnvironmentRecord) -> bool:
-        channel: Final = self._channel(record)
-        return await channel.data_plane_health_check(record)
+        return await self._configuration_operations.data_plane_health_check(record)
 
     async def _refresh_if_needed(
         self,
@@ -2222,97 +770,17 @@ class EnvironmentService:
                 await self._log_event(saved, "quota", None)
             return saved
 
-    async def _reloaded_consumed_state(
-        self,
-        record: EnvironmentRecord,
-        state: str,
-    ) -> EnvironmentRecord | None:
-        durable: Final = await self._repository.get(record.id) or record
-        return (
-            durable
-            if durable.status is EnvironmentStatus.AWAITING_AUTHORIZATION
-            and durable.oauth_state == state
-            and durable.oauth_state_consumed_at is not None
-            else None
-        )
+    async def _reloaded_consumed_state(self, record: EnvironmentRecord, state: str) -> EnvironmentRecord | None:
+        return await self._authorization_operations.reloaded_consumed_state(record, state)
 
     async def _update_authorization_error(self, record: EnvironmentRecord, message: str | None) -> EnvironmentRecord:
-        if record.last_error == message:
-            return record
-        updated: Final = record.model_copy(
-            update={"version": record.version + 1, "last_error": message, "updated_at": utc_now()}
-        )
-        saved: Final = await self._repository.save_if_version(updated, record.version)
-        return saved or await self._repository.get(record.id) or record
+        return await self._authorization_operations.update_authorization_error(record, message)
 
     async def _refresh_authorization(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        if record.oauth_state is None or record.oauth_expires_at is None:
-            return record
-        if record.oauth_expires_at <= utc_now():
-            return await self._persist_authorization_failure(record, "OAuth authorization expired")
-        if record.oauth_state_signature is None or not self._valid_state_signature(record, record.oauth_state):
-            return await self._persist_authorization_failure(record, "invalid OAuth state")
-        try:
-            channel: Final = self._channel(record)
-            status: Final = await channel.authorization_status(
-                record, record.oauth_provider_state or record.oauth_state
-            )
-        except Exception as error:
-            # 展示脱敏后的失败原因并保留授权状态，短暂断网或写入失败后仍可重试。
-            return await self._update_authorization_error(record, _safe_error(error))
-        if status == "wait":
-            return await self._update_authorization_error(record, None)
-        if status.startswith("error:"):
-            return await self._persist_authorization_failure(record, status.removeprefix("error:"))
-        if status != "ok":
-            return record
-        consumed_at: Final = utc_now()
-        consumed_result: Final = await self._consume_oauth_state(record.oauth_state, consumed_at)
-        consumed: Final = (
-            consumed_result
-            if consumed_result is not None
-            else await self._reloaded_consumed_state(record, record.oauth_state)
-        )
-        if consumed is None:
-            return await self._repository.get(record.id) or record
-        if consumed.oauth_state_signature is None or not self._valid_state_signature(consumed, record.oauth_state):
-            return await self._persist_authorization_failure(consumed, "invalid OAuth state")
-        validating: Final = consumed.model_copy(
-            update={
-                "version": consumed.version + 1,
-                "status": EnvironmentStatus.VALIDATING,
-                "desired_state": EnvironmentStatus.VALIDATING,
-                "oauth_expires_at": None,
-                "oauth_authorization_url": None,
-                "oauth_provider_state": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
-        if claimed is None:
-            return await self._repository.get(record.id) or record
-        try:
-            completion: Final = await self._complete_authorization(claimed)
-        except _AuthorizationConflict:
-            return await self._repository.get(record.id) or record
-        if isinstance(completion, Failure):
-            return await self._repository.get(claimed.id) or record
-        return completion.value
+        return await self._authorization_operations.refresh_authorization(record)
 
     async def _resolve_proxy(self, request: UpdateEnvironmentRequest) -> Result[str]:
-        if request.proxy_mode == ProxyMode.DEFAULT_GATEWAY:
-            return Success("")
-        if request.proxy_profile_id is None:
-            return Failure(FailureCode.INVALID, "proxy profile is required")
-        profile_url: Final = await self._proxy_profiles.get_url(request.proxy_profile_id)
-        if profile_url is None:
-            return Failure(FailureCode.INVALID, "proxy profile is unavailable")
-        try:
-            validated_url: Final = validate_proxy_profile_url(profile_url)
-        except ValueError:
-            return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
-        return Success(validated_url)
+        return await self._configuration_operations.resolve_proxy(request)
 
     def _gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:
         return self._channel(record).gateway(record)
