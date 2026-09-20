@@ -289,6 +289,7 @@ describe("CreateKey", () => {
     });
 
     it("sends the full mounted field set when every section is open", async () => {
+      const consoleError = vi.spyOn(console, "error");
       await openModal();
       await nameTheKey();
       await openSection(/Optional Settings/i);
@@ -299,6 +300,8 @@ describe("CreateKey", () => {
       await submit();
 
       expect(await createdPayload()).toStrictEqual(ALL_OPEN_PAYLOAD);
+      expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/cannot (be a descendant of|contain a nested)/);
+      consoleError.mockRestore();
     });
 
     it.each(Object.keys(SECTIONS) as (keyof typeof SECTIONS)[])(
