@@ -25,3 +25,17 @@ Rules beyond the enabled set were measured against the whole suite and left off 
 Never run the full unit suite (`npx vitest run` with no path). It is 380 files and thousands of tests, it saturates the machine for many minutes, and CI runs it anyway. Run only the test files your change touches, plus any file whose failure your change could plausibly explain, by passing explicit paths
 
 Type tests are `*.test-d.ts` files run by the `types` vitest project (`npm run test:types`). Keep them out of the `src/app/(dashboard)/` route group. Vitest matches a tsc error back to the test file by path, the parentheses break that match, and `ignoreSourceErrors: true` then drops the error as if it came from a source file. The test still collects and still reports as passing, so a `.test-d.ts` under a parenthesized directory is green no matter what it asserts. Confirm any new one has teeth by breaking the type it guards and watching it fail
+
+## Refactoring And Reuse
+
+For account-pool work, read [the maintenance playbook](../../account-pool/MAINTENANCE.md). Keep route entrypoints in `src/app/(dashboard)/account-pool/` and reusable domain code in `src/features/account-pool/`. Native key, log, routing, and settings pages must import the feature modules directly, not through the account-pool route directory
+
+Reuse `apiClient`, generated API types, existing UI controls, `accountPoolQueryKeys`, and the query options in `accountPoolOptions.ts`. Callers own authorization, `enabled`, refresh intervals, and cache lifetimes. Preserve user-scoped query identity and mutation invalidation; use a dedicated root key for prefix invalidation instead of a concrete key containing `undefined`
+
+Call Hooks only at the top level of a React component or custom Hook. Table-column factories must accept translation or other dependencies as parameters, or become custom Hooks called at the component top level. Never call `useTranslation` inside a `useMemo` callback. When touching this pattern, verify a second render with stable callbacks as well as sorting or language changes
+
+Treat query caching, lazy module loading, and keeping a view mounted as separate mechanisms. Preserve logout cleanup and authorization boundaries; verify both the first visit and the return visit after a mutation. Cached data does not eliminate React rendering
+
+After moving tests, inspect the actual collected filenames and counts. Prefer an unambiguous path fragment such as `account-pool/page.integration.test.tsx` when route-group parentheses interfere with matching. Knip reports for configured test setup files require manual confirmation before deletion
+
+Report `tsc`, the Vitest type project, and `next build` separately. Next.js 16.2.11 filters test-file diagnostics during its build, while the Vitest type project ignores source errors. Neither result alone establishes that all source and test types pass. Use an isolated checkout for builds that would overwrite existing `.next`, `out`, or TypeScript artifacts, and state which bundler was verified

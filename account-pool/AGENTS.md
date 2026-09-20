@@ -2,6 +2,8 @@
 
 Read `../CLAUDE.md` before making changes in this directory
 
+Read [MAINTENANCE.md](MAINTENANCE.md) when moving modules, extracting shared code, removing exports, or changing the LiteLLM integration. It contains the directory map, migration procedure, verification commands, and dated audit findings
+
 ## Product Scope
 
 This module manages isolated CLIProxyAPI environments from the LiteLLM dashboard. The first supported upstream is OpenAI. Each environment is provisioned with Docker Compose, publishes no host ports, and is reachable only through the approved gateway path
@@ -33,6 +35,14 @@ An environment is complete only after the user finishes authorization, the requi
 - Never build shell commands from user input. Use strict identifiers, approved Compose templates, and structured Docker APIs
 - Never log or return access tokens, refresh tokens, session cookies, proxy credentials, or complete generated configuration files
 
+## Refactoring Boundaries
+
+- Extract pure calculations into `application/` and provider quota parsing into `providers/usage/`; keep CLIProxyAPI protocol and transport code under `channels/cliproxyapi/`. Add a shared helper only when existing callers need the same semantics
+- Keep transactions, locks, idempotency keys, compensation, and network call order with their current orchestration owner during a structural refactor. Parsing helpers must not import service orchestration or construct network clients
+- Preserve supported compatibility imports such as `account_pool.provider_quota`. Verify configuration references, package contents, dynamic loading, and cross-service callers before deleting an apparently unused entrypoint
+- Keep API paths, status codes, response fields, default values, stable account/model identifiers, and gateway authorization scope unchanged during module moves. A test failure caused by a changed default requires an explicit behavior decision, not an automatic expectation update
+- Reuse LiteLLM authentication, routing, pricing, and logging mechanisms. Preserve card restrictions, provider-specific quota semantics, proxy selection, and the boundary that prevents replay after stream output or unsafe tool execution
+
 ## Environment Lifecycle
 
 Use an explicit lifecycle such as `provisioning`, `awaiting_authorization`, `validating`, `ready`, `cooling_down`, `disabled`, `error`, and `deleting`. Manual disablement has higher priority than automatic recovery. An elapsed cooldown does not become ready until a health check succeeds
@@ -53,3 +63,6 @@ Create each environment under a generated immutable identifier. The display name
 - Add focused tests for state transitions, authorization completion, Docker request validation, concurrency enforcement, cooldown recovery, provider parsing, model enablement, and secret redaction
 - Verify that generated Compose services publish no ports and cannot reach another environment directly
 - Verify authorization expiry, partial provisioning failure, restart recovery, duplicate requests, deletion retries, quota exhaustion, reset recovery, and unavailable proxy profiles
+- Run Manager tests from the repository root with an environment that can import both Manager and LiteLLM. Changes crossing the service boundary also require the corresponding `tests/test_litellm/proxy/management_endpoints/test_account_pool_*.py` checks
+- Diagnose test timeouts before changing production retry settings. Legacy card-key tests can perform a real 60-second cooldown; test setup can also fetch the remote model cost map. These are distinct from virtual-key routing and require separate evidence
+- Check package imports and wheel contents after moves. Keep historical test counts and outstanding findings in the dated playbook, rather than treating them as permanent guarantees

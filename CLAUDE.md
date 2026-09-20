@@ -123,3 +123,13 @@ Before implementing:
 - If you write 200 lines and it could be 50, rewrite it
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify
+
+## Account Pool Maintenance
+
+For account-pool refactoring or changes to its LiteLLM integration, read [the maintenance playbook](account-pool/MAINTENANCE.md) and the applicable [Manager instructions](account-pool/AGENTS.md) or [dashboard instructions](ui/litellm-dashboard/CLAUDE.md)
+
+Keep behavior-preserving moves separate from changes to defaults, API contracts, routing, billing, persistence, or deployment. Record the starting commit and existing failures before a broad refactor. Move one responsibility with its callers and tests, preserve public import paths where needed, and verify it before expanding scope
+
+Static unused-code reports are candidates for investigation. Check configuration entrypoints, dynamic imports, packaging, and external consumers before deleting an export, module, or endpoint. An unused frontend wrapper does not establish that its backend endpoint is unused
+
+Report validation by commit, command, scope, and result. Distinguish source type checks, test type checks, production builds, mocked integration tests, and real service checks. Record skipped checks and unresolved findings explicitly; previous passing counts are historical evidence and must not be presented as a fresh run
