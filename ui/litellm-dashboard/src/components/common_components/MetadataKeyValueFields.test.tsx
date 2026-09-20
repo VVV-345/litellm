@@ -91,7 +91,7 @@ describe("metadataPairsToObject", () => {
 });
 
 interface HarnessProps {
-  onFinish: (values: { metadata?: MetadataPair[] }) => void;
+  onFinish: (values: z.output<typeof harnessSchema>) => void;
   initialMetadata?: MetadataPair[];
   schemaFields?: TeamMetadataField[];
   schemaLoading?: boolean;

@@ -342,7 +342,7 @@ describe("mcp_server_edit save payload contract", () => {
       teams: [{ team_id: "t1" }],
       allowed_tools: ["a"],
       has_user_credential: true,
-      approval_status: "approved",
+      approval_status: "active",
       submitted_by: "someone",
       submitted_at: "2024-01-01T00:00:00Z",
       reviewed_at: "2024-01-02T00:00:00Z",

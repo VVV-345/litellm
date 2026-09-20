@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, fireEvent } from "./test-utils";
 import TopKeyView from "../src/components/UsagePage/components/EntityUsage/TopKeyView";
@@ -21,6 +22,8 @@ vi.mock("../src/app/(dashboard)/hooks/useAuthorized", () => ({
 describe("TopKeyView", () => {
   const mockUseAuthorized = vi.mocked(useAuthorized);
   const mockProps = {
+    topKeysLimit: 10,
+    setTopKeysLimit: vi.fn(),
     topKeys: [],
     accessToken: "test-token",
     userID: "test-user",
@@ -64,16 +67,18 @@ describe("TopKeyView", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseAuthorized.mockReturnValue({
-      token: "mock-token",
-      accessToken: mockProps.accessToken,
-      userId: mockProps.userID,
-      userEmail: "test@example.com",
-      userRole: mockProps.userRole,
-      premiumUser: mockProps.premiumUser,
-      disabledPersonalKeyCreation: false,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        token: "mock-token",
+        accessToken: mockProps.accessToken,
+        userId: mockProps.userID,
+        userEmail: "test@example.com",
+        userRole: mockProps.userRole,
+        premiumUser: mockProps.premiumUser,
+        disabledPersonalKeyCreation: false,
+        showSSOBanner: false,
+      }),
+    );
   });
 
   describe("Tags Column Visibility", () => {

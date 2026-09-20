@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { useAgents } from "@/app/(dashboard)/hooks/agents/useAgents";
 import { useCustomers } from "@/app/(dashboard)/hooks/customers/useCustomers";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
@@ -353,18 +354,20 @@ describe("UsagePage", () => {
   };
 
   beforeEach(() => {
-    mockUseAuthorized.mockReturnValue({
-      isLoading: false,
-      isAuthorized: true,
-      token: "mock-token",
-      accessToken: "test-token",
-      userId: "user-123",
-      userEmail: "test@example.com",
-      userRole: "Admin",
-      premiumUser: true,
-      disabledPersonalKeyCreation: false,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        isLoading: false,
+        isAuthorized: true,
+        token: "mock-token",
+        accessToken: "test-token",
+        userId: "user-123",
+        userEmail: "test@example.com",
+        userRole: "Admin",
+        premiumUser: true,
+        disabledPersonalKeyCreation: false,
+        showSSOBanner: false,
+      }),
+    );
     mockUseCurrentUser.mockReturnValue({
       data: {
         user_id: "user-123",
@@ -587,7 +590,7 @@ describe("UsagePage", () => {
   });
 
   it("should withhold the tag list until it resolves so no empty state is shown while loading", async () => {
-    let resolveTagList: (tags: Record<string, unknown>) => void = () => {};
+    let resolveTagList: (tags: Awaited<ReturnType<typeof networking.tagListCall>>) => void = () => {};
     mockTagListCall.mockReturnValue(
       new Promise((resolve) => {
         resolveTagList = resolve;
@@ -626,7 +629,7 @@ describe("UsagePage", () => {
       );
     });
 
-    let resolveNewRange: (tags: Record<string, unknown>) => void = () => {};
+    let resolveNewRange: (tags: Awaited<ReturnType<typeof networking.tagListCall>>) => void = () => {};
     mockTagListCall.mockReturnValue(
       new Promise((resolve) => {
         resolveNewRange = resolve;
@@ -647,18 +650,20 @@ describe("UsagePage", () => {
   });
 
   it("should show tag usage selector option for internal users", async () => {
-    mockUseAuthorized.mockReturnValue({
-      isLoading: false,
-      isAuthorized: true,
-      token: "mock-token",
-      accessToken: "test-token",
-      userId: "user-123",
-      userEmail: "test@example.com",
-      userRole: "internal_user",
-      premiumUser: true,
-      disabledPersonalKeyCreation: false,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        isLoading: false,
+        isAuthorized: true,
+        token: "mock-token",
+        accessToken: "test-token",
+        userId: "user-123",
+        userEmail: "test@example.com",
+        userRole: "internal_user",
+        premiumUser: true,
+        disabledPersonalKeyCreation: false,
+        showSSOBanner: false,
+      }),
+    );
 
     renderWithProviders(<UsagePage {...defaultProps} />);
 
@@ -696,18 +701,20 @@ describe("UsagePage", () => {
   it("should leave the organization view when org-admin membership is revoked mid-session", async () => {
     const mockUseIsOrgAdmin = vi.mocked(useIsOrgAdmin);
     mockUseIsOrgAdmin.mockReturnValue(true);
-    mockUseAuthorized.mockReturnValue({
-      isLoading: false,
-      isAuthorized: true,
-      token: "mock-token",
-      accessToken: "test-token",
-      userId: "user-123",
-      userEmail: "test@example.com",
-      userRole: "Internal User",
-      premiumUser: true,
-      disabledPersonalKeyCreation: false,
-      showSSOBanner: false,
-    } as any);
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        isLoading: false,
+        isAuthorized: true,
+        token: "mock-token",
+        accessToken: "test-token",
+        userId: "user-123",
+        userEmail: "test@example.com",
+        userRole: "Internal User",
+        premiumUser: true,
+        disabledPersonalKeyCreation: false,
+        showSSOBanner: false,
+      }) as any,
+    );
 
     const { rerender } = renderWithProviders(<UsagePage {...defaultProps} organizations={mockOrganizations} />);
 
@@ -974,18 +981,20 @@ describe("UsagePage", () => {
 
   describe("non-admin user behavior", () => {
     it("should not render user selector for non-admin users", async () => {
-      mockUseAuthorized.mockReturnValue({
-        isLoading: false,
-        isAuthorized: true,
-        token: "mock-token",
-        accessToken: "test-token",
-        userId: "user-123",
-        userEmail: "test@example.com",
-        userRole: "Internal User",
-        premiumUser: false,
-        disabledPersonalKeyCreation: false,
-        showSSOBanner: false,
-      });
+      mockUseAuthorized.mockReturnValue(
+        authorizationFixture({
+          isLoading: false,
+          isAuthorized: true,
+          token: "mock-token",
+          accessToken: "test-token",
+          userId: "user-123",
+          userEmail: "test@example.com",
+          userRole: "Internal User",
+          premiumUser: false,
+          disabledPersonalKeyCreation: false,
+          showSSOBanner: false,
+        }),
+      );
 
       renderWithProviders(<UsagePage {...defaultProps} />);
 
@@ -999,18 +1008,20 @@ describe("UsagePage", () => {
     });
 
     it("should always pass own userId for non-admin users", async () => {
-      mockUseAuthorized.mockReturnValue({
-        isLoading: false,
-        isAuthorized: true,
-        token: "mock-token",
-        accessToken: "test-token",
-        userId: "user-123",
-        userEmail: "test@example.com",
-        userRole: "Internal User",
-        premiumUser: false,
-        disabledPersonalKeyCreation: false,
-        showSSOBanner: false,
-      });
+      mockUseAuthorized.mockReturnValue(
+        authorizationFixture({
+          isLoading: false,
+          isAuthorized: true,
+          token: "mock-token",
+          accessToken: "test-token",
+          userId: "user-123",
+          userEmail: "test@example.com",
+          userRole: "Internal User",
+          premiumUser: false,
+          disabledPersonalKeyCreation: false,
+          showSSOBanner: false,
+        }),
+      );
 
       renderWithProviders(<UsagePage {...defaultProps} />);
 

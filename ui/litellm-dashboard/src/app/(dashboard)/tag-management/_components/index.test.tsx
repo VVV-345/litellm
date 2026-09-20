@@ -73,7 +73,7 @@ describe("TagManagement delete flow", () => {
 
   it("should confirm deletion through the shared DeleteResourceModal and call tagDeleteCall with the tag name", async () => {
     const user = userEvent.setup();
-    mockTagDeleteCall.mockResolvedValue({});
+    mockTagDeleteCall.mockResolvedValue(undefined);
     render(<TagManagement accessToken="sk-test" userID="user-1" userRole="Admin" />);
     await screen.findByText("table-loaded");
 

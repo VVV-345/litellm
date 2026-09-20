@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import type { TFunction } from "i18next";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { CredentialItem } from "@/components/networking";
@@ -17,7 +18,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/cva.config";
 import { copyToClipboard } from "@/utils/dataUtils";
-import { useTranslation } from "react-i18next";
 
 function CredentialProviderCell({ provider }: { provider: string | undefined }) {
   if (!provider) {
@@ -84,17 +84,18 @@ function CredentialRowActions({ credential, onEdit, onDelete }: CredentialRowAct
 }
 
 interface CredentialsTableColumnsDeps {
+  t: TFunction;
   canModifyCredentials: boolean;
   onEdit: (credential: CredentialItem) => void;
   onDelete: (credential: CredentialItem) => void;
 }
 
 export const getCredentialsTableColumns = ({
+  t,
   canModifyCredentials,
   onEdit,
   onDelete,
 }: CredentialsTableColumnsDeps): ColumnDef<CredentialItem>[] => {
-  const { t } = useTranslation();
   const dataColumns: ColumnDef<CredentialItem>[] = [
     {
       id: "credential_name",

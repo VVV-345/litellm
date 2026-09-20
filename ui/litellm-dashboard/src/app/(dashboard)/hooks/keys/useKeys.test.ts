@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -38,6 +39,7 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
 // Mock data
 const mockKeys: KeyResponse[] = [
   {
+    key_type: null,
     token: "sk-test-key-1",
     token_id: "key-1",
     key_name: "Test Key 1",
@@ -62,7 +64,7 @@ const mockKeys: KeyResponse[] = [
     allowed_routes: [],
     permissions: {},
     model_spend: { "gpt-3.5-turbo": 10.5 },
-    model_max_budget: { "gpt-3.5-turbo": 100 },
+    model_max_budget: { "gpt-3.5-turbo": { budget_limit: 100, time_period: "30d" } },
     soft_budget_cooldown: false,
     blocked: false,
     litellm_budget_table: {},
@@ -95,6 +97,7 @@ const mockKeys: KeyResponse[] = [
     user_email: "",
   },
   {
+    key_type: null,
     token: "sk-test-key-2",
     token_id: "key-2",
     key_name: "Test Key 2",
@@ -119,7 +122,7 @@ const mockKeys: KeyResponse[] = [
     allowed_routes: [],
     permissions: {},
     model_spend: { "claude-3": 25.0 },
-    model_max_budget: { "claude-3": 200 },
+    model_max_budget: { "claude-3": { budget_limit: 200, time_period: "30d" } },
     soft_budget_cooldown: false,
     blocked: false,
     litellm_budget_table: {},
@@ -176,16 +179,18 @@ describe("useKeys", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
-      accessToken: "test-access-token",
-      userRole: "Admin",
-      userId: "test-user-id",
-      token: "test-token",
-      userEmail: "test@example.com",
-      premiumUser: false,
-      disabledPersonalKeyCreation: null,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        accessToken: "test-access-token",
+        userRole: "Admin",
+        userId: "test-user-id",
+        token: "test-token",
+        userEmail: "test@example.com",
+        premiumUser: false,
+        disabledPersonalKeyCreation: null,
+        showSSOBanner: false,
+      }),
+    );
 
     // Reset fetch mock
     mockFetch.mockClear();
@@ -267,16 +272,18 @@ describe("useKeys", () => {
 
   it("should not execute query when accessToken is missing", async () => {
     // Mock missing accessToken
-    mockUseAuthorized.mockReturnValue({
-      accessToken: null,
-      userRole: "Admin",
-      userId: "test-user-id",
-      token: null,
-      userEmail: "test@example.com",
-      premiumUser: false,
-      disabledPersonalKeyCreation: null,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        accessToken: null,
+        userRole: "Admin",
+        userId: "test-user-id",
+        token: null,
+        userEmail: "test@example.com",
+        premiumUser: false,
+        disabledPersonalKeyCreation: null,
+        showSSOBanner: false,
+      }),
+    );
 
     const { result } = renderHook(() => useKeys(1, 10), { wrapper });
 
@@ -536,16 +543,18 @@ describe("useDeletedKeys", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
-      accessToken: "test-access-token",
-      userRole: "Admin",
-      userId: "test-user-id",
-      token: "test-token",
-      userEmail: "test@example.com",
-      premiumUser: false,
-      disabledPersonalKeyCreation: null,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        accessToken: "test-access-token",
+        userRole: "Admin",
+        userId: "test-user-id",
+        token: "test-token",
+        userEmail: "test@example.com",
+        premiumUser: false,
+        disabledPersonalKeyCreation: null,
+        showSSOBanner: false,
+      }),
+    );
 
     // Reset fetch mock
     mockFetch.mockClear();
@@ -647,16 +656,18 @@ describe("useDeletedKeys", () => {
 
   it("should not execute query when accessToken is missing", async () => {
     // Mock missing accessToken
-    mockUseAuthorized.mockReturnValue({
-      accessToken: null,
-      userRole: "Admin",
-      userId: "test-user-id",
-      token: null,
-      userEmail: "test@example.com",
-      premiumUser: false,
-      disabledPersonalKeyCreation: null,
-      showSSOBanner: false,
-    });
+    mockUseAuthorized.mockReturnValue(
+      authorizationFixture({
+        accessToken: null,
+        userRole: "Admin",
+        userId: "test-user-id",
+        token: null,
+        userEmail: "test@example.com",
+        premiumUser: false,
+        disabledPersonalKeyCreation: null,
+        showSSOBanner: false,
+      }),
+    );
 
     const { result } = renderHook(() => useDeletedKeys(1, 10), { wrapper });
 

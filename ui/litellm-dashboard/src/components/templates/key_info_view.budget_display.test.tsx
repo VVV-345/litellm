@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { renderWithProviders } from "../../../tests/test-utils";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -37,6 +38,9 @@ vi.mock("../networking", () => ({
 }));
 
 const MOCK_KEY_DATA = {
+  key_type: null,
+  last_active: null,
+  project_id: null,
   token: "test-token-123",
   token_id: "test-token-123",
   key_name: "sk-...abcd",
@@ -101,7 +105,7 @@ const MOCK_KEY_DATA = {
   key_rotation_at: undefined,
 } as unknown as KeyResponse;
 
-const baseAuthorized = {
+const baseAuthorized = authorizationFixture({
   accessToken: "test-token",
   userId: "test-user",
   userRole: "admin",
@@ -112,7 +116,7 @@ const baseAuthorized = {
   showSSOBanner: false,
   isLoading: false,
   isAuthorized: true,
-};
+});
 
 const makeTeam = (overrides: Partial<Team>): Team => ({
   team_id: "team-default",

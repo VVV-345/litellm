@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OperationLogsPanel } from "./OperationLogsPanel";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import i18n from "@/i18n";
 
 const listLogs = vi.fn();
 const getLog = vi.fn();
@@ -65,7 +66,8 @@ const stats = {
 };
 
 describe("OperationLogsPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();
     listLogs.mockResolvedValue({ items: [log], has_more: false, total: 1 });
     getLog.mockResolvedValue({ event: log, attempts: [log], has_more: false });

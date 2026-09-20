@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import { renderHook, screen, waitFor, renderWithProviders } from "../../../tests/test-utils";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -106,18 +107,20 @@ vi.mock("@/app/(dashboard)/hooks/tags/useTags", () => ({
   }),
 }));
 
-const mockAuthorizedUser = (userRole: string, userId: string, premiumUser: boolean) => ({
-  token: "test-token",
-  accessToken: "test-access-token",
-  userId,
-  userEmail: "test@example.com",
-  userRole,
-  premiumUser,
-  disabledPersonalKeyCreation: false,
-  showSSOBanner: false,
-});
+const mockAuthorizedUser = (userRole: string, userId: string, premiumUser: boolean) =>
+  authorizationFixture({
+    token: "test-token",
+    accessToken: "test-access-token",
+    userId,
+    userEmail: "test@example.com",
+    userRole,
+    premiumUser,
+    disabledPersonalKeyCreation: false,
+    showSSOBanner: false,
+  });
 
 const testTeam: Team = {
+  spend: 0,
   team_id: "team-1",
   team_alias: "Test Team",
   models: ["gpt-4"],

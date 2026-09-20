@@ -1,8 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CredentialItem } from "@/components/networking";
+import i18n from "@/i18n";
 
 import CredentialsTable from "./CredentialsTable";
 
@@ -40,8 +41,26 @@ const defaultProps = {
 };
 
 describe("CredentialsTable", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
+  });
+
+  it("keeps rows after loading finishes with stable callbacks", () => {
+    const { rerender } = render(<CredentialsTable {...defaultProps} isLoading />);
+    rerender(<CredentialsTable {...defaultProps} isLoading={false} />);
+    expect(screen.getByText("b-openai-key")).toBeInTheDocument();
+    expect(screen.getByText("a-azure-key")).toBeInTheDocument();
+  });
+
+  it("updates the actions column when the language changes", async () => {
+    render(<CredentialsTable {...defaultProps} />);
+    expect(screen.getByText("Actions")).toBeInTheDocument();
+    await act(async () => {
+      await i18n.changeLanguage("zh-CN");
+    });
+    expect(screen.getByText(i18n.getFixedT("zh-CN")("ui.Actions"))).toBeInTheDocument();
+    expect(screen.queryByText("Actions")).not.toBeInTheDocument();
   });
 
   it("should render the data column headers", () => {

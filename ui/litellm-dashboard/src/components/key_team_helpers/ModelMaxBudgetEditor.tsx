@@ -15,6 +15,14 @@ export interface ModelBudgetConfig {
 
 export type ModelMaxBudget = Record<string, ModelBudgetConfig>;
 
+export interface StoredModelBudgetConfig {
+  readonly budget_limit?: number | string;
+  readonly time_period?: string;
+  readonly max_budget?: number | string;
+  readonly budget_duration?: string;
+  readonly [passthrough: string]: unknown;
+}
+
 export interface ModelBudgetUsage {
   current_spend: number;
   budget_limit: number | null;
@@ -63,7 +71,9 @@ export const entriesToModelMaxBudget = (entries: readonly ModelBudgetEntry[]): M
       ]),
   );
 
-export const modelMaxBudgetToEntries = (budget: ModelMaxBudget | null | undefined): ModelBudgetEntry[] =>
+export const modelMaxBudgetToEntries = (
+  budget: Readonly<Record<string, StoredModelBudgetConfig>> | null | undefined,
+): ModelBudgetEntry[] =>
   Object.entries(budget ?? {}).map(([model, config], index) => ({
     id: `existing-${index}`,
     model,

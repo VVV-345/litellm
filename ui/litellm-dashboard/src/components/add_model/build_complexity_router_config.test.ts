@@ -22,6 +22,9 @@ const tiers = {
 };
 
 const baseParams: BuildComplexityRouterConfigParams = {
+  defaultModel: undefined,
+  planModeMinTier: undefined,
+  heuristicFirstMaxTier: undefined,
   tiers,
   tierLabels: undefined,
   classifierType: "heuristic",
@@ -376,12 +379,15 @@ describe("getKeywordTierRulesError", () => {
   // Row numbers have to survive rules that are fine, or the message points at the wrong input.
   it("names each offending row by its position among all rules", () => {
     expect(
-      getKeywordTierRulesError([
-        { id: "r1", keywords: ["invoice"], tier: "MEDIUM" },
-        { id: "r2", keywords: [], tier: "COMPLEX" },
-        { id: "r3", keywords: ["billing"], tier: "SIMPLE" },
-        { id: "r4", keywords: ["  "], tier: "REASONING" },
-      ]),
+      getKeywordTierRulesError(
+        [
+          { id: "r1", keywords: ["invoice"], tier: "MEDIUM" },
+          { id: "r2", keywords: [], tier: "COMPLEX" },
+          { id: "r3", keywords: ["billing"], tier: "SIMPLE" },
+          { id: "r4", keywords: ["  "], tier: "REASONING" },
+        ],
+        activeTierRows({ tiers }),
+      ),
     ).toBe("Add at least one keyword to keyword rule(s): 2, 4");
   });
 

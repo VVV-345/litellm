@@ -1,3 +1,4 @@
+import { authorizationFixture } from "@/../tests/fixtures/authorization";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import useTeams from "@/app/(dashboard)/hooks/useTeams";
 import { renderWithProviders } from "../../../tests/test-utils";
@@ -90,6 +91,8 @@ describe("KeyInfoView", () => {
     });
   });
   const MOCK_KEY_DATA: KeyResponse = {
+    key_type: null,
+    last_active: null,
     token: "test-token-123",
     token_id: "test-token-123",
     key_name: "sk-...TUuw",
@@ -161,7 +164,7 @@ describe("KeyInfoView", () => {
   };
 
   // Base mock for useAuthorized hook
-  const baseUseAuthorizedMock = {
+  const baseUseAuthorizedMock = authorizationFixture({
     accessToken: "test-token",
     userId: "test-user",
     userRole: "admin",
@@ -170,7 +173,7 @@ describe("KeyInfoView", () => {
     userEmail: null,
     disabledPersonalKeyCreation: null,
     showSSOBanner: false,
-  };
+  });
 
   const openMoreKeyActions = async () => {
     await userEvent.click(await screen.findByRole("button", { name: /more key actions/i }));

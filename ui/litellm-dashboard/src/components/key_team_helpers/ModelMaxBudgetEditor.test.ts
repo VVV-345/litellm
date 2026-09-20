@@ -82,7 +82,7 @@ describe("fields the editor does not model", () => {
 
   // Emitting both spellings would leave the proxy with a contradictory config.
   it("does not re-emit the alias spelling alongside the canonical one", () => {
-    const stored: ModelMaxBudget = { "gpt-4o": { max_budget: 5, budget_duration: "1h", tpm_limit: 1000 } };
+    const stored = { "gpt-4o": { max_budget: 5, budget_duration: "1h", tpm_limit: 1000 } };
 
     expect(entriesToModelMaxBudget(modelMaxBudgetToEntries(stored))).toEqual({
       "gpt-4o": { budget_limit: 5, time_period: "1h", tpm_limit: 1000 },
