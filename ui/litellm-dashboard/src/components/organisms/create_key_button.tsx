@@ -83,8 +83,8 @@ import VectorStoreSelector from "../vector_store_management/VectorStoreSelector"
 import { buildKeyCreatePayload, type KeyCreateInput } from "./createKeyPayload";
 import { simplifyKeyGenerateError } from "./utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 
 const KEY_TYPE_OPTIONS = [
   { value: "llm_api", label: "AI APIs", hint: "Can call only AI API routes (chat/completions, embeddings, etc.)" },

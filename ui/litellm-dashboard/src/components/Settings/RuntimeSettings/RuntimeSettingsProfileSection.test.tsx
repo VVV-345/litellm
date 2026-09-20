@@ -10,7 +10,7 @@ import {
   createSettingsProfileId,
   type SettingsProfile,
 } from "./RuntimeSettingsProfileSection";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 type Values = { enabled: boolean };
 

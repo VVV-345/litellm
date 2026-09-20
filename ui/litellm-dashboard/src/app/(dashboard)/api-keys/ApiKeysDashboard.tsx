@@ -1,6 +1,6 @@
 "use client";
 
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { teamListCall as v2TeamListCall } from "@/app/(dashboard)/hooks/teams/useTeams";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { KeyResponse, Team } from "@/components/key_team_helpers/key_list";

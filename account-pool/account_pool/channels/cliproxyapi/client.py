@@ -5,16 +5,46 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final, TypeAlias
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote
 from uuid import UUID
 from weakref import WeakValueDictionary
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import TypeAdapter
 
+from account_pool.channels.cliproxyapi.protocol import (
+    AuthorizationStart as AuthorizationStart,
+)
+from account_pool.channels.cliproxyapi.protocol import (
+    _APICallResponse,
+    _AuthFilesResponse,
+    _AuthorizationResponse,
+    _ModelsResponse,
+    _ProviderAPICallResult,
+    _StatusResponse,
+    model_cooldowns_from_auth,
+)
+from account_pool.channels.cliproxyapi.protocol import (
+    _AuthFile as _AuthFile,
+)
+from account_pool.channels.cliproxyapi.provider_requests import (
+    _ANTIGRAVITY_PROD_BASE_URL,
+    _antigravity_base_urls,
+    _chatgpt_timezone_offset_minutes,
+    _codex_auth_file_plan_type,
+    _codex_subscription_headers,
+    _codex_subscription_needs_fallback,
+    _codex_usage_headers,
+    _request_id,
+    _safe_endpoint,
+    _upstream_code,
+)
+from account_pool.channels.cliproxyapi.quota_state import (
+    _annotate_refresh,
+    _merge_quota_snapshots,
+)
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.credential_ownership import (
@@ -33,13 +63,10 @@ from account_pool.domain import (
     OAuthCallback,
     ProviderEndpointFailure,
     ProviderHTTPMethod,
-    QuotaBalance,
     QuotaSnapshot,
-    QuotaWindow,
     SupplierKind,
 )
 from account_pool.provider_quota import (
-    CodexAccountInfo,
     parse_claude_usage_quota,
     parse_codex_account_info,
     parse_codex_usage_quota,
@@ -61,423 +88,10 @@ from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 _QuotaObservation = QuotaObservation
 
 
-@dataclass(frozen=True, slots=True)
-class AuthorizationStart:
-    authorization_url: str
-    provider_state: str
-    user_code: str | None
-    expires_in_seconds: int | None
-
-
-class _AuthorizationResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    status: str
-    url: str | None = None
-    state: str
-    user_code: str | None = None
-    expires_in: int | None = None
-
-
-class _StatusResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    status: str
-    error: str | None = None
-
-
-class _ModelResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    id: str
-
-
-class _ModelsResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    models: tuple[_ModelResponse, ...] = ()
-    data: tuple[_ModelResponse, ...] = ()
-
-
-class _CodexIdentity(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    chatgpt_account_id: str | None = None
-    plan_type: str | None = None
-    chatgpt_subscription_active_start: datetime | None = None
-    chatgpt_subscription_active_until: datetime | None = None
-
-
-class _ModelState(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    unavailable: bool = False
-    next_retry_after: datetime | None = None
-    reason: str = "upstream_error"
-
-
-class _AuthFile(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    name: str
-    auth_index: str | None = None
-    email: str | None = None
-    account_id: str | None = None
-    provider: str | None = None
-    type: str | None = None
-    disabled: bool = False
-    unavailable: bool = False
-    status: str | None = None
-    status_message: str | None = None
-    next_retry_after: datetime | None = None
-    quota: QuotaObservation = QuotaObservation()
-    model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
-    model_states: Mapping[str, _ModelState] = Field(default_factory=dict)
-    plan_type: str | None = None
-    auth_file_plan_type: str | None = None
-    project_id: str | None = None
-    id_token: _CodexIdentity | None = None
-    metadata: Mapping[str, object] = Field(default_factory=dict)
-    attributes: Mapping[str, object] = Field(default_factory=dict)
-
-
-class _AuthFilesResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    files: tuple[_AuthFile, ...] = ()
-
-
-def model_cooldowns_from_auth(auth_file: _AuthFile) -> tuple[ModelCooldown, ...]:
-    return tuple(
-        ModelCooldown(model=model, retry_at=state.next_retry_after, reason=state.reason)
-        for model, state in sorted(auth_file.model_states.items())
-        if state.unavailable and state.next_retry_after is not None
-    )
-
-
-class _APICallResponse(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    status_code: int
-    header: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
-    body: str
-
-
-class _UpstreamError(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    code: str | None = None
-    type: str | None = None
-
-
-class _UpstreamErrorPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    error: _UpstreamError | str | None = None
-    detail: _UpstreamError | str | None = None
-    code: str | None = None
-    type: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ProviderAPICallResult:
-    body: str | None = None
-    failure: ProviderEndpointFailure | None = None
-
-
 _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
-_ANTIGRAVITY_DAILY_BASE_URL: Final = "https://daily-cloudcode-pa.googleapis.com"
-_ANTIGRAVITY_PROD_BASE_URL: Final = "https://cloudcode-pa.googleapis.com"
-_CHATGPT_WEB_USER_AGENT: Final = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
-)
 JSONValue: TypeAlias = None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
-
-
-def _codex_auth_file_plan_type(auth_file: _AuthFile) -> str | None:
-    explicit: Final = _normalize_codex_auth_file_plan_type(auth_file.auth_file_plan_type)
-    if explicit is not None:
-        return explicit
-    normalized_name: Final = auth_file.name.rsplit(".", 1)[0].strip().lower().replace("_", "-").replace(" ", "-")
-    if normalized_name.endswith(("-prolite", "-pro-lite")):
-        return "prolite"
-    if normalized_name.endswith(("-promax", "-pro-max")):
-        return "promax"
-    return None
-
-
-def _normalize_codex_auth_file_plan_type(value: str | None) -> str | None:
-    normalized: Final = (value or "").strip().lower().replace("_", "-").replace(" ", "-")
-    if normalized in ("prolite", "pro-lite"):
-        return "prolite"
-    if normalized in ("promax", "pro-max"):
-        return "promax"
-    return None
-
-
-def _merge_quota_snapshots(
-    previous: QuotaSnapshot,
-    passive: QuotaSnapshot,
-    active: QuotaSnapshot | None,
-) -> QuotaSnapshot:
-    active_failed: Final = active is not None and active.refresh_status == "failed"
-    active_has_payload: Final = active is not None and not active_failed and _has_quota_payload(active)
-    source: Final = (
-        "provider_api"
-        if active_has_payload
-        else previous.source
-        if active is None and previous.source == "provider_api" and _has_quota_payload(previous)
-        else "stored_cache"
-        if active_failed and _has_quota_payload(previous)
-        else "cliproxyapi_cache"
-        if _has_quota_payload(passive)
-        else "stored_cache"
-        if active is not None
-        else previous.source
-    )
-    return QuotaSnapshot(
-        observed_at=(
-            (previous.observed_at if _has_quota_payload(previous) else passive.observed_at)
-            if active_failed
-            else active.observed_at
-            if active is not None and active.observed_at is not None
-            else passive.observed_at or previous.observed_at
-        ),
-        refresh_attempted_at=(
-            active.refresh_attempted_at
-            if active is not None and active.refresh_attempted_at is not None
-            else previous.refresh_attempted_at
-        ),
-        source=source,
-        plan_type=(
-            active.plan_type
-            if active is not None and active.plan_type is not None
-            else passive.plan_type or previous.plan_type
-        ),
-        auth_file_plan_type=passive.auth_file_plan_type or previous.auth_file_plan_type,
-        subscription_status=(
-            active.subscription_status
-            if active is not None and active.subscription_status is not None
-            else passive.subscription_status or previous.subscription_status
-        ),
-        subscription_active_start=(
-            active.subscription_active_start
-            if active is not None and active.subscription_active_start is not None
-            else passive.subscription_active_start or previous.subscription_active_start
-        ),
-        subscription_active_until=(
-            active.subscription_active_until
-            if active is not None and active.subscription_active_until is not None
-            else passive.subscription_active_until or previous.subscription_active_until
-        ),
-        reset_credits_available=(
-            active.reset_credits_available
-            if active is not None and active.reset_credits_available is not None
-            else passive.reset_credits_available
-            if passive.reset_credits_available is not None
-            else previous.reset_credits_available
-        ),
-        prepaid_balance=(
-            active.prepaid_balance
-            if active is not None and active.prepaid_balance is not None
-            else passive.prepaid_balance
-            if passive.prepaid_balance is not None
-            else previous.prepaid_balance
-        ),
-        extra_usage_enabled=(
-            active.extra_usage_enabled
-            if active is not None and active.extra_usage_enabled is not None
-            else passive.extra_usage_enabled
-            if passive.extra_usage_enabled is not None
-            else previous.extra_usage_enabled
-        ),
-        has_grok_code_access=(
-            active.has_grok_code_access
-            if active is not None and active.has_grok_code_access is not None
-            else passive.has_grok_code_access
-            if passive.has_grok_code_access is not None
-            else previous.has_grok_code_access
-        ),
-        refresh_status=(
-            active.refresh_status
-            if active is not None and active.refresh_status is not None
-            else previous.refresh_status
-        ),
-        refresh_error=(
-            active.refresh_error if active is not None and active.refresh_status is not None else previous.refresh_error
-        ),
-        refresh_failures=() if active is None else active.refresh_failures,
-        windows=_select_quota_windows(previous, passive, active),
-        balances=_select_quota_balances(previous, passive, active),
-    )
-
-
-def _select_quota_windows(
-    previous: QuotaSnapshot,
-    passive: QuotaSnapshot,
-    active: QuotaSnapshot | None,
-) -> tuple[QuotaWindow, ...]:
-    if active is not None and active.windows:
-        return active.windows
-    if (
-        (active is None or active.refresh_status == "failed")
-        and previous.source in ("provider_api", "stored_cache")
-        and previous.windows
-    ):
-        return previous.windows
-    return passive.windows or previous.windows
-
-
-def _select_quota_balances(
-    previous: QuotaSnapshot,
-    passive: QuotaSnapshot,
-    active: QuotaSnapshot | None,
-) -> tuple[QuotaBalance, ...]:
-    if active is not None and active.balances:
-        return active.balances
-    if (
-        (active is None or active.refresh_status == "failed")
-        and previous.source in ("provider_api", "stored_cache")
-        and previous.balances
-    ):
-        return previous.balances
-    return passive.balances or previous.balances
-
-
-def _has_quota_payload(quota: QuotaSnapshot) -> bool:
-    return bool(
-        quota.windows
-        or quota.balances
-        or quota.reset_credits_available is not None
-        or quota.prepaid_balance is not None
-    )
-
-
-def _annotate_refresh(
-    refreshed: ProviderQuotaRefresh,
-    failures: tuple[ProviderEndpointFailure, ...],
-) -> ProviderQuotaRefresh:
-    message: Final = "; ".join(failure.summary() for failure in failures)[:500] or None
-    status: Final = "partial" if failures else "complete"
-    return ProviderQuotaRefresh(
-        quota=refreshed.quota.model_copy(
-            update={
-                "refresh_attempted_at": datetime.now(timezone.utc),
-                "source": "provider_api",
-                "refresh_status": status,
-                "refresh_error": message,
-                "refresh_failures": failures,
-            }
-        ),
-        model_quotas=refreshed.model_quotas,
-    )
-
-
-def _safe_endpoint(url: str) -> str:
-    parsed: Final = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
-
-
-def _request_id(headers: Mapping[str, tuple[str, ...]]) -> str | None:
-    normalized: Final = {key.lower(): values for key, values in headers.items()}
-    return next(
-        (values[0] for key in ("request-id", "x-request-id", "cf-ray") if (values := normalized.get(key))),
-        None,
-    )
-
-
-def _upstream_code(body: str) -> str | None:
-    try:
-        payload: Final = _UpstreamErrorPayload.model_validate_json(body)
-    except ValueError:
-        return None
-    candidate: Final = next(
-        (
-            value
-            for value in (
-                payload.error.code if isinstance(payload.error, _UpstreamError) else None,
-                payload.error.type if isinstance(payload.error, _UpstreamError) else None,
-                payload.detail.code if isinstance(payload.detail, _UpstreamError) else None,
-                payload.detail.type if isinstance(payload.detail, _UpstreamError) else None,
-                payload.code,
-                payload.type,
-            )
-            if value is not None and value.strip()
-        ),
-        None,
-    )
-    return None if candidate is None else candidate.strip()[:120]
-
-
-def _codex_usage_headers(account_id: str | None = None) -> Mapping[str, str]:
-    return {
-        "Authorization": "Bearer $TOKEN$",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Referer": "https://chatgpt.com/",
-        "User-Agent": _CHATGPT_WEB_USER_AGENT,
-        "OpenAI-Beta": "codex-1",
-        "oai-language": "zh-CN",
-        "originator": "Codex Desktop",
-        "sec-fetch-site": "none",
-        "sec-fetch-mode": "no-cors",
-        "sec-fetch-dest": "empty",
-        "priority": "u=4, i",
-        **({"ChatGPT-Account-Id": account_id} if account_id is not None else {}),
-    }
-
-
-def _codex_subscription_headers(target_path: str, account_id: str | None = None) -> Mapping[str, str]:
-    return {
-        "Authorization": "Bearer $TOKEN$",
-        "Accept": "application/json",
-        "Referer": "https://chatgpt.com/",
-        "User-Agent": _CHATGPT_WEB_USER_AGENT,
-        "x-openai-target-path": target_path,
-        "x-openai-target-route": target_path,
-        **({"ChatGPT-Account-Id": account_id} if account_id is not None else {}),
-    }
-
-
-def _chatgpt_timezone_offset_minutes() -> int:
-    offset: Final = datetime.now().astimezone().utcoffset()
-    return 0 if offset is None else -round(offset.total_seconds() / 60)
-
-
-def _codex_subscription_needs_fallback(
-    account_info: CodexAccountInfo | None,
-    identity: _CodexIdentity | None,
-    observed_at: datetime,
-) -> bool:
-    expires_at: Final = (
-        account_info.subscription_active_until
-        if account_info is not None and account_info.subscription_active_until is not None
-        else None
-        if identity is None
-        else identity.chatgpt_subscription_active_until
-    )
-    return expires_at is None or expires_at <= observed_at
-
-
-def _antigravity_explicit_base_url(auth_file: _AuthFile) -> str | None:
-    allowed: Final = frozenset((_ANTIGRAVITY_DAILY_BASE_URL, _ANTIGRAVITY_PROD_BASE_URL))
-    candidate: Final = next(
-        (
-            value.strip().rstrip("/")
-            for source in (auth_file.attributes, auth_file.metadata)
-            if isinstance((value := source.get("base_url")), str) and value.strip()
-        ),
-        None,
-    )
-    return candidate if candidate in allowed else None
-
-
-def _antigravity_base_urls(auth_file: _AuthFile) -> tuple[str, ...]:
-    explicit: Final = _antigravity_explicit_base_url(auth_file)
-    return (explicit,) if explicit is not None else (_ANTIGRAVITY_DAILY_BASE_URL, _ANTIGRAVITY_PROD_BASE_URL)
 
 
 def _legacy_openai_supplier() -> SupplierDefinition:

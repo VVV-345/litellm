@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 
 export type AccountPoolRoutingValue = {
   selection: "native" | "quota" | "plan" | "expiry" | "ordered";

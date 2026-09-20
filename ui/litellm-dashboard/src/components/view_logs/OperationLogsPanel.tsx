@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatDateTime } from "@/app/(dashboard)/account-pool/AccountPoolFormatters";
+import { formatDateTime } from "@/features/account-pool/utils/AccountPoolFormatters";
 import {
   clearOperationLogs,
   exportOperationLogs,
@@ -24,7 +24,7 @@ import {
   type LogFilters,
 } from "./operationLogsApi";
 import { toast } from "@/lib/toast";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
   style: "currency",

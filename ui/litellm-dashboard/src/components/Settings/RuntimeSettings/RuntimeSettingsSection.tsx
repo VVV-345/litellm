@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 
-import { listAccountPoolProxyProfiles } from "@/app/(dashboard)/account-pool/AccountPoolApi";
+import { accountPoolProxyProfileOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 import {
   getAccountPoolSettings,
   updateAccountPoolSettings,
@@ -26,10 +26,11 @@ import {
   type PayloadSettings,
   type QuotaSettingsValues,
   type StreamingSettingsValues,
-} from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+} from "@/features/account-pool/api/AccountPoolManagementApi";
 import { NumberSetting, ToggleSetting } from "./RuntimeSettingsFields";
 import { RuntimeSettingsProfileSection, type SettingsProfile } from "./RuntimeSettingsProfileSection";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 
 const emptyPayload: PayloadSettings = {
   default: [],
@@ -132,15 +133,11 @@ const normalizeProfiles = <TValues,>(
 export const RuntimeSettingsSection = ({ accessToken, environments, category }: Props) => {
   const { t } = useTranslation();
   const settingsQuery = useQuery({
-    queryKey: ["account-pool", "settings", accessToken],
+    queryKey: accountPoolQueryKeys.settings(accessToken),
     queryFn: () => getAccountPoolSettings(accessToken),
     retry: false,
   });
-  const profilesQuery = useQuery({
-    queryKey: ["account-pool", "proxy-profiles", accessToken],
-    queryFn: () => listAccountPoolProxyProfiles(accessToken),
-    retry: false,
-  });
+  const profilesQuery = useQuery(accountPoolProxyProfileOptions(accessToken));
   const [draft, setDraft] = useState<AccountPoolSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [jsonTexts, setJsonTexts] = useState<Record<string, string>>({});

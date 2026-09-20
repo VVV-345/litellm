@@ -4,14 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
-import type { AccountPolicy, PolicyView } from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPolicy, PolicyView } from "@/features/account-pool/api/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const getPolicy = vi.fn();
 const savePolicy = vi.fn();
 
-vi.mock("@/app/(dashboard)/account-pool/AccountPoolManagementApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolManagementApi")>();
+vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>();
   return {
     ...original,
     getAccountPolicy: (...args: unknown[]) => getPolicy(...args),

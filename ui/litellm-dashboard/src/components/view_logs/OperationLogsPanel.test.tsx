@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OperationLogsPanel } from "./OperationLogsPanel";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const listLogs = vi.fn();
 const getLog = vi.fn();

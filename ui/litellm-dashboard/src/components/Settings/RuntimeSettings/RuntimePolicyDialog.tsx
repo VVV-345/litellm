@@ -21,18 +21,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 
-import { AccountPoolProviderPolicyFields } from "@/app/(dashboard)/account-pool/AccountPoolProviderPolicyFields";
+import { AccountPoolProviderPolicyFields } from "@/features/account-pool/components/providers/AccountPoolProviderPolicyFields";
 import {
   getAccountPolicy,
   saveAccountPolicy,
   type AccountPolicy,
   type PolicyView,
-} from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+} from "@/features/account-pool/api/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import {
   buildAccountPoolPolicyOptions,
   type AccountPoolPolicyOptions,
-} from "@/app/(dashboard)/account-pool/accountPoolPolicyOptions";
+} from "@/features/account-pool/utils/accountPoolPolicyOptions";
 
 type Routing = NonNullable<AccountPolicy["routing"]>;
 type Transport = NonNullable<AccountPolicy["transport"]>;
@@ -146,7 +147,7 @@ export function RuntimePolicyDialog({
 }) {
   const { t } = useTranslation();
   const queryOptions = {
-    queryKey: ["account-pool", "policy", accessToken, environment.id],
+    queryKey: accountPoolQueryKeys.policy(accessToken, environment.id),
     queryFn: () => getAccountPolicy(accessToken, environment.id),
     retry: false,
     refetchOnWindowFocus: false,

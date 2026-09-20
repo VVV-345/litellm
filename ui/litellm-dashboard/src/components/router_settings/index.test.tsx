@@ -4,7 +4,7 @@ import { fireEvent, renderWithProviders, screen, waitFor } from "../../../tests/
 import userEvent from "@testing-library/user-event";
 import RouterSettings from "./index";
 
-vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({
+vi.mock("@/features/account-pool/hooks/useAccountPoolQuery", () => ({
   useAccountPoolQuery: () => ({ data: [
     { id: "11111111-1111-1111-1111-111111111111", name: "Card A", enabled_models: ["gpt-6-astra"], status: "ready" },
     { id: "22222222-2222-2222-2222-222222222222", name: "Card B", enabled_models: ["gpt-6-astra"], status: "ready" },

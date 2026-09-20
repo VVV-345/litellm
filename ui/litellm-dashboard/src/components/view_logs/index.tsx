@@ -1,6 +1,6 @@
 import { parseAsString, useQueryStates } from "nuqs";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { OperationLogsPanel } from "./OperationLogsPanel";
 import { FullLogsPanel } from "./FullLogsPanel";
 import { LogSettingsPanel } from "./LogSettingsPanel";

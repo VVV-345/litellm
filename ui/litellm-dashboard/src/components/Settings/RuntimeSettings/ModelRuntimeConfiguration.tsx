@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
-import { listAccountPolicies } from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { accountPoolPolicyOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 import { Button } from "@/components/ui/button";
 import { RuntimeConfigDialog } from "./RuntimeConfigDialog";
 import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
@@ -15,10 +15,8 @@ export default function ModelRuntimeConfiguration({ accountId }: { accountId: st
   const allowed = canManageAccountPool(userRole, false);
   const accounts = useAccountPoolQuery(accessToken, allowed, false);
   const policies = useQuery({
-    queryKey: ["account-pool", "policies", accessToken],
-    queryFn: () => listAccountPolicies(accessToken!),
+    ...accountPoolPolicyOptions(accessToken),
     enabled: allowed && Boolean(accessToken),
-    retry: false,
   });
   const [editing, setEditing] = useState<"runtime" | "policy" | null>(null);
   if (!allowed || !accessToken) return null;

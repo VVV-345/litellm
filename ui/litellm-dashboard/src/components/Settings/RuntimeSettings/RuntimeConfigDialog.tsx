@@ -23,24 +23,24 @@ import { toast } from "@/lib/toast";
 
 import {
   getAccountPoolEnvironment,
-  listAccountPoolProxyProfiles,
   updateAccountPoolEnvironment,
-} from "@/app/(dashboard)/account-pool/AccountPoolApi";
-import { canConfigureEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+} from "@/features/account-pool/api/AccountPoolApi";
+import { canConfigureEnvironment } from "@/features/account-pool/utils/AccountPoolPermissions";
 import {
   concurrencyLimitLabel,
   formatDateTime,
   formatQuota,
   mostConstrainedWindow,
   quotaRows,
-} from "@/app/(dashboard)/account-pool/AccountPoolFormatters";
+} from "@/features/account-pool/utils/AccountPoolFormatters";
 import {
   validateAccountPoolUpdate,
   validateProxyProfileSelection,
-} from "@/app/(dashboard)/account-pool/AccountPoolValidation";
-import { toUpdateRequest } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
-import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
-import { useProxyGatewayQuery } from "@/app/(dashboard)/account-pool/useProxyGateways";
+} from "@/features/account-pool/utils/AccountPoolValidation";
+import { toUpdateRequest } from "@/features/account-pool/utils/AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "@/features/account-pool/utils/AccountPoolTypes";
+import { useProxyGatewayQuery } from "@/features/account-pool/hooks/useProxyGateways";
+import { accountPoolProxyProfileOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 
 interface RuntimeConfigDialogProps {
   accessToken: string | null;
@@ -64,13 +64,8 @@ export const RuntimeConfigDialog = ({
   const [saving, setSaving] = useState(false);
   const lifecycleDisabled = !canConfigureEnvironment(environment);
   const profilesQuery = useQuery({
-    queryKey: ["account-pool", "proxy-profiles", accessToken],
-    queryFn: () => {
-      if (!accessToken) throw new Error("Access token required");
-      return listAccountPoolProxyProfiles(accessToken);
-    },
+    ...accountPoolProxyProfileOptions(accessToken),
     enabled: open && accessToken !== null,
-    retry: false,
   });
   const profiles = profilesQuery.data ?? [];
   const gatewaysQuery = useProxyGatewayQuery(accessToken, open);

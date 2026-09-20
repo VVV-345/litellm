@@ -17,7 +17,7 @@ import {
   type FullLogFilters,
   type FullLogSummary,
 } from "./fullLogsApi";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const number = (value: number | null | undefined) => (value == null ? "未知" : value.toLocaleString());
 

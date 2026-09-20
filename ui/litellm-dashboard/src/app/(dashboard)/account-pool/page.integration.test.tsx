@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPoolPage from "./page";
-import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const push = vi.fn();
 const listAccounts = vi.fn();
@@ -13,15 +13,15 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), useSearchParams
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => ({ accessToken: "token", userRole: "Admin", isViewOnly: false }),
 }));
-vi.mock("./AccountPoolApi", async (original) => ({
-  ...(await original<typeof import("./AccountPoolApi")>()),
+vi.mock("@/features/account-pool/api/AccountPoolApi", async (original) => ({
+  ...(await original<typeof import("@/features/account-pool/api/AccountPoolApi")>()),
   listAccountPoolEnvironments: (...args: unknown[]) => listAccounts(...args),
   updateAccountPoolEnvironment: (...args: unknown[]) => updateAccount(...args),
   listAccountPoolProxyGateways: async () => [],
   listAccountPoolProxyProfiles: async () => [],
 }));
-vi.mock("./AccountPoolManagementApi", async (original) => ({
-  ...(await original<typeof import("./AccountPoolManagementApi")>()),
+vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (original) => ({
+  ...(await original<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>()),
   listAccountPolicies: async () => [],
   getAccountPoolQuotaRefreshStatus: async () => ({ running: false }),
   getAccountPoolDashboardStats: async () => ({ cards: [], summary: {} }),

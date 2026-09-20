@@ -1,5 +1,5 @@
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { RequestDiagnostics } from "../RequestDiagnostics";
 import { useState } from "react";
 import { Check, ChevronDown, ChevronRight, CircleAlert, Copy, Info } from "lucide-react";

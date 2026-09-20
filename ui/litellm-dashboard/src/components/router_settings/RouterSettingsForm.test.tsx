@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import RouterSettingsForm from "./RouterSettingsForm";
 import type { RouterSettingsFormValue } from "./RouterSettingsForm";
-vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({ useAccountPoolQuery: () => ({ data: [] }) }));
+vi.mock("@/features/account-pool/hooks/useAccountPoolQuery", () => ({ useAccountPoolQuery: () => ({ data: [] }) }));
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({ default: () => ({ accessToken: "test" }) }));
 
 const defaultValue: RouterSettingsFormValue = {

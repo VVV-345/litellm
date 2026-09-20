@@ -6,17 +6,33 @@ import asyncio
 import hashlib
 import hmac
 import json
-import re
 import secrets as token_secrets
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import Final, Literal, TypeVar
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, HttpUrl, TypeAdapter, ValidationError
+from pydantic import HttpUrl, TypeAdapter
 
+from account_pool.application.authorization import (
+    _authorization_expires_at,
+    _replace_state,
+)
+from account_pool.application.environment_state import (
+    _AutomaticCooldownState,
+    _configuration_requires_reconciliation,
+    _cooldown_active,
+    _cooldown_elapsed,
+    _cooldown_until_after_update,
+    _status_after_update,
+)
+from account_pool.application.plugin_validation import (
+    _plugin_store_approves as _plugin_store_approves,
+)
+from account_pool.application.profile_updates import (
+    _ExplicitProfileUpdate,
+    explicit_profile_update,
+)
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashProxyNode
 from account_pool.cleanup import compose_removed, directory_removed, routes_removed
@@ -28,7 +44,6 @@ from account_pool.domain import (
     AuthorizationView,
     ChannelKind,
     CleanupProgress,
-    CommonSettingsProfileBaseline,
     CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
     CreateVertexEnvironmentRequest,
@@ -37,7 +52,6 @@ from account_pool.domain import (
     EnvironmentStatus,
     EnvironmentView,
     GatewayEnvironment,
-    NetworkSettingsProfileBaseline,
     OAuthCallback,
     OpenAICompatibleConfiguration,
     OpenAICompatibleCredentialDeleteRequest,
@@ -55,7 +69,6 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_logs import ErrorLogService, LogStage
-from account_pool.shared.error_safety import safe_error
 from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView
 from account_pool.ports import (
     CLIProxyClient,
@@ -66,48 +79,13 @@ from account_pool.ports import (
 )
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.quota import ProviderQuotaError
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
+from account_pool.shared.error_safety import safe_error as _safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
-from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 
 T = TypeVar("T")
 _HTTP_URL_ADAPTER: Final = TypeAdapter(HttpUrl)
-_PLUGIN_VERSION_PATTERN: Final = re.compile(r"^[vV]?[0-9][0-9A-Za-z.+-]{0,63}$")
-
-
-class _PluginStoreEntry(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    id: str
-    version: str
-    source_id: str
-
-
-class _PluginStoreResponse(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    plugins: tuple[_PluginStoreEntry, ...]
-
-
-class _ExplicitProfileUpdate(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    request: UpdateEnvironmentRequest
-    baselines: SettingsProfileBaselines
-
-
-def _plugin_store_approves(store: Mapping[str, object], plugin_id: str, version: str, source: str | None) -> bool:
-    if _PLUGIN_VERSION_PATTERN.fullmatch(version) is None:
-        return False
-    try:
-        response: Final = _PluginStoreResponse.model_validate(store)
-    except ValidationError:
-        return False
-    candidates: Final = tuple(entry for entry in response.plugins if entry.id == plugin_id)
-    if source is None:
-        return len(candidates) == 1
-    matches: Final = tuple(entry for entry in candidates if entry.source_id == source)
-    return len(matches) == 1
 
 
 async def _constant_async(value: T) -> T:
@@ -116,13 +94,6 @@ async def _constant_async(value: T) -> T:
 
 class _AuthorizationConflict(Exception):
     """授权回调未能持久化到可路由状态时阻止成功响应。"""
-
-
-class _AutomaticCooldownState(StrEnum):
-    NONE = "none"
-    ACTIVE = "active"
-    RECOVERED = "recovered"
-    BLOCKED = "blocked"
 
 
 # 授权完成后允许保留用户主动停用或冷却状态，不能把有效凭据误判为验证失败。
@@ -340,90 +311,7 @@ class EnvironmentService:
         record: EnvironmentRecord,
         settings: AccountPoolSettings,
     ) -> _ExplicitProfileUpdate | None:
-        common: Final = next(
-            (
-                profile
-                for profile in settings.common_profiles
-                if record.id in profile.card_ids and not profile.inherit_global
-            ),
-            None,
-        )
-        network: Final = next(
-            (
-                profile
-                for profile in settings.network_profiles
-                if record.id in profile.card_ids and not profile.inherit_global
-            ),
-            None,
-        )
-        baselines: Final = record.settings_profile_baselines
-        concurrency_limit: Final = (
-            baselines.common.concurrency_limit
-            if common is None and baselines.common is not None
-            else record.concurrency_limit
-            if common is None
-            else common.values.default_concurrency_limit
-        )
-        common_baseline: Final = (
-            None
-            if common is None
-            else CommonSettingsProfileBaseline(
-                profile_id=common.id,
-                concurrency_limit=(
-                    record.concurrency_limit if baselines.common is None else baselines.common.concurrency_limit
-                ),
-            )
-        )
-        proxy_profile_id: Final = (
-            baselines.network.proxy_profile_id
-            if network is None and baselines.network is not None
-            else record.proxy_profile_id
-            if network is None
-            else network.values.default_proxy_profile_id
-        )
-        proxy_mode: Final = (
-            baselines.network.proxy_mode
-            if network is None and baselines.network is not None
-            else record.proxy_mode
-            if network is None
-            else ProxyMode.DEFAULT_GATEWAY
-            if proxy_profile_id is None
-            else ProxyMode.PROFILE
-        )
-        network_baseline: Final = (
-            None
-            if network is None
-            else NetworkSettingsProfileBaseline(
-                profile_id=network.id,
-                proxy_mode=record.proxy_mode if baselines.network is None else baselines.network.proxy_mode,
-                proxy_profile_id=(
-                    record.proxy_profile_id if baselines.network is None else baselines.network.proxy_profile_id
-                ),
-            )
-        )
-        next_baselines: Final = SettingsProfileBaselines(common=common_baseline, network=network_baseline)
-        unchanged: Final = (
-            record.concurrency_limit == concurrency_limit
-            and record.proxy_mode is proxy_mode
-            and record.proxy_profile_id == proxy_profile_id
-            and baselines == next_baselines
-        )
-        if unchanged:
-            return None
-        return _ExplicitProfileUpdate(
-            request=UpdateEnvironmentRequest(
-                version=record.version,
-                operation_id=f"settings-sync-{uuid4()}",
-                name=record.name,
-                concurrency_limit=concurrency_limit,
-                enabled=record.enabled,
-                manual_cooldown=record.manual_cooldown,
-                proxy_mode=proxy_mode,
-                proxy_profile_id=proxy_profile_id,
-                enabled_models=record.enabled_models,
-            ),
-            baselines=next_baselines,
-        )
+        return explicit_profile_update(record, settings)
 
     async def _apply_explicit_profile_configuration(
         self,
@@ -2437,74 +2325,3 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
-
-
-def _authorization_expires_at(flow: AuthorizationFlow, expires_in_seconds: int | None) -> datetime:
-    duration: Final = (
-        expires_in_seconds if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None else 300
-    )
-    return utc_now() + timedelta(seconds=min(max(duration, 1), 3600))
-
-
-def _configuration_requires_reconciliation(record: EnvironmentRecord) -> bool:
-    # ERROR 只代表最近一次尝试失败，期望版本未观测时仍须继续补偿。
-    return record.configuration_pending or record.desired_configuration_version > record.observed_configuration_version
-
-
-def _safe_error(error: Exception) -> str:
-    return safe_error(error)
-
-
-def _replace_state(authorization_url: str, state: str) -> str:
-    """只替换 OAuth URL 的 state 参数，保留上游其余参数并避免把 state 拼进日志。"""
-    try:
-        parsed: Final = urlsplit(authorization_url)
-        query: Final = tuple(
-            (key, state if key == "state" else value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        )
-        final_query: Final = query if any(key == "state" for key, _ in query) else (*query, ("state", state))
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(final_query), parsed.fragment))
-    except ValueError:
-        return authorization_url
-
-
-def _cooldown_elapsed(record: EnvironmentRecord) -> bool:
-    return (
-        record.enabled
-        and not record.manual_cooldown
-        and record.cooldown_until is not None
-        and record.cooldown_until <= utc_now()
-    )
-
-
-def _cooldown_active(record: EnvironmentRecord) -> bool:
-    return record.cooldown_until is not None and record.cooldown_until > utc_now()
-
-
-def _status_after_update(
-    record: EnvironmentRecord,
-    request: UpdateEnvironmentRequest,
-    automatic_cooldown: _AutomaticCooldownState,
-) -> EnvironmentStatus:
-    # 授权失败时允许修正代理，但保存配置不能把未授权账号变成可用账号。
-    if record.auth_file_name is None:
-        return record.status
-    if not request.enabled:
-        return EnvironmentStatus.DISABLED
-    if request.manual_cooldown:
-        return EnvironmentStatus.COOLING_DOWN
-    if automatic_cooldown in (_AutomaticCooldownState.ACTIVE, _AutomaticCooldownState.BLOCKED):
-        return EnvironmentStatus.COOLING_DOWN
-    if record.status in (EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.VALIDATING):
-        return record.status
-    return EnvironmentStatus.READY
-
-
-def _cooldown_until_after_update(
-    record: EnvironmentRecord,
-    manual_cooldown: bool,
-    automatic_cooldown: _AutomaticCooldownState,
-) -> datetime | None:
-    if manual_cooldown:
-        return record.cooldown_until
-    return None if automatic_cooldown is _AutomaticCooldownState.RECOVERED else record.cooldown_until

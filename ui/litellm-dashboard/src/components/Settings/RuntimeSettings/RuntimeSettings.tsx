@@ -1,8 +1,8 @@
 "use client";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
-import { useAccountPoolQuery } from "@/app/(dashboard)/account-pool/useAccountPoolQuery";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 import { RuntimeSettingsSection, type RuntimeSettingsCategory } from "./RuntimeSettingsSection";
 
 export default function RuntimeSettings({ category }: { category: RuntimeSettingsCategory }) {

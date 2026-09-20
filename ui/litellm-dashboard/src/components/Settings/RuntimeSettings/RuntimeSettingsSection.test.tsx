@@ -6,16 +6,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RuntimeSettingsSection } from "./RuntimeSettingsSection";
-import type { AccountPoolSettings } from "@/app/(dashboard)/account-pool/AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "@/app/(dashboard)/account-pool/AccountPoolTypes";
+import type { AccountPoolSettings } from "@/features/account-pool/api/AccountPoolManagementApi";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 
 const getSettings = vi.fn();
 const updateSettings = vi.fn();
 const listProxyProfiles = vi.fn();
 const toastSuccess = vi.fn();
 
-vi.mock("@/app/(dashboard)/account-pool/AccountPoolManagementApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolManagementApi")>();
+vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>();
   return {
     ...original,
     getAccountPoolSettings: (...args: unknown[]) => getSettings(...args),
@@ -23,8 +23,8 @@ vi.mock("@/app/(dashboard)/account-pool/AccountPoolManagementApi", async (import
   };
 });
 
-vi.mock("@/app/(dashboard)/account-pool/AccountPoolApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/app/(dashboard)/account-pool/AccountPoolApi")>();
+vi.mock("@/features/account-pool/api/AccountPoolApi", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/features/account-pool/api/AccountPoolApi")>();
   return {
     ...original,
     listAccountPoolProxyProfiles: (...args: unknown[]) => listProxyProfiles(...args),

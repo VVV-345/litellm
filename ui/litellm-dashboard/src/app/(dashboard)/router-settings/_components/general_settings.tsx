@@ -14,7 +14,7 @@ import { Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { StatusBadge } from "@/components/shared/table_cells";
 import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
-import { canManageAccountPool } from "@/app/(dashboard)/account-pool/AccountPoolPermissions";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 
 import RouterSettings from "@/components/router_settings";
 import Fallbacks from "@/components/Settings/RouterSettings/Fallbacks/Fallbacks";

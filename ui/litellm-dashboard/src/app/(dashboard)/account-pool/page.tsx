@@ -29,45 +29,46 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { migratedHref } from "@/utils/migratedPages";
 
-import { AccountPoolCard } from "./AccountPoolCard";
-import { AccountPoolSettingsOverview } from "./AccountPoolSettingsOverview";
-import { AccountPoolBatchPanel } from "./AccountPoolBatchPanel";
-import { AccountPoolDashboard } from "./AccountPoolDashboard";
-import { AccountPoolAuthorizationOverview } from "./AccountPoolAuthorizationOverview";
-import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
-import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
-import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
-import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
-import { AccountPoolPluginsPanel } from "./AccountPoolPluginsPanel";
-import { AccountPoolReleasesPanel } from "./AccountPoolReleasesPanel";
+import { AccountPoolCard } from "@/features/account-pool/components/cards/AccountPoolCard";
+import { AccountPoolSettingsOverview } from "@/features/account-pool/components/dashboard/AccountPoolSettingsOverview";
+import { AccountPoolBatchPanel } from "@/features/account-pool/components/cards/AccountPoolBatchPanel";
+import { AccountPoolDashboard } from "@/features/account-pool/components/dashboard/AccountPoolDashboard";
+import { AccountPoolAuthorizationOverview } from "@/features/account-pool/components/credentials/AccountPoolAuthorizationOverview";
+import { AccountPoolCredentialsPanel } from "@/features/account-pool/components/credentials/AccountPoolCredentialsPanel";
+import { AccountPoolOnboardingPanel } from "@/features/account-pool/components/onboarding/AccountPoolOnboardingPanel";
+import { AccountPoolQuotaPanel } from "@/features/account-pool/components/dashboard/AccountPoolQuotaPanel";
+import { AccountPoolUpstreamSyncPanel } from "@/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel";
+import { AccountPoolPluginsPanel } from "@/features/account-pool/components/plugins/AccountPoolPluginsPanel";
+import { AccountPoolReleasesPanel } from "@/features/account-pool/components/releases/AccountPoolReleasesPanel";
 import { RuntimeSettingsSection } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
 import { RuntimeConfigDialog } from "@/components/Settings/RuntimeSettings/RuntimeConfigDialog";
 import { RuntimePolicyDialog } from "@/components/Settings/RuntimeSettings/RuntimePolicyDialog";
-import { AccountPoolProviderFamilies } from "./AccountPoolProviderFamilies";
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
+import { accountPoolPolicyOptions } from "@/features/account-pool/hooks/accountPoolOptions";
+import { AccountPoolProviderFamilies } from "@/features/account-pool/components/providers/AccountPoolProviderFamilies";
 import {
   getAccountPoolDashboardStats,
   getAccountPoolQuotaRefreshStatus,
-  listAccountPolicies,
   refreshAccountPoolQuotas,
   type ErrorStats,
-} from "./AccountPoolManagementApi";
-import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
-import { canManageAccountPool } from "./AccountPoolPermissions";
+} from "@/features/account-pool/api/AccountPoolManagementApi";
+import { AccountPoolCreateDialog } from "@/features/account-pool/components/cards/AccountPoolCreateDialog";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import type {
   AccountPoolAuthorization,
   AccountPoolEnvironment,
   AccountPoolStatus,
   AccountPoolSupplier,
-} from "./AccountPoolTypes";
+} from "@/features/account-pool/utils/AccountPoolTypes";
 import {
   filterAccountPoolEnvironments,
   paginateAccountPoolEnvironments,
   summarizeAccountPoolEnvironments,
-} from "./accountPoolSelectors";
-import { ProxyManagerPanel } from "./ProxyManagerPanel";
-import { useAccountPoolMutations } from "./useAccountPoolMutations";
-import { useAccountPoolQuery } from "./useAccountPoolQuery";
-import { useProxyGatewayQuery } from "./useProxyGateways";
+} from "@/features/account-pool/utils/accountPoolSelectors";
+import { ProxyManagerPanel } from "@/features/account-pool/components/proxy/ProxyManagerPanel";
+import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
+import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { useProxyGatewayQuery } from "@/features/account-pool/hooks/useProxyGateways";
 
 const PAGE_SIZE = 24;
 const POOL_TABS = [
@@ -122,7 +123,7 @@ export default function AccountPoolPage() {
   const dashboardActive = activeTab === "dashboard";
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage, dataTabActive);
   const quotaRefreshStatusQuery = useQuery({
-    queryKey: ["account-pool", "quota-refresh-status", accessToken],
+    queryKey: accountPoolQueryKeys.quotaRefreshStatus(accessToken),
     queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
     enabled: canManage && accessToken !== null && (dashboardActive || activeTab === "quotas"),
     retry: false,
@@ -131,10 +132,8 @@ export default function AccountPoolPage() {
   });
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
-    queryKey: ["account-pool", "policies", accessToken],
-    queryFn: () => listAccountPolicies(accessToken!),
+    ...accountPoolPolicyOptions(accessToken),
     enabled: canManage && accessToken !== null && cardTabActive,
-    retry: false,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   };
@@ -151,7 +150,7 @@ export default function AccountPoolPage() {
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
   const dashboardStatsQuery = useQuery({
-    queryKey: ["account-pool", "dashboard-stats", accessToken],
+    queryKey: accountPoolQueryKeys.dashboardStats(accessToken),
     queryFn: () => getAccountPoolDashboardStats(accessToken!),
     enabled: canManage && accessToken !== null && dashboardActive,
     retry: false,

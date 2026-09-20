@@ -1,4 +1,4 @@
-vi.mock("@/app/(dashboard)/account-pool/useAccountPoolQuery", () => ({
+vi.mock("@/features/account-pool/hooks/useAccountPoolQuery", () => ({
   useAccountPoolQuery: () => ({ data: [], isError: false }),
 }));
 import i18n from "@/i18n";

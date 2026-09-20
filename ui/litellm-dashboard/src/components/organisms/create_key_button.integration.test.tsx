@@ -1,4 +1,4 @@
-vi.mock("@/app/(dashboard)/account-pool/AccountPoolApi", () => ({
+vi.mock("@/features/account-pool/api/AccountPoolApi", () => ({
   listAccountPoolEnvironments: vi
     .fn()
     .mockResolvedValue([
