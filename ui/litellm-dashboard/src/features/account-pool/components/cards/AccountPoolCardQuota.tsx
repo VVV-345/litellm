@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { accountPoolPlanLabel } from "../../utils/accountPoolCodexPlan";
 import { formatDateTime, formatQuota, quotaProxyLabel, quotaWindowLabel } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
+import { useAccountPoolClock } from "../../hooks/useAccountPoolClock";
 
 export function AccountPoolCardQuota({ environment }: { environment: AccountPoolEnvironment }) {
   const { t, i18n } = useTranslation();
-  const [now, setNow] = useState<number>(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const now = useAccountPoolClock();
   const quota = environment.quota;
   const plan =
     environment.supplier === "openai_codex"

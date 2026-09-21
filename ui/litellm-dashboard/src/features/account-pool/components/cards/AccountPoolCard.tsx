@@ -1,6 +1,7 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
 import { KeyRound, SlidersHorizontal, Trash2, Settings2 } from "lucide-react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,7 @@ interface AccountPoolCardProps {
   disabled?: boolean;
 }
 
-export const AccountPoolCard = ({
+const AccountPoolCardComponent = ({
   environment,
   proxyGateway,
   onConfigure,
@@ -340,3 +341,5 @@ export const AccountPoolCard = ({
     </Card>
   );
 };
+
+export const AccountPoolCard = memo(AccountPoolCardComponent);

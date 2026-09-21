@@ -5,86 +5,64 @@
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
-const AccountPoolSettingsOverview = dynamic(
-  () =>
-    import("@/features/account-pool/components/dashboard/AccountPoolSettingsOverview").then(
-      (module) => module.AccountPoolSettingsOverview,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolCredentialsPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/credentials/AccountPoolCredentialsPanel").then(
-      (module) => module.AccountPoolCredentialsPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolOnboardingPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/onboarding/AccountPoolOnboardingPanel").then(
-      (module) => module.AccountPoolOnboardingPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolQuotaPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/dashboard/AccountPoolQuotaPanel").then(
-      (module) => module.AccountPoolQuotaPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolUpstreamSyncPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel").then(
-      (module) => module.AccountPoolUpstreamSyncPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolPluginsPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/plugins/AccountPoolPluginsPanel").then(
-      (module) => module.AccountPoolPluginsPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolReleasesPanel = dynamic(
-  () =>
-    import("@/features/account-pool/components/releases/AccountPoolReleasesPanel").then(
-      (module) => module.AccountPoolReleasesPanel,
-    ),
-  { loading: ModuleLoading },
-);
-const RuntimeSettingsSection = dynamic(
-  () =>
-    import("@/components/Settings/RuntimeSettings/RuntimeSettingsSection").then(
-      (module) => module.RuntimeSettingsSection,
-    ),
-  { loading: ModuleLoading },
-);
-const RuntimeConfigDialog = dynamic(
-  () =>
-    import("@/components/Settings/RuntimeSettings/RuntimeConfigDialog").then((module) => module.RuntimeConfigDialog),
-  { loading: ModuleLoading },
-);
-const RuntimePolicyDialog = dynamic(
-  () =>
-    import("@/components/Settings/RuntimeSettings/RuntimePolicyDialog").then((module) => module.RuntimePolicyDialog),
-  { loading: ModuleLoading },
-);
-const AccountPoolCreateDialog = dynamic(
-  () =>
-    import("@/features/account-pool/components/cards/AccountPoolCreateDialog").then(
-      (module) => module.AccountPoolCreateDialog,
-    ),
-  { loading: ModuleLoading },
-);
-const ProxyManagerPanel = dynamic(
-  () => import("@/features/account-pool/components/proxy/ProxyManagerPanel").then((module) => module.ProxyManagerPanel),
-  { loading: ModuleLoading },
-);
+const loadAccountPoolSettingsOverview = () =>
+  import("@/features/account-pool/components/dashboard/AccountPoolSettingsOverview").then(
+    (module) => module.AccountPoolSettingsOverview,
+  );
+const loadAccountPoolCredentialsPanel = () =>
+  import("@/features/account-pool/components/credentials/AccountPoolCredentialsPanel").then(
+    (module) => module.AccountPoolCredentialsPanel,
+  );
+const loadAccountPoolOnboardingPanel = () =>
+  import("@/features/account-pool/components/onboarding/AccountPoolOnboardingPanel").then(
+    (module) => module.AccountPoolOnboardingPanel,
+  );
+const loadAccountPoolQuotaPanel = () =>
+  import("@/features/account-pool/components/dashboard/AccountPoolQuotaPanel").then(
+    (module) => module.AccountPoolQuotaPanel,
+  );
+const loadAccountPoolUpstreamSyncPanel = () =>
+  import("@/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel").then(
+    (module) => module.AccountPoolUpstreamSyncPanel,
+  );
+const loadAccountPoolPluginsPanel = () =>
+  import("@/features/account-pool/components/plugins/AccountPoolPluginsPanel").then(
+    (module) => module.AccountPoolPluginsPanel,
+  );
+const loadAccountPoolReleasesPanel = () =>
+  import("@/features/account-pool/components/releases/AccountPoolReleasesPanel").then(
+    (module) => module.AccountPoolReleasesPanel,
+  );
+const loadRuntimeSettingsSection = () =>
+  import("@/components/Settings/RuntimeSettings/RuntimeSettingsSection").then(
+    (module) => module.RuntimeSettingsSection,
+  );
+const loadRuntimeConfigDialog = () =>
+  import("@/components/Settings/RuntimeSettings/RuntimeConfigDialog").then((module) => module.RuntimeConfigDialog);
+const loadRuntimePolicyDialog = () =>
+  import("@/components/Settings/RuntimeSettings/RuntimePolicyDialog").then((module) => module.RuntimePolicyDialog);
+const loadAccountPoolCreateDialog = () =>
+  import("@/features/account-pool/components/cards/AccountPoolCreateDialog").then(
+    (module) => module.AccountPoolCreateDialog,
+  );
+const loadProxyManagerPanel = () =>
+  import("@/features/account-pool/components/proxy/ProxyManagerPanel").then((module) => module.ProxyManagerPanel);
+
+const AccountPoolSettingsOverview = dynamic(loadAccountPoolSettingsOverview, { loading: ModuleLoading });
+const AccountPoolCredentialsPanel = dynamic(loadAccountPoolCredentialsPanel, { loading: ModuleLoading });
+const AccountPoolOnboardingPanel = dynamic(loadAccountPoolOnboardingPanel, { loading: ModuleLoading });
+const AccountPoolQuotaPanel = dynamic(loadAccountPoolQuotaPanel, { loading: ModuleLoading });
+const AccountPoolUpstreamSyncPanel = dynamic(loadAccountPoolUpstreamSyncPanel, { loading: ModuleLoading });
+const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: ModuleLoading });
+const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
+const RuntimeSettingsSection = dynamic(loadRuntimeSettingsSection, { loading: ModuleLoading });
+const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLoading });
+const RuntimePolicyDialog = dynamic(loadRuntimePolicyDialog, { loading: ModuleLoading });
+const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
+const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
 import { RefreshCw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -154,6 +132,29 @@ const POOL_TABS = [
 ];
 const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
 const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard", "providers"]);
+const ACCOUNT_POOL_MODULE_LOADERS = [
+  loadAccountPoolSettingsOverview,
+  loadAccountPoolCredentialsPanel,
+  loadAccountPoolOnboardingPanel,
+  loadAccountPoolQuotaPanel,
+  loadAccountPoolUpstreamSyncPanel,
+  loadAccountPoolPluginsPanel,
+  loadAccountPoolReleasesPanel,
+  loadRuntimeSettingsSection,
+  loadRuntimeConfigDialog,
+  loadRuntimePolicyDialog,
+  loadAccountPoolCreateDialog,
+  loadProxyManagerPanel,
+];
+
+const scheduleAccountPoolPreload = (callback: () => void): (() => void) => {
+  if (typeof window.requestIdleCallback === "function") {
+    const idleId = window.requestIdleCallback(callback, { timeout: 2000 });
+    return () => window.cancelIdleCallback(idleId);
+  }
+  const timeoutId = window.setTimeout(callback, 1000);
+  return () => window.clearTimeout(timeoutId);
+};
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
   "all",
   "provisioning",
@@ -180,7 +181,17 @@ export default function AccountPoolPage() {
   const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
   const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
   const activeTab = POOL_TABS.includes(selectedTab) ? selectedTab : "dashboard";
-  const setActiveTab = (value: string) => setTabSelection({ query: requestedTab, value });
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<string>>(() => new Set([activeTab]));
+  const setActiveTab = (value: string) => {
+    setTabSelection({ query: requestedTab, value });
+    setVisitedTabs((current) => (current.has(value) ? current : new Set([...current, value])));
+  };
+  useEffect(() => {
+    const cancelPreload = scheduleAccountPoolPreload(() => {
+      void Promise.all(ACCOUNT_POOL_MODULE_LOADERS.map((load) => load()));
+    });
+    return cancelPreload;
+  }, []);
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
@@ -218,6 +229,14 @@ export default function AccountPoolPage() {
   );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
+  const gatewaysByProfile = useMemo(
+    () => new Map((gatewaysQuery.data ?? []).map((gateway) => [gateway.profile_id, gateway] as const)),
+    [gatewaysQuery.data],
+  );
+  const policiesByCard = useMemo(
+    () => new Map((policiesQuery.data ?? []).map((item) => [item.card_id, item] as const)),
+    [policiesQuery.data],
+  );
   const dashboardStatsQuery = useQuery({
     queryKey: accountPoolQueryKeys.dashboardStats(accessToken),
     queryFn: () => getAccountPoolDashboardStats(accessToken!),
@@ -265,37 +284,58 @@ export default function AccountPoolPage() {
   };
   const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
-  if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
-
   const openCreateDialog = (supplier: AccountPoolSupplier = "openai_codex") => {
     setAuthorization(null);
     setCreateSupplier(supplier);
     setCreateOpen(true);
   };
 
-  const renderCard = (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => (
-    <AccountPoolCard
-      key={environment.id}
-      environment={environment}
-      requestStats={requestStats}
-      proxyGateway={gatewaysQuery.data?.find((gateway) => gateway.profile_id === environment.proxy_profile_id)}
-      onConfigure={setConfigEnvironment}
-      onEnabledChange={(current, enabled) => updateMutation.mutate({ environment: current, enabled })}
-      onAuthorize={(current) => authorizeMutation.mutate(current)}
-      onDelete={setDeleteEnvironment}
-      onManageKey={(current) =>
-        router.push(`${migratedHref("api-keys")}?create=true&account_id=${encodeURIComponent(current.id)}`)
-      }
-      onManagePolicy={setPolicyEnvironment}
-      onViewLogs={(current) => {
-        router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(current.id)}`);
-      }}
-      tags={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.tags}
-      group={policiesQuery.data?.find((item) => item.card_id === environment.id)?.policy?.group}
-      policy={policiesQuery.data?.find((item) => item.card_id === environment.id)}
-      disabled={busy}
-    />
+  const handleEnabledChange = useCallback(
+    (environment: AccountPoolEnvironment, enabled: boolean) => updateMutation.mutate({ environment, enabled }),
+    [updateMutation],
   );
+  const handleAuthorize = useCallback(
+    (environment: AccountPoolEnvironment) => authorizeMutation.mutate(environment),
+    [authorizeMutation],
+  );
+  const handleManageKey = useCallback(
+    (environment: AccountPoolEnvironment) =>
+      router.push(`${migratedHref("api-keys")}?create=true&account_id=${encodeURIComponent(environment.id)}`),
+    [router],
+  );
+  const handleViewLogs = useCallback(
+    (environment: AccountPoolEnvironment) =>
+      router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(environment.id)}`),
+    [router],
+  );
+  const renderCard = useCallback(
+    (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => {
+      const policyView = policiesByCard.get(environment.id);
+      return (
+        <AccountPoolCard
+          key={environment.id}
+          environment={environment}
+          requestStats={requestStats}
+          proxyGateway={environment.proxy_profile_id ? gatewaysByProfile.get(environment.proxy_profile_id) : undefined}
+          onConfigure={setConfigEnvironment}
+          onEnabledChange={handleEnabledChange}
+          onAuthorize={handleAuthorize}
+          onDelete={setDeleteEnvironment}
+          onManageKey={handleManageKey}
+          onManagePolicy={setPolicyEnvironment}
+          onViewLogs={handleViewLogs}
+          tags={policyView?.policy?.tags}
+          group={policyView?.policy?.group}
+          policy={policyView}
+          disabled={busy}
+        />
+      );
+    },
+    [busy, gatewaysByProfile, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+  );
+  const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
+
+  if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
 
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
@@ -458,7 +498,7 @@ export default function AccountPoolPage() {
               全局设置总览
             </TabsTrigger>
           </TabsList>
-          <TabsContent value="dashboard" className="pt-4">
+          <TabsContent keepMounted value="dashboard" className="pt-4">
             {environmentsQuery.isLoading || environmentsQuery.isError ? (
               renderContent()
             ) : (
@@ -475,9 +515,11 @@ export default function AccountPoolPage() {
               />
             )}
           </TabsContent>
-          <TabsContent value="providers" className="pt-4">
-            <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
-            {accessToken && (
+          <TabsContent keepMounted value="providers" className="pt-4">
+            {isTabVisited("providers") && (
+              <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
+            )}
+            {isTabVisited("providers") && accessToken && (
               <details
                 className="my-4 rounded-lg border p-4"
                 open={searchParams?.get("section") === "common" || undefined}
@@ -486,12 +528,12 @@ export default function AccountPoolPage() {
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="common" />
               </details>
             )}
-            {accessToken && environments.length > 0 && (
+            {isTabVisited("providers") && accessToken && environments.length > 0 && (
               <div className="mb-4">
                 <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
               </div>
             )}
-            {showAccountFilters && (
+            {isTabVisited("providers") && showAccountFilters && (
               <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
                 <Input
                   value={search}
@@ -524,26 +566,30 @@ export default function AccountPoolPage() {
                 </Select>
               </div>
             )}
-            {renderContent()}
+            {isTabVisited("providers") && renderContent()}
           </TabsContent>
-          <TabsContent value="proxy-layer" className="pt-4">
-            <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
+          <TabsContent keepMounted value="proxy-layer" className="pt-4">
+            {isTabVisited("proxy-layer") && <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />}
           </TabsContent>
-          <TabsContent value="oauth" className="pt-4">
-            <AccountPoolAuthorizationOverview
-              environments={environments}
-              onCreate={openCreateDialog}
-              onAuthorize={(environment) => authorizeMutation.mutate(environment)}
-            />
+          <TabsContent keepMounted value="oauth" className="pt-4">
+            {isTabVisited("oauth") && (
+              <AccountPoolAuthorizationOverview
+                environments={environments}
+                onCreate={openCreateDialog}
+                onAuthorize={(environment) => authorizeMutation.mutate(environment)}
+              />
+            )}
           </TabsContent>
-          <TabsContent value="credentials" className="pt-4">
-            <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
+          <TabsContent keepMounted value="credentials" className="pt-4">
+            {isTabVisited("credentials") && (
+              <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
+            )}
           </TabsContent>
-          <TabsContent value="onboarding" className="pt-4">
-            {accessToken && activeTab === "onboarding" && <AccountPoolOnboardingPanel accessToken={accessToken} />}
+          <TabsContent keepMounted value="onboarding" className="pt-4">
+            {isTabVisited("onboarding") && accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
           </TabsContent>
-          <TabsContent value="quotas" className="pt-4">
-            {accessToken && (
+          <TabsContent keepMounted value="quotas" className="pt-4">
+            {isTabVisited("quotas") && accessToken && (
               <details
                 className="mb-4 rounded-lg border p-4"
                 open={searchParams?.get("section") === "quota" || undefined}
@@ -552,15 +598,17 @@ export default function AccountPoolPage() {
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="quota" />
               </details>
             )}
-            <AccountPoolQuotaPanel
-              accessToken={accessToken}
-              environments={environments}
-              onRefresh={refreshQuotas}
-              refreshing={refreshingQuotas}
-            />
+            {isTabVisited("quotas") && (
+              <AccountPoolQuotaPanel
+                accessToken={accessToken}
+                environments={environments}
+                onRefresh={refreshQuotas}
+                refreshing={refreshingQuotas}
+              />
+            )}
           </TabsContent>
-          <TabsContent value="releases" className="pt-4">
-            {accessToken && activeTab === "releases" && (
+          <TabsContent keepMounted value="releases" className="pt-4">
+            {isTabVisited("releases") && accessToken && (
               <>
                 <AccountPoolReleasesPanel accessToken={accessToken} />
                 <details
@@ -573,11 +621,13 @@ export default function AccountPoolPage() {
               </>
             )}
           </TabsContent>
-          <TabsContent value="upstream-sync" className="pt-4">
-            {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
+          <TabsContent keepMounted value="upstream-sync" className="pt-4">
+            {isTabVisited("upstream-sync") && accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
           </TabsContent>
-          <TabsContent value="settings-overview" className="pt-4">
-            {accessToken && <AccountPoolSettingsOverview accessToken={accessToken} />}
+          <TabsContent keepMounted value="settings-overview" className="pt-4">
+            {isTabVisited("settings-overview") && accessToken && (
+              <AccountPoolSettingsOverview accessToken={accessToken} />
+            )}
           </TabsContent>
         </Tabs>
       </div>
