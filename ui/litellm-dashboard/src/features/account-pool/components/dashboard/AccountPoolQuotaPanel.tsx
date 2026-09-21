@@ -1,7 +1,9 @@
 /** 本文件展示供应商返回的完整订阅、额度窗口和刷新诊断。 */
 
 import { RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -38,29 +40,23 @@ export const AccountPoolQuotaPanel = ({
   refreshing?: boolean;
 }) => {
   const { t, i18n } = useTranslation();
-  const [refreshStatus, setRefreshStatus] = useState<AccountPoolQuotaRefreshStatus | null>(null);
+  const queryClient = useQueryClient();
+  const queryKey = accountPoolQueryKeys.quotaRefreshStatus(accessToken ?? null);
+  const { data: refreshStatus } = useQuery({
+    queryKey,
+    queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
+    enabled: Boolean(accessToken),
+    refetchInterval: 15_000,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
   const [intervalSaving, setIntervalSaving] = useState(false);
-  useEffect(() => {
-    if (!accessToken) return;
-    let active = true;
-    const load = () =>
-      getAccountPoolQuotaRefreshStatus(accessToken)
-        .then((status) => {
-          if (active) setRefreshStatus(status);
-        })
-        .catch(() => undefined);
-    void load();
-    const timer = window.setInterval(load, 15_000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [accessToken]);
   const saveInterval = async (interval: AccountPoolQuotaRefreshStatus["interval_minutes"]) => {
     if (!accessToken) return;
     setIntervalSaving(true);
     try {
-      setRefreshStatus(await setAccountPoolQuotaRefreshInterval(accessToken, interval));
+      queryClient.setQueryData(queryKey, await setAccountPoolQuotaRefreshInterval(accessToken, interval));
       toast.success(t("accountPool.quotas.intervalSaved"));
     } catch (error) {
       toast.fromError(error);

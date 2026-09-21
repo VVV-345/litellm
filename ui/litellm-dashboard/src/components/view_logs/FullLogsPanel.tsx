@@ -18,6 +18,8 @@ import {
   type FullLogSummary,
 } from "./fullLogsApi";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import { getLiveTailRefetchInterval } from "./log_filter_logic";
+import { LogAutoRefresh } from "./LogAutoRefresh";
 
 const number = (value: number | null | undefined) => (value == null ? "未知" : value.toLocaleString());
 
@@ -88,6 +90,9 @@ export function FullLogsPanel({
   const [expanded, setExpanded] = useState<string | null>(null);
   const pageSize = filters.limit ?? 50;
   const offset = filters.offset ?? 0;
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const refreshPaused = offset > 0 || expanded !== null || eventId !== null || Boolean(filters.occurred_to);
+  const refreshInterval = getLiveTailRefetchInterval(autoRefresh && !refreshPaused, 0);
   const resetFilters = () => {
     setFilters({ card_id: initialCardId });
     setSession("");
@@ -102,11 +107,16 @@ export function FullLogsPanel({
     queryKey: ["logs", "full-logs", accessToken, filters],
     queryFn: () => listFullLogs(accessToken, filters),
     retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
   });
   const storage = useQuery({
     queryKey: ["logs", "full-log-storage", accessToken],
     queryFn: () => fullLogStorage(accessToken),
     retry: false,
+    refetchInterval: refreshInterval === false ? false : 60_000,
+    refetchIntervalInBackground: false,
   });
   const searchSession = (event: FormEvent) => {
     event.preventDefault();
@@ -165,6 +175,7 @@ export function FullLogsPanel({
   };
   return (
     <div className="grid gap-4">
+      <LogAutoRefresh enabled={autoRefresh} paused={refreshPaused} onChange={setAutoRefresh} />
       <div className="flex flex-col gap-4 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <Database className="mt-1 size-5 shrink-0" />

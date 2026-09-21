@@ -2,9 +2,15 @@
 
 ## 当前行为
 
+2026-09-21 本轮更新：登录后优先预取有权限访问的号池、日志、虚拟密钥和模型路由，再按侧栏顺序预取其余页面。每次调度至少间隔 1.5 秒，支持时等待浏览器空闲；动态模块等待上一个加载完成后再排队。Next 路由预取使用框架调度，不承诺网络串行。鼠标悬停与键盘聚焦仍可提前预取。省流量、2G 网络关闭后台预加载；网页隐藏时暂停。只加载代码，不提前挂载全部模块或读取日志正文
+
+号池和日志标签复用 React Activity 保留已访问视图的状态，隐藏时停用 Effects 和查询订阅。返回后按查询过期状态读取新数据；关闭页面或切换身份仍清理组件。卡片状态、仪表盘统计、认证文件列表与额度刷新状态每 15 秒更新，等待授权的卡片保持 5 秒。额度状态读取复用 React Query，避免父页与额度页各自启动计时器。前端轮询只读后台状态，不改变供应商探测间隔或自动授权任务
+
+请求日志沿用原有默认开启的 15 秒实时跟踪。运行日志和完整日志新增同样的开关，默认每 15 秒刷新第一页摘要；查看历史页、指定结束时间、展开详情时暂停。列表切走或网页隐藏后暂停，统计与存储信息分别最多每 30 秒、60 秒读取。轮询不重载整页，不重置筛选、分页或未提交表单，不拉取未展开的日志正文。配置编辑页、虚拟密钥和模型编辑流程继续沿用保存后的缓存失效与原有刷新策略
+
 普通 React Query 查询默认保鲜 15 秒，离开页面后未使用的数据最多保留 5 分钟。保鲜时间不等于轮询间隔，5 分钟也不代表打开页面 5 分钟后强制刷新。模块原有的 staleTime、轮询、权限、enabled 和主动刷新设置优先
 
-同一查询并发请求复用一次结果。切回窗口不自动刷新，网络恢复时按查询是否过期决定重新请求。普通查询默认最多重试一次，公共客户端产生的 401/403 不重试，写操作默认不重试
+同一查询并发请求复用一次结果。普通查询切回窗口不自动刷新；本轮增加轮询的状态列表和实时日志在返回窗口时检查过期数据。网络恢复时按查询是否过期决定重新请求。普通查询默认最多重试一次，公共客户端产生的 401/403 不重试，写操作默认不重试
 
 管理请求默认使用 HTTP `no-store`，数据复用由内存中的 React Query 管理，不依赖浏览器磁盘中的接口响应。覆盖公共客户端、OpenAPI 客户端、networking.tsx，以及仍直接请求接口的管理 Hook、工作流、主题与费用配置。调用方可显式覆盖 RequestCache。Playground、提示词会话与外部代码解释器资源没有改接管理请求封装
 
@@ -12,7 +18,7 @@
 
 退出登录清空查询与旧的用户模型、角色、花费 sessionStorage 项，保留界面偏好。身份、角色、凭据或 Worker 改变时隔离查询客户端；取消的旧查询完成后不能写回新会话。重复选择相同 Worker 不重复清理。登录页保留自身挂载，避免存入 Token 后丢失登录完成回调，进入后台时再切换到对应身份的缓存
 
-模型管理、号池和日志中的次级模块按需加载。侧栏只有鼠标移入或键盘聚焦的入口启用路由预加载，不预加载全部模块。页面跳转和模块加载提供占位反馈。未访问的日志标签页不挂载，请求日志和审计标签切走后保留已访问视图的状态，已删除密钥／团队只在选中时挂载，切回时分页状态重新初始化
+模型管理、号池和日志中的次级模块按需加载，侧栏预取与号池、日志模块的后台预加载遵循上述规则。页面跳转和模块加载提供占位反馈。未访问的日志标签页不挂载，请求日志、运行日志、完整日志和审计标签切走后保留已访问视图的状态，已删除密钥／团队只在选中时挂载，切回时分页状态重新初始化
 
 号池环境查询只在需要卡片数据的标签页启用。原有 24 张卡片分页以及密钥、团队、日志的分页保留，没有引入虚拟滚动
 
@@ -72,6 +78,18 @@ curl.exe -sS -D - -o NUL http://127.0.0.1:4010/key/list
 ```
 
 浏览器实际打开并刷新生产登录页，输入框与登录按钮正常，无控制台 error；网络记录确认 HTML 为 no-cache、版本资源为 immutable、discovery 为 no-store。刷新时版本资源的 fromDiskCache 为 false，因此这里只证明响应头正确，不把它写成浏览器磁盘命中率提升
+
+## 2026-09-21 分批预加载与自动刷新验证
+
+本轮起始版本 `37271a463c`，开始前已快进拉取。仅修改前端加载、视图生命周期与只读刷新，没有修改网关、路由、计价、数据库或上游探测策略。用户已有的 `tsconfig.tsbuildinfo` 修改保留，不纳入提交
+
+相关回归 11 文件、123 项通过，覆盖预加载次序、空闲调度、隐藏暂停、失败恢复、低速网络、侧栏权限、号池统计刷新、日志分页与详情按需读取、身份缓存隔离。完整日志集成回归验证隐藏时停止轮询、返回后保留筛选草稿、手动关闭实时跟踪。接口使用测试替身，不能替代线上验收
+
+```powershell
+npx vitest run --project unit --project component --project integration src/lib/progressivePreload.test.ts src/components/leftnav.test.tsx account-pool/page.integration.test.tsx src/components/view_logs/index.integration.test.tsx src/components/view_logs/OperationLogsPanel.test.tsx src/components/view_logs/FullLogsPanel.integration.test.tsx src/features/account-pool/components/dashboard/AccountPoolQuotaPanel.test.tsx src/features/account-pool/components/credentials/AccountPoolCredentialsPanel.integration.test.tsx src/contexts/ReactQueryProvider.test.tsx src/contexts/AuthContext.integration.test.tsx src/components/view_logs/log_filter_logic.test.tsx --maxWorkers 2
+```
+
+生产源码 TypeScript 检查通过，范围为临时配置内的 `next-env.d.ts` 和 `src` 非测试源码，关闭 incremental。修改文件 ESLint 为 0 错误、35 条警告，未改基线。隔离副本执行 `npm run build -- --webpack` 成功生成 52 个页面，未覆盖工作区 `.next`、`out` 或类型缓存。首次跨盘副本因 node_modules Junction 的绝对路径解析失败，同盘副本构建通过；不能把隔离环境失败归为源码缺陷。检查日志保存在 `.git/preload-regression.log`、`.git/preload-eslint.log` 和 `.git/preload-production-build.log`
 
 ## 后续性能验收
 

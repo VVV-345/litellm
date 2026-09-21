@@ -1,13 +1,19 @@
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
+import { schedulePreloads } from "@/lib/progressivePreload";
 
-const OperationLogsPanel = dynamic(() => import("./OperationLogsPanel").then((module) => module.OperationLogsPanel), {
+const loadOperationLogs = () => import("./OperationLogsPanel").then((module) => module.OperationLogsPanel);
+const loadFullLogs = () => import("./FullLogsPanel").then((module) => module.FullLogsPanel);
+const loadLogSettings = () => import("./LogSettingsPanel").then((module) => module.LogSettingsPanel);
+const LOG_MODULE_LOADERS = [loadOperationLogs, loadFullLogs, loadLogSettings];
+
+const OperationLogsPanel = dynamic(loadOperationLogs, {
   loading: ModuleLoading,
 });
-const FullLogsPanel = dynamic(() => import("./FullLogsPanel").then((module) => module.FullLogsPanel), {
+const FullLogsPanel = dynamic(loadFullLogs, {
   loading: ModuleLoading,
 });
-const LogSettingsPanel = dynamic(() => import("./LogSettingsPanel").then((module) => module.LogSettingsPanel), {
+const LogSettingsPanel = dynamic(loadLogSettings, {
   loading: ModuleLoading,
 });
 const DeletedKeysPage = dynamic(() => import("../DeletedKeysPage/DeletedKeysPage"), { loading: ModuleLoading });
@@ -15,13 +21,14 @@ const DeletedTeamsPage = dynamic(() => import("../DeletedTeamsPage/DeletedTeamsP
 const AuditLogsPanel = dynamic(() => import("./AuditLogsPanel"), { loading: ModuleLoading });
 
 import { parseAsString, useQueryStates } from "nuqs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { useTranslation } from "react-i18next";
 import useCan from "@/app/(dashboard)/hooks/useCan";
 import RequestLogsPanel from "./RequestLogsPanel";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
 
 interface SpendLogsTableProps {
@@ -51,6 +58,10 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
     account_id: parseAsString,
   });
   const canManageLogs = canManageAccountPool(userRole, false);
+  useEffect(() => {
+    if (!canManageLogs || !accessToken) return;
+    return schedulePreloads(LOG_MODULE_LOADERS);
+  }, [accessToken, canManageLogs]);
   const canViewAuditLogs = useCan("viewAuditLogs");
   const canViewDeletedTeams = useCan("viewDeletedTeams");
   const [visitedTabs, setVisitedTabs] = useState<string[]>([]);
@@ -103,23 +114,23 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
           />
         );
       case "operations":
-        return activeTab === "operations" ? (
+        return (
           <OperationLogsPanel
             key={account_id ?? "all"}
             accessToken={accessToken}
             environments={accounts.data ?? []}
             initialCardId={account_id ?? undefined}
           />
-        ) : null;
+        );
       case "full":
-        return activeTab === "full" ? (
+        return (
           <FullLogsPanel
             key={account_id ?? "all"}
             accessToken={accessToken}
             environments={accounts.data ?? []}
             initialCardId={account_id ?? undefined}
           />
-        ) : null;
+        );
       case "settings":
         return activeTab === "settings" ? <LogSettingsPanel accessToken={accessToken} /> : null;
       case "audit logs":
@@ -183,9 +194,14 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
           ))}
         </TabsList>
         {tabs.map((tab) => (
-          <TabsContent key={tab.id} value={tab.id} keepMounted>
-            {(tab.id === activeTab || visitedTabs.includes(tab.id)) && renderPanel(tab.id)}
-          </TabsContent>
+          <DeferredTabPanel
+            key={tab.id}
+            value={tab.id}
+            active={tab.id === activeTab}
+            visited={visitedTabs.includes(tab.id)}
+          >
+            {renderPanel(tab.id)}
+          </DeferredTabPanel>
         ))}
       </Tabs>
     </div>

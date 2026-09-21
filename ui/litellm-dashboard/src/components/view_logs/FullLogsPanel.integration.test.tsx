@@ -1,8 +1,10 @@
 /** 本文件验证完整日志按需加载、会话查看及独立清理交互。 */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Activity } from "react";
+import i18n from "@/i18n";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FullLogsPanel } from "./FullLogsPanel";
 import { clearFullLogs, fullLogStorage, getFullLog, listFullLogs } from "./fullLogsApi";
 vi.mock("./fullLogsApi", () => ({
@@ -52,7 +54,8 @@ const log = {
 } as const;
 
 describe("FullLogsPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();
     vi.mocked(listFullLogs).mockResolvedValue({
       items: [log],
@@ -76,6 +79,42 @@ describe("FullLogsPanel", () => {
     });
     vi.mocked(getFullLog).mockResolvedValue(log);
     vi.mocked(clearFullLogs).mockResolvedValue({ deleted: 1 });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("polls summaries, pauses while hidden and preserves an unfinished filter on return", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const panel = (visible: boolean) => (
+      <QueryClientProvider client={client}>
+        <Activity mode={visible ? "visible" : "hidden"}>
+          <FullLogsPanel accessToken="admin" environments={[]} />
+        </Activity>
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(panel(true));
+    await screen.findByRole("button", { name: "查看会话" });
+    fireEvent.change(screen.getByRole("textbox", { name: "会话 ID" }), { target: { value: "unfinished" } });
+    vi.useFakeTimers();
+    vi.mocked(listFullLogs).mockClear();
+    rerender(panel(false));
+    rerender(panel(true));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    vi.mocked(listFullLogs).mockClear();
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(listFullLogs).toHaveBeenCalledOnce();
+    expect(getFullLog).not.toHaveBeenCalled();
+    rerender(panel(false));
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(listFullLogs).toHaveBeenCalledOnce();
+    rerender(panel(true));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByRole("textbox", { name: "会话 ID" })).toHaveValue("unfinished");
+    const count = vi.mocked(listFullLogs).mock.calls.length;
+    fireEvent.click(screen.getByRole("switch", { name: "实时跟踪" }));
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(listFullLogs).toHaveBeenCalledTimes(count);
+    unmount();
+    client.clear();
   });
   const mount = () =>
     render(
@@ -135,6 +174,7 @@ describe("FullLogsPanel", () => {
     await waitFor(() =>
       expect(vi.mocked(listFullLogs)).toHaveBeenLastCalledWith("admin", expect.objectContaining({ offset: 100 })),
     );
+    expect(screen.getByText("查看历史记录或详情时暂停自动刷新")).toBeInTheDocument();
     await user.click(screen.getByTestId("pagination-page-size"));
     await user.click(screen.getByRole("option", { name: "100" }));
     await waitFor(() =>

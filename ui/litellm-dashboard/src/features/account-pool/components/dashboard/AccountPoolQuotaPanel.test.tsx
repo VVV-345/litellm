@@ -1,6 +1,6 @@
 /** 本文件验证额度页展示完整订阅字段、全部额度窗口和刷新诊断。 */
 
-import { render, screen } from "@testing-library/react";
+import { renderWithProviders as render, screen } from "../../../../../tests/test-utils";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";

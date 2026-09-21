@@ -42,6 +42,8 @@ export const useAccountPoolCredentials = (
     queryFn: () => listAccountPoolCredentials(accessToken!),
     enabled: accessToken !== null,
     retry: false,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const credentials = query.data ?? [];
   const uploadTargets = environments.filter(
@@ -55,6 +57,8 @@ export const useAccountPoolCredentials = (
     queryFn: () => getAccountPoolAuthFileRefreshStatus(accessToken!),
     enabled: accessToken !== null,
     retry: false,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const refreshStatus = refreshStatusQuery.data;
   const refreshMutation = useMutation({

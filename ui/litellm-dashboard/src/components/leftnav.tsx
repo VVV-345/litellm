@@ -63,7 +63,9 @@ import {
   Workflow,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { schedulePreloads } from "@/lib/progressivePreload";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cva.config";
 import { rolesWithCapability } from "../utils/capabilities";
@@ -82,6 +84,7 @@ import SidebarUsageCard from "./SidebarUsageCard";
 import { MIGRATED_PAGES, migratedHref, legacyPageHref } from "@/utils/migratedPages";
 
 const ICON = { strokeWidth: 1.75 } as const;
+const FREQUENT_PAGES = ["account-pool", "logs", "api-keys", "models"];
 
 const LOGO_CLASS_NAME = "h-7 w-auto max-w-[150px] object-contain group-data-[collapsed=true]/sidebar:w-7";
 
@@ -439,6 +442,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   allowVectorStoresForTeamAdmins,
 }) => {
   const { t } = useTranslation();
+  const router = useRouter();
   const [prefetchKey, setPrefetchKey] = useState<string | null>(null);
   const { userId, accessToken, userRole, isViewOnly } = useAuthorized();
   const isOrgAdmin = useIsOrgAdmin();
@@ -518,6 +522,27 @@ const Sidebar_: React.FC<SidebarProps> = ({
     .filter((group) => !group.roles || group.roles.includes(userRole))
     .map((group) => ({ groupLabel: group.groupLabel, items: filterItemsByRole(group.items) }))
     .filter((group) => group.items.length > 0);
+
+  const visiblePages = visibleGroups.flatMap((group) =>
+    group.items
+      .flatMap((item) => item.children ?? [item])
+      .filter((item) => !item.external_url)
+      .map((item) => item.page),
+  );
+  const preloadPages = [...FREQUENT_PAGES.filter((page) => visiblePages.includes(page)), ...visiblePages]
+    .filter((page, index, pages) => pages.indexOf(page) === index && page !== defaultSelectedKey)
+    .join("\n");
+  useEffect(() => {
+    if (!accessToken || !preloadPages) return;
+    return schedulePreloads(
+      preloadPages
+        .split("\n")
+        .map(
+          (page) => () =>
+            router.prefetch(MIGRATED_PAGES[page] ? migratedHref(MIGRATED_PAGES[page]) : legacyPageHref(page)),
+        ),
+    );
+  }, [accessToken, preloadPages, router]);
 
   const toggleGroup = (key: string) => {
     if (collapsed) {

@@ -11,7 +11,10 @@ const notify = () => {
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
-  if (timer === null && typeof window !== "undefined") timer = window.setInterval(notify, 60_000);
+  if (timer === null && typeof window !== "undefined") {
+    now = Date.now();
+    timer = window.setInterval(notify, 60_000);
+  }
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0 && timer !== null) {

@@ -2676,6 +2676,7 @@
     "Audit Logs Preview": "审计日志预览",
     "Auth Type:": "认证类型：",
     "Auto-refreshing every 15 seconds": "每 15 秒自动刷新",
+    "Auto-refresh paused while browsing history or details": "查看历史记录或详情时暂停自动刷新",
     "Available Agents": "可用智能体",
     "Available MCP Servers": "可用的 MCP 服务器",
     "Available Models": "可用模型",

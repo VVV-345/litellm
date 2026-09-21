@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPoolPage from "./page";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import i18n from "@/i18n";
@@ -11,7 +11,11 @@ const listAccounts = vi.fn();
 const updateAccount = vi.fn();
 const savePolicy = vi.fn();
 const searchState = { value: "" };
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), useSearchParams: () => new URLSearchParams(searchState.value) }));
+const loadStats = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+  useSearchParams: () => new URLSearchParams(searchState.value),
+}));
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => ({ accessToken: "token", userRole: "Admin", isViewOnly: false }),
 }));
@@ -26,7 +30,7 @@ vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (original)
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>()),
   listAccountPolicies: async () => [],
   getAccountPoolQuotaRefreshStatus: async () => ({ running: false }),
-  getAccountPoolDashboardStats: async () => ({ cards: [], summary: {} }),
+  getAccountPoolDashboardStats: (...args: unknown[]) => loadStats(...args),
   getAccountPolicy: async () => ({ card_id: environment.id, version: 3, policy: {}, capabilities: [] }),
   saveAccountPolicy: (...args: unknown[]) => savePolicy(...args),
 }));
@@ -89,8 +93,34 @@ describe("account card local configuration", () => {
     vi.clearAllMocks();
     searchState.value = "";
     listAccounts.mockResolvedValue([environment]);
+    loadStats.mockResolvedValue({ cards: [], summary: {} });
     updateAccount.mockImplementation(async (_token, _id, payload) => ({ ...environment, ...payload }));
     savePolicy.mockResolvedValue({});
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("refreshes visible dashboard statistics without polling inactive tabs", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <AccountPoolPage />
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(page());
+    await screen.findByTestId(`account-pool-card-${environment.id}`);
+    searchState.value = "tab=oauth";
+    rerender(page());
+    vi.useFakeTimers();
+    searchState.value = "tab=dashboard";
+    rerender(page());
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(loadStats).toHaveBeenCalledTimes(2);
+    searchState.value = "tab=oauth";
+    rerender(page());
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(loadStats).toHaveBeenCalledTimes(2);
+    unmount();
+    client.clear();
   });
 
   it("does not load card data on a tab that does not consume it, then loads it on return", async () => {

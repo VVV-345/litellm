@@ -154,6 +154,7 @@ describe("OperationLogsPanel", () => {
     fireEvent.change(jump, { target: { value: "3" } });
     await user.click(screen.getByRole("button", { name: "跳转" }));
     await waitFor(() => expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ offset: 100 })));
+    expect(screen.getByText("查看历史记录或详情时暂停自动刷新")).toBeInTheDocument();
     await user.click(screen.getByTestId("pagination-page-size"));
     await user.click(screen.getByRole("option", { name: "100" }));
     await waitFor(() =>

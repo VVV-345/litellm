@@ -63,6 +63,8 @@ const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoadin
 
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
+import { schedulePreloads } from "@/lib/progressivePreload";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -84,7 +86,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { migratedHref } from "@/utils/migratedPages";
 
@@ -133,28 +135,19 @@ const POOL_TABS = [
 const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
 const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard", "providers"]);
 const ACCOUNT_POOL_MODULE_LOADERS = [
-  loadAccountPoolSettingsOverview,
   loadAccountPoolCredentialsPanel,
-  loadAccountPoolOnboardingPanel,
   loadAccountPoolQuotaPanel,
+  loadRuntimePolicyDialog,
+  loadRuntimeConfigDialog,
+  loadAccountPoolSettingsOverview,
+  loadAccountPoolOnboardingPanel,
+  loadProxyManagerPanel,
   loadAccountPoolUpstreamSyncPanel,
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
   loadRuntimeSettingsSection,
-  loadRuntimeConfigDialog,
-  loadRuntimePolicyDialog,
   loadAccountPoolCreateDialog,
-  loadProxyManagerPanel,
 ];
-
-const scheduleAccountPoolPreload = (callback: () => void): (() => void) => {
-  if (typeof window.requestIdleCallback === "function") {
-    const idleId = window.requestIdleCallback(callback, { timeout: 2000 });
-    return () => window.cancelIdleCallback(idleId);
-  }
-  const timeoutId = window.setTimeout(callback, 1000);
-  return () => window.clearTimeout(timeoutId);
-};
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
   "all",
   "provisioning",
@@ -182,22 +175,20 @@ export default function AccountPoolPage() {
   const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
   const activeTab = POOL_TABS.includes(selectedTab) ? selectedTab : "dashboard";
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<string>>(() => new Set([activeTab]));
+  if (!visitedTabs.has(activeTab)) setVisitedTabs(new Set([...visitedTabs, activeTab]));
   const setActiveTab = (value: string) => {
     setTabSelection({ query: requestedTab, value });
-    setVisitedTabs((current) => (current.has(value) ? current : new Set([...current, value])));
   };
-  useEffect(() => {
-    const cancelPreload = scheduleAccountPoolPreload(() => {
-      void Promise.all(ACCOUNT_POOL_MODULE_LOADERS.map((load) => load()));
-    });
-    return cancelPreload;
-  }, []);
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
   const [page, setPage] = useState(1);
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
   const canManage = canManageAccountPool(userRole, isViewOnly);
+  useEffect(() => {
+    if (!canManage || !accessToken) return;
+    return schedulePreloads(ACCOUNT_POOL_MODULE_LOADERS);
+  }, [accessToken, canManage]);
   const dataTabActive = ACCOUNT_POOL_DATA_TABS.has(activeTab);
   const cardTabActive = ACCOUNT_POOL_CARD_TABS.has(activeTab);
   const dashboardActive = activeTab === "dashboard";
@@ -205,10 +196,11 @@ export default function AccountPoolPage() {
   const quotaRefreshStatusQuery = useQuery({
     queryKey: accountPoolQueryKeys.quotaRefreshStatus(accessToken),
     queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
-    enabled: canManage && accessToken !== null && (dashboardActive || activeTab === "quotas"),
+    enabled: canManage && accessToken !== null && dashboardActive,
     retry: false,
     staleTime: 15_000,
-    refetchOnWindowFocus: false,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
@@ -242,8 +234,9 @@ export default function AccountPoolPage() {
     queryFn: () => getAccountPoolDashboardStats(accessToken!),
     enabled: canManage && accessToken !== null && dashboardActive,
     retry: false,
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const statsByCard = useMemo(
     () =>
@@ -254,7 +247,7 @@ export default function AccountPoolPage() {
       ),
     [dashboardStatsQuery.data?.cards],
   );
-  const statsLoading = dashboardStatsQuery.isPending || dashboardStatsQuery.isFetching;
+  const statsLoading = dashboardStatsQuery.isPending;
   const filteredEnvironments = useMemo(
     () => filterAccountPoolEnvironments(environments, search, statusFilter, policies),
     [environments, policies, search, statusFilter],
@@ -290,13 +283,15 @@ export default function AccountPoolPage() {
     setCreateOpen(true);
   };
 
+  const { mutate: updateEnvironment } = updateMutation;
+  const { mutate: authorizeEnvironment } = authorizeMutation;
   const handleEnabledChange = useCallback(
-    (environment: AccountPoolEnvironment, enabled: boolean) => updateMutation.mutate({ environment, enabled }),
-    [updateMutation],
+    (environment: AccountPoolEnvironment, enabled: boolean) => updateEnvironment({ environment, enabled }),
+    [updateEnvironment],
   );
   const handleAuthorize = useCallback(
-    (environment: AccountPoolEnvironment) => authorizeMutation.mutate(environment),
-    [authorizeMutation],
+    (environment: AccountPoolEnvironment) => authorizeEnvironment(environment),
+    [authorizeEnvironment],
   );
   const handleManageKey = useCallback(
     (environment: AccountPoolEnvironment) =>
@@ -498,7 +493,12 @@ export default function AccountPoolPage() {
               全局设置总览
             </TabsTrigger>
           </TabsList>
-          <TabsContent keepMounted value="dashboard" className="pt-4">
+          <DeferredTabPanel
+            value="dashboard"
+            className="pt-4"
+            active={activeTab === "dashboard"}
+            visited={isTabVisited("dashboard")}
+          >
             {environmentsQuery.isLoading || environmentsQuery.isError ? (
               renderContent()
             ) : (
@@ -514,12 +514,15 @@ export default function AccountPoolPage() {
                 refreshingQuotas={refreshingQuotas}
               />
             )}
-          </TabsContent>
-          <TabsContent keepMounted value="providers" className="pt-4">
-            {isTabVisited("providers") && (
-              <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
-            )}
-            {isTabVisited("providers") && accessToken && (
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="providers"
+            className="pt-4"
+            active={activeTab === "providers"}
+            visited={isTabVisited("providers")}
+          >
+            <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
+            {accessToken && (
               <details
                 className="my-4 rounded-lg border p-4"
                 open={searchParams?.get("section") === "common" || undefined}
@@ -528,12 +531,12 @@ export default function AccountPoolPage() {
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="common" />
               </details>
             )}
-            {isTabVisited("providers") && accessToken && environments.length > 0 && (
+            {accessToken && environments.length > 0 && (
               <div className="mb-4">
                 <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
               </div>
             )}
-            {isTabVisited("providers") && showAccountFilters && (
+            {showAccountFilters && (
               <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
                 <Input
                   value={search}
@@ -566,30 +569,51 @@ export default function AccountPoolPage() {
                 </Select>
               </div>
             )}
-            {isTabVisited("providers") && renderContent()}
-          </TabsContent>
-          <TabsContent keepMounted value="proxy-layer" className="pt-4">
-            {isTabVisited("proxy-layer") && <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />}
-          </TabsContent>
-          <TabsContent keepMounted value="oauth" className="pt-4">
-            {isTabVisited("oauth") && (
-              <AccountPoolAuthorizationOverview
-                environments={environments}
-                onCreate={openCreateDialog}
-                onAuthorize={(environment) => authorizeMutation.mutate(environment)}
-              />
-            )}
-          </TabsContent>
-          <TabsContent keepMounted value="credentials" className="pt-4">
-            {isTabVisited("credentials") && (
-              <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
-            )}
-          </TabsContent>
-          <TabsContent keepMounted value="onboarding" className="pt-4">
-            {isTabVisited("onboarding") && accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
-          </TabsContent>
-          <TabsContent keepMounted value="quotas" className="pt-4">
-            {isTabVisited("quotas") && accessToken && (
+            {renderContent()}
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="proxy-layer"
+            className="pt-4"
+            active={activeTab === "proxy-layer"}
+            visited={isTabVisited("proxy-layer")}
+          >
+            <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="oauth"
+            className="pt-4"
+            active={activeTab === "oauth"}
+            visited={isTabVisited("oauth")}
+          >
+            <AccountPoolAuthorizationOverview
+              environments={environments}
+              onCreate={openCreateDialog}
+              onAuthorize={handleAuthorize}
+            />
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="credentials"
+            className="pt-4"
+            active={activeTab === "credentials"}
+            visited={isTabVisited("credentials")}
+          >
+            <AccountPoolCredentialsPanel accessToken={accessToken} environments={environments} />
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="onboarding"
+            className="pt-4"
+            active={activeTab === "onboarding"}
+            visited={isTabVisited("onboarding")}
+          >
+            {accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="quotas"
+            className="pt-4"
+            active={activeTab === "quotas"}
+            visited={isTabVisited("quotas")}
+          >
+            {accessToken && (
               <details
                 className="mb-4 rounded-lg border p-4"
                 open={searchParams?.get("section") === "quota" || undefined}
@@ -598,17 +622,20 @@ export default function AccountPoolPage() {
                 <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="quota" />
               </details>
             )}
-            {isTabVisited("quotas") && (
-              <AccountPoolQuotaPanel
-                accessToken={accessToken}
-                environments={environments}
-                onRefresh={refreshQuotas}
-                refreshing={refreshingQuotas}
-              />
-            )}
-          </TabsContent>
-          <TabsContent keepMounted value="releases" className="pt-4">
-            {isTabVisited("releases") && accessToken && (
+            <AccountPoolQuotaPanel
+              accessToken={accessToken}
+              environments={environments}
+              onRefresh={refreshQuotas}
+              refreshing={refreshingQuotas}
+            />
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="releases"
+            className="pt-4"
+            active={activeTab === "releases"}
+            visited={isTabVisited("releases")}
+          >
+            {accessToken && (
               <>
                 <AccountPoolReleasesPanel accessToken={accessToken} />
                 <details
@@ -620,15 +647,23 @@ export default function AccountPoolPage() {
                 </details>
               </>
             )}
-          </TabsContent>
-          <TabsContent keepMounted value="upstream-sync" className="pt-4">
-            {isTabVisited("upstream-sync") && accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
-          </TabsContent>
-          <TabsContent keepMounted value="settings-overview" className="pt-4">
-            {isTabVisited("settings-overview") && accessToken && (
-              <AccountPoolSettingsOverview accessToken={accessToken} />
-            )}
-          </TabsContent>
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="upstream-sync"
+            className="pt-4"
+            active={activeTab === "upstream-sync"}
+            visited={isTabVisited("upstream-sync")}
+          >
+            {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="settings-overview"
+            className="pt-4"
+            active={activeTab === "settings-overview"}
+            visited={isTabVisited("settings-overview")}
+          >
+            {accessToken && <AccountPoolSettingsOverview accessToken={accessToken} />}
+          </DeferredTabPanel>
         </Tabs>
       </div>
       {createOpen && (

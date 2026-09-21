@@ -25,6 +25,8 @@ import {
 } from "./operationLogsApi";
 import { toast } from "@/lib/toast";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import { getLiveTailRefetchInterval } from "./log_filter_logic";
+import { LogAutoRefresh } from "./LogAutoRefresh";
 
 const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
   style: "currency",
@@ -93,6 +95,9 @@ export function OperationLogsPanel({
   const [pageSize, setPageSize] = useState(50);
   const [eventId, setEventId] = useState<string | null>(null);
   const [fullEventId, setFullEventId] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const refreshPaused = offset > 0 || eventId !== null || fullEventId !== null || Boolean(filters.occurred_to);
+  const refreshInterval = getLiveTailRefetchInterval(autoRefresh && !refreshPaused, 0);
   const [validationError, setValidationError] = useState(false);
   const [retentionDays, setRetentionDays] = useState<"all" | "7" | "14" | "30" | "45">("30");
   const resetFilters = () => {
@@ -108,6 +113,9 @@ export function OperationLogsPanel({
     queryKey: ["logs", "logs", accessToken, filters, offset, pageSize],
     queryFn: () => listOperationLogs(accessToken, pageQuery),
     retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
   });
   const detailQuery = {
     queryKey: ["logs", "log-detail", accessToken, eventId],
@@ -120,11 +128,15 @@ export function OperationLogsPanel({
     queryKey: ["logs", "stats", accessToken, filters],
     queryFn: () => getOperationStats(accessToken, filters),
     retry: false,
+    refetchInterval: refreshInterval === false ? false : 30_000,
+    refetchIntervalInBackground: false,
   });
   const storage = useQuery({
     queryKey: ["logs", "log-storage", accessToken],
     queryFn: () => getOperationLogStorage(accessToken),
     retry: false,
+    refetchInterval: refreshInterval === false ? false : 60_000,
+    refetchIntervalInBackground: false,
   });
   const submitFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -200,6 +212,7 @@ export function OperationLogsPanel({
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">{t("accountPool.logs.description")}</p>
+      <LogAutoRefresh enabled={autoRefresh} paused={refreshPaused} onChange={setAutoRefresh} />
       {storage.data && (
         <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">

@@ -18,7 +18,7 @@ export const useAccountPoolQuery = (accessToken: string | null, enabled: boolean
     enabled: enabled && accessToken !== null,
     retry: false,
     staleTime: 10_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       if (!poll) return false;
       return query.state.data?.some((environment) => environment.status === "awaiting_authorization") ? 5000 : 15000;
