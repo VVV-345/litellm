@@ -128,7 +128,7 @@ class ReleaseStore:
         rollback_state: str | None = None,
     ) -> ReleaseConfirmation:
         token: Final = secrets.token_hex(32)
-        delay: Final = 10 if action.action == "delete" else 5
+        delay: Final = 10 if action.action == "delete" or action.force else 5
         now: Final = self.clock()
         with self.connection() as db:
             db.execute("DELETE FROM confirmations WHERE expires<?", (now,))
@@ -171,7 +171,7 @@ class ReleaseStore:
                 db.execute("SELECT revision FROM settings WHERE id=1").fetchone()
             )[0]
             action: Final = ReleaseAction.model_validate_json(row[1])
-            checked: Final = TypeAdapter(tuple[str] | None).validate_python(
+            checked: Final = TypeAdapter[tuple[str] | None](tuple[str] | None).validate_python(
                 db.execute(
                     "SELECT state FROM rollback_checks WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),)
                 ).fetchone()

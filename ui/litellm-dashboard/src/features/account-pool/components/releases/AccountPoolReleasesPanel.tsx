@@ -223,6 +223,12 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
             jobPending
           }
           onSelectVersion={selectRollback}
+          onForce={() => prepare({
+            action: "apply",
+            version_id: pending.confirmation.action.version_id,
+            force: true,
+            force_acknowledgement: pending.confirmation.rollback?.target_commit,
+          }, "已选择强制回退。请再次核对未验证项与目标版本，确认后仅切换程序，保留当前数据。")}
           onClose={() => setPending(null)}
           onConfirm={() => execution.mutate(pending.confirmation.token)}
         />

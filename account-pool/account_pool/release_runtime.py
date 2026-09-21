@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, JsonValue, SecretStr, TypeAdapter, field_
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from account_pool.config import Settings
-from account_pool.release_compatibility import FEATURES, RollbackEvidence, digest_sources
+from account_pool.release_compatibility import FEATURES, RollbackEvidence, credential_contract, digest_sources
 from account_pool.release_models import ReleaseImage, ReleasePair
 from account_pool.release_store import ReleaseError, write_private
 
@@ -327,18 +327,7 @@ class DockerReleaseRuntime:
         return RollbackEvidence(
             database=hashlib.sha256(self._schema(proxy)).hexdigest(),
             pool=hashlib.sha256(self._schema(pool)).hexdigest(),
-            credentials=digest_sources(
-                {**pool_sources, **proxy_sources},
-                (
-                    "secrets.py",
-                    "repository.py",
-                    "management_repository.py",
-                    "service.py",
-                    "credential-client",
-                    "virtual_key_secret.py",
-                    "encrypt_decrypt_utils.py",
-                ),
-            ),
+            credentials=credential_contract(pool_sources, proxy_sources),
             logs=digest_sources(proxy_sources, ("account_pool_full_logs.py",)),
             startup=digest_sources(
                 proxy_sources, ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
@@ -400,8 +389,13 @@ class DockerReleaseRuntime:
         except ReleaseError:
             return {}
         with tarfile.open(fileobj=io.BytesIO(content)) as archive:
+            names: Final = tuple(member.name for member in archive.getmembers() if member.isfile())
             return {
-                Path(member.name).name: stream.read()
+                (
+                    Path(member.name).name
+                    if sum(Path(name).name == Path(member.name).name for name in names) == 1
+                    else member.name
+                ): stream.read()
                 for member in archive.getmembers()
                 if member.isfile() and member.size <= 8 * 1024 * 1024 and member.name.endswith((".py", ".cfg", ".sh"))
                 for stream in (archive.extractfile(member),)
@@ -423,7 +417,7 @@ class DockerReleaseRuntime:
                 bodies: Final = tuple(self._schema_member(archive, member) for member in entries)
             if not any(bodies):
                 raise ReleaseError("无法核对镜像数据库结构")
-            return b"\n".join(sorted(body for body in bodies if body))
+            return b"\n".join(sorted(part for body in bodies for part in body.splitlines() if part))
         finally:
             self.run("rm", "-v", name)
 
@@ -448,7 +442,7 @@ class DockerReleaseRuntime:
             and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
         )
         contracts: Final = tuple(
-            f"{Path(member.name).name}:{node.name}:"
+            f"{node.name}:"
             + ast.dump(
                 ast.ClassDef(
                     name=node.name,
@@ -465,7 +459,7 @@ class DockerReleaseRuntime:
             and any(isinstance(base, ast.Name) and base.id in ("BaseModel", "StrEnum", "Enum") for base in node.bases)
         )
         aliases: Final = tuple(
-            f"{Path(member.name).name}:" + ast.dump(node, include_attributes=False)
+            ast.dump(node, include_attributes=False)
             for node in tree.body
             if isinstance(node, (ast.AnnAssign, ast.Assign)) and isinstance(node.value, (ast.Subscript, ast.BinOp))
         )

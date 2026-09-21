@@ -20,11 +20,11 @@ from account_pool.release_runtime import (
 )
 
 
-def schema_contract(source: str) -> bytes:
+def schema_contract(source: str, name: str = "account_pool/settings.py") -> bytes:
     data: Final = source.encode()
     output: Final = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
-        member: Final = tarfile.TarInfo("account_pool/settings.py")
+        member: Final = tarfile.TarInfo(name)
         member.size = len(data)
         archive.addfile(member, io.BytesIO(data))
     with tarfile.open(fileobj=io.BytesIO(output.getvalue())) as archive:
@@ -47,6 +47,27 @@ def test_contract_fingerprint_ignores_method_bodies_and_formatting() -> None:
     old: Final = "class Settings(BaseModel):\n    enabled: bool = True\n    def ready(self): return True\n"
     changed: Final = "class Settings(BaseModel):\n    enabled: bool=True\n    def ready(self): return False\n"
     assert schema_contract(old) == schema_contract(changed)
+
+
+def test_contract_fingerprint_ignores_file_moves_but_preserves_fields_and_aliases() -> None:
+    source = 'class Settings(BaseModel):\n    mode: Literal["a"] = "a"\nKind = Literal["a"]\n'
+    assert schema_contract(source) == schema_contract(source, "account_pool/providers/contracts.py")
+    assert schema_contract(source) != schema_contract(source.replace('Literal["a"]', 'Literal["b"]'))
+
+
+def test_credential_contract_follows_moved_encryption_definitions_and_detects_changes() -> None:
+    from account_pool.release_compatibility import credential_contract
+
+    encryption = b'class SecretPurpose(Enum):\n    STATE = "state"\nclass EnvironmentSecretDeriver:\n    def derive(self): return "v1"\nclass StateCipher:\n    def seal(self, text): return text\n'
+    stores = {"repository.py": b"storage-v1", "management_repository.py": b"keys-v1"}
+    proxy = {"virtual_key_secret.py": b"key-v1", "encrypt_decrypt_utils.py": b"cipher-v1"}
+    before = credential_contract({**stores, "secrets.py": encryption}, proxy)
+    after = credential_contract(
+        {**stores, "shared/secrets.py": encryption, "secrets.py": b"from shared.secrets import StateCipher"}, proxy
+    )
+    assert before and before == after
+    assert before != credential_contract({**stores, "secrets.py": encryption.replace(b"v1", b"v2")}, proxy)
+    assert credential_contract(stores, proxy) == ""
 
 
 class Commands:

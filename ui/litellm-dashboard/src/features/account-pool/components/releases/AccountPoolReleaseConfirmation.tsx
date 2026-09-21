@@ -1,6 +1,7 @@
 /** 本文件展示服务器签发的操作内容与倒计时，倒计时结束仍需手动确认。 */
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,7 @@ export function AccountPoolReleaseConfirmation({
   onConfirm,
   onClose,
   onSelectVersion,
+  onForce,
   stale = false,
 }: {
   confirmation: ReleaseConfirmation;
@@ -57,11 +59,13 @@ export function AccountPoolReleaseConfirmation({
   onConfirm: () => void;
   onClose: () => void;
   onSelectVersion?: (id: string) => void;
+  onForce?: () => void;
   stale?: boolean;
 }) {
   const [openedAt] = useState(Date.now);
   const heading = useRef<HTMLHeadingElement>(null);
   const [now, setNow] = useState(Date.now);
+  const [forceText, setForceText] = useState("");
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(timer);
@@ -70,7 +74,10 @@ export function AccountPoolReleaseConfirmation({
   const expired = now >= openedAt + (confirmation.expires_in_seconds ?? 300) * 1000;
   const editing = confirmation.action.action === "note" || confirmation.action.action === "guide";
   const rollback = confirmation.action.action === "apply";
-  const allowed = !rollback || (confirmation.rollback?.status === "compatible" && !!confirmation.token);
+  const forced = confirmation.action.force === true;
+  const forceAvailable = confirmation.rollback?.force_allowed === true;
+  const forceAcknowledged = forceText === confirmation.rollback?.target_commit.slice(0, 10);
+  const allowed = !rollback || (!!confirmation.token && (forced ? forceAvailable : confirmation.rollback?.status === "compatible"));
   const unavailable = remaining > 0 || expired || stale || !allowed;
   return (
     <Dialog
@@ -118,6 +125,18 @@ export function AccountPoolReleaseConfirmation({
           </div>
         )}
         <div className={rollback ? "shrink-0 space-y-3 border-t bg-muted/20 px-5 py-4 sm:px-6" : "space-y-3"}>
+          {rollback && forceAvailable && !forced && (
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+              <p className="font-medium">可选择强制回退</p>
+              <p>跳过未验证的兼容项，旧程序可能无法正常使用当前数据。仅切换程序，不恢复数据库或认证文件。</p>
+              <label htmlFor="rollback-force-version">输入目标版本 {confirmation.rollback?.target_commit.slice(0, 10)}，再进入强制确认</label>
+              <Input id="rollback-force-version" value={forceText} onChange={(event) => setForceText(event.target.value)} autoComplete="off" />
+              <Button variant="destructive" disabled={!forceAcknowledged || busy || stale || expired || !onForce} onClick={onForce}>
+                进入强制回退确认
+              </Button>
+            </div>
+          )}
+          {forced && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">当前为强制回退：上述未验证项不会阻止切换。若启动失败会尝试切回原程序，不恢复数据快照。</p>}
           <p role="status" className="text-sm text-muted-foreground">
             {confirmationStatus({ busy, stale, allowed, expired, remaining })}
           </p>
@@ -126,11 +145,11 @@ export function AccountPoolReleaseConfirmation({
               取消
             </Button>
             <Button
-              variant={confirmation.action.action === "delete" ? "destructive" : "default"}
+              variant={confirmation.action.action === "delete" || forced ? "destructive" : "default"}
               disabled={unavailable || busy}
               onClick={onConfirm}
             >
-              {confirmationLabel(busy, allowed, remaining)}
+              {forced && allowed && remaining === 0 && !busy ? "确认强制回退" : confirmationLabel(busy, allowed, remaining)}
             </Button>
           </DialogFooter>
         </div>

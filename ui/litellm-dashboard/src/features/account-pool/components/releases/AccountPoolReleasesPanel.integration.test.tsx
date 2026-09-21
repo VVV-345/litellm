@@ -259,4 +259,28 @@ describe("project releases", () => {
     });
     expect(executeRelease).not.toHaveBeenCalled();
   });
+
+  it("requires the selected version before preparing force and a second click before execution", async () => {
+    vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
+      token: action.force ? "f".repeat(64) : "",
+      action: { text: "", ...action },
+      delay_seconds: 0,
+      current_commit: current.commit,
+      rollback: { ...report, status: "unverified", force_allowed: true },
+    }));
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("combobox", { name: "选择备份版本" }));
+    await user.click(await screen.findByRole("option", { name: /旧版本备注/ }));
+    await user.click(screen.getByRole("button", { name: "检查并回退" }));
+    expect(await screen.findByRole("button", { name: "进入强制回退确认" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/输入目标版本/), { target: { value: old.commit.slice(0, 10) } });
+    await user.click(screen.getByRole("button", { name: "进入强制回退确认" }));
+    expect(prepareRelease).toHaveBeenLastCalledWith("admin", {
+      action: "apply", version_id: old.id, revision: 3, force: true, force_acknowledgement: old.commit,
+    });
+    expect(executeRelease).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "确认强制回退" }));
+    expect(executeRelease).toHaveBeenCalledWith("admin", "f".repeat(64));
+  });
 });

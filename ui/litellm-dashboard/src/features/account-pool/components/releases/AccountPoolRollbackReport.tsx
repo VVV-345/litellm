@@ -63,7 +63,7 @@ export function AccountPoolRollbackReport({
         <div>
           <p className="font-medium">保留当前业务数据</p>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            密钥、认证文件、日志和费用记录继续保留。此次只切换应用镜像与已核对的部署配置，不恢复历史数据库。
+            密钥、认证文件、日志和费用记录继续保留。此次只切换程序镜像，沿用当前配置与数据挂载，不恢复历史数据库。
           </p>
         </div>
       </div>

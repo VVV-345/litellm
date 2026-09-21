@@ -55,6 +55,8 @@ class ReleaseAction(BaseModel):
     text: str = Field(default="", max_length=12000)
     tag: Annotated[str, Field(pattern=r"^[a-f0-9]{10,40}$")] | None = None
     revision: int = Field(ge=0)
+    force: bool = False
+    force_acknowledgement: str = Field(default="", max_length=40)
 
 
 class ReleaseConfirmation(BaseModel):
@@ -83,6 +85,7 @@ class RollbackInspection(BaseModel):
     current_commit: Commit
     target_commit: Commit
     status: Literal["compatible", "blocked", "unverified"]
+    force_allowed: bool = False
     checks: tuple[RollbackCheck, ...]
     impacts: tuple[str, ...]
     alternatives: tuple[RollbackAlternative, ...] = ()

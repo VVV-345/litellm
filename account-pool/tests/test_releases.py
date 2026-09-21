@@ -60,6 +60,7 @@ class Runtime:
         self.changed_schema: str | None = None
         self.configuration: str | None = None
         self.missing_feature: str | None = None
+        self.missing_image: str | None = None
 
     def current(self) -> ReleasePair:
         return self.running
@@ -94,6 +95,8 @@ class Runtime:
         return "changed" if self.changed_schema == pair.id else "identical-schema"
 
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
+        if self.missing_image == pair.id:
+            raise ReleaseError("镜像已清理")
         return RollbackEvidence(
             self.fingerprint(pair),
             "pool",
@@ -106,9 +109,10 @@ class Runtime:
     def load(self, pair: ReleasePair, archive: Path) -> None:
         assert ReleasePair.model_validate_json(gzip.decompress(archive.read_bytes())).id == pair.id
         self.events += ("load:" + pair.id,)
+        self.missing_image = None
 
     def apply(self, pair: ReleasePair, configuration: bytes) -> None:
-        assert configuration == self.compose()
+        assert configuration == self.running_compose()
         self.events += ("apply:" + pair.id,)
         self.running = pair
         if self.fail_apply == pair.id:
@@ -398,3 +402,89 @@ def test_unsafe_startup_is_blocked_without_returning_configuration(command: list
 def test_missing_evidence_is_never_reported_as_compatible() -> None:
     empty: Final = RollbackEvidence("", "", "", "", "", ())
     assert all(check.status == "unverified" for check in compare_evidence(empty, empty))
+
+
+def test_old_backup_fingerprint_is_not_an_execution_gate(setup) -> None:
+    service, runtime, clock = setup
+    original = service.backup(OLD, runtime.compose())
+    legacy = original.model_copy(update={"schema_fingerprint": "old-path-dependent-fingerprint"})
+    service.store.save_backup(legacy)
+    service.run(queued(service, clock, action(service, "apply", version_id=OLD.id)))
+    assert runtime.running == OLD
+    assert service.store.jobs()[0].status == "succeeded"
+    assert service.store.backup(OLD.id) == legacy
+
+
+def test_inspection_imports_missing_image_from_verified_backup_without_starting_it(setup) -> None:
+    service, runtime, _ = setup
+    service.backup(OLD, runtime.compose())
+    runtime.missing_image = OLD.id
+    confirmation = service.prepare(action(service, "apply", version_id=OLD.id), "admin")
+    assert confirmation.rollback.status == "compatible"
+    assert runtime.running == CURRENT
+    assert runtime.events == ("export:" + OLD.id, "load:" + OLD.id)
+
+
+@pytest.mark.parametrize("fail_start", [False, True])
+def test_forced_rollback_requires_explicit_bound_confirmation_and_preserves_current_configuration(
+    setup, fail_start
+) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    runtime.changed_schema = OLD.id
+    runtime.configuration = json.dumps(
+        {
+            "services": {
+                "litellm": {
+                    "command": ["--use_v2_migration_resolver"],
+                    "entrypoint": ["docker/prod_entrypoint.sh"],
+                    "environment": {"DATABASE_URL": "current-private-value"},
+                },
+                "account-pool": {},
+            }
+        }
+    )
+    ordinary = service.prepare(action(service, "apply", version_id=OLD.id), "admin")
+    assert ordinary.token == "" and ordinary.rollback.force_allowed
+    with pytest.raises(ReleaseError, match="确认版本"):
+        service.prepare(action(service, "apply", version_id=OLD.id, force=True), "admin")
+    forced = action(service, "apply", version_id=OLD.id, force=True, force_acknowledgement=OLD.commit)
+    confirmation = service.prepare(forced, "admin")
+    assert confirmation.delay_seconds == 10 and confirmation.token
+    assert "current-private-value" not in confirmation.model_dump_json()
+    with pytest.raises(ReleaseError, match="倒计时"):
+        service.execute(confirmation.token, "admin")
+    clock.now += 10
+    runtime.fail_apply = OLD.id if fail_start else None
+    service.run(service.execute(confirmation.token, "admin"))
+    assert runtime.running == (CURRENT if fail_start else OLD)
+    assert service.store.jobs()[0].status == ("recovered" if fail_start else "succeeded")
+    assert service.store.backup(CURRENT.id) is not None
+
+
+@pytest.mark.parametrize("failure", ["archive", "startup", "configuration_after_confirm"])
+def test_forced_rollback_never_bypasses_integrity_startup_or_stale_state(setup, failure) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    runtime.changed_schema = OLD.id
+    request = action(service, "apply", version_id=OLD.id, force=True, force_acknowledgement=OLD.commit)
+    if failure == "archive":
+        service.store.path(OLD.id).joinpath("images.tar.gz").write_bytes(b"broken")
+    elif failure == "startup":
+        runtime.configuration = (
+            runtime.compose().decode().replace("--use_v2_migration_resolver", "--use_prisma_db_push")
+        )
+    if failure != "configuration_after_confirm":
+        with pytest.raises(ReleaseError):
+            service.prepare(request, "admin")
+    else:
+        job = queued(service, clock, request)
+        runtime.configuration = (
+            runtime.compose()
+            .decode()
+            .replace('"account-pool": {}', '"account-pool": {"environment": {"NEW": "value"}}')
+        )
+        service.run(job)
+        assert service.store.jobs()[0].status == "failed"
+    assert runtime.running == CURRENT
+    assert not any(event.startswith("apply:") for event in runtime.events)

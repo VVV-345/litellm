@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import shlex
 from dataclasses import dataclass
@@ -37,6 +38,23 @@ def digest_sources(sources: dict[str, bytes], names: tuple[str, ...]) -> str:
     return hashlib.sha256(b"\n".join(sources[name].replace(b"\r\n", b"\n") for name in names)).hexdigest()
 
 
+def credential_contract(pool: dict[str, bytes], proxy: dict[str, bytes]) -> str:
+    classes: Final = ("SecretPurpose", "EnvironmentSecretDeriver", "StateCipher")
+    definitions: Final = tuple(
+        (node.name, ast.dump(node, include_attributes=False))
+        for source in pool.values()
+        for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name in classes
+    )
+    if any(sum(name == expected for name, _ in definitions) != 1 for expected in classes):
+        return ""
+    persistence: Final = digest_sources(pool, ("repository.py", "management_repository.py"))
+    encryption: Final = digest_sources(proxy, ("virtual_key_secret.py", "encrypt_decrypt_utils.py"))
+    if not persistence or not encryption:
+        return ""
+    return hashlib.sha256((repr(sorted(definitions)) + persistence + encryption).encode()).hexdigest()
+
+
 def same_contract(key: str, title: str, current: str, target: str, detail: str) -> RollbackCheck:
     same: Final = bool(current and target and current == target)
     return RollbackCheck(
@@ -67,7 +85,7 @@ def configuration_checks(current: bytes, target: bytes) -> tuple[RollbackCheck, 
     ) and all(
         current_config.get(key) == target_config.get(key) for key in ("volumes", "networks", "secrets", "configs")
     )
-    raw_command: Final = target_services["litellm"].get("command")
+    raw_command: Final = current_services["litellm"].get("command")
     command: Final = (
         shlex.split(raw_command)
         if isinstance(raw_command, str)
@@ -78,7 +96,7 @@ def configuration_checks(current: bytes, target: bytes) -> tuple[RollbackCheck, 
         and not any(
             item.split("=", 1)[0] in ("--use_prisma_db_push", "--skip_db", "--skip_server_startup") for item in command
         )
-        and target_services["litellm"].get("entrypoint")
+        and current_services["litellm"].get("entrypoint")
         in (
             ["docker/prod_entrypoint.sh"],
             ["/app/docker/prod_entrypoint.sh"],
@@ -93,7 +111,7 @@ def configuration_checks(current: bytes, target: bytes) -> tuple[RollbackCheck, 
             status="compatible" if same else "unverified",
             detail="环境变量、启动参数与挂载位置一致，继续使用当前数据。"
             if same
-            else "历史配置与当前配置不同，可能影响数据库连接、加密密钥或数据挂载；需要先核对，页面不展示敏感配置值。",
+            else "历史配置与当前不同；本次保留当前环境变量、加密配置和数据挂载，不应用历史配置。旧程序的配置支持范围仍需核对。",
         ),
         RollbackCheck(
             key="migration",
@@ -101,7 +119,7 @@ def configuration_checks(current: bytes, target: bytes) -> tuple[RollbackCheck, 
             status="compatible" if safe else "blocked",
             detail="使用 v2 迁移流程，未启用强制数据库同步；仍需结构与启动代码检查通过。"
             if safe
-            else "旧启动参数未明确使用 v2 安全迁移流程，或启用了数据库强制同步等不支持的参数，可能改动现有数据结构。",
+            else "当前启动参数未明确使用 v2 安全迁移流程，或启用了数据库强制同步等不支持的参数，不能用于程序回退。",
         ),
     )
 
@@ -121,7 +139,7 @@ def compare_evidence(current: RollbackEvidence, target: RollbackEvidence) -> tup
             "认证文件与密钥",
             current.credentials,
             target.credentials,
-            "关键凭据读写与加密代码一致；凭据有效期不属于版本检查。",
+            "密钥派生、状态加密和数据库凭据存储定义一致；不保证 OAuth 有效或上游认证文件协议兼容。",
         ),
         same_contract(
             "logs",

@@ -37894,6 +37894,16 @@ export interface components {
              * @enum {string}
              */
             action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover";
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /**
+             * Force Acknowledgement
+             * @default
+             */
+            force_acknowledgement: string;
             /** Revision */
             revision: number;
             /** Tag */
@@ -38600,6 +38610,11 @@ export interface components {
             checks: components["schemas"]["RollbackCheck"][];
             /** Current Commit */
             current_commit: string;
+            /**
+             * Force Allowed
+             * @default false
+             */
+            force_allowed: boolean;
             /** Impacts */
             impacts: string[];
             /**

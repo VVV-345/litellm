@@ -118,6 +118,10 @@ class ReleaseService:
         return directory
 
     def prepare(self, action: ReleaseAction, actor: str) -> ReleaseConfirmation:
+        if action.action != "apply" and (action.force or action.force_acknowledgement):
+            raise ReleaseError("只有程序回退支持强制确认")
+        if not action.force and action.force_acknowledgement:
+            raise ReleaseError("普通回退不接受强制确认内容")
         view: Final = self.view()
         if view.job and view.job.status in ("queued", "running"):
             raise ReleaseError("已有任务正在执行，请等待完成")
@@ -151,7 +155,9 @@ class ReleaseService:
             report, state = self.inspect_rollback(view.current, action.version_id or "", alternatives=True)
             if self.runtime.current().id != view.current.id or self.store.settings()[0] != action.revision:
                 raise ReleaseError("检查期间版本或备份发生变化，请重新检查")
-            if report.status != "compatible":
+            if action.force and (not report.force_allowed or action.force_acknowledgement != report.target_commit):
+                raise ReleaseError("强制回退条件不满足，或确认版本不一致；请重新检查")
+            if report.status != "compatible" and not action.force:
                 return ReleaseConfirmation(
                     token="", action=action, delay_seconds=5, current_commit=view.current.commit, rollback=report
                 )
@@ -215,6 +221,7 @@ class ReleaseService:
             current_commit=current.commit,
             target_commit=saved.pair.commit,
             status=status,
+            force_allowed=bool(state) and status == "unverified" and all(item.status != "blocked" for item in checks),
             checks=checks,
             impacts=impacts,
             alternatives=recommendations,
@@ -237,7 +244,36 @@ class ReleaseService:
                 "",
             )
         try:
-            target: Final = self.runtime.evidence(saved.pair)
+            try:
+                target: Final = self.runtime.evidence(saved.pair)
+            except (ReleaseError, ValueError):
+                self.runtime.load(saved.pair, directory / "images.tar.gz")
+                return self._inspect_loaded_backup(saved, current, configuration, directory)
+            return self._inspect_loaded_backup(saved, current, configuration, directory, target)
+        except (ReleaseError, ValueError, KeyError):
+            return (
+                (
+                    RollbackCheck(
+                        key="evidence",
+                        title="镜像兼容性证据",
+                        status="unverified",
+                        detail="目标镜像检查依据无法读取，不能强制跳过备份和启动检查。",
+                    ),
+                ),
+                ("目标镜像缺少可读取的检查依据，无法确认具体功能影响。",),
+                "",
+            )
+
+    def _inspect_loaded_backup(
+        self,
+        saved: ReleaseBackup,
+        current: RollbackEvidence,
+        configuration: bytes,
+        directory: Path,
+        evidence: RollbackEvidence | None = None,
+    ) -> tuple[tuple[RollbackCheck, ...], tuple[str, ...], str]:
+        try:
+            target: Final = evidence if evidence is not None else self.runtime.evidence(saved.pair)
             target_config: Final = (directory / "compose.json").read_bytes()
             checks: Final = (
                 RollbackCheck(
@@ -251,12 +287,8 @@ class ReleaseService:
                 RollbackCheck(
                     key="fingerprint",
                     title="备份结构记录",
-                    status="compatible"
-                    if saved.schema_fingerprint == self.runtime.fingerprint(saved.pair)
-                    else "unverified",
-                    detail="备份结构记录与镜像一致。"
-                    if saved.schema_fingerprint == self.runtime.fingerprint(saved.pair)
-                    else "备份结构记录与当前检查方式不同，请先重新扫描备份。",
+                    status="compatible",
+                    detail="已从目标镜像重新提取检查依据；旧备份的历史指纹仅作记录，不覆盖原备份。",
                 ),
             )
             missing: Final = tuple(
@@ -267,6 +299,7 @@ class ReleaseService:
             impacts: Final = missing + (
                 "功能检查覆盖密钥显示、完整日志、请求耗时、卡片路由与版本管理接口；其他历史行为差异尚未验证。",
                 "回退时会短暂中断请求，健康检查失败会尝试恢复原运行版本。",
+                "仅替换程序镜像，继续使用当前部署配置、数据库、认证文件和日志，不恢复数据快照。",
             )
             return (
                 checks,
@@ -357,8 +390,6 @@ class ReleaseService:
     def restore(self, backup: ReleaseBackup) -> None:
         directory: Final = self.verify(backup)
         self.runtime.load(backup.pair, directory / "images.tar.gz")
-        if self.runtime.fingerprint(backup.pair) != backup.schema_fingerprint:
-            raise ReleaseError("备份镜像的兼容性校验不一致，请用当前版本重新扫描备份")
         self.runtime.apply(backup.pair, (directory / "compose.json").read_bytes())
 
     def run(self, job: ReleaseJob) -> None:
@@ -437,7 +468,7 @@ class ReleaseService:
         self.phase(job, "备份当前运行版本")
         recovery: Final = self.backup(current, self.runtime.running_compose())
         # 新版若会改变数据库结构，故障时不能自动切换旧镜像，因此先阻止这类在线替换。
-        if self.runtime.fingerprint(target) != recovery.schema_fingerprint:
+        if action.action == "deploy" and self.runtime.fingerprint(target) != recovery.schema_fingerprint:
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
@@ -458,15 +489,16 @@ class ReleaseService:
         self.phase(job, "校验并导入备份镜像")
         directory: Final = self.verify(saved)
         self.runtime.load(saved.pair, directory / "images.tar.gz")
-        if saved.schema_fingerprint != self.runtime.fingerprint(saved.pair):
-            raise ReleaseError("备份镜像的兼容性校验不一致，请用当前版本重新扫描备份")
-        if saved.schema_fingerprint != self.runtime.fingerprint(current):
-            raise ReleaseError("两个版本的数据库结构或持久化配置格式不同，不能直接回退；请先完成兼容性处理")
-        return saved.pair, (directory / "compose.json").read_bytes()
+        return saved.pair, self.runtime.running_compose()
 
     def _require_rollback_check(self, job: ReleaseJob, current: ReleasePair) -> None:
         report, state = self.inspect_rollback(current, job.action.version_id or "")
-        if report.status != "compatible" or not state or state != job.rollback_state:
+        accepted: Final = (
+            report.force_allowed and job.action.force_acknowledgement == report.target_commit
+            if job.action.force
+            else report.status == "compatible"
+        )
+        if not accepted or not state or state != job.rollback_state:
             raise ReleaseError("回退检查未通过或配置已变化，请重新检查并确认；未替换服务")
 
     def _recover(self, job: ReleaseJob, message: str) -> None:
