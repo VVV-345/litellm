@@ -56,6 +56,7 @@ class EventStream:
         self.error_type: str | None = None
         self.error_status = 502
         self.signature_rejected = False
+        self.signature_recovery_reason: str | None = None
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
         self.cache_read_input_tokens: int | None = None
@@ -104,9 +105,11 @@ class EventStream:
         }
 
     def public_error(self) -> dict[str, JsonValue]:
+        from litellm.proxy.management_endpoints.account_pool_signature import signature_recovery_message
+
         message: Final = (
-            "The previous thinking state is incompatible with this upstream. Start a new conversation or resend complete history without stale thinking state."
-            if self.error_code in ("thinking_signature_invalid", "invalid_encrypted_content")
+            signature_recovery_message("output_started" if self.meaningful else self.signature_recovery_reason)
+            if self.signature_rejected
             else "Upstream rejected the prompt (invalid_prompt)"
             if self.error_code == "invalid_prompt"
             else "Upstream rejected the request: invalid_request_error content_policy_violation"

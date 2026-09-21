@@ -66,3 +66,21 @@ def signature_error(error: JsonValue) -> bool:
 
 def safe_signature_recovery(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
     return recover_signature_history(payload)
+
+
+def signature_recovery_message(reason: str | None) -> str:
+    category: Final = (reason or "no_removable_state").split(":", 1)[0]
+    explanation: Final = {
+        "encrypted_compaction": "会话包含加密的压缩上下文，当前上游无法读取，不能直接删除而丢失上下文",
+        "server_item_reference": "会话引用了原上游保存的消息，当前上游无法读取这些消息",
+        "server_state_required": "请求依赖原上游保存的会话状态，无法在当前上游重建",
+        "incomplete_history": "客户端没有携带可用于重建会话的完整历史",
+        "unpaired_tool_history": "工具调用和结果不完整，无法安全重试",
+        "out_of_order_tool_history": "工具调用和结果顺序不正确，无法安全重试",
+        "server_or_unknown_tools": "请求包含服务端工具或尚未支持的工具，无法安全重试",
+        "unsupported_content": "会话包含尚未支持的历史内容格式",
+        "unsupported_history": "会话包含尚未支持的消息或工具格式",
+        "retry_exhausted": "已在同一卡片清理旧思考状态并重试一次，上游仍拒绝",
+        "output_started": "本次响应已开始输出，为避免重复执行已停止重试",
+    }.get(category, "原会话的思考状态无法由当前上游验证")
+    return f"跨上游思考状态不兼容：{explanation}。请新建会话，或回到原中转站继续原会话。恢复原因：{reason or 'no_removable_state'}"

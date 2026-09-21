@@ -20,6 +20,9 @@ _CONTENT: Final = frozenset(
         "image_url",
         "document",
         "input_file",
+        "file",
+        "input_audio",
+        "refusal",
         "thinking",
         "redacted_thinking",
     )
@@ -30,9 +33,20 @@ def _client_tool(tool: JsonValue) -> bool:
     if not isinstance(tool, dict):
         return False
     kind: Final = tool.get("type")
+    if kind == "namespace":
+        members: Final = tool.get("tools")
+        return (
+            isinstance(tool.get("name"), str)
+            and bool(tool.get("name"))
+            and isinstance(members, list)
+            and all(
+                isinstance(member, dict) and member.get("type") in ("function", "custom") and _client_tool(member)
+                for member in members
+            )
+        )
     if kind not in (None, "function", "custom"):
         return False
-    definition: Final = tool.get("function", tool)
+    definition: Final = tool.get("custom", tool) if kind == "custom" else tool.get("function", tool)
     return isinstance(definition, dict) and isinstance(definition.get("name"), str) and bool(definition.get("name"))
 
 
@@ -61,10 +75,10 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
         return (("result", result_id),) if isinstance(result_id, str) and result_id else None
     if role not in ("user", "assistant", "system", "developer"):
         return None
-    calls: Final = item.get("tool_calls", [])
+    calls: Final = [] if item.get("tool_calls") is None else item["tool_calls"]
     if not isinstance(calls, list) or any(
         not isinstance(call, dict)
-        or call.get("type") != "function"
+        or call.get("type") not in ("function", "custom")
         or not isinstance(call.get("id"), str)
         or not call.get("id")
         for call in calls
@@ -73,7 +87,11 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
     if calls and role != "assistant":
         return None
     content: Final = item.get("content")
-    if isinstance(content, str) or content is None and calls:
+    if (
+        isinstance(content, str)
+        or content is None
+        and (calls or role == "assistant" and isinstance(item.get("refusal"), str) and item.get("refusal"))
+    ):
         return tuple(("call", str(call["id"])) for call in calls if isinstance(call, dict))
     if not isinstance(content, list):
         return None
@@ -99,17 +117,75 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
     )
 
 
+def _history_issue(item: JsonValue, path: str) -> str | None:
+    if not isinstance(item, dict):
+        return f"unsupported_history:{path}:invalid_item"
+    if item.get("type") == "compaction":
+        return f"encrypted_compaction:{path}"
+    if item.get("type") == "item_reference":
+        return f"server_item_reference:{path}"
+    if item.get("type") in (
+        "web_search_call",
+        "file_search_call",
+        "computer_call",
+        "computer_call_output",
+        "code_interpreter_call",
+        "image_generation_call",
+        "mcp_call",
+        "mcp_list_tools",
+        "mcp_approval_request",
+        "mcp_approval_response",
+        "local_shell_call",
+        "local_shell_call_output",
+        "shell_call",
+        "shell_call_output",
+        "apply_patch_call",
+        "apply_patch_call_output",
+        "tool_search_call",
+        "tool_search_output",
+    ):
+        return f"unsupported_history:{path}:{item['type']}"
+    if _tool_events(item) is not None:
+        return None
+    content: Final = item.get("content")
+    if isinstance(content, list):
+        invalid: Final = next(
+            (
+                index
+                for index, block in enumerate(content)
+                if not isinstance(block, dict)
+                or not isinstance(block.get("type"), str)
+                or block.get("type") not in _CONTENT
+                and not (
+                    (block.get("type"), item.get("role")) in (("tool_use", "assistant"), ("tool_result", "user"))
+                    and _tool_events(block) is not None
+                )
+            ),
+            None,
+        )
+        if invalid is not None:
+            return f"unsupported_content:{path}.content[{invalid}]"
+    return f"unsupported_history:{path}:invalid_item_or_tools"
+
+
 def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if any(payload.get(key) for key in ("previous_response_id", "conversation", "background")):
         return "server_state_required"
     if payload.get("functions"):
         return "legacy_function_history"
-    tools: Final = payload.get("tools", [])
+    tools: Final = [] if payload.get("tools") is None else payload["tools"]
     if not isinstance(tools, list) or not all(_client_tool(tool) for tool in tools):
         return "server_or_unknown_tools"
     history: Final = payload.get("messages", payload.get("input"))
     if not isinstance(history, list) or not history:
         return "incomplete_history"
+    field: Final = "messages" if "messages" in payload else "input"
+    issue: Final = next(
+        (reason for index, item in enumerate(history) if (reason := _history_issue(item, f"{field}[{index}]"))),
+        None,
+    )
+    if issue is not None:
+        return issue
     first: Final = next(
         (
             item
@@ -123,8 +199,6 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if first is None or first.get("role") != "user" or not first.get("content"):
         return "incomplete_history"
     inspected: Final = tuple(_tool_events(item) if isinstance(item, dict) else None for item in history)
-    if any(events is None for events in inspected):
-        return "unsupported_history"
     events: Final = tuple(event for group in inspected if group is not None for event in group)
     calls: Final = tuple(identifier for kind, identifier in events if kind == "call")
     results: Final = tuple(identifier for kind, identifier in events if kind == "result")
@@ -140,8 +214,26 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
     if signature_recovery_reason(payload) is not None:
         return None
     history: Final = payload.get("messages", payload.get("input"))
+    normalized: Final = [
+        {**item, "content": None}
+        if item.get("role") == "assistant"
+        and (item.get("tool_calls") or item.get("refusal"))
+        and isinstance(content := item.get("content"), list)
+        and content
+        and all(isinstance(block, dict) and block.get("type") in ("thinking", "redacted_thinking") for block in content)
+        else item
+        for item in _HISTORY.validate_python(history)
+    ]
     stripped: Final = _HISTORY.validate_python(
-        strip_thinking_blocks_from_anthropic_messages(_HISTORY.validate_python(history))
+        [
+            entry
+            for item in normalized
+            for entry in (
+                strip_thinking_blocks_from_anthropic_messages([item])
+                if isinstance(item.get("content"), list) and item.get("content")
+                else [item]
+            )
+        ]
     )
     cleaned_history: Final[list[JsonValue]] = [
         {

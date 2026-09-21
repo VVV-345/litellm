@@ -1695,6 +1695,7 @@ def test_signature_recovery_keeps_complete_client_tool_history(stream, style):
         ),
         ([], [{"type": "web_search"}]),
         ([], [{"type": "mcp", "server_url": "https://example.com"}]),
+        ([], [{"type": "namespace", "name": "hosted", "tools": [{"type": "web_search"}]}]),
     ],
 )
 def test_signature_recovery_rejects_incomplete_tools_and_server_side_actions(history, tools):
@@ -1722,3 +1723,128 @@ def test_signature_recovery_does_not_change_unsigned_thinking_requests_or_accept
     assert recover_signature_history(unsigned) is None
     malformed = {"messages": [{"role": "user", "content": [{"type": {"unexpected": "object"}}]}]}
     assert recover_signature_history(malformed) is None
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("style", ["responses", "chat", "messages"])
+def test_cross_site_signature_recovery_preserves_visible_history_and_custom_tools(stream, style):
+    from copy import deepcopy
+
+    histories = {
+        "responses": [
+            {"role": "user", "content": "first"},
+            {"type": "reasoning", "id": "rs_foreign", "encrypted_content": "foreign-secret", "summary": []},
+            {"type": "message", "role": "assistant", "content": [{"type": "refusal", "refusal": "Cannot do that"}]},
+            {"role": "user", "content": "Try a different task"},
+            {"type": "custom_tool_call", "call_id": "c1", "namespace": "files", "name": "read", "input": "file"},
+            {"type": "custom_tool_call_output", "call_id": "c1", "output": "visible result"},
+        ],
+        "chat": [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": None, "refusal": "Cannot do that", "tool_calls": None},
+            {"role": "user", "content": "Try a different task"},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "prior", "signature": "foreign-secret"}],
+             "tool_calls": [{"type": "custom", "id": "c1", "custom": {"name": "read", "input": "file"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "visible result"},
+        ],
+        "messages": [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": [{"type": "redacted_thinking", "data": "foreign-secret"},
+                {"type": "text", "text": "visible answer"}, {"type": "tool_use", "id": "c1", "name": "read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": "visible result"}]},
+        ],
+    }
+    field = "input" if style == "responses" else "messages"
+    tools = {
+        "responses": [{"type": "namespace", "name": "files", "description": "File tools",
+                       "tools": [{"type": "custom", "name": "read"}]}],
+        "chat": [{"type": "custom", "custom": {"name": "read"}}],
+        "messages": [{"name": "read", "input_schema": {"type": "object"}}],
+    }
+    payload = {"model": "model-a", "stream": stream, field: histories[style], "tools": tools[style]}
+    expected = deepcopy(payload)
+    if style == "responses":
+        del expected[field][1]
+    elif style == "chat":
+        expected[field][3]["content"] = None
+    else:
+        del expected[field][1]["content"][0]
+    original = deepcopy(payload)
+    captured = []
+
+    def upstream(request):
+        captured.append(request)
+        if len(captured) == 1:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+        if stream:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                                  content='data: {"type":"response.completed","response":{"output":[]}}\n\n')
+        return httpx.Response(200, json={"id": "resp-new", "output": []})
+
+    client, control = setup_gateway(upstream, max_attempts=3)
+    path = {"responses": "/v1/responses", "chat": "/v1/chat/completions", "messages": "/v1/messages"}[style]
+    with client:
+        response = client.post(path, headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert response.status_code == 200
+    assert [json.loads(request.content) for request in captured] == [original, expected]
+    assert payload == original
+    assert captured[0].url == captured[1].url
+    assert captured[0].headers["authorization"] == captured[1].headers["authorization"]
+    assert len(control.acquisitions) == len(control.finished) == 1
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("history_item,reason", [
+    ({"type": "compaction", "encrypted_content": "foreign-secret"}, "encrypted_compaction"),
+    ({"type": "item_reference", "id": "opaque-private-id"}, "server_item_reference"),
+    ({"role": "assistant", "content": [{"type": "private-unknown-type", "text": "private-content"}]},
+     "unsupported_content"),
+])
+def test_cross_site_signature_failure_explains_unrecoverable_history_without_exposing_content(stream, history_item, reason):
+    captured = []
+
+    def upstream(request):
+        captured.append(request)
+        error = {"code": "thinking_signature_invalid", "message": "Encrypted content could not be verified"}
+        if stream:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                                  content="data: " + json.dumps({"type": "error", "error": error}) + "\n\n")
+        return httpx.Response(400, json={"error": error})
+
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "stream": stream, "input": [
+                {"role": "user", "content": "first"},
+                {"type": "reasoning", "encrypted_content": "foreign-secret"}, history_item,
+                {"role": "user", "content": "continue"},
+            ],
+        })
+    assert response.status_code == (200 if stream else 400)
+    assert len(captured) == len(control.acquisitions) == len(control.finished) == 1
+    assert control.finished[0].http_status == 400
+    assert reason in control.finished[0].detail
+    assert "input[2]" in control.finished[0].detail
+    public = json.loads(response.text.removeprefix("data: ")) if stream else response.json()
+    assert public["error"]["code"] == "thinking_signature_invalid"
+    assert reason in public["error"]["message"]
+    assert "新建会话" in public["error"]["message"]
+    for secret in ("foreign-secret", "opaque-private-id", "private-unknown-type", "private-content"):
+        assert secret not in response.text and secret not in control.finished[0].detail
+
+
+def test_signature_recovery_keeps_multimodal_inputs_and_does_not_replay_unsigned_empty_content():
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    user = {"role": "user", "content": [
+        {"type": "input_audio", "input_audio": {"data": "audio", "format": "wav"}},
+        {"type": "file", "file": {"filename": "note.txt", "file_data": "text"}},
+    ]}
+    refusal = {"role": "assistant", "content": [{"type": "refusal", "refusal": "Cannot do that"}], "tool_calls": None,
+               "reasoning_content": "old"}
+    payload = {"messages": [user, refusal], "tools": None}
+    assert recover_signature_history(payload) == {
+        "messages": [user, {key: value for key, value in refusal.items() if key != "reasoning_content"}], "tools": None,
+    }
+    unsigned = {"messages": [user, {"role": "assistant", "content": [], "refusal": "Cannot do that"}]}
+    assert recover_signature_history(unsigned) is None

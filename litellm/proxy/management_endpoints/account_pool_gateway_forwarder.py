@@ -46,7 +46,11 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
-from litellm.proxy.management_endpoints.account_pool_signature import safe_signature_recovery, signature_error
+from litellm.proxy.management_endpoints.account_pool_signature import (
+    safe_signature_recovery,
+    signature_error,
+    signature_recovery_message,
+)
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
@@ -537,6 +541,10 @@ async def execute(
     signature_recovered: bool = False,
 ) -> bool:
     recovery_payload: Final = safe_signature_recovery(payload) if not signature_recovered else None
+    recovery_reason: Final = (
+        "retry_exhausted" if signature_recovered else signature_recovery_reason(payload) or "no_removable_state"
+    )
+    attempt.stream_state.signature_recovery_reason = recovery_reason
     provider_header_names: Final = frozenset(name.lower() for name, _ in route.account.headers)
     client_headers: Final = tuple(
         (name, value)
@@ -635,13 +643,10 @@ async def execute(
                             signature_recovered=True,
                         )
                     if signature_error(error_payload):
-                        reason: Final = (
-                            "retry_exhausted"
-                            if signature_recovered
-                            else signature_recovery_reason(payload) or "no_removable_state"
-                        )
                         attempt.outcome(
-                            400, "Incompatible thinking history", detail=f"signature_recovery: {reason}; same_card=true"
+                            400,
+                            "Incompatible thinking history",
+                            detail=f"signature_recovery: {recovery_reason}; same_card=true",
                         )
                     if attempt.log is not None:
                         attempt.log.capture(json.dumps(error_payload).encode())
@@ -649,6 +654,7 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     retry: Final = (
                         next_id is not None
+                        and not signature_error(error_payload)
                         and not (
                             public_status == 429 and getattr(request.state, "account_pool_standard_accounting", False)
                         )
@@ -676,7 +682,15 @@ async def execute(
                     if retry:
                         return False
                     await JSONResponse(
-                        error_payload,
+                        {
+                            "error": {
+                                "message": signature_recovery_message(recovery_reason),
+                                "type": "invalid_request_error",
+                                "code": code or "thinking_signature_invalid",
+                            }
+                        }
+                        if signature_error(error_payload)
+                        else error_payload,
                         status_code=public_status,
                         headers=public_response_headers(response.headers),
                     )(request.scope, request.receive, attempt.emit)
@@ -726,11 +740,7 @@ async def execute(
                         request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline
                     )
                     if attempt.stream_state.signature_rejected:
-                        stream_reason: Final = (
-                            "retry_exhausted"
-                            if signature_recovered
-                            else signature_recovery_reason(payload) or "no_removable_state"
-                        )
+                        stream_reason: Final = "output_started" if attempt.stream_state.meaningful else recovery_reason
                         attempt.outcome(
                             attempt.result.http_status,
                             attempt.result.message,
