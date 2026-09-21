@@ -1,3 +1,4 @@
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { getProxyBaseUrl } from "@/components/networking";
 import { useQuery } from "@tanstack/react-query";
 

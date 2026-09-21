@@ -101,6 +101,7 @@ describe("useCloudZeroSettings", () => {
     expect(result.current.error).toBeNull();
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/cloudzero/settings`, {
       method: "GET",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",
@@ -289,6 +290,7 @@ describe("useCloudZeroUpdateSettings", () => {
     expect(result.current.data).toEqual(mockResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/cloudzero/settings`, {
       method: "PUT",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",
@@ -526,6 +528,7 @@ describe("useCloudZeroDeleteSettings", () => {
     expect(result.current.data).toEqual(mockResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/cloudzero/delete`, {
       method: "DELETE",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",

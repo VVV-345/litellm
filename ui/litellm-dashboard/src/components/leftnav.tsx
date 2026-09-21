@@ -439,6 +439,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   allowVectorStoresForTeamAdmins,
 }) => {
   const { t } = useTranslation();
+  const [prefetchKey, setPrefetchKey] = useState<string | null>(null);
   const { userId, accessToken, userRole, isViewOnly } = useAuthorized();
   const isOrgAdmin = useIsOrgAdmin();
   const { data: teams } = useTeams();
@@ -582,9 +583,12 @@ const Sidebar_: React.FC<SidebarProps> = ({
 
     const href = MIGRATED_PAGES[item.page] ? migratedHref(MIGRATED_PAGES[item.page]) : legacyPageHref(item.page);
     return (
-      <a
+      <Link
         key={item.key}
         href={href}
+        prefetch={prefetchKey === item.key}
+        onMouseEnter={() => setPrefetchKey(item.key)}
+        onFocus={() => setPrefetchKey(item.key)}
         onClick={(e) => handleLeafClick(e, item)}
         title={collapsed ? translatedLabel(item) : undefined}
         data-active={active || undefined}
@@ -592,7 +596,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
       >
         {item.icon}
         {label}
-      </a>
+      </Link>
     );
   };
 

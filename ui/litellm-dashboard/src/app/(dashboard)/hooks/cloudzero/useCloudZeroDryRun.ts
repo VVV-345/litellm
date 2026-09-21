@@ -1,3 +1,4 @@
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { getProxyBaseUrl, getGlobalLitellmHeaderName } from "@/components/networking";
 import { useMutation } from "@tanstack/react-query";
 

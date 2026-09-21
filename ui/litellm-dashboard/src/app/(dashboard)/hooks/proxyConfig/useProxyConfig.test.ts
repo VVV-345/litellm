@@ -178,6 +178,7 @@ describe("useProxyConfig", () => {
       `${mockProxyBaseUrl}/config/list?config_type=${ConfigType.GENERAL_SETTINGS}`,
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           [mockHeaderName]: `Bearer ${mockAccessToken}`,
           "Content-Type": "application/json",
@@ -344,6 +345,7 @@ describe("useDeleteProxyConfigField", () => {
     expect(result.current.data).toEqual(mockDeleteResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/config/field/delete`, {
       method: "POST",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",
@@ -478,6 +480,7 @@ describe("getProxyConfigCall", () => {
       `${mockProxyBaseUrl}/config/list?config_type=${ConfigType.GENERAL_SETTINGS}`,
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           [mockHeaderName]: `Bearer ${mockAccessToken}`,
           "Content-Type": "application/json",
@@ -537,6 +540,7 @@ describe("deleteProxyConfigFieldCall", () => {
     expect(result).toEqual(mockDeleteResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/config/field/delete`, {
       method: "POST",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",

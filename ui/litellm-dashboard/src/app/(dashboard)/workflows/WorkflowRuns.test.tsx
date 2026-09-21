@@ -1,6 +1,11 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 import WorkflowRuns from "./WorkflowRuns";
 

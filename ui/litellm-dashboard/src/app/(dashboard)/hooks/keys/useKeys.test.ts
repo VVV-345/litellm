@@ -220,6 +220,7 @@ describe("useKeys", () => {
       "/key/list?page=1&size=10&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -257,6 +258,7 @@ describe("useKeys", () => {
       "/key/list?page=1&size=10&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -310,6 +312,7 @@ describe("useKeys", () => {
       `/key/list?page=${page}&size=${pageSize}&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true`,
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -344,6 +347,7 @@ describe("useKeys", () => {
       "/key/list?page=1&size=10&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -393,6 +397,7 @@ describe("useKeys", () => {
       "/key/list?page=2&size=10&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -580,6 +585,7 @@ describe("useDeletedKeys", () => {
       "/key/list?page=1&size=10&status=deleted&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -637,6 +643,7 @@ describe("useDeletedKeys", () => {
       "/key/list?page=1&size=10&status=deleted&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -690,6 +697,7 @@ describe("useDeletedKeys", () => {
       `/key/list?page=${page}&size=${pageSize}&status=deleted&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true`,
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -724,6 +732,7 @@ describe("useDeletedKeys", () => {
       "/key/list?page=1&size=10&status=deleted&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",
@@ -773,6 +782,7 @@ describe("useDeletedKeys", () => {
       "/key/list?page=2&size=10&status=deleted&return_full_object=true&include_team_keys=true&include_created_by_keys=true&substring_matching=true",
       {
         method: "GET",
+        cache: "no-store",
         headers: {
           Authorization: "Bearer test-access-token",
           "Content-Type": "application/json",

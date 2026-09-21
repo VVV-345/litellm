@@ -118,6 +118,7 @@ describe("useRouterFields", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith("/router/fields", {
       method: "GET",
+      cache: "no-store",
       headers: {
         Authorization: "Bearer test-access-token",
         "Content-Type": "application/json",
@@ -249,6 +250,7 @@ describe("useRouterFields", () => {
     // When proxyBaseUrl is null, should use relative URL
     expect(mockFetch).toHaveBeenCalledWith("/router/fields", {
       method: "GET",
+      cache: "no-store",
       headers: {
         Authorization: "Bearer test-access-token",
         "Content-Type": "application/json",

@@ -72,6 +72,9 @@ export const getAutoRouterCustomTierPromptCall = async (
 /**
  * Helper file for calls being made to proxy
  */
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
+import { resetDashboardSession } from "@/lib/cacheEvents";
+
 import { toast } from "@/lib/toast";
 import { clearTokenCookies, getCookie, storeLoginToken } from "@/utils/cookieUtils";
 import { decodeToken } from "@/utils/jwtUtils";
@@ -197,6 +200,7 @@ export function switchToWorkerUrl(workerUrl: string | null): void {
   if (workerUrl && !isValidHttpUrl(workerUrl)) {
     return;
   }
+  const changed = proxyBaseUrl !== (workerUrl ?? defaultProxyBaseUrl);
   if (typeof window !== "undefined") {
     if (workerUrl) {
       window.localStorage.setItem(WORKER_URL_KEY, workerUrl);
@@ -205,6 +209,7 @@ export function switchToWorkerUrl(workerUrl: string | null): void {
     }
   }
   proxyBaseUrl = workerUrl ?? defaultProxyBaseUrl;
+  if (changed) resetDashboardSession();
 }
 
 const HTTP_REQUEST = {

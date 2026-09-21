@@ -1,13 +1,4 @@
-/**
- * The single HTTP client for the dashboard. This is the only file allowed to
- * call fetch() directly (enforced by the no-restricted-syntax lint rule and its
- * src/lib/http/** override in eslint.config.mjs).
- *
- * It is framework-agnostic on purpose (no React, no module-level singletons from
- * the component tree) so the same client can run in client components today and
- * in server components later. Everything environment-specific (base URL, auth
- * header name, the logout side effect) is injected through createApiClient.
- */
+import { notifyDashboardDataChanged } from "../cacheEvents";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -25,6 +16,7 @@ export interface RequestOptions {
   query?: QueryParams;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  cache?: RequestCache;
 }
 
 export class ApiError extends Error {
@@ -134,7 +126,11 @@ const appendQuery = (url: string, query: QueryParams | undefined): string => {
 
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { getBaseUrl, getAuthHeaderName, onError, fetchImpl } = config;
-  const doFetch: typeof fetch = (input, init) => (fetchImpl ?? fetch)(input, init);
+  const doFetch: typeof fetch = async (input, init) => {
+    const response = await (fetchImpl ?? fetch)(input, init);
+    if (response.ok && init?.method !== "GET") notifyDashboardDataChanged();
+    return response;
+  };
 
   async function request<T = any>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
     const { accessToken, body, rawBody, query, headers: extraHeaders, signal } = options;
@@ -153,7 +149,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       Object.assign(headers, extraHeaders);
     }
 
-    const init: RequestInit = { method, headers, signal };
+    const init: RequestInit = { method, headers, signal, cache: options.cache ?? "no-store" };
     if (rawBody !== undefined) {
       init.body = rawBody;
     } else if (body !== undefined) {
@@ -187,7 +183,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     if (rawBody === undefined) headers["Content-Type"] = "application/json";
     if (accessToken) headers[getAuthHeaderName ? getAuthHeaderName() : "Authorization"] = `Bearer ${accessToken}`;
     if (extraHeaders) Object.assign(headers, extraHeaders);
-    const init: RequestInit = { method, headers, signal };
+    const init: RequestInit = { method, headers, signal, cache: options.cache ?? "no-store" };
     if (rawBody !== undefined) init.body = rawBody;
     else if (body !== undefined) init.body = JSON.stringify(body);
     const response = await doFetch(url, init);

@@ -81,11 +81,9 @@ describe("SpendLogsTable network access by role", () => {
     const user = userEvent.setup();
     renderAs("Internal User");
 
-    // Liveness gate: the sibling Deleted Keys panel does reach the network, so a
-    // silent absence below means the gate worked, not that nothing rendered.
-    await waitFor(() => expect(requestedUrls().some((url) => url.includes("/key/list"))).toBe(true));
-
+    expect(requestedUrls().some((url) => url.includes("/key/list"))).toBe(false);
     await user.click(screen.getByRole("tab", { name: "Deleted Keys" }));
+    await waitFor(() => expect(requestedUrls().some((url) => url.includes("/key/list"))).toBe(true), { timeout: 5000 });
     await user.click(screen.getByRole("tab", { name: "Request Logs" }));
 
     expect(requestedUrls().filter((url) => url.includes("/audit"))).toEqual([]);
@@ -93,7 +91,11 @@ describe("SpendLogsTable network access by role", () => {
   });
 
   it("fetches the deleted teams an org admin is entitled to, and still no audit logs", async () => {
+    const user = userEvent.setup();
     renderAs("Internal User", ORG_ADMIN_MEMBERSHIPS);
+
+    expect(requestedUrls().some((url) => url.includes("/v2/team/list"))).toBe(false);
+    await user.click(screen.getByRole("tab", { name: "Deleted Teams" }));
 
     await waitFor(() =>
       expect(requestedUrls().some((url) => url.includes("/v2/team/list") && url.includes("status=deleted"))).toBe(true),
@@ -106,6 +108,8 @@ describe("SpendLogsTable network access by role", () => {
     const user = userEvent.setup();
     renderAs("Admin");
 
+    expect(requestedUrls().some((url) => url.includes("/v2/team/list"))).toBe(false);
+    await user.click(screen.getByRole("tab", { name: "Deleted Teams" }));
     await waitFor(() =>
       expect(requestedUrls().some((url) => url.includes("/v2/team/list") && url.includes("status=deleted"))).toBe(true),
     );

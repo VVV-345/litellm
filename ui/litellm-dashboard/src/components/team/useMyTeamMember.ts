@@ -1,3 +1,4 @@
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { useQuery, UseQueryResult } from "@tanstack/react-query";
 import { deriveErrorMessage, getGlobalLitellmHeaderName, getProxyBaseUrl } from "@/components/networking";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";

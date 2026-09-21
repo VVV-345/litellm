@@ -3,6 +3,7 @@
  */
 
 import { clearAllMcpTokens } from "./mcpTokenStore";
+import { resetDashboardSession } from "@/lib/cacheEvents";
 
 /**
  * Returns the cookie path for the UI.
@@ -70,6 +71,7 @@ export function clearTokenCookies() {
   }
 
   clearAllMcpTokens();
+  resetDashboardSession();
 }
 
 /**
@@ -103,6 +105,7 @@ export function storeLoginToken(token: string) {
   } catch {
     // sessionStorage may be unavailable (e.g. private browsing quota exceeded)
   }
+  resetDashboardSession();
 }
 
 /**

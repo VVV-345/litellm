@@ -1,5 +1,45 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import ModuleLoading from "@/components/shared/ModuleLoading";
+
+const ModelInfoView = dynamic(() => import("@/components/model_info_view"), { loading: ModuleLoading });
+const TeamInfoView = dynamic(() => import("@/components/team/TeamInfo"), { loading: ModuleLoading });
+const AutoRoutersTabPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/AutoRoutersTabPanel"), {
+  loading: ModuleLoading,
+});
+const AddModelPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/AddModelPanel"), {
+  loading: ModuleLoading,
+});
+const LlmCredentialsPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/LlmCredentialsPanel"), {
+  loading: ModuleLoading,
+});
+const PassThroughPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/PassThroughPanel"), {
+  loading: ModuleLoading,
+});
+const HealthStatusPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/HealthStatusPanel"), {
+  loading: ModuleLoading,
+});
+const ModelRetrySettingsPanel = dynamic(
+  () => import("@/app/(dashboard)/models-and-endpoints/panels/ModelRetrySettingsPanel"),
+  { loading: ModuleLoading },
+);
+const ModelGroupAliasPanel = dynamic(
+  () => import("@/app/(dashboard)/models-and-endpoints/panels/ModelGroupAliasPanel"),
+  { loading: ModuleLoading },
+);
+const AccessGroupBudgetsPanel = dynamic(
+  () => import("@/app/(dashboard)/models-and-endpoints/panels/AccessGroupBudgetsPanel"),
+  { loading: ModuleLoading },
+);
+const PriceDataPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel"), {
+  loading: ModuleLoading,
+});
+const ModelRuntimeConfiguration = dynamic(
+  () => import("@/components/Settings/RuntimeSettings/ModelRuntimeConfiguration"),
+  { loading: ModuleLoading },
+);
+
 import { useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,24 +51,12 @@ import { all_admin_roles, internalUserRoles } from "@/utils/roles";
 import { canCreateModels } from "@/utils/modelPermissions";
 import BetaBadge from "@/components/BetaBadge";
 import CostOptimizationFeedbackBanner from "@/components/molecules/cost_optimization_feedback_banner";
-import ModelInfoView from "@/components/model_info_view";
-import TeamInfoView from "@/components/team/TeamInfo";
 import { useModelDetailRouting } from "@/app/(dashboard)/models-and-endpoints/detailNavigation";
 import { useModelDashboardData } from "@/app/(dashboard)/models-and-endpoints/useModelDashboardData";
 import AllModelsPanel from "@/app/(dashboard)/models-and-endpoints/panels/AllModelsPanel";
-import AutoRoutersTabPanel from "@/app/(dashboard)/models-and-endpoints/panels/AutoRoutersTabPanel";
-import AddModelPanel from "@/app/(dashboard)/models-and-endpoints/panels/AddModelPanel";
-import LlmCredentialsPanel from "@/app/(dashboard)/models-and-endpoints/panels/LlmCredentialsPanel";
-import PassThroughPanel from "@/app/(dashboard)/models-and-endpoints/panels/PassThroughPanel";
-import HealthStatusPanel from "@/app/(dashboard)/models-and-endpoints/panels/HealthStatusPanel";
-import ModelRetrySettingsPanel from "@/app/(dashboard)/models-and-endpoints/panels/ModelRetrySettingsPanel";
-import ModelGroupAliasPanel from "@/app/(dashboard)/models-and-endpoints/panels/ModelGroupAliasPanel";
-import AccessGroupBudgetsPanel from "@/app/(dashboard)/models-and-endpoints/panels/AccessGroupBudgetsPanel";
-import PriceDataPanel from "@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSearchParams } from "next/navigation";
-import ModelRuntimeConfiguration from "@/components/Settings/RuntimeSettings/ModelRuntimeConfiguration";
 
 type ModelTabSlug =
   | "add"

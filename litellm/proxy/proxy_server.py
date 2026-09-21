@@ -587,6 +587,7 @@ try:
 except ImportError:
     build_billing_metrics_recorder = None
     shutdown_billing_metrics_recorder = None
+from litellm.proxy.middleware.dashboard_cache_middleware import DashboardCacheMiddleware
 from litellm.proxy.middleware.in_flight_requests_middleware import (
     InFlightRequestsMiddleware,
 )
@@ -2158,6 +2159,7 @@ app.add_middleware(
 )
 app.add_middleware(InFlightRequestsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(DashboardCacheMiddleware, root_path=server_root_path)
 
 
 def mount_swagger_ui():

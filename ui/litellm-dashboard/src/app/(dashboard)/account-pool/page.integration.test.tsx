@@ -4,12 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPoolPage from "./page";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import i18n from "@/i18n";
 
 const push = vi.fn();
 const listAccounts = vi.fn();
 const updateAccount = vi.fn();
 const savePolicy = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), useSearchParams: () => new URLSearchParams() }));
+const searchState = { value: "" };
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), useSearchParams: () => new URLSearchParams(searchState.value) }));
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => ({ accessToken: "token", userRole: "Admin", isViewOnly: false }),
 }));
@@ -82,11 +84,28 @@ const renderPage = () =>
   );
 
 describe("account card local configuration", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
+    searchState.value = "";
     listAccounts.mockResolvedValue([environment]);
     updateAccount.mockImplementation(async (_token, _id, payload) => ({ ...environment, ...payload }));
     savePolicy.mockResolvedValue({});
+  });
+
+  it("does not load card data on a tab that does not consume it, then loads it on return", async () => {
+    searchState.value = "tab=upstream-sync";
+    const { rerender } = renderPage();
+    expect(screen.getByRole("tab", { name: "上游更新" })).toHaveAttribute("aria-selected", "true");
+    expect(listAccounts).not.toHaveBeenCalled();
+    searchState.value = "tab=dashboard";
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+        <AccountPoolPage />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
+    expect(listAccounts).toHaveBeenCalledTimes(1);
   });
 
   it("opens the selected card policy, switches to runtime configuration and saves without navigation", async () => {
@@ -97,11 +116,11 @@ describe("account card local configuration", () => {
     expect(onboardingIndex).toBe(4);
     expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);
     fireEvent.doubleClick(await screen.findByTestId(`account-pool-card-${environment.id}`));
-    expect(await screen.findByRole("dialog")).toHaveTextContent(environment.name);
+    expect(await screen.findByRole("dialog", {}, { timeout: 5000 })).toHaveTextContent(environment.name);
     await user.click(await screen.findByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() => expect(savePolicy).toHaveBeenCalledWith("token", environment.id, 3, expect.any(Object)));
     await user.click(screen.getByRole("button", { name: /打开运行配置|运行配置|runtime configuration/i }));
-    fireEvent.change(screen.getByDisplayValue(environment.name), { target: { value: "Updated card" } });
+    fireEvent.change(await screen.findByDisplayValue(environment.name), { target: { value: "Updated card" } });
     await user.click(await screen.findByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() =>
       expect(updateAccount).toHaveBeenCalledWith(

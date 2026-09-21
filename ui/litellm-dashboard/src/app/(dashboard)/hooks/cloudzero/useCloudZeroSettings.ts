@@ -1,3 +1,4 @@
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { CloudZeroSettings } from "@/components/CloudZeroCostTracking/types";
 import { getProxyBaseUrl, getGlobalLitellmHeaderName } from "@/components/networking";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

@@ -77,32 +77,32 @@ describe("ModelsAndEndpointsPage", () => {
     expect(getByTestId("panel-all-models")).toBeInTheDocument();
   });
 
-  it("opens the requested settings tab and ignores unsupported legacy modal parameters", () => {
+  it("opens the requested settings tab and ignores unsupported legacy modal parameters", async () => {
     searchState.value = "tab=retry-settings&account_policy=true";
     renderPage();
-    expect(screen.getByTestId("panel-retry")).toBeInTheDocument();
+    expect(await screen.findByTestId("panel-retry")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("switches tabs in-memory, mounting only the active panel", async () => {
     const user = userEvent.setup();
-    const { getByRole, getByTestId, queryByTestId } = renderPage();
+    const { getByRole, findByTestId, queryByTestId } = renderPage();
     await user.click(getByRole("tab", { name: "Health Status" }));
-    expect(getByTestId("panel-health")).toBeInTheDocument();
+    expect(await findByTestId("panel-health")).toBeInTheDocument();
     expect(queryByTestId("panel-all-models")).not.toBeInTheDocument();
   });
 
-  it("renders the model detail overlay from the ?model drill-in and hides the tabs", () => {
+  it("renders the model detail overlay from the ?model drill-in and hides the tabs", async () => {
     detailState.modelId = "abc-123";
-    const { getByTestId, queryByRole } = renderPage();
-    expect(getByTestId("model-info")).toHaveTextContent("model:abc-123");
+    const { findByTestId, queryByRole } = renderPage();
+    expect(await findByTestId("model-info")).toHaveTextContent("model:abc-123");
     expect(queryByRole("tab", { name: "All Models" })).not.toBeInTheDocument();
   });
 
-  it("renders the team detail overlay from the ?team drill-in", () => {
+  it("renders the team detail overlay from the ?team drill-in", async () => {
     detailState.teamId = "team-9";
-    const { getByTestId } = renderPage();
-    expect(getByTestId("team-info")).toHaveTextContent("team:team-9");
+    const { findByTestId } = renderPage();
+    expect(await findByTestId("team-info")).toHaveTextContent("team:team-9");
   });
 
   it("hides admin-only tabs for a non-admin user", () => {
@@ -137,10 +137,10 @@ describe("ModelsAndEndpointsPage", () => {
 
     it("renders its panel when selected", async () => {
       const user = userEvent.setup();
-      const { getByRole, getByTestId } = renderPage();
+      const { getByRole, findByTestId } = renderPage();
 
       await user.click(getByRole("tab", { name: /Auto-Routers/ }));
-      expect(getByTestId("panel-auto-routers")).toBeInTheDocument();
+      expect(await findByTestId("panel-auto-routers")).toBeInTheDocument();
     });
 
     it("is hidden from non-admins, who cannot write models", () => {

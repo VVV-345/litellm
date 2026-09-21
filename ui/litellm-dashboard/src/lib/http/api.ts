@@ -4,6 +4,7 @@ import type { paths } from "./schema";
 import { ApiError, deriveErrorMessage } from "./client";
 import { getAuthHeaderName, getAuthToken, getRequestBaseUrl, reportError } from "./runtime";
 import { resolveRequestUrl } from "./resolveApiBase";
+import { dashboardFetch } from "./dashboardFetch";
 
 const BaseAwareRequest = function (url: string, init?: RequestInit): Request {
   const target = resolveRequestUrl(url, {
@@ -47,7 +48,11 @@ const middleware: Middleware = {
  * auth header and maps non-2xx responses to ApiError so query functions can just
  * read `.data`.
  */
-export const fetchClient = createFetchClient<paths>({ Request: BaseAwareRequest });
+export const fetchClient = createFetchClient<paths>({
+  Request: BaseAwareRequest,
+  fetch: dashboardFetch,
+  cache: "no-store",
+});
 fetchClient.use(middleware);
 
 /**

@@ -31,10 +31,10 @@ export default function RootLayout({
         <I18nProvider>
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
             <NuqsAdapter>
-              <ReactQueryProvider>
-                <AuthProvider>{children}</AuthProvider>
+              <AuthProvider>
+                <ReactQueryProvider>{children}</ReactQueryProvider>
                 <Toaster />
-              </ReactQueryProvider>
+              </AuthProvider>
             </NuqsAdapter>
           </ThemeProvider>
         </I18nProvider>

@@ -32,6 +32,7 @@ describe("typed api client on a same-origin deployment", () => {
     await fetchClient.GET("/model_group/info", { fetch });
 
     expect(requests[0].url).toBe(`${window.location.origin}/model_group/info`);
+    expect(requests[0].cache).toBe("no-store");
   });
 
   it("prefers a registered cross-origin base over the page origin", async () => {

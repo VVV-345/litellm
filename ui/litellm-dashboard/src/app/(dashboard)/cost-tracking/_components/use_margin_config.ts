@@ -1,3 +1,4 @@
+import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { useState, useCallback } from "react";
 import { getProxyBaseUrl, getGlobalLitellmHeaderName } from "@/components/networking";
 import { toast } from "@/lib/toast";

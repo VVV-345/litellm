@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useDiscountConfig } from "./use_discount_config";
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 vi.mock("@/components/networking", () => ({
   getProxyBaseUrl: vi.fn(() => ""),

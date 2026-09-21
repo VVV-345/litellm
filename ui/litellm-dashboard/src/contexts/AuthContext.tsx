@@ -6,6 +6,7 @@ import { clearTokenCookies, getCookie } from "@/utils/cookieUtils";
 import { isJwtExpired } from "@/utils/jwtUtils";
 import { effectiveSessionRole } from "@/utils/roles";
 import { getUiConfig, setGlobalLitellmHeaderName } from "@/components/networking";
+import { SESSION_RESET_EVENT } from "@/lib/cacheEvents";
 
 function deleteCookie(name: string, path = "/") {
   document.cookie = `${name}=; Max-Age=0; Path=${path}`;
@@ -39,6 +40,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
   const [token, setToken] = useState<string | null>(null);
+  const [resolvedToken, setResolvedToken] = useState<string | null>(null);
   const [userID, setUserID] = useState<string | null>(null);
   const [userRole, setUserRole] = useState("");
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -46,6 +48,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [premiumUser, setPremiumUser] = useState(false);
   const [disabledPersonalKeyCreation, setDisabledPersonalKeyCreation] = useState(false);
   const [showSSOBanner, setShowSSOBanner] = useState(true);
+
+  useEffect(() => {
+    const syncSession = () => setToken(getCookie("token"));
+    window.addEventListener(SESSION_RESET_EVENT, syncSession);
+    return () => window.removeEventListener(SESSION_RESET_EVENT, syncSession);
+  }, []);
 
   // Load runtime UI config (populates proxyBaseUrl etc.) before clearing
   // authLoading, so any consumer that builds proxy-rooted URLs from authLoading=false
@@ -83,6 +91,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Decode JWT and populate derived auth state whenever the token changes.
   useEffect(() => {
     if (!token) {
+      setAccessToken(null);
+      setUserID(null);
+      setUserRole("");
+      setUserEmail(null);
+      setPremiumUser(false);
+      setDisabledPersonalKeyCreation(false);
+      setShowSSOBanner(true);
+      setResolvedToken(null);
       return;
     }
 
@@ -106,28 +122,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(decoded.key);
     setDisabledPersonalKeyCreation(decoded.disabled_non_admin_personal_key_creation);
 
-    if (decoded.user_role) {
-      setUserRole(effectiveSessionRole(decoded.user_role));
-    }
-    if (decoded.user_email) {
-      setUserEmail(decoded.user_email);
-    }
-    if (decoded.login_method) {
-      setShowSSOBanner(decoded.login_method === "username_password");
-    }
-    if (decoded.premium_user) {
-      setPremiumUser(decoded.premium_user);
-    }
+    setUserRole(decoded.user_role ? effectiveSessionRole(decoded.user_role) : "");
+    setUserEmail(decoded.user_email ?? null);
+    setShowSSOBanner(decoded.login_method === "username_password");
+    setPremiumUser(decoded.premium_user ?? false);
     if (decoded.auth_header_name) {
       setGlobalLitellmHeaderName(decoded.auth_header_name);
     }
-    if (decoded.user_id) {
-      setUserID(decoded.user_id);
-    }
+    setUserID(decoded.user_id ?? null);
+    setResolvedToken(token);
   }, [token]);
 
   const value: AuthContextValue = {
-    authLoading,
+    authLoading: authLoading || token !== resolvedToken,
     token,
     userID,
     userRole,

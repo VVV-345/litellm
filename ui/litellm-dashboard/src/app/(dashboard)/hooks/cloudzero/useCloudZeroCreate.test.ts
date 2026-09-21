@@ -83,6 +83,7 @@ describe("useCloudZeroCreate", () => {
     expect(result.current.data).toEqual(mockResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/cloudzero/init`, {
       method: "POST",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",
@@ -115,6 +116,7 @@ describe("useCloudZeroCreate", () => {
     expect(result.current.data).toEqual(mockResponse);
     expect(fetchSpy).toHaveBeenCalledWith(`${mockProxyBaseUrl}/cloudzero/init`, {
       method: "POST",
+      cache: "no-store",
       headers: {
         [mockHeaderName]: `Bearer ${mockAccessToken}`,
         "Content-Type": "application/json",

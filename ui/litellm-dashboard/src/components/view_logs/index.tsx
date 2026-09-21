@@ -1,14 +1,25 @@
+import dynamic from "next/dynamic";
+import ModuleLoading from "@/components/shared/ModuleLoading";
+
+const OperationLogsPanel = dynamic(() => import("./OperationLogsPanel").then((module) => module.OperationLogsPanel), {
+  loading: ModuleLoading,
+});
+const FullLogsPanel = dynamic(() => import("./FullLogsPanel").then((module) => module.FullLogsPanel), {
+  loading: ModuleLoading,
+});
+const LogSettingsPanel = dynamic(() => import("./LogSettingsPanel").then((module) => module.LogSettingsPanel), {
+  loading: ModuleLoading,
+});
+const DeletedKeysPage = dynamic(() => import("../DeletedKeysPage/DeletedKeysPage"), { loading: ModuleLoading });
+const DeletedTeamsPage = dynamic(() => import("../DeletedTeamsPage/DeletedTeamsPage"), { loading: ModuleLoading });
+const AuditLogsPanel = dynamic(() => import("./AuditLogsPanel"), { loading: ModuleLoading });
+
 import { parseAsString, useQueryStates } from "nuqs";
+import { useState } from "react";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
-import { OperationLogsPanel } from "./OperationLogsPanel";
-import { FullLogsPanel } from "./FullLogsPanel";
-import { LogSettingsPanel } from "./LogSettingsPanel";
 import { useTranslation } from "react-i18next";
 import useCan from "@/app/(dashboard)/hooks/useCan";
-import DeletedKeysPage from "../DeletedKeysPage/DeletedKeysPage";
-import DeletedTeamsPage from "../DeletedTeamsPage/DeletedTeamsPage";
-import AuditLogsPanel from "./AuditLogsPanel";
 import RequestLogsPanel from "./RequestLogsPanel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
@@ -40,9 +51,14 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
     account_id: parseAsString,
   });
   const canManageLogs = canManageAccountPool(userRole, false);
-  const accounts = useAccountPoolQuery(accessToken, canManageLogs, false);
   const canViewAuditLogs = useCan("viewAuditLogs");
   const canViewDeletedTeams = useCan("viewDeletedTeams");
+  const [visitedTabs, setVisitedTabs] = useState<string[]>([]);
+  const accounts = useAccountPoolQuery(
+    accessToken,
+    canManageLogs && !["settings", "audit logs", "deleted keys", "deleted teams"].includes(log_view),
+    false,
+  );
 
   if (!accessToken || !token || !userRole || !userID) {
     return (
@@ -118,9 +134,9 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
           />
         );
       case "deleted keys":
-        return <DeletedKeysPage />;
+        return activeTab === "deleted keys" ? <DeletedKeysPage /> : null;
       case "deleted teams":
-        return <DeletedTeamsPage />;
+        return activeTab === "deleted teams" ? <DeletedTeamsPage /> : null;
     }
   };
 
@@ -152,7 +168,13 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
           )}
         </div>
       )}
-      <Tabs value={activeTab} onValueChange={(value) => void setLogParams({ log_view: value })}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setVisitedTabs((visited) => Array.from(new Set([...visited, activeTab, value])));
+          void setLogParams({ log_view: value });
+        }}
+      >
         <TabsList variant="line">
           {tabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="flex-none">
@@ -162,7 +184,7 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
         </TabsList>
         {tabs.map((tab) => (
           <TabsContent key={tab.id} value={tab.id} keepMounted>
-            {renderPanel(tab.id)}
+            {(tab.id === activeTab || visitedTabs.includes(tab.id)) && renderPanel(tab.id)}
           </TabsContent>
         ))}
       </Tabs>
