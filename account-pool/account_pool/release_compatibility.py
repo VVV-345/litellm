@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import shlex
 from dataclasses import dataclass
 from typing import Final
@@ -65,9 +66,27 @@ def same_contract(key: str, title: str, current: str, target: str, detail: str) 
     )
 
 
+def canonical_configuration(raw: bytes) -> dict[str, JsonValue]:
+    config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(raw)
+    services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
+    # Docker 不保证挂载和端口返回顺序；仅这些无序集合排序，启动参数等有序列表保持原样。
+    return {
+        **config,
+        "services": {
+            name: {
+                key: sorted(value, key=lambda item: json.dumps(item, sort_keys=True))
+                if key in ("volumes", "ports") and isinstance(value, list)
+                else value
+                for key, value in service.items()
+            }
+            for name, service in services.items()
+        },
+    }
+
+
 def configuration_checks(current: bytes, target: bytes) -> tuple[RollbackCheck, ...]:
-    current_config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(current)
-    target_config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(target)
+    current_config: Final = canonical_configuration(current)
+    target_config: Final = canonical_configuration(target)
     current_services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(current_config["services"])
     target_services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(target_config["services"])
     same: Final = all(
@@ -153,6 +172,7 @@ def compare_evidence(current: RollbackEvidence, target: RollbackEvidence) -> tup
 
 
 def evidence_state(evidence: RollbackEvidence, configuration: bytes, backup_hash: str) -> str:
+    canonical: Final = json.dumps(canonical_configuration(configuration), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(
-        (repr(evidence) + hashlib.sha256(configuration).hexdigest() + backup_hash).encode()
+        (repr(evidence) + hashlib.sha256(canonical.encode()).hexdigest() + backup_hash).encode()
     ).hexdigest()

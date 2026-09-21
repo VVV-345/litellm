@@ -10,7 +10,7 @@ from typing import Final
 
 import pytest
 from account_pool.release_app import release_application, worker_lock
-from account_pool.release_compatibility import RollbackEvidence, compare_evidence, configuration_checks
+from account_pool.release_compatibility import RollbackEvidence, compare_evidence, configuration_checks, evidence_state
 from account_pool.release_models import ReleaseAction, ReleaseJob, ReleasePair
 from account_pool.release_runtime import ReleaseSettings, image_pair
 from account_pool.release_service import ReleaseService
@@ -402,6 +402,46 @@ def test_unsafe_startup_is_blocked_without_returning_configuration(command: list
 def test_missing_evidence_is_never_reported_as_compatible() -> None:
     empty: Final = RollbackEvidence("", "", "", "", "", ())
     assert all(check.status == "unverified" for check in compare_evidence(empty, empty))
+
+
+def test_rollback_ignores_docker_mount_order_but_preserves_actual_configuration_changes(setup) -> None:
+    service, runtime, clock = setup
+    original = json.loads(runtime.compose())
+    original["services"]["litellm"]["volumes"] = [
+        {"type": "bind", "source": "/current/config", "target": "/config", "read_only": True},
+        {"type": "volume", "source": "logs", "target": "/logs", "read_only": False},
+    ]
+    original["services"]["litellm"]["ports"] = [
+        {"target": 4000, "published": "4000", "host_ip": "127.0.0.1"},
+        {"target": 4001, "published": "4001", "host_ip": "127.0.0.1"},
+    ]
+    runtime.configuration = json.dumps(original)
+    service.backup(OLD, runtime.running_compose())
+    confirmation = service.prepare(action(service, "apply", version_id=OLD.id), "admin")
+    reordered = json.loads(runtime.configuration)
+    reordered["services"]["litellm"]["volumes"].reverse()
+    reordered["services"]["litellm"]["ports"].reverse()
+    runtime.configuration = json.dumps(reordered, sort_keys=True, indent=2)
+    before = json.dumps(original).encode()
+    after = runtime.running_compose()
+    assert all(check.status == "compatible" for check in configuration_checks(before, after))
+    evidence = runtime.evidence(CURRENT)
+    assert evidence_state(evidence, before, "backup") == evidence_state(evidence, after, "backup")
+    clock.now += 5
+    service.run(service.execute(confirmation.token, "admin"))
+    assert runtime.running == OLD
+    assert service.store.jobs()[0].status == "succeeded"
+    for field, value in (("source", "another-volume"), ("read_only", True)):
+        changed = json.loads(after)
+        changed["services"]["litellm"]["volumes"][0][field] = value
+        assert evidence_state(evidence, after, "backup") != evidence_state(
+            evidence, json.dumps(changed).encode(), "backup"
+        )
+    changed_command = json.loads(after)
+    changed_command["services"]["litellm"]["command"].append("--skip_db")
+    assert evidence_state(evidence, after, "backup") != evidence_state(
+        evidence, json.dumps(changed_command).encode(), "backup"
+    )
 
 
 def test_old_backup_fingerprint_is_not_an_execution_gate(setup) -> None:
