@@ -1,13 +1,14 @@
 "use client";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useAuth } from "./AuthContext";
 import { createDashboardQueryClient } from "@/lib/queryClient";
 import { DATA_CHANGED_EVENT, SESSION_RESET_EVENT } from "@/lib/cacheEvents";
 import { getRequestBaseUrl } from "@/lib/http/runtime";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 import { usePathname } from "next/navigation";
+import { registerResponseCache } from "@/lib/http/responseCache";
 
 export default function ReactQueryProvider({ children }: { children: React.ReactNode }) {
   const { authLoading, token, accessToken, userID, userRole } = useAuth();
@@ -26,7 +27,8 @@ export default function ReactQueryProvider({ children }: { children: React.React
 
 function SessionQueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(createDashboardQueryClient);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const unregister = registerResponseCache(queryClient);
     const clear = () => queryClient.clear();
     const invalidate = () => void queryClient.invalidateQueries({ refetchType: "none" });
     window.addEventListener(SESSION_RESET_EVENT, clear);
@@ -35,6 +37,7 @@ function SessionQueryProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener(SESSION_RESET_EVENT, clear);
       window.removeEventListener(DATA_CHANGED_EVENT, invalidate);
       clear();
+      unregister();
     };
   }, [queryClient]);
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;

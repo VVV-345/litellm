@@ -47,7 +47,12 @@ export interface KeyListCallOptions {
   status?: string | null;
 }
 
-const keyListCall = async (accessToken: string, page: number, pageSize: number, options: KeyListCallOptions = {}) => {
+export const keyListCall = async (
+  accessToken: string,
+  page: number,
+  pageSize: number,
+  options: KeyListCallOptions = {},
+) => {
   /**
    * Get all available keys on proxy
    */
@@ -112,14 +117,24 @@ export const useKeys = (
 ): UseQueryResult<KeysResponse> => {
   const { accessToken } = useAuthorized();
 
-  return useQuery<KeysResponse>({
-    queryKey: keyKeys.list({ page, limit: pageSize, ...options }),
-    queryFn: async () => await keyListCall(accessToken!, page, pageSize, options),
-    enabled: Boolean(accessToken),
-    staleTime: 30000, // 30 seconds
-    placeholderData: keepPreviousData,
-  });
+  return useQuery<KeysResponse>(keyListQueryOptions(accessToken, page, pageSize, options));
 };
+
+export const keyListQueryOptions = (
+  accessToken: string | null,
+  page: number,
+  pageSize: number,
+  options: KeyListCallOptions = {},
+) => ({
+  queryKey: keyKeys.list({ page, limit: pageSize, ...options }),
+  queryFn: async () => {
+    if (!accessToken) throw new Error("Access token required");
+    return await keyListCall(accessToken, page, pageSize, options);
+  },
+  enabled: Boolean(accessToken),
+  staleTime: 30000, // 30 seconds
+  placeholderData: keepPreviousData,
+});
 
 const infiniteKeyKeys = createQueryKeys("infiniteKeys");
 

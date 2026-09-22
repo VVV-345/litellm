@@ -12,8 +12,8 @@ import { ConversationRecordView, ConversationExport } from "./ConversationRecord
 import {
   clearFullLogs,
   fullLogStorage,
+  fullLogsQueryOptions,
   getFullLog,
-  listFullLogs,
   type FullLogFilters,
   type FullLogSummary,
 } from "./fullLogsApi";
@@ -32,7 +32,6 @@ export function FullLogContent({ accessToken, eventId }: { accessToken: string; 
   const query = useQuery({
     queryKey: ["logs", "full-body", accessToken, eventId],
     queryFn: () => getFullLog(accessToken, eventId),
-    gcTime: 0,
     retry: false,
   });
   if (query.isPending) return <p role="status">正在读取完整日志…</p>;
@@ -103,14 +102,7 @@ export function FullLogsPanel({
     setTo("");
     setExpanded(null);
   };
-  const query = useQuery({
-    queryKey: ["logs", "full-logs", accessToken, filters],
-    queryFn: () => listFullLogs(accessToken, filters),
-    retry: false,
-    refetchInterval: refreshInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: refreshInterval !== false,
-  });
+  const query = useQuery(fullLogsQueryOptions(accessToken, filters, refreshInterval));
   const storage = useQuery({
     queryKey: ["logs", "full-log-storage", accessToken],
     queryFn: () => fullLogStorage(accessToken),
@@ -383,7 +375,7 @@ export function FullLogsPanel({
           pageSize={pageSize}
           rowCount={query.data.totals?.attempts ?? 0}
           showPageJump
-          isLoading={query.isFetching}
+          isLoading={query.isPending}
           onPageChange={(page) => {
             setFilters({ ...filters, offset: page * pageSize });
             setExpanded(null);

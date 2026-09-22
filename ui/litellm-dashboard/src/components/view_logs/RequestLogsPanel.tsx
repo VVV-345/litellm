@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import type { ColumnFiltersState, OnChangeFn, PaginationState, SortingState } from "@tanstack/react-table";
 import moment from "moment";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,6 +14,7 @@ import type { LogEntry } from "./columns";
 import { AGENT_CALL_TYPES, MCP_CALL_TYPES } from "./constants";
 import {
   DEFAULT_LOGS_SORTING,
+  initialLogsRange,
   formatLogsWindow,
   getLogsWindowEndBound,
   LOG_FILTER_IDS,
@@ -52,12 +53,13 @@ export default function RequestLogsPanel({
   accountId,
 }: RequestLogsPanelProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: PAGE_SIZE });
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_LOGS_SORTING);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
-  const [startTime, setStartTime] = useState<string>(moment().subtract(24, "hours").format("YYYY-MM-DDTHH:mm"));
-  const [endTime, setEndTime] = useState<string>(moment().format("YYYY-MM-DDTHH:mm"));
+  const [startTime, setStartTime] = useState(() => initialLogsRange(queryClient).startTime);
+  const [endTime, setEndTime] = useState(() => initialLogsRange(queryClient).endTime);
   const [isCustomDate, setIsCustomDate] = useState(false);
   const [selectedTimeInterval, setSelectedTimeInterval] = useState<{ value: number; unit: string }>(DEFAULT_INTERVAL);
 

@@ -6,7 +6,7 @@ export function createDashboardQueryClient() {
     defaultOptions: {
       queries: {
         staleTime: 15_000,
-        gcTime: 5 * 60_000,
+        gcTime: Infinity,
         refetchOnWindowFocus: false,
         refetchOnReconnect: true,
         retry: (count, error) => !(error instanceof ApiError && [401, 403].includes(error.status)) && count < 1,

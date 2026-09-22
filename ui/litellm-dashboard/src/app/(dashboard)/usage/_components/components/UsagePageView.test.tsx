@@ -7,10 +7,12 @@ import { useInfiniteUsers } from "@/app/(dashboard)/hooks/users/useUsers";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderWithProviders } from "@/../tests/test-utils";
+import { renderWithProviders, testQueryClient } from "@/../tests/test-utils";
 import type { Organization } from "@/components/networking";
+import type { TagListResponse } from "@/components/tag_management/types";
 import * as networking from "@/components/networking";
 import UsagePage from "./UsagePageView";
+import i18n from "@/i18n";
 
 // Polyfill ResizeObserver for test environment
 beforeAll(() => {
@@ -352,7 +354,9 @@ describe("UsagePage", () => {
     organizations: [],
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+    testQueryClient.clear();
     mockUseAuthorized.mockReturnValue({
       isLoading: false,
       isAuthorized: true,
@@ -361,6 +365,8 @@ describe("UsagePage", () => {
       userId: "user-123",
       userEmail: "test@example.com",
       userRole: "Admin",
+      userRoleLabel: "Admin",
+      isViewOnly: false,
       premiumUser: true,
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
@@ -424,7 +430,7 @@ describe("UsagePage", () => {
     // Check that key metrics are displayed
     const totalRequestElements = screen.getAllByText("Total Requests");
     expect(totalRequestElements.length).toBeGreaterThan(0);
-    expect(screen.getByText("1,500")).toBeInTheDocument();
+    expect(await screen.findByText("1,500")).toBeInTheDocument();
     const successfulRequestLabelElements = screen.getAllByText("Successful Requests");
     expect(successfulRequestLabelElements.length).toBeGreaterThan(0);
     // Successful and Failed Requests both read the gateway counter, not the
@@ -587,7 +593,7 @@ describe("UsagePage", () => {
   });
 
   it("should withhold the tag list until it resolves so no empty state is shown while loading", async () => {
-    let resolveTagList: (tags: Record<string, unknown>) => void = () => {};
+    let resolveTagList: (tags: TagListResponse) => void = () => {};
     mockTagListCall.mockReturnValue(
       new Promise((resolve) => {
         resolveTagList = resolve;
@@ -607,7 +613,7 @@ describe("UsagePage", () => {
       resolveTagList({});
     });
 
-    expect(screen.getByTestId("entity-usage")).toHaveAttribute("data-entity-list", "[]");
+    await waitFor(() => expect(screen.getByTestId("entity-usage")).toHaveAttribute("data-entity-list", "[]"));
   });
 
   it("should drop the previous range's tags as soon as the range changes", async () => {
@@ -626,7 +632,7 @@ describe("UsagePage", () => {
       );
     });
 
-    let resolveNewRange: (tags: Record<string, unknown>) => void = () => {};
+    let resolveNewRange: (tags: TagListResponse) => void = () => {};
     mockTagListCall.mockReturnValue(
       new Promise((resolve) => {
         resolveNewRange = resolve;
@@ -643,7 +649,7 @@ describe("UsagePage", () => {
       resolveNewRange({});
     });
 
-    expect(screen.getByTestId("entity-usage")).toHaveAttribute("data-entity-list", "[]");
+    await waitFor(() => expect(screen.getByTestId("entity-usage")).toHaveAttribute("data-entity-list", "[]"));
   });
 
   it("should show tag usage selector option for internal users", async () => {
@@ -655,6 +661,8 @@ describe("UsagePage", () => {
       userId: "user-123",
       userEmail: "test@example.com",
       userRole: "internal_user",
+      userRoleLabel: "Internal User",
+      isViewOnly: false,
       premiumUser: true,
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
@@ -982,6 +990,8 @@ describe("UsagePage", () => {
         userId: "user-123",
         userEmail: "test@example.com",
         userRole: "Internal User",
+        userRoleLabel: "Internal User",
+        isViewOnly: false,
         premiumUser: false,
         disabledPersonalKeyCreation: false,
         showSSOBanner: false,
@@ -1007,6 +1017,8 @@ describe("UsagePage", () => {
         userId: "user-123",
         userEmail: "test@example.com",
         userRole: "Internal User",
+        userRoleLabel: "Internal User",
+        isViewOnly: false,
         premiumUser: false,
         disabledPersonalKeyCreation: false,
         showSSOBanner: false,

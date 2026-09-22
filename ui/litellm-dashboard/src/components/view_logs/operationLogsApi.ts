@@ -31,6 +31,32 @@ type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResul
 export const listOperationLogs = (accessToken: string, query: LogFilters) =>
   apiClient.get<LogPage>("/logs/operations", { accessToken, query });
 
+export interface OperationLogsQueryParams {
+  accessToken: string;
+  filters: LogFilters;
+  offset: number;
+  pageSize: number;
+  refreshInterval?: number | false;
+}
+
+export const operationLogsQueryOptions = ({
+  accessToken,
+  filters,
+  offset,
+  pageSize,
+  refreshInterval = false,
+}: OperationLogsQueryParams) => {
+  const pageQuery = { ...filters, offset, limit: pageSize };
+  return {
+    queryKey: ["logs", "logs", accessToken, filters, offset, pageSize] as const,
+    queryFn: () => listOperationLogs(accessToken, pageQuery),
+    retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
+  };
+};
+
 export const getOperationLog = (accessToken: string, eventId: string) =>
   apiClient.get<LogDetail>(`/logs/operations/${encodeURIComponent(eventId)}`, { accessToken });
 

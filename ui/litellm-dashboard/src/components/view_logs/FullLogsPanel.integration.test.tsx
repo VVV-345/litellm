@@ -6,12 +6,28 @@ import i18n from "@/i18n";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FullLogsPanel } from "./FullLogsPanel";
+import { chooseSelectOption } from "@/../tests/test-utils";
 import { clearFullLogs, fullLogStorage, getFullLog, listFullLogs } from "./fullLogsApi";
-vi.mock("./fullLogsApi", () => ({
+const mockedFullLogsApi = vi.hoisted(() => ({
   clearFullLogs: vi.fn(),
   fullLogStorage: vi.fn(),
   getFullLog: vi.fn(),
   listFullLogs: vi.fn(),
+}));
+vi.mock("./fullLogsApi", () => ({
+  ...mockedFullLogsApi,
+  fullLogsQueryOptions: (
+    accessToken: string,
+    filters: Record<string, unknown>,
+    refreshInterval: number | false = false,
+  ) => ({
+    queryKey: ["logs", "full-logs", accessToken, filters],
+    queryFn: () => mockedFullLogsApi.listFullLogs(accessToken, filters),
+    retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
+  }),
 }));
 
 const log = {
@@ -175,8 +191,8 @@ describe("FullLogsPanel", () => {
       expect(vi.mocked(listFullLogs)).toHaveBeenLastCalledWith("admin", expect.objectContaining({ offset: 100 })),
     );
     expect(screen.getByText("查看历史记录或详情时暂停自动刷新")).toBeInTheDocument();
-    await user.click(screen.getByTestId("pagination-page-size"));
-    await user.click(screen.getByRole("option", { name: "100" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "每页行数" })).toBeEnabled());
+    await chooseSelectOption(user, screen.getByRole("combobox", { name: "每页行数" }), "100");
     await waitFor(() =>
       expect(vi.mocked(listFullLogs)).toHaveBeenLastCalledWith(
         "admin",

@@ -16,6 +16,7 @@ import { MIGRATED_PAGES, migratedHref, legacyPageHref, legacyKeyForPathname } fr
 import { PluginModeProvider, usePluginMode } from "@/contexts/PluginModeContext";
 import { createApiClient } from "@/lib/http/client";
 import { getProxyBaseUrl } from "@/components/networking";
+import DashboardWarmup from "@/components/DashboardWarmup";
 
 const pluginApiClient = createApiClient({ getBaseUrl: () => getProxyBaseUrl() ?? "" });
 
@@ -158,6 +159,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { accessToken, authLoading } = useAuth();
+  const { mode } = usePluginMode();
   const isInvitationFlow = Boolean(searchParams.get("invitation_id"));
 
   // Legacy invitation links point at /ui/?invitation_id=; the onboarding form now lives at its own
@@ -174,7 +176,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider accessToken={accessToken}>
-      <DashboardShell>{children}</DashboardShell>
+      {mode === "ai-gateway" ? (
+        <DashboardWarmup>
+          <DashboardShell>{children}</DashboardShell>
+        </DashboardWarmup>
+      ) : (
+        <DashboardShell>{children}</DashboardShell>
+      )}
     </ThemeProvider>
   );
 }

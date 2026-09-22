@@ -10,19 +10,31 @@ export interface OrganizationListFilters {
   org_alias?: string | null;
 }
 
-export const useOrganizations = (filters?: OrganizationListFilters): UseQueryResult<Organization[]> => {
-  const { accessToken, userId, userRole } = useAuthorized();
+export const organizationQueryOptions = (
+  accessToken: string | null,
+  userId: string | null,
+  userRole: string | null,
+  filters?: OrganizationListFilters,
+) => {
   const orgId = filters?.org_id || null;
   const orgAlias = filters?.org_alias || null;
-  return useQuery<Organization[]>({
+  return {
     queryKey: organizationKeys.list(
       orgId || orgAlias
         ? { filters: { ...(orgId && { org_id: orgId }), ...(orgAlias && { org_alias: orgAlias }) } }
         : {},
     ),
-    queryFn: async () => await organizationListCall(accessToken!, orgId, orgAlias),
+    queryFn: async () => {
+      if (!accessToken) throw new Error("Access token required");
+      return await organizationListCall(accessToken, orgId, orgAlias);
+    },
     enabled: Boolean(accessToken && userId && userRole),
-  });
+  };
+};
+
+export const useOrganizations = (filters?: OrganizationListFilters): UseQueryResult<Organization[]> => {
+  const { accessToken, userId, userRole } = useAuthorized();
+  return useQuery<Organization[]>(organizationQueryOptions(accessToken, userId, userRole, filters));
 };
 
 export const useOrganization = (organizationID?: string) => {

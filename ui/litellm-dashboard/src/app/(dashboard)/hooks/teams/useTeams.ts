@@ -106,14 +106,20 @@ export const useTeamsTable = (
   });
 };
 
-const teamKeys = createQueryKeys("teams");
+export const teamKeys = createQueryKeys("teams");
+
+export const teamsQueryOptions = (accessToken: string | null, userId: string | null, userRole: string | null) => ({
+  queryKey: teamKeys.list({}),
+  queryFn: async () => {
+    if (!accessToken) throw new Error("Access token required");
+    return await fetchTeams(accessToken, userId, userRole, null);
+  },
+  enabled: Boolean(accessToken),
+});
+
 export const useTeams = (): UseQueryResult<Team[]> => {
   const { accessToken, userId, userRole } = useAuthorized();
-  return useQuery<Team[]>({
-    queryKey: teamKeys.list({}),
-    queryFn: async () => await fetchTeams(accessToken!, userId, userRole, null),
-    enabled: Boolean(accessToken),
-  });
+  return useQuery<Team[]>(teamsQueryOptions(accessToken, userId, userRole));
 };
 
 const ALL_TEAMS_PAGE_SIZE = 100;
@@ -129,10 +135,9 @@ const fetchAllTeamsPaged = async (accessToken: string, userID: string | null): P
   return [firstPage, ...remainingPages].flatMap((page) => page.teams);
 };
 
-export const useAllTeams = (): UseQueryResult<Team[]> => {
-  const { accessToken, userId, userRole } = useAuthorized();
+export const allTeamsQueryOptions = (accessToken: string | null, userId: string | null, userRole: string | null) => {
   const scopedUserID = teamListScopeUserId(userRole, userId);
-  return useQuery<Team[]>({
+  return {
     queryKey: teamKeys.list({
       filters: {
         scope: "all",
@@ -141,10 +146,18 @@ export const useAllTeams = (): UseQueryResult<Team[]> => {
         userID: scopedUserID ?? "",
       },
     }),
-    queryFn: async () => await fetchAllTeamsPaged(accessToken!, scopedUserID),
+    queryFn: async () => {
+      if (!accessToken) throw new Error("Access token required");
+      return await fetchAllTeamsPaged(accessToken, scopedUserID);
+    },
     enabled: Boolean(accessToken),
     staleTime: 30000,
-  });
+  };
+};
+
+export const useAllTeams = (): UseQueryResult<Team[]> => {
+  const { accessToken, userId, userRole } = useAuthorized();
+  return useQuery<Team[]>(allTeamsQueryOptions(accessToken, userId, userRole));
 };
 
 export const useTeam = (teamId?: string) => {

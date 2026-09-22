@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPoolPage from "./page";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import i18n from "@/i18n";
+import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
 
 const push = vi.fn();
 const listAccounts = vi.fn();
@@ -88,6 +89,10 @@ const renderPage = () =>
   );
 
 describe("account card local configuration", () => {
+  beforeAll(async () => {
+    await preloadAccountPoolModules();
+  });
+
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();

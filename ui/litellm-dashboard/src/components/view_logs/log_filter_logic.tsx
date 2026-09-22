@@ -1,5 +1,5 @@
 import moment from "moment";
-import { keepPreviousData, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type QueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import type { ColumnFiltersState, PaginationState, SortingState } from "@tanstack/react-table";
 import { uiSpendLogsCall } from "../networking";
 import { Team } from "../key_team_helpers/key_list";
@@ -100,7 +100,19 @@ export const getFilterValue = (columnFilters: ColumnFiltersState, columnId: stri
   return trimmed === "" ? undefined : trimmed;
 };
 
-export function useLogFilterLogic({
+export const initialLogsRange = (client: QueryClient): { startTime: string; endTime: string } => {
+  const key = ["logs", "initial-range"];
+  const saved = client.getQueryData<{ startTime: string; endTime: string }>(key);
+  if (saved) return saved;
+  const range = {
+    startTime: moment().subtract(24, "hours").format("YYYY-MM-DDTHH:mm"),
+    endTime: moment().format("YYYY-MM-DDTHH:mm"),
+  };
+  client.setQueryData(key, range);
+  return range;
+};
+
+export function requestLogsQueryOptions({
   accessToken,
   token,
   userRole,
@@ -200,7 +212,13 @@ export function useLogFilterLogic({
     refetchIntervalInBackground: false,
   };
 
-  const logsQuery = useQuery(logsQueryOptions);
+  return logsQueryOptions;
+}
+
+export function useLogFilterLogic(params: Parameters<typeof requestLogsQueryOptions>[0]) {
+  const { pagination, accessToken, userRole, userID } = params;
+  const pageSize = pagination.pageSize || defaultPageSize;
+  const logsQuery = useQuery(requestLogsQueryOptions(params));
 
   const filteredLogs: PaginatedResponse = logsQuery.data ?? {
     data: [],

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { chooseSelectOption } from "@/../tests/test-utils";
 
 import { OperationLogsPanel } from "./OperationLogsPanel";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
@@ -15,6 +16,26 @@ const exportLogs = vi.fn();
 
 vi.mock("./operationLogsApi", () => ({
   listOperationLogs: (...args: unknown[]) => listLogs(...args),
+  operationLogsQueryOptions: ({
+    accessToken,
+    filters,
+    offset,
+    pageSize,
+    refreshInterval = false,
+  }: {
+    accessToken: string;
+    filters: Record<string, unknown>;
+    offset: number;
+    pageSize: number;
+    refreshInterval?: number | false;
+  }) => ({
+    queryKey: ["logs", "logs", accessToken, filters, offset, pageSize],
+    queryFn: () => listLogs(accessToken, { ...filters, offset, limit: pageSize }),
+    retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
+  }),
   getOperationLog: (...args: unknown[]) => getLog(...args),
   getOperationStats: (...args: unknown[]) => getStats(...args),
   exportOperationLogs: (...args: unknown[]) => exportLogs(...args),
@@ -155,8 +176,8 @@ describe("OperationLogsPanel", () => {
     await user.click(screen.getByRole("button", { name: "跳转" }));
     await waitFor(() => expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ offset: 100 })));
     expect(screen.getByText("查看历史记录或详情时暂停自动刷新")).toBeInTheDocument();
-    await user.click(screen.getByTestId("pagination-page-size"));
-    await user.click(screen.getByRole("option", { name: "100" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "每页行数" })).toBeEnabled());
+    await chooseSelectOption(user, screen.getByRole("combobox", { name: "每页行数" }), "100");
     await waitFor(() =>
       expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ offset: 0, limit: 100 })),
     );

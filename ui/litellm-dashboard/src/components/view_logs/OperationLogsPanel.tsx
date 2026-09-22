@@ -19,7 +19,7 @@ import {
   getOperationLog,
   getOperationLogStorage,
   getOperationStats,
-  listOperationLogs,
+  operationLogsQueryOptions,
   type LogDetail,
   type LogFilters,
 } from "./operationLogsApi";
@@ -109,14 +109,7 @@ export function OperationLogsPanel({
     setValidationError(false);
   };
   const pageQuery = { ...filters, offset, limit: pageSize };
-  const query = useQuery({
-    queryKey: ["logs", "logs", accessToken, filters, offset, pageSize],
-    queryFn: () => listOperationLogs(accessToken, pageQuery),
-    retry: false,
-    refetchInterval: refreshInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: refreshInterval !== false,
-  });
+  const query = useQuery(operationLogsQueryOptions({ accessToken, filters, offset, pageSize, refreshInterval }));
   const detailQuery = {
     queryKey: ["logs", "log-detail", accessToken, eventId],
     queryFn: () => getOperationLog(accessToken, eventId!),
@@ -545,7 +538,7 @@ export function OperationLogsPanel({
             pageSize={pageSize}
             rowCount={query.data.total}
             showPageJump
-            isLoading={query.isFetching}
+            isLoading={query.isPending}
             onPageChange={(page) => setOffset(page * pageSize)}
             onPageSizeChange={(size) => {
               setPageSize(size);

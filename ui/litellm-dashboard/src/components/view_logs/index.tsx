@@ -7,6 +7,17 @@ const loadFullLogs = () => import("./FullLogsPanel").then((module) => module.Ful
 const loadLogSettings = () => import("./LogSettingsPanel").then((module) => module.LogSettingsPanel);
 const LOG_MODULE_LOADERS = [loadOperationLogs, loadFullLogs, loadLogSettings];
 
+export const preloadOperationLogModule = () => loadOperationLogs();
+export const preloadFullLogModule = () => loadFullLogs();
+export const preloadLogSettingsModule = () => loadLogSettings();
+export const preloadLogModules = () => Promise.all(LOG_MODULE_LOADERS.map((load) => load()));
+export const preloadOtherLogModules = () =>
+  Promise.all([
+    import("../DeletedKeysPage/DeletedKeysPage"),
+    import("../DeletedTeamsPage/DeletedTeamsPage"),
+    import("./AuditLogsPanel"),
+  ]);
+
 const OperationLogsPanel = dynamic(loadOperationLogs, {
   loading: ModuleLoading,
 });

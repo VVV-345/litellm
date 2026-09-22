@@ -18,8 +18,30 @@ export type FullLogFilters = {
   limit?: number;
 };
 
+export const normalizeFullLogFilters = (filters: FullLogFilters): FullLogFilters => ({
+  ...filters,
+  offset: filters.offset ?? 0,
+  limit: filters.limit ?? 50,
+});
+
 export const listFullLogs = (accessToken: string, query: FullLogFilters) =>
   apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query });
+
+export const fullLogsQueryOptions = (
+  accessToken: string,
+  filters: FullLogFilters,
+  refreshInterval: number | false = false,
+) => {
+  const normalizedFilters = normalizeFullLogFilters(filters);
+  return {
+    queryKey: ["logs", "full-logs", accessToken, normalizedFilters] as const,
+    queryFn: () => listFullLogs(accessToken, normalizedFilters),
+    retry: false,
+    refetchInterval: refreshInterval,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: refreshInterval !== false,
+  };
+};
 export const getFullLog = (accessToken: string, id: string) =>
   apiClient.get<FullLogRecord>(`/logs/full/${encodeURIComponent(id)}`, { accessToken });
 export const fullLogStorage = (accessToken: string) =>

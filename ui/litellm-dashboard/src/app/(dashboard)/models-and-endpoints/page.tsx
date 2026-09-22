@@ -3,42 +3,45 @@
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
-const ModelInfoView = dynamic(() => import("@/components/model_info_view"), { loading: ModuleLoading });
-const TeamInfoView = dynamic(() => import("@/components/team/TeamInfo"), { loading: ModuleLoading });
-const AutoRoutersTabPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/AutoRoutersTabPanel"), {
+import {
+  loadModelInfoView,
+  loadTeamInfoView,
+  loadAutoRoutersTabPanel,
+  loadAddModelPanel,
+  loadLlmCredentialsPanel,
+  loadPassThroughPanel,
+  loadHealthStatusPanel,
+  loadModelRetrySettingsPanel,
+  loadModelGroupAliasPanel,
+  loadAccessGroupBudgetsPanel,
+  loadPriceDataPanel,
+  loadModelRuntimeConfiguration,
+} from "./preloadModels";
+
+const ModelInfoView = dynamic(loadModelInfoView, { loading: ModuleLoading });
+const TeamInfoView = dynamic(loadTeamInfoView, { loading: ModuleLoading });
+const AutoRoutersTabPanel = dynamic(loadAutoRoutersTabPanel, {
   loading: ModuleLoading,
 });
-const AddModelPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/AddModelPanel"), {
+const AddModelPanel = dynamic(loadAddModelPanel, {
   loading: ModuleLoading,
 });
-const LlmCredentialsPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/LlmCredentialsPanel"), {
+const LlmCredentialsPanel = dynamic(loadLlmCredentialsPanel, {
   loading: ModuleLoading,
 });
-const PassThroughPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/PassThroughPanel"), {
+const PassThroughPanel = dynamic(loadPassThroughPanel, {
   loading: ModuleLoading,
 });
-const HealthStatusPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/HealthStatusPanel"), {
+const HealthStatusPanel = dynamic(loadHealthStatusPanel, {
   loading: ModuleLoading,
 });
-const ModelRetrySettingsPanel = dynamic(
-  () => import("@/app/(dashboard)/models-and-endpoints/panels/ModelRetrySettingsPanel"),
-  { loading: ModuleLoading },
-);
-const ModelGroupAliasPanel = dynamic(
-  () => import("@/app/(dashboard)/models-and-endpoints/panels/ModelGroupAliasPanel"),
-  { loading: ModuleLoading },
-);
-const AccessGroupBudgetsPanel = dynamic(
-  () => import("@/app/(dashboard)/models-and-endpoints/panels/AccessGroupBudgetsPanel"),
-  { loading: ModuleLoading },
-);
-const PriceDataPanel = dynamic(() => import("@/app/(dashboard)/models-and-endpoints/panels/PriceDataPanel"), {
+const ModelRetrySettingsPanel = dynamic(loadModelRetrySettingsPanel, { loading: ModuleLoading });
+const ModelGroupAliasPanel = dynamic(loadModelGroupAliasPanel, { loading: ModuleLoading });
+const AccessGroupBudgetsPanel = dynamic(loadAccessGroupBudgetsPanel, { loading: ModuleLoading });
+const PriceDataPanel = dynamic(loadPriceDataPanel, {
   loading: ModuleLoading,
 });
-const ModelRuntimeConfiguration = dynamic(
-  () => import("@/components/Settings/RuntimeSettings/ModelRuntimeConfiguration"),
-  { loading: ModuleLoading },
-);
+const ModelRuntimeConfiguration = dynamic(loadModelRuntimeConfiguration, { loading: ModuleLoading });
 
 import { useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";

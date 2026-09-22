@@ -5,48 +5,21 @@
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
-const loadAccountPoolSettingsOverview = () =>
-  import("@/features/account-pool/components/dashboard/AccountPoolSettingsOverview").then(
-    (module) => module.AccountPoolSettingsOverview,
-  );
-const loadAccountPoolCredentialsPanel = () =>
-  import("@/features/account-pool/components/credentials/AccountPoolCredentialsPanel").then(
-    (module) => module.AccountPoolCredentialsPanel,
-  );
-const loadAccountPoolOnboardingPanel = () =>
-  import("@/features/account-pool/components/onboarding/AccountPoolOnboardingPanel").then(
-    (module) => module.AccountPoolOnboardingPanel,
-  );
-const loadAccountPoolQuotaPanel = () =>
-  import("@/features/account-pool/components/dashboard/AccountPoolQuotaPanel").then(
-    (module) => module.AccountPoolQuotaPanel,
-  );
-const loadAccountPoolUpstreamSyncPanel = () =>
-  import("@/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel").then(
-    (module) => module.AccountPoolUpstreamSyncPanel,
-  );
-const loadAccountPoolPluginsPanel = () =>
-  import("@/features/account-pool/components/plugins/AccountPoolPluginsPanel").then(
-    (module) => module.AccountPoolPluginsPanel,
-  );
-const loadAccountPoolReleasesPanel = () =>
-  import("@/features/account-pool/components/releases/AccountPoolReleasesPanel").then(
-    (module) => module.AccountPoolReleasesPanel,
-  );
-const loadRuntimeSettingsSection = () =>
-  import("@/components/Settings/RuntimeSettings/RuntimeSettingsSection").then(
-    (module) => module.RuntimeSettingsSection,
-  );
-const loadRuntimeConfigDialog = () =>
-  import("@/components/Settings/RuntimeSettings/RuntimeConfigDialog").then((module) => module.RuntimeConfigDialog);
-const loadRuntimePolicyDialog = () =>
-  import("@/components/Settings/RuntimeSettings/RuntimePolicyDialog").then((module) => module.RuntimePolicyDialog);
-const loadAccountPoolCreateDialog = () =>
-  import("@/features/account-pool/components/cards/AccountPoolCreateDialog").then(
-    (module) => module.AccountPoolCreateDialog,
-  );
-const loadProxyManagerPanel = () =>
-  import("@/features/account-pool/components/proxy/ProxyManagerPanel").then((module) => module.ProxyManagerPanel);
+import {
+  loadAccountPoolSettingsOverview,
+  loadAccountPoolCredentialsPanel,
+  loadAccountPoolOnboardingPanel,
+  loadAccountPoolQuotaPanel,
+  loadAccountPoolUpstreamSyncPanel,
+  loadAccountPoolPluginsPanel,
+  loadAccountPoolReleasesPanel,
+  loadRuntimeSettingsSection,
+  loadRuntimeConfigDialog,
+  loadRuntimePolicyDialog,
+  loadAccountPoolCreateDialog,
+  loadProxyManagerPanel,
+  ACCOUNT_POOL_MODULE_LOADERS,
+} from "@/features/account-pool/preloadModules";
 
 const AccountPoolSettingsOverview = dynamic(loadAccountPoolSettingsOverview, { loading: ModuleLoading });
 const AccountPoolCredentialsPanel = dynamic(loadAccountPoolCredentialsPanel, { loading: ModuleLoading });
@@ -94,15 +67,13 @@ import { AccountPoolCard } from "@/features/account-pool/components/cards/Accoun
 import { AccountPoolBatchPanel } from "@/features/account-pool/components/cards/AccountPoolBatchPanel";
 import { AccountPoolDashboard } from "@/features/account-pool/components/dashboard/AccountPoolDashboard";
 import { AccountPoolAuthorizationOverview } from "@/features/account-pool/components/credentials/AccountPoolAuthorizationOverview";
-import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
-import { accountPoolPolicyOptions } from "@/features/account-pool/hooks/accountPoolOptions";
-import { AccountPoolProviderFamilies } from "@/features/account-pool/components/providers/AccountPoolProviderFamilies";
 import {
-  getAccountPoolDashboardStats,
-  getAccountPoolQuotaRefreshStatus,
-  refreshAccountPoolQuotas,
-  type ErrorStats,
-} from "@/features/account-pool/api/AccountPoolManagementApi";
+  accountPoolDashboardStatsOptions,
+  accountPoolPolicyOptions,
+  accountPoolQuotaRefreshStatusOptions,
+} from "@/features/account-pool/hooks/accountPoolOptions";
+import { AccountPoolProviderFamilies } from "@/features/account-pool/components/providers/AccountPoolProviderFamilies";
+import { refreshAccountPoolQuotas, type ErrorStats } from "@/features/account-pool/api/AccountPoolManagementApi";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import type {
   AccountPoolAuthorization,
@@ -134,20 +105,6 @@ const POOL_TABS = [
 ];
 const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
 const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard", "providers"]);
-const ACCOUNT_POOL_MODULE_LOADERS = [
-  loadAccountPoolCredentialsPanel,
-  loadAccountPoolQuotaPanel,
-  loadRuntimePolicyDialog,
-  loadRuntimeConfigDialog,
-  loadAccountPoolSettingsOverview,
-  loadAccountPoolOnboardingPanel,
-  loadProxyManagerPanel,
-  loadAccountPoolUpstreamSyncPanel,
-  loadAccountPoolPluginsPanel,
-  loadAccountPoolReleasesPanel,
-  loadRuntimeSettingsSection,
-  loadAccountPoolCreateDialog,
-];
 const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
   "all",
   "provisioning",
@@ -194,13 +151,9 @@ export default function AccountPoolPage() {
   const dashboardActive = activeTab === "dashboard";
   const environmentsQuery = useAccountPoolQuery(accessToken, canManage && dataTabActive, dataTabActive);
   const quotaRefreshStatusQuery = useQuery({
-    queryKey: accountPoolQueryKeys.quotaRefreshStatus(accessToken),
-    queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
+    ...accountPoolQuotaRefreshStatusOptions(accessToken),
     enabled: canManage && accessToken !== null && dashboardActive,
-    retry: false,
-    staleTime: 15_000,
     refetchInterval: 15_000,
-    refetchOnWindowFocus: true,
   });
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
@@ -230,13 +183,9 @@ export default function AccountPoolPage() {
     [policiesQuery.data],
   );
   const dashboardStatsQuery = useQuery({
-    queryKey: accountPoolQueryKeys.dashboardStats(accessToken),
-    queryFn: () => getAccountPoolDashboardStats(accessToken!),
+    ...accountPoolDashboardStatsOptions(accessToken),
     enabled: canManage && accessToken !== null && dashboardActive,
-    retry: false,
-    staleTime: 15_000,
     refetchInterval: 15_000,
-    refetchOnWindowFocus: true,
   });
   const statsByCard = useMemo(
     () =>

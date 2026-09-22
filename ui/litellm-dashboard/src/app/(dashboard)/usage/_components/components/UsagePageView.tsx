@@ -8,7 +8,8 @@
 
 import { ChevronDown, ChevronRight, Download, Info, Sparkles, X } from "lucide-react";
 import type { DateRangePickerValue } from "@/components/shared/date_picker_types";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { BarChart } from "@/components/shared/charts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/shared/Alert";
@@ -31,13 +32,7 @@ import CloudZeroExportModal from "@/components/cloudzero_export_modal";
 import UserDropdown from "@/components/common_components/UserDropdown";
 import EntityUsageExportModal from "@/components/EntityUsageExport";
 import { Team } from "@/components/key_team_helpers/key_list";
-import {
-  gatewayDailyActivityCall,
-  Organization,
-  tagListCall,
-  userDailyActivityAggregatedCall,
-  userDailyActivityCall,
-} from "@/components/networking";
+import { Organization, userDailyActivityCall } from "@/components/networking";
 import AdvancedDatePicker from "@/components/shared/advanced_date_picker";
 import { ChartLoader } from "@/components/shared/chart_loader";
 import { Tag } from "@/components/tag_management/types";
@@ -46,17 +41,14 @@ import ViewUserSpend from "@/components/view_user_spend";
 import { usePaginatedDailyActivity } from "../hooks/usePaginatedDailyActivity";
 import { DailyData, KeyMetricWithMetadata, MetricWithMetadata } from "@/components/UsagePage/types";
 import { valueFormatterSpend } from "@/components/UsagePage/utils/value_formatters";
+import { topGatewayRoutes, type GatewayActivity } from "./gatewayActivity";
 import {
-  fetchedRangeKey,
-  selectForRange,
-  selectGatewayActivity,
-  topGatewayRoutes,
-  type FetchedForRange,
-  type FetchedGatewayActivity,
-  type GatewayActivity,
-} from "./gatewayActivity";
+  usageDailyActivityQueryOptions,
+  usageGatewayActivityQueryOptions,
+  usageTagsQueryOptions,
+} from "@/app/(dashboard)/hooks/usage/useUsageQueries";
 import EndpointUsage from "./EndpointUsage/EndpointUsage";
-import EntityUsage, { EntityList } from "./EntityUsage/EntityUsage";
+import EntityUsage from "./EntityUsage/EntityUsage";
 import ModelViewToggle, { ModelViewType } from "./ModelViewToggle";
 import SpendByProvider from "./EntityUsage/SpendByProvider";
 import { TOP_MODEL_LIMITS } from "./EntityUsage/TopModelView";
@@ -73,18 +65,6 @@ interface UsagePageProps {
 const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
   const { t } = useTranslation();
   const { accessToken, userRole, userId: userID, premiumUser } = useAuthorized();
-  // Aggregated endpoint: try first, fall back to paginated if unavailable
-  const [aggregatedData, setAggregatedData] = useState<FetchedForRange<{
-    results: DailyData[];
-    metadata: any;
-  }> | null>(null);
-  // Stamped like the data itself: the flag decides whether the paginated
-  // fallback is read, and a flag left over from the previous range would let
-  // that fallback's own leftover rows through.
-  const [aggregatedFailure, setAggregatedFailure] = useState<FetchedForRange<true> | null>(null);
-  const [aggregatedLoading, setAggregatedLoading] = useState(false);
-  const [gatewayActivityData, setGatewayActivityData] = useState<FetchedGatewayActivity | null>(null);
-
   // Separate loading states for better UX
   const [isDateChanging, setIsDateChanging] = useState(false);
 
@@ -98,7 +78,6 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
     to: initialToDate,
   });
 
-  const [fetchedTags, setFetchedTags] = useState<FetchedForRange<EntityList[]> | null>(null);
   // No [] default: an unresolved query must stay undefined so the customer
   // filter reads as loading rather than as a range with no customers.
   const { data: customers } = useCustomers();
@@ -142,96 +121,15 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
   const startTime = useMemo(() => (dateValue.from ? new Date(dateValue.from) : null), [dateValue.from]);
   const endTime = useMemo(() => (dateValue.to ? new Date(dateValue.to) : null), [dateValue.to]);
 
-  // Stamped and selected during render like the request tiles below: the tag
-  // filter reads "no tags" from an empty list, so a list left over from the
-  // previous range would state that about a range nobody has measured yet.
-  const currentTagRangeKey = fetchedRangeKey(startTime, endTime);
-  const allTags = selectForRange(fetchedTags, currentTagRangeKey);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const tags = await tagListCall(accessToken, startTime, endTime);
-        if (cancelled) return;
-        setFetchedTags({
-          rangeKey: currentTagRangeKey,
-          value: Object.values(tags).map((tag: Tag) => ({
-            label: tag.name,
-            value: tag.name,
-          })),
-        });
-      } catch (e) {
-        if (!cancelled) {
-          console.error("Failed to fetch tag list", e);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, startTime, endTime, currentTagRangeKey]);
-
-  // Everything the request tiles read is stamped with the range it answers and
-  // selected during render, rather than cleared in an effect. An effect runs
-  // after the render that follows a date change, so state cleared there is one
-  // render too late: that render still holds the previous range's numbers and
-  // can paint them. One source is not enough, since the tiles read the gateway
-  // counts, fall through to the aggregate, and fall through again to the
-  // paginated pages, so a stamp on any one of them is escaped by the next.
-  const currentAggregatedRangeKey = fetchedRangeKey(startTime, endTime, effectiveUserId);
-  const currentGatewayRangeKey = fetchedRangeKey(startTime, endTime);
-
-  // Try aggregated endpoint first, fall back to paginated on failure
-  const aggregatedFetchIdRef = useRef(0);
-  useEffect(() => {
-    if (!accessToken || !startTime || !endTime) return;
-    const fetchId = ++aggregatedFetchIdRef.current;
-    const rangeKey = currentAggregatedRangeKey;
-    setAggregatedLoading(true);
-
-    userDailyActivityAggregatedCall(accessToken, startTime, endTime, effectiveUserId)
-      .then((data) => {
-        if (aggregatedFetchIdRef.current !== fetchId) return;
-        setAggregatedData({ rangeKey, value: data });
-        setAggregatedLoading(false);
-        setIsDateChanging(false);
-      })
-      .catch(() => {
-        if (aggregatedFetchIdRef.current !== fetchId) return;
-        setAggregatedFailure({ rangeKey, value: true });
-        setAggregatedLoading(false);
-      });
-  }, [accessToken, startTime, endTime, effectiveUserId, currentAggregatedRangeKey]);
-
-  // Gateway request counts (SGR). Admin-only: the source table is
-  // deployment-wide, so a non-admin must not see it.
-  const gatewayRequest = useMemo(
-    () => (accessToken && startTime && endTime ? { accessToken, startTime, endTime } : null),
-    [accessToken, startTime, endTime],
-  );
-  const gatewayFetchIdRef = useRef(0);
-  useEffect(() => {
-    if (!isAdmin || !gatewayRequest) return;
-    const fetchId = ++gatewayFetchIdRef.current;
-    gatewayDailyActivityCall(gatewayRequest.accessToken, gatewayRequest.startTime, gatewayRequest.endTime)
-      .then((data) => {
-        if (gatewayFetchIdRef.current !== fetchId) return;
-        setGatewayActivityData({ rangeKey: currentGatewayRangeKey, value: data as GatewayActivity });
-      })
-      .catch(() => {
-        if (gatewayFetchIdRef.current !== fetchId) return;
-        setGatewayActivityData(null);
-      });
-  }, [isAdmin, gatewayRequest, currentGatewayRangeKey]);
-
-  const gatewayActivity = selectGatewayActivity(isAdmin, gatewayActivityData, currentGatewayRangeKey);
-  const activeAggregated = selectForRange(aggregatedData, currentAggregatedRangeKey);
-  // A failure belongs to the range it happened on. Reading it through the same
-  // rule keeps the paginated hook disabled while a new range is in flight, and
-  // disabled is what empties it, so its previous rows never reach a tile.
-  const aggregatedFailed = selectForRange(aggregatedFailure, currentAggregatedRangeKey) === true;
+  const aggregatedQuery = useQuery(usageDailyActivityQueryOptions(accessToken, startTime, endTime, effectiveUserId));
+  const gatewayQuery = useQuery(usageGatewayActivityQueryOptions(accessToken, startTime, endTime, isAdmin));
+  const tagsQuery = useQuery(usageTagsQueryOptions(accessToken, startTime, endTime));
+  const allTags = tagsQuery.data
+    ? Object.values(tagsQuery.data).map((tag: Tag) => ({ label: tag.name, value: tag.name }))
+    : null;
+  const gatewayActivity = isAdmin ? (gatewayQuery.data as GatewayActivity | undefined) ?? null : null;
+  const activeAggregated = aggregatedQuery.data ?? null;
+  const aggregatedFailed = aggregatedQuery.isError;
 
   // Paginated fallback — only enabled when aggregated endpoint fails
   const paginatedResult = usePaginatedDailyActivity({
@@ -247,14 +145,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
     return { results: [] as DailyData[], metadata: {} as any };
   }, [activeAggregated, aggregatedFailed, paginatedResult.data]);
 
-  const loading = aggregatedLoading || paginatedResult.loading;
+  const loading = aggregatedQuery.isPending || paginatedResult.loading;
 
-  // Clear isDateChanging when paginated data starts arriving
+  // Clear isDateChanging when aggregate or fallback data finishes loading.
   useEffect(() => {
-    if (aggregatedFailed && !paginatedResult.loading && paginatedResult.data.results.length > 0) {
+    if ((!aggregatedQuery.isPending && activeAggregated) || (aggregatedFailed && !paginatedResult.loading)) {
       setIsDateChanging(false);
     }
-  }, [aggregatedFailed, paginatedResult.loading, paginatedResult.data.results.length]);
+  }, [activeAggregated, aggregatedFailed, aggregatedQuery.isPending, paginatedResult.loading]);
 
   // Super responsive date change handler
   const handleDateChange = useCallback((newValue: DateRangePickerValue) => {

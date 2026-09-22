@@ -1,4 +1,5 @@
 import { notifyDashboardDataChanged } from "../cacheEvents";
+import { cachedDashboardRequest } from "./responseCache";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -127,7 +128,9 @@ const appendQuery = (url: string, query: QueryParams | undefined): string => {
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { getBaseUrl, getAuthHeaderName, onError, fetchImpl } = config;
   const doFetch: typeof fetch = async (input, init) => {
-    const response = await (fetchImpl ?? fetch)(input, init);
+    const response = await cachedDashboardRequest(input, init, (target, options) =>
+      (fetchImpl ?? globalThis.fetch)(target, { cache: "no-store", ...options }),
+    );
     if (response.ok && init?.method !== "GET") notifyDashboardDataChanged();
     return response;
   };
@@ -149,7 +152,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       Object.assign(headers, extraHeaders);
     }
 
-    const init: RequestInit = { method, headers, signal, cache: options.cache ?? "no-store" };
+    const init: RequestInit = { method, headers, signal, ...(options.cache ? { cache: options.cache } : {}) };
     if (rawBody !== undefined) {
       init.body = rawBody;
     } else if (body !== undefined) {
@@ -183,7 +186,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     if (rawBody === undefined) headers["Content-Type"] = "application/json";
     if (accessToken) headers[getAuthHeaderName ? getAuthHeaderName() : "Authorization"] = `Bearer ${accessToken}`;
     if (extraHeaders) Object.assign(headers, extraHeaders);
-    const init: RequestInit = { method, headers, signal, cache: options.cache ?? "no-store" };
+    const init: RequestInit = { method, headers, signal, ...(options.cache ? { cache: options.cache } : {}) };
     if (rawBody !== undefined) init.body = rawBody;
     else if (body !== undefined) init.body = JSON.stringify(body);
     const response = await doFetch(url, init);

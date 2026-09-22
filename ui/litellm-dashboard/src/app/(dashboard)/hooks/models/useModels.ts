@@ -22,26 +22,43 @@ export interface PaginatedModelInfoResponse {
   size: number;
 }
 
-const modelKeys = createQueryKeys("models");
+export const modelKeys = createQueryKeys("models");
 const modelHubKeys = createQueryKeys("modelHub");
 const allProxyModelsKeys = createQueryKeys("allProxyModels");
 const selectedTeamModelsKeys = createQueryKeys("selectedTeamModels");
 const infiniteModelKeys = createQueryKeys("infiniteModels");
 const userModelsKeys = createQueryKeys("userModels");
 
-export const useModelsInfo = (
-  page: number = 1,
-  size: number = 50,
-  search?: string,
-  modelId?: string,
-  teamId?: string,
-  sortBy?: string,
-  sortOrder?: string,
-  excludeAutoRouters: boolean = false,
-  modelName?: string,
-) => {
-  const { accessToken, userId, userRole } = useAuthorized();
-  return useQuery<PaginatedModelInfoResponse>({
+export interface ModelInfoQueryParams {
+  accessToken: string | null;
+  userId: string | null;
+  userRole: string | null;
+  page?: number;
+  size?: number;
+  search?: string;
+  modelId?: string;
+  teamId?: string;
+  sortBy?: string;
+  sortOrder?: string;
+  excludeAutoRouters?: boolean;
+  modelName?: string;
+}
+
+export const modelInfoQueryOptions = ({
+  accessToken,
+  userId,
+  userRole,
+  page = 1,
+  size = 50,
+  search,
+  modelId,
+  teamId,
+  sortBy,
+  sortOrder,
+  excludeAutoRouters = false,
+  modelName,
+}: ModelInfoQueryParams) => {
+  return {
     queryKey: modelKeys.list({
       filters: {
         ...(userId && { userId }),
@@ -59,11 +76,12 @@ export const useModelsInfo = (
         ...(excludeAutoRouters && { excludeAutoRouters: "true" }),
       },
     }),
-    queryFn: async () =>
-      await modelInfoCall(
-        accessToken!,
-        userId!,
-        userRole!,
+    queryFn: async () => {
+      if (!accessToken || !userId || !userRole) throw new Error("Authorization required");
+      return await modelInfoCall(
+        accessToken,
+        userId,
+        userRole,
         page,
         size,
         search,
@@ -73,9 +91,40 @@ export const useModelsInfo = (
         sortOrder,
         excludeAutoRouters,
         modelName,
-      ),
+      );
+    },
     enabled: Boolean(accessToken && userId && userRole),
-  });
+  };
+};
+
+export const useModelsInfo = (
+  page: number = 1,
+  size: number = 50,
+  search?: string,
+  modelId?: string,
+  teamId?: string,
+  sortBy?: string,
+  sortOrder?: string,
+  excludeAutoRouters: boolean = false,
+  modelName?: string,
+) => {
+  const { accessToken, userId, userRole } = useAuthorized();
+  return useQuery<PaginatedModelInfoResponse>(
+    modelInfoQueryOptions({
+      accessToken,
+      userId,
+      userRole,
+      page,
+      size,
+      search,
+      modelId,
+      teamId,
+      sortBy,
+      sortOrder,
+      excludeAutoRouters,
+      modelName,
+    }),
+  );
 };
 
 const AUTO_ROUTER_MODEL_PREFIX = "auto_router/";

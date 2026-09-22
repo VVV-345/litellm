@@ -13,18 +13,22 @@ import {
 } from "../api/AccountPoolApi";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
+export const proxyGatewayQueryOptions = (accessToken: string | null) => ({
+  queryKey: accountPoolQueryKeys.proxyGateways(accessToken),
+  queryFn: () => {
+    if (!accessToken) throw new Error("Access token required");
+    return listAccountPoolProxyGateways(accessToken);
+  },
+  retry: false,
+  staleTime: 15_000,
+  refetchOnWindowFocus: false,
+  refetchInterval: 30_000,
+});
+
 export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolean) =>
   useQuery({
-    queryKey: accountPoolQueryKeys.proxyGateways(accessToken),
-    queryFn: () => {
-      if (!accessToken) throw new Error("Access token required");
-      return listAccountPoolProxyGateways(accessToken);
-    },
+    ...proxyGatewayQueryOptions(accessToken),
     enabled: enabled && accessToken !== null,
-    retry: false,
-    staleTime: 15_000,
-    refetchOnWindowFocus: false,
-    refetchInterval: 30_000,
   });
 
 export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {

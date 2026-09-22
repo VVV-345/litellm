@@ -51,7 +51,6 @@ const middleware: Middleware = {
 export const fetchClient = createFetchClient<paths>({
   Request: BaseAwareRequest,
   fetch: dashboardFetch,
-  cache: "no-store",
 });
 fetchClient.use(middleware);
 

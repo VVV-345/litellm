@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Layout from "./layout";
 
@@ -74,12 +75,15 @@ describe("(dashboard) Layout", () => {
   });
 
   it("does not mount route content until getUiConfig has resolved", async () => {
+    const queryClient = new QueryClient();
     render(
-      <AuthProvider>
-        <Layout>
-          <div data-testid="page-content" />
-        </Layout>
-      </AuthProvider>,
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Layout>
+            <div data-testid="page-content" />
+          </Layout>
+        </AuthProvider>
+      </QueryClientProvider>,
     );
 
     expect(await screen.findByTestId("loading-screen")).toBeInTheDocument();
@@ -94,14 +98,17 @@ describe("(dashboard) Layout", () => {
   });
 
   it("redirects an invitation link to the onboarding route instead of rendering the dashboard shell", async () => {
+    const queryClient = new QueryClient();
     searchParamsValue = new URLSearchParams("invitation_id=abc123");
 
     render(
-      <AuthProvider>
-        <Layout>
-          <div data-testid="page-content" />
-        </Layout>
-      </AuthProvider>,
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Layout>
+            <div data-testid="page-content" />
+          </Layout>
+        </AuthProvider>
+      </QueryClientProvider>,
     );
 
     pendingUiConfig.resolve();
