@@ -32,7 +32,8 @@ export const accountPoolQueryKeys = {
     [...ACCOUNT_POOL_ROOT, "native-router-settings", accessToken] as const,
   nativeGeneralSettings: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "native-general-settings", accessToken] as const,
-  upstreamSync: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "upstream-sync", accessToken] as const,
+  upstreamSync: (accessToken: string | null, target = "cliproxyapi") =>
+    [...ACCOUNT_POOL_ROOT, "upstream-sync", target, accessToken] as const,
   quotaRefreshStatus: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "quota-refresh-status", accessToken] as const,
   dashboardStats: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "dashboard-stats", accessToken] as const,

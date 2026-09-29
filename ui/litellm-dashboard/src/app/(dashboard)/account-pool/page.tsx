@@ -603,7 +603,12 @@ export default function AccountPoolPage() {
             active={activeTab === "upstream-sync"}
             visited={isTabVisited("upstream-sync")}
           >
-            {accessToken && <AccountPoolUpstreamSyncPanel accessToken={accessToken} />}
+            {accessToken && (
+              <div className="grid gap-8">
+                <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="cliproxyapi" />
+                <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="litellm" />
+              </div>
+            )}
           </DeferredTabPanel>
           <DeferredTabPanel
             value="settings-overview"

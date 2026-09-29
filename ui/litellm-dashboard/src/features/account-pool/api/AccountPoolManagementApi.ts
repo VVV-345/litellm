@@ -250,3 +250,15 @@ export const promoteAccountPoolUpstream = (accessToken: string) =>
 
 export const getAccountPoolCodexReview = (accessToken: string) =>
   apiClient.get<CodexReviewPackage>("/account_pool/upstream-sync/codex-review", { accessToken });
+
+export const getLiteLLMUpstreamSync = (accessToken: string) =>
+  apiClient.get<UpstreamSyncView>("/account_pool/upstream-sync/litellm", { accessToken });
+
+export const analyzeLiteLLMUpstream = (accessToken: string) =>
+  apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/litellm/analyze", { accessToken });
+
+export const promoteLiteLLMUpstream = (accessToken: string) =>
+  apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/litellm/promote", { accessToken });
+
+export const getLiteLLMCodexReview = (accessToken: string) =>
+  apiClient.get<CodexReviewPackage>("/account_pool/upstream-sync/litellm/codex-review", { accessToken });

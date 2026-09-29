@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+from dataclasses import dataclass
 from typing import Final, Literal, overload
 from urllib.parse import quote
 from uuid import UUID, uuid4
@@ -16,6 +17,7 @@ from account_pool.config import Settings
 
 UpstreamSyncState = Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted"]
 UpstreamSyncAction = Literal["none", "analyze", "promote"]
+UpstreamSyncTarget = Literal["cliproxyapi", "litellm"]
 
 _GITHUB_API_ROOT: Final = "https://api.github.com"
 _STATUS_PATH: Final = ".codex/upstream-sync-status.json"
@@ -46,6 +48,7 @@ class UpstreamSyncReport(BaseModel):
 class UpstreamSyncView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    target: UpstreamSyncTarget = "cliproxyapi"
     upstream_repository: str
     fork_repository: str
     sync_branch: str
@@ -95,6 +98,18 @@ class _GitHubError(BaseModel):
     message: str = Field(max_length=1000)
 
 
+@dataclass(frozen=True, slots=True)
+class _TargetConfig:
+    target: UpstreamSyncTarget
+    upstream_repository: str
+    fork_repository: str
+    current_tag: str
+    branch: str
+    workflow: str
+    workflow_ref: str
+    token: str
+
+
 class UpstreamSyncError(Exception):
     def __init__(self, status_code: int, message: str) -> None:
         super().__init__(message)
@@ -103,13 +118,13 @@ class UpstreamSyncError(Exception):
 
 
 class GitHubUpstreamSyncService:
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
-        self._settings: Final = settings
-        self._token: Final = (
-            ""
-            if settings.upstream_sync_github_token is None
-            else settings.upstream_sync_github_token.get_secret_value().strip()
-        )
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+        target: UpstreamSyncTarget = "cliproxyapi",
+    ) -> None:
+        self._config: Final = _target_config(settings, target)
         self._client: Final = client or httpx.AsyncClient(
             base_url=_GITHUB_API_ROOT,
             timeout=20,
@@ -126,13 +141,14 @@ class GitHubUpstreamSyncService:
         release: Final = await self._latest_release()
         report: Final = await self._report()
         return UpstreamSyncView(
-            upstream_repository=self._settings.upstream_sync_upstream_repository,
-            fork_repository=self._settings.upstream_sync_fork_repository,
-            sync_branch=self._settings.upstream_sync_branch,
-            current_tag=self._settings.upstream_sync_current_tag,
+            target=self._config.target,
+            upstream_repository=self._config.upstream_repository,
+            fork_repository=self._config.fork_repository,
+            sync_branch=self._config.branch,
+            current_tag=self._config.current_tag,
             latest_tag=release.tag_name,
             latest_release_url=release.html_url,
-            update_available=_version_key(release.tag_name) > _version_key(self._settings.upstream_sync_current_tag),
+            update_available=_version_key(release.tag_name) > _version_key(self._config.current_tag),
             dispatch_configured=bool(self._token),
             report=report,
         )
@@ -152,12 +168,12 @@ class GitHubUpstreamSyncService:
 
     async def codex_review_package(self) -> CodexReviewPackage:
         report: Final = await self._report()
-        handoff: Final = await self._repository_text(_HANDOFF_PATH, self._settings.upstream_sync_branch, required=True)
-        review: Final = await self._repository_text(_REVIEW_PATH, self._settings.upstream_sync_branch, required=True)
+        handoff: Final = await self._repository_text(_HANDOFF_PATH, self._config.branch, required=True)
+        review: Final = await self._repository_text(_REVIEW_PATH, self._config.branch, required=True)
         target: Final = report.target_tag or "pending"
         return CodexReviewPackage(
             filename=f"codex-upstream-review-{target}.md",
-            branch=self._settings.upstream_sync_branch,
+            branch=self._config.branch,
             target_tag=report.target_tag,
             content=f"{handoff.rstrip()}\n\n---\n\n{review.rstrip()}\n",
         )
@@ -166,13 +182,13 @@ class GitHubUpstreamSyncService:
         if not self._token:
             raise UpstreamSyncError(503, "GitHub workflow authorization is not configured")
         request_id: Final = uuid4()
-        workflow: Final = quote(self._settings.upstream_sync_workflow, safe="")
+        workflow: Final = quote(self._config.workflow, safe="")
         try:
             response: Final = await self._client.post(
-                f"/repos/{self._settings.upstream_sync_fork_repository}/actions/workflows/{workflow}/dispatches",
+                f"/repos/{self._config.fork_repository}/actions/workflows/{workflow}/dispatches",
                 headers=self._headers(),
                 json={
-                    "ref": self._settings.upstream_sync_workflow_ref,
+                    "ref": self._config.workflow_ref,
                     "inputs": {
                         "action": action,
                         "target_tag": target_tag,
@@ -189,7 +205,7 @@ class GitHubUpstreamSyncService:
     async def _latest_release(self) -> _GitHubRelease:
         try:
             response: Final = await self._client.get(
-                f"/repos/{self._settings.upstream_sync_upstream_repository}/releases/latest",
+                f"/repos/{self._config.upstream_repository}/releases/latest",
                 headers=self._headers(),
             )
         except httpx.HTTPError as error:
@@ -204,7 +220,7 @@ class GitHubUpstreamSyncService:
         return release
 
     async def _report(self) -> UpstreamSyncReport:
-        payload: Final = await self._repository_text(_STATUS_PATH, self._settings.upstream_sync_branch, required=False)
+        payload: Final = await self._repository_text(_STATUS_PATH, self._config.branch, required=False)
         if payload is None:
             return UpstreamSyncReport(message="No upstream compatibility report is available")
         try:
@@ -222,7 +238,7 @@ class GitHubUpstreamSyncService:
         encoded_path: Final = quote(path, safe="/")
         try:
             response: Final = await self._client.get(
-                f"/repos/{self._settings.upstream_sync_fork_repository}/contents/{encoded_path}",
+                f"/repos/{self._config.fork_repository}/contents/{encoded_path}",
                 headers=self._headers(),
                 params={"ref": ref},
             )
@@ -255,6 +271,36 @@ class GitHubUpstreamSyncService:
             **({"Authorization": f"Bearer {self._token}"} if self._token else {}),
         }
 
+    @property
+    def _token(self) -> str:
+        return self._config.token
+
+
+def _target_config(settings: Settings, target: UpstreamSyncTarget) -> _TargetConfig:
+    if target == "cliproxyapi":
+        secret: Final = settings.upstream_sync_github_token
+        return _TargetConfig(
+            target=target,
+            upstream_repository=settings.upstream_sync_upstream_repository,
+            fork_repository=settings.upstream_sync_fork_repository,
+            current_tag=settings.upstream_sync_current_tag,
+            branch=settings.upstream_sync_branch,
+            workflow=settings.upstream_sync_workflow,
+            workflow_ref=settings.upstream_sync_workflow_ref,
+            token="" if secret is None else secret.get_secret_value().strip(),
+        )
+    secret = settings.litellm_upstream_sync_github_token
+    return _TargetConfig(
+        target=target,
+        upstream_repository=settings.litellm_upstream_sync_upstream_repository,
+        fork_repository=settings.litellm_upstream_sync_fork_repository,
+        current_tag=settings.litellm_upstream_sync_current_tag,
+        branch=settings.litellm_upstream_sync_branch,
+        workflow=settings.litellm_upstream_sync_workflow,
+        workflow_ref=settings.litellm_upstream_sync_workflow_ref,
+        token="" if secret is None else secret.get_secret_value().strip(),
+    )
+
 
 def _version_key(tag: str) -> tuple[int, int, int, int, str]:
     match: Final = _TAG_PATTERN.fullmatch(tag)
@@ -278,5 +324,6 @@ __all__ = (
     "UpstreamSyncDispatch",
     "UpstreamSyncError",
     "UpstreamSyncReport",
+    "UpstreamSyncTarget",
     "UpstreamSyncView",
 )

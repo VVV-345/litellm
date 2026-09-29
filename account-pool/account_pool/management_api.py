@@ -31,7 +31,6 @@ from account_pool.policies import (
     policy_validation_error,
 )
 from account_pool.ports import EnvironmentRepository
-from account_pool.shared.result import Failure, Result
 from account_pool.settings import (
     AccountPoolSettings,
     AccountPoolSettingsHistoryEntry,
@@ -41,6 +40,7 @@ from account_pool.settings import (
     AccountPoolSettingsView,
     settings_preview,
 )
+from account_pool.shared.result import Failure, Result
 from account_pool.upstream_sync import (
     CodexReviewPackage,
     GitHubUpstreamSyncService,
@@ -62,6 +62,7 @@ def create_management_router(
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     upstream_sync: GitHubUpstreamSyncService | None = None,
+    litellm_upstream_sync: GitHubUpstreamSyncService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
     settings_update_lock: Final = asyncio.Lock()
@@ -234,6 +235,28 @@ def create_management_router(
         async def codex_review_package(response: Response) -> CodexReviewPackage:
             response.headers["Cache-Control"] = "no-store"
             return await _upstream_sync_call(upstream_sync.codex_review_package)
+
+    if litellm_upstream_sync is not None:
+
+        @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
+        async def litellm_upstream_sync_status(response: Response) -> UpstreamSyncView:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(litellm_upstream_sync.status)
+
+        @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)
+        async def analyze_litellm_upstream(response: Response) -> UpstreamSyncDispatch:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(litellm_upstream_sync.analyze)
+
+        @router.post("/upstream-sync/litellm/promote", response_model=UpstreamSyncDispatch, status_code=202)
+        async def promote_litellm_upstream(response: Response) -> UpstreamSyncDispatch:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(litellm_upstream_sync.promote)
+
+        @router.get("/upstream-sync/litellm/codex-review", response_model=CodexReviewPackage)
+        async def litellm_codex_review_package(response: Response) -> CodexReviewPackage:
+            response.headers["Cache-Control"] = "no-store"
+            return await _upstream_sync_call(litellm_upstream_sync.codex_review_package)
 
     return router
 

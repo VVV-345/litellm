@@ -23,8 +23,12 @@ import { toast } from "@/lib/toast";
 
 import {
   analyzeAccountPoolUpstream,
+  analyzeLiteLLMUpstream,
   getAccountPoolCodexReview,
   getAccountPoolUpstreamSync,
+  getLiteLLMCodexReview,
+  getLiteLLMUpstreamSync,
+  promoteLiteLLMUpstream,
   promoteAccountPoolUpstream,
   type UpstreamSyncDispatch,
   type UpstreamSyncView,
@@ -33,6 +37,7 @@ import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
 interface AccountPoolUpstreamSyncPanelProps {
   accessToken: string;
+  target?: "cliproxyapi" | "litellm";
 }
 
 const isPendingRequest = (status: UpstreamSyncView | undefined, requestId: string | null) =>
@@ -53,13 +58,15 @@ const downloadReview = (filename: string, content: string) => {
   URL.revokeObjectURL(url);
 };
 
-export function AccountPoolUpstreamSyncPanel({ accessToken }: AccountPoolUpstreamSyncPanelProps) {
+export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyapi" }: AccountPoolUpstreamSyncPanelProps) {
   const { t } = useTranslation();
+  const isLiteLLM = target === "litellm";
+  const targetLabel = isLiteLLM ? "LiteLLM" : "CLIProxyAPI";
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [promotionOpen, setPromotionOpen] = useState(false);
   const statusQueryOptions: UseQueryOptions<UpstreamSyncView> = {
-    queryKey: accountPoolQueryKeys.upstreamSync(accessToken),
-    queryFn: () => getAccountPoolUpstreamSync(accessToken),
+    queryKey: accountPoolQueryKeys.upstreamSync(accessToken, target),
+    queryFn: () => (isLiteLLM ? getLiteLLMUpstreamSync(accessToken) : getAccountPoolUpstreamSync(accessToken)),
     retry: false,
     refetchInterval: (query) => (isPendingRequest(query.state.data, pendingRequestId) ? 10_000 : false),
   };
@@ -70,7 +77,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken }: AccountPoolUpstrea
     void statusQuery.refetch();
   };
   const analyzeMutation = useMutation({
-    mutationFn: () => analyzeAccountPoolUpstream(accessToken),
+    mutationFn: () => (isLiteLLM ? analyzeLiteLLMUpstream(accessToken) : analyzeAccountPoolUpstream(accessToken)),
     onSuccess: (dispatch) => {
       startTracking(dispatch);
       toast.success(t("accountPool.upstreamSync.analysisQueued"));
@@ -78,7 +85,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken }: AccountPoolUpstrea
     onError: (error: Error) => toast.fromError(error),
   });
   const promoteMutation = useMutation({
-    mutationFn: () => promoteAccountPoolUpstream(accessToken),
+    mutationFn: () => (isLiteLLM ? promoteLiteLLMUpstream(accessToken) : promoteAccountPoolUpstream(accessToken)),
     onSuccess: (dispatch) => {
       setPromotionOpen(false);
       startTracking(dispatch);
@@ -87,7 +94,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken }: AccountPoolUpstrea
     onError: (error: Error) => toast.fromError(error),
   });
   const reviewMutation = useMutation({
-    mutationFn: () => getAccountPoolCodexReview(accessToken),
+    mutationFn: () => (isLiteLLM ? getLiteLLMCodexReview(accessToken) : getAccountPoolCodexReview(accessToken)),
     onSuccess: (review) => {
       downloadReview(review.filename, review.content);
       toast.success(t("accountPool.upstreamSync.reviewDownloaded"));
@@ -121,7 +128,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken }: AccountPoolUpstrea
   return (
     <div className="grid gap-5" data-testid="account-pool-upstream-sync">
       <div>
-        <h2 className="text-lg font-semibold">{t("accountPool.upstreamSync.title")}</h2>
+        <h2 className="text-lg font-semibold">{targetLabel} {t("accountPool.upstreamSync.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.upstreamSync.description")}</p>
       </div>
       <VersionStatusCard

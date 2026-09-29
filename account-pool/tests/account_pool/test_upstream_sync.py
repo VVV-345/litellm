@@ -151,3 +151,32 @@ async def test_codex_review_package_combines_the_stable_handoff_and_latest_repor
     assert "# Stable handoff" in package.content
     assert "# Latest failure" in package.content
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_litellm_sync_uses_a_separate_repository_and_branch() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v1.101.0",
+                    "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.101.0",
+                },
+                request=request,
+            )
+        assert request.url.path.startswith("/repos/VVV-345/litellm/contents/")
+        assert request.url.params["ref"] == "codex/litellm-upstream-sync"
+        return _content_response(request, _report("idle", "v1.101.0"))
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com")
+    service: Final = GitHubUpstreamSyncService(_settings(), client, target="litellm")
+
+    state: Final = await service.status()
+
+    assert state.target == "litellm"
+    assert state.current_tag == "v1.100.0"
+    assert state.upstream_repository == "BerriAI/litellm"
+    assert state.fork_repository == "VVV-345/litellm"
+    assert state.sync_branch == "codex/litellm-upstream-sync"
+    await client.aclose()

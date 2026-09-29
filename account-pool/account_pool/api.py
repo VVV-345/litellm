@@ -200,6 +200,7 @@ def create_router(
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]] | None = None,
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     upstream_sync: GitHubUpstreamSyncService | None = None,
+    litellm_upstream_sync: GitHubUpstreamSyncService | None = None,
     quota_scheduler: QuotaRefreshScheduler | None = None,
     auth_refresh_scheduler: RefreshScheduler | None = None,
 ) -> APIRouter:
@@ -646,6 +647,7 @@ def create_router(
                 sync_settings,
                 sync_policy,
                 upstream_sync,
+                litellm_upstream_sync,
             )
         )
     if gateway_service is not None:

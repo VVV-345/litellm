@@ -39,9 +39,9 @@ from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import PostgresEnvironmentRepository, PostgresProxyProfileRepository
-from account_pool.shared.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
+from account_pool.shared.secrets import EnvironmentSecretDeriver
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days, settings_repository
     )
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
+    litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
@@ -194,6 +195,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if controller is not None:
                 await controller.aclose()
             await upstream_sync.close()
+            await litellm_upstream_sync.close()
             await cooldown_client.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
@@ -223,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sync_settings=sync_global_settings,
             sync_policy=service.sync_policy,
             upstream_sync=upstream_sync,
+            litellm_upstream_sync=litellm_upstream_sync,
             quota_scheduler=quota_scheduler,
             auth_refresh_scheduler=auth_refresh_scheduler,
         )
