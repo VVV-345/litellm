@@ -1,7 +1,29 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Check, ChevronDown, CircleHelp, Layers3, RefreshCw, Settings2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  CircleHelp,
+  Layers3,
+  RefreshCw,
+  Settings2,
+  UserPlus,
+  Boxes,
+  Network,
+  ScrollText,
+  Gauge,
+  KeyRound,
+  Waves,
+  SlidersHorizontal,
+  ListFilter,
+  Puzzle,
+  History,
+  Workflow,
+  Route,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { apiClient } from "@/components/networking";
@@ -11,6 +33,7 @@ import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/Acco
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
 type SettingsGroup = {
+  icon: LucideIcon;
   title: string;
   href: string;
   scope: string;
@@ -19,24 +42,28 @@ type SettingsGroup = {
 const groups: readonly SettingsGroup[] = [
   {
     title: "新账号默认值",
+    icon: UserPlus,
     href: "account-pool?tab=providers&section=common",
     scope: "创建账号时采用；已有账号以卡片配置为准",
     fields: ["default_concurrency_limit", "default_model_discovery", "common_profiles"],
   },
   {
     title: "供应商模型与访问",
+    icon: Boxes,
     href: "models-and-endpoints?tab=model-group-alias",
     scope: "供应商模型别名、排除规则及按卡片绑定的命名配置",
     fields: ["oauth_excluded_models", "oauth_model_aliases", "oauth_request_scoped_errors", "access_profiles"],
   },
   {
     title: "出站网络",
+    icon: Network,
     href: "models-and-endpoints?tab=retry-settings",
     scope: "全局默认值可被卡片及命名配置覆盖；调用重试使用 LiteLLM 策略",
     fields: ["default_proxy_profile_id", "request_timeout_seconds", "websocket_enabled", "network_profiles"],
   },
   {
     title: "日常日志与完整日志",
+    icon: ScrollText,
     href: "logs?log_view=settings",
     scope: "完整日志与供应商运行日志配置；费用统计取自 LiteLLM 调用记录",
     fields: [
@@ -68,42 +95,49 @@ const groups: readonly SettingsGroup[] = [
   },
   {
     title: "额度与刷新",
+    icon: Gauge,
     href: "account-pool?tab=quotas&section=quota",
     scope: "定时刷新正常执行；切换项目及预览模型的旧值不生效，执行时固定关闭",
     fields: ["quota_switch_project", "quota_switch_preview_model", "quota_refresh_interval_minutes", "quota_profiles"],
   },
   {
     title: "认证刷新",
+    icon: KeyRound,
     href: "account-pool?tab=credentials",
     scope: "认证文件定时刷新",
     fields: ["auth_refresh_interval_minutes"],
   },
   {
     title: "流式传输",
+    icon: Waves,
     href: "router-settings?tab=streaming",
     scope: "全局流式开关，可由卡片绑定的命名配置覆盖",
     fields: ["streaming_enabled", "streaming_profiles", "streaming_rules"],
   },
   {
     title: "高级运行设置",
+    icon: SlidersHorizontal,
     href: "router-settings?tab=general",
     scope: "供应商运行参数；旧重试字段不再决定网关重试",
     fields: ["websocket_auth_enabled", "force_model_prefix", "advanced_profiles"],
   },
   {
     title: "请求参数",
+    icon: ListFilter,
     href: "router-settings?tab=payload",
     scope: "默认参数、强制覆盖、过滤规则及命名配置",
     fields: ["payload", "payload_profiles"],
   },
   {
     title: "运行插件",
+    icon: Puzzle,
     href: "router-settings?tab=general",
     scope: "号池运行插件列表；插件启用开关在 Router Settings 的通用设置中",
     fields: ["plugins_enabled"],
   },
   {
     title: "保留的旧路由值",
+    icon: History,
     href: "router-settings?tab=loadbalancing",
     scope: "以下旧值仍保留，但不参与当前跨卡选卡与重试；default_route 仍可能影响卡片内部凭证顺序",
     fields: ["default_route", "max_attempts", "request_retry", "max_retry_credentials", "max_retry_interval"],
@@ -239,6 +273,7 @@ function SettingValue({ value }: { value: unknown }) {
 }
 
 function OverviewCard({
+  icon: Icon,
   title,
   href,
   scope,
@@ -250,6 +285,7 @@ function OverviewCard({
   scope: string;
   children: ReactNode;
   legacy?: boolean;
+  icon: LucideIcon;
 }) {
   return (
     <section
@@ -264,7 +300,7 @@ function OverviewCard({
             <span
               className={`rounded-lg p-2 ${legacy ? "bg-amber-500/10 text-amber-700" : "bg-primary/10 text-primary"}`}
             >
-              <Settings2 className="size-4" aria-hidden="true" />
+              <Icon className="size-4" aria-hidden="true" />
             </span>
             {title}
           </span>
@@ -370,7 +406,12 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         </p>
       )}
       <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
-        <OverviewCard title="设置生效规则" href="router-settings?tab=loadbalancing" scope="当前请求执行关系">
+        <OverviewCard
+          icon={Workflow}
+          title="设置生效规则"
+          href="router-settings?tab=loadbalancing"
+          scope="当前请求执行关系"
+        >
           <dl className="space-y-3 text-sm">
             <div>
               <dt className="font-medium">选卡、顺序与会话保持</dt>
@@ -395,6 +436,7 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         {[
           {
             title: "LiteLLM 路由、重试与回退",
+            icon: Route,
             query: router,
             fields: router.data?.fields,
             href: "router-settings?tab=loadbalancing",
@@ -402,13 +444,20 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
           },
           {
             title: "LiteLLM 全局设置",
+            icon: Settings2,
             query: general,
             fields: general.data,
             href: "router-settings?tab=general",
             scope: "网关全局默认值，未设置的项目沿用系统默认",
           },
         ].map((section) => (
-          <OverviewCard key={section.title} title={section.title} href={section.href} scope={section.scope}>
+          <OverviewCard
+            icon={section.icon}
+            key={section.title}
+            title={section.title}
+            href={section.href}
+            scope={section.scope}
+          >
             {section.query.isPending && <p className="text-sm text-muted-foreground">正在读取…</p>}
             {section.query.isError && (
               <p role="alert" className="text-sm text-destructive">
@@ -455,6 +504,7 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
           groups.map((group) => (
             <OverviewCard
               key={group.title}
+              icon={group.icon}
               title={group.title}
               href={group.href}
               scope={group.scope}

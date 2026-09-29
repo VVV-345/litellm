@@ -70,6 +70,22 @@ describe("global settings overview", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText(/不参与当前跨卡选卡与重试/)).toBeInTheDocument();
   });
+  it("uses distinct semantic icons without changing link labels", async () => {
+    renderOverview();
+    await screen.findByText(/配置版本 17/);
+    for (const [name, icon] of [
+      ["新账号默认值", "user-plus"],
+      ["出站网络", "network"],
+      ["认证刷新", "key-round"],
+      ["运行插件", "puzzle"],
+      ["日常日志与完整日志", "scroll-text"],
+    ]) {
+      expect(screen.getByRole("link", { name }).querySelector(`.lucide-${icon}`)).toHaveAttribute(
+        "aria-hidden",
+        "true",
+      );
+    }
+  });
   it("reports unavailable settings rather than displaying defaults", async () => {
     getSettings.mockRejectedValue(new Error("unavailable"));
     renderOverview();
