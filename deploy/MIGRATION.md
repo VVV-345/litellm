@@ -348,6 +348,31 @@ python3 "$TARGET_DIR/releasectl.py" --directory "$TARGET_DIR" status
 
 worker 启动可能做镜像备份/历史扫描，因此应在配置及归档核对后再启动。跨架构迁移保存的 amd64 归档不保证能在 arm64 `apply`，必须逐版本验证。不要为了验收在生产随意执行 `deploy/apply/delete`
 
+### 5.5 网站已经上线，但版本管理未启用
+
+如果只要求新机今后的版本管理可用，可以不导入旧机历史镜像归档。业务镜像从 GHCR 拉取，在新机创建独立的版本目录，为当前运行版本生成完整备份。旧归档和索引保留在原备份位置，不把不同架构的旧目录作为新 worker 的活动目录
+
+| 配置项 | 处理方式 |
+| --- | --- |
+| worker 镜像 | 复用支持目标架构且包含版本管理功能的 Manager 镜像，固定版本；不因此更新业务镜像 |
+| `ACCOUNT_POOL_RELEASE_TOKEN` | 优先恢复原私密配置中的令牌，LiteLLM、worker、维护 CLI 三处一致，至少 32 字符 |
+| `ACCOUNT_POOL_RELEASE_PROJECT` | 填 LiteLLM 与 Manager 实际 Compose project label，不能根据目录名猜测 |
+| `ACCOUNT_POOL_RELEASE_DEPLOYMENT` | 指向新机当前真实部署目录，以只读 bind 挂入 worker，宿主与容器路径一致 |
+| `docker-compose.yml` | 当前 worker 固定读取部署目录下这个文件；若实际配置为 `compose-db.json`，可在同目录创建 `docker-compose.yml -> compose-db.json` 符号链接，不维护两份会分叉的配置 |
+| `ACCOUNT_POOL_RELEASE_ROOT` | 独立可写目录，与 deployment 不能互相包含；新架构使用新目录，权限 0700 |
+| worker 网络 | 接入可信 Socket Proxy 内网及业务可达网络；普通 bridge 用于回环端口发布，不能公开暴露 8092/2375 |
+| 私有 GHCR | 当前已拉取的镜像能备份，不等于未来私有镜像能拉取；需要时给 worker 提供只读 Docker 凭据配置，并测试目标引用 |
+
+先备份现有 Compose、`.env` 和运行 inspect，再创建 worker 配置。如果 LiteLLM 运行环境缺少令牌，必须通过 Compose 重建该容器才能注入，单独 `restart` 不会应用新的环境变量。使用 `up -d --no-deps --no-build litellm` 只处理该服务，保留其原镜像及挂载，并在维护窗口操作
+
+重建前记录 LiteLLM 接入的所有动态账号网络，重建后检查并恢复连接；这些网络不一定写在主 Compose 中。Manager、数据库和账号容器不需要为了启用版本管理一起重建。LiteLLM 健康后启动 worker，等待初始化扫描完成
+
+验收需同时满足：worker `/health` 返回 200，未带令牌访问 `/api/releases` 返回 401，维护 CLI `status` 成功，LiteLLM `/account_pool/releases` 返回 200，页面识别实际 commit 并显示完整备份。还要将归档及配置 SHA-256 与 `manifest.json` 比较，验证备份文件真实存在
+
+新目录只有当前运行版本时，“检查并回退”和“删除”按钮禁用属于正常行为。页面恢复、备份成功不代表已经演练真实版本切换；需要另一个兼容备份和维护窗口才能验证回退。不要为让按钮可点而伪造历史版本记录
+
+配置副本回滚也应分层保留：原始部署基线用于历史核验，本次启用前配置用于撤销 worker 相关改动。回滚脚本仅恢复文件副本，不会自动停止 worker、恢复容器环境、回滚数据库或认证
+
 ## 6. 验收：网站、账号、模型分别检查
 
 所有结果记录命令、输入、时间、退出状态及脱敏输出。敏感原始日志仅在受控服务器私密文件保存。Docker `running`、Compose `config` 成功和首页 HTTP 200 都不能替代下表
@@ -456,7 +481,11 @@ rm -- "$EVIDENCE/auth.header"
 
 这是历史记录，不是阅读本文时的实时验收。最后记录中三个账号均处于禁用状态，部分旧认证显示 unauthorized，模型列表为空，没有执行真实 completion，因此不能宣称全部模型可调用。release-worker、完整版本管理及监控尚未完成目标端验收，release token 仍有未配置警告；源端未完成最终停写和数据同步
 
+同日后续已补齐版本管理：恢复原令牌，使用当前 ARM64 Manager 镜像启动独立 worker，为新机建立独立版本目录，业务 commit 保持 `9c35172f3b8906b94cfeee666ac7c3571e4e8575`。初始化扫描成功生成 1 份完整备份，归档为 503,796,612 字节，页面显示约 480.5 MB；worker 健康及版本接口返回 200，未授权访问返回 401。没有导入旧机 AMD64 历史版本，没有执行真实应用切换或回退；监控、旧认证重新授权及最终停写同步仍需单独处理
+
 当前部署已有配置副本、diff、`VERIFICATION.txt` 与 `ROLLBACK.sh`。其 BASELINE/ROLLBACK 服务集合为 `account-pool, account-pool-db, db, litellm`，MODIFIED 另外包含 `docker-socket-proxy, mihomo`。配置解析通过及副本 hash 回滚成功只证明配置事务，不代表整站或数据库回退已测试
+
+启用 worker 后，MODIFIED 再增加 `release-worker`；新增 `compose-db.PRE-RELEASE.json` 保存启用前六服务配置，`ROLLBACK.sh COPY release` 可恢复该副本。原 BASELINE 与默认 ROLLBACK 仍保留四服务历史基线，不应用它们去覆盖当前正在使用的整套部署
 
 下一次迁移前必须重新盘点实时状态，尤其确认新授权文件、worker 恢复情况和最终数据来源，不能复用这次较旧的认证压缩包当作最新备份
 
