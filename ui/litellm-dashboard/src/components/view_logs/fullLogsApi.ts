@@ -3,6 +3,7 @@ import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
 
 export type FullLogSummary = components["schemas"]["FullLogSummary"];
+export type FullLogSession = components["schemas"]["FullLogSession"];
 export type FullLogRecord = components["schemas"]["FullLogRecord"];
 export type FullLogFilters = {
   card_id?: string;
@@ -25,7 +26,7 @@ export const normalizeFullLogFilters = (filters: FullLogFilters): FullLogFilters
 });
 
 export const listFullLogs = (accessToken: string, query: FullLogFilters) =>
-  apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query });
+  apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query, cache: "no-store" });
 
 export const fullLogsQueryOptions = (
   accessToken: string,
@@ -42,8 +43,24 @@ export const fullLogsQueryOptions = (
     refetchOnWindowFocus: refreshInterval !== false,
   };
 };
+export const listFullLogSessions = (accessToken: string, query: FullLogFilters) =>
+  apiClient.get<components["schemas"]["FullLogSessionPage"]>("/logs/full/sessions", {
+    accessToken,
+    query,
+    cache: "no-store",
+  });
+
+export const fullLogSessionsQueryOptions = (
+  accessToken: string,
+  filters: FullLogFilters,
+  refreshInterval: number | false = false,
+) => ({
+  ...fullLogsQueryOptions(accessToken, filters, refreshInterval),
+  queryKey: ["logs", "full-sessions", accessToken, normalizeFullLogFilters(filters)] as const,
+  queryFn: () => listFullLogSessions(accessToken, normalizeFullLogFilters(filters)),
+});
 export const getFullLog = (accessToken: string, id: string) =>
-  apiClient.get<FullLogRecord>(`/logs/full/${encodeURIComponent(id)}`, { accessToken });
+  apiClient.get<FullLogRecord>(`/logs/full/${encodeURIComponent(id)}`, { accessToken, cache: "no-store" });
 export const fullLogStorage = (accessToken: string) =>
   apiClient.get<components["schemas"]["FullLogStorageStats"]>("/logs/full/storage", { accessToken });
 export const clearFullLogs = (accessToken: string, days: number | null) =>

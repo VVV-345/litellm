@@ -28,6 +28,7 @@ class FullLogSummary(BaseModel):
     account_id: UUID
     key_id: UUID
     session_id: str | None
+    session_title: str | None = Field(default=None, max_length=120)
     started_at: datetime
     finished_at: datetime
     model: str
@@ -62,6 +63,19 @@ class FullLogPage(BaseModel):
     totals: FullLogTotals = Field(default_factory=FullLogTotals)
 
 
+class FullLogSession(FullLogSummary):
+    requests: int
+    attempts: int
+    last_activity: datetime
+
+
+class FullLogSessionPage(BaseModel):
+    items: tuple[FullLogSession, ...]
+    has_more: bool
+    total: int = 0
+    totals: FullLogTotals = Field(default_factory=FullLogTotals)
+
+
 class FullLogStorageStats(BaseModel):
     location: str
     backend: str = "sqlite-gzip"
@@ -87,6 +101,24 @@ class FullLogQuery(BaseModel):
         if self.occurred_from and self.occurred_to and self.occurred_from > self.occurred_to:
             raise ValueError("开始时间不能晚于结束时间")
         return self
+
+
+def query_conditions(query: FullLogQuery) -> tuple[tuple[str, str | float | int | bool], ...]:
+    return tuple(
+        (column, value)
+        for column, value in (
+            ("card_id = ?", str(query.card_id) if query.card_id else None),
+            ("request_id = ?", str(query.request_id) if query.request_id else None),
+            ("session_id = ?", query.session_id),
+            ("json_extract(summary, '$.key_id') = ?", str(query.key_id) if query.key_id else None),
+            ("json_extract(summary, '$.model') = ?", query.model),
+            ("json_extract(summary, '$.result.http_status') = ?", query.http_status),
+            ("json_extract(summary, '$.incomplete') = ?", query.incomplete),
+            ("started_at >= ?", query.occurred_from.timestamp() if query.occurred_from else None),
+            ("started_at <= ?", query.occurred_to.timestamp() if query.occurred_to else None),
+        )
+        if value is not None
+    )
 
 
 class FullLogStore:
@@ -229,23 +261,9 @@ class FullLogStore:
     def query(self, query: FullLogQuery) -> FullLogPage:
         if not self.path.exists():
             return FullLogPage(items=(), has_more=False)
-        conditions: Final = tuple(
-            (column, value)
-            for column, value in (
-                ("card_id = ?", str(query.card_id) if query.card_id else None),
-                ("request_id = ?", str(query.request_id) if query.request_id else None),
-                ("session_id = ?", query.session_id),
-                ("json_extract(summary, '$.key_id') = ?", str(query.key_id) if query.key_id else None),
-                ("json_extract(summary, '$.model') = ?", query.model),
-                ("json_extract(summary, '$.result.http_status') = ?", query.http_status),
-                ("json_extract(summary, '$.incomplete') = ?", query.incomplete),
-                ("started_at >= ?", query.occurred_from.timestamp() if query.occurred_from else None),
-                ("started_at <= ?", query.occurred_to.timestamp() if query.occurred_to else None),
-            )
-            if value is not None
-        )
+        conditions: Final = query_conditions(query)
         where: Final = " AND ".join(column for column, _ in conditions) or "1=1"
-        order: Final = "ASC" if query.session_id else "DESC"
+        order: Final = "ASC" if query.session_id or query.request_id else "DESC"
         with self.connection() as connection:
             rows: Final = TypeAdapter(tuple[tuple[str], ...]).validate_python(
                 connection.execute(
@@ -253,32 +271,86 @@ class FullLogStore:
                     (*tuple(value for _, value in conditions), query.limit + 1, query.offset),
                 ).fetchall()
             )
-            totals: Final = TypeAdapter(tuple[int, int, int, int, int, int, float | None, int]).validate_python(
-                connection.execute(
-                    "SELECT count(DISTINCT request_id), count(*), "
-                    "coalesce(sum(json_extract(summary, '$.result.input_tokens')), 0), "
-                    "coalesce(sum(json_extract(summary, '$.result.output_tokens')), 0), "
-                    "coalesce(sum(json_extract(summary, '$.result.cache_read_input_tokens')), 0), "
-                    "coalesce(sum(json_extract(summary, '$.result.cache_creation_input_tokens')), 0), "
-                    "sum(json_extract(summary, '$.result.cost_usd')), "
-                    "count(*) - count(json_extract(summary, '$.result.cost_usd')) "
-                    f"FROM conversations WHERE {where}",
-                    tuple(value for _, value in conditions),
-                ).fetchone()
-            )
+            totals: Final = self.totals(connection, where, tuple(value for _, value in conditions))
         return FullLogPage(
             items=tuple(FullLogSummary.model_validate_json(row[0]) for row in rows[: query.limit]),
             has_more=len(rows) > query.limit,
-            totals=FullLogTotals(
-                requests=totals[0],
-                attempts=totals[1],
-                input_tokens=totals[2],
-                output_tokens=totals[3],
-                cache_read_input_tokens=totals[4],
-                cache_creation_input_tokens=totals[5],
-                cost_usd=totals[6],
-                unknown_cost_attempts=totals[7],
+            totals=totals,
+        )
+
+    def totals(
+        self, connection: sqlite3.Connection, where: str, values: tuple[str | float | int | bool, ...]
+    ) -> FullLogTotals:
+        totals: Final = TypeAdapter(tuple[int, int, int, int, int, int, float | None, int]).validate_python(
+            connection.execute(
+                "SELECT count(DISTINCT request_id), count(*), "
+                "coalesce(sum(json_extract(summary, '$.result.input_tokens')), 0), "
+                "coalesce(sum(json_extract(summary, '$.result.output_tokens')), 0), "
+                "coalesce(sum(json_extract(summary, '$.result.cache_read_input_tokens')), 0), "
+                "coalesce(sum(json_extract(summary, '$.result.cache_creation_input_tokens')), 0), "
+                "sum(json_extract(summary, '$.result.cost_usd')), "
+                "count(*) - count(json_extract(summary, '$.result.cost_usd')) "
+                f"FROM conversations WHERE {where}",
+                values,
+            ).fetchone()
+        )
+        return FullLogTotals(
+            requests=totals[0],
+            attempts=totals[1],
+            input_tokens=totals[2],
+            output_tokens=totals[3],
+            cache_read_input_tokens=totals[4],
+            cache_creation_input_tokens=totals[5],
+            cost_usd=totals[6],
+            unknown_cost_attempts=totals[7],
+        )
+
+    def sessions(self, query: FullLogQuery) -> FullLogSessionPage:
+        if not self.path.exists():
+            return FullLogSessionPage(items=(), has_more=False)
+        conditions: Final = query_conditions(query)
+        where: Final = " AND ".join(column for column, _ in conditions) or "1=1"
+        values: Final = tuple(value for _, value in conditions)
+        grouping: Final = (
+            "json_extract(summary, '$.key_id'), coalesce('session:' || session_id, 'request:' || request_id)"
+        )
+        grouped: Final = (
+            "WITH ranked AS (SELECT summary, request_id, started_at, "
+            f"row_number() OVER (PARTITION BY {grouping} ORDER BY started_at, event_id) AS position "
+            f"FROM conversations WHERE {where}), grouped AS ("
+            "SELECT max(CASE WHEN position = 1 THEN summary END) AS first_summary, "
+            "count(DISTINCT request_id) AS requests, count(*) AS attempts, max(started_at) AS last_activity "
+            "FROM ranked GROUP BY json_extract(summary, '$.key_id'), "
+            "coalesce('session:' || json_extract(summary, '$.session_id'), 'request:' || request_id)) "
+        )
+        with self.connection() as connection:
+            rows: Final = TypeAdapter(tuple[tuple[str, int, int, float], ...]).validate_python(
+                connection.execute(
+                    grouped + "SELECT first_summary, requests, attempts, last_activity FROM grouped "
+                    "ORDER BY last_activity DESC, first_summary LIMIT ? OFFSET ?",
+                    (*values, query.limit + 1, query.offset),
+                ).fetchall()
+            )
+            count: Final = TypeAdapter(tuple[int]).validate_python(
+                connection.execute(
+                    f"SELECT count(*) FROM (SELECT 1 FROM conversations WHERE {where} GROUP BY {grouping})",
+                    values,
+                ).fetchone()
+            )[0]
+            totals: Final = self.totals(connection, where, values)
+        return FullLogSessionPage(
+            items=tuple(
+                FullLogSession(
+                    **FullLogSummary.model_validate_json(row[0]).model_dump(),
+                    requests=row[1],
+                    attempts=row[2],
+                    last_activity=datetime.fromtimestamp(row[3], timezone.utc),
+                )
+                for row in rows[: query.limit]
             ),
+            has_more=len(rows) > query.limit,
+            total=count,
+            totals=totals,
         )
 
     def detail(self, event_id: UUID) -> FullLogRecord | None:

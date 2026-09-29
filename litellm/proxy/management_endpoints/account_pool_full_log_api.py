@@ -16,6 +16,7 @@ from litellm.proxy.management_endpoints.account_pool_full_logs import (
     FullLogPage,
     FullLogQuery,
     FullLogRecord,
+    FullLogSessionPage,
     FullLogStorageStats,
     full_log_store,
 )
@@ -31,6 +32,10 @@ def create_full_log_router(*, prefix: str = "/full-logs") -> APIRouter:
     async def _logs(query: Annotated[FullLogQuery, Query()], response: Response) -> FullLogPage:
         response.headers["Cache-Control"] = "no-store"
         return await asyncio.to_thread(full_log_store().query, query)
+
+    async def _sessions(query: Annotated[FullLogQuery, Query()], response: Response) -> FullLogSessionPage:
+        response.headers["Cache-Control"] = "no-store"
+        return await asyncio.to_thread(full_log_store().sessions, query)
 
     async def _storage(response: Response) -> FullLogStorageStats:
         response.headers["Cache-Control"] = "no-store"
@@ -50,6 +55,7 @@ def create_full_log_router(*, prefix: str = "/full-logs") -> APIRouter:
         return record
 
     router.add_api_route("", _logs, methods=["GET"])
+    router.add_api_route("/sessions", _sessions, methods=["GET"])
     router.add_api_route("/storage", _storage, methods=["GET"])
     router.add_api_route("", _clear, methods=["DELETE"])
     router.add_api_route("/{event_id}", _detail, methods=["GET"])

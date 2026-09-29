@@ -88,6 +88,51 @@ def clean_content(value: JsonValue, secrets: tuple[str, ...], extra_fields: tupl
     )
 
 
+def session_title(payload: JsonValue) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    metadata: Final = payload.get("metadata")
+    title: Final = next(
+        (
+            value
+            for source in (metadata, payload)
+            if isinstance(source, dict)
+            for name in ("session_title", "conversation_title")
+            if isinstance(value := source.get(name), str) and value.strip()
+        ),
+        None,
+    )
+    inputs: Final = payload.get("messages", payload.get("input"))
+    content: Final = (
+        inputs
+        if isinstance(inputs, str)
+        else next(
+            (
+                message.get("content")
+                for message in inputs
+                if isinstance(message, dict) and message.get("role") == "user"
+            ),
+            None,
+        )
+        if isinstance(inputs, list)
+        else None
+    )
+    text: Final = title or (
+        content
+        if isinstance(content, str)
+        else " ".join(
+            block["text"]
+            for block in content
+            if isinstance(block, dict)
+            and block.get("type") in ("text", "input_text")
+            and isinstance(block.get("text"), str)
+        )
+        if isinstance(content, list)
+        else ""
+    )
+    return " ".join(text.split())[:120] or None
+
+
 class RequestLog:
     def __init__(
         self,
@@ -342,6 +387,7 @@ class RequestLog:
             account_id=self.lease.account_id,
             key_id=self.lease.key_id,
             session_id=self.session_id,
+            session_title=session_title(self.request),
             started_at=self.lease.started_at,
             finished_at=datetime.now(timezone.utc),
             model=self.lease.model,

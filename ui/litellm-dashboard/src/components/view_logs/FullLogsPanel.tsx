@@ -13,6 +13,8 @@ import {
   clearFullLogs,
   fullLogStorage,
   fullLogsQueryOptions,
+  fullLogSessionsQueryOptions,
+  type FullLogSession,
   getFullLog,
   type FullLogFilters,
   type FullLogSummary,
@@ -85,14 +87,16 @@ export function FullLogsPanel({
   const [to, setTo] = useState("");
   const [days, setDays] = useState("30");
   const [busy, setBusy] = useState(false);
-  const [eventId, setEventId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<FullLogSession | null>(null);
+  const [detailOffset, setDetailOffset] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
   const pageSize = filters.limit ?? 50;
-  const offset = filters.offset ?? 0;
+  const offset = selected ? detailOffset : filters.offset ?? 0;
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const refreshPaused = offset > 0 || expanded !== null || eventId !== null || Boolean(filters.occurred_to);
+  const refreshPaused = offset > 0 || expanded !== null || selected !== null || Boolean(filters.occurred_to);
   const refreshInterval = getLiveTailRefetchInterval(autoRefresh && !refreshPaused, 0);
   const resetFilters = () => {
+    setSelected(null);
     setFilters({ card_id: initialCardId });
     setSession("");
     setModel("");
@@ -102,7 +106,23 @@ export function FullLogsPanel({
     setTo("");
     setExpanded(null);
   };
-  const query = useQuery(fullLogsQueryOptions(accessToken, filters, refreshInterval));
+  const detailFilters: FullLogFilters = {
+    card_id: initialCardId,
+    key_id: selected?.key_id,
+    session_id: selected?.session_id ?? undefined,
+    request_id: selected && !selected.session_id ? selected.request_id : undefined,
+    offset: detailOffset,
+    limit: pageSize,
+  };
+  const sessionsQuery = useQuery({
+    ...fullLogSessionsQueryOptions(accessToken, filters, refreshInterval),
+    enabled: selected === null,
+  });
+  const recordsQuery = useQuery({
+    ...fullLogsQueryOptions(accessToken, detailFilters),
+    enabled: selected !== null,
+  });
+  const query = selected ? recordsQuery : sessionsQuery;
   const storage = useQuery({
     queryKey: ["logs", "full-log-storage", accessToken],
     queryFn: () => fullLogStorage(accessToken),
@@ -120,6 +140,7 @@ export function FullLogsPanel({
       toast.error("请检查开始和结束时间");
       return;
     }
+    setSelected(null);
     setFilters({
       ...filters,
       key_id: session.trim() === filters.session_id ? filters.key_id : undefined,
@@ -133,16 +154,15 @@ export function FullLogsPanel({
     });
     setExpanded(null);
   };
-  const openSession = (log: FullLogSummary) => {
-    if (!log.session_id) return;
-    setSession(log.session_id);
-    setModel("");
-    setRequestId("");
-    setResultFilter("all");
-    setFrom("");
-    setTo("");
-    setFilters({ card_id: initialCardId, key_id: log.key_id, session_id: log.session_id, offset: 0, limit: pageSize });
+  const openSession = (log: FullLogSession) => {
+    setSelected(log);
+    setDetailOffset(0);
     setExpanded(log.event_id);
+  };
+  const changePageSize = (limit: number) => {
+    setDetailOffset(0);
+    setFilters({ ...filters, limit, offset: 0 });
+    setExpanded(null);
   };
   const clear = async () => {
     if (
@@ -156,9 +176,9 @@ export function FullLogsPanel({
       const result = await clearFullLogs(accessToken, days === "all" ? null : Number(days));
       toast.success(`已清理 ${result.deleted} 条完整日志`);
       setExpanded(null);
-      setEventId(null);
+      setSelected(null);
       setFilters({ ...filters, offset: 0 });
-      await Promise.all([query.refetch(), storage.refetch()]);
+      await Promise.all([sessionsQuery.refetch(), storage.refetch()]);
     } catch {
       toast.error("完整日志清理失败，请重试");
     } finally {
@@ -253,29 +273,29 @@ export function FullLogsPanel({
         <Button type="button" variant="ghost" onClick={resetFilters}>
           重置筛选
         </Button>
-        {filters.session_id && (
+        {selected && (
           <Button
             type="button"
             variant="ghost"
             onClick={() => {
-              setSession("");
-              setFilters({ card_id: initialCardId });
+              setSelected(null);
+              setExpanded(null);
             }}
           >
             返回列表
           </Button>
         )}
       </form>
-      {filters.session_id && (
+      {selected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-primary/5 p-4">
           <div className="min-w-0">
-            <h3 className="font-medium">会话时间线</h3>
-            <p className="mt-1 break-all text-xs text-muted-foreground">{filters.session_id}</p>
+            <h3 className="font-medium">{selected.session_title || "会话时间线"}</h3>
+            <p className="mt-1 break-all text-xs text-muted-foreground">{selected.session_id ?? selected.request_id}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               按请求发生时间排列；每轮可切换本轮内容与完整上下文，重试单独标记
             </p>
           </div>
-          <ConversationExport accessToken={accessToken} filters={filters} />
+          <ConversationExport accessToken={accessToken} filters={detailFilters} />
         </div>
       )}
       {query.data?.totals && (
@@ -327,66 +347,69 @@ export function FullLogsPanel({
           当前筛选下暂无完整日志；可调整筛选，或在日志设置开启后记录新请求
         </div>
       )}
-      {query.data?.items.map((log, index) => (
-        <article key={log.event_id} className="min-w-0 rounded-xl border p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              {filters.session_id && <p className="mb-1 text-xs text-primary">记录 {offset + index + 1}</p>}
-              <p className="break-all text-sm font-medium">
-                {environments.find((item) => item.id === log.card_id)?.name ?? log.card_id} · {log.model}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(log.started_at).toLocaleString()} · 第 {log.attempt} 次尝试 · 输入{" "}
-                {number(log.result.input_tokens)} / 输出 {number(log.result.output_tokens)}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={log.incomplete ? "destructive" : "secondary"}>{logStatus(log)}</Badge>
-              {filters.session_id ? (
+      {!selected &&
+        sessionsQuery.data?.items.map((log) => (
+          <article key={log.event_id} className="min-w-0 rounded-xl border p-4">
+            <button
+              type="button"
+              className="w-full text-left text-sm font-medium text-primary hover:underline"
+              onClick={() => openSession(log)}
+            >
+              {log.session_title || `会话 · ${new Date(log.started_at).toLocaleString()}`}
+            </button>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {log.requests} 个请求 · {log.attempts} 次尝试 · 最近活动 {new Date(log.last_activity).toLocaleString()}
+            </p>
+            {!log.session_id && <p className="mt-1 text-xs text-muted-foreground">未提供会话 ID，按单个请求记录</p>}
+          </article>
+        ))}
+      {selected &&
+        recordsQuery.data?.items.map((log, index) => (
+          <article key={log.event_id} className="min-w-0 rounded-xl border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                {selected && <p className="mb-1 text-xs text-primary">记录 {offset + index + 1}</p>}
+                <p className="break-all text-sm font-medium">
+                  {environments.find((item) => item.id === log.card_id)?.name ?? log.card_id} · {log.model}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {new Date(log.started_at).toLocaleString()} · 第 {log.attempt} 次尝试 · 输入{" "}
+                  {number(log.result.input_tokens)} / 输出 {number(log.result.output_tokens)}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={log.incomplete ? "destructive" : "secondary"}>{logStatus(log)}</Badge>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setExpanded(expanded === log.event_id ? null : log.event_id)}
                 >
-                  展开本轮
+                  {expanded === log.event_id ? "收起本轮" : "展开本轮"}
                 </Button>
-              ) : (
-                <Button variant="outline" size="sm" onClick={() => setEventId(log.event_id)}>
-                  查看完整日志
-                </Button>
-              )}
-              {log.session_id && !filters.session_id && (
-                <Button variant="ghost" size="sm" onClick={() => openSession(log)}>
-                  查看会话
-                </Button>
-              )}
+              </div>
             </div>
-          </div>
-          {expanded === log.event_id && (
-            <div className="mt-4 border-t pt-4">
-              <FullLogContent accessToken={accessToken} eventId={log.event_id} />
-            </div>
-          )}
-        </article>
-      ))}
+            {expanded === log.event_id && (
+              <div className="mt-4 border-t pt-4">
+                <FullLogContent accessToken={accessToken} eventId={log.event_id} />
+              </div>
+            )}
+          </article>
+        ))}
       {query.data && (
         <DataTablePagination
           page={Math.floor(offset / pageSize)}
           pageSize={pageSize}
-          rowCount={query.data.totals?.attempts ?? 0}
+          rowCount={selected ? recordsQuery.data?.totals?.attempts ?? 0 : sessionsQuery.data?.total ?? 0}
           showPageJump
           isLoading={query.isPending}
           onPageChange={(page) => {
-            setFilters({ ...filters, offset: page * pageSize });
+            if (selected) setDetailOffset(page * pageSize);
+            else setFilters({ ...filters, offset: page * pageSize });
             setExpanded(null);
           }}
-          onPageSizeChange={(limit) => {
-            setFilters({ ...filters, limit, offset: 0 });
-            setExpanded(null);
-          }}
+          onPageSizeChange={changePageSize}
         />
       )}
-      <FullLogDialog accessToken={accessToken} eventId={eventId} onClose={() => setEventId(null)} />
     </div>
   );
 }

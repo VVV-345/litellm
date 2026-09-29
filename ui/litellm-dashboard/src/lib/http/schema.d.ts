@@ -9366,6 +9366,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/logs/full/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sessions */
+        get: operations["_sessions_logs_full_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/logs/full/storage": {
         parameters: {
             query?: never;
@@ -29873,6 +29890,8 @@ export interface components {
             result: components["schemas"]["FinishRequest"];
             /** Session Id */
             session_id: string | null;
+            /** Session Title */
+            session_title?: string | null;
             /**
              * Skip Failed
              * @default false
@@ -29893,6 +29912,97 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /** FullLogSession */
+        FullLogSession: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Attempt */
+            attempt: number;
+            /** Attempts */
+            attempts: number;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /**
+             * Incomplete
+             * @default false
+             */
+            incomplete: boolean;
+            /**
+             * Key Id
+             * Format: uuid
+             */
+            key_id: string;
+            /**
+             * Last Activity
+             * Format: date-time
+             */
+            last_activity: string;
+            /** Model */
+            model: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /** Requested Model */
+            requested_model: string;
+            /** Requests */
+            requests: number;
+            result: components["schemas"]["FinishRequest"];
+            /** Session Id */
+            session_id: string | null;
+            /** Session Title */
+            session_title?: string | null;
+            /**
+             * Skip Failed
+             * @default false
+             */
+            skip_failed: boolean;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "http" | "sse" | "websocket";
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** FullLogSessionPage */
+        FullLogSessionPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["FullLogSession"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            totals?: components["schemas"]["FullLogTotals"];
         };
         /** FullLogStorageStats */
         FullLogStorageStats: {
@@ -29954,6 +30064,8 @@ export interface components {
             result: components["schemas"]["FinishRequest"];
             /** Session Id */
             session_id: string | null;
+            /** Session Title */
+            session_title?: string | null;
             /**
              * Skip Failed
              * @default false
@@ -56054,6 +56166,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    _sessions_logs_full_sessions_get: {
+        parameters: {
+            query?: {
+                card_id?: string | null;
+                key_id?: string | null;
+                request_id?: string | null;
+                session_id?: string | null;
+                model?: string | null;
+                http_status?: number | null;
+                incomplete?: boolean | null;
+                occurred_from?: string | null;
+                occurred_to?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullLogSessionPage"];
                 };
             };
             /** @description Validation Error */

@@ -12,6 +12,7 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import JsonValue
 from starlette.datastructures import Headers
 
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
@@ -251,11 +252,14 @@ def test_full_log_api_requires_admin_and_does_not_call_daily_log_cleanup(store: 
     app.dependency_overrides[user_api_key_auth] = lambda: "viewer"
     with TestClient(app) as client:
         assert client.get("/logs/full").status_code == 403
+        assert client.get("/logs/full/sessions").status_code == 403
         assert client.delete("/logs/full").status_code == 403
         app.dependency_overrides[user_api_key_auth] = lambda: "admin"
         response: Final = client.get("/logs/full")
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store"
+        assert client.get("/logs/full/sessions").json()["total"] == 0
+        assert client.get("/logs/full/sessions").headers["cache-control"] == "no-store"
         assert client.delete("/logs/full?older_than_days=30").json() == {"deleted": 0}
         assert client.get(f"/logs/full/{uuid4()}").status_code == 404
 
@@ -505,3 +509,72 @@ async def test_full_log_capacity_keeps_newest_records_and_reuses_existing_store(
     assert total <= 1024 * 1024
     assert store.query(FullLogQuery()).items[0].event_id == record.event_id
     assert store.storage().row_count < 5
+
+
+@pytest.mark.asyncio
+async def test_session_pages_group_before_pagination_and_isolate_keys(store: FullLogStore) -> None:
+    log = request_log("http")
+    await log.finish(
+        FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", http_status=200, message="ok")
+    )
+    original = store.detail(log.lease.lease_id)
+    assert original is not None
+    store.prune(None)
+    first = original.model_copy(update={"session_id": "shared", "session_title": "First question"})
+    store.append(first)
+    for index in range(1, 4):
+        store.append(
+            first.model_copy(
+                update={
+                    "event_id": uuid4(),
+                    "request_id": uuid4(),
+                    "started_at": first.started_at + timedelta(seconds=index),
+                    "session_title": "Later question",
+                }
+            )
+        )
+    store.append(first.model_copy(update={"event_id": uuid4(), "key_id": uuid4()}))
+    store.append(original.model_copy(update={"event_id": uuid4()}))
+    store.append(original.model_copy(update={"event_id": uuid4(), "request_id": uuid4()}))
+    with store.connection() as connection:
+        connection.execute("UPDATE conversations SET body = ?", (b"not-gzip",))
+    page = store.sessions(FullLogQuery(limit=1))
+    assert page.total == 4
+    assert page.has_more
+    assert page.items[0].session_title == "First question"
+    assert page.items[0].requests == page.items[0].attempts == 4
+    assert page.items[0].key_id == first.key_id
+    assert len(store.sessions(FullLogQuery(limit=1, offset=3)).items) == 1
+    assert store.sessions(FullLogQuery(offset=4)).items == ()
+    scoped = store.sessions(FullLogQuery(key_id=first.key_id, session_id="shared"))
+    assert scoped.total == 1
+    assert scoped.totals.attempts == 4
+    assert store.sessions(FullLogQuery(model="missing")).total == 0
+    store.prune(None)
+    assert store.sessions(FullLogQuery()).total == 0
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"metadata": {"session_title": "A title"}, "input": "Question"}, "A title"),
+        ({"metadata": {"conversation_title": "Other title"}}, "Other title"),
+        (
+            {
+                "messages": [
+                    {"role": "system", "content": "System"},
+                    {"role": "user", "content": [{"type": "text", "text": "First question"}]},
+                ]
+            },
+            "First question",
+        ),
+        ({"input": "Question\nwith   spaces"}, "Question with spaces"),
+        ({"input": [{"role": "user", "content": "Question"}]}, "Question"),
+        ({"input": [{"role": "user", "content": [{"type": "image", "data": "secret"}]}]}, None),
+    ],
+)
+def test_session_title_uses_cleaned_client_title_or_first_user_text(payload: JsonValue, expected: str | None) -> None:
+    from litellm.proxy.management_endpoints.account_pool_request_log import session_title
+
+    assert session_title(clean_content(payload, ())) == expected
+    assert session_title(clean_content({"input": "secret-value"}, ("secret-value",))) == "[REDACTED]"
