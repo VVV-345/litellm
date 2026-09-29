@@ -13,8 +13,8 @@ on:
       - 'codex/fix-*'
 
 concurrency:
-  group: publish-deployment-images-${{ github.ref }}
-  cancel-in-progress: true
+  group: publish-deployment-images-${{ github.ref }}-${{ inputs.source_ref || github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
