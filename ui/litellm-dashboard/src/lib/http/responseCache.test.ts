@@ -25,7 +25,7 @@ describe("dashboard response cache", () => {
     expect(send).toHaveBeenCalledOnce();
     expect(await Promise.all(responses.map((response) => response.json()))).toEqual(Array(3).fill({ version: 1 }));
     expect(await (await read()).json()).toEqual({ version: 1 });
-    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("does not mark a response ready until the entire body is available", async () => {
@@ -93,16 +93,23 @@ describe("dashboard response cache", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it("returns expired cached data immediately while a background update replaces it", async () => {
+  it("does not invalidate unrelated HTTP responses when another query polls", async () => {
     await read();
     const query = client.getQueryCache().getAll()[0];
-    client.setQueryData(query.queryKey, query.state.data, { updatedAt: Date.now() - 10 * 60_000 });
-    const pending = Promise.withResolvers<Response>();
-    send.mockReturnValueOnce(pending.promise);
-    expect(await (await read()).json()).toEqual({ version: 1 });
-    expect(send).toHaveBeenCalledTimes(2);
-    pending.resolve(Response.json({ version: 2 }));
-    await vi.waitFor(() => expect(query.state.fetchStatus).toBe("idle"));
-    expect(await (await read()).json()).toEqual({ version: 2 });
+    const options = { queryKey: ["polling"], queryFn: async () => 1 };
+    await client.fetchQuery(options);
+    await client.refetchQueries({ queryKey: ["polling"] });
+    expect(query.state.isInvalidated).toBe(false);
+  });
+
+  it("releases raw response bodies after concurrent consumers finish", async () => {
+    vi.useFakeTimers();
+    try {
+      await read();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(client.getQueryCache().getAll()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

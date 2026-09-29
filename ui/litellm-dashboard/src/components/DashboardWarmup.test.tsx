@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import DashboardWarmup, { runDashboardWarmup, refreshWarmupQueries } from "./DashboardWarmup";
+import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { registerResponseCache } from "@/lib/http/responseCache";
 import { registerAuthTokenGetter } from "@/lib/http/runtime";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
@@ -36,6 +36,7 @@ vi.mock("@/contexts/PluginModeContext", () => ({ usePluginMode: () => ({ mode: "
 describe("dashboard warmup wiring", () => {
   let client: QueryClient;
   let unregister: () => void;
+  let controller: AbortController;
   const urls: URL[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>();
   beforeEach(() => {
@@ -43,13 +44,16 @@ describe("dashboard warmup wiring", () => {
     unregister = registerResponseCache(client);
     registerAuthTokenGetter(() => "test");
     urls.length = 0;
+    controller = new AbortController();
     fetch.mockReset().mockImplementation(async (input) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
       urls.push(url);
+      if (urls.length > 60) controller.abort();
       if (url.pathname === "/v2/team/list") return Response.json({ teams: [], total_pages: 1 });
-      if (url.pathname === "/logs/operations") return Response.json({ data: [], total: 200 });
-      if (url.pathname === "/logs/full") return Response.json({ data: [], totals: { attempts: 150 } });
-      if (url.pathname.includes("spend/logs")) return Response.json({ data: [], total_pages: 5, total: 250 });
+      if (url.pathname === "/logs/operations") return Response.json({ data: [], total: 50000 });
+      if (url.pathname === "/logs/full/sessions")
+        return Response.json({ data: [], total: 50000, totals: { attempts: 50000 } });
+      if (url.pathname.includes("spend/logs")) return Response.json({ data: [], total_pages: 1000, total: 50000 });
       return Response.json({ data: [], results: [], metadata: {} });
     });
     vi.stubGlobal("fetch", fetch);
@@ -58,16 +62,17 @@ describe("dashboard warmup wiring", () => {
     unregister();
     client.clear();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
-  it("prepares three log pages before revealing the dashboard, then loads every remaining page without clicks", async () => {
+  it("preloads only the first log pages even with fifty thousand historical records", async () => {
     const primaryRequests: string[] = [];
     const result = await runDashboardWarmup(
       { queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session" },
       (state) => {
         if (state.stage === "background" && primaryRequests.length === 0) primaryRequests.push(...urls.map(String));
       },
-      new AbortController().signal,
+      controller.signal,
     );
     expect(result.primary.failed).toBe(0);
     const operationOffsets = (list: string[]) =>
@@ -75,17 +80,15 @@ describe("dashboard warmup wiring", () => {
         .map((url) => new URL(url))
         .filter((url) => url.pathname === "/logs/operations")
         .map((url) => url.searchParams.get("offset"));
-    expect(operationOffsets(primaryRequests)).toEqual(["0", "50", "100"]);
-    expect(operationOffsets(urls.map(String))).toEqual(["0", "50", "100", "150"]);
-    expect(urls.filter((url) => url.pathname === "/logs/full").map((url) => url.searchParams.get("offset"))).toEqual([
-      "0",
-      "50",
-      "100",
-    ]);
+    expect(operationOffsets(primaryRequests)).toEqual(["0"]);
+    expect(operationOffsets(urls.map(String))).toEqual(["0"]);
+    expect(
+      urls.filter((url) => url.pathname === "/logs/full/sessions").map((url) => url.searchParams.get("offset")),
+    ).toEqual(["0"]);
     const requestPages = urls
       .filter((url) => url.pathname.includes("spend/logs"))
       .map((url) => url.searchParams.get("page"));
-    expect(requestPages).toEqual(["1", "2", "3", "4", "5"]);
+    expect(requestPages).toEqual(["1"]);
     expect(result.background.failed).toBe(0);
     const count = fetch.mock.calls.length;
     await client.fetchQuery(
@@ -99,7 +102,7 @@ describe("dashboard warmup wiring", () => {
         isLiveTail: false,
         excludeInternalHealthChecks: false,
         ...initialLogsRange(client),
-        pagination: { pageIndex: 1, pageSize: 50 },
+        pagination: { pageIndex: 0, pageSize: 50 },
         isCustomDate: false,
         sorting: DEFAULT_LOGS_SORTING,
       }),
@@ -126,35 +129,37 @@ describe("dashboard warmup wiring", () => {
     const send = fetch.getMockImplementation()!;
     fetch.mockImplementation((input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
-      if (url.pathname === "/logs/full") return Promise.resolve(Response.json({ error: "offline" }, { status: 503 }));
+      if (url.pathname === "/logs/full/sessions")
+        return Promise.resolve(Response.json({ error: "offline" }, { status: 503 }));
       return send(input, init);
     });
     const result = await runDashboardWarmup(
       { queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session" },
       () => {},
-      new AbortController().signal,
+      controller.signal,
     );
     expect(result.primary.failed).toBe(0);
     expect(result.background.failed).toBe(1);
     expect(
       urls.filter((url) => url.pathname === "/logs/operations").map((url) => url.searchParams.get("offset")),
-    ).toContain("150");
+    ).toEqual(["0"]);
   });
 
-  it("refreshes primary and secondary data separately without clearing cached data", async () => {
-    const main = vi.fn().mockResolvedValue("updated main");
-    const secondary = vi.fn().mockResolvedValue("updated secondary");
-    client.setQueryDefaults(["main"], { meta: { dashboardWarmup: "primary" } });
-    client.setQueryDefaults(["secondary"], { meta: { dashboardWarmup: "background" } });
-    await client.fetchQuery({ queryKey: ["main"], queryFn: main });
-    await client.fetchQuery({ queryKey: ["secondary"], queryFn: secondary });
-    main.mockClear();
-    secondary.mockClear();
-    await refreshWarmupQueries(client, true, new AbortController().signal);
-    expect(main).toHaveBeenCalledOnce();
-    expect(secondary).not.toHaveBeenCalled();
-    await refreshWarmupQueries(client, false, new AbortController().signal);
-    expect(secondary).toHaveBeenCalledOnce();
-    expect(client.getQueryData(["main"])).toBe("updated main");
+  it("does not periodically refetch inactive pages after warmup completes", async () => {
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <p>Dashboard content</p>
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Dashboard content");
+    await waitFor(() => expect(screen.queryByText("后台加载中")).not.toBeInTheDocument(), { timeout: 3000 });
+    vi.useFakeTimers();
+    const count = fetch.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+    expect(fetch).toHaveBeenCalledTimes(count);
+    unmount();
+    vi.useRealTimers();
   });
 });

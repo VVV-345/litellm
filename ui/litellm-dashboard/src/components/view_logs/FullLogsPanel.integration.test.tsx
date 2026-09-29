@@ -215,6 +215,21 @@ describe("FullLogsPanel", () => {
     expect(await screen.findByRole("button", { name: "测试会话" })).toBeInTheDocument();
   });
 
+  it("removes cached conversation bodies when the detail is closed", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <FullLogsPanel accessToken="admin" environments={[]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "测试会话" }));
+    await screen.findByText("private question");
+    await user.click(screen.getByRole("button", { name: "返回列表" }));
+    await waitFor(() => expect(client.getQueryData(["logs", "full-body", "admin", "event-one"])).toBeUndefined());
+    client.clear();
+  });
+
   it("jumps pages and changes page size in 完整 logs requests", async () => {
     const user = userEvent.setup();
     vi.mocked(listFullLogSessions).mockResolvedValue({

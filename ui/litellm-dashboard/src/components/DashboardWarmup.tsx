@@ -30,7 +30,7 @@ import {
   usageTagsQueryOptions,
 } from "@/app/(dashboard)/hooks/usage/useUsageQueries";
 import { migratedHref, legacyPageHref, MIGRATED_PAGES } from "@/utils/migratedPages";
-import { fullLogsQueryOptions } from "@/components/view_logs/fullLogsApi";
+import { fullLogSessionsQueryOptions } from "@/components/view_logs/fullLogsApi";
 import { operationLogsQueryOptions } from "@/components/view_logs/operationLogsApi";
 import { fullLogStorage } from "@/components/view_logs/fullLogsApi";
 import {
@@ -56,8 +56,6 @@ import { SESSION_RESET_EVENT } from "@/lib/cacheEvents";
 
 const PRIMARY_PAGES = ["api-keys", "models", "account-pool", "logs", "new_usage"] as const;
 const LOG_PAGE_SIZE = 50;
-const PRIMARY_REFRESH_MS = 30_000;
-const BACKGROUND_REFRESH_MS = 5 * 60_000;
 
 const task = (id: string, run: () => unknown | Promise<unknown>): PreloadTask => ({ id, run });
 
@@ -101,10 +99,9 @@ const runQuery = <TQueryFnData, TError = Error, TData = TQueryFnData, TQueryKey 
   options: FetchQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
   priority: "primary" | "background" = "primary",
 ) => {
-  queryClient.setQueryDefaults(options.queryKey, { meta: { dashboardWarmup: priority }, gcTime: Infinity });
   return queryClient.fetchQuery({
     ...options,
-    gcTime: Infinity,
+    gcTime: 10 * 60_000,
     meta: { ...options.meta, dashboardWarmup: priority },
   });
 };
@@ -199,20 +196,15 @@ const createPrimaryTasks = (
     await loadLogsPage(router);
     await preloadOperationLogModule();
     if (signal.aborted) return;
-    await Promise.all(
-      [0, 1, 2].map((pageIndex) =>
-        runQuery(
-          queryClient,
-          defaultRequestLogOptions({ queryClient, router, accessToken, userId, userRole, token }, pageIndex),
-        ),
-      ),
+    await runQuery(
+      queryClient,
+      defaultRequestLogOptions({ queryClient, router, accessToken, userId, userRole, token }, 0),
     );
     if (signal.aborted || !canManageAccountPool(userRole, false)) return;
     const filters = {};
-    await Promise.all(
-      [0, LOG_PAGE_SIZE, LOG_PAGE_SIZE * 2].map((offset) =>
-        runQuery(queryClient, operationLogsQueryOptions({ accessToken, filters, offset, pageSize: LOG_PAGE_SIZE })),
-      ),
+    await runQuery(
+      queryClient,
+      operationLogsQueryOptions({ accessToken, filters, offset: 0, pageSize: LOG_PAGE_SIZE }),
     );
   }),
   task("usage", async () => {
@@ -269,64 +261,13 @@ const createBackgroundBatches = async (context: DashboardWarmupContext, signal: 
         ),
       ),
     );
-    const firstFullPage = await runQuery(queryClient, fullLogsQueryOptions(accessToken, {}), "background").catch(
-      () => null,
-    );
-    if (signal.aborted) return [];
-    if (!firstFullPage) tasks.push(task("full-logs", () => Promise.reject(new Error("Full logs are not ready"))));
-    for (let offset = LOG_PAGE_SIZE; offset < (firstFullPage?.totals?.attempts ?? 0); offset += LOG_PAGE_SIZE) {
-      tasks.push(
-        task(`full-logs:${offset}`, () =>
-          runQuery(queryClient, fullLogsQueryOptions(accessToken, { offset }), "background"),
-        ),
-      );
-    }
-    const first = queryClient.getQueryData<
-      Awaited<ReturnType<ReturnType<typeof operationLogsQueryOptions>["queryFn"]>>
-    >(operationLogsQueryOptions({ accessToken, filters: {}, offset: 0, pageSize: LOG_PAGE_SIZE }).queryKey);
-    for (let offset = LOG_PAGE_SIZE * 3; offset < (first?.total ?? 0); offset += LOG_PAGE_SIZE) {
-      tasks.push(
-        task(`operation-logs:${offset}`, () =>
-          runQuery(
-            queryClient,
-            operationLogsQueryOptions({ accessToken, filters: {}, offset, pageSize: LOG_PAGE_SIZE }),
-            "background",
-          ),
-        ),
-      );
-    }
-  }
-  const requestOptions = defaultRequestLogOptions(context, 0);
-  const firstRequestPage = queryClient.getQueryData<
-    import("@/components/view_logs/log_filter_logic").PaginatedResponse
-  >(requestOptions.queryKey);
-  for (let pageIndex = 3; pageIndex < (firstRequestPage?.total_pages ?? 0); pageIndex++) {
     tasks.push(
-      task(`request-logs:${pageIndex}`, () =>
-        runQuery(queryClient, defaultRequestLogOptions(context, pageIndex), "background"),
+      task("full-log-sessions", () =>
+        runQuery(queryClient, fullLogSessionsQueryOptions(accessToken, {}), "background"),
       ),
     );
   }
   return batchesOfTwo(tasks);
-};
-
-export const refreshWarmupQueries = async (queryClient: QueryClient, primary: boolean, signal: AbortSignal) => {
-  const queries = queryClient.getQueryCache().findAll({
-    predicate: (query) =>
-      query.queryKey[0] !== "dashboard-http" &&
-      query.options.queryFn !== undefined &&
-      query.meta?.dashboardWarmup === (primary ? "primary" : "background"),
-  });
-  await queryClient.invalidateQueries({ queryKey: ["dashboard-http"], refetchType: "none" });
-  for (const batch of batchesOfTwo(
-    queries.map((query) =>
-      task(query.queryHash, () => queryClient.refetchQueries({ queryKey: query.queryKey, exact: true })),
-    ),
-  )) {
-    if (signal.aborted || document.hidden) return;
-    await Promise.allSettled(batch.map((item) => item.run()));
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
-  }
 };
 
 export const runDashboardWarmup = async (
@@ -440,33 +381,6 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
       window.removeEventListener(SESSION_RESET_EVENT, stop);
     };
   }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt]);
-
-  useEffect(() => {
-    if (!accessToken || mode !== "ai-gateway" || readyKey !== warmupKey) return;
-    const controller = new AbortController();
-    const stop = () => controller.abort();
-    window.addEventListener(SESSION_RESET_EVENT, stop);
-    let timer: number;
-    let lastBackgroundRefresh = Date.now();
-    const refresh = async () => {
-      try {
-        if (document.hidden || controller.signal.aborted) return;
-        await refreshWarmupQueries(queryClient, true, controller.signal);
-        if (state.stage === "complete" && Date.now() - lastBackgroundRefresh >= BACKGROUND_REFRESH_MS) {
-          await refreshWarmupQueries(queryClient, false, controller.signal);
-          lastBackgroundRefresh = Date.now();
-        }
-      } finally {
-        if (!controller.signal.aborted) timer = window.setTimeout(() => void refresh(), PRIMARY_REFRESH_MS);
-      }
-    };
-    timer = window.setTimeout(() => void refresh(), PRIMARY_REFRESH_MS);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-      window.removeEventListener(SESSION_RESET_EVENT, stop);
-    };
-  }, [accessToken, mode, queryClient, readyKey, warmupKey, state.stage]);
 
   const retry = () => setAttempt((value) => value + 1);
   if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} />;

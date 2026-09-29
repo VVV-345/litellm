@@ -16,6 +16,21 @@ describe("dashboard query caching", () => {
     client.clear();
   });
 
+  it("releases inactive cached pages after ten minutes", async () => {
+    vi.useFakeTimers();
+    const client = createDashboardQueryClient();
+    try {
+      await client.fetchQuery({ queryKey: ["old-page"], queryFn: async () => "data" });
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(client.getQueryData(["old-page"])).toBe("data");
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      expect(client.getQueryData(["old-page"])).toBeUndefined();
+    } finally {
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+
   it("respects per-query freshness overrides", async () => {
     const client = createDashboardQueryClient();
     const queryFn = vi.fn().mockResolvedValue("value");

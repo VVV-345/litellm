@@ -4,14 +4,7 @@ let client: QueryClient | null = null;
 
 export function registerResponseCache(next: QueryClient): () => void {
   client = next;
-  const unsubscribe = next.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated" || event.query.queryKey[0] === "dashboard-http") return;
-    if (event.action.type === "fetch" && event.query.state.data !== undefined) {
-      void next.invalidateQueries({ queryKey: ["dashboard-http"], refetchType: "none" });
-    }
-  });
   return () => {
-    unsubscribe();
     if (client === next) client = null;
   };
 }
@@ -57,17 +50,12 @@ export const cachedDashboardRequest = async (
         headers: Array.from(response.headers.entries()),
       };
     },
-    staleTime: 5 * 60_000,
-    gcTime: Infinity,
+    staleTime: 0,
+    gcTime: 0,
     structuralSharing: false,
     retry: false,
   };
   try {
-    const cached = sessionClient.getQueryData<Awaited<ReturnType<typeof options.queryFn>>>(options.queryKey);
-    if (cached && !sessionClient.getQueryState(options.queryKey)?.isInvalidated) {
-      void sessionClient.fetchQuery(options).catch(() => {});
-      return new Response(cached.body.slice(0), cached);
-    }
     const response = await sessionClient.fetchQuery(options);
     signal?.throwIfAborted();
     return new Response(response.body.slice(0), response);

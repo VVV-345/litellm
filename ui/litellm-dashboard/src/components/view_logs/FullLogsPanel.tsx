@@ -34,6 +34,8 @@ export function FullLogContent({ accessToken, eventId }: { accessToken: string; 
   const query = useQuery({
     queryKey: ["logs", "full-body", accessToken, eventId],
     queryFn: () => getFullLog(accessToken, eventId),
+    gcTime: 0,
+    structuralSharing: false,
     retry: false,
   });
   if (query.isPending) return <p role="status">正在读取完整日志…</p>;
