@@ -45,9 +45,9 @@ jobs:
           printf 'deploy_tag=%.10s\nrevision=%s\n' "$revision" "$revision" >> "$GITHUB_OUTPUT"
 
   build-and-publish:
-    name: Publish ${{ matrix.image }}
+    name: Build ${{ matrix.image }} (${{ matrix.arch }})
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,11 +55,23 @@ jobs:
           - image: litellm
             context: .
             file: Dockerfile
-            cache_scope: litellm
+            arch: amd64
+            runner: ubuntu-latest
+          - image: litellm
+            context: .
+            file: Dockerfile
+            arch: arm64
+            runner: ubuntu-24.04-arm
           - image: account-pool-manager
             context: account-pool
             file: account-pool/Dockerfile
-            cache_scope: account-pool-manager
+            arch: amd64
+            runner: ubuntu-latest
+          - image: account-pool-manager
+            context: account-pool
+            file: account-pool/Dockerfile
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -70,10 +82,42 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
-      - name: Set up QEMU for arm64
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
-          platforms: arm64
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish ${{ matrix.image }} for ${{ matrix.arch }}
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.version.outputs.deploy_tag }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+  publish-manifest:
+    name: Publish ${{ matrix.image }} multi-arch manifest
+    needs:
+      - version
+      - build-and-publish
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - litellm
+          - account-pool-manager
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -82,23 +126,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish ${{ matrix.image }}
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.version.outputs.deploy_tag }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+      - name: Publish the shared version tag
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          DEPLOY_TAG: ${{ needs.version.outputs.deploy_tag }}
+        run: |
+          image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE}"
+          docker buildx imagetools create \
+            --tag "${image}:${DEPLOY_TAG}" \
+            "${image}:${DEPLOY_TAG}-amd64" \
+            "${image}:${DEPLOY_TAG}-arm64"
+          docker buildx imagetools inspect "${image}:${DEPLOY_TAG}"
 
   clean-package-versions:
     name: Retain recent package versions
-    needs: build-and-publish
+    needs: publish-manifest
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -121,6 +164,7 @@ jobs:
     needs:
       - version
       - build-and-publish
+      - publish-manifest
       - clean-package-versions
     runs-on: ubuntu-latest
     steps:

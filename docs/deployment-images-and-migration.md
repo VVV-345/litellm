@@ -10,7 +10,7 @@
 
 Manager 主服务与版本管理 worker **共用 `account-pool-manager` 镜像仓库**，但保留两个运行容器。worker 在回退业务镜像时不能随业务容器一起替换；不创建第四种应用镜像。迁移当前状态时，两者还需分别使用上表所列版本，不能仅因镜像名相同就统一版本
 
-本仓库的 `.github/workflows/publish-deployment-images.yml` 使用 Buildx 构建 `linux/amd64` 和 `linux/arm64`，在同一个提交前缀标签下发布多架构清单。手动运行工作流时用 `source_ref` 指定完整提交，不要用当前分支代替旧版。CLIProxyAPI 仓库有独立的双架构发布流程；当前使用的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 标签已包含两种架构
+本仓库的 `.github/workflows/publish-deployment-images.yml` 在原生 `amd64` 和 `arm64` Runner 分别构建，然后在同一个提交前缀标签下发布多架构清单。手动运行工作流时用 `source_ref` 指定完整提交，不要用当前分支代替旧版。CLIProxyAPI 仓库有独立的双架构发布流程；当前使用的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 标签已包含两种架构
 
 每次发布后执行 `docker buildx imagetools inspect ghcr.io/vvv-345/<镜像>:<标签>`，确认同时列出 `linux/amd64` 和 `linux/arm64`，记录顶层多架构清单 digest。部署时锁定已验证的标签和顶层 digest，不要直接使用 `latest`。能从 GHCR 拉取不代表数据库和配置已经兼容
 
