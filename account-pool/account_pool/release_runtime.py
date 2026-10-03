@@ -441,6 +441,8 @@ class DockerReleaseRuntime:
             and isinstance(node.value, str)
             and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
         )
+        if not statements:
+            return b""
         contracts: Final = tuple(
             f"{node.name}:"
             + ast.dump(

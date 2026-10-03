@@ -34,23 +34,53 @@ def schema_contract(source: str, name: str = "account_pool/settings.py") -> byte
 @pytest.mark.parametrize(
     "changed",
     (
+        'SQL = "CREATE TABLE account_pool_settings (state text);"\n'
         "class Settings(BaseModel):\n    full_log_skip_failed: bool = False\n",
+        'SQL = "CREATE TABLE account_pool_settings (state text);"\n'
         'class Settings(BaseModel):\n    state: Literal["pending", "standard"] = "pending"\n',
     ),
 )
 def test_persisted_json_contract_changes_block_image_only_rollback(changed: str) -> None:
-    old: Final = 'class Settings(BaseModel):\n    state: Literal["pending"] = "pending"\n'
+    old: Final = (
+        'SQL = "CREATE TABLE account_pool_settings (state text);"\n'
+        'class Settings(BaseModel):\n    state: Literal["pending"] = "pending"\n'
+    )
     assert schema_contract(old) != schema_contract(changed)
 
 
+def test_non_persistent_api_contract_changes_do_not_block_image_only_rollback() -> None:
+    old: Final = (
+        'Target = Literal["cliproxyapi"]\n'
+        'class UpstreamSyncView(BaseModel):\n    target: Target = "cliproxyapi"\n'
+    )
+    changed: Final = (
+        'Target = Literal["cliproxyapi", "litellm"]\n'
+        'class UpstreamSyncView(BaseModel):\n'
+        '    target: Target = "cliproxyapi"\n'
+        '    latest_tag: str = ""\n'
+    )
+    assert schema_contract(old, "account_pool/upstream_sync.py") == schema_contract(
+        changed, "account_pool/upstream_sync.py"
+    )
+
+
 def test_contract_fingerprint_ignores_method_bodies_and_formatting() -> None:
-    old: Final = "class Settings(BaseModel):\n    enabled: bool = True\n    def ready(self): return True\n"
-    changed: Final = "class Settings(BaseModel):\n    enabled: bool=True\n    def ready(self): return False\n"
+    old: Final = (
+        'SQL = "CREATE TABLE account_pool_settings (enabled boolean);"\n'
+        "class Settings(BaseModel):\n    enabled: bool = True\n    def ready(self): return True\n"
+    )
+    changed: Final = (
+        'SQL = "CREATE TABLE account_pool_settings (enabled boolean);"\n'
+        "class Settings(BaseModel):\n    enabled: bool=True\n    def ready(self): return False\n"
+    )
     assert schema_contract(old) == schema_contract(changed)
 
 
 def test_contract_fingerprint_ignores_file_moves_but_preserves_fields_and_aliases() -> None:
-    source = 'class Settings(BaseModel):\n    mode: Literal["a"] = "a"\nKind = Literal["a"]\n'
+    source = (
+        'SQL = "CREATE TABLE account_pool_settings (mode text);"\n'
+        'class Settings(BaseModel):\n    mode: Literal["a"] = "a"\nKind = Literal["a"]\n'
+    )
     assert schema_contract(source) == schema_contract(source, "account_pool/providers/contracts.py")
     assert schema_contract(source) != schema_contract(source.replace('Literal["a"]', 'Literal["b"]'))
 
