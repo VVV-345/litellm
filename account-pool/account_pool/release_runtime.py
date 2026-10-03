@@ -38,6 +38,7 @@ class ReleaseSettings(BaseSettings):
     docker_host: str = "tcp://docker-socket-proxy:2375"
     reserve_bytes: int = Field(default=1024 * 1024 * 1024, ge=0)
     initialize_backups: bool = True
+    database_backups: bool = False
 
     @field_validator("root", "deployment")
     @classmethod

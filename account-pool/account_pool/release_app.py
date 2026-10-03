@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import SecretStr
 
+from account_pool.release_database import DockerReleaseDatabase
 from account_pool.release_models import (
     ReleaseAction,
     ReleaseCommands,
@@ -120,23 +121,29 @@ def release_application(service: ReleaseService, token: str, *, initialize_backu
         return service.prepare(action, actor)
 
     def execute(body: ReleaseExecute, actor: Annotated[str, Depends(authenticate)]) -> ReleaseJob:
-        return service.execute(body.token, actor)
+        return service.execute(body.token, actor, body.acknowledgement)
 
     def commands(version_id: ReleaseId, _actor: Annotated[str, Depends(authenticate)]) -> ReleaseCommands:
         return service.commands(version_id)
 
     app.exception_handler(ReleaseError)(release_error)
     app.add_api_route("/health", health, methods=["GET"])
-    app.add_api_route("/api/releases", view, methods=["GET"])
-    app.add_api_route("/api/releases/prepare", prepare, methods=["POST"])
-    app.add_api_route("/api/releases/execute", execute, methods=["POST"])
+    app.add_api_route("/api/releases", view, methods=["GET"], response_model_exclude_none=True)
+    app.add_api_route("/api/releases/prepare", prepare, methods=["POST"], response_model_exclude_none=True)
+    app.add_api_route("/api/releases/execute", execute, methods=["POST"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/{version_id}/commands", commands, methods=["GET"])
     return app
 
 
 def create_app() -> FastAPI:
     settings: Final = ReleaseSettings(token=SecretStr(os.environ.get("ACCOUNT_POOL_RELEASE_TOKEN", "")))
-    service: Final = ReleaseService(ReleaseStore(settings.root), DockerReleaseRuntime(settings), settings.reserve_bytes)
+    runtime: Final = DockerReleaseRuntime(settings)
+    service: Final = ReleaseService(
+        ReleaseStore(settings.root),
+        runtime,
+        settings.reserve_bytes,
+        DockerReleaseDatabase(runtime) if settings.database_backups else None,
+    )
     return release_application(
         service, settings.token.get_secret_value(), initialize_backups=settings.initialize_backups
     )

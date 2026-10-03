@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import shutil
 import time
 from pathlib import Path
 from typing import Final, Protocol
 
-from account_pool.release_compatibility import RollbackEvidence, compare_evidence, configuration_checks, evidence_state
+from account_pool.release_compatibility import (
+    RollbackEvidence,
+    canonical_configuration,
+    compare_evidence,
+    configuration_checks,
+    evidence_state,
+)
+from account_pool.release_database import ReleaseDatabase
 from account_pool.release_models import (
+    DatabaseSnapshot,
     ReleaseAction,
     ReleaseBackup,
     ReleaseCommands,
@@ -39,10 +49,17 @@ class ReleaseRuntime(Protocol):
 
 
 class ReleaseService:
-    def __init__(self, store: ReleaseStore, runtime: ReleaseRuntime, reserve_bytes: int = 1024**3) -> None:
+    def __init__(
+        self,
+        store: ReleaseStore,
+        runtime: ReleaseRuntime,
+        reserve_bytes: int = 1024**3,
+        database: ReleaseDatabase | None = None,
+    ) -> None:
         self.store: Final = store
         self.runtime: Final = runtime
         self.reserve_bytes: Final = reserve_bytes
+        self.database: Final = database
 
     def view(self) -> ReleaseView:
         current: Final = self.current_or_none()
@@ -92,6 +109,7 @@ class ReleaseService:
             free_bytes=shutil.disk_usage(self.store.root).free,
             job=jobs[0] if jobs else None,
             problems=problems,
+            database_backups_enabled=self.database is not None,
         )
 
     def available(self, backup: ReleaseBackup) -> bool:
@@ -122,18 +140,27 @@ class ReleaseService:
             raise ReleaseError("只有程序回退支持强制确认")
         if not action.force and action.force_acknowledgement:
             raise ReleaseError("普通回退不接受强制确认内容")
+        if action.action != "restore_data" and action.snapshot_id is not None:
+            raise ReleaseError("只有数据库恢复接受快照编号")
         view: Final = self.view()
         if view.job and view.job.status in ("queued", "running"):
             raise ReleaseError("已有任务正在执行，请等待完成")
+        if (
+            view.job
+            and view.job.phase == "需要人工恢复"
+            and action.action != "recover"
+            and (self.database is not None or view.job.database_recovery is not None)
+        ):
+            raise ReleaseError("上次恢复尚未完成，请先使用服务器 recover 入口，保留现场和恢复点")
         if view.revision != action.revision:
             raise ReleaseError("页面数据已更新，请刷新后重试")
-        if action.action in ("apply", "delete", "note"):
+        if action.action in ("apply", "delete", "note", "restore_data"):
             selected: Final = next((version for version in view.versions if version.pair.id == action.version_id), None)
             if selected is None:
                 raise ReleaseError("版本不存在")
-            if action.action in ("apply", "delete") and selected.current:
+            if action.action in ("apply", "delete", "restore_data") and selected.current:
                 raise ReleaseError("当前运行版本不能重复应用或删除")
-            if action.action in ("apply", "delete") and view.current is None:
+            if action.action in ("apply", "delete", "restore_data") and view.current is None:
                 raise ReleaseError("无法识别当前版本，暂停应用和删除")
             if action.action == "apply" and not selected.available:
                 raise ReleaseError("该版本没有完整的镜像备份")
@@ -143,14 +170,26 @@ class ReleaseService:
             view.job and view.job.status == "failed" and view.job.phase == "需要人工恢复" and view.job.recovery_id
         ):
             raise ReleaseError("没有需要人工恢复的失败任务")
-        if action.action in ("apply", "delete", "scan", "deploy", "recover") and action.text:
+        if action.action in ("apply", "delete", "scan", "deploy", "recover", "restore_data") and action.text:
             raise ReleaseError("此操作不接受说明内容")
-        if action.action not in ("apply", "delete", "note") and action.version_id is not None:
+        if action.action not in ("apply", "delete", "note", "restore_data") and action.version_id is not None:
             raise ReleaseError("此操作不接受目标版本")
         if action.action != "deploy" and action.tag is not None:
             raise ReleaseError("此操作不接受镜像标签")
         if action.action == "note" and len(action.text) > 500:
             raise ReleaseError("版本备注最多 500 字")
+        if action.action == "restore_data":
+            snapshot, state = self.inspect_data_restore(action)
+            if self.runtime.current().id != view.current.id or self.store.settings()[0] != action.revision:
+                raise ReleaseError("检查期间版本或快照发生变化，请重新确认")
+            data_prepared: Final = self.store.prepare(
+                action,
+                actor,
+                view.current.id if view.current else None,
+                view.current.commit if view.current else None,
+                state,
+            )
+            return data_prepared.model_copy(update={"database_snapshot": snapshot})
         if action.action == "apply" and view.current is not None:
             report, state = self.inspect_rollback(view.current, action.version_id or "", alternatives=True)
             if self.runtime.current().id != view.current.id or self.store.settings()[0] != action.revision:
@@ -320,9 +359,71 @@ class ReleaseService:
                 "",
             )
 
-    def execute(self, token: str, actor: str) -> ReleaseJob:
+    def execute(self, token: str, actor: str, acknowledgement: str = "") -> ReleaseJob:
         view: Final = self.view()
-        return self.store.consume(token, actor, view.current.id if view.current else None)
+        return self.store.consume(token, actor, view.current.id if view.current else None, acknowledgement)
+
+    def inspect_data_restore(self, action: ReleaseAction) -> tuple[DatabaseSnapshot, str]:
+        saved: Final = self.store.backup(action.version_id or "")
+        if self.database is None or saved is None or saved.database_snapshot is None:
+            raise ReleaseError("没有启用数据库备份或目标版本没有对应快照，不能恢复历史数据")
+        snapshot: Final = saved.database_snapshot
+        if (
+            saved.configuration_source != "running"
+            or snapshot.version_id != saved.pair.id
+            or action.snapshot_id != snapshot.id
+        ):
+            raise ReleaseError("快照不属于目标运行版本或已更新，请重新确认")
+        directory: Final = self.verify(saved)
+        self.database.verify(directory, snapshot)
+        try:
+            self.runtime.evidence(saved.pair)
+        except (ReleaseError, ValueError):
+            self.runtime.load(saved.pair, directory / "images.tar.gz")
+        configuration: Final = self.runtime.running_compose()
+        if any(
+            item.status != "compatible"
+            for item in configuration_checks(configuration, (directory / "compose.json").read_bytes())
+        ):
+            raise ReleaseError("部署配置、加密密钥或数据位置已变化，不能自动恢复数据库")
+        contracts: Final = compare_evidence(
+            self.runtime.evidence(self.runtime.current()), self.runtime.evidence(saved.pair)
+        )
+        if any(item.status != "compatible" for item in contracts if item.key in ("credentials", "logs")):
+            raise ReleaseError("认证文件或外部日志的读写协议存在差异，数据库快照不能覆盖这些变化")
+        state: Final = hashlib.sha256(
+            saved.model_dump_json().encode()
+            + json.dumps(canonical_configuration(configuration), sort_keys=True).encode()
+        ).hexdigest()
+        return snapshot, state
+
+    def capture_database(self, saved: ReleaseBackup) -> ReleaseBackup:
+        if self.database is None:
+            return saved
+        if saved.configuration_source != "running" or self.runtime.current().id != saved.pair.id:
+            raise ReleaseError("只能为当前运行版本创建数据库快照，不能给历史镜像补造快照")
+        directory: Final = self.verify(saved)
+        snapshot: Final = self.database.capture(directory, saved.pair.id)
+        if self.runtime.current().id != saved.pair.id:
+            raise ReleaseError("数据库备份期间运行版本改变，未替换快照记录")
+        updated: Final = saved.model_copy(update={"database_snapshot": snapshot})
+        write_private(directory / "manifest.json", updated.model_dump_json().encode())
+        self.store.save_backup(updated)
+        # 数据库一直变化，不能沿用镜像的去重规则；先发布新记录，再清理未被恢复任务引用的旧文件。
+        retained: Final = {item.filename for item in snapshot.files} | {
+            item.filename
+            for job in self.store.jobs()
+            if job.database_recovery and job.status not in ("succeeded", "recovered")
+            for item in job.database_recovery.files
+        }
+        for path in directory.iterdir():
+            if (
+                re.fullmatch(r"database-[a-f0-9]{32}-(db|account-pool-db)\.dump", path.name)
+                and path.name not in retained
+            ):
+                if not path.is_symlink() and path.is_file():
+                    path.unlink()
+        return updated
 
     def backup(self, pair: ReleasePair, configuration: bytes, *, imported: bool = False) -> ReleaseBackup:
         existing: Final = self.store.backup(pair.id)
@@ -404,8 +505,10 @@ class ReleaseService:
                 if isinstance(error, ReleaseError)
                 else "执行失败，请检查部署管理服务；未显示可能包含凭据的底层错误"
             )
-            if latest.recovery_id and latest.phase in ("替换服务并检查健康", "恢复原运行版本"):
+            if latest.recovery_id and latest.phase in ("替换服务并检查健康", "恢复原运行版本", "恢复数据库"):
                 self._recover(latest, safe)
+            elif latest.phase == "暂停业务并备份数据库":
+                self._resume_database_backup(latest, safe)
             else:
                 self.store.save_job(
                     latest.model_copy(update={"status": "failed", "message": safe, "updated_at": time.time()})
@@ -433,15 +536,25 @@ class ReleaseService:
             )
             if saved_recovery is None:
                 raise ReleaseError("没有可用的恢复点")
-            self.phase(job, "恢复原运行版本", saved_recovery.pair.id)
-            self.restore(saved_recovery)
+            recovery_job: Final = job.model_copy(
+                update={"database_recovery": failed.database_recovery if failed else None}
+            )
+            self.store.save_job(recovery_job)
+            self.phase(recovery_job, "恢复原运行版本", saved_recovery.pair.id)
+            self._restore_recovery(saved_recovery, recovery_job.database_recovery)
             return
         current: Final = self.runtime.current()
         if current.id != job.expected_current_id:
             raise ReleaseError("确认后运行版本已变化，请重新操作")
         if action.action == "scan":
             self.phase(job, "备份当前运行版本")
-            self.backup(current, self.runtime.running_compose())
+            saved_current: Final = self.backup(current, self.runtime.running_compose())
+            if self.database is not None:
+                self.phase(job, "暂停业务并备份数据库", saved_current.pair.id)
+                self.database.stop()
+                self.capture_database(saved_current)
+                self.database.start()
+                self.phase(job, "数据库备份完成")
             for pair in self.runtime.discover():
                 if pair.id != current.id:
                     self.phase(job, f"备份历史镜像 {pair.commit[:10]}")
@@ -450,12 +563,25 @@ class ReleaseService:
         if action.action == "delete":
             if not action.version_id or action.version_id == current.id:
                 raise ReleaseError("当前运行版本不能删除")
+            if any(
+                item.recovery_id == action.version_id and item.status in ("failed", "running", "interrupted")
+                for item in self.store.jobs()
+            ):
+                raise ReleaseError("该版本仍被故障恢复任务引用，不能删除")
             self.phase(job, "删除镜像备份文件")
             directory: Final = self.store.path(action.version_id)
             if directory.exists():
                 # 只删除受控备份目录的固定文件，不递归跟随路径或符号链接。
                 expected: Final = {"images.tar.gz", "images.pending.gz", "compose.json", "manifest.json"}
-                if any(path.name not in expected or path.is_dir() or path.is_symlink() for path in directory.iterdir()):
+                if any(
+                    (
+                        path.name not in expected
+                        and not re.fullmatch(r"database-[a-f0-9]{32}-(db|account-pool-db)\.dump", path.name)
+                    )
+                    or path.is_dir()
+                    or path.is_symlink()
+                    for path in directory.iterdir()
+                ):
                     raise ReleaseError("备份目录包含异常文件，停止删除")
                 for path in directory.iterdir():
                     path.unlink()
@@ -474,7 +600,25 @@ class ReleaseService:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
         if action.action == "apply":
             self._require_rollback_check(job, current)
-        self.phase(job, "替换服务并检查健康", recovery.pair.id)
+        if self.database is not None:
+            self.phase(job, "暂停业务并备份数据库", recovery.pair.id)
+            self.database.stop()
+            fresh: Final = self.capture_database(recovery)
+            database_job: Final = job.model_copy(
+                update={"database_recovery": fresh.database_snapshot if action.action == "restore_data" else None}
+            )
+            self.store.save_job(
+                database_job.model_copy(update={"phase": "暂停业务并备份数据库", "recovery_id": recovery.pair.id})
+            )
+        else:
+            database_job = job
+        if action.action == "restore_data":
+            snapshot, state = self.inspect_data_restore(action)
+            if state != job.rollback_state or self.database is None:
+                raise ReleaseError("数据库恢复依据已变化，请重新确认")
+            self.phase(database_job, "恢复数据库", recovery.pair.id)
+            self.database.restore(self.store.path(snapshot.version_id), snapshot)
+        self.phase(database_job, "替换服务并检查健康", recovery.pair.id)
         self.runtime.apply(target, configuration)
 
     def _target(self, job: ReleaseJob, current: ReleasePair) -> tuple[ReleasePair, bytes]:
@@ -485,7 +629,12 @@ class ReleaseService:
         saved: Final = self.store.backup(action.version_id or "")
         if saved is None:
             raise ReleaseError("目标备份不存在")
-        self._require_rollback_check(job, current)
+        if action.action == "restore_data":
+            _, state = self.inspect_data_restore(action)
+            if state != job.rollback_state:
+                raise ReleaseError("快照或配置已变化，请重新确认")
+        else:
+            self._require_rollback_check(job, current)
         self.phase(job, "校验并导入备份镜像")
         directory: Final = self.verify(saved)
         self.runtime.load(saved.pair, directory / "images.tar.gz")
@@ -507,7 +656,7 @@ class ReleaseService:
         try:
             if backup is None:
                 raise ReleaseError("恢复点不存在")
-            self.restore(backup)
+            self._restore_recovery(backup, job.database_recovery)
         except Exception:  # noqa: BLE001  # 自动恢复失败后保留恢复点，交由服务器命令继续处理。
             self.store.save_job(
                 job.model_copy(
@@ -530,7 +679,9 @@ class ReleaseService:
         for job in self.store.jobs():
             if job.status != "running":
                 continue
-            if job.recovery_id and job.phase in ("替换服务并检查健康", "恢复原运行版本"):
+            if job.phase == "暂停业务并备份数据库":
+                self._resume_database_backup(job, "备份中断，数据库未被恢复")
+            elif job.recovery_id and job.phase in ("替换服务并检查健康", "恢复原运行版本", "恢复数据库"):
                 self._recover(job, "部署管理服务重启，已恢复操作前版本")
             else:
                 self.store.save_job(
@@ -538,6 +689,29 @@ class ReleaseService:
                         update={"status": "interrupted", "message": "任务被中断，请重新操作", "updated_at": time.time()}
                     )
                 )
+
+    def _restore_recovery(self, backup: ReleaseBackup, snapshot: DatabaseSnapshot | None) -> None:
+        if snapshot is not None:
+            if self.database is None:
+                raise ReleaseError("恢复需要重新启用数据库备份配置")
+            self.database.stop()
+            self.database.restore(self.store.path(snapshot.version_id), snapshot)
+        self.restore(backup)
+
+    def _resume_database_backup(self, job: ReleaseJob, message: str) -> None:
+        try:
+            if self.database is None:
+                raise ReleaseError("数据库备份配置已关闭")
+            self.database.stop()
+            self.database.start()
+        except Exception:  # noqa: BLE001  # 备份阶段未改数据库，不能误用旧快照恢复。
+            self.store.save_job(
+                job.model_copy(update={"status": "failed", "phase": "需要人工恢复", "message": message})
+            )
+            return
+        self.store.save_job(
+            job.model_copy(update={"status": "failed", "phase": "备份失败，已启动原服务", "message": message})
+        )
 
     def commands(self, version_id: str) -> ReleaseCommands:
         selected: Final = next((version for version in self.view().versions if version.pair.id == version_id), None)

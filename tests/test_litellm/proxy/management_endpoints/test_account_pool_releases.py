@@ -48,7 +48,7 @@ def test_admin_authentication_and_internal_token_forwarding(monkeypatch: pytest.
         assert request.url.host == "release-worker"
         assert request.headers["Authorization"] == "Bearer " + "s" * 32
         assert len(request.headers["X-Release-Actor"]) == 64
-        assert request.content == b'{"token":"' + b"a" * 64 + b'"}'
+        assert request.content == b'{"token":"' + b"a" * 64 + b'","acknowledgement":""}'
         return httpx.Response(409, json={"detail": "请等待确认倒计时结束"})
 
     app.dependency_overrides[user_api_key_auth] = auth
@@ -88,7 +88,7 @@ def test_mounted_release_router_uses_separate_worker_client(monkeypatch: pytest.
     def transport(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://release-worker:8092/api/releases/execute"
         assert request.headers["Authorization"] == "Bearer " + "s" * 32
-        assert request.content == b'{"token":"' + b"a" * 64 + b'"}'
+        assert request.content == b'{"token":"' + b"a" * 64 + b'","acknowledgement":""}'
         return httpx.Response(409, json={"detail": "请等待确认倒计时结束"})
 
     app.include_router(

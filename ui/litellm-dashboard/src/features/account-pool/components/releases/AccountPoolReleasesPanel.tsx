@@ -32,6 +32,7 @@ const actionTitles: Record<ReleaseAction["action"], string> = {
   scan: "扫描并备份本机镜像",
   deploy: "部署新版本",
   recover: "恢复运行版本",
+  restore_data: "恢复程序与数据库快照",
 };
 const jobLabels = {
   queued: "等待执行",
@@ -92,7 +93,9 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
     },
   });
   const execution = useMutation({
-    mutationFn: (token: string) => executeRelease(accessToken, token),
+    mutationFn: ({ token, acknowledgement }: { token: string; acknowledgement?: string }) => acknowledgement
+      ? executeRelease(accessToken, token, acknowledgement)
+      : executeRelease(accessToken, token),
     onSuccess: (job) => {
       setPending(null);
       setNote(null);
@@ -153,7 +156,9 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
             onClick={() =>
               prepare(
                 { action: "scan" },
-                "将当前版本和本机已有的配套历史镜像保存为归档。已有完整备份会跳过，过程可能需要几分钟。",
+                data.database_backups_enabled
+                  ? "将刷新当前版本的两库快照，期间业务暂停。新快照校验成功后替换旧引用；历史镜像仅归档，不补造历史数据库。"
+                  : "将当前版本和本机已有的配套历史镜像保存为归档。数据库备份未启用，不包含数据库。",
               )
             }
           >
@@ -230,7 +235,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
             force_acknowledgement: pending.confirmation.rollback?.target_commit,
           }, "已选择强制回退。请再次核对未验证项与目标版本，确认后仅切换程序，保留当前数据。")}
           onClose={() => setPending(null)}
-          onConfirm={() => execution.mutate(pending.confirmation.token)}
+          onConfirm={(acknowledgement) => execution.mutate({ token: pending.confirmation.token, acknowledgement })}
         />
       )}
     </div>

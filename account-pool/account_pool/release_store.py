@@ -17,7 +17,7 @@ from pydantic import TypeAdapter
 from account_pool.release_models import ReleaseAction, ReleaseBackup, ReleaseConfirmation, ReleaseJob
 
 DEFAULT_GUIDE: Final = """更新与回退
-正常更新前自动备份当前运行版本；已有完整备份就跳过。备份失败不会替换服务。
+正常更新前自动备份当前运行版本；已有完整镜像归档不重复导出。启用数据库备份时会暂停业务并刷新两库快照，失败不替换旧快照。
 选择备份版本，点击检查并回退，核对兼容性、功能影响与可选版本，通过后等待 5 秒确认。恢复直接使用备份镜像，不需要重新构建。
 删除会真正删除备份文件，等待 10 秒后确认。当前运行版本不能删除。
 
@@ -28,7 +28,9 @@ git revert 适合在原分支撤销改动，保留历史。命令会先核对起
 旧分支没有自动构建时，在 GitHub Actions 选择新版构建工作流，将 source_ref 填为修复分支或完整 commit。
 
 数据与恢复
-镜像备份不包含数据库、认证文件和聊天日志。回退保留业务数据，数据库结构不兼容时不能直接应用。
+默认镜像备份不包含数据库。ACCOUNT_POOL_RELEASE_DATABASE_BACKUPS=true 后，扫描当前版本与兼容切换前会创建两库逻辑快照并试还原；历史镜像导入不补造快照。
+普通回退保留当前业务数据。恢复程序与数据是独立操作，须输入 RESTORE 加完整快照编号；两库回到快照时刻，之后数据不保留在运行库。认证文件与磁盘日志不恢复。
+数据库恢复前先保存当前镜像和两库数据；失败时尝试恢复该恢复点，失败或中断未解决时禁止其他发布操作。快照不能代替迁移兼容性审查。
 历史镜像导入使用导入时的部署配置，页面会标明配置来源。
 回退到没有版本管理页面的旧版本时，可在服务器部署目录运行 python3 releasectl.py status 或 apply 版本ID。
 """
@@ -128,7 +130,7 @@ class ReleaseStore:
         rollback_state: str | None = None,
     ) -> ReleaseConfirmation:
         token: Final = secrets.token_hex(32)
-        delay: Final = 10 if action.action == "delete" or action.force else 5
+        delay: Final = 10 if action.action in ("delete", "restore_data") or action.force else 5
         now: Final = self.clock()
         with self.connection() as db:
             db.execute("DELETE FROM confirmations WHERE expires<?", (now,))
@@ -151,7 +153,7 @@ class ReleaseStore:
                 )
         return ReleaseConfirmation(token=token, action=action, delay_seconds=delay, current_commit=current_commit)
 
-    def consume(self, token: str, actor: str, current_id: str | None) -> ReleaseJob:
+    def consume(self, token: str, actor: str, current_id: str | None, acknowledgement: str = "") -> ReleaseJob:
         now: Final = self.clock()
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -171,13 +173,15 @@ class ReleaseStore:
                 db.execute("SELECT revision FROM settings WHERE id=1").fetchone()
             )[0]
             action: Final = ReleaseAction.model_validate_json(row[1])
+            if action.action == "restore_data" and acknowledgement != f"RESTORE {action.snapshot_id}":
+                raise ReleaseError("恢复数据库必须输入 RESTORE 加完整快照编号，确认放弃快照之后的数据")
             checked: Final = TypeAdapter[tuple[str] | None](tuple[str] | None).validate_python(
                 db.execute(
                     "SELECT state FROM rollback_checks WHERE token=?", (hashlib.sha256(token.encode()).hexdigest(),)
                 ).fetchone()
             )
             rollback_state: Final = checked[0] if checked else None
-            if action.action == "apply" and rollback_state is None:
+            if action.action in ("apply", "restore_data") and rollback_state is None:
                 raise ReleaseError("该回退尚未通过兼容性检查，请重新检查")
             if revision != action.revision or row[2] != current_id:
                 raise ReleaseError("版本或备注已变化，请刷新后重新确认")

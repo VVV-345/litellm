@@ -1,5 +1,5 @@
 /** 本文件渲染版本详情、存储状态与可编辑回退说明，不发起部署请求。 */
-import { Archive, Copy, GitBranch, HardDrive } from "lucide-react";
+import { Archive, Copy, DatabaseBackup, GitBranch, HardDrive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,6 +81,14 @@ export function ReleaseVersionCard({
           >
             检查并回退
           </Button>
+          {selected.backup?.database_snapshot && (
+            <Button variant="outline" disabled={!canChange || !selected.available || !data.database_backups_enabled}
+              onClick={() => prepare({ action: "restore_data", version_id: selected.pair.id, snapshot_id: selected.backup!.database_snapshot!.id },
+                "恢复所选版本及其数据库快照。两库中快照之后的数据将被移出运行库；认证文件与磁盘日志不会恢复。操作前会另存当前数据以便故障恢复。")}
+            >
+              <DatabaseBackup /> 恢复程序与数据
+            </Button>
+          )}
           <Button
             variant="destructive"
             disabled={!canChange || !selected.backup}
@@ -117,6 +125,12 @@ export function ReleaseVersionCard({
           </div>
           {selected.backup && (
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <dt className="text-muted-foreground">数据库快照</dt>
+                <dd className="mt-1 break-all">{selected.backup.database_snapshot
+                  ? `${new Date(selected.backup.database_snapshot.created_at * 1000).toLocaleString()} · ${selected.backup.database_snapshot.id}`
+                  : "无数据库快照，仅支持检查后回退程序"}</dd>
+              </div>
               <div>
                 <dt className="text-muted-foreground">备份时间</dt>
                 <dd className="mt-1">{new Date(selected.backup.created_at * 1000).toLocaleString()}</dd>
@@ -217,7 +231,8 @@ export function ReleaseStorageCard({ data }: { data: ReleaseView }) {
           <code className="mt-1 block break-all text-xs">{data.location}</code>
         </div>
         <p className="border-t pt-3 leading-6 text-muted-foreground">
-          备份包含两份镜像与部署配置。数据库、认证文件和日志独立保存，镜像回退不会回退这些数据。删除只清理选中的备份文件。
+          {data.database_backups_enabled ? "数据库备份已启用。当前版本备份会刷新两库快照，历史镜像导入不补造快照。" : "数据库备份未启用，目前只归档镜像和部署配置。"}
+          普通回退保留当前数据；恢复数据库会回到快照时刻。认证文件和磁盘日志不在数据库快照内。
         </p>
       </CardContent>
     </Card>

@@ -46,10 +46,12 @@ const pair = (char: string): NonNullable<ReleaseView["current"]> => ({
 });
 const current = pair("b");
 const old = pair("a");
+const actionDefaults = { text: "", force: false, force_acknowledgement: "" };
 const report: NonNullable<ReleaseConfirmation["rollback"]> = {
   current_commit: current.commit,
   target_commit: old.commit,
   status: "compatible",
+  force_allowed: false,
   checks: [{ key: "database", title: "数据库结构", status: "compatible", detail: "两版结构一致" }],
   impacts: ["回退时会短暂中断请求"],
   alternatives: [],
@@ -58,6 +60,7 @@ const report: NonNullable<ReleaseConfirmation["rollback"]> = {
   scope: "静态检查，不执行数据库恢复",
 };
 const view: ReleaseView = {
+  database_backups_enabled: false,
   current,
   versions: [
     {
@@ -100,6 +103,28 @@ const view: ReleaseView = {
 };
 
 describe("project releases", () => {
+  it("requires the exact snapshot phrase before submitting a database restore", async () => {
+    const onConfirm = vi.fn();
+    const snapshot = {
+      id: "d".repeat(32), created_at: 1700000000, version_id: old.id,
+      files: [
+        { service: "db" as const, database: "litellm", major: 16, filename: "database.dump", sha256: "e".repeat(64), size: 100 },
+        { service: "account-pool-db" as const, database: "account_pool", major: 16, filename: "pool.dump", sha256: "f".repeat(64), size: 100 },
+      ] as [NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][0], NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][1]],
+    };
+    render(<AccountPoolReleaseConfirmation confirmation={{
+      token: "a".repeat(64), action: { ...actionDefaults, action: "restore_data", version_id: old.id, snapshot_id: snapshot.id, revision: 3 },
+      current_commit: current.commit, delay_seconds: 0, expires_in_seconds: 300, database_snapshot: snapshot,
+    }} title="恢复程序与数据库快照" description="恢复旧数据" busy={false} onConfirm={onConfirm} onClose={vi.fn()} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("之后的新增与修改不会保留在运行库");
+    expect(screen.getByRole("button", { name: "暂不可回退" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: /输入 RESTORE/ }), { target: { value: "CONFIRM" } });
+    expect(screen.getByRole("button", { name: "暂不可回退" })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: /输入 RESTORE/ }), { target: { value: `RESTORE ${snapshot.id}` } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认执行" }));
+    expect(onConfirm).toHaveBeenCalledWith(`RESTORE ${snapshot.id}`);
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(listReleases).mockResolvedValue(view);
@@ -109,7 +134,7 @@ describe("project releases", () => {
     });
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
       token: "c".repeat(64),
-      action: { text: "", ...action },
+      action: { ...actionDefaults, ...action },
       delay_seconds: 0,
       expires_in_seconds: 300,
       current_commit: current.commit,
@@ -117,7 +142,7 @@ describe("project releases", () => {
     }));
     const queuedJob: ReleaseJob = {
       id: "job",
-      action: { action: "apply", revision: 3, version_id: old.id, text: "" },
+      action: { ...actionDefaults, action: "apply", revision: 3, version_id: old.id },
       status: "queued",
       phase: "等待执行",
       message: "",
@@ -180,7 +205,7 @@ describe("project releases", () => {
       <AccountPoolReleaseConfirmation
         confirmation={{
           token: "token",
-          action: { action: delay === 10 ? "delete" : "apply", revision: 0, text: "" },
+          action: { ...actionDefaults, action: delay === 10 ? "delete" : "apply", revision: 0 },
           delay_seconds: delay,
           expires_in_seconds: 300,
           current_commit: current.commit,
@@ -209,7 +234,7 @@ describe("project releases", () => {
       <AccountPoolReleaseConfirmation
         confirmation={{
           token: "",
-          action: { action: "apply", revision: 3, text: "" },
+          action: { ...actionDefaults, action: "apply", revision: 3 },
           expires_in_seconds: 300,
           delay_seconds: 0,
           current_commit: current.commit,
@@ -237,7 +262,7 @@ describe("project releases", () => {
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
       token: "",
       expires_in_seconds: 300,
-      action: { text: "", ...action },
+      action: { ...actionDefaults, ...action },
       delay_seconds: 0,
       current_commit: current.commit,
       rollback: {
@@ -263,7 +288,8 @@ describe("project releases", () => {
   it("requires the selected version before preparing force and a second click before execution", async () => {
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
       token: action.force ? "f".repeat(64) : "",
-      action: { text: "", ...action },
+      action: { ...actionDefaults, ...action },
+      expires_in_seconds: 300,
       delay_seconds: 0,
       current_commit: current.commit,
       rollback: { ...report, status: "unverified", force_allowed: true },

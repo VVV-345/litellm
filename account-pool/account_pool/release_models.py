@@ -37,6 +37,25 @@ class ReleaseBackup(BaseModel):
     compose_sha256: str
     schema_fingerprint: str
     configuration_source: Literal["running", "imported_current"]
+    database_snapshot: DatabaseSnapshot | None = None
+
+
+class DatabaseDump(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    service: Literal["db", "account-pool-db"]
+    database: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+    major: int = Field(ge=10)
+    filename: str = Field(pattern=r"^database-[a-f0-9]{32}-(db|account-pool-db)\.dump$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size: int = Field(gt=0)
+
+
+class DatabaseSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    created_at: float
+    version_id: ReleaseId
+    files: tuple[DatabaseDump, DatabaseDump]
 
 
 class ReleaseVersion(BaseModel):
@@ -50,13 +69,14 @@ class ReleaseVersion(BaseModel):
 
 class ReleaseAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    action: Literal["apply", "delete", "note", "guide", "scan", "deploy", "recover"]
+    action: Literal["apply", "delete", "note", "guide", "scan", "deploy", "recover", "restore_data"]
     version_id: ReleaseId | None = None
     text: str = Field(default="", max_length=12000)
     tag: Annotated[str, Field(pattern=r"^[a-f0-9]{10,40}$")] | None = None
     revision: int = Field(ge=0)
     force: bool = False
     force_acknowledgement: str = Field(default="", max_length=40)
+    snapshot_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] | None = None
 
 
 class ReleaseConfirmation(BaseModel):
@@ -66,6 +86,7 @@ class ReleaseConfirmation(BaseModel):
     expires_in_seconds: int = 300
     current_commit: str | None
     rollback: RollbackInspection | None = None
+    database_snapshot: DatabaseSnapshot | None = None
 
 
 class RollbackCheck(BaseModel):
@@ -96,6 +117,7 @@ class RollbackInspection(BaseModel):
 
 class ReleaseExecute(BaseModel):
     token: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+    acknowledgement: str = Field(default="", max_length=64)
 
 
 class ReleaseJob(BaseModel):
@@ -109,6 +131,7 @@ class ReleaseJob(BaseModel):
     recovery_id: ReleaseId | None = None
     expected_current_id: ReleaseId | None = None
     rollback_state: str | None = None
+    database_recovery: DatabaseSnapshot | None = None
 
 
 class ReleaseView(BaseModel):
@@ -121,6 +144,7 @@ class ReleaseView(BaseModel):
     free_bytes: int
     job: ReleaseJob | None = None
     problems: tuple[str, ...] = ()
+    database_backups_enabled: bool = False
 
 
 class ReleaseCommands(BaseModel):

@@ -43,7 +43,8 @@ def call(token: str, path: str = "", body: dict[str, object] | None = None) -> d
     )
     try:
         with cast(
-            HTTPResponse, urlopen(request, timeout=310 if body and body.get("action") == "apply" else 35)
+            HTTPResponse,
+            urlopen(request, timeout=310 if body and body.get("action") in ("apply", "restore_data") else 35),
         ) as response:
             return record(cast(object, json.loads(response.read())))
     except HTTPError as error:
@@ -55,9 +56,10 @@ def call(token: str, path: str = "", body: dict[str, object] | None = None) -> d
 
 def main() -> None:
     parser: Final = argparse.ArgumentParser(description="项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092")
-    parser.add_argument("action", choices=("status", "scan", "apply", "delete", "deploy", "recover"))
+    parser.add_argument("action", choices=("status", "scan", "apply", "delete", "deploy", "recover", "restore_data"))
     parser.add_argument("target", nargs="?", help="apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位")
     parser.add_argument("--directory", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--snapshot", help="restore_data 必须指定完整快照编号")
     args: Final = cast(dict[str, object], vars(parser.parse_args()))
     action: Final = str(args["action"])
     target: Final = str(args["target"]) if args["target"] else None
@@ -66,13 +68,16 @@ def main() -> None:
     if action == "status":
         output(json.dumps(view, ensure_ascii=False, indent=2))
         return
-    if action in ("apply", "delete", "deploy") and not target:
+    if action in ("apply", "delete", "deploy", "restore_data") and not target:
         parser.error("此操作需要提供目标版本")
+    if (action == "restore_data") != bool(args["snapshot"]):
+        parser.error("仅 restore_data 必须提供 --snapshot 快照编号")
     body: Final = {
         "action": action,
         "revision": view["revision"],
         **({"tag": target} if action == "deploy" else {}),
-        **({"version_id": target} if action in ("apply", "delete") else {}),
+        **({"version_id": target} if action in ("apply", "delete", "restore_data") else {}),
+        **({"snapshot_id": args["snapshot"]} if action == "restore_data" else {}),
     }
     confirmation: Final = call(token, "/prepare", body)
     if action == "apply":
@@ -82,13 +87,23 @@ def main() -> None:
             raise SystemExit("该版本未通过回退检查，未提交切换任务")
     output(f"操作：{action}，目标：{target or '当前项目'}，当前 commit：{confirmation['current_commit']}")
     output("删除将移除备份归档；切换会短暂中断服务。数据库和认证文件不随镜像回退。")
+    if action == "restore_data":
+        output(json.dumps(confirmation.get("database_snapshot"), ensure_ascii=False, indent=2))
+        output("警告：两库恢复到上述快照时刻，之后的数据将不在运行库中；认证文件和磁盘日志不恢复。")
+    elif view.get("database_backups_enabled") and action in ("scan", "apply", "deploy"):
+        output("数据库备份已启用，归档两库时将暂停业务服务，已有镜像不会导致跳过数据库快照。")
     for seconds in range(int(str(confirmation["delay_seconds"])), 0, -1):
         output(f"\r请思考确认，剩余 {seconds} 秒 ", end="")
         time.sleep(1)
-    if input("\n输入 CONFIRM 执行，其余输入取消：").strip() != "CONFIRM":
+    phrase: Final = f"RESTORE {args['snapshot']}" if action == "restore_data" else "CONFIRM"
+    if input(f"\n输入 {phrase} 执行，其余输入取消：").strip() != phrase:
         output("已取消")
         return
-    job: Final = call(token, "/execute", {"token": confirmation["token"]})
+    job: Final = call(
+        token,
+        "/execute",
+        {"token": confirmation["token"], "acknowledgement": phrase if action == "restore_data" else ""},
+    )
     output(f"任务 {job['id']} 已保存，可以随时用 status 查看")
     while poll(token, job):
         time.sleep(3)

@@ -56,7 +56,7 @@ export function AccountPoolReleaseConfirmation({
   description: string;
   before?: string;
   busy: boolean;
-  onConfirm: () => void;
+  onConfirm: (acknowledgement?: string) => void;
   onClose: () => void;
   onSelectVersion?: (id: string) => void;
   onForce?: () => void;
@@ -75,9 +75,13 @@ export function AccountPoolReleaseConfirmation({
   const editing = confirmation.action.action === "note" || confirmation.action.action === "guide";
   const rollback = confirmation.action.action === "apply";
   const forced = confirmation.action.force === true;
+  const restoresData = confirmation.action.action === "restore_data";
+  const dataPhrase = `RESTORE ${confirmation.database_snapshot?.id ?? ""}`;
   const forceAvailable = confirmation.rollback?.force_allowed === true;
   const forceAcknowledged = forceText === confirmation.rollback?.target_commit.slice(0, 10);
-  const allowed = !rollback || (!!confirmation.token && (forced ? forceAvailable : confirmation.rollback?.status === "compatible"));
+  const allowed = restoresData
+    ? !!confirmation.token && !!confirmation.database_snapshot && forceText === dataPhrase
+    : !rollback || (!!confirmation.token && (forced ? forceAvailable : confirmation.rollback?.status === "compatible"));
   const unavailable = remaining > 0 || expired || stale || !allowed;
   return (
     <Dialog
@@ -97,6 +101,14 @@ export function AccountPoolReleaseConfirmation({
           </DialogTitle>
           <DialogDescription className="break-words">{description}</DialogDescription>
         </DialogHeader>
+        {restoresData && (
+          <div className="space-y-3 text-sm">
+            <p role="alert" className="text-destructive">两库数据将恢复到 {confirmation.database_snapshot ? new Date(confirmation.database_snapshot.created_at * 1000).toLocaleString() : "未知时间"}，之后的新增与修改不会保留在运行库。恢复期间服务不可用。</p>
+            <p className="break-all">快照：{confirmation.database_snapshot?.id}</p>
+            <label htmlFor="database-restore-confirm" className="block break-all">输入 {dataPhrase} 确认恢复旧数据</label>
+            <Input id="database-restore-confirm" value={forceText} onChange={(event) => setForceText(event.target.value)} autoComplete="off" />
+          </div>
+        )}
         {rollback && (
           <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
             {confirmation.rollback ? (
@@ -145,9 +157,9 @@ export function AccountPoolReleaseConfirmation({
               取消
             </Button>
             <Button
-              variant={confirmation.action.action === "delete" || forced ? "destructive" : "default"}
+              variant={confirmation.action.action === "delete" || forced || restoresData ? "destructive" : "default"}
               disabled={unavailable || busy}
-              onClick={onConfirm}
+              onClick={() => onConfirm(restoresData ? forceText : undefined)}
             >
               {forced && allowed && remaining === 0 && !busy ? "确认强制回退" : confirmationLabel(busy, allowed, remaining)}
             </Button>

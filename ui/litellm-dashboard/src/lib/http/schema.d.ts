@@ -28911,6 +28911,38 @@ export interface components {
              */
             total_tokens: number;
         };
+        /** DatabaseDump */
+        DatabaseDump: {
+            /** Database */
+            database: string;
+            /** Filename */
+            filename: string;
+            /** Major */
+            major: number;
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "db" | "account-pool-db";
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** DatabaseSnapshot */
+        DatabaseSnapshot: {
+            /** Created At */
+            created_at: number;
+            /** Files */
+            files: [
+                components["schemas"]["DatabaseDump"],
+                components["schemas"]["DatabaseDump"]
+            ];
+            /** Id */
+            id: string;
+            /** Version Id */
+            version_id: string;
+        };
         /**
          * DefaultInternalUserParams
          * @description Default parameters to apply when a new user signs in via SSO or is created on the /user/new API endpoint
@@ -38005,7 +38037,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover";
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data";
             /**
              * Force
              * @default false
@@ -38018,6 +38050,8 @@ export interface components {
             force_acknowledgement: string;
             /** Revision */
             revision: number;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
             /** Tag */
             tag?: string | null;
             /**
@@ -38043,6 +38077,7 @@ export interface components {
             configuration_source: "running" | "imported_current";
             /** Created At */
             created_at: number;
+            database_snapshot?: components["schemas"]["DatabaseSnapshot"] | null;
             pair: components["schemas"]["ReleasePair"];
             /** Schema Fingerprint */
             schema_fingerprint: string;
@@ -38059,6 +38094,7 @@ export interface components {
             action: components["schemas"]["ReleaseAction"];
             /** Current Commit */
             current_commit: string | null;
+            database_snapshot?: components["schemas"]["DatabaseSnapshot"] | null;
             /** Delay Seconds */
             delay_seconds: number;
             /**
@@ -38072,6 +38108,11 @@ export interface components {
         };
         /** ReleaseExecute */
         ReleaseExecute: {
+            /**
+             * Acknowledgement
+             * @default
+             */
+            acknowledgement: string;
             /** Token */
             token: string;
         };
@@ -38101,6 +38142,7 @@ export interface components {
             action: components["schemas"]["ReleaseAction"];
             /** Created At */
             created_at: number;
+            database_recovery?: components["schemas"]["DatabaseSnapshot"] | null;
             /** Expected Current Id */
             expected_current_id?: string | null;
             /** Id */
@@ -38161,6 +38203,11 @@ export interface components {
         /** ReleaseView */
         ReleaseView: {
             current: components["schemas"]["ReleasePair"] | null;
+            /**
+             * Database Backups Enabled
+             * @default false
+             */
+            database_backups_enabled: boolean;
             /** Default Guide */
             default_guide: string;
             /** Free Bytes */
