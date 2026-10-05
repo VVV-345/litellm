@@ -754,7 +754,8 @@ def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None
     assert broken.json()["detail"] == "clash controller returned status 502"
 
 
-def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
+@pytest.mark.parametrize("suffix", ["", "/litellm"])
+def test_proxy_admin_can_manage_upstream_compatibility_workflow(suffix: str) -> None:
     requested: list[tuple[str, str]] = []
     report: Final = {
         "schema_version": 1,
@@ -774,10 +775,11 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
     def factory() -> AccountPoolManagerClient:
         def handler(request: httpx.Request) -> httpx.Response:
             requested.append((request.method, request.url.path))
-            if request.url.path == "/api/upstream-sync":
+            if request.url.path == f"/api/upstream-sync{suffix}":
                 return httpx.Response(
                     200,
                     json={
+                        "target": "litellm" if suffix else "cliproxyapi",
                         "upstream_repository": "router-for-me/CLIProxyAPI",
                         "fork_repository": "VVV-345/CLIProxyAPI",
                         "sync_branch": "codex/upstream-sync",
@@ -790,7 +792,7 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
                     },
                     request=request,
                 )
-            if request.url.path == "/api/upstream-sync/codex-review":
+            if request.url.path == f"/api/upstream-sync{suffix}/codex-review":
                 return httpx.Response(
                     200,
                     json={
@@ -821,21 +823,47 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
 
     with TestClient(app) as client:
-        status_response: Final = client.get("/account_pool/upstream-sync")
-        analysis_response: Final = client.post("/account_pool/upstream-sync/analyze")
-        promotion_response: Final = client.post("/account_pool/upstream-sync/promote")
-        review_response: Final = client.get("/account_pool/upstream-sync/codex-review")
+        status_response: Final = client.get(f"/account_pool/upstream-sync{suffix}")
+        analysis_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/analyze")
+        promotion_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/promote")
+        review_response: Final = client.get(f"/account_pool/upstream-sync{suffix}/codex-review")
 
+    print(
+        f"{suffix or '/cliproxyapi'} status={status_response.status_code} "
+        f"analyze={analysis_response.status_code} promote={promotion_response.status_code} "
+        f"review={review_response.status_code}"
+    )
     assert status_response.status_code == 200
+    assert status_response.json()["target"] == ("litellm" if suffix else "cliproxyapi")
     assert status_response.json()["report"]["state"] == "passed"
     assert analysis_response.status_code == 202
     assert analysis_response.json()["action"] == "analyze"
     assert promotion_response.status_code == 202
     assert promotion_response.json()["action"] == "promote"
+    assert review_response.status_code == 200
+    assert all(
+        response.headers["Cache-Control"] == "no-store"
+        for response in (status_response, analysis_response, promotion_response, review_response)
+    )
     assert review_response.json()["branch"] == "codex/upstream-sync"
     assert requested == [
-        ("GET", "/api/upstream-sync"),
-        ("POST", "/api/upstream-sync/analyze"),
-        ("POST", "/api/upstream-sync/promote"),
-        ("GET", "/api/upstream-sync/codex-review"),
+        ("GET", f"/api/upstream-sync{suffix}"),
+        ("POST", f"/api/upstream-sync{suffix}/analyze"),
+        ("POST", f"/api/upstream-sync{suffix}/promote"),
+        ("GET", f"/api/upstream-sync{suffix}/codex-review"),
     ]
+
+
+@pytest.mark.parametrize("suffix", ["", "/litellm"])
+@pytest.mark.parametrize(
+    "method, action",
+    [("GET", ""), ("POST", "/analyze"), ("POST", "/promote"), ("GET", "/codex-review")],
+)
+def test_upstream_routes_require_proxy_admin(suffix: str, method: str, action: str) -> None:
+    def factory() -> AccountPoolManagerClient:
+        pytest.fail("Unauthorized requests must not reach the Manager")
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)
+    with TestClient(app) as client:
+        response: Final = client.request(method, f"/account_pool/upstream-sync{suffix}{action}")
+    assert response.status_code == 403

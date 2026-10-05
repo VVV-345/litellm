@@ -200,6 +200,43 @@ def create_management_router(
             TypeAdapter(CodexReviewPackage),
         )
 
+    @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
+    async def litellm_upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncView:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(await call("GET", "/api/upstream-sync/litellm"), TypeAdapter(UpstreamSyncView))
+
+    @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)
+    async def analyze_litellm_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/litellm/analyze"),
+            TypeAdapter(UpstreamSyncDispatch),
+        )
+
+    @router.post("/upstream-sync/litellm/promote", response_model=UpstreamSyncDispatch, status_code=202)
+    async def promote_litellm_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/litellm/promote"),
+            TypeAdapter(UpstreamSyncDispatch),
+        )
+
+    @router.get("/upstream-sync/litellm/codex-review", response_model=CodexReviewPackage)
+    async def litellm_codex_review_package(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> CodexReviewPackage:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("GET", "/api/upstream-sync/litellm/codex-review"),
+            TypeAdapter(CodexReviewPackage),
+        )
+
     return router
 
 
