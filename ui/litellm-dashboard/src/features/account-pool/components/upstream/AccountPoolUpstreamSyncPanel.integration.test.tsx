@@ -5,6 +5,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import i18n from "@/i18n";
+
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import type { UpstreamSyncView } from "../../api/AccountPoolManagementApi";
 
@@ -33,6 +35,7 @@ const reviewPackage = {
 
 vi.mock("../../api/AccountPoolManagementApi", () => ({
   getAccountPoolUpstreamSync: (...args: unknown[]) => getStatus(...args),
+  getLiteLLMUpstreamSync: (...args: unknown[]) => getStatus(...args),
   analyzeAccountPoolUpstream: (...args: unknown[]) => analyze(...args),
   promoteAccountPoolUpstream: (...args: unknown[]) => promote(...args),
   getAccountPoolCodexReview: (...args: unknown[]) => getReview(...args),
@@ -71,20 +74,33 @@ const status = (state: UpstreamSyncView["report"]["state"] = "idle"): UpstreamSy
   },
 });
 
-const renderPanel = () =>
+const renderPanel = (target: "cliproxyapi" | "litellm" = "cliproxyapi") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <AccountPoolUpstreamSyncPanel accessToken="token" />
+      <AccountPoolUpstreamSyncPanel accessToken="token" target={target} />
     </QueryClientProvider>,
   );
 
 describe("AccountPoolUpstreamSyncPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();
     getStatus.mockResolvedValue(status());
     analyze.mockResolvedValue(analysisDispatch);
     promote.mockResolvedValue(promotionDispatch);
     getReview.mockResolvedValue(reviewPackage);
+  });
+
+  it.each([
+    ["zh-CN", "cliproxyapi", "CLIProxyAPI 上游更新"],
+    ["zh-CN", "litellm", "LiteLLM 上游更新"],
+    ["en", "cliproxyapi", "CLIProxyAPI upstream updates"],
+    ["en", "litellm", "LiteLLM upstream updates"],
+  ] as const)("shows the exact %s title for %s", async (language, target, heading) => {
+    await i18n.changeLanguage(language);
+    renderPanel(target);
+
+    expect(await screen.findByRole("heading", { level: 2, name: heading, exact: true })).toBeInTheDocument();
   });
 
   it("starts an isolated compatibility analysis for a newer release", async () => {

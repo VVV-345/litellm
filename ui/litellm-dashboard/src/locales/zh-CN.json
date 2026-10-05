@@ -6885,7 +6885,7 @@
       }
     },
     "upstreamSync": {
-      "title": "CLIProxyAPI 上游更新",
+      "title": "上游更新",
       "description": "检查官方版本，在固定兼容分支中测试合并，只有验证通过后才能正式合并。",
       "versionStatus": "版本状态",
       "updateAvailable": "发现新版本",

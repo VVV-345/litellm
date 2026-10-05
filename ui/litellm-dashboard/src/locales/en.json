@@ -6885,7 +6885,7 @@
       }
     },
     "upstreamSync": {
-      "title": "CLIProxyAPI upstream updates",
+      "title": "upstream updates",
       "description": "Check official releases, test a merge on the fixed compatibility branch, and promote only a validated result.",
       "versionStatus": "Version status",
       "updateAvailable": "Update available",
