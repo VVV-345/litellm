@@ -10,6 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
 from typing import Final, Literal
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import httpx
@@ -74,6 +75,14 @@ def test_create_environment_request_accepts_all_suppliers_for_cliproxyapi(suppli
 
     assert request.channel is ChannelKind.CLIPROXYAPI
     assert request.supplier.value == supplier
+
+
+def test_create_environment_request_accepts_selected_proxy_profile() -> None:
+    request: Final = CreateEnvironmentRequest.model_validate(
+        {"name": "Test environment", "proxy_profile_id": "selected-proxy"}
+    )
+
+    assert request.proxy_profile_id == "selected-proxy"
 
 
 @pytest.mark.parametrize(
@@ -2350,6 +2359,31 @@ async def test_configuration_update_before_authorization_applies_proxy_and_keeps
 
 
 @pytest.mark.asyncio
+async def test_configuration_update_cannot_change_proxy_during_authorization(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "selected-proxy"}
+    )
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    request: Final = UpdateEnvironmentRequest(
+        version=record.version,
+        name=record.name,
+        concurrency_limit=record.concurrency_limit,
+        enabled=True,
+        manual_cooldown=False,
+        proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+        proxy_profile_id=None,
+        enabled_models=record.enabled_models,
+    )
+
+    result: Final = await service.update_environment(record.id, request)
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.CONFLICT
+    assert cli.proxy_calls == []
+
+
+@pytest.mark.asyncio
 async def test_elapsed_cooldown_requires_data_plane_health_before_refresh(tmp_path: Path) -> None:
     record: Final = _record(
         status=EnvironmentStatus.COOLING_DOWN,
@@ -3268,6 +3302,55 @@ async def test_create_environment_applies_selected_proxy_before_oauth(tmp_path: 
 
 
 @pytest.mark.asyncio
+async def test_create_environment_uses_requested_proxy_profile_before_oauth(tmp_path: Path) -> None:
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    profiles: Final = SimpleNamespace(get_url=AsyncMock(return_value="http://selected.example:8080"))
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(_record(status=EnvironmentStatus.READY)),
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=profiles,
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    result: Final = await service.create_environment(
+        CreateEnvironmentRequest(name="Selected proxy", proxy_profile_id="selected-proxy")
+    )
+
+    assert not isinstance(result, Failure)
+    profiles.get_url.assert_awaited_once_with("selected-proxy")
+    assert cli.events[:2] == ["proxy:http://selected.example:8080", "oauth"]
+
+
+@pytest.mark.asyncio
+async def test_create_environment_rejects_unavailable_selected_proxy_before_oauth(tmp_path: Path) -> None:
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    profiles: Final = SimpleNamespace(get_url=AsyncMock(return_value=None))
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(_record(status=EnvironmentStatus.READY)),
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=profiles,
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+
+    result: Final = await service.create_environment(
+        CreateEnvironmentRequest(name="Missing proxy", proxy_profile_id="missing-proxy")
+    )
+
+    assert isinstance(result, Failure)
+    assert result.code == FailureCode.INVALID
+    assert runtime.provisioned == []
+    assert cli.events == []
+
+
+@pytest.mark.asyncio
 async def test_reauthorization_waits_for_inflight_oauth_callback(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     bootstrap: Final = _service(record, FakeCLIProxy(), tmp_path)
@@ -3679,7 +3762,7 @@ class OrderedFailingCLI(FakeCLIProxy):
         if self.failing_step == "proxy":
             self.failing_step = None
             raise RuntimeError("proxy_url=https://user:password@example.com/ token=secret-token")
-        await super().set_proxy_url(record, proxy_url)
+        self.proxy_calls.append(proxy_url)
 
     async def set_enabled_models(self, record: EnvironmentRecord, enabled_models) -> None:
         self.events.append("models")

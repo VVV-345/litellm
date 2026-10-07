@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
@@ -11,11 +12,13 @@ import type { AccountPoolAuthorization, AccountPoolEnvironment } from "../../uti
 const createMock = vi.fn();
 const createDirectMock = vi.fn();
 const createVertexMock = vi.fn();
+const proxyProfilesMock = vi.fn();
 
 vi.mock("../../api/AccountPoolApi", () => ({
   createAccountPoolEnvironment: (...args: unknown[]) => createMock(...args),
   createDirectCredentialAccountPoolEnvironment: (...args: unknown[]) => createDirectMock(...args),
   createVertexAccountPoolEnvironment: (...args: unknown[]) => createVertexMock(...args),
+  listAccountPoolProxyProfiles: (...args: unknown[]) => proxyProfilesMock(...args),
 }));
 
 vi.mock("@/lib/toast", () => ({
@@ -49,8 +52,18 @@ const trackedAuthorization = {
   expires_at: "2026-01-01T00:05:00Z",
 };
 
-const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[0]> = {}) =>
-  render(<AccountPoolCreateDialog accessToken="token-1" open onOpenChange={vi.fn()} onCreated={vi.fn()} {...props} />);
+const dialogElement = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[0]> = {}) => (
+  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <AccountPoolCreateDialog accessToken="token-1" open onOpenChange={vi.fn()} onCreated={vi.fn()} {...props} />
+  </QueryClientProvider>
+);
+
+const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[0]> = {}) => render(dialogElement(props));
+
+const selectProxyProfile = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(await screen.findByRole("combobox", { name: /出站代理|Outbound proxy/i }));
+  await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+};
 
 describe("AccountPoolCreateDialog", () => {
   beforeEach(() => {
@@ -58,9 +71,11 @@ describe("AccountPoolCreateDialog", () => {
     createMock.mockReset();
     createDirectMock.mockReset();
     createVertexMock.mockReset();
+    proxyProfilesMock.mockReset();
     createMock.mockResolvedValue(browserAuthorization);
     createDirectMock.mockResolvedValue({ id: "gemini-1" });
     createVertexMock.mockResolvedValue({ id: "vertex-1" });
+    proxyProfilesMock.mockResolvedValue([{ id: "proxy-us", name: "Proxy US", protocol: "http" }]);
   });
 
   it.each(["ready", "cooling_down", "disabled"] as const)(
@@ -74,21 +89,21 @@ describe("AccountPoolCreateDialog", () => {
         onCreated: vi.fn(),
         initialAuthorization: trackedAuthorization as AccountPoolAuthorization,
       };
-      const { rerender } = render(<AccountPoolCreateDialog {...props} />);
+      const { rerender } = render(dialogElement(props));
       expect(onOpenChange).not.toHaveBeenCalled();
 
       rerender(
-        <AccountPoolCreateDialog
-          {...props}
-          environments={[
+        dialogElement({
+          ...props,
+          environments: [
             {
               ...trackedAuthorization.environment,
               version: 3,
               status,
               configuration_pending: false,
             } as AccountPoolEnvironment,
-          ]}
-        />,
+          ],
+        }),
       );
 
       expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -130,26 +145,28 @@ describe("AccountPoolCreateDialog", () => {
   });
 
   it("tracks completion for a newly created environment", async () => {
+    const user = userEvent.setup();
     createMock.mockResolvedValue(trackedAuthorization);
     const onOpenChange = vi.fn();
     const props = { accessToken: "token-1", open: true, onOpenChange, onCreated: vi.fn() };
-    const { rerender } = render(<AccountPoolCreateDialog {...props} />);
+    const { rerender } = render(dialogElement(props));
     fireEvent.change(screen.getByLabelText(/环境名称|Environment name/i), { target: { value: "New account" } });
-    fireEvent.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
+    await selectProxyProfile(user);
+    await user.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
     expect(await screen.findByTestId("account-pool-authorization-panel")).toBeInTheDocument();
 
     rerender(
-      <AccountPoolCreateDialog
-        {...props}
-        environments={[
+      dialogElement({
+        ...props,
+        environments: [
           {
             ...trackedAuthorization.environment,
             version: 3,
             status: "ready",
             configuration_pending: false,
           } as AccountPoolEnvironment,
-        ]}
-      />,
+        ],
+      }),
     );
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
@@ -165,14 +182,24 @@ describe("AccountPoolCreateDialog", () => {
     renderDialog({ initialSupplier: "anthropic_claude" });
 
     await user.type(screen.getByLabelText(/环境名称|Environment name/i), "Claude account");
+    await selectProxyProfile(user);
     await user.click(screen.getByRole("button", { name: /新建|创建|Create/i }));
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith(
         "token-1",
-        expect.objectContaining({ channel: "cliproxyapi", supplier: "anthropic_claude" }),
+        expect.objectContaining({ channel: "cliproxyapi", supplier: "anthropic_claude", proxy_profile_id: "proxy-us" }),
       );
     });
+  });
+
+  it("requires a selected proxy profile before starting OAuth", async () => {
+    renderDialog({ initialSupplier: "anthropic_claude" });
+    fireEvent.change(await screen.findByLabelText(/环境名称|Environment name/i), {
+      target: { value: "Claude account" },
+    });
+
+    expect(await screen.findByRole("button", { name: /新建|创建|Create/i })).toBeDisabled();
   });
 
   it("creates a Gemini card with a direct API key", async () => {

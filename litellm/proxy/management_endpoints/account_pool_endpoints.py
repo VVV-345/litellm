@@ -270,6 +270,7 @@ class AccountPoolCreateRequest(BaseModel):
     ] = "openai_codex"
     provider_family: str | None = Field(default=None, max_length=80)
     openai_compatible: AccountPoolOpenAICompatibleConfig | None = None
+    proxy_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class AccountPoolUpdateRequest(BaseModel):

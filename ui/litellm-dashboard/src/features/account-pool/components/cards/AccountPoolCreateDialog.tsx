@@ -1,5 +1,6 @@
 /** 本文件从 AI 提供商入口创建卡片，并按供应商展示授权引导。 */
 
+import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
 import {
@@ -23,13 +25,22 @@ import {
   createVertexAccountPoolEnvironment,
 } from "../../api/AccountPoolApi";
 import { cancelAccountPoolOAuthSession } from "../../api/AccountPoolManagementApi";
+import { accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
 import { AccountPoolAuthorizationPanel } from "../credentials/AccountPoolAuthorizationPanel";
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
   AccountPoolAuthorization,
   AccountPoolEnvironment,
+  AccountPoolProxyProfile,
   AccountPoolSupplier,
 } from "../../utils/AccountPoolTypes";
+
+const DIRECT_CREDENTIAL_SUPPLIERS: ReadonlySet<AccountPoolSupplier> = new Set([
+  "gemini",
+  "gemini_interactions",
+  "openai_compatible",
+  "vertex",
+]);
 
 interface AccountPoolCreateDialogProps {
   accessToken: string | null;
@@ -57,12 +68,23 @@ export const AccountPoolCreateDialog = ({
   const [baseUrl, setBaseUrl] = useState("");
   const [priority, setPriority] = useState(0);
   const [weight, setWeight] = useState(1);
+  const [proxyProfileId, setProxyProfileId] = useState("");
   const [useApiKey, setUseApiKey] = useState(false);
   const [location, setLocation] = useState("us-central1");
   const [vertexFile, setVertexFile] = useState<File | null>(null);
   const supplier = initialSupplier;
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
+  const requiresOAuthProxy =
+    authorization === null && !DIRECT_CREDENTIAL_SUPPLIERS.has(supplier) && !(supplier === "xai" && useApiKey);
+  const proxyProfilesQuery = useQuery({
+    ...accountPoolProxyProfileOptions(accessToken),
+    enabled: open && accessToken !== null && requiresOAuthProxy,
+  });
+  const proxyProfiles: readonly AccountPoolProxyProfile[] = proxyProfilesQuery.data ?? [];
+  const selectedProxyProfileExists = proxyProfiles.some((profile) => profile.id === proxyProfileId);
+  const proxySelectionReady = selectedProxyProfileExists && proxyProfilesQuery.isSuccess;
+  const canStartOAuth = !saving && Boolean(name.trim()) && proxySelectionReady;
   const completionReported = useRef(false);
   // 重新授权时查询缓存可能仍是上一次的成功状态，必须等到本次授权之后的版本。
   const currentEnvironment = environments.find(
@@ -89,8 +111,18 @@ export const AccountPoolCreateDialog = ({
       toast.error(t("accountPool.create.environmentNameRequired"));
       return;
     }
+    if (!selectedProxyProfileExists) {
+      toast.error(t("accountPool.create.proxyProfileRequired"));
+      return;
+    }
     setSaving(true);
-    const createRequest = { name: trimmedName, provider: "openai" as const, channel: "cliproxyapi" as const, supplier };
+    const createRequest = {
+      name: trimmedName,
+      provider: "openai" as const,
+      channel: "cliproxyapi" as const,
+      supplier,
+      proxy_profile_id: proxyProfileId,
+    };
     try {
       const result = await createAccountPoolEnvironment(accessToken, createRequest);
       setAuthorization(result);
@@ -167,6 +199,7 @@ export const AccountPoolCreateDialog = ({
       setBaseUrl("");
       setPriority(0);
       setWeight(1);
+      setProxyProfileId("");
       setUseApiKey(false);
       setLocation("us-central1");
       setVertexFile(null);
@@ -193,6 +226,35 @@ export const AccountPoolCreateDialog = ({
   const dialogDescription = authorization
     ? t("accountPool.create.authorizationDescription")
     : t("accountPool.create.description");
+  const renderProxyProfileSelect = () => (
+    <div className="grid gap-2">
+      <Label htmlFor="account-pool-proxy-profile">{t("accountPool.create.outboundProxy")}</Label>
+      <Select
+        items={proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+        value={proxyProfileId}
+        onValueChange={(value) => setProxyProfileId(value ?? "")}
+      >
+        <SelectTrigger id="account-pool-proxy-profile" aria-label={t("accountPool.create.outboundProxy")}>
+          <SelectValue placeholder={t("accountPool.create.selectProxyProfile")} />
+        </SelectTrigger>
+        <SelectContent>
+          {proxyProfiles.map((profile) => (
+            <SelectItem key={profile.id} value={profile.id}>
+              {profile.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {proxyProfilesQuery.isError && (
+        <p role="alert" className="text-sm text-destructive">
+          {t("accountPool.create.proxyProfilesLoadFailed")}
+        </p>
+      )}
+      {proxyProfilesQuery.isSuccess && proxyProfiles.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("accountPool.create.noProxyProfiles")}</p>
+      )}
+    </div>
+  );
   const renderDialogBody = () => {
     if (authorization) {
       return (
@@ -338,11 +400,12 @@ export const AccountPoolCreateDialog = ({
               </Button>
             </div>
           </div>
+          {renderProxyProfileSelect()}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
               {t("accountPool.cancel")}
             </Button>
-            <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
+            <Button type="button" onClick={() => void handleCreate()} disabled={!canStartOAuth}>
               <Plus />
               {saving ? t("accountPool.create.creating") : t("accountPool.providers.create")}
             </Button>
@@ -418,11 +481,12 @@ export const AccountPoolCreateDialog = ({
             {t(`accountPool.supplier.${supplier}`)} · {t("accountPool.create.oauth")}
           </span>
         </div>
+        {renderProxyProfileSelect()}
         <DialogFooter className="mt-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {t("accountPool.cancel")}
           </Button>
-          <Button type="button" onClick={() => void handleCreate()} disabled={saving || !name.trim()}>
+          <Button type="button" onClick={() => void handleCreate()} disabled={!canStartOAuth}>
             <Plus />
             {saving ? t("accountPool.create.creating") : t("accountPool.providers.create")}
           </Button>

@@ -82,6 +82,10 @@ class EnvironmentConfigurationOperations:
                     return Failure(FailureCode.CONFLICT, "environment authorization is not complete")
             if request.version != record.version:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            if record.status is EnvironmentStatus.AWAITING_AUTHORIZATION and (
+                request.proxy_mode is not record.proxy_mode or request.proxy_profile_id != record.proxy_profile_id
+            ):
+                return Failure(FailureCode.CONFLICT, "proxy cannot be changed during authorization")
             if (
                 record.configuration_pending
                 or record.desired_configuration_version > record.observed_configuration_version

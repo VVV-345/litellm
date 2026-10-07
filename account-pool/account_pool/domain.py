@@ -560,6 +560,7 @@ class CreateEnvironmentRequest(BaseModel):
     supplier: SupplierKind = SupplierKind.OPENAI_CODEX
     provider_family: str | None = Field(default=None, max_length=80)
     openai_compatible: OpenAICompatibleCreateRequest | None = None
+    proxy_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
     operation_id: str | None = Field(default=None, max_length=160)
 
     @field_validator("name")

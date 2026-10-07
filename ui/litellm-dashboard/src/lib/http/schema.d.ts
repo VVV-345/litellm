@@ -23973,6 +23973,8 @@ export interface components {
             provider: "openai";
             /** Provider Family */
             provider_family?: string | null;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
             /**
              * Supplier
              * @default openai_codex

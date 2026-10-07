@@ -317,7 +317,12 @@ def test_create_forwards_selected_channel_and_supplier_to_manager_unchanged() ->
     with TestClient(app) as client:
         response: Final = client.post(
             "/account_pool/environments",
-            json={"name": "Claude account", "channel": "cliproxyapi", "supplier": "anthropic_claude"},
+            json={
+                "name": "Claude account",
+                "channel": "cliproxyapi",
+                "supplier": "anthropic_claude",
+                "proxy_profile_id": "proxy-us",
+            },
         )
 
     assert response.status_code == 200
@@ -326,6 +331,7 @@ def test_create_forwards_selected_channel_and_supplier_to_manager_unchanged() ->
         "provider": "openai",
         "channel": "cliproxyapi",
         "supplier": "anthropic_claude",
+        "proxy_profile_id": "proxy-us",
     }
 
 

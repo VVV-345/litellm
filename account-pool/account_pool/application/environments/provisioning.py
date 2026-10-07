@@ -125,7 +125,11 @@ class EnvironmentProvisioning:
                     return Success(self._authorization_view(existing))
                 return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
         pool_settings: Final = await self._account_pool_settings()
-        proxy_result: Final = await self._default_proxy(pool_settings)
+        proxy_result: Final = (
+            await self._default_proxy(pool_settings)
+            if request.proxy_profile_id is None
+            else await self._selected_proxy(request.proxy_profile_id)
+        )
         if isinstance(proxy_result, Failure):
             return proxy_result
         proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
@@ -240,6 +244,16 @@ class EnvironmentProvisioning:
                 expires_at=expires_at,
             )
         )
+
+    async def _selected_proxy(self, profile_id: str) -> Result[tuple[ProxyMode, str | None, str]]:
+        proxy_url: Final = await self._proxy_profiles.get_url(profile_id)
+        if proxy_url is None:
+            return Failure(FailureCode.INVALID, "selected proxy profile is unavailable")
+        try:
+            validated_url: Final = validate_proxy_profile_url(proxy_url)
+        except ValueError:
+            return Failure(FailureCode.INVALID, "selected proxy profile URL is invalid")
+        return Success((ProxyMode.PROFILE, profile_id, validated_url))
 
     async def create_direct_credential_environment(
         self, request: CreateDirectCredentialEnvironmentRequest
