@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import hmac
 import secrets as token_secrets
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
@@ -62,6 +64,7 @@ class EnvironmentAuthorization:
     _lock_for: LockForOperation
     _log_event: LogEventOperation
     _ownership: CredentialOwnership
+    _proxy_operation: Callable[[str | None], AbstractAsyncContextManager[None]]
     _repository: EnvironmentRepository
     _secrets: EnvironmentSecretDeriver
     _settings: Settings
@@ -110,12 +113,19 @@ class EnvironmentAuthorization:
                     "updated_at": utc_now(),
                 }
             )
-            claimed: Final = await self._repository.save_if_version(blocked, record.version)
-            if claimed is None:
-                return Failure(FailureCode.CONFLICT, "environment was changed by another request")
-            return await self.authorize_prepared(claimed, operation_id)
+            async with self._proxy_operation(record.proxy_profile_id):
+                claimed: Final = await self._repository.save_if_version(blocked, record.version)
+                if claimed is None:
+                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+                return await self._authorize_prepared_locked(claimed, operation_id)
 
     async def authorize_prepared(
+        self, record: EnvironmentRecord, operation_id: str | None
+    ) -> Result[AuthorizationView]:
+        async with self._proxy_operation(record.proxy_profile_id):
+            return await self._authorize_prepared_locked(record, operation_id)
+
+    async def _authorize_prepared_locked(
         self, record: EnvironmentRecord, operation_id: str | None
     ) -> Result[AuthorizationView]:
         try:

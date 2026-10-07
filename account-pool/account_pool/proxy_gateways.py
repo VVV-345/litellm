@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final
@@ -55,7 +57,18 @@ class ProxyGatewayService:
         self._controller: Final = controller
         self._delay_slots: Final = asyncio.Semaphore(10)
         self._registry_lock: Final = asyncio.Lock()
+        self._profile_locks: Final[dict[str, asyncio.Lock]] = {}
         self._dynamic_registry: Final = callable(getattr(profiles, "delete_gateway", None))
+
+    @asynccontextmanager
+    async def profile_operation(self, profile_id: str | None) -> AsyncIterator[None]:
+        if profile_id is None or not profile_id.startswith(_GATEWAY_PROFILE_PREFIX):
+            yield
+            return
+        # 同一出口的授权启动与节点切换互斥；不同出口不等待，也不持锁等待人工登录。
+        lock: Final = self._profile_locks.setdefault(profile_id, asyncio.Lock())
+        async with lock:
+            yield
 
     @classmethod
     def disabled(cls, settings: Settings, profiles: ProxyProfileRepository) -> ProxyGatewayService:

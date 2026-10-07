@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Final, cast
 from urllib.parse import urlsplit
 
@@ -10,10 +12,15 @@ import pytest
 from account_pool.api import create_router
 from account_pool.clash import ClashDelayResult, ClashError, ClashProxyNode
 from account_pool.config import Settings
+from account_pool.domain import AuthorizationFlow, CreateEnvironmentRequest, EnvironmentRecord, EnvironmentStatus, ProxyMode, utc_now
+from account_pool.ports import AuthorizationStart
+from account_pool.result import Success
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.service import EnvironmentService
+from account_pool.secrets import EnvironmentSecretDeriver
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from test_account_pool import FakeCLIProxy, FakeRuntime, MemoryRepository, _fake_channels, _record
 
 
 @dataclass
@@ -54,12 +61,13 @@ class FakeController:
 @dataclass
 class FakeProfiles:
     upserts: list[tuple[str, str, str]] = field(default_factory=list)
+    urls: dict[str, str] = field(default_factory=dict)
 
     async def list(self):
         return ()
 
     async def get_url(self, profile_id: str):
-        return None
+        return self.urls.get(profile_id)
 
     async def upsert_gateways(self, gateways) -> int:
         self.upserts.extend(gateways)
@@ -130,6 +138,159 @@ async def test_switch_gateway_rejects_unregistered_port() -> None:
 
     with pytest.raises(ClashError):
         await service.switch_gateway(9999, "美国01")
+
+
+def _environment_service(
+    record: EnvironmentRecord, controller: FakeController, upstream: FakeCLIProxy | None = None
+) -> EnvironmentService:
+    settings: Final = _settings((7891, 7892))
+    gateway, profiles = _service(settings, controller, FakeProfiles(urls={
+        "clash-gateway-7891": "http://proxy.example:7891",
+        "clash-gateway-7892": "http://proxy.example:7892",
+    }))
+    runtime: Final = FakeRuntime()
+    cli: Final = upstream or FakeCLIProxy()
+    return EnvironmentService(
+        settings,
+        MemoryRepository(record),
+        runtime,
+        cli,
+        profiles,
+        EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        proxy_gateways=gateway,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state", (EnvironmentStatus.PROVISIONING, EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.VALIDATING)
+)
+async def test_switch_rejects_gateway_used_by_pending_oauth_before_changing_clash(state: EnvironmentStatus) -> None:
+    record: Final = _record(status=state).model_copy(
+        update={
+            "proxy_mode": ProxyMode.PROFILE,
+            "proxy_profile_id": "clash-gateway-7891",
+            "oauth_state": "pending-oauth",
+            "oauth_expires_at": utc_now() + timedelta(minutes=5),
+        }
+    )
+    controller: Final = FakeController(current={"clash-gateway-7891": "US01"})
+    service: Final = _environment_service(record, controller)
+
+    with pytest.raises(ClashError, match="authorization"):
+        await service.switch_proxy_gateway(7891, "US02")
+
+    assert controller.switched == []
+    assert controller.current["clash-gateway-7891"] == "US01"
+    assert (await service.switch_proxy_gateway(7892, "US02")).current_node == "US02"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finished", ("ready", "expired", "cancelled", "direct"))
+async def test_switch_allows_gateway_when_oauth_is_not_pending(finished: str) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION).model_copy(
+        update={
+            "proxy_mode": ProxyMode.PROFILE,
+            "proxy_profile_id": "clash-gateway-7891",
+            "status": EnvironmentStatus.READY if finished == "ready" else EnvironmentStatus.AWAITING_AUTHORIZATION,
+            "authorization_flow": AuthorizationFlow.DIRECT_CREDENTIAL if finished == "direct" else AuthorizationFlow.BROWSER_OAUTH,
+            "oauth_state": None if finished == "cancelled" else "pending-oauth",
+            "oauth_expires_at": utc_now() + timedelta(minutes=-1 if finished == "expired" else 5),
+        }
+    )
+    controller: Final = FakeController()
+    service: Final = _environment_service(record, controller)
+
+    assert (await service.switch_proxy_gateway(7891, "US02")).current_node == "US02"
+    assert controller.switched == [("clash-gateway-7891", "US02")]
+
+
+@dataclass
+class BlockingController(FakeController):
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def switch_selector(self, selector_name: str, node_name: str) -> None:
+        if selector_name == "clash-gateway-7891":
+            self.entered.set()
+            await self.release.wait()
+        await super().switch_selector(selector_name, node_name)
+
+
+class BlockingAuthorizationCLI(FakeCLIProxy):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered: Final = asyncio.Event()
+        self.release: Final = asyncio.Event()
+
+    async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
+        if record.proxy_profile_id == "clash-gateway-7891":
+            self.entered.set()
+            await self.release.wait()
+        return await super().start_authorization(record)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reauthorize", (False, True))
+async def test_gateway_switch_finishes_before_same_profile_oauth_starts(reauthorize: bool) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "clash-gateway-7891"}
+    )
+    controller: Final = BlockingController()
+    cli: Final = FakeCLIProxy()
+    service: Final = _environment_service(record, controller, cli)
+    switching: Final = asyncio.create_task(service.switch_proxy_gateway(7891, "US02"))
+    await asyncio.wait_for(controller.entered.wait(), 1)
+    starting: Final = asyncio.create_task(
+        service.authorize_environment(record.id) if reauthorize else service.create_environment(
+            CreateEnvironmentRequest(name="same gateway", proxy_profile_id="clash-gateway-7891")
+        )
+    )
+    try:
+        await asyncio.sleep(0)
+        assert not starting.done()
+        assert "oauth" not in cli.events
+        other: Final = await asyncio.wait_for(service.create_environment(
+            CreateEnvironmentRequest(name="other gateway", proxy_profile_id="clash-gateway-7892")
+        ), 1)
+        assert isinstance(other, Success)
+        controller.release.set()
+        assert (await switching).current_node == "US02"
+        assert isinstance(await starting, Success)
+    finally:
+        controller.release.set()
+        await asyncio.gather(switching, starting, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reauthorize", (False, True))
+async def test_oauth_start_persists_state_before_same_gateway_switch_check(reauthorize: bool) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "clash-gateway-7891"}
+    )
+    controller: Final = FakeController(current={"clash-gateway-7891": "US01"})
+    cli: Final = BlockingAuthorizationCLI()
+    service: Final = _environment_service(record, controller, cli)
+    starting: Final = asyncio.create_task(
+        service.authorize_environment(record.id) if reauthorize else service.create_environment(
+            CreateEnvironmentRequest(name="same gateway", proxy_profile_id="clash-gateway-7891")
+        )
+    )
+    await asyncio.wait_for(cli.entered.wait(), 1)
+    switching: Final = asyncio.create_task(service.switch_proxy_gateway(7891, "US02"))
+    try:
+        await asyncio.sleep(0)
+        assert not switching.done()
+        assert (await asyncio.wait_for(service.switch_proxy_gateway(7892, "US02"), 1)).current_node == "US02"
+        cli.release.set()
+        assert isinstance(await starting, Success)
+        with pytest.raises(ClashError, match="authorization"):
+            await switching
+        assert controller.current["clash-gateway-7891"] == "US01"
+    finally:
+        cli.release.set()
+        await asyncio.gather(starting, switching, return_exceptions=True)
 
 
 @pytest.mark.asyncio

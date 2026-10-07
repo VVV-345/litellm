@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Final
 from uuid import UUID, uuid4
@@ -82,6 +83,7 @@ class EnvironmentProvisioning:
     _log_event: LogEventOperation
     _ownership: CredentialOwnership
     _proxy_profiles: ProxyProfileRepository
+    _proxy_operation: Callable[[str | None], AbstractAsyncContextManager[None]]
     _repository: EnvironmentRepository
     _secrets: EnvironmentSecretDeriver
     _settings: Settings
@@ -184,6 +186,10 @@ class EnvironmentProvisioning:
             created_at=now,
             updated_at=now,
         )
+        async with self._proxy_operation(record.proxy_profile_id):
+            return await self._provision_oauth_environment(record)
+
+    async def _provision_oauth_environment(self, record: EnvironmentRecord) -> Result[AuthorizationView]:
         await self._repository.save(record)
         try:
             channel: Final = self._channel(record)

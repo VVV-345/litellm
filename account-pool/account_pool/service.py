@@ -35,7 +35,7 @@ from account_pool.application.profile_updates import (
     _ExplicitProfileUpdate,
 )
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
-from account_pool.clash import ClashProxyNode
+from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
 from account_pool.domain import (
@@ -162,6 +162,7 @@ class EnvironmentService:
             _log_event=self._log_event,
             _ownership=self._ownership,
             _proxy_profiles=self._proxy_profiles,
+            _proxy_operation=self._proxy_gateways.profile_operation,
             _repository=self._repository,
             _secrets=self._secrets,
             _settings=self._settings,
@@ -176,6 +177,7 @@ class EnvironmentService:
             _lock_for=self._lock_for,
             _log_event=self._log_event,
             _ownership=self._ownership,
+            _proxy_operation=self._proxy_gateways.profile_operation,
             _repository=self._repository,
             _secrets=self._secrets,
             _settings=self._settings,
@@ -428,9 +430,15 @@ class EnvironmentService:
         return await self._proxy_gateways.list_nodes()
 
     async def switch_proxy_gateway(self, port: int, node_name: str) -> GatewayView:
-        view: Final = await self._proxy_gateways.switch_gateway(port, node_name)
-        await self._proxy_gateways.sync_profiles()
-        return view
+        profile_id: Final = self._proxy_gateways.gateway_profile_id(port)
+        async with self._proxy_gateways.profile_operation(profile_id):
+            records: Final = await self._repository.list()
+            now: Final = utc_now()
+            if any(record.proxy_profile_id == profile_id and _oauth_proxy_in_use(record, now) for record in records):
+                raise ClashError("gateway cannot be changed during OAuth authorization")
+            view: Final = await self._proxy_gateways.switch_gateway(port, node_name)
+            await self._proxy_gateways.sync_profiles()
+            return view
 
     async def add_proxy_gateway(self) -> GatewayView:
         return await self._proxy_gateways.add_gateway()
@@ -804,3 +812,18 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
+
+
+def _oauth_proxy_in_use(record: EnvironmentRecord, now: datetime) -> bool:
+    if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
+        return False
+    if record.status in (EnvironmentStatus.PROVISIONING, EnvironmentStatus.VALIDATING):
+        return True
+    return (
+        record.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+        and record.oauth_state is not None
+        and (
+            record.oauth_state_consumed_at is not None
+            or (record.oauth_expires_at is not None and record.oauth_expires_at > now)
+        )
+    )
