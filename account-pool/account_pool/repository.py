@@ -326,6 +326,27 @@ class PostgresOAuthBrowserSessionRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
 
+    async def validate_ticket(
+        self,
+        session_id: UUID,
+        ticket_digest: str,
+        now: datetime,
+    ) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                SELECT payload FROM account_pool_oauth_browser_sessions
+                WHERE id = %s
+                  AND status = %s
+                  AND payload->>'ticket_digest' = %s
+                  AND payload->>'ticket_consumed_at' IS NOT NULL
+                  AND expires_at > %s
+                """,
+                (session_id, OAuthBrowserSessionStatus.ACTIVE.value, ticket_digest, now),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
     async def claim_callback(
         self,
         session_id: UUID,

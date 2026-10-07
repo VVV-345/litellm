@@ -262,6 +262,8 @@ export const AccountPoolCreateDialog = ({
           authorization={authorization}
           idPrefix="account-pool"
           error={currentEnvironment?.last_error}
+          accessToken={accessToken}
+          environmentId={authorization.environment.id}
         >
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => void cancelAuthorization()}>

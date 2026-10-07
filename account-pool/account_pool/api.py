@@ -12,7 +12,8 @@ from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -413,6 +414,32 @@ def create_router(
             response.headers["Cache-Control"] = "no-store"
             return _oauth_browser_session_view(consumed)
 
+        @router.post("/internal/oauth-browser-sessions/{session_id}/ticket/validate")
+        async def validate_oauth_browser_ticket(
+            session_id: UUID,
+            response: Response,
+            credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
+        ) -> OAuthBrowserSessionView:
+            supplied: Final = "" if credentials is None else credentials.credentials
+            session: Final = await browser_sessions.validate_ticket(session_id, supplied)
+            if session is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid browser ticket")
+            if session.expires_at <= utc_now():
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_410_GONE, detail="OAuth browser session expired")
+            if not await current_binding(session):
+                await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
+            response.headers["Cache-Control"] = "no-store"
+            return _oauth_browser_session_view(session)
+
+        async def finish_browser_callback(session_id: UUID, target: OAuthBrowserSessionStatus) -> None:
+            # 给两级回调转发器发送响应的时间，终态落库后再由同一清理入口回收。
+            await asyncio.sleep(1)
+            await browser_sessions.finish_callback(session_id, target)
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+
         @router.post("/internal/oauth-browser-sessions/{session_id}/callback", status_code=status.HTTP_204_NO_CONTENT)
         async def receive_oauth_browser_callback(
             session_id: UUID,
@@ -445,17 +472,19 @@ def create_router(
                 await asyncio.shield(cleanup_oauth_browser_sessions(browser_sessions, browser_runtime))
                 raise
             except Exception:
-                await browser_sessions.finish_callback(session_id, OAuthBrowserSessionStatus.FAILED)
-                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
-                raise HTTPException(
+                return JSONResponse(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="OAuth callback was not accepted",
-                ) from None
-            await browser_sessions.finish_callback(session_id, target)
-            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                    content={"detail": "OAuth callback was not accepted"},
+                    background=BackgroundTask(finish_browser_callback, session_id, OAuthBrowserSessionStatus.FAILED),
+                )
+            background: Final = BackgroundTask(finish_browser_callback, session_id, target)
             if isinstance(result, Failure):
-                raise HTTPException(status_code=_status_for(result.code), detail="OAuth callback was not accepted")
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
+                return JSONResponse(
+                    status_code=_status_for(result.code),
+                    content={"detail": "OAuth callback was not accepted"},
+                    background=background,
+                )
+            return Response(status_code=status.HTTP_204_NO_CONTENT, background=background)
 
     @router.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:

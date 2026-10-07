@@ -284,6 +284,8 @@ export function AccountPoolBatchPanel({
             <AccountPoolAuthorizationPanel
               authorization={authorizationItem.authorization}
               idPrefix={`account-pool-batch-${authorizationItem.accountId}`}
+              accessToken={accessToken}
+              environmentId={authorizationItem.accountId}
             />
           )}
         </DialogContent>

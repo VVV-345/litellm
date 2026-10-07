@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Final, TypedDict
 from uuid import uuid4
 
@@ -12,11 +13,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     AccountPoolManagerClient,
+    _browser_relay_url,
+    _relay_browser_websocket,
     create_account_pool_router,
 )
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord, ErrorStats
@@ -24,6 +28,58 @@ from litellm.proxy.management_endpoints.account_pool_observability import Accoun
 
 _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
+
+
+class _BrowserWebSocket:
+    def __init__(self) -> None:
+        self._messages: list[dict[str, str]] = [
+            {"type": "websocket.receive", "text": "hello"},
+            {"type": "websocket.disconnect"},
+        ]
+
+    async def receive(self) -> dict[str, str]:
+        return self._messages.pop(0)
+
+    async def send_text(self, message: str) -> None:
+        return None
+
+    async def send_bytes(self, message: bytes) -> None:
+        return None
+
+
+class _BrowserRelay:
+    def __init__(self) -> None:
+        self.sent: list[str | bytes] = []
+
+    async def send(self, message: str | bytes) -> None:
+        self.sent.append(message)
+
+    async def recv(self) -> str | bytes:
+        await asyncio.Future()
+        return ""
+
+
+def test_browser_relay_url_preserves_non_ticket_query_parameters() -> None:
+    session_id: Final = uuid4()
+    url: Final = _browser_relay_url(
+        session_id,
+        "vnc.html",
+        (("ticket", "secret"), ("path", "websockify"), ("token", "a b")),
+    )
+
+    assert url == (
+        f"http://account-pool-oauth-browser-{session_id.hex}-callback-relay:8093/vnc.html?path=websockify&token=a+b"
+    )
+
+
+@pytest.mark.asyncio
+async def test_browser_relay_cancels_the_other_direction_after_browser_disconnect() -> None:
+    browser: Final = _BrowserWebSocket()
+    relay: Final = _BrowserRelay()
+
+    await _relay_browser_websocket(browser, relay)
+
+    assert relay.sent == ["hello"]
 
 
 def test_retired_channel_logs_remain_parseable_at_the_proxy_boundary() -> None:
@@ -273,6 +329,45 @@ def test_proxy_forwards_auth_file_refresh_controls() -> None:
         ("PUT", "/api/auth-files/refresh/interval", b'{"interval_minutes":30}'),
         ("POST", "/api/auth-files/refresh", b""),
     ]
+
+
+def test_proxy_forwards_oauth_browser_session_lifecycle_without_exposing_manager_token() -> None:
+    session_id: Final = uuid4()
+    start_payload: Final = {
+        "id": str(session_id),
+        "environment_id": str(_ENVIRONMENT_ID),
+        "status": "active",
+        "created_at": "2026-01-01T00:00:00Z",
+        "expires_at": "2026-01-01T00:10:00Z",
+        "ticket": "browser-ticket-secret",
+    }
+    view_payload: Final = {key: value for key, value in start_payload.items() if key != "ticket"}
+    calls: Final[list[tuple[str, str, str]]] = []
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append((request.method, request.url.path, request.headers.get("authorization", "")))
+            if request.method == "POST":
+                return httpx.Response(201, json=start_payload, request=request)
+            return httpx.Response(200, json=view_payload, request=request)
+
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+    with TestClient(app) as client:
+        started: Final = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/oauth-browser-sessions")
+        observed: Final = client.get(f"/account_pool/oauth-browser-sessions/{session_id}")
+        cancelled: Final = client.delete(f"/account_pool/oauth-browser-sessions/{session_id}")
+
+    assert started.status_code == 200
+    assert started.json()["ticket"] == "browser-ticket-secret"
+    assert observed.status_code == 200
+    assert cancelled.status_code == 200
+    assert all(token == f"Bearer {_MANAGER_TOKEN}" for _, _, token in calls)
 
 
 def test_proxy_admin_can_read_automatic_cooldown_metadata() -> None:
@@ -845,3 +940,182 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
         ("POST", "/api/upstream-sync/promote"),
         ("GET", "/api/upstream-sync/codex-review"),
     ]
+
+
+@pytest.mark.parametrize("root_path", ["", "/", "/luna", "/luna/"])
+def test_browser_ticket_exchange_sets_scoped_cookie_without_fetching_worker(root_path: str) -> None:
+    session_id = uuid4()
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.url.path, request.headers.get("authorization")))
+        return httpx.Response(
+            200,
+            json={
+                "id": str(session_id),
+                "environment_id": str(_ENVIRONMENT_ID),
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            },
+        )
+
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+
+    app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
+    with TestClient(app, base_url="https://testserver", root_path=root_path) as client:
+        response = client.post(
+            f"/account_pool/oauth-browser-sessions/{session_id}/browser",
+            headers={"Authorization": "Bearer temporary-ticket"},
+        )
+    assert response.status_code == 204
+    cookie = response.headers["set-cookie"]
+    assert f"Path={root_path.rstrip('/')}/account_pool/oauth-browser-sessions/{session_id}/browser/" in cookie
+    assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=strict" in cookie
+    assert response.headers["cache-control"] == "no-store"
+    assert calls == [(f"/internal/oauth-browser-sessions/{session_id}/ticket/consume", "Bearer temporary-ticket")]
+    assert response.content == b""
+
+
+def test_browser_static_assets_keep_relative_paths_and_do_not_forward_credentials() -> None:
+    session_id = uuid4()
+    calls = []
+
+    def manager(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/ticket/validate")
+        assert request.headers["authorization"] == "Bearer temporary-ticket"
+        return httpx.Response(
+            200,
+            json={
+                "id": str(session_id),
+                "environment_id": str(_ENVIRONMENT_ID),
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            },
+        )
+
+    def relay(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, content=b"<html>noVNC</html>", headers={"Content-Type": "text/html; charset=utf-8"})
+
+    app = FastAPI()
+    app.include_router(
+        create_account_pool_router(
+            lambda: AccountPoolManagerClient(
+                "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(manager))
+            ),
+            browser_client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(relay)),
+        )
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            f"/account_pool/oauth-browser-sessions/{session_id}/browser/vnc.html?resize=scale",
+            headers={"Cookie": "account_pool_browser_ticket=temporary-ticket"},
+        )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+    assert str(calls[0].url).endswith("/vnc.html?resize=scale")
+    assert "authorization" not in calls[0].headers and "cookie" not in calls[0].headers
+
+
+@pytest.mark.parametrize("origin", [None, "https://evil.example"])
+def test_browser_websocket_rejects_missing_or_cross_origin_even_with_ticket(origin: str | None) -> None:
+    session_id = uuid4()
+    headers = {"Cookie": "account_pool_browser_ticket=temporary-ticket"}
+    if origin:
+        headers["Origin"] = origin
+    app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect(
+                f"/account_pool/oauth-browser-sessions/{session_id}/browser/websockify", headers=headers
+            ):
+                pass
+    assert closed.value.code == 1008
+
+
+def test_browser_query_ticket_cannot_authenticate_static_assets() -> None:
+    app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)
+    with TestClient(app) as client:
+        response = client.get(f"/account_pool/oauth-browser-sessions/{uuid4()}/browser/vnc.html?ticket=secret")
+    assert response.status_code == 401
+
+
+def test_browser_websocket_relays_binary_and_closes_after_upstream_disconnect() -> None:
+    import threading
+
+    from websockets.sync.server import serve
+
+    import litellm.proxy.management_endpoints.account_pool_endpoints as endpoints
+
+    session_id = uuid4()
+
+    def manager(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": str(session_id),
+                "environment_id": str(_ENVIRONMENT_ID),
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
+            },
+        )
+
+    def echo(connection):
+        assert connection.recv() == b"RFB hello"
+        connection.send(b"RFB reply")
+
+    with serve(echo, "127.0.0.1", 0) as server:
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        port = server.socket.getsockname()[1]
+
+        def dial(url: str):
+            assert url == f"ws://account-pool-oauth-browser-{session_id.hex}-callback-relay:8093/websockify"
+            return endpoints.connect(f"ws://127.0.0.1:{port}/websockify", proxy=None)
+
+        app = FastAPI()
+        app.include_router(
+            create_account_pool_router(
+                lambda: AccountPoolManagerClient(
+                    "http://manager.test",
+                    _MANAGER_TOKEN,
+                    client=httpx.AsyncClient(transport=httpx.MockTransport(manager)),
+                ),
+                browser_websocket_connect=dial,
+            )
+        )
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/account_pool/oauth-browser-sessions/{session_id}/browser/websockify",
+                headers={"Origin": "http://testserver", "Cookie": "account_pool_browser_ticket=temporary-ticket"},
+                subprotocols=["binary"],
+            ) as websocket:
+                assert websocket.accepted_subprotocol == "binary"
+                websocket.send_bytes(b"RFB hello")
+                assert websocket.receive_bytes() == b"RFB reply"
+                with pytest.raises(WebSocketDisconnect):
+                    websocket.receive_bytes()
+        server.shutdown()
+        worker.join(timeout=5)
+
+
+def test_browser_start_has_timeout_for_worker_health_gate() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.extensions["timeout"]["read"] == 120.0
+        return httpx.Response(503)
+
+    async def run():
+        manager = AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        )
+        await manager.request("POST", f"/api/environments/{_ENVIRONMENT_ID}/oauth-browser-sessions")
+
+    asyncio.run(run())

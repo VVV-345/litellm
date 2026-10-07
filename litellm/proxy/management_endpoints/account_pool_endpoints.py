@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated, Final, Literal, TypeVar
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from datetime import datetime, timezone
+from typing import Annotated, AsyncContextManager, Final, Literal, Protocol, TypeVar
 from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
@@ -26,6 +31,84 @@ from litellm.proxy.management_endpoints.request_log_endpoints import create_requ
 from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
+
+
+class _BrowserWebSocket(Protocol):
+    async def send(self, message: str | bytes) -> None: ...
+
+    async def recv(self) -> str | bytes: ...
+
+
+def _browser_relay_host(session_id: UUID) -> str:
+    return f"account-pool-oauth-browser-{session_id.hex}-callback-relay"
+
+
+def _browser_relay_url(
+    session_id: UUID,
+    path: str,
+    query_params: Iterable[tuple[str, str]],
+    *,
+    scheme: Literal["http", "ws"] = "http",
+) -> str:
+    target_path: Final = path or "vnc.html"
+    target_url: Final = httpx.URL(f"{scheme}://{_browser_relay_host(session_id)}:8093/{target_path}")
+    filtered_params: Final = tuple((key, value) for key, value in query_params if key != "ticket")
+    return str(target_url.copy_merge_params(filtered_params))
+
+
+def _connect_browser_websocket(url: str) -> AsyncContextManager[_BrowserWebSocket]:
+    return connect(url, proxy=None, open_timeout=30, close_timeout=10, max_size=16 * 1024 * 1024)
+
+
+async def _close_browser_websocket(websocket: WebSocket, code: int, reason: str) -> None:
+    if (
+        websocket.client_state is not WebSocketState.DISCONNECTED
+        and websocket.application_state is not WebSocketState.DISCONNECTED
+    ):
+        await websocket.close(code=code, reason=reason)
+
+
+async def _relay_browser_websocket(
+    websocket: WebSocket,
+    upstream: _BrowserWebSocket,
+    validate: Callable[[], Awaitable[object]] | None = None,
+) -> None:
+    async def from_browser() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+            if isinstance(text := message.get("text"), str):
+                await upstream.send(text)
+            elif isinstance(data := message.get("bytes"), bytes):
+                await upstream.send(data)
+
+    async def to_browser() -> None:
+        while True:
+            message = await upstream.recv()
+            if isinstance(message, bytes):
+                await websocket.send_bytes(message)
+            else:
+                await websocket.send_text(message)
+
+    async def check_session() -> None:
+        while validate is not None:
+            await asyncio.sleep(2)
+            await validate()
+
+    tasks: Final = (
+        asyncio.create_task(from_browser()),
+        asyncio.create_task(to_browser()),
+        *((asyncio.create_task(check_session()),) if validate is not None else ()),
+    )
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class AccountPoolQuotaWindow(BaseModel):
@@ -298,6 +381,20 @@ class AccountPoolAuthorization(BaseModel):
     expires_at: str
 
 
+class AccountPoolOAuthBrowserSession(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    environment_id: UUID
+    status: Literal["starting", "active", "callback_pending", "completed", "cancelled", "failed", "expired"]
+    created_at: str
+    expires_at: str
+
+
+class AccountPoolOAuthBrowserSessionStart(AccountPoolOAuthBrowserSession):
+    ticket: str = Field(repr=False)
+
+
 class AccountPoolProxyProfile(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -351,6 +448,8 @@ _QUOTA_REFRESH: Final = TypeAdapter(AccountPoolQuotaRefreshResult)
 _AUTH_FILE_REFRESH_STATUS: Final = TypeAdapter(AccountPoolAuthFileRefreshStatus)
 _ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
 _AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
+_OAUTH_BROWSER_SESSION: Final = TypeAdapter(AccountPoolOAuthBrowserSession)
+_OAUTH_BROWSER_SESSION_START: Final = TypeAdapter(AccountPoolOAuthBrowserSessionStart)
 _PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
 _GATEWAYS: Final = TypeAdapter(tuple[AccountPoolProxyGateway, ...])
 _GATEWAY_CONFIGURATION: Final = TypeAdapter(AccountPoolProxyGatewayConfiguration)
@@ -398,6 +497,22 @@ class AccountPoolManagerClient:
                 f"{self._base_url}{path}",
                 headers=headers,
                 content=body,
+                timeout=120.0 if path.endswith("/oauth-browser-sessions") and method == "POST" else self._client.timeout,
+            )
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is unavailable",
+            ) from error
+
+    async def request_with_token(self, method: _Method, path: str, token: str) -> httpx.Response:
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth browser ticket is required")
+        try:
+            return await self._client.request(
+                method,
+                f"{self._base_url}{path}",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             )
         except httpx.HTTPError as error:
             raise HTTPException(
@@ -478,6 +593,8 @@ def create_account_pool_router(
     *,
     dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+    browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+    browser_websocket_connect: Callable[[str], AsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
@@ -788,6 +905,155 @@ def create_account_pool_router(
         response: Final = await _manager_request(client_factory, "POST", path, idempotency_key=idempotency_key)
         authorization: Final = _validate_response(response, _AUTHORIZATION)
         return authorization
+
+    @router.post(
+        "/environments/{environment_id}/oauth-browser-sessions",
+        response_model=AccountPoolOAuthBrowserSessionStart,
+    )
+    async def start_oauth_browser_session(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSessionStart:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/oauth-browser-sessions"
+        )
+        return _validate_response(response, _OAUTH_BROWSER_SESSION_START)
+
+    @router.get("/oauth-browser-sessions/{session_id}", response_model=AccountPoolOAuthBrowserSession)
+    async def get_oauth_browser_session(
+        session_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSession:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", f"/api/oauth-browser-sessions/{session_id}")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    @router.delete("/oauth-browser-sessions/{session_id}", response_model=AccountPoolOAuthBrowserSession)
+    async def cancel_oauth_browser_session(
+        session_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSession:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "DELETE", f"/api/oauth-browser-sessions/{session_id}")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    async def browser_ticket(
+        session_id: UUID,
+        ticket: str,
+        *,
+        consume: bool,
+    ) -> AccountPoolOAuthBrowserSession:
+        suffix: Final = "consume" if consume else "validate"
+        client: Final = client_factory()
+        try:
+            response: Final = await client.request_with_token(
+                "POST", f"/internal/oauth-browser-sessions/{session_id}/ticket/{suffix}", ticket
+            )
+        finally:
+            await client.close()
+        if response.is_error:
+            raise HTTPException(response.status_code, "OAuth browser session is unavailable")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    @router.post("/oauth-browser-sessions/{session_id}/browser", status_code=204)
+    async def connect_oauth_browser(
+        session_id: UUID,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        scheme, _, ticket = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not ticket:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
+        session: Final = await browser_ticket(session_id, ticket, consume=True)
+        expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
+        seconds: Final = max(0, int((expires - datetime.now(timezone.utc)).total_seconds()))
+        if session.status != "active" or seconds == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+        response: Final = Response(status_code=204, headers={"Cache-Control": "no-store"})
+        root_path: Final = value.rstrip("/") if isinstance(value := request.scope.get("root_path"), str) else ""
+        response.set_cookie(
+            "account_pool_browser_ticket",
+            ticket,
+            max_age=min(600, seconds),
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path=f"{root_path}/account_pool/oauth-browser-sessions/{session_id}/browser/",
+        )
+        return response
+
+    @router.get("/oauth-browser-sessions/{session_id}/browser/{path:path}")
+    async def browser_http(session_id: UUID, request: Request, path: str) -> Response:
+        supplied: Final = request.cookies.get("account_pool_browser_ticket")
+        if supplied is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
+        session: Final = await browser_ticket(session_id, supplied, consume=False)
+        if session.status != "active":
+            raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+        if not path or any(part in {".", ".."} for part in path.split("/")) or "\\" in path:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "OAuth browser asset not found")
+        target_url: Final = _browser_relay_url(session_id, quote(path, safe="/"), request.query_params.multi_items())
+        relay_client: Final = browser_client_factory()
+        try:
+            upstream: Final = await relay_client.get(target_url)
+        except httpx.HTTPError as error:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "OAuth browser relay is unavailable") from error
+        finally:
+            await relay_client.aclose()
+        if not upstream.is_success:
+            return Response(
+                status_code=502, content=b"OAuth browser relay request failed", headers={"Cache-Control": "no-store"}
+            )
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            headers={
+                "Content-Type": upstream.headers.get("content-type", "application/octet-stream"),
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "frame-ancestors 'self'",
+            },
+        )
+
+    @router.websocket("/oauth-browser-sessions/{session_id}/browser/websockify")
+    async def browser_websocket(websocket: WebSocket, session_id: UUID) -> None:
+        origin: Final = websocket.headers.get("origin")
+        expected_origin: Final = str(
+            websocket.url.replace(scheme="https" if websocket.url.scheme == "wss" else "http", path="", query="")
+        )
+        if origin != expected_origin:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser origin is invalid")
+            return
+        supplied: Final = websocket.cookies.get("account_pool_browser_ticket")
+        if supplied is None:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser ticket is required")
+            return
+
+        async def validate_session() -> AccountPoolOAuthBrowserSession:
+            session: Final = await browser_ticket(session_id, supplied, consume=False)
+            if session.status != "active":
+                raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+            return session
+
+        try:
+            session: Final = await validate_session()
+            expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
+            seconds: Final = max(0, (expires - datetime.now(timezone.utc)).total_seconds())
+            protocols: Final = websocket.scope.get("subprotocols", ())
+            await websocket.accept(subprotocol="binary" if "binary" in protocols else None)
+            async with browser_websocket_connect(
+                _browser_relay_url(session_id, "websockify", (), scheme="ws"),
+            ) as upstream:
+                await asyncio.wait_for(_relay_browser_websocket(websocket, upstream, validate_session), timeout=seconds)
+            await _close_browser_websocket(websocket, 1000, "OAuth browser session closed")
+        except HTTPException:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser session is unavailable")
+        except (WebSocketDisconnect, ConnectionClosed):
+            await _close_browser_websocket(websocket, 1000, "OAuth browser session closed")
+        except (WebSocketException, OSError, TimeoutError):
+            await _close_browser_websocket(websocket, 1011, "OAuth browser relay failed")
 
     @router.delete("/environments/{environment_id}/oauth-session", response_model=AccountPoolEnvironment)
     async def cancel_oauth_session(

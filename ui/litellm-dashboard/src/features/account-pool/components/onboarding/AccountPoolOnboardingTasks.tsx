@@ -307,7 +307,12 @@ export function AccountPoolOnboardingTasks({
                 )}
               </div>
               {authorization && selected.state === "awaiting_authorization" && (
-                <AccountPoolAuthorizationPanel authorization={authorization} idPrefix={`onboarding-${selected.id}`} />
+                <AccountPoolAuthorizationPanel
+                  authorization={authorization}
+                  idPrefix={`onboarding-${selected.id}`}
+                  accessToken={accessToken}
+                  environmentId={selected.card_id}
+                />
               )}
             </div>
           )}

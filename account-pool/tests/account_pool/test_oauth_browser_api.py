@@ -77,6 +77,23 @@ class MemoryBrowserSessions:
             self.sessions[session_id] = consumed
             return consumed
 
+    async def validate_ticket(
+        self,
+        session_id: UUID,
+        ticket_digest: str,
+        now: datetime,
+    ) -> OAuthBrowserSession | None:
+        current: Final = self.sessions.get(session_id)
+        if (
+            current is None
+            or current.status is not OAuthBrowserSessionStatus.ACTIVE
+            or current.ticket_digest != ticket_digest
+            or current.ticket_consumed_at is None
+            or current.expires_at <= now
+        ):
+            return None
+        return current
+
     async def transition(
         self,
         session_id: UUID,
@@ -369,6 +386,33 @@ async def test_browser_ticket_is_manager_independent_single_use_and_expiry_clean
 
 
 @pytest.mark.asyncio
+async def test_consumed_browser_ticket_can_be_validated_until_session_expiry(tmp_path: Path) -> None:
+    client, environment_id, repository, _, _, _ = _client(tmp_path)
+    async with client:
+        client.headers["Authorization"] = f"Bearer {MANAGER_TOKEN}"
+        started: Final = await client.post(f"/api/environments/{environment_id}/oauth-browser-sessions")
+        session_id: Final = started.json()["id"]
+        client.headers.pop("Authorization")
+        consumed: Final = await client.post(
+            f"/internal/oauth-browser-sessions/{session_id}/ticket/consume",
+            headers={"Authorization": f"Bearer {BROWSER_TICKET}"},
+        )
+        valid: Final = await client.post(
+            f"/internal/oauth-browser-sessions/{session_id}/ticket/validate",
+            headers={"Authorization": f"Bearer {BROWSER_TICKET}"},
+        )
+        invalid: Final = await client.post(
+            f"/internal/oauth-browser-sessions/{session_id}/ticket/validate",
+            headers={"Authorization": "Bearer wrong-ticket"},
+        )
+
+    assert consumed.status_code == 200
+    assert valid.status_code == 200
+    assert invalid.status_code == 401
+    assert await repository.get(UUID(session_id)) is not None
+
+
+@pytest.mark.asyncio
 async def test_callback_requires_short_lived_token_current_proxy_and_single_state_consumption(tmp_path: Path) -> None:
     client, environment_id, repository, runtime, service, profiles = _client(tmp_path)
     async with client:
@@ -464,3 +508,58 @@ async def test_cancel_and_expired_callback_clean_runtime_and_expired_token_is_re
     assert expired_callback.status_code == 410
     assert UUID(session_id) in runtime.removed
     assert UUID(expired_id) in runtime.removed
+
+
+@pytest.mark.asyncio
+async def test_validated_cookie_ticket_rechecks_proxy_binding(tmp_path: Path) -> None:
+    client, environment_id, _, runtime, _, profiles = _client(tmp_path)
+    async with client:
+        started = await client.post(
+            f"/api/environments/{environment_id}/oauth-browser-sessions",
+            headers={"Authorization": f"Bearer {MANAGER_TOKEN}"},
+        )
+        session_id = started.json()["id"]
+        await client.post(
+            f"/internal/oauth-browser-sessions/{session_id}/ticket/consume",
+            headers={"Authorization": f"Bearer {BROWSER_TICKET}"},
+        )
+        profiles.url = "https://changed-proxy.example:8443"
+        validated = await client.post(
+            f"/internal/oauth-browser-sessions/{session_id}/ticket/validate",
+            headers={"Authorization": f"Bearer {BROWSER_TICKET}"},
+        )
+    assert validated.status_code == 409
+    assert UUID(session_id) in runtime.removed
+
+
+@pytest.mark.asyncio
+async def test_callback_response_is_sent_before_worker_is_removed(tmp_path: Path) -> None:
+    client, environment_id, _, runtime, _, _ = _client(tmp_path)
+    removed_before_response = []
+    app = client._transport.app
+
+    async def observed_app(scope, receive, send):
+        async def observed_send(message):
+            if scope["path"].endswith("/callback") and message["type"] == "http.response.body":
+                removed_before_response.extend(runtime.removed)
+            await send(message)
+
+        await app(scope, receive, observed_send)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=observed_app), base_url="http://manager"
+    ) as observed:
+        started = await observed.post(
+            f"/api/environments/{environment_id}/oauth-browser-sessions",
+            headers={"Authorization": f"Bearer {MANAGER_TOKEN}"},
+        )
+        session_id = started.json()["id"]
+        response = await observed.post(
+            f"/internal/oauth-browser-sessions/{session_id}/callback",
+            headers={"Authorization": f"Bearer {CALLBACK_TOKEN}"},
+            json={"state": "signed-oauth-state-123456789", "code": "test-code"},
+        )
+    await client.aclose()
+    assert response.status_code == 204
+    assert removed_before_response == []
+    assert UUID(session_id) in runtime.removed

@@ -92,6 +92,13 @@ class OAuthBrowserSessionRepository(Protocol):
         now: datetime,
     ) -> OAuthBrowserSession | None: ...
 
+    async def validate_ticket(
+        self,
+        session_id: UUID,
+        ticket_digest: str,
+        now: datetime,
+    ) -> OAuthBrowserSession | None: ...
+
     async def claim_callback(
         self,
         session_id: UUID,
@@ -199,6 +206,15 @@ class OAuthBrowserSessionService:
         now: datetime | None = None,
     ) -> OAuthBrowserSession | None:
         return await self._repository.consume_ticket(session_id, _digest(ticket), now or self._clock())
+
+    async def validate_ticket(
+        self,
+        session_id: UUID,
+        ticket: str,
+        *,
+        now: datetime | None = None,
+    ) -> OAuthBrowserSession | None:
+        return await self._repository.validate_ticket(session_id, _digest(ticket), now or self._clock())
 
     async def claim_callback(
         self,

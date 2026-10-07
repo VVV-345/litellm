@@ -13,6 +13,8 @@ export const accountPoolQueryKeys = {
   onboarding: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "onboarding", accessToken] as const,
   onboardingTargets: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "onboarding-targets", accessToken] as const,
   batches: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "batches", accessToken] as const,
+  oauthBrowserSession: (accessToken: string, sessionId: string | null) =>
+    [...ACCOUNT_POOL_ROOT, "oauth-browser-session", accessToken, sessionId] as const,
   policies: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "policies", accessToken] as const,
   policy: (accessToken: string | null, cardId: string) =>
     [...ACCOUNT_POOL_ROOT, "policy", accessToken, cardId] as const,

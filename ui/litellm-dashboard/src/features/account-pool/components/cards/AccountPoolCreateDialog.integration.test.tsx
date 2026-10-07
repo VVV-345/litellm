@@ -275,11 +275,12 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("renders the SSH command for browser OAuth results and no device-code field", async () => {
+  it("requires the server browser for browser OAuth results and hides local login instructions", async () => {
     renderDialog({ initialAuthorization: browserAuthorization as never });
 
-    expect(screen.getByTestId("account-pool-browser-oauth")).toBeInTheDocument();
-    expect(screen.getByDisplayValue(browserAuthorization.ssh_command)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /打开服务器浏览器|Open server browser/i })).toBeEnabled();
+    expect(screen.queryByDisplayValue(browserAuthorization.ssh_command)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /打开授权页面|Open authorization page/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();
   });
 
