@@ -70,3 +70,11 @@ def test_renderer_generates_private_management_and_gateway_configuration() -> No
     assert rendered["remote-management"]["secret-key"] == "management"
     assert rendered["api-keys"] == ["gateway"]
     assert rendered["plugins"] == {"enabled": False, "dir": "/data/plugins"}
+
+
+def test_renderer_writes_selected_proxy_to_initial_configuration() -> None:
+    rendered: Final = yaml.safe_load(
+        render_cli_proxy_config("management", "gateway", proxy_url="http://proxy.example:8080")
+    )
+
+    assert rendered["proxy-url"] == "http://proxy.example:8080"

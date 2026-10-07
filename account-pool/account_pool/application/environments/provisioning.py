@@ -182,6 +182,8 @@ class EnvironmentProvisioning:
         try:
             channel: Final = self._channel(record)
             await channel.provision(record)
+            if record.desired_configuration is not None:
+                await channel.apply_configuration(record, record.desired_configuration)
             (
                 provider_state,
                 callback_state,

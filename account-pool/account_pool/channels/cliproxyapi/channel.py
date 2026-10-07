@@ -22,6 +22,7 @@ from account_pool.domain import (
     GatewayEnvironment,
     OAuthCallback,
     SupplierKind,
+    configured_proxy_url,
 )
 from account_pool.policies import AccountPolicy
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
@@ -60,7 +61,11 @@ class CLIProxyAPIChannel:
         await self._runtime.provision(
             record,
             compose=render_compose(record, self._settings),
-            config=render_cli_proxy_config(management_key, gateway_key),
+            config=render_cli_proxy_config(
+                management_key,
+                gateway_key,
+                proxy_url=configured_proxy_url(record),
+            ),
         )
 
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:

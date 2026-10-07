@@ -8,7 +8,7 @@ import os
 import sys
 from datetime import timedelta
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
@@ -452,6 +452,7 @@ class FakeCLIProxy:
         self.direct_write_error = direct_write_error
         self.vertex_write_error = vertex_write_error
         self.authorization_status_calls = 0
+        self.events: list[str] = []
         self.data_plane_healthy = data_plane_healthy
         self.observed_status = observed_status
         self.read_calls = 0
@@ -481,6 +482,7 @@ class FakeCLIProxy:
 
     async def start_authorization(self, record: EnvironmentRecord) -> AuthorizationStart:
         _ = record
+        self.events.append("oauth")
         return AuthorizationStart(
             authorization_url="https://example.com/oauth",
             provider_state="state-for-test-1234",
@@ -550,6 +552,7 @@ class FakeCLIProxy:
             self.fail_proxy_once = False
             raise RuntimeError("proxy update failed")
         self.proxy_calls.append(proxy_url)
+        self.events.append(f"proxy:{proxy_url}")
 
     async def set_enabled_models(self, record: EnvironmentRecord, enabled_models) -> None:
         self.model_calls.append(tuple(enabled_models))
@@ -3236,6 +3239,32 @@ async def test_oauth_callback_immediately_reconciles_ready_environment(tmp_path:
     assert cli.model_calls == [("gpt-5",)]
     assert cli.status_calls == [True]
     assert cli.concurrency_calls == [1]
+
+
+@pytest.mark.asyncio
+async def test_create_environment_applies_selected_proxy_before_oauth(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    class StaticSettings:
+        async def get(self):
+            return SimpleNamespace(values=AccountPoolSettings(default_proxy_profile_id="proxy-profile"))
+
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=StaticProfiles("http://proxy.example:8080"),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        global_settings=StaticSettings(),
+    )
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="Proxied environment"))
+
+    assert not isinstance(result, Failure)
+    assert cli.events[:2] == ["proxy:http://proxy.example:8080", "oauth"]
 
 
 @pytest.mark.asyncio

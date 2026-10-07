@@ -9,7 +9,7 @@ from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
 
 
-def render_cli_proxy_config(management_key: str, gateway_key: str) -> str:
+def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url: str = "") -> str:
     config: Final = {
         "host": "0.0.0.0",
         "port": 8317,
@@ -30,7 +30,7 @@ def render_cli_proxy_config(management_key: str, gateway_key: str) -> str:
         "transient-error-cooldown-seconds": 1,
         "streaming": {"bootstrap-retries": 0},
         "quota-exceeded": {"switch-project": False, "switch-preview-model": False},
-        "proxy-url": "",
+        "proxy-url": proxy_url,
         "ws-auth": True,
         "plugins": {"enabled": False, "dir": "/data/plugins"},
     }
