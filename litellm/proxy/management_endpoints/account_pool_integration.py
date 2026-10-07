@@ -28,6 +28,7 @@ from litellm.repositories.verification_token_repository import VerificationToken
 from litellm.types.router import RetryPolicy, UpdateRouterConfig
 
 INTERNAL_PREFIX: Final = "/account_pool/internal/forward/"
+CARD_KEY_PREFIXES: Final = ("sk-cpk_", "cpk_")
 CARD_ROUTES: Final = (
     "/models",
     "/chat/completions",
@@ -418,7 +419,7 @@ async def register_card_key(key: str, request: Request | None = None, status: Ca
     existing: Final = await repository.find_by_id(hashed)
     if existing is not None:
         return
-    if status is None and not key.startswith("cpk_"):
+    if status is None and not key.startswith(CARD_KEY_PREFIXES):
         raise HTTPException(401, "This virtual key is not registered")
     scope: Final = (
         await resolve_card_key(key, request)

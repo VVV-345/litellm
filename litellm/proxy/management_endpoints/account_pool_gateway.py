@@ -33,6 +33,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
 from litellm.proxy.management_endpoints.account_pool_integration import (
+    CARD_KEY_PREFIXES,
     INTERNAL_PREFIX,
     ForwardTicket,
     pool_identity,
@@ -246,7 +247,7 @@ class AccountPoolGatewayMiddleware:
             return
         headers: Final = Headers(scope=scope)
         scheme, _, key = headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not key.strip().startswith("cpk_"):
+        if scheme.lower() != "bearer" or not key.strip().startswith(CARD_KEY_PREFIXES):
             await self.app(scope, receive, send)
             return
         if scope["type"] == "websocket":

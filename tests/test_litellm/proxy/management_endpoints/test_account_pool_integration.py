@@ -340,7 +340,7 @@ async def test_scoped_endpoint_is_rejected_before_budget_reservation():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("key,deleted,exists", [("cpk_legacy", True, True), ("sk-cpk_missing", False, False)])
+@pytest.mark.parametrize("key,deleted,exists", [("cpk_legacy", True, True), ("sk-cpk_revoked", True, True), ("sk-unknown", False, False)])
 async def test_deleted_or_unregistered_card_keys_cannot_register_again(key, deleted, exists):
     scope = CardScope(account_pool_card_id=uuid4(), account_pool_binding_id=uuid4())
     repository = SimpleNamespace(find_by_id=AsyncMock(return_value=object() if exists else None))
@@ -369,6 +369,70 @@ async def test_deleted_or_unregistered_card_keys_cannot_register_again(key, dele
             await register_card_key(key)
     assert error.value.status_code == 401
     create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["sk-cpk_forged", "cpk_forged"])
+async def test_unrecognized_card_key_is_rejected_by_manager(key, signing_secret):
+    repository = SimpleNamespace(find_by_id=AsyncMock(return_value=None))
+    tombstones = SimpleNamespace(table=SimpleNamespace(find_first=AsyncMock(return_value=None)))
+    with (
+        patch("litellm.proxy.proxy_server.prisma_client", object()),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_integration.VerificationTokenRepository",
+            return_value=repository,
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_integration.DeletedVerificationTokenRepository",
+            return_value=tombstones,
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_gateway.http_client",
+            lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda _: httpx.Response(401, json={"detail": "invalid card key"}))
+            ),
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.key_management_endpoints.generate_key_helper_fn", new_callable=AsyncMock
+        ) as create,
+    ):
+        with pytest.raises(HTTPException) as error:
+            await register_card_key(key)
+    assert error.value.status_code == 401
+    create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sk_prefixed_card_key_can_register_on_first_request(signing_secret):
+    scope = CardScope(account_pool_card_id=uuid4(), account_pool_binding_id=uuid4())
+    repository = SimpleNamespace(find_by_id=AsyncMock(return_value=None))
+    tombstones = SimpleNamespace(table=SimpleNamespace(find_first=AsyncMock(return_value=None)))
+    with (
+        patch("litellm.proxy.proxy_server.prisma_client", object()),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_integration.resolve_card_key",
+            AsyncMock(return_value=scope),
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_integration.VerificationTokenRepository",
+            return_value=repository,
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_integration.DeletedVerificationTokenRepository",
+            return_value=tombstones,
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.account_pool_gateway.http_client",
+            lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"name": "测试卡片"}))
+            ),
+        ),
+        patch(
+            "litellm.proxy.management_endpoints.key_management_endpoints.generate_key_helper_fn", new_callable=AsyncMock
+        ) as create,
+    ):
+        await register_card_key("sk-cpk_new")
+    assert create.await_args.kwargs["token"] == "sk-cpk_new"
 
 
 @pytest.mark.asyncio
