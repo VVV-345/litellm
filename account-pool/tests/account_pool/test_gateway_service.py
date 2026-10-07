@@ -202,6 +202,28 @@ async def test_virtual_key_admission_is_scoped_and_obeys_card_revocation() -> No
 
 
 @pytest.mark.asyncio
+async def test_auto_cooled_account_is_skipped_for_ready_sibling() -> None:
+    cooled: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(update={"automatic_cooldown": True})
+    backup: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(cooled)
+    await environments.save(backup)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(cooled.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    await policies.save(
+        cooled.id, PolicyUpdate(version=0, policy=AccountPolicy(routing=RoutingPolicy(fallback_enabled=True)))
+    )
+    service: Final = GatewayService(
+        keys, environments, policies, MemoryLeases(), ErrorLogService(MemoryLogs()), gateway
+    )
+
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+
+    assert tuple(item.id for item in resolution.candidates) == (backup.id,)
+
+
+@pytest.mark.asyncio
 async def test_candidate_preserves_per_model_quota_for_gateway_routing() -> None:
     observed_at: Final = utc_now()
     card: Final = _record(status=EnvironmentStatus.READY).model_copy(
