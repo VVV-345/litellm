@@ -411,3 +411,85 @@ def test_foreign_signed_history_is_recovered_before_native_affinity_without_bypa
     finally:
         pool_identity.reset(reset)
         router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        None,
+        {"previous_response_id": "resp_prior"},
+        {"tools": [{"type": "function"}]},
+        {"input": [{"type": "reasoning", "encrypted_content": "opaque"}]},
+        {"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "opaque"}]}]},
+    ],
+)
+async def test_native_pool_retry_budget_preserves_sdk_single_attempt(monkeypatch, unsafe):
+    from litellm import ModelResponse
+    from litellm.exceptions import ServiceUnavailableError
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    card = uuid4()
+    managed = deployment(card)
+    managed["litellm_params"].update({"num_retries": 0, "max_retries": 0})
+    router = Router(model_list=[managed], num_retries=1, retry_after=0)
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    attempts = []
+
+    async def provider(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise ServiceUnavailableError(
+                message="temporarily unavailable", model="shared", llm_provider="openai", num_retries=0
+            )
+        return ModelResponse(model="shared", choices=[{"message": {"role": "assistant", "content": "recovered"}}])
+
+    try:
+        call = router._ageneric_api_call_with_fallbacks(model="shared", original_function=provider, **(unsafe or {}))
+        if unsafe is None:
+            response = await call
+            assert response.choices[0].message.content == "recovered"
+            assert len(attempts) == 2
+        else:
+            with pytest.raises(ServiceUnavailableError):
+                await call
+            assert len(attempts) == 1
+        assert all(attempt["num_retries"] == attempt["max_retries"] == 0 for attempt in attempts)
+    finally:
+        pool_identity.reset(reset)
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_card_ingress_preserves_key_retry_budget_without_enabling_cross_card_fallback(monkeypatch):
+    from litellm.proxy.route_llm_request import route_request
+    from litellm.types.router import UpdateRouterConfig
+
+    received = []
+
+    class Ingress:
+        async def acompletion(self, **kwargs):
+            received.append(kwargs)
+            return "completed"
+
+    reset = pool_identity.set(
+        PoolIdentity(
+            key_hash="caller", request_id=uuid4(), card_id=uuid4(), router_settings=UpdateRouterConfig(num_retries=2)
+        )
+    )
+    try:
+        response = await route_request(
+            {
+                "model": "shared",
+                "messages": [{"role": "user", "content": "go"}],
+                "router_settings_override": {"num_retries": 2, "fallbacks": [{"shared": ["other"]}]},
+            },
+            Ingress(),
+            None,
+            "acompletion",
+        )
+        assert await response == "completed"
+        assert received[0]["num_retries"] == 2
+        assert received[0]["fallbacks"] == []
+    finally:
+        pool_identity.reset(reset)

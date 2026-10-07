@@ -286,6 +286,62 @@ def setup_gateway(
     return TestClient(app), control
 
 
+@pytest.mark.parametrize("stream,partial", [(False, False), (True, False), (True, True)])
+def test_internal_forward_is_one_attempt_and_exposes_pre_output_errors_to_router(monkeypatch, stream, partial):
+    from litellm.proxy.management_endpoints.account_pool_integration import (
+        INTERNAL_PREFIX,
+        ForwardRetryPolicy,
+        PoolIdentity,
+        create_ticket,
+    )
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        if stream:
+            prefix = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n' if partial else ""
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=prefix + 'data: {"error":{"type":"server_error","code":"server_is_overloaded"}}\n\n',
+            )
+        return httpx.Response(503, json={"error": {"type": "server_error", "message": "busy"}})
+
+    _, original = setup_gateway(upstream)
+
+    class SelectedControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution.model_copy(update={"candidates": self.resolution.candidates[:1]})
+
+    control = SelectedControl(original.resolution)
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+    )
+    identity = PoolIdentity(key_hash="caller", request_id=uuid4())
+    ticket = create_ticket(
+        identity,
+        control.resolution.card_id,
+        retry_policy=ForwardRetryPolicy(rate_limit=2, timeout=2, server_error=2, backoff_ms=0),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            INTERNAL_PREFIX + str(control.resolution.card_id) + "/v1/chat/completions",
+            json={"model": "model-a", "messages": [{"role": "user", "content": "go"}], "stream": stream},
+            headers={"Authorization": "Bearer " + ticket},
+        )
+    assert response.status_code == (200 if partial else 502 if stream else 503)
+    assert len(calls) == len(control.acquisitions) == len(control.finished) == 1
+    if partial:
+        assert "partial" in response.text
+        assert "server_is_overloaded" in response.text
+
+
 @pytest.mark.parametrize(
     "policy,expected",
     [
@@ -943,6 +999,34 @@ def test_all_token_budgets_exhausted_returns_rate_limit() -> None:
 
     assert response.status_code == 429
     assert response.json()["error"]["message"] == "No bound account has available local token budget"
+
+
+def test_fallback_reaches_candidates_after_the_second_account() -> None:
+    seen: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        return httpx.Response(503 if len(seen) < 3 else 200, json={"output": []})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=1)
+    third: Final = candidate(uuid4(), -1)
+    control.resolution = control.resolution.model_copy(
+        update={"candidates": (*control.resolution.candidates, third)}
+    )
+
+    with client:
+        response: Final = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 200
+    assert seen == [
+        f"cliproxy-{control.resolution.candidates[0].id.hex}",
+        f"cliproxy-{control.resolution.candidates[1].id.hex}",
+        f"cliproxy-{third.id.hex}",
+    ]
 
 
 @pytest.mark.parametrize("fallback,expected_attempts,expected_accounts", [(False, 5, 1), (True, 10, 2)])

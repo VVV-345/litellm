@@ -479,7 +479,8 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
     if pool_caller is not None and pool_caller.card_id is not None:
         if any(name in data for name in ("api_key", "api_base", "config", "client", "user_config")):
             raise HTTPException(403, "Card keys cannot override the upstream deployment")
-        data["num_retries"] = 0
+        if pool_caller.router_settings is not None and pool_caller.router_settings.num_retries is not None:
+            data.setdefault("num_retries", pool_caller.router_settings.num_retries)
         data["caching"] = False
         data["cache"] = {"no-cache": True, "no-store": True}
         data["fallbacks"] = []

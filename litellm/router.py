@@ -7287,14 +7287,18 @@ class Router:
         except Exception as e:
             current_attempt = None
             original_exception = e
+            from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
             from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
 
-            if _metadata.get("account_pool_attempt") or isinstance(e, AccountPoolSessionUnavailableError):
+            if (_metadata.get("account_pool_attempt") and not replay_safe(kwargs)) or isinstance(
+                e, AccountPoolSessionUnavailableError
+            ):
                 raise
             deployment_num_retries: Final = getattr(e, "num_retries", None)
 
             if (
                 request_num_retries is None
+                and not _metadata.get("account_pool_attempt")
                 and deployment_num_retries is not None
                 and isinstance(deployment_num_retries, int)
             ):

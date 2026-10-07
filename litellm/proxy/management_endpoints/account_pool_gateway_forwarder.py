@@ -284,7 +284,8 @@ async def forward(
     send: Send,
 ) -> None:
     routing: Final = resolution.policy.routing
-    allow_retry: Final = replay_safe(payload)
+    standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
+    allow_retry: Final = replay_safe(payload) and not standard_accounting
     native_retry: Final = getattr(request.state, "account_pool_retry_policy", None)
     configured_attempts: Final = (
         1 + max(native_retry.rate_limit, native_retry.timeout, native_retry.server_error)
@@ -301,7 +302,7 @@ async def forward(
         if resolution.sticky_account_id is not None and selected[0].account.id == resolution.sticky_account_id
         else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
     )
-    eligible: Final = ordered[:2] if routing.fallback_enabled and allow_retry else scoped[:1]
+    eligible: Final = ordered if routing.fallback_enabled and allow_retry else scoped[:1]
     request_id: Final = getattr(request.state, "account_pool_request_id", None) or uuid4()
     completed, rejections = await forward_candidate(
         request,
@@ -1036,7 +1037,8 @@ async def guarded_stream_response(
     cost_usd: float | None,
     deadline: float,
 ) -> bool:
-    if next_id is None or not replay_safe(payload):
+    standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
+    if (next_id is None and not standard_accounting) or not replay_safe(payload):
         await stream_response(request, response, attempt, cost_usd)
         return True
     bootstrap: Final = StreamBootstrap(response.aiter_bytes())
