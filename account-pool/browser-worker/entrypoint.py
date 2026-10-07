@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import http.server
 import ipaddress
+import json
 import os
 import ssl
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
-from typing import Final, Protocol, cast
-from urllib.parse import urlsplit
+from types import MappingProxyType
+from typing import Final, Mapping, Protocol, cast
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request, urlopen
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +53,25 @@ class PlaywrightContext(Protocol):
     def __enter__(self) -> Playwright: ...
 
     def __exit__(self, exception_type: object, exception: object, traceback: object) -> None: ...
+
+
+class _CallbackServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[http.server.BaseHTTPRequestHandler],
+        *,
+        callback_path: str,
+        manager_callback_url: str | None = None,
+        callback_token: str | None = None,
+    ) -> None:
+        super().__init__(address, handler)
+        self.callback_path: Final = callback_path
+        self.manager_callback_url: Final = manager_callback_url
+        self.callback_token: Final = callback_token
 
 
 def _normalize_proxy_host(host: str) -> str:
@@ -144,6 +169,168 @@ async def _run_egress_relay(proxy_url: str) -> None:
         await server.serve_forever()
 
 
+def _callback_fields(query: str) -> Mapping[str, str] | None:
+    if len(query) > 16_384:
+        return None
+    try:
+        values: Final = parse_qs(query, keep_blank_values=True, strict_parsing=True, max_num_fields=16)
+    except ValueError:
+        return None
+    allowed: Final = frozenset(("code", "state", "error", "error_description"))
+    if "state" not in values or len(values["state"]) != 1:
+        return None
+    if any(key in allowed and len(items) != 1 for key, items in values.items()):
+        return None
+    fields: Final = MappingProxyType(
+        {key: values[key][0] for key in allowed if key in values}
+    )
+    if len(fields["state"]) < 16 or len(fields["state"]) > 512:
+        return None
+    code: Final = fields.get("code")
+    error: Final = fields.get("error") or fields.get("error_description")
+    if (code is None or not code.strip()) == (error is None or not error.strip()):
+        return None
+    if code is not None and len(code) > 8192:
+        return None
+    if any(len(fields.get(name, "")) > limit for name, limit in (("error", 512), ("error_description", 2048))):
+        return None
+    return fields
+
+
+class _BrowserCallbackHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        server: Final = cast(_CallbackServer, self.server)
+        parsed: Final = urlsplit(self.path)
+        fields: Final = _callback_fields(parsed.query) if parsed.path == server.callback_path else None
+        relay_url: Final = os.environ.get("CALLBACK_RELAY_URL", "")
+        if fields is None or not relay_url:
+            self._respond(400)
+            return
+        request: Final = Request(
+            relay_url,
+            data=json.dumps(dict(fields)).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                code: Final = response.status
+        except HTTPError as error:
+            code = error.code
+        except (OSError, URLError, TimeoutError):
+            code = 502
+        self._respond(200 if 200 <= code < 300 else code)
+
+    def _respond(self, code: int) -> None:
+        content: Final = (
+            b"OAuth callback received. You can close this page."
+            if 200 <= code < 300
+            else b"OAuth callback could not be completed. Return to LiteLLM and retry."
+        )
+        self.send_response(200 if 200 <= code < 300 else code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return None
+
+    def log_error(self, format: str, *args: object) -> None:
+        return None
+
+
+class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        server: Final = cast(_CallbackServer, self.server)
+        manager_url: Final = server.manager_callback_url
+        token: Final = server.callback_token
+        content_length: Final = self.headers.get("Content-Length", "")
+        if self.path != "/callback" or manager_url is None or token is None:
+            self._respond(404)
+            return
+        try:
+            body_length: Final = int(content_length)
+        except ValueError:
+            self._respond(400)
+            return
+        if body_length < 1 or body_length > 12_000:
+            self._respond(413)
+            return
+        try:
+            decoded: Final[object] = json.loads(self.rfile.read(body_length))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._respond(400)
+            return
+        if not isinstance(decoded, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str) for key, value in decoded.items()
+        ):
+            self._respond(400)
+            return
+        fields: Final[dict[str, str]] = cast(dict[str, str], decoded)
+        if not _valid_relay_fields(fields):
+            self._respond(400)
+            return
+        forwarded: Final = {
+            key: value for key, value in fields.items() if key in {"code", "state", "error", "error_description"}
+        }
+        request: Final = Request(
+            manager_url,
+            data=json.dumps(forwarded).encode("utf-8"),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                code: Final = response.status
+        except HTTPError as error:
+            code = error.code
+        except (OSError, URLError, TimeoutError):
+            code = 502
+        self._respond(200 if 200 <= code < 300 else code)
+
+    def _respond(self, code: int) -> None:
+        self.send_response(code)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return None
+
+    def log_error(self, format: str, *args: object) -> None:
+        return None
+
+
+def _valid_relay_fields(fields: Mapping[str, str]) -> bool:
+    allowed: Final = frozenset(("code", "state", "error", "error_description"))
+    state: Final = fields.get("state", "")
+    code: Final = fields.get("code")
+    error: Final = fields.get("error") or fields.get("error_description")
+    return (
+        set(fields).issubset(allowed)
+        and 16 <= len(state) <= 512
+        and (code is None or (bool(code.strip()) and len(code) <= 8192))
+        and (error is None or bool(error.strip()))
+        and ((code is None) != (error is None))
+        and len(fields.get("error", "")) <= 512
+        and len(fields.get("error_description", "")) <= 2048
+    )
+
+
+def _run_callback_relay(manager_callback_url: str, callback_token: str) -> None:
+    server: Final = _CallbackServer(
+        ("0.0.0.0", 8092),
+        _ManagerCallbackRelayHandler,
+        callback_path="/callback",
+        manager_callback_url=manager_callback_url,
+        callback_token=callback_token,
+    )
+    with server:
+        server.serve_forever()
+
+
 def _required_environment(name: str) -> str:
     value: Final = os.environ.get(name)
     if value is None or not value:
@@ -179,6 +366,12 @@ def _run_browser() -> None:
     proxy_server: Final = _required_environment("CHROME_PROXY")
     authorization: Final = urlsplit(authorization_url)
     proxy: Final = urlsplit(proxy_server)
+    callback_path: Final = _required_environment("OAUTH_CALLBACK_LISTEN_PATH")
+    callback_relay_url: Final = _required_environment("CALLBACK_RELAY_URL")
+    try:
+        callback_port: Final = int(_required_environment("OAUTH_CALLBACK_LISTEN_PORT"))
+    except ValueError as error:
+        raise RuntimeError("OAuth callback port is invalid") from error
     if (
         authorization.scheme != "https"
         or authorization.hostname is None
@@ -188,10 +381,24 @@ def _run_browser() -> None:
         raise RuntimeError("OAuth authorization URL is invalid")
     if proxy.scheme != "http" or proxy.hostname != "egress-relay" or proxy.port != 8080:
         raise RuntimeError("OAuth browser proxy is invalid")
+    if not callback_path.startswith("/") or "?" in callback_path or "#" in callback_path:
+        raise RuntimeError("OAuth callback path is invalid")
+    relay: Final = urlsplit(callback_relay_url)
+    if relay.scheme != "http" or relay.hostname != "callback-relay" or relay.port != 8092 or relay.path != "/callback":
+        raise RuntimeError("OAuth callback relay is invalid")
 
     display: Final = ":99"
     process_environment: Final = {"DISPLAY": display, "HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
     with ExitStack() as processes:
+        callback_server: Final = _CallbackServer(
+            ("127.0.0.1", callback_port),
+            _BrowserCallbackHandler,
+            callback_path=callback_path,
+        )
+        callback_thread: Final = threading.Thread(target=callback_server.serve_forever, daemon=True)
+        callback_thread.start()
+        processes.callback(callback_server.shutdown)
+        processes.callback(callback_server.server_close)
         _start_process(
             ("Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"), process_environment, processes
         )
@@ -230,6 +437,8 @@ def main() -> None:
             _run_browser()
         case "egress-relay":
             asyncio.run(_run_egress_relay(_required_environment("PROXY_URL")))
+        case "callback-relay":
+            _run_callback_relay(_required_environment("MANAGER_CALLBACK_URL"), _required_environment("CALLBACK_TOKEN"))
         case _:
             raise SystemExit("unsupported browser worker mode")
 

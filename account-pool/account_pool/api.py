@@ -7,6 +7,7 @@ import hmac
 import html
 import json
 from collections.abc import Awaitable, Callable, Mapping
+from datetime import datetime
 from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
@@ -21,6 +22,7 @@ from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
+    AuthorizationFlow,
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
@@ -30,15 +32,24 @@ from account_pool.domain import (
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
     UpdateEnvironmentRequest,
+    utc_now,
 )
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.management_api import create_management_router
+from account_pool.oauth_browser import (
+    OAuthBrowserCallback,
+    OAuthBrowserRuntime,
+    OAuthBrowserSession,
+    OAuthBrowserSessionService,
+    OAuthBrowserSessionStatus,
+    cleanup_oauth_browser_sessions,
+)
 from account_pool.onboarding_api import create_onboarding_router
 from account_pool.onboarding_service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
-from account_pool.ports import EnvironmentRepository
+from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.quota_scheduler import (
@@ -107,6 +118,20 @@ class CredentialView(BaseModel):
     account_id: str | None = None
     file_name: str | None = None
     last_error: str | None = None
+
+
+class OAuthBrowserSessionView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    environment_id: UUID
+    status: OAuthBrowserSessionStatus
+    created_at: datetime
+    expires_at: datetime
+
+
+class OAuthBrowserSessionStartView(OAuthBrowserSessionView):
+    ticket: str = Field(repr=False)
 
 
 class QuotaRefreshResult(BaseModel):
@@ -203,6 +228,9 @@ def create_router(
     litellm_upstream_sync: GitHubUpstreamSyncService | None = None,
     quota_scheduler: QuotaRefreshScheduler | None = None,
     auth_refresh_scheduler: RefreshScheduler | None = None,
+    proxy_profiles: ProxyProfileRepository | None = None,
+    browser_sessions: OAuthBrowserSessionService | None = None,
+    browser_runtime: OAuthBrowserRuntime | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -212,6 +240,222 @@ def create_router(
         supplied: Final = "" if credentials is None else credentials.credentials
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+
+    if (
+        environments is not None
+        and proxy_profiles is not None
+        and browser_sessions is not None
+        and browser_runtime is not None
+    ):
+
+        async def current_binding(session: OAuthBrowserSession) -> bool:
+            record: Final = await environments.get(session.environment_id)
+            if record is None or record.proxy_profile_id != session.proxy_profile_id:
+                return False
+            proxy_url: Final = await proxy_profiles.get_url(session.proxy_profile_id)
+            return proxy_url is not None and browser_sessions.proxy_binding_matches(
+                session, session.proxy_profile_id, proxy_url
+            )
+
+        async def cleanup_failed_start(session_id: UUID) -> None:
+            await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+
+        @router.post(
+            "/api/environments/{environment_id}/oauth-browser-sessions",
+            dependencies=[Depends(require_manager)],
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def start_oauth_browser_session(
+            environment_id: UUID,
+            response: Response,
+        ) -> OAuthBrowserSessionStartView:
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+            record: Final = await environments.get(environment_id)
+            if record is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="environment not found")
+            if record.proxy_profile_id is None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="a proxy profile is required")
+            if record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="browser OAuth is not available")
+            proxy_url: Final = await proxy_profiles.get_url(record.proxy_profile_id)
+            if proxy_url is None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the selected proxy is unavailable")
+
+            started: Final = await browser_sessions.start(environment_id, record.proxy_profile_id, proxy_url)
+            if isinstance(started, Failure):
+                raise HTTPException(status_code=_status_for(started.code), detail=started.message)
+            grant: Final = started.value
+            try:
+                authorization_result: Final = await service.authorize_environment(
+                    environment_id,
+                    operation_id=f"browser:{grant.session.id.hex}",
+                )
+                if isinstance(authorization_result, Failure):
+                    await cleanup_failed_start(grant.session.id)
+                    raise HTTPException(
+                        status_code=_status_for(authorization_result.code),
+                        detail="OAuth browser authorization could not be prepared",
+                    )
+                authorization: Final = authorization_result.value
+                if authorization.flow is not AuthorizationFlow.BROWSER_OAUTH:
+                    await cleanup_failed_start(grant.session.id)
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="browser OAuth is not available")
+                authorized_record: Final = await environments.get(environment_id)
+                callback_target: Final = (
+                    None if authorized_record is None else service.oauth_callback_target(authorized_record)
+                )
+                if callback_target is None or not await current_binding(grant.session):
+                    await cleanup_failed_start(grant.session.id)
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
+                await browser_runtime.start_oauth_browser(
+                    grant.session,
+                    proxy_url=proxy_url,
+                    authorization_url=str(authorization.authorization_url),
+                    callback_token=grant.callback_token,
+                    callback_port=callback_target[0],
+                    callback_path=callback_target[1],
+                )
+                active: Final = await browser_sessions.activate(grant.session.id)
+                if active is None:
+                    await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OAuth browser session ended")
+            except asyncio.CancelledError:
+                await browser_sessions.transition(grant.session.id, OAuthBrowserSessionStatus.FAILED)
+                await asyncio.shield(cleanup_oauth_browser_sessions(browser_sessions, browser_runtime))
+                raise
+            except HTTPException:
+                raise
+            except Exception:
+                await cleanup_failed_start(grant.session.id)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="OAuth browser session could not be started",
+                ) from None
+
+            response.headers["Cache-Control"] = "no-store"
+            return OAuthBrowserSessionStartView(
+                id=active.id,
+                environment_id=active.environment_id,
+                status=active.status,
+                created_at=active.created_at,
+                expires_at=active.expires_at,
+                ticket=grant.ticket,
+            )
+
+        @router.get("/api/oauth-browser-sessions/{session_id}", dependencies=[Depends(require_manager)])
+        async def get_oauth_browser_session(session_id: UUID, response: Response) -> OAuthBrowserSessionView:
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+            session: Final = await browser_sessions.get(session_id)
+            if session is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth browser session not found")
+            if session.status in {OAuthBrowserSessionStatus.STARTING, OAuthBrowserSessionStatus.ACTIVE} and not (
+                await current_binding(session)
+            ):
+                await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                session = await browser_sessions.get(session_id) or session
+            response.headers["Cache-Control"] = "no-store"
+            return _oauth_browser_session_view(session)
+
+        @router.delete("/api/oauth-browser-sessions/{session_id}", dependencies=[Depends(require_manager)])
+        async def cancel_oauth_browser_session(session_id: UUID, response: Response) -> OAuthBrowserSessionView:
+            session: Final = await browser_sessions.get(session_id)
+            if session is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth browser session not found")
+            if session.status is OAuthBrowserSessionStatus.CALLBACK_PENDING:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OAuth callback is being processed")
+            cancellation_failed: bool = False
+            if session.status in {OAuthBrowserSessionStatus.STARTING, OAuthBrowserSessionStatus.ACTIVE}:
+                try:
+                    result: Final = await service.cancel_oauth_session(session.environment_id)
+                    cancellation_failed = isinstance(result, Failure)
+                except asyncio.CancelledError:
+                    await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.CANCELLED)
+                    await asyncio.shield(cleanup_oauth_browser_sessions(browser_sessions, browser_runtime))
+                    raise
+                except Exception:
+                    cancellation_failed = True
+                await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.CANCELLED)
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+            final_session: Final = await browser_sessions.get(session_id) or session
+            response.headers["Cache-Control"] = "no-store"
+            if (
+                session.status in {OAuthBrowserSessionStatus.STARTING, OAuthBrowserSessionStatus.ACTIVE}
+                and cancellation_failed
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="OAuth browser session was stopped but authorization cancellation failed",
+                )
+            return _oauth_browser_session_view(final_session)
+
+        @router.post("/internal/oauth-browser-sessions/{session_id}/ticket/consume")
+        async def consume_oauth_browser_ticket(
+            session_id: UUID,
+            response: Response,
+            credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
+        ) -> OAuthBrowserSessionView:
+            session: Final = await browser_sessions.get(session_id)
+            supplied: Final = "" if credentials is None else credentials.credentials
+            if session is None or not OAuthBrowserSessionService.ticket_matches(session, supplied):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid browser ticket")
+            if session.expires_at <= utc_now():
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_410_GONE, detail="OAuth browser session expired")
+            if not await current_binding(session):
+                await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
+            consumed: Final = await browser_sessions.consume_ticket(session_id, supplied)
+            if consumed is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid browser ticket")
+            response.headers["Cache-Control"] = "no-store"
+            return _oauth_browser_session_view(consumed)
+
+        @router.post("/internal/oauth-browser-sessions/{session_id}/callback", status_code=status.HTTP_204_NO_CONTENT)
+        async def receive_oauth_browser_callback(
+            session_id: UUID,
+            callback: OAuthBrowserCallback,
+            credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
+        ) -> Response:
+            session: Final = await browser_sessions.get(session_id)
+            supplied: Final = "" if credentials is None else credentials.credentials
+            if session is None or not OAuthBrowserSessionService.callback_token_matches(session, supplied):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid callback token")
+            if session.expires_at <= utc_now():
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_410_GONE, detail="OAuth browser session expired")
+            if not await current_binding(session):
+                await browser_sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
+            claimed: Final = await browser_sessions.claim_callback(session_id, supplied)
+            if claimed is None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OAuth callback was already received")
+            try:
+                result: Final = await service.submit_oauth_callback(callback.to_callback(), session.environment_id)
+                target: Final = (
+                    OAuthBrowserSessionStatus.FAILED
+                    if isinstance(result, Failure)
+                    else OAuthBrowserSessionStatus.COMPLETED
+                )
+            except asyncio.CancelledError:
+                await browser_sessions.finish_callback(session_id, OAuthBrowserSessionStatus.FAILED)
+                await asyncio.shield(cleanup_oauth_browser_sessions(browser_sessions, browser_runtime))
+                raise
+            except Exception:
+                await browser_sessions.finish_callback(session_id, OAuthBrowserSessionStatus.FAILED)
+                await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="OAuth callback was not accepted",
+                ) from None
+            await browser_sessions.finish_callback(session_id, target)
+            await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+            if isinstance(result, Failure):
+                raise HTTPException(status_code=_status_for(result.code), detail="OAuth callback was not accepted")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:
@@ -710,6 +954,16 @@ def _callback_page(title: str, message: str) -> str:
     return (
         '<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
         f"<title>{safe_title}</title><body><main><h1>{safe_title}</h1><p>{safe_message}</p></main></body></html>"
+    )
+
+
+def _oauth_browser_session_view(session: OAuthBrowserSession) -> OAuthBrowserSessionView:
+    return OAuthBrowserSessionView(
+        id=session.id,
+        environment_id=session.environment_id,
+        status=session.status,
+        created_at=session.created_at,
+        expires_at=session.expires_at,
     )
 
 

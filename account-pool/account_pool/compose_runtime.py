@@ -207,6 +207,8 @@ class ComposeRuntime:
         proxy_url: str,
         authorization_url: str,
         callback_token: str,
+        callback_port: int,
+        callback_path: str,
     ) -> None:
         compose: Final = render_oauth_browser_compose(
             session,
@@ -214,6 +216,8 @@ class ComposeRuntime:
             proxy_url=proxy_url,
             authorization_url=authorization_url,
             callback_token=callback_token,
+            callback_port=callback_port,
+            callback_path=callback_path,
         )
         directory: Final = self.oauth_browser_dir(session.id)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -228,8 +232,8 @@ class ComposeRuntime:
                 "always",
                 "--remove-orphans",
             )
-        except RuntimeError:
-            await self.remove_oauth_browser(session.id)
+        except BaseException:
+            await asyncio.shield(self.remove_oauth_browser(session.id))
             raise
 
     async def remove_oauth_browser(self, session_id: UUID) -> None:
@@ -371,6 +375,11 @@ async def communicate_with_timeout(process: DockerProcess, timeout_seconds: floa
         process.kill()
         await process.communicate()
         raise RuntimeError("Docker command timed out") from error
+    except asyncio.CancelledError:
+        if process.returncode is None:
+            process.kill()
+        await process.communicate()
+        raise
 
 
 def _remove_environment_directory(environment_dir: Path, data_root: Path) -> None:

@@ -39,6 +39,7 @@ from account_pool.clash import ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
 from account_pool.domain import (
+    AuthorizationFlow,
     AuthorizationInstructionFlow,
     AuthorizationView,
     ChannelKind,
@@ -506,6 +507,16 @@ class EnvironmentService:
 
     async def pending_authorization(self, environment_id: UUID) -> Result[AuthorizationView]:
         return await self._provisioning_operations.pending_authorization(environment_id)
+
+    def oauth_callback_target(self, record: EnvironmentRecord) -> tuple[int, str] | None:
+        supplier: Final = self._channel(record).supplier(record.supplier)
+        if (
+            supplier.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
+            or supplier.callback_port is None
+            or supplier.callback_path is None
+        ):
+            return None
+        return supplier.callback_port, supplier.callback_path
 
     async def resume_onboarding_oauth(self, environment_id: UUID) -> Result[AuthorizationView]:
         return await self._provisioning_operations.resume_onboarding_oauth(environment_id)

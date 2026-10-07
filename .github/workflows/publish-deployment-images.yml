@@ -196,7 +196,7 @@ jobs:
           DEPLOY_TAG: ${{ needs.version.outputs.deploy_tag }}
         run: |
           worker_image="${REGISTRY}/${IMAGE_NAMESPACE}/account-pool-browser-worker:${DEPLOY_TAG}"
-          worker_digest="$(docker buildx imagetools inspect "$worker_image" --format '{{json .Manifest.Digest}}')"
+          worker_digest="$(docker buildx imagetools inspect "$worker_image" --format '{{.Manifest.Digest}}')"
           {
             echo "## Deployment images"
             echo

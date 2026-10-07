@@ -49,6 +49,7 @@ _CREATE_SCHEMA: Final = (
     """,
     "CREATE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_environment_idx ON account_pool_oauth_browser_sessions (environment_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_active_environment_idx ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active')",
+    "CREATE UNIQUE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_active_callback_environment_idx ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active', 'callback_pending')",
 )
 
 
@@ -263,7 +264,7 @@ class PostgresOAuthBrowserSessionRepository:
                     SET status = %s,
                         payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
                     WHERE environment_id = %s
-                      AND status IN (%s, %s)
+                      AND status IN (%s, %s, %s)
                       AND expires_at <= %s
                     """,
                     (
@@ -272,6 +273,7 @@ class PostgresOAuthBrowserSessionRepository:
                         session.environment_id,
                         OAuthBrowserSessionStatus.STARTING.value,
                         OAuthBrowserSessionStatus.ACTIVE.value,
+                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
                         session.created_at,
                     ),
                 )
@@ -324,6 +326,36 @@ class PostgresOAuthBrowserSessionRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
 
+    async def claim_callback(
+        self,
+        session_id: UUID,
+        callback_token_digest: str,
+        now: datetime,
+    ) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_oauth_browser_sessions
+                SET status = %s,
+                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
+                WHERE id = %s
+                  AND status = %s
+                  AND payload->>'callback_token_digest' = %s
+                  AND expires_at > %s
+                RETURNING payload
+                """,
+                (
+                    OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
+                    OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
+                    session_id,
+                    OAuthBrowserSessionStatus.ACTIVE.value,
+                    callback_token_digest,
+                    now,
+                ),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
     async def transition(
         self,
         session_id: UUID,
@@ -343,6 +375,72 @@ class PostgresOAuthBrowserSessionRepository:
             )
             row: Final = await cursor.fetchone()
         return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
+    async def expire_due(self, now: datetime) -> tuple[OAuthBrowserSession, ...]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_oauth_browser_sessions
+                SET status = %s,
+                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
+                WHERE status = ANY(%s) AND expires_at <= %s
+                RETURNING payload
+                """,
+                (
+                    OAuthBrowserSessionStatus.EXPIRED.value,
+                    OAuthBrowserSessionStatus.EXPIRED.value,
+                    [
+                        OAuthBrowserSessionStatus.STARTING.value,
+                        OAuthBrowserSessionStatus.ACTIVE.value,
+                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
+                    ],
+                    now,
+                ),
+            )
+            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
+        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
+
+    async def list_cleanup_due(self, now: datetime) -> tuple[OAuthBrowserSession, ...]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                SELECT payload FROM account_pool_oauth_browser_sessions
+                WHERE COALESCE((payload->>'cleanup_pending')::boolean, true)
+                  AND (
+                    status = ANY(%s)
+                    OR (status = ANY(%s) AND expires_at <= %s)
+                  )
+                ORDER BY expires_at
+                """,
+                (
+                    [
+                        OAuthBrowserSessionStatus.COMPLETED.value,
+                        OAuthBrowserSessionStatus.CANCELLED.value,
+                        OAuthBrowserSessionStatus.FAILED.value,
+                        OAuthBrowserSessionStatus.EXPIRED.value,
+                    ],
+                    [
+                        OAuthBrowserSessionStatus.STARTING.value,
+                        OAuthBrowserSessionStatus.ACTIVE.value,
+                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
+                    ],
+                    now,
+                ),
+            )
+            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
+        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
+
+    async def mark_cleaned(self, session_id: UUID) -> bool:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_oauth_browser_sessions
+                SET payload = jsonb_set(payload, '{cleanup_pending}', 'false'::jsonb, true)
+                WHERE id = %s AND COALESCE((payload->>'cleanup_pending')::boolean, true)
+                """,
+                (session_id,),
+            )
+        return cursor.rowcount == 1
 
 
 class PostgresProxyProfileRepository:

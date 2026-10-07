@@ -87,6 +87,8 @@ def render_oauth_browser_compose(
     proxy_url: str,
     authorization_url: str,
     callback_token: str,
+    callback_port: int,
+    callback_path: str,
 ) -> str:
     image: Final = settings.oauth_browser_image
     if image is None or re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", image) is None:
@@ -123,15 +125,17 @@ def render_oauth_browser_compose(
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=128m"],
                 "environment": {
                     "CHROME_PROXY": "http://egress-relay:8080",
+                    "CALLBACK_RELAY_URL": "http://callback-relay:8092/callback",
                     "OAUTH_AUTHORIZATION_URL": authorization_url,
+                    "OAUTH_CALLBACK_LISTEN_PORT": str(callback_port),
+                    "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
                 },
                 "networks": {"browser": {"aliases": ["browser"]}},
                 "restart": "no",
             },
             "callback-relay": {
                 "image": image,
-                "entrypoint": ["sleep"],
-                "command": ["infinity"],
+                "command": ["callback-relay"],
                 "read_only": True,
                 "user": "10001:10001",
                 "mem_limit": "64m",
@@ -140,8 +144,14 @@ def render_oauth_browser_compose(
                 "security_opt": ["no-new-privileges:true"],
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
-                "environment": {"CALLBACK_TOKEN": callback_token},
-                "network_mode": "service:browser",
+                "environment": {
+                    "CALLBACK_TOKEN": callback_token,
+                    "MANAGER_CALLBACK_URL": (
+                        f"http://{settings.manager_container}:8091/internal/oauth-browser-sessions/"
+                        f"{session.id}/callback"
+                    ),
+                },
+                "networks": ["browser", "control"],
                 "restart": "no",
             },
             "egress-relay": {
@@ -171,6 +181,7 @@ def render_oauth_browser_compose(
                 "driver": "bridge",
                 "internal": False,
             },
+            "control": {"external": True, "name": settings.control_network},
         },
     }
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=False)
