@@ -1,6 +1,6 @@
 # 受控 OAuth 浏览器设计
 
-状态：`WORKER RUNTIME IMPLEMENTED, DEPLOYMENT UNVERIFIED`。本文是已批准方向的可执行设计和验收边界，不代表浏览器、Docker 部署或真实 OAuth 已完成。Docker daemon 当前未启动，镜像、浏览器版本、网络策略和真实回调必须在部署阶段实测后固定，不能凭文档宣称成功。
+状态：`IMPLEMENTED, GHCR AND SERVER ACCEPTANCE PENDING`。会话、worker、Manager、LiteLLM 和 Dashboard 接入已实现并通过下述源码验证。镜像只通过 GitHub Actions 构建，不在本地 build 或 pull；真实容器隔离和供应商 OAuth 尚未验收，不能据此宣称可上线。
 
 ## 方案选择
 
@@ -21,7 +21,7 @@
 
 ## API 边界
 
-新增接口应保持 Manager 为状态唯一写入者：创建、查看状态、取消、回调 relay 和清理均由 Manager 提供；LiteLLM 仅做代理和权限检查。浏览器画面使用带 `Authorization: Bearer <短期 ticket>` 的 websocket，ticket 绑定用户、环境、session、过期时间和一次性 nonce，服务端验证来源、状态和权限后才转发。任何错误响应必须脱敏，不返回 session credential、Cookie、代理 URL 中的认证信息或完整配置。
+新增接口应保持 Manager 为状态唯一写入者：创建、查看状态、取消、回调 relay 和清理均由 Manager 提供；LiteLLM 仅做代理和权限检查。Dashboard 将一次性 ticket 放在 POST 的 Authorization header 中，换取会话路径限定的 HttpOnly、SameSite=strict Cookie，HTTPS 时附带 Secure。ticket 不进入 URL 或持久缓存。静态资源与 WebSocket 使用此 Cookie；服务端验证来源、状态、到期时间和代理绑定后才转发，连接期间每两秒复验，终态关闭连接。任何错误响应必须脱敏，不返回 session credential、Cookie、代理 URL 中的认证信息或完整配置。
 
 ## 隔离与代理强制
 
@@ -41,4 +41,20 @@ CLIProxyAPI 的 token 交换必须继续在该环境的既有代理配置下执�
 
 OAuth 创建请求现在接收 `proxy_profile_id`，LiteLLM 会透传到 Manager，Manager 在创建容器前检查 profile 并把其 URL 写入初始 CLIProxyAPI 配置，再应用配置后才启动授权。授权等待期间，配置接口拒绝更换代理。Dashboard、请求 schema 与 Manager 测试覆盖选择值透传和未授权前拒绝不可用 profile。
 
-Task 2 已实现 digest-only 的短生命周期 worker Compose、内部浏览器网络、TLS 校验的 egress relay、callback sidecar 和会话清理。websocket ticket、回调 HTTP handler、代理出口不一致检查和真实 Docker 验收仍未实现；Docker daemon 不可用，必须等运行环境可用后按验收矩阵部署验证
+会话持久化、一次性 ticket、回调 HTTP handler、代理出口不一致检查、后台清理和 noVNC 双向 WebSocket 已实现。成功回调先返回响应，再落终态并清理 sidecar，避免响应未送达就删除容器。browser 仅加入会话私网，callback-relay 使用唯一 control-network 别名；启动等待健康检查，失败清理
+
+同一代理 profile 的创建、重新授权及节点切换使用共享锁，OAuth 状态持久化前不得切节点。锁不等待人工登录，不同代理可以并行。此约束覆盖单 Manager 进程及项目 API，不覆盖外部直接改 Clash 或多个 Manager 进程
+
+## 2026-10-08 源码验证
+
+Manager 全套 `python -m pytest account-pool/tests -q`：584 passed、3 skipped。LiteLLM 号池管理测试全套：322 passed、1 skipped；最后修正 root-path Cookie 和类型后，对应 endpoint 文件再次运行：39 passed。Dashboard 号池范围：26 files、144 passed。以上为本地单元和集成测试，不是真实供应商验收
+
+前端 `npm run build -- --webpack` 在同盘临时源码副本通过，exit 0。原 worktree 的跨盘 node_modules junction 引发 webpack 路径错误，因此使用不修改原工作区的同盘副本。全量 tsc 仍有既有源码/测试诊断，不能把生产 build 或 Vitest 的输出称为全量类型检查通过。新增网关类型问题已消除，文件仍有已有 FastAPI route 未使用及一项已有 Any 诊断
+
+## 发布和服务器验收门槛
+
+push 修复分支后手动触发 `publish-deployment-images.yml`，固定完整 commit。等待 LiteLLM、Manager、browser-worker 的 amd64/arm64 镜像与 manifest 完成，记录 digest。服务器先拉取完整 worker digest，再配置 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE`；Manager 启动会话使用 `--pull never --wait --wait-timeout 45`，避免向 Manager 提供私有 registry 凭据
+
+仅通过用户指定的 JumpServer“号池”资产验收，保留当前业务镜像、Compose、数据库备份及回滚路径。先执行现有 release guard，不能跳过 schema/configuration 检查。反向代理需要支持 WebSocket、至少 120 秒请求读取时限以及受信的 HTTPS/WSS 转发头
+
+真实待验收项：选定节点返回有效 delay_ms；浏览器和 token 阶段同代理；代理不可达时无直连；noVNC、回调与 CLIProxyAPI ready；不同账号并发及同账号互斥；超时、取消和成功清理。登录、验证码与 MFA 由用户人工完成。额度冷却和故障切换已有回归覆盖，但仍需线上观测。移除两候选上限后仍受配置、最多 10 次、90 秒及流输出安全边界限制，不是无限重试

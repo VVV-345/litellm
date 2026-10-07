@@ -51,11 +51,11 @@
 
 **Deliverable:** A short-lived, unprivileged browser worker with no published port or Docker socket, attached only to an internal browser network and a narrowly scoped egress relay that uses the captured selected proxy. The worker is not enabled in account Compose until the digest and fail-closed behavior pass a real Docker check.
 
-- [ ] Write renderer/runtime tests asserting no published ports, no Docker socket, read-only root filesystem, session-scoped cleanup, and no direct worker egress path.
-- [ ] Run the focused test and confirm the worker service/runtime is absent or violates the expected contract.
+- [x] Write renderer/runtime tests asserting no published ports, no Docker socket, read-only root filesystem, session-scoped cleanup, and no direct worker egress path.
+- [x] Run the focused test and confirm the worker service/runtime is absent or violates the expected contract.
 - [ ] Build the worker image, resolve and pin its digest, and test that proxy outage blocks upstream access while the selected proxy works.
-- [ ] Implement the minimum worker and runtime lifecycle, then re-run renderer/runtime and cleanup tests.
-- [ ] Commit as `feat(account-pool): run isolated oauth browser workers`.
+- [x] Implement the minimum worker and runtime lifecycle, then re-run renderer/runtime and cleanup tests.
+- [x] Commit as `feat(account-pool): run isolated oauth browser workers`.
 
 ### Task 3: Manager Session and Callback APIs
 
@@ -68,11 +68,11 @@
 
 **Deliverable:** Authenticated Manager routes to start, inspect, and cancel a session, expose only an expiring one-time browser ticket, bind the worker to the current proxy selection, and relay only the provider callback fields into existing OAuth state validation.
 
-- [ ] Write API tests for manager authentication, environment ownership, duplicate sessions, proxy changes, callback replay, redaction, timeout, and worker cleanup.
-- [ ] Run the focused tests and verify they fail for the unimplemented session routes.
-- [ ] Implement route/service orchestration using the persisted session service and existing `submit_oauth_callback` path.
-- [ ] Re-run Manager OAuth and browser-session tests.
-- [ ] Commit as `feat(account-pool): expose controlled oauth browser sessions`.
+- [x] Write API tests for manager authentication, environment ownership, duplicate sessions, proxy changes, callback replay, redaction, timeout, and worker cleanup.
+- [x] Run the focused tests and verify they fail for the unimplemented session routes.
+- [x] Implement route/service orchestration using the persisted session service and existing `submit_oauth_callback` path.
+- [x] Re-run Manager OAuth and browser-session tests.
+- [x] Commit as `feat(account-pool): expose controlled oauth browser sessions`.
 
 ### Task 4: LiteLLM and Dashboard Integration
 
@@ -84,11 +84,11 @@
 
 **Deliverable:** The Dashboard starts and cancels the server browser using existing admin credentials, shows a temporary same-origin browser surface, and retains the existing device-code flow and manual CAPTCHA/MFA interaction.
 
-- [ ] Add LiteLLM forwarding and Dashboard tests for ticket handling, same-origin browser access, expiry, cancellation, and no ticket leakage into persisted UI state.
-- [ ] Run those focused tests and confirm they fail before implementation.
-- [ ] Implement the smallest API and UI changes, including an authenticated WebSocket relay.
-- [ ] Run the focused LiteLLM tests, Dashboard tests, and production frontend build.
-- [ ] Commit as `feat(account-pool): integrate controlled oauth browser ui`.
+- [x] Add LiteLLM forwarding and Dashboard tests for ticket handling, same-origin browser access, expiry, cancellation, and no ticket leakage into persisted UI state.
+- [x] Run those focused tests and confirm they fail before implementation.
+- [x] Implement the smallest API and UI changes, including an authenticated WebSocket relay.
+- [x] Run the focused LiteLLM tests, Dashboard tests, and production frontend build.
+- [x] Commit as `feat(account-pool): integrate controlled oauth browser ui`.
 
 ### Task 5: End-to-End Security Verification
 
