@@ -14,8 +14,10 @@ from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
 from account_pool.domain import EnvironmentRecord, ProxyProfile
+from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionStatus
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
+_OAUTH_BROWSER_SESSION_ADAPTER: Final = TypeAdapter(OAuthBrowserSession)
 
 _CREATE_SCHEMA: Final = (
     """
@@ -36,6 +38,17 @@ _CREATE_SCHEMA: Final = (
         proxy_url text NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS account_pool_oauth_browser_sessions (
+        id uuid PRIMARY KEY,
+        environment_id uuid NOT NULL REFERENCES account_pool_environments(id) ON DELETE CASCADE,
+        status text NOT NULL,
+        expires_at timestamptz NOT NULL,
+        payload jsonb NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_environment_idx ON account_pool_oauth_browser_sessions (environment_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_active_environment_idx ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active')",
 )
 
 
@@ -235,6 +248,101 @@ async def _delete_environment(
         (environment_id,),
     )
     await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (environment_id,))
+
+
+class PostgresOAuthBrowserSessionRepository:
+    def __init__(self, database_url: str) -> None:
+        self._database_url: Final = database_url
+
+    async def create_if_absent(self, session: OAuthBrowserSession) -> bool:
+        try:
+            async with database_connection(self._database_url) as connection:
+                await connection.execute(
+                    """
+                    UPDATE account_pool_oauth_browser_sessions
+                    SET status = %s,
+                        payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
+                    WHERE environment_id = %s
+                      AND status IN (%s, %s)
+                      AND expires_at <= %s
+                    """,
+                    (
+                        OAuthBrowserSessionStatus.EXPIRED.value,
+                        OAuthBrowserSessionStatus.EXPIRED.value,
+                        session.environment_id,
+                        OAuthBrowserSessionStatus.STARTING.value,
+                        OAuthBrowserSessionStatus.ACTIVE.value,
+                        session.created_at,
+                    ),
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO account_pool_oauth_browser_sessions (id, environment_id, status, expires_at, payload)
+                    VALUES (%s, %s, %s, %s, %s::jsonb)
+                    """,
+                    (
+                        session.id,
+                        session.environment_id,
+                        session.status.value,
+                        session.expires_at,
+                        Jsonb(session.model_dump(mode="json")),
+                    ),
+                )
+        except psycopg.errors.UniqueViolation:
+            return False
+        return True
+
+    async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT payload FROM account_pool_oauth_browser_sessions WHERE id = %s",
+                (session_id,),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
+    async def consume_ticket(
+        self,
+        session_id: UUID,
+        ticket_digest: str,
+        now: datetime,
+    ) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_oauth_browser_sessions
+                SET payload = jsonb_set(payload, '{ticket_consumed_at}', to_jsonb(%s::timestamptz), true)
+                WHERE id = %s
+                  AND status = %s
+                  AND payload->>'ticket_digest' = %s
+                  AND payload->>'ticket_consumed_at' IS NULL
+                  AND expires_at > %s
+                RETURNING payload
+                """,
+                (now, session_id, OAuthBrowserSessionStatus.ACTIVE.value, ticket_digest, now),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
+    async def transition(
+        self,
+        session_id: UUID,
+        expected: tuple[OAuthBrowserSessionStatus, ...],
+        target: OAuthBrowserSessionStatus,
+    ) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                UPDATE account_pool_oauth_browser_sessions
+                SET status = %s,
+                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
+                WHERE id = %s AND status = ANY(%s)
+                RETURNING payload
+                """,
+                (target.value, target.value, session_id, [item.value for item in expected]),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
 
 
 class PostgresProxyProfileRepository:
