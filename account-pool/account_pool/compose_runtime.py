@@ -11,9 +11,15 @@ from pathlib import Path
 from typing import Final, Protocol
 from uuid import UUID
 
-from account_pool.compose_renderer import data_volume_name, render_cli_proxy_config, render_compose
+from account_pool.compose_renderer import (
+    data_volume_name,
+    render_cli_proxy_config,
+    render_compose,
+    render_oauth_browser_compose,
+)
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
+from account_pool.oauth_browser import OAuthBrowserSession
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 
@@ -60,6 +66,9 @@ class ComposeRuntime:
 
     def environment_dir(self, environment_id: UUID) -> Path:
         return self._settings.data_root / environment_id.hex
+
+    def oauth_browser_dir(self, session_id: UUID) -> Path:
+        return self._settings.data_root / f"oauth-browser-{session_id.hex}"
 
     @property
     def settings(self) -> Settings:
@@ -190,6 +199,49 @@ class ComposeRuntime:
 
     async def restart(self, environment_id: UUID) -> None:
         await self._compose(environment_id, "restart")
+
+    async def start_oauth_browser(
+        self,
+        session: OAuthBrowserSession,
+        *,
+        proxy_url: str,
+        authorization_url: str,
+        callback_token: str,
+    ) -> None:
+        compose: Final = render_oauth_browser_compose(
+            session,
+            self._settings,
+            proxy_url=proxy_url,
+            authorization_url=authorization_url,
+            callback_token=callback_token,
+        )
+        directory: Final = self.oauth_browser_dir(session.id)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _write_private(directory / "compose.yaml", compose)
+        try:
+            await self._compose_at(
+                f"account-pool-oauth-browser-{session.id.hex}",
+                directory,
+                "up",
+                "-d",
+                "--pull",
+                "always",
+                "--remove-orphans",
+            )
+        except RuntimeError:
+            await self.remove_oauth_browser(session.id)
+            raise
+
+    async def remove_oauth_browser(self, session_id: UUID) -> None:
+        directory: Final = self.oauth_browser_dir(session_id)
+        await self._compose_at(
+            f"account-pool-oauth-browser-{session_id.hex}",
+            directory,
+            "down",
+            "--volumes",
+            "--remove-orphans",
+        )
+        await asyncio.to_thread(_remove_environment_directory, directory, self._settings.data_root)
 
     async def _write_stdin(self, process: DockerProcess, stdin_content: str) -> None:
         stdin = process.stdin

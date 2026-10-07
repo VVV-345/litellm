@@ -19,6 +19,7 @@
    - `LITELLM_MASTER_KEY`、`UI_PASSWORD`、`LITELLM_DB_PASSWORD`、`ACCOUNT_POOL_DB_PASSWORD`：使用 `openssl rand -hex 32` 分别生成
    - `ACCOUNT_POOL_MANAGER_TOKEN`：`openssl rand -hex 32` 生成
    - `ACCOUNT_POOL_SECRET_SEED`：`openssl rand -hex 32` 生成，**定了以后不能换**
+   - `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE`：填写 GitHub Actions 发布后返回的 worker 镜像完整 `@sha256:` 引用；留空则不启用受控浏览器
    - `ACCOUNT_POOL_SSH_HOST`：服务器公网 IP 或域名
    - `ACCOUNT_POOL_SSH_USER`：你 SSH 登录用的用户名
 
@@ -97,7 +98,9 @@ Clash 在宿主机上时设置 `ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.inte
 
 - `ghcr.io/vvv-345/litellm:<DEPLOY_TAG>`
 - `ghcr.io/vvv-345/account-pool-manager:<DEPLOY_TAG>`
-首次启用前，需要在 GitHub 的两个现有 GHCR 包设置中进入 `Package settings` -> `Manage Actions access`，添加仓库 `VVV-345/litellm` 并授予 `Admin`。两个包分别是 `litellm` 和 `account-pool-manager`。这是一次性设置，授权后 Actions 使用短期 `GITHUB_TOKEN` 发布和清理旧版本，不需要创建或保存个人访问令牌
+- `ghcr.io/vvv-345/account-pool-browser-worker:<DEPLOY_TAG>`
+受控浏览器只接受完整 digest，不接受 tag。先在 Actions 的 worker 发布结果中复制 digest，再写入 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE`；未完成远程镜像和真实 Docker 验收前保持留空
+首次启用前，需要在 GitHub 的三个 GHCR 包设置中进入 `Package settings` -> `Manage Actions access`，添加仓库 `VVV-345/litellm` 并授予 `Admin`。三个包分别是 `litellm`、`account-pool-manager` 和 `account-pool-browser-worker`。这是一次性设置，授权后 Actions 使用短期 `GITHUB_TOKEN` 发布和清理旧版本，不需要创建或保存个人访问令牌
 
 发布完成后使用 `python3 releasectl.py deploy 新提交前10位` 更新。部署后台会先备份当前运行的配套镜像，备份成功后才替换业务容器；已有完整备份会跳过，切换失败会尝试恢复原版本
 

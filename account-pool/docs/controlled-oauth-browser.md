@@ -1,6 +1,6 @@
 # 受控 OAuth 浏览器设计
 
-状态：`NOT IMPLEMENTED`。本文是已批准方向的可执行设计和验收边界，不代表浏览器、Docker 部署或真实 OAuth 已完成。Docker daemon 当前未启动，镜像、浏览器版本、网络策略和真实回调必须在部署阶段实测后固定，不能凭文档宣称成功。
+状态：`WORKER RUNTIME IMPLEMENTED, DEPLOYMENT UNVERIFIED`。本文是已批准方向的可执行设计和验收边界，不代表浏览器、Docker 部署或真实 OAuth 已完成。Docker daemon 当前未启动，镜像、浏览器版本、网络策略和真实回调必须在部署阶段实测后固定，不能凭文档宣称成功。
 
 ## 方案选择
 
@@ -41,4 +41,4 @@ CLIProxyAPI 的 token 交换必须继续在该环境的既有代理配置下执�
 
 OAuth 创建请求现在接收 `proxy_profile_id`，LiteLLM 会透传到 Manager，Manager 在创建容器前检查 profile 并把其 URL 写入初始 CLIProxyAPI 配置，再应用配置后才启动授权。授权等待期间，配置接口拒绝更换代理。Dashboard、请求 schema 与 Manager 测试覆盖选择值透传和未授权前拒绝不可用 profile。
 
-受控浏览器 worker、websocket ticket、隔离 egress relay、回调 relay 和会话清理目前仍未实现。浏览器端强制代理及代理出口不一致检查也未实现；Docker daemon 不可用，必须等运行环境可用后按验收矩阵部署验证。
+Task 2 已实现 digest-only 的短生命周期 worker Compose、内部浏览器网络、TLS 校验的 egress relay、callback sidecar 和会话清理。websocket ticket、回调 HTTP handler、代理出口不一致检查和真实 Docker 验收仍未实现；Docker daemon 不可用，必须等运行环境可用后按验收矩阵部署验证
