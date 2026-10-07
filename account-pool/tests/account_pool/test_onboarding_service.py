@@ -21,10 +21,10 @@ from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
 from test_account_pool import (
-    EmptyProfiles,
     FakeCLIProxy,
     FakeRuntime,
     MemoryRepository,
+    StaticProfiles,
     _fake_channels,
     _record,
     _settings,
@@ -74,7 +74,7 @@ def setup_service(tmp_path: Path, cli: FakeCLIProxy | None = None):
         environments,
         runtime,
         upstream,
-        EmptyProfiles(),
+        StaticProfiles("http://onboarding-proxy.example:8080"),
         secrets,
         channels=_fake_channels(runtime, upstream),
         direct_credential_validation_timeout_seconds=0.02,
@@ -105,6 +105,7 @@ def oauth_request(prepare=True):
         supplier="openai_codex",
         mailbox="gmail",
         prepare_mailbox=prepare,
+        proxy_profile_id="onboarding-proxy",
         entries=(
             OnboardingEntry(
                 label="test@example.com", mailbox_password="mail-secret", supplier_password="supplier-secret"
@@ -163,6 +164,24 @@ async def test_failed_file_validation_reuses_original_card_on_retry(tmp_path):
     assert item.state == "ready"
     assert item.card_id == first.items[0].card_id
     assert {card.id for card in runtime.provisioned} == {item.card_id}
+
+
+async def test_oauth_onboarding_uses_selected_proxy_for_card(tmp_path):
+    service, _, environments, _, cli, _ = setup_service(tmp_path)
+    request = OnboardingImport.model_validate(
+        {**oauth_request(prepare=False).model_dump(), "proxy_profile_id": "onboarding-proxy"}
+    )
+    item = (await service.submit(request)).items[0]
+    await service.action(item.id, OnboardingAction(action="start"))
+
+    await service.run_once()
+
+    record = await environments.get(item.card_id)
+    assert record is not None
+    assert record.proxy_profile_id == "onboarding-proxy"
+    assert record.desired_configuration is not None
+    assert record.desired_configuration.proxy_url == "http://onboarding-proxy.example:8080"
+    assert cli.events[:2] == ["proxy:http://onboarding-proxy.example:8080", "oauth"]
 
 
 async def test_preview_rejects_provider_mismatch_and_deduplicates_rotated_credentials(tmp_path):

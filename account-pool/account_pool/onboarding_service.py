@@ -57,6 +57,7 @@ class OnboardingPayload(BaseModel):
     entry: OnboardingEntry
     mailbox_ready: bool = False
     proposed_password: str | None = None
+    proxy_profile_id: str | None = None
 
 
 def file_identity(entry: OnboardingEntry, supplier: str, secrets: EnvironmentSecretDeriver) -> tuple[str, ...]:
@@ -185,7 +186,11 @@ class OnboardingService:
                 created_at=now,
                 updated_at=now,
             )
-            payload: Final = OnboardingPayload(entry=entry, mailbox_ready=not request.prepare_mailbox)
+            payload: Final = OnboardingPayload(
+                entry=entry,
+                mailbox_ready=not request.prepare_mailbox,
+                proxy_profile_id=request.proxy_profile_id,
+            )
             await self.repository.insert(
                 StoredOnboarding(
                     item=item,
@@ -283,6 +288,7 @@ class OnboardingService:
         request: Final = CreateEnvironmentRequest(
             name=f"{_SUPPLIER_NAMES[row.item.supplier]}-套餐待识别-{row.item.label}"[:80],
             supplier=SupplierKind(row.item.supplier),
+            proxy_profile_id=payload.proxy_profile_id,
             operation_id=f"onboarding:{row.item.id}",
         )
         running: Final = row.model_copy(

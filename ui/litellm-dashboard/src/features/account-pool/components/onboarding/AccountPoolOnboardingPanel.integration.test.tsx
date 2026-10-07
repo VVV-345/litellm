@@ -1,6 +1,6 @@
 /** 验证两条上号流程独立、密码按需读取和等待授权的界面。 */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
@@ -34,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   get.mockImplementation(async (path: string) => {
     if (path.endsWith("/items")) return [item];
+    if (path.endsWith("/proxy-profiles")) return [{ id: "proxy-us", name: "Proxy US", protocol: "http" }];
     if (path.endsWith("/suppliers"))
       return [
         { supplier: "openai_codex", display_name: "Codex", authentication: "OAuth", oauth: true, auth_file: true },
@@ -55,10 +56,15 @@ beforeEach(() => {
       ];
     return [];
   });
-  post.mockResolvedValue({
-    mailbox_password: "mail-only-secret",
-    supplier_password: "provider-only-secret",
-    proposed_password: null,
+  post.mockImplementation(async (path: string) => {
+    if (path.endsWith("/preview")) {
+      return [{ index: 0, label: "account@example.com", status: "valid", message: "校验通过" }];
+    }
+    return {
+      mailbox_password: "mail-only-secret",
+      supplier_password: "provider-only-secret",
+      proposed_password: null,
+    };
   });
 });
 
@@ -92,5 +98,32 @@ describe("onboarding workflows", () => {
     expect(screen.getByLabelText("模型供应商")).toHaveValue("anthropic_claude");
     expect(screen.getByLabelText("邮箱类型")).toHaveValue("mail");
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it("requires and forwards a proxy profile for OAuth onboarding", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("tab", { name: "OAuth 上号" }));
+
+    const fileInput = await screen.findByLabelText("账号 JSON 文件");
+    expect(fileInput).toBeDisabled();
+    await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
+    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    expect(fileInput).toBeEnabled();
+
+    const content = '[{"email":"account@example.com","mailbox_password":"mail-secret"}]';
+    const file = new File([content], "accounts.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => content });
+    await user.upload(fileInput, file);
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/account_pool/onboarding/preview",
+        expect.objectContaining({
+          accessToken: "test",
+          body: expect.objectContaining({ source: "oauth", proxy_profile_id: "proxy-us" }),
+        }),
+      ),
+    );
   });
 });

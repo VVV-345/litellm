@@ -35718,6 +35718,8 @@ export interface components {
              * @default true
              */
             prepare_mailbox: boolean;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
             /**
              * Source
              * @enum {string}

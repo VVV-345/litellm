@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import {
@@ -24,12 +25,14 @@ import {
 import { AccountPoolOnboardingTasks } from "./AccountPoolOnboardingTasks";
 import { AccountPoolOnboardingTarget } from "./AccountPoolOnboardingTarget";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
 
 export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: string }) {
   const client = useQueryClient();
   const [source, setSource] = useState<"auth_file" | "oauth">("auth_file");
   const [supplier, setSupplier] = useState<OnboardingImport["supplier"]>("openai_codex");
   const [mailbox, setMailbox] = useState<"outlook" | "gmail" | "mail">("outlook");
+  const [proxyProfileId, setProxyProfileId] = useState("");
   const [prepareMailbox, setPrepareMailbox] = useState(true);
   const [request, setRequest] = useState<OnboardingImport | null>(null);
   const [preview, setPreview] = useState<OnboardingPreview[]>([]);
@@ -38,10 +41,19 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     queryKey: accountPoolQueryKeys.onboardingSuppliers(accessToken),
     queryFn: () => listOnboardingSuppliers(accessToken),
   });
+  const proxyProfilesQuery = useQuery({
+    ...accountPoolProxyProfileOptions(accessToken),
+    enabled: source === "oauth",
+  });
+  const proxyProfiles = proxyProfilesQuery.data ?? [];
+  const proxyProfileSelected = proxyProfiles.some((profile) => profile.id === proxyProfileId);
+  const proxyProfileListEmpty = !proxyProfilesQuery.isPending && !proxyProfilesQuery.isError && proxyProfiles.length === 0;
   const supported =
     suppliersQuery.data?.some(
       (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
     ) ?? false;
+  const missingOAuthProxy = source === "oauth" && !proxyProfileSelected;
+  const fileInputDisabled = busy || !supported || missingOAuthProxy;
   const queryKey = accountPoolQueryKeys.onboarding(accessToken);
   const query = useQuery({ queryKey, queryFn: () => listOnboarding(accessToken), refetchInterval: 5000 });
   const reset = () => {
@@ -56,6 +68,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     setBusy(true);
     try {
       if (!supported) throw new Error("当前供应商不支持此上号方式，请选择其他供应商");
+      if (source === "oauth" && !proxyProfileSelected) throw new Error("请选择有效的 OAuth 出站代理");
       if (files.length === 0 || files.length > (source === "oauth" ? 1 : 100))
         throw new Error("认证文件每批最多 100 个，邮箱账号表每批选择一个文件");
       if (
@@ -82,6 +95,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
         mailbox,
         prepare_mailbox: prepareMailbox,
         entries,
+        ...(source === "oauth" ? { proxy_profile_id: proxyProfileId } : {}),
       };
       const checked = await previewOnboarding(accessToken, body);
       setRequest(body);
@@ -121,6 +135,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
         onValueChange={(value) => {
           if (value === "oauth" || value === "auth_file") {
             setSource(value);
+            setProxyProfileId("");
             reset();
           }
         }}
@@ -175,6 +190,37 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                 </div>
                 {source === "oauth" && (
                   <div className="space-y-2">
+                    <Label htmlFor="onboarding-proxy-profile">OAuth 出站代理</Label>
+                    <Select
+                      items={proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+                      value={proxyProfileId}
+                      onValueChange={(value) => {
+                        setProxyProfileId(value ?? "");
+                        reset();
+                      }}
+                      disabled={busy || proxyProfilesQuery.isPending || proxyProfiles.length === 0}
+                    >
+                      <SelectTrigger id="onboarding-proxy-profile" aria-label="OAuth 出站代理">
+                        <SelectValue placeholder="选择代理节点" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {proxyProfiles.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {proxyProfilesQuery.isError && (
+                      <p role="alert" className="text-sm text-destructive">
+                        代理目录读取失败，请刷新重试
+                      </p>
+                    )}
+                    {proxyProfileListEmpty && <p className="text-sm text-muted-foreground">暂无可用代理节点</p>}
+                  </div>
+                )}
+                {source === "oauth" && (
+                  <div className="space-y-2">
                     <Label htmlFor="onboarding-mailbox">邮箱类型</Label>
                     <select
                       id="onboarding-mailbox"
@@ -202,7 +248,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     type="file"
                     accept=".json,application/json"
                     multiple={source === "auth_file"}
-                    disabled={busy || !supported}
+                    disabled={fileInputDisabled}
                     onChange={(event) => {
                       void readFiles(Array.from(event.target.files ?? []));
                       event.target.value = "";

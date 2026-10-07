@@ -133,6 +133,8 @@ class EnvironmentProvisioning:
         if isinstance(proxy_result, Failure):
             return proxy_result
         proxy_mode, proxy_profile_id, proxy_url = proxy_result.value
+        if proxy_mode is not ProxyMode.PROFILE:
+            return Failure(FailureCode.INVALID, "a proxy profile is required before OAuth")
         now: Final = utc_now()
         record: Final = EnvironmentRecord(
             id=environment_id or uuid4(),
