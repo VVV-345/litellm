@@ -7,19 +7,24 @@ import http.server
 import ipaddress
 import json
 import os
+import socket
 import ssl
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
+from http.client import HTTPResponse
+from pathlib import Path
 from types import MappingProxyType
-from typing import Final, Mapping, Protocol, cast
+from typing import Final, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
+
+_BROWSER_READY_FILE: Final = Path("/tmp/oauth-browser-ready")
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,9 +186,7 @@ def _callback_fields(query: str) -> Mapping[str, str] | None:
         return None
     if any(key in allowed and len(items) != 1 for key, items in values.items()):
         return None
-    fields: Final = MappingProxyType(
-        {key: values[key][0] for key in allowed if key in values}
-    )
+    fields: Final = MappingProxyType({key: values[key][0] for key in allowed if key in values})
     if len(fields["state"]) < 16 or len(fields["state"]) > 512:
         return None
     code: Final = fields.get("code")
@@ -212,13 +215,7 @@ class _BrowserCallbackHandler(http.server.BaseHTTPRequestHandler):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urlopen(request, timeout=30) as response:
-                code: Final = response.status
-        except HTTPError as error:
-            code = error.code
-        except (OSError, URLError, TimeoutError):
-            code = 502
+        code: Final = _callback_response_status(request)
         self._respond(200 if 200 <= code < 300 else code)
 
     def _respond(self, code: int) -> None:
@@ -259,12 +256,13 @@ class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
             self._respond(413)
             return
         try:
-            decoded: Final[object] = json.loads(self.rfile.read(body_length))
+            decoded: Final = cast(object, json.loads(self.rfile.read(body_length)))
         except (UnicodeDecodeError, json.JSONDecodeError):
             self._respond(400)
             return
         if not isinstance(decoded, dict) or any(
-            not isinstance(key, str) or not isinstance(value, str) for key, value in decoded.items()
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in cast(dict[object, object], decoded).items()
         ):
             self._respond(400)
             return
@@ -281,13 +279,7 @@ class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             method="POST",
         )
-        try:
-            with urlopen(request, timeout=30) as response:
-                code: Final = response.status
-        except HTTPError as error:
-            code = error.code
-        except (OSError, URLError, TimeoutError):
-            code = 502
+        code: Final = _callback_response_status(request)
         self._respond(200 if 200 <= code < 300 else code)
 
     def _respond(self, code: int) -> None:
@@ -301,6 +293,16 @@ class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
 
     def log_error(self, format: str, *args: object) -> None:
         return None
+
+
+def _callback_response_status(request: Request) -> int:
+    try:
+        with cast(HTTPResponse, urlopen(request, timeout=30)) as response:
+            return response.status
+    except HTTPError as error:
+        return error.code
+    except (OSError, URLError, TimeoutError):
+        return 502
 
 
 def _valid_relay_fields(fields: Mapping[str, str]) -> bool:
@@ -327,8 +329,15 @@ def _run_callback_relay(manager_callback_url: str, callback_token: str) -> None:
         manager_callback_url=manager_callback_url,
         callback_token=callback_token,
     )
-    with server:
-        server.serve_forever()
+    process_environment: Final = {"HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
+    with ExitStack() as processes:
+        _start_process(
+            ("websockify", "--web=/usr/share/novnc", "0.0.0.0:8093", "browser:5900"),
+            process_environment,
+            processes,
+        )
+        with server:
+            server.serve_forever()
 
 
 def _required_environment(name: str) -> str:
@@ -361,6 +370,54 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=5)
 
 
+def _check_port(port: int) -> None:
+    with socket.create_connection(("127.0.0.1", port), timeout=2):
+        pass
+
+
+def _check_health(
+    mode: str,
+    *,
+    ready_file: Path = _BROWSER_READY_FILE,
+    check_port: Callable[[int], None] = _check_port,
+    callback_port: int | None = None,
+) -> None:
+    match mode:
+        case "browser":
+            if not ready_file.is_file():
+                raise RuntimeError("OAuth browser is not ready")
+            check_port(5900)
+            check_port(
+                callback_port if callback_port is not None else int(_required_environment("OAUTH_CALLBACK_LISTEN_PORT"))
+            )
+        case "callback-relay":
+            check_port(8092)
+            check_port(8093)
+        case "egress-relay":
+            check_port(8080)
+        case _:
+            raise ValueError("unsupported browser healthcheck")
+
+
+def _run_browser_page(chromium: Chromium, authorization_url: str, proxy_server: str, ready_file: Path) -> None:
+    ready_file.unlink(missing_ok=True)
+    browser: Final = chromium.launch(
+        headless=False,
+        proxy={"server": proxy_server, "bypass": "localhost,127.0.0.1,[::1]"},
+    )
+    try:
+        page: Final = browser.new_page()
+        page.goto(authorization_url, wait_until="domcontentloaded", timeout=30_000)
+        ready_file.touch()
+        while True:
+            page.wait_for_timeout(30_000)
+    except Exception:
+        raise RuntimeError("OAuth browser failed while opening the authorization page") from None
+    finally:
+        ready_file.unlink(missing_ok=True)
+        browser.close()
+
+
 def _run_browser() -> None:
     authorization_url: Final = _required_environment("OAUTH_AUTHORIZATION_URL")
     proxy_server: Final = _required_environment("CHROME_PROXY")
@@ -387,7 +444,7 @@ def _run_browser() -> None:
     if relay.scheme != "http" or relay.hostname != "callback-relay" or relay.port != 8092 or relay.path != "/callback":
         raise RuntimeError("OAuth callback relay is invalid")
 
-    display: Final = ":99"
+    display: Final = _required_environment("DISPLAY")
     process_environment: Final = {"DISPLAY": display, "HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
     with ExitStack() as processes:
         callback_server: Final = _CallbackServer(
@@ -403,12 +460,7 @@ def _run_browser() -> None:
             ("Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"), process_environment, processes
         )
         _start_process(
-            ("x11vnc", "-display", display, "-forever", "-shared", "-nopw", "-localhost", "-rfbport", "5900"),
-            process_environment,
-            processes,
-        )
-        _start_process(
-            ("websockify", "--web=/usr/share/novnc", "127.0.0.1:6080", "127.0.0.1:5900"),
+            ("x11vnc", "-display", display, "-forever", "-shared", "-nopw", "-rfbport", "5900"),
             process_environment,
             processes,
         )
@@ -418,16 +470,7 @@ def _run_browser() -> None:
 
         playwright_factory: Final = cast(Callable[[], PlaywrightContext], sync_playwright)
         with playwright_factory() as playwright:
-            browser: Final = playwright.chromium.launch(headless=False, proxy={"server": proxy_server})
-            try:
-                page: Final = browser.new_page()
-                page.goto(authorization_url, wait_until="domcontentloaded", timeout=30_000)
-                while True:
-                    page.wait_for_timeout(30_000)
-            except Exception:
-                raise RuntimeError("OAuth browser failed while opening the authorization page") from None
-            finally:
-                browser.close()
+            _run_browser_page(playwright.chromium, authorization_url, proxy_server, _BROWSER_READY_FILE)
 
 
 def main() -> None:
@@ -439,6 +482,11 @@ def main() -> None:
             asyncio.run(_run_egress_relay(_required_environment("PROXY_URL")))
         case "callback-relay":
             _run_callback_relay(_required_environment("MANAGER_CALLBACK_URL"), _required_environment("CALLBACK_TOKEN"))
+        case "healthcheck":
+            try:
+                _check_health(sys.argv[2])
+            except (IndexError, OSError, RuntimeError, ValueError):
+                raise SystemExit("OAuth browser service is not ready") from None
         case _:
             raise SystemExit("unsupported browser worker mode")
 

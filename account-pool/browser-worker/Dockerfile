@@ -10,6 +10,9 @@ RUN apt-get update \
     && groupadd --gid 10001 browser \
     && useradd --uid 10001 --gid 10001 --home-dir /tmp --no-create-home --shell /usr/sbin/nologin browser
 
+RUN python -m pip install --no-cache-dir playwright==1.63.0 \
+    && python -c "from playwright.sync_api import sync_playwright; from importlib.metadata import version; assert version('playwright') == '1.63.0'"
+
 WORKDIR /app
 COPY browser-worker/entrypoint.py /app/entrypoint.py
 RUN chmod 0555 /app/entrypoint.py

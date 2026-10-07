@@ -228,8 +228,11 @@ class ComposeRuntime:
                 directory,
                 "up",
                 "-d",
+                "--wait",
+                "--wait-timeout",
+                "45",
                 "--pull",
-                "always",
+                "never",
                 "--remove-orphans",
             )
         except BaseException:

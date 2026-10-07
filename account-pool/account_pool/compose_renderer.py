@@ -124,6 +124,7 @@ def render_oauth_browser_compose(
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=128m"],
                 "environment": {
+                    "DISPLAY": ":99",
                     "CHROME_PROXY": "http://egress-relay:8080",
                     "CALLBACK_RELAY_URL": "http://callback-relay:8092/callback",
                     "OAUTH_AUTHORIZATION_URL": authorization_url,
@@ -131,6 +132,17 @@ def render_oauth_browser_compose(
                     "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
                 },
                 "networks": {"browser": {"aliases": ["browser"]}},
+                "depends_on": {
+                    "callback-relay": {"condition": "service_healthy"},
+                    "egress-relay": {"condition": "service_healthy"},
+                },
+                "healthcheck": {
+                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "browser"],
+                    "interval": "2s",
+                    "timeout": "5s",
+                    "retries": 20,
+                    "start_period": "5s",
+                },
                 "restart": "no",
             },
             "callback-relay": {
@@ -151,7 +163,16 @@ def render_oauth_browser_compose(
                         f"{session.id}/callback"
                     ),
                 },
-                "networks": ["browser", "control"],
+                "networks": {
+                    "browser": None,
+                    "control": {"aliases": [f"{project_name}-callback-relay"]},
+                },
+                "healthcheck": {
+                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "callback-relay"],
+                    "interval": "2s",
+                    "timeout": "5s",
+                    "retries": 10,
+                },
                 "restart": "no",
             },
             "egress-relay": {
@@ -166,7 +187,14 @@ def render_oauth_browser_compose(
                 "cap_drop": ["ALL"],
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
                 "environment": {"PROXY_URL": selected_proxy},
+                "extra_hosts": ["host.docker.internal:host-gateway"],
                 "networks": ["browser", "egress"],
+                "healthcheck": {
+                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "egress-relay"],
+                    "interval": "2s",
+                    "timeout": "5s",
+                    "retries": 10,
+                },
                 "restart": "no",
             },
         },
