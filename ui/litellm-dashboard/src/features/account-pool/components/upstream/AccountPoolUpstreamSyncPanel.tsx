@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
 
 import {
@@ -106,10 +107,15 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
     return <Skeleton className="h-72 w-full" />;
   }
   if (statusQuery.isError || !statusQuery.data) {
+    const rateLimited = statusQuery.error instanceof ApiError && statusQuery.error.status === 429;
     return (
       <Card>
         <CardContent className="flex items-center justify-between gap-4 p-6" role="alert">
-          <p className="text-sm text-destructive">{t("accountPool.upstreamSync.loadFailed")}</p>
+          <p className="text-sm text-destructive">
+            {t(rateLimited ? "accountPool.upstreamSync.rateLimited" : "accountPool.upstreamSync.loadFailed", {
+              target: targetLabel,
+            })}
+          </p>
           <Button type="button" variant="outline" onClick={() => void statusQuery.refetch()}>
             {t("accountPool.retry")}
           </Button>

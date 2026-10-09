@@ -6934,7 +6934,8 @@
       "analysisQueued": "Compatibility analysis queued",
       "promotionQueued": "Promotion validation queued",
       "reviewDownloaded": "Codex review task downloaded",
-      "loadFailed": "Unable to check CLIProxyAPI upstream updates",
+      "loadFailed": "Unable to check {{target}} upstream updates",
+      "rateLimited": "GitHub rate limit reached while checking {{target}}. Retry later or ask an administrator to configure this module's dedicated GitHub Token.",
       "states": {
         "idle": "Not checked",
         "queued": "Queued",

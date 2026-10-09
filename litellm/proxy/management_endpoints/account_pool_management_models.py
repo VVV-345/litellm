@@ -789,6 +789,7 @@ class UpstreamSyncReport(BaseModel):
 class UpstreamSyncView(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    target: Literal["cliproxyapi", "litellm"] = "cliproxyapi"
     upstream_repository: str
     fork_repository: str
     sync_branch: str

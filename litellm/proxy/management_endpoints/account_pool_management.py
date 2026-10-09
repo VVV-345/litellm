@@ -52,6 +52,10 @@ def create_management_router(
     ) -> bytes:
         response: Final = await request_manager(method, path, body)
         if response.is_error:
+            if response.status_code == 429 and path.startswith("/api/upstream-sync"):
+                raise HTTPException(
+                    429, "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
+                )
             raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")
         return response.content
 
@@ -198,6 +202,40 @@ def create_management_router(
         return parse_response(
             await call("GET", "/api/upstream-sync/codex-review"),
             TypeAdapter(CodexReviewPackage),
+        )
+
+    @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
+    async def litellm_upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncView:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(await call("GET", "/api/upstream-sync/litellm"), TypeAdapter(UpstreamSyncView))
+
+    @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)
+    async def analyze_litellm_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/litellm/analyze"), TypeAdapter(UpstreamSyncDispatch)
+        )
+
+    @router.post("/upstream-sync/litellm/promote", response_model=UpstreamSyncDispatch, status_code=202)
+    async def promote_litellm_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> UpstreamSyncDispatch:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("POST", "/api/upstream-sync/litellm/promote"), TypeAdapter(UpstreamSyncDispatch)
+        )
+
+    @router.get("/upstream-sync/litellm/codex-review", response_model=CodexReviewPackage)
+    async def litellm_codex_review_package(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
+        response: Response,
+    ) -> CodexReviewPackage:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("GET", "/api/upstream-sync/litellm/codex-review"), TypeAdapter(CodexReviewPackage)
         )
 
     return router

@@ -7,11 +7,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import type { UpstreamSyncView } from "../../api/AccountPoolManagementApi";
+import { ApiError } from "@/lib/http/client";
 
 const getStatus = vi.fn();
 const analyze = vi.fn();
 const promote = vi.fn();
 const getReview = vi.fn();
+const getLiteLLMStatus = vi.fn();
 const analysisDispatch = {
   request_id: "c24d4fcb-ff4a-424e-b86e-e3fe7a9ce649",
   action: "analyze",
@@ -36,6 +38,10 @@ vi.mock("../../api/AccountPoolManagementApi", () => ({
   analyzeAccountPoolUpstream: (...args: unknown[]) => analyze(...args),
   promoteAccountPoolUpstream: (...args: unknown[]) => promote(...args),
   getAccountPoolCodexReview: (...args: unknown[]) => getReview(...args),
+  getLiteLLMUpstreamSync: (...args: unknown[]) => getLiteLLMStatus(...args),
+  analyzeLiteLLMUpstream: vi.fn(),
+  promoteLiteLLMUpstream: vi.fn(),
+  getLiteLLMCodexReview: vi.fn(),
 }));
 
 vi.mock("@/lib/toast", () => ({
@@ -47,6 +53,7 @@ vi.mock("@/lib/toast", () => ({
 }));
 
 const status = (state: UpstreamSyncView["report"]["state"] = "idle"): UpstreamSyncView => ({
+  target: "cliproxyapi",
   upstream_repository: "router-for-me/CLIProxyAPI",
   fork_repository: "VVV-345/CLIProxyAPI",
   sync_branch: "codex/upstream-sync",
@@ -71,10 +78,10 @@ const status = (state: UpstreamSyncView["report"]["state"] = "idle"): UpstreamSy
   },
 });
 
-const renderPanel = () =>
+const renderPanel = (target: "cliproxyapi" | "litellm" = "cliproxyapi") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <AccountPoolUpstreamSyncPanel accessToken="token" />
+      <AccountPoolUpstreamSyncPanel accessToken="token" target={target} />
     </QueryClientProvider>,
   );
 
@@ -82,9 +89,44 @@ describe("AccountPoolUpstreamSyncPanel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     getStatus.mockResolvedValue(status());
+    const litellmStatus: UpstreamSyncView = {
+      ...status(),
+      target: "litellm",
+      current_tag: "v1.100.0",
+      latest_tag: "v1.101.0",
+    };
+    getLiteLLMStatus.mockResolvedValue(litellmStatus);
     analyze.mockResolvedValue(analysisDispatch);
     promote.mockResolvedValue(promotionDispatch);
     getReview.mockResolvedValue(reviewPackage);
+  });
+
+  it("shows the LiteLLM version without requiring the CLIProxyAPI query", async () => {
+    getStatus.mockRejectedValue(new Error("CLIProxyAPI unavailable"));
+    renderPanel("litellm");
+    expect(await screen.findByText("v1.101.0")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("identifies the failing target and recovers on retry", async () => {
+    getLiteLLMStatus.mockRejectedValueOnce(new ApiError("Not Found", 404, {}));
+    renderPanel("litellm");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("LiteLLM");
+    expect(alert).not.toHaveTextContent("CLIProxyAPI");
+    await userEvent.click(screen.getByRole("button", { name: /重试|Retry/i }));
+    expect(await screen.findByText("v1.101.0")).toBeInTheDocument();
+  });
+
+  it("explains GitHub rate limiting without rendering raw server errors or offering promotion", async () => {
+    getLiteLLMStatus.mockRejectedValue(new ApiError("sensitive server detail", 429, {}));
+    renderPanel("litellm");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/GitHub/);
+    expect(alert).toHaveTextContent(/限流|rate limit/i);
+    expect(alert).toHaveTextContent(/Token|token/);
+    expect(alert).not.toHaveTextContent("sensitive server detail");
+    expect(screen.queryByRole("button", { name: /正式合并更新|Merge validated update/i })).not.toBeInTheDocument();
   });
 
   it("starts an isolated compatibility analysis for a newer release", async () => {

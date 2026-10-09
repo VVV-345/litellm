@@ -77,6 +77,29 @@ async def test_status_reports_latest_release_and_fixed_branch_result() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["status", "codex_review_package", "analyze"])
+@pytest.mark.parametrize(
+    "status_code,headers,expected", [(403, {"X-RateLimit-Remaining": "0"}, 429), (429, {}, 429), (403, {}, 502)]
+)
+async def test_github_rate_limits_are_distinct_from_permission_failures(
+    operation: str, status_code: int, headers: dict[str, str], expected: int
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, headers=headers, json={"message": "GitHub error"}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        service = GitHubUpstreamSyncService(_settings(), client, target="litellm")
+        with pytest.raises(UpstreamSyncError) as caught:
+            await getattr(service, operation)()
+    assert caught.value.status_code == expected
+    if expected == 429:
+        assert (
+            caught.value.message
+            == "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
+        )
+
+
+@pytest.mark.asyncio
 async def test_analyze_dispatches_only_the_latest_release_to_the_fixed_workflow() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/releases/latest"):

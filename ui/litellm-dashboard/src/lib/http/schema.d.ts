@@ -1890,6 +1890,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/upstream-sync/litellm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Litellm Upstream Sync Status */
+        get: operations["litellm_upstream_sync_status_account_pool_upstream_sync_litellm_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/litellm/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Analyze Litellm Upstream */
+        post: operations["analyze_litellm_upstream_account_pool_upstream_sync_litellm_analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/litellm/codex-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Litellm Codex Review Package */
+        get: operations["litellm_codex_review_package_account_pool_upstream_sync_litellm_codex_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/upstream-sync/litellm/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Litellm Upstream */
+        post: operations["promote_litellm_upstream_account_pool_upstream_sync_litellm_promote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/upstream-sync/promote": {
         parameters: {
             query?: never;
@@ -42271,6 +42339,12 @@ export interface components {
             report: components["schemas"]["UpstreamSyncReport"];
             /** Sync Branch */
             sync_branch: string;
+            /**
+             * Target
+             * @default cliproxyapi
+             * @enum {string}
+             */
+            target: "cliproxyapi" | "litellm";
             /** Update Available */
             update_available: boolean;
             /** Upstream Repository */
@@ -46668,6 +46742,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CodexReviewPackage"];
+                };
+            };
+        };
+    };
+    litellm_upstream_sync_status_account_pool_upstream_sync_litellm_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncView"];
+                };
+            };
+        };
+    };
+    analyze_litellm_upstream_account_pool_upstream_sync_litellm_analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncDispatch"];
+                };
+            };
+        };
+    };
+    litellm_codex_review_package_account_pool_upstream_sync_litellm_codex_review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodexReviewPackage"];
+                };
+            };
+        };
+    };
+    promote_litellm_upstream_account_pool_upstream_sync_litellm_promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpstreamSyncDispatch"];
                 };
             };
         };

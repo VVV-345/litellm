@@ -198,6 +198,7 @@ class GitHubUpstreamSyncService:
             )
         except httpx.HTTPError as error:
             raise UpstreamSyncError(502, "Unable to dispatch the GitHub compatibility workflow") from error
+        _raise_github_rate_limit(response)
         if response.status_code != 204:
             raise UpstreamSyncError(502, _github_error(response, "GitHub rejected the workflow dispatch"))
         return UpstreamSyncDispatch(request_id=request_id, action=action, target_tag=target_tag)
@@ -210,6 +211,7 @@ class GitHubUpstreamSyncService:
             )
         except httpx.HTTPError as error:
             raise UpstreamSyncError(502, "Unable to check the upstream release") from error
+        _raise_github_rate_limit(response)
         if response.is_error:
             raise UpstreamSyncError(502, _github_error(response, "Unable to check the upstream release"))
         try:
@@ -244,6 +246,7 @@ class GitHubUpstreamSyncService:
             )
         except httpx.HTTPError as error:
             raise UpstreamSyncError(502, f"Unable to read {path} from the sync branch") from error
+        _raise_github_rate_limit(response)
         if response.status_code == 404 and not required:
             return None
         if response.is_error:
@@ -308,6 +311,15 @@ def _version_key(tag: str) -> tuple[int, int, int, int, str]:
         raise UpstreamSyncError(502, f"Unsupported upstream release tag: {tag}")
     suffix: Final = tag[match.end(3) :]
     return int(match.group(1)), int(match.group(2)), int(match.group(3)), int(not suffix), suffix
+
+
+def _raise_github_rate_limit(response: httpx.Response) -> None:
+    if response.status_code == 429 or (
+        response.status_code == 403 and response.headers.get("X-RateLimit-Remaining") == "0"
+    ):
+        raise UpstreamSyncError(
+            429, "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
+        )
 
 
 def _github_error(response: httpx.Response, fallback: str) -> str:

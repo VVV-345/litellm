@@ -6934,7 +6934,8 @@
       "analysisQueued": "兼容性检测已进入队列",
       "promotionQueued": "正式合并前复测已进入队列",
       "reviewDownloaded": "Codex 审查任务已下载",
-      "loadFailed": "无法检查 CLIProxyAPI 上游更新",
+      "loadFailed": "无法检查 {{target}} 上游更新",
+      "rateLimited": "GitHub 对 {{target}} 的查询已限流。请稍后重试，或由管理员配置该模块专用的 GitHub Token。",
       "states": {
         "idle": "尚未检测",
         "queued": "排队中",

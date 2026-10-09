@@ -6,7 +6,8 @@ import asyncio
 import json
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
-from typing import Final, TypedDict
+from pathlib import Path
+from typing import Final, Literal, TypedDict
 from uuid import uuid4
 
 import httpx
@@ -855,7 +856,13 @@ def test_proxy_admin_can_list_clash_nodes_and_manager_errors_propagate() -> None
     assert broken.json()["detail"] == "clash controller returned status 502"
 
 
-def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
+@pytest.mark.parametrize("target,suffix", [("cliproxyapi", ""), ("litellm", "/litellm")])
+def test_proxy_admin_can_manage_upstream_compatibility_workflow(
+    target: Literal["cliproxyapi", "litellm"], suffix: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[4] / "account-pool"))
+    from account_pool.upstream_sync import UpstreamSyncView as ManagerUpstreamSyncView
+
     requested: list[tuple[str, str]] = []
     report: Final = {
         "schema_version": 1,
@@ -875,23 +882,26 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
     def factory() -> AccountPoolManagerClient:
         def handler(request: httpx.Request) -> httpx.Response:
             requested.append((request.method, request.url.path))
-            if request.url.path == "/api/upstream-sync":
+            if request.url.path == f"/api/upstream-sync{suffix}":
                 return httpx.Response(
                     200,
-                    json={
-                        "upstream_repository": "router-for-me/CLIProxyAPI",
-                        "fork_repository": "VVV-345/CLIProxyAPI",
-                        "sync_branch": "codex/upstream-sync",
-                        "current_tag": "v7.2.146",
-                        "latest_tag": "v7.3.2",
-                        "latest_release_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
-                        "update_available": True,
-                        "dispatch_configured": True,
-                        "report": report,
-                    },
+                    json=ManagerUpstreamSyncView.model_validate(
+                        {
+                            "target": target,
+                            "upstream_repository": "router-for-me/CLIProxyAPI",
+                            "fork_repository": "VVV-345/CLIProxyAPI",
+                            "sync_branch": "codex/upstream-sync",
+                            "current_tag": "v7.2.146",
+                            "latest_tag": "v7.3.2",
+                            "latest_release_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                            "update_available": True,
+                            "dispatch_configured": True,
+                            "report": report,
+                        }
+                    ).model_dump(mode="json"),
                     request=request,
                 )
-            if request.url.path == "/api/upstream-sync/codex-review":
+            if request.url.path == f"/api/upstream-sync{suffix}/codex-review":
                 return httpx.Response(
                     200,
                     json={
@@ -922,12 +932,15 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
 
     with TestClient(app) as client:
-        status_response: Final = client.get("/account_pool/upstream-sync")
-        analysis_response: Final = client.post("/account_pool/upstream-sync/analyze")
-        promotion_response: Final = client.post("/account_pool/upstream-sync/promote")
-        review_response: Final = client.get("/account_pool/upstream-sync/codex-review")
+        status_response: Final = client.get(f"/account_pool/upstream-sync{suffix}")
+        analysis_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/analyze")
+        promotion_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/promote")
+        review_response: Final = client.get(f"/account_pool/upstream-sync{suffix}/codex-review")
 
     assert status_response.status_code == 200
+    assert status_response.json()["target"] == target
+    for response in (status_response, analysis_response, promotion_response, review_response):
+        assert response.headers["cache-control"] == "no-store"
     assert status_response.json()["report"]["state"] == "passed"
     assert analysis_response.status_code == 202
     assert analysis_response.json()["action"] == "analyze"
@@ -935,11 +948,40 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow() -> None:
     assert promotion_response.json()["action"] == "promote"
     assert review_response.json()["branch"] == "codex/upstream-sync"
     assert requested == [
-        ("GET", "/api/upstream-sync"),
-        ("POST", "/api/upstream-sync/analyze"),
-        ("POST", "/api/upstream-sync/promote"),
-        ("GET", "/api/upstream-sync/codex-review"),
+        ("GET", f"/api/upstream-sync{suffix}"),
+        ("POST", f"/api/upstream-sync{suffix}/analyze"),
+        ("POST", f"/api/upstream-sync{suffix}/promote"),
+        ("GET", f"/api/upstream-sync{suffix}/codex-review"),
     ]
+
+
+@pytest.mark.parametrize("suffix", ["", "/litellm"])
+@pytest.mark.parametrize(
+    "method,action", [("GET", ""), ("POST", "/analyze"), ("POST", "/promote"), ("GET", "/codex-review")]
+)
+def test_upstream_workflows_reject_non_admin_without_contacting_manager(suffix: str, method: str, action: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("Unauthorized upstream request reached Manager")
+
+    app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), _gateway_factory(handler))
+    with TestClient(app) as client:
+        response = client.request(method, f"/account_pool/upstream-sync{suffix}{action}")
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("suffix", ["", "/litellm"])
+def test_upstream_rate_limit_is_distinguishable_without_leaking_manager_detail(suffix: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"detail": "sensitive upstream detail"}, request=request)
+
+    app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+    with TestClient(app) as client:
+        response = client.get(f"/account_pool/upstream-sync{suffix}")
+    assert response.status_code == 429
+    assert (
+        response.json()["detail"]
+        == "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
+    )
 
 
 @pytest.mark.parametrize("root_path", ["", "/", "/luna", "/luna/"])
