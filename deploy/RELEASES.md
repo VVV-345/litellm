@@ -24,6 +24,7 @@ ACCOUNT_POOL_DEPLOY_DIRECTORY=/opt/litellm
 ACCOUNT_POOL_RELEASE_ROOT=/opt/litellm-releases
 ACCOUNT_POOL_RELEASE_IMAGE_TAG=包含本功能的提交前10位
 ACCOUNT_POOL_RELEASE_TOKEN=独立的随机令牌
+ACCOUNT_POOL_RELEASE_DATABASE_BACKUPS=true
 ```
 
 `ACCOUNT_POOL_RELEASE_IMAGE_TAG` 固定到包含版本管理功能的 Manager 镜像，日常切换不修改它。部署后台使用同一仓库、同一个 Manager 镜像，单独运行在 `release-worker` 容器中，以便业务容器被替换时任务继续完成。它只通过内部 Socket Proxy 管理 Docker，宿主机 8092 仅监听回环地址。它以 root 读取只读部署目录中的 `.env`，备份目录权限设为 0700，配置文件权限为 0600
@@ -31,7 +32,8 @@ ACCOUNT_POOL_RELEASE_TOKEN=独立的随机令牌
 先启动部署后台，保留两个旧业务容器：
 
 ```bash
-docker compose pull release-worker
+docker compose pull release-worker release-docker-socket-proxy
+docker compose up -d --no-deps release-docker-socket-proxy
 docker compose up -d --no-deps release-worker
 python3 releasectl.py status
 ```
@@ -39,6 +41,12 @@ python3 releasectl.py status
 首次启动自动备份当前配套镜像，再将本机已有且带完整 commit 标签的历史镜像转为实际归档。历史镜像使用导入时的配置，页面明确标注来源。完整备份会跳过；导入失败保留已成功生成的备份，用 `python3 releasectl.py scan` 重试。仅有 Docker 镜像缓存不会冒充备份文件
 
 确认后台正常后，用下一节的 `deploy` 命令安装新版本。新 LiteLLM 容器会获得版本管理接口需要的内部令牌，页面入口随之可用
+
+数据库快照需要发布器执行 PostgreSQL 导出和临时恢复命令。发布器使用独立 `release-docker-socket-proxy` 和仅内部的 `release-socket` 网络；该代理允许 EXEC、不发布宿主端口，Manager 和 LiteLLM 不加入该网络。Manager 继续连接原来的 `docker-socket-proxy`，保留 EXEC=0。不要把共享代理改成 EXEC=1，也不要给业务进程挂载 Docker socket。已有部署必须保留实际服务、卷、网络和凭据，仅追加独立代理并迁移 worker 的代理地址及网络；授权该管理能力后才能启用
+
+启用数据库备份后，发布会短暂停止 LiteLLM 和 Manager，刷新两库快照并在临时库完成恢复验证，然后才替换业务镜像。`DockerReleaseDatabase.stop` 在停业务前核对数据库身份和 EXEC 权限。备份失败不启动候选镜像，普通升级失败或中断只回退镜像，不回放旧业务数据。显式 `restore_data` 才会恢复数据库，必须单独确认具体快照
+
+受控 OAuth 浏览器升级只允许经过审阅的固定源码摘要和新增会话表、索引组合，还要求 Prisma 和启动证据一致并启用数据库备份。它不放开通用跨 schema 部署。真实 OAuth 和账号压力验收未完成时，保持 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 为空；基础路由、代理绑定和发布保护可以独立发布
 
 ## 日常更新
 

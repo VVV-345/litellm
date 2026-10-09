@@ -3,14 +3,47 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from account_pool.release_database import DockerReleaseDatabase
 from account_pool.release_models import DatabaseDump, DatabaseSnapshot
+from account_pool.release_runtime import DockerReleaseRuntime, ReleaseSettings
 from account_pool.release_service import ReleaseService
 from account_pool.release_store import ReleaseError, ReleaseStore
 from test_releases import CURRENT, NEW, OLD, Clock, Runtime, action, queued
+
+
+def test_missing_database_exec_permission_never_stops_business_containers(tmp_path):
+    calls = []
+
+    def command(*args, timeout=120):
+        calls.append(args)
+        if args[0] == "ps":
+            return b"a" * 64
+        if args[0] == "inspect":
+            return json.dumps(
+                [
+                    {"Image": "sha256:" + "a" * 64, "Config": {"Env": ["DATABASE_URL=postgresql://test@db/test"]}},
+                    {
+                        "Image": "sha256:" + "b" * 64,
+                        "Config": {"Env": ["ACCOUNT_POOL_DATABASE_URL=postgresql://test@account-pool-db/test"]},
+                    },
+                ]
+            ).encode()
+        if args[0] == "exec":
+            raise ReleaseError("EXEC denied")
+        return b""
+
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
+        command,
+    )
+    with pytest.raises(ReleaseError, match="EXEC denied"):
+        DockerReleaseDatabase(runtime).stop()
+    assert not any(call[0] == "stop" for call in calls)
 
 
 class Database:
@@ -20,6 +53,9 @@ class Database:
         self.fail_capture = False
         self.fail_restore: str | None = None
         self.fail_start = False
+
+    def preflight(self) -> None:
+        return None
 
     def stop(self) -> None:
         self.events.append("stop")
@@ -85,6 +121,23 @@ def restore_job(service, clock, snapshot):
     return service.execute(prepared.token, "admin", f"RESTORE {snapshot.id}")
 
 
+@pytest.mark.parametrize("operation", ("scan", "deploy"))
+def test_preflight_failure_is_retryable_without_stopping_or_recovering_business(tmp_path, operation):
+    class UnavailableDatabase(Database):
+        def preflight(self):
+            raise ReleaseError("EXEC denied")
+
+    runtime, clock, database = Runtime(), Clock(), UnavailableDatabase()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database)
+    request = action(service, operation, **({"tag": NEW.commit[:10]} if operation == "deploy" else {}))
+    service.run(queued(service, clock, request))
+    assert service.store.jobs()[0].status == "failed"
+    assert service.store.jobs()[0].phase != "需要人工恢复"
+    assert database.events == []
+    assert not any(event.startswith("apply:") for event in runtime.events)
+    assert service.prepare(action(service, "scan"), "admin").token
+
+
 def test_scan_refreshes_data_even_when_image_archive_exists(setup_data):
     service, runtime, clock, database = setup_data
     service.run(queued(service, clock, action(service, "scan")))
@@ -98,6 +151,69 @@ def test_scan_refreshes_data_even_when_image_archive_exists(setup_data):
     assert all((service.store.path(CURRENT.id) / item.filename).read_bytes() == b"next-data" for item in second.files)
     assert service.store.backup(OLD.id).database_snapshot is None
     assert database.events == ["stop", "capture", "start"] * 2
+
+
+def test_audited_oauth_schema_upgrade_requires_a_fresh_verified_backup(setup_data):
+    service, runtime, clock, database = setup_data
+    previous = service.capture_database(service.backup(CURRENT, runtime.compose())).database_snapshot
+    database.data = b"latest-data"
+    runtime.changed_schema = NEW.id
+    runtime.oauth_schema_upgrade = True
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    saved = service.store.backup(CURRENT.id).database_snapshot
+    assert saved.id != previous.id
+    assert (service.store.path(CURRENT.id) / saved.files[0].filename).read_bytes() == b"latest-data"
+    assert service.store.jobs()[0].status == "succeeded"
+    assert service.store.jobs()[0].database_recovery is None
+    assert runtime.running == NEW
+    assert database.events[-2:] == ["stop", "capture"]
+
+
+@pytest.mark.parametrize("backups", (False, True))
+def test_unknown_schema_or_missing_backups_still_block_deployment(setup_data, backups):
+    service, runtime, clock, database = setup_data
+    selected = service if backups else ReleaseService(service.store, runtime, 0)
+    runtime.changed_schema = NEW.id
+    runtime.oauth_schema_upgrade = not backups
+    selected.run(queued(selected, clock, action(selected, "deploy", tag=NEW.commit)))
+    assert selected.store.jobs()[0].status == "failed"
+    assert runtime.running == CURRENT
+    assert not database.events
+    assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+def test_failed_oauth_upgrade_backup_does_not_start_new_images(setup_data):
+    service, runtime, clock, database = setup_data
+    runtime.changed_schema = NEW.id
+    runtime.oauth_schema_upgrade = True
+    database.fail_capture = True
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert service.store.jobs()[0].status == "failed"
+    assert runtime.running == CURRENT
+    assert database.events == ["stop", "capture", "stop", "start"]
+    assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+def test_failed_oauth_upgrade_restores_images_without_rewinding_database(tmp_path):
+    database = Database()
+
+    class MigratingRuntime(Runtime):
+        def apply(self, pair, configuration):
+            if pair == NEW:
+                database.data = b"new-table-and-current-data"
+            super().apply(pair, configuration)
+
+    runtime, clock = MigratingRuntime(), Clock()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database)
+    runtime.changed_schema = NEW.id
+    runtime.oauth_schema_upgrade = True
+    runtime.fail_apply = NEW.id
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert service.store.jobs()[0].status == "recovered"
+    assert service.store.jobs()[0].database_recovery is None
+    assert runtime.running == CURRENT
+    assert database.data == b"new-table-and-current-data"
+    assert not any(event.startswith("restore:") for event in database.events)
 
 
 def test_failed_snapshot_preserves_previous_generation_and_restarts_apps(setup_data):
@@ -210,6 +326,23 @@ def test_interrupted_backup_does_not_restore_database(setup_data):
     service.store.save_job(job.model_copy(update={"status": "running", "phase": "暂停业务并备份数据库"}))
     service.recover_interrupted()
     assert database.events == ["stop", "start"]
+
+
+def test_interrupted_oauth_upgrade_restores_images_without_rewinding_database(setup_data):
+    service, runtime, clock, database = setup_data
+    service.capture_database(service.backup(CURRENT, runtime.compose()))
+    job = queued(service, clock, action(service, "deploy", tag=NEW.commit))
+    service.store.save_job(
+        job.model_copy(update={"status": "running", "phase": "替换服务并检查健康", "recovery_id": CURRENT.id})
+    )
+    runtime.running = NEW
+    database.data = b"new-table-and-current-data"
+    service.recover_interrupted()
+    assert runtime.running == CURRENT
+    assert database.data == b"new-table-and-current-data"
+    assert not any(event.startswith("restore:") for event in database.events)
+    assert service.store.jobs()[0].database_recovery is None
+    assert service.store.jobs()[0].status == "recovered"
 
 
 def test_new_schema_deployment_still_requires_migration_review(setup_data):

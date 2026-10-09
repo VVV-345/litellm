@@ -42,6 +42,7 @@ class ReleaseRuntime(Protocol):
     def running_compose(self) -> bytes: ...
     def export(self, pair: ReleasePair, destination: Path) -> None: ...
     def fingerprint(self, pair: ReleasePair) -> str: ...
+    def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
     def evidence(self, pair: ReleasePair) -> RollbackEvidence: ...
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
@@ -550,6 +551,7 @@ class ReleaseService:
             self.phase(job, "备份当前运行版本")
             saved_current: Final = self.backup(current, self.runtime.running_compose())
             if self.database is not None:
+                self.database.preflight()
                 self.phase(job, "暂停业务并备份数据库", saved_current.pair.id)
                 self.database.stop()
                 self.capture_database(saved_current)
@@ -593,14 +595,19 @@ class ReleaseService:
             raise ReleaseError("目标版本已在运行")
         self.phase(job, "备份当前运行版本")
         recovery: Final = self.backup(current, self.runtime.running_compose())
-        # 新版若会改变数据库结构，故障时不能自动切换旧镜像，因此先阻止这类在线替换。
-        if action.action == "deploy" and self.runtime.fingerprint(target) != recovery.schema_fingerprint:
+        # 仅已审阅、旧版可忽略的会话表新增允许带备份升级；失败仍只退镜像，不回放业务数据。
+        if (
+            action.action == "deploy"
+            and self.runtime.fingerprint(target) != recovery.schema_fingerprint
+            and (self.database is None or not self.runtime.is_oauth_browser_schema_upgrade(current, target))
+        ):
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
         if action.action == "apply":
             self._require_rollback_check(job, current)
         if self.database is not None:
+            self.database.preflight()
             self.phase(job, "暂停业务并备份数据库", recovery.pair.id)
             self.database.stop()
             fresh: Final = self.capture_database(recovery)

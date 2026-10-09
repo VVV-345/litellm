@@ -33,6 +33,7 @@ class DatabaseTransfer(Protocol):
 
 
 class ReleaseDatabase(Protocol):
+    def preflight(self) -> None: ...
     def stop(self) -> None: ...
     def start(self) -> None: ...
     def capture(self, directory: Path, version_id: str) -> DatabaseSnapshot: ...
@@ -62,7 +63,12 @@ class DockerReleaseDatabase:
             raise ReleaseError("数据库备份需要项目内唯一的业务及 PostgreSQL 容器")
         return identifier
 
+    def preflight(self) -> None:
+        # 停业务前确认两库身份和 EXEC 权限，避免权限不足导致无谓停机。
+        self.targets()
+
     def stop(self) -> None:
+        self.preflight()
         self.runtime.run(
             "stop", "--time", "60", *(self.container(service) for service, _ in DATABASES.values()), timeout=150
         )

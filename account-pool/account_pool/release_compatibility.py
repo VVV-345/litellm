@@ -7,6 +7,7 @@ import hashlib
 import json
 import shlex
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Final
 
 from pydantic import JsonValue, TypeAdapter
@@ -22,6 +23,66 @@ class RollbackEvidence:
     logs: str
     startup: str
     features: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthBrowserSchemaEvidence:
+    prisma: bytes
+    pool: bytes
+    sources: str
+    startup: str
+
+
+STARTUP_SOURCES: Final = ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
+
+# 仅绑定已审阅的 5b76f5170d -> 0813fb86f0 非 release_* 源码树，不接受目标镜像自报允许范围。
+OAUTH_BROWSER_SOURCE_DIGESTS: Final = (
+    "27e3e2ca5cdee2bbecba5c0f5accf77dafb9daf100e811244fd834610732fba5",
+    "aeb2c6886210594cb6652dc6541127d3468092989786aaf89518b4588a3bc953",
+)
+OAUTH_BROWSER_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_oauth_browser_sessions ( id uuid PRIMARY KEY, "
+    b"environment_id uuid NOT NULL REFERENCES account_pool_environments(id) ON DELETE CASCADE, "
+    b"status text NOT NULL, expires_at timestamptz NOT NULL, payload jsonb NOT NULL )",
+    b"CREATE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_environment_idx "
+    b"ON account_pool_oauth_browser_sessions (environment_id)",
+    b"CREATE UNIQUE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_active_environment_idx "
+    b"ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active')",
+    b"CREATE UNIQUE INDEX IF NOT EXISTS account_pool_oauth_browser_sessions_active_callback_environment_idx "
+    b"ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active', 'callback_pending')",
+)
+
+
+def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
+    return hashlib.sha256(
+        b"\n".join(
+            name.encode() + b"\0" + hashlib.sha256(source.replace(b"\r\n", b"\n")).hexdigest().encode()
+            for name, source in sorted(sources)
+            for path in (PurePosixPath(name),)
+            if not (
+                path.parent == PurePosixPath("account_pool")
+                and path.name.startswith("release_")
+                and path.suffix == ".py"
+            )
+            and not ("__pycache__" in path.parts and path.suffix == ".pyc")
+        )
+    ).hexdigest()
+
+
+def oauth_browser_schema_upgrade(current: OAuthBrowserSchemaEvidence, target: OAuthBrowserSchemaEvidence) -> bool:
+    if (current.sources, target.sources) != OAUTH_BROWSER_SOURCE_DIGESTS:
+        return False
+    if not current.prisma or current.prisma.replace(b"\r\n", b"\n") != target.prisma.replace(b"\r\n", b"\n"):
+        return False
+    if not current.startup or current.startup != target.startup:
+        return False
+    before: Final = current.pool.splitlines()
+    # 保留所有旧契约及重复项；缺一条、重复新增或已部分升级均不属于此次受控升级。
+    return (
+        bool(before)
+        and not any(statement in before for statement in OAUTH_BROWSER_SCHEMA_ADDITIONS)
+        and sorted(target.pool.splitlines()) == sorted((*before, *OAUTH_BROWSER_SCHEMA_ADDITIONS))
+    )
 
 
 FEATURES: Final = {

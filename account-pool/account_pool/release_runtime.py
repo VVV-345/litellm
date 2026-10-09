@@ -22,7 +22,16 @@ from pydantic import BaseModel, Field, JsonValue, SecretStr, TypeAdapter, field_
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from account_pool.config import Settings
-from account_pool.release_compatibility import FEATURES, RollbackEvidence, credential_contract, digest_sources
+from account_pool.release_compatibility import (
+    FEATURES,
+    STARTUP_SOURCES,
+    OAuthBrowserSchemaEvidence,
+    RollbackEvidence,
+    credential_contract,
+    digest_sources,
+    manager_source_digest,
+    oauth_browser_schema_upgrade,
+)
 from account_pool.release_models import ReleaseImage, ReleasePair
 from account_pool.release_store import ReleaseError, write_private
 
@@ -58,6 +67,8 @@ class ReleaseSettings(BaseSettings):
     @field_validator("docker_host")
     @classmethod
     def docker_endpoint(cls, value: str) -> str:
+        if value.strip() == "tcp://release-docker-socket-proxy:2375":
+            return value.strip()
         return Settings.validate_docker_host(value)
 
 
@@ -319,6 +330,23 @@ class DockerReleaseRuntime:
             b"\n".join(self._schema(image) for image in sorted(pair.images, key=lambda item: item.service))
         ).hexdigest()
 
+    def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
+        return oauth_browser_schema_upgrade(
+            self._oauth_browser_schema_evidence(current), self._oauth_browser_schema_evidence(target)
+        )
+
+    @lru_cache(maxsize=24)
+    def _oauth_browser_schema_evidence(self, pair: ReleasePair) -> OAuthBrowserSchemaEvidence:
+        proxy: Final = next(image for image in pair.images if image.service == "litellm")
+        pool: Final = next(image for image in pair.images if image.service == "account-pool")
+        prisma: Final = self._upgrade_sources(proxy)
+        return OAuthBrowserSchemaEvidence(
+            prisma=prisma[0][1] if len(prisma) == 1 and prisma[0][0] == "schema.prisma" else b"",
+            pool=self._schema(pool),
+            sources=manager_source_digest(self._upgrade_sources(pool)),
+            startup=digest_sources(self._inspection_sources(proxy), STARTUP_SOURCES),
+        )
+
     @lru_cache(maxsize=24)
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
         proxy: Final = next(image for image in pair.images if image.service == "litellm")
@@ -330,9 +358,7 @@ class DockerReleaseRuntime:
             pool=hashlib.sha256(self._schema(pool)).hexdigest(),
             credentials=credential_contract(pool_sources, proxy_sources),
             logs=digest_sources(proxy_sources, ("account_pool_full_logs.py",)),
-            startup=digest_sources(
-                proxy_sources, ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
-            ),
+            startup=digest_sources(proxy_sources, STARTUP_SOURCES),
             features=tuple(
                 title
                 for filename, (title, marker) in FEATURES.items()
@@ -402,6 +428,26 @@ class DockerReleaseRuntime:
                 for stream in (archive.extractfile(member),)
                 if stream is not None
             }
+
+    def _upgrade_sources(self, image: ReleaseImage) -> tuple[tuple[str, bytes], ...]:
+        name: Final = "litellm-release-inspect-" + uuid4().hex
+        self.run("create", "--name", name, "--network", "none", "--entrypoint", "/bin/true", image.image_id)
+        try:
+            source: Final = "/app/schema.prisma" if image.service == "litellm" else "/app/account_pool"
+            content: Final = self.run("cp", f"{name}:{source}", "-", timeout=120)
+            with tarfile.open(fileobj=io.BytesIO(content)) as archive:
+                members: Final = archive.getmembers()
+                if any(not (member.isfile() or member.isdir()) or member.size > 8 * 1024 * 1024 for member in members):
+                    raise ReleaseError("无法完整核对受控升级源码")
+                return tuple(
+                    (member.name, stream.read())
+                    for member in members
+                    if member.isfile()
+                    for stream in (archive.extractfile(member),)
+                    if stream is not None
+                )
+        finally:
+            self.run("rm", "-v", name)
 
     def _schema(self, image: ReleaseImage) -> bytes:
         name: Final = "litellm-release-inspect-" + uuid4().hex

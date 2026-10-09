@@ -58,6 +58,7 @@ class Runtime:
         self.fail_export = False
         self.fail_apply: str | None = None
         self.changed_schema: str | None = None
+        self.oauth_schema_upgrade = False
         self.configuration: str | None = None
         self.missing_feature: str | None = None
         self.missing_image: str | None = None
@@ -93,6 +94,9 @@ class Runtime:
 
     def fingerprint(self, pair: ReleasePair) -> str:
         return "changed" if self.changed_schema == pair.id else "identical-schema"
+
+    def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
+        return self.oauth_schema_upgrade and current == CURRENT and target == NEW
 
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
         if self.missing_image == pair.id:

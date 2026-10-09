@@ -1,5 +1,9 @@
 # 受控 OAuth 浏览器设计
 
+## 2026-10-09 发布收尾范围
+
+用户当前没有备用账号，真实供应商 OAuth 与真实账号压力测试延期。本次发布收尾包含已有 Key、切号、代理绑定修复，严格受控数据库升级和独立发布器 EXEC 通道；不扩大 Manager 权限，不启用未经实测的浏览器入口。发布器在停业务前先核对数据库身份和 EXEC 访问，双库快照及临时恢复仍是上线硬门槛。真实 OAuth 延期不代表其已验收，也不保证多 Manager 进程安全
+
 状态：`IMPLEMENTED, GHCR AND SERVER ACCEPTANCE PENDING`。会话、worker、Manager、LiteLLM 和 Dashboard 接入已实现并通过下述源码验证。镜像只通过 GitHub Actions 构建，不在本地 build 或 pull；真实容器隔离和供应商 OAuth 尚未验收，不能据此宣称可上线。
 
 ## 方案选择
@@ -58,3 +62,20 @@ push 修复分支后手动触发 `publish-deployment-images.yml`，固定完整 
 仅通过用户指定的 JumpServer“号池”资产验收，保留当前业务镜像、Compose、数据库备份及回滚路径。先执行现有 release guard，不能跳过 schema/configuration 检查。反向代理需要支持 WebSocket、至少 120 秒请求读取时限以及受信的 HTTPS/WSS 转发头
 
 真实待验收项：选定节点返回有效 delay_ms；浏览器和 token 阶段同代理；代理不可达时无直连；noVNC、回调与 CLIProxyAPI ready；不同账号并发及同账号互斥；超时、取消和成功清理。登录、验证码与 MFA 由用户人工完成。额度冷却和故障切换已有回归覆盖，但仍需线上观测。移除两候选上限后仍受配置、最多 10 次、90 秒及流输出安全边界限制，不是无限重试
+
+## 2026-10-08 受控数据库升级
+
+旧版 `5b76f5170d` 到受控浏览器版的 Manager schema 新增一张 OAuth 会话表及三个索引。现有发布器因结构指纹不同拒绝替换，这是保护性拦截，不代表已有账号数据损坏。此前服务器备份、双库临时恢复及候选 schema 重复执行检查已通过，生产服务尚未切换。
+
+新增例外仅允许这一对经过审阅的非 `release_*.py` Manager 源码树摘要；文件路径、源码内容、旧持久化契约与四条新增 DDL 均须匹配。LiteLLM 原始 Prisma（仅归一 CRLF）及非空启动/迁移历史证据必须一致。不改原指纹算法，不允许任意“只新增表”的迁移，不通过目标镜像自报的白名单放行。以后非发布模块发生变化时，需要重新审阅，不能直接更新摘要。
+
+该例外还要求 `ACCOUNT_POOL_RELEASE_DATABASE_BACKUPS=true`，由实际发布器暂停业务、刷新双库快照并完成临时恢复验证之后才能替换。旧备份存在不够。备份失败不启动新版；新版健康失败或发布器中断时仅回退镜像，保留新表及当前业务数据，不自动回放旧快照。`restore_data` 的显式数据库恢复语义保持不变；镜像回退不是认证文件、OAuth 外部状态和全部副作用的完整回滚。
+
+本次源码验证：Manager 全套 612 passed、3 skipped，其中含升级白名单拒绝、刷新备份、备份失败、健康失败和中断后的镜像回退。最初使用旧 checkout 的 Python 环境时，pytest-asyncio 插件缺少 hook，收集退出 3；改用已有 MiniConda 环境后通过，未修改依赖或业务代码来掩盖该错误。
+
+服务器替换前仍须完成：
+
+1. 在临时还原库上应用新 schema 后，用旧版实际执行 `initialize` 和账号列表读取，检查既有数据数量和摘要不变。
+2. 从实际 release-worker 配置的 Docker endpoint 执行无副作用 `exec ... true`，再验证双库备份路径。不能把宿主机 sudo 备份成功当成发布器具备权限。共享 Socket Proxy 若禁止 EXEC，不得直接给 Manager 共用代理扩权；须另行审阅独立发布通道。
+3. 新 commit 在 GHCR 构建成功后，先更新独立 release-worker，按实际镜像核对固定源码、Prisma、启动证据及完整 digest，再通过原 prepare/execute 流程上线。
+4. 刷新上线前备份，检查健康和真实浏览器隔离；真实 OAuth 仍由人工完成。以上源码测试不替代这些门槛。
