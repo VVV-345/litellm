@@ -28,6 +28,50 @@ class ReleasePair(BaseModel):
     images: tuple[ReleaseImage, ReleaseImage]
 
 
+class RemoteReleaseImage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    service: Literal["litellm", "account-pool"]
+    digest: ImageId
+    image_id: ImageId
+
+
+class ReleaseCandidate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    commit: Commit
+    images: tuple[RemoteReleaseImage, RemoteReleaseImage]
+
+
+class AutoUpdateSettings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    enabled: bool = Field(strict=True)
+    interval_minutes: int = Field(default=5, ge=5, le=1440, strict=True)
+    revision: int = Field(ge=0)
+    acknowledge_downtime: bool = False
+
+
+class AutoUpdateState(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    enabled: bool = False
+    interval_minutes: int = Field(default=5, ge=5, le=1440)
+    revision: int = 0
+    status: Literal[
+        "disabled", "waiting", "checking", "current", "available", "queued", "deploying", "paused", "error"
+    ] = "disabled"
+    message: str = ""
+    last_checked_at: float | None = None
+    next_check_at: float | None = None
+    candidate_commit: Commit | None = None
+    last_job_id: str | None = None
+    check_requested: bool = False
+    authorized_by: str = ""
+
+
+class AutoUpdateView(AutoUpdateState):
+    branch: Literal["CLIProxyAPI分支"] = "CLIProxyAPI分支"
+    current_commit: Commit | None = None
+    database_backups_enabled: bool = False
+
+
 class ReleaseBackup(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     pair: ReleasePair
@@ -77,6 +121,7 @@ class ReleaseAction(BaseModel):
     force: bool = False
     force_acknowledgement: str = Field(default="", max_length=40)
     snapshot_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] | None = None
+    candidate: ReleaseCandidate | None = None
 
 
 class ReleaseConfirmation(BaseModel):
@@ -132,6 +177,8 @@ class ReleaseJob(BaseModel):
     expected_current_id: ReleaseId | None = None
     rollback_state: str | None = None
     database_recovery: DatabaseSnapshot | None = None
+    automatic: bool = False
+    retryable: bool = False
 
 
 class ReleaseView(BaseModel):

@@ -22,6 +22,7 @@ from account_pool.release_models import (
     DatabaseSnapshot,
     ReleaseAction,
     ReleaseBackup,
+    ReleaseCandidate,
     ReleaseCommands,
     ReleaseConfirmation,
     ReleaseJob,
@@ -32,10 +33,18 @@ from account_pool.release_models import (
     RollbackCheck,
     RollbackInspection,
 )
-from account_pool.release_store import DEFAULT_GUIDE, ReleaseError, ReleaseStore, file_hash, write_private
+from account_pool.release_store import (
+    DEFAULT_GUIDE,
+    ReleaseDownloadError,
+    ReleaseError,
+    ReleaseStore,
+    file_hash,
+    write_private,
+)
 
 
 class ReleaseRuntime(Protocol):
+    def run(self, *args: str, timeout: int = 120) -> bytes: ...
     def current(self) -> ReleasePair: ...
     def discover(self) -> tuple[ReleasePair, ...]: ...
     def compose(self) -> bytes: ...
@@ -47,6 +56,8 @@ class ReleaseRuntime(Protocol):
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
     def pull(self, tag: str) -> ReleasePair: ...
+    def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair: ...
+    def check_health(self, pair: ReleasePair) -> None: ...
 
 
 class ReleaseService:
@@ -137,6 +148,8 @@ class ReleaseService:
         return directory
 
     def prepare(self, action: ReleaseAction, actor: str) -> ReleaseConfirmation:
+        if action.candidate is not None and (action.action != "deploy" or action.tag != action.candidate.commit):
+            raise ReleaseError("固定镜像信息只能用于对应版本部署")
         if action.action != "apply" and (action.force or action.force_acknowledgement):
             raise ReleaseError("只有程序回退支持强制确认")
         if not action.force and action.force_acknowledgement:
@@ -495,8 +508,9 @@ class ReleaseService:
         self.runtime.apply(backup.pair, (directory / "compose.json").read_bytes())
 
     def run(self, job: ReleaseJob) -> None:
-        active: Final = job.model_copy(update={"status": "running", "updated_at": time.time()})
-        self.store.save_job(active)
+        active: Final = self.store.start_job(job)
+        if active is None:
+            return
         try:
             self._perform(active)
         except Exception as error:  # noqa: BLE001  # 保存故障状态并尝试恢复，不能让后台任务静默消失。
@@ -512,7 +526,14 @@ class ReleaseService:
                 self._resume_database_backup(latest, safe)
             else:
                 self.store.save_job(
-                    latest.model_copy(update={"status": "failed", "message": safe, "updated_at": time.time()})
+                    latest.model_copy(
+                        update={
+                            "status": "failed",
+                            "message": safe,
+                            "updated_at": time.time(),
+                            "retryable": isinstance(error, ReleaseDownloadError),
+                        }
+                    )
                 )
             return
         completed: Final = next(item for item in self.store.jobs() if item.id == active.id)
@@ -521,6 +542,8 @@ class ReleaseService:
         )
 
     def _perform(self, job: ReleaseJob) -> None:
+        if job.automatic and self.database is None:
+            raise ReleaseError("自动部署需要数据库备份，未替换服务")
         action: Final = job.action
         if action.action in ("note", "guide"):
             self.store.edit(action)
@@ -556,6 +579,7 @@ class ReleaseService:
                 self.database.stop()
                 self.capture_database(saved_current)
                 self.database.start()
+                self.runtime.check_health(current)
                 self.phase(job, "数据库备份完成")
             for pair in self.runtime.discover():
                 if pair.id != current.id:
@@ -632,7 +656,12 @@ class ReleaseService:
         action: Final = job.action
         if action.action == "deploy":
             self.phase(job, "拉取新版本镜像")
-            return self.runtime.pull(action.tag or ""), self.runtime.compose()
+            return (
+                self.runtime.pull_candidate(action.candidate)
+                if action.candidate
+                else self.runtime.pull(action.tag or ""),
+                self.runtime.compose(),
+            )
         saved: Final = self.store.backup(action.version_id or "")
         if saved is None:
             raise ReleaseError("目标备份不存在")
@@ -711,6 +740,7 @@ class ReleaseService:
                 raise ReleaseError("数据库备份配置已关闭")
             self.database.stop()
             self.database.start()
+            self.runtime.check_health(self.runtime.current())
         except Exception:  # noqa: BLE001  # 备份阶段未改数据库，不能误用旧快照恢复。
             self.store.save_job(
                 job.model_copy(update={"status": "failed", "phase": "需要人工恢复", "message": message})

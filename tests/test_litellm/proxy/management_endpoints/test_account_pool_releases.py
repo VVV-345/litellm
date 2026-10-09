@@ -101,3 +101,33 @@ def test_mounted_release_router_uses_separate_worker_client(monkeypatch: pytest.
         response: Final = client.post("/account_pool/releases/execute", json={"token": "a" * 64})
     assert response.status_code == 409
     assert response.json()["detail"] == "请等待确认倒计时结束"
+
+
+@pytest.mark.parametrize("admin", (True, False))
+@pytest.mark.parametrize("method,path", (("GET", ""), ("POST", ""), ("POST", "/check")))
+def test_auto_update_endpoints_are_admin_only_and_forward_fixed_paths(monkeypatch, admin, method, path):
+    monkeypatch.setenv("ACCOUNT_POOL_RELEASE_TOKEN", "s" * 32)
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="admin" if admin else "member")
+
+    def require_admin(user):
+        if user.user_id != "admin":
+            raise HTTPException(403, "admin only")
+
+    def transport(request):
+        assert admin
+        assert str(request.url) == "http://release-worker:8092/api/releases/auto-update" + path
+        assert request.headers["Authorization"] == "Bearer " + "s" * 32
+        return httpx.Response(200, json={"enabled": False, "interval_minutes": 5, "revision": 1})
+
+    app.include_router(
+        create_release_router(require_admin, lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport)))
+    )
+    with TestClient(app) as client:
+        response = client.request(
+            method,
+            "/releases/auto-update" + path,
+            json={"enabled": False, "interval_minutes": 5, "revision": 0} if method == "POST" and not path else None,
+        )
+    assert response.status_code == (200 if admin else 403)
+    assert "s" * 32 not in response.text

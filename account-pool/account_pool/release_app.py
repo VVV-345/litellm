@@ -13,8 +13,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import SecretStr
 
+from account_pool.release_auto_update import AutoUpdater
 from account_pool.release_database import DockerReleaseDatabase
 from account_pool.release_models import (
+    AutoUpdateSettings,
+    AutoUpdateView,
     ReleaseAction,
     ReleaseCommands,
     ReleaseConfirmation,
@@ -65,10 +68,12 @@ def initialize(service: ReleaseService) -> None:
     write_private(marker, b"1")
 
 
-async def run_queue(service: ReleaseService, stopped: asyncio.Event) -> None:
+async def run_queue(service: ReleaseService, stopped: asyncio.Event, updater: AutoUpdater | None = None) -> None:
     while not stopped.is_set():
         if await run_next(service):
             continue
+        if updater is not None:
+            await asyncio.to_thread(updater.tick)
         try:
             await asyncio.wait_for(stopped.wait(), timeout=1)
         except TimeoutError:
@@ -84,14 +89,19 @@ async def run_next(service: ReleaseService) -> bool:
 
 
 def release_application(service: ReleaseService, token: str, *, initialize_backups: bool = False) -> FastAPI:
+    from account_pool.release_catalog import ReleaseCatalog
+
+    updater: Final = AutoUpdater(service, ReleaseCatalog(service.runtime))
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         with worker_lock(service.store.root):
             await asyncio.to_thread(service.recover_interrupted)
+            service.store.recover_auto_check()
             if initialize_backups and not any(job.status == "queued" for job in service.store.jobs()):
                 await asyncio.to_thread(initialize, service)
             stopped: Final = asyncio.Event()
-            task: Final = asyncio.create_task(run_queue(service, stopped))
+            task: Final = asyncio.create_task(run_queue(service, stopped, updater))
             try:
                 yield
             finally:
@@ -126,11 +136,23 @@ def release_application(service: ReleaseService, token: str, *, initialize_backu
     def commands(version_id: ReleaseId, _actor: Annotated[str, Depends(authenticate)]) -> ReleaseCommands:
         return service.commands(version_id)
 
+    def auto_view(_actor: Annotated[str, Depends(authenticate)]) -> AutoUpdateView:
+        return updater.view()
+
+    def auto_settings(body: AutoUpdateSettings, actor: Annotated[str, Depends(authenticate)]) -> AutoUpdateView:
+        return updater.configure(body, actor)
+
+    def auto_check(_actor: Annotated[str, Depends(authenticate)]) -> AutoUpdateView:
+        return updater.check()
+
     app.exception_handler(ReleaseError)(release_error)
     app.add_api_route("/health", health, methods=["GET"])
     app.add_api_route("/api/releases", view, methods=["GET"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/prepare", prepare, methods=["POST"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/execute", execute, methods=["POST"], response_model_exclude_none=True)
+    app.add_api_route("/api/releases/auto-update", auto_view, methods=["GET"])
+    app.add_api_route("/api/releases/auto-update", auto_settings, methods=["POST"])
+    app.add_api_route("/api/releases/auto-update/check", auto_check, methods=["POST"])
     app.add_api_route("/api/releases/{version_id}/commands", commands, methods=["GET"])
     return app
 

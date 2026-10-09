@@ -62,6 +62,11 @@ class Runtime:
         self.configuration: str | None = None
         self.missing_feature: str | None = None
         self.missing_image: str | None = None
+        self.fail_health = False
+
+    def check_health(self, pair: ReleasePair) -> None:
+        if self.fail_health:
+            raise ReleaseError("应用就绪检查失败")
 
     def current(self) -> ReleasePair:
         return self.running

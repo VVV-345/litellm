@@ -174,6 +174,59 @@ def test_pair_identity_uses_images_and_not_discovery_order(tmp_path: Path) -> No
     assert image_pair((current.images[1], current.images[0])).id == current.id
 
 
+def test_pinned_candidate_pull_checks_image_identity_before_deploy(tmp_path: Path) -> None:
+    from account_pool.release_models import ReleaseCandidate, RemoteReleaseImage
+    from account_pool.release_store import ReleaseError
+
+    calls = []
+
+    def command(*args, timeout=120):
+        calls.append(args)
+        if args[:2] == ("image", "inspect"):
+            return json.dumps(
+                [
+                    {
+                        "Id": "sha256:" + "f" * 64,
+                        "Size": 100,
+                        "Config": {"Labels": {"org.opencontainers.image.revision": "a" * 40}},
+                    }
+                ]
+            ).encode()
+        return b""
+
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
+        command,
+    )
+    selected = ReleaseCandidate(
+        commit="a" * 40,
+        images=tuple(
+            RemoteReleaseImage(
+                service=service,
+                digest="sha256:" + str(index + 1) * 64,
+                image_id="sha256:" + str(index + 3) * 64,
+            )
+            for index, service in enumerate(("litellm", "account-pool"))
+        ),
+    )
+    with pytest.raises(ReleaseError, match="镜像身份"):
+        runtime.pull_candidate(selected)
+    assert calls[0] == ("image", "pull", "ghcr.io/vvv-345/litellm@sha256:" + "1" * 64)
+    assert not any(call[0] == "compose" for call in calls)
+
+
+def test_apply_checks_application_readiness_not_only_container_liveness(tmp_path: Path) -> None:
+    command = Commands()
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
+        command,
+    )
+    runtime.apply(runtime.current(), b'{"services":{"litellm":{},"account-pool":{}}}')
+    scripts = [call[-1] for call in command.calls if call[0] == "exec"]
+    assert any("/health/readiness" in script for script in scripts)
+    assert any("/api/environments" in script for script in scripts)
+
+
 def test_first_backup_captures_actual_mounts_ports_and_environment() -> None:
     container: Final = ContainerInspection.model_validate(
         {

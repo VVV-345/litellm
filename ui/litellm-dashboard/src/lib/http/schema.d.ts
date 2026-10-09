@@ -1702,6 +1702,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/releases/auto-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Auto View */
+        get: operations["auto_view_account_pool_releases_auto_update_get"];
+        put?: never;
+        /** Auto Settings */
+        post: operations["auto_settings_account_pool_releases_auto_update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/releases/auto-update/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Auto Check */
+        post: operations["auto_check_account_pool_releases_auto_update_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/releases/execute": {
         parameters: {
             query?: never;
@@ -25893,6 +25928,83 @@ export interface components {
             /** @description The decision record this request would have written to its log row */
             routing_decision: components["schemas"]["StandardLoggingRoutingDecision"];
         };
+        /** AutoUpdateSettings */
+        AutoUpdateSettings: {
+            /**
+             * Acknowledge Downtime
+             * @default false
+             */
+            acknowledge_downtime: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Interval Minutes
+             * @default 5
+             */
+            interval_minutes: number;
+            /** Revision */
+            revision: number;
+        };
+        /** AutoUpdateView */
+        AutoUpdateView: {
+            /**
+             * Authorized By
+             * @default
+             */
+            authorized_by: string;
+            /**
+             * Branch
+             * @default CLIProxyAPI分支
+             * @constant
+             */
+            branch: "CLIProxyAPI分支";
+            /** Candidate Commit */
+            candidate_commit?: string | null;
+            /**
+             * Check Requested
+             * @default false
+             */
+            check_requested: boolean;
+            /** Current Commit */
+            current_commit?: string | null;
+            /**
+             * Database Backups Enabled
+             * @default false
+             */
+            database_backups_enabled: boolean;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Interval Minutes
+             * @default 5
+             */
+            interval_minutes: number;
+            /** Last Checked At */
+            last_checked_at?: number | null;
+            /** Last Job Id */
+            last_job_id?: string | null;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Next Check At */
+            next_check_at?: number | null;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /**
+             * Status
+             * @default disabled
+             * @enum {string}
+             */
+            status: "disabled" | "waiting" | "checking" | "current" | "available" | "queued" | "deploying" | "paused" | "error";
+        };
         /** BaseLitellmParams */
         BaseLitellmParams: {
             /**
@@ -38097,12 +38209,45 @@ export interface components {
             review_notes?: string | null;
         };
         /** ReleaseAction */
-        ReleaseAction: {
+        "ReleaseAction-Input": {
             /**
              * Action
              * @enum {string}
              */
             action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data";
+            candidate?: components["schemas"]["ReleaseCandidate"] | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /**
+             * Force Acknowledgement
+             * @default
+             */
+            force_acknowledgement: string;
+            /** Revision */
+            revision: number;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Tag */
+            tag?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Version Id */
+            version_id?: string | null;
+        };
+        /** ReleaseAction */
+        "ReleaseAction-Output": {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data";
+            candidate?: components["schemas"]["ReleaseCandidate"] | null;
             /**
              * Force
              * @default false
@@ -38147,6 +38292,16 @@ export interface components {
             /** Schema Fingerprint */
             schema_fingerprint: string;
         };
+        /** ReleaseCandidate */
+        ReleaseCandidate: {
+            /** Commit */
+            commit: string;
+            /** Images */
+            images: [
+                components["schemas"]["RemoteReleaseImage"],
+                components["schemas"]["RemoteReleaseImage"]
+            ];
+        };
         /** ReleaseCommands */
         ReleaseCommands: {
             /** Branch */
@@ -38156,7 +38311,7 @@ export interface components {
         };
         /** ReleaseConfirmation */
         ReleaseConfirmation: {
-            action: components["schemas"]["ReleaseAction"];
+            action: components["schemas"]["ReleaseAction-Output"];
             /** Current Commit */
             current_commit: string | null;
             database_snapshot?: components["schemas"]["DatabaseSnapshot"] | null;
@@ -38204,7 +38359,12 @@ export interface components {
         };
         /** ReleaseJob */
         ReleaseJob: {
-            action: components["schemas"]["ReleaseAction"];
+            action: components["schemas"]["ReleaseAction-Output"];
+            /**
+             * Automatic
+             * @default false
+             */
+            automatic: boolean;
             /** Created At */
             created_at: number;
             database_recovery?: components["schemas"]["DatabaseSnapshot"] | null;
@@ -38221,6 +38381,11 @@ export interface components {
             phase: string;
             /** Recovery Id */
             recovery_id?: string | null;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
             /** Rollback State */
             rollback_state?: string | null;
             /**
@@ -38311,6 +38476,18 @@ export interface components {
              * @description Opening delimiter, e.g. '<system-reminder>'
              */
             open: string;
+        };
+        /** RemoteReleaseImage */
+        RemoteReleaseImage: {
+            /** Digest */
+            digest: string;
+            /** Image Id */
+            image_id: string;
+            /**
+             * Service
+             * @enum {string}
+             */
+            service: "litellm" | "account-pool";
         };
         /**
          * RequestComplexityRouterConfig
@@ -46179,6 +46356,79 @@ export interface operations {
             };
         };
     };
+    auto_view_account_pool_releases_auto_update_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoUpdateView"];
+                };
+            };
+        };
+    };
+    auto_settings_account_pool_releases_auto_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoUpdateSettings"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoUpdateView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auto_check_account_pool_releases_auto_update_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoUpdateView"];
+                };
+            };
+        };
+    };
     execute_account_pool_releases_execute_post: {
         parameters: {
             query?: never;
@@ -46221,7 +46471,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReleaseAction"];
+                "application/json": components["schemas"]["ReleaseAction-Input"];
             };
         };
         responses: {

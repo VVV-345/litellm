@@ -26,6 +26,7 @@ export const accountPoolQueryKeys = {
   cardPluginStore: (accessToken: string | null, cardId: string | null) =>
     [...ACCOUNT_POOL_ROOT, "card-plugin-store", accessToken, cardId] as const,
   releases: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "releases", accessToken] as const,
+  autoUpdate: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "auto-update", accessToken] as const,
   releaseCommandsRoot: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "release-commands", accessToken] as const,
   releaseCommands: (accessToken: string | null, pairId?: string) =>
     [...ACCOUNT_POOL_ROOT, "release-commands", accessToken, pairId] as const,

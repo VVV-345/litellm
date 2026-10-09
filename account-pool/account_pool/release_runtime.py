@@ -32,8 +32,8 @@ from account_pool.release_compatibility import (
     manager_source_digest,
     oauth_browser_schema_upgrade,
 )
-from account_pool.release_models import ReleaseImage, ReleasePair
-from account_pool.release_store import ReleaseError, write_private
+from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair
+from account_pool.release_store import ReleaseDownloadError, ReleaseError, write_private
 
 REPOSITORIES: Final = {"litellm": "ghcr.io/vvv-345/litellm", "account-pool": "ghcr.io/vvv-345/account-pool-manager"}
 
@@ -562,6 +562,7 @@ class DockerReleaseRuntime:
         )
         if self.current().id != pair.id:
             raise ReleaseError("服务运行的镜像与目标版本不一致")
+        self.check_health(pair)
         write_private(self.settings.root / "active-compose.json", json.dumps(resolved, ensure_ascii=False).encode())
         write_private(self.settings.root / "active-pair.json", pair.model_dump_json().encode())
 
@@ -579,3 +580,68 @@ class DockerReleaseRuntime:
         if not pair.commit.startswith(tag):
             raise ReleaseError("拉取镜像的 commit 与标签不一致")
         return pair
+
+    def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair:
+        if {image.service for image in candidate.images} != set(REPOSITORIES):
+            raise ReleaseError("远程镜像必须包含两个不同的配套服务")
+        images: Final = tuple(self._pull_pinned(candidate, index) for index in range(2))
+        return image_pair((images[0], images[1]))
+
+    def _pull_pinned(self, candidate: ReleaseCandidate, index: int) -> ReleaseImage:
+        selected: Final = candidate.images[index]
+        reference: Final = f"{REPOSITORIES[selected.service]}@{selected.digest}"
+        try:
+            self.run("image", "pull", reference, timeout=1800)
+        except ReleaseError as error:
+            raise ReleaseDownloadError("镜像下载失败，旧服务保持不变") from error
+        actual: Final = self.inspect_image(reference, selected.service)
+        if actual.image_id != selected.image_id or actual.revision != candidate.commit:
+            raise ReleaseError("拉取后的镜像身份与检查结果不一致，未替换服务")
+        return actual
+
+    def check_health(self, pair: ReleasePair) -> None:
+        for service in REPOSITORIES:
+            self._check_service_health(service)
+        if self.current().id != pair.id:
+            raise ReleaseError("健康检查期间运行镜像发生变化")
+
+    def _check_service_health(self, service: str) -> None:
+        identifier: Final = (
+            self.run(
+                "ps",
+                "-aq",
+                "--filter",
+                f"label=com.docker.compose.project={self.settings.project}",
+                "--filter",
+                f"label=com.docker.compose.service={service}",
+            )
+            .decode()
+            .strip()
+        )
+        if not re.fullmatch(r"[a-f0-9]{12,64}", identifier):
+            raise ReleaseError("无法找到唯一的业务容器进行就绪检查")
+        # 使用容器自身的内部凭据，只有退出状态返回发布器；不打印账号列表或令牌。
+        request: Final = (
+            "urllib.request.Request('http://127.0.0.1:4000/health/readiness')"
+            if service == "litellm"
+            else "urllib.request.Request('http://127.0.0.1:8091/api/environments', "
+            "headers={'Authorization':'Bearer '+os.environ['ACCOUNT_POOL_MANAGER_TOKEN']})"
+        )
+        validation: Final = (
+            "assert result.get('db') == 'connected' and result.get('status') == 'healthy'"
+            if service == "litellm"
+            else "assert isinstance(result, list)"
+        )
+        script: Final = (
+            "import json,os,time,urllib.request\n"
+            "deadline=time.monotonic()+60\n"
+            "while True:\n"
+            " try:\n"
+            f"  with urllib.request.urlopen({request},timeout=5) as response: result=json.load(response)\n"
+            f"  {validation}\n"
+            "  break\n"
+            " except Exception:\n"
+            "  if time.monotonic()>=deadline: raise SystemExit(1)\n"
+            "  time.sleep(2)\n"
+        )
+        self.run("exec", identifier, "python", "-c", script, timeout=75)

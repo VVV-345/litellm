@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { migratedHref } from "@/utils/migratedPages";
 import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePanel";
 
 type SettingsGroup = {
   icon: LucideIcon;
@@ -406,6 +407,7 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         </p>
       )}
       <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />
         <OverviewCard
           icon={Workflow}
           title="设置生效规则"

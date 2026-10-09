@@ -46,6 +46,14 @@ def test_missing_database_exec_permission_never_stops_business_containers(tmp_pa
     assert not any(call[0] == "stop" for call in calls)
 
 
+def test_backup_failure_cannot_claim_recovery_when_application_is_unhealthy(setup_data):
+    service, runtime, clock, database = setup_data
+    database.fail_capture = True
+    runtime.fail_health = True
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert service.store.jobs()[0].phase == "需要人工恢复"
+
+
 class Database:
     def __init__(self) -> None:
         self.data = b"current-data"

@@ -141,6 +141,8 @@ describe("project releases", () => {
       rollback: action.action === "apply" ? report : null,
     }));
     const queuedJob: ReleaseJob = {
+      automatic: false,
+      retryable: false,
       id: "job",
       action: { ...actionDefaults, action: "apply", revision: 3, version_id: old.id },
       status: "queued",

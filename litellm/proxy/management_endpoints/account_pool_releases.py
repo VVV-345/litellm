@@ -13,6 +13,8 @@ from pydantic import BaseModel, ValidationError
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_release_models import (
+    AutoUpdateSettings,
+    AutoUpdateView,
     ReleaseAction,
     ReleaseCommands,
     ReleaseConfirmation,
@@ -68,6 +70,8 @@ def create_release_router(
         except httpx.HTTPError as error:
             raise HTTPException(503, "部署管理服务暂时不可用；服务切换期间请稍后刷新") from error
         if result.status_code in (400, 404, 409, 422):
+            if result.status_code == 404 and path.startswith("/auto-update"):
+                raise HTTPException(503, "发布器尚不支持自动更新，请先升级独立 release-worker")
             try:
                 failure: Final = ReleaseFailure.model_validate_json(result.content)
             except ValidationError as error:
@@ -94,8 +98,20 @@ def create_release_router(
     async def commands(version_id: ReleaseId, actor: Annotated[str, Depends(authorize)]) -> ReleaseCommands:
         return await call("GET", f"/{version_id}/commands", actor, ReleaseCommands)
 
+    async def auto_view(actor: Annotated[str, Depends(authorize)]) -> AutoUpdateView:
+        return await call("GET", "/auto-update", actor, AutoUpdateView)
+
+    async def auto_settings(body: AutoUpdateSettings, actor: Annotated[str, Depends(authorize)]) -> AutoUpdateView:
+        return await call("POST", "/auto-update", actor, AutoUpdateView, body)
+
+    async def auto_check(actor: Annotated[str, Depends(authorize)]) -> AutoUpdateView:
+        return await call("POST", "/auto-update/check", actor, AutoUpdateView)
+
     router.get("")(view)
     router.post("/prepare")(prepare)
     router.post("/execute")(execute)
+    router.get("/auto-update")(auto_view)
+    router.post("/auto-update")(auto_settings)
+    router.post("/auto-update/check")(auto_check)
     router.get("/{version_id}/commands")(commands)
     return router
