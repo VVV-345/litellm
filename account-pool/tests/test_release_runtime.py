@@ -227,6 +227,55 @@ def test_apply_checks_application_readiness_not_only_container_liveness(tmp_path
     assert any("/api/environments" in script for script in scripts)
 
 
+@pytest.mark.parametrize("store", ("classic", "containerd"))
+@pytest.mark.parametrize("matching_commit", (True, False))
+def test_pinned_pull_accepts_both_docker_image_stores_without_relaxing_revision(tmp_path, store, matching_commit):
+    from account_pool.release_models import ReleaseCandidate, RemoteReleaseImage
+    from account_pool.release_store import ReleaseError
+
+    selected = ReleaseCandidate(
+        commit="a" * 40,
+        images=tuple(
+            RemoteReleaseImage(
+                service=service, digest="sha256:" + str(index + 1) * 64, image_id="sha256:" + str(index + 3) * 64
+            )
+            for index, service in enumerate(("litellm", "account-pool"))
+        ),
+    )
+
+    def command(*args, timeout=120):
+        if args[:2] != ("image", "inspect"):
+            return b""
+        image = next(image for image in selected.images if args[2].endswith(image.digest))
+        return json.dumps(
+            [
+                {
+                    "Id": image.image_id if store == "classic" else image.digest,
+                    "Size": 100,
+                    "Config": {
+                        "Labels": {
+                            "org.opencontainers.image.revision": selected.commit if matching_commit else "b" * 40
+                        }
+                    },
+                }
+            ]
+        ).encode()
+
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
+        command,
+    )
+    if not matching_commit:
+        with pytest.raises(ReleaseError, match="镜像身份"):
+            runtime.pull_candidate(selected)
+        return
+    actual = runtime.pull_candidate(selected)
+    assert actual.commit == selected.commit
+    assert tuple(image.image_id for image in actual.images) == tuple(
+        image.image_id if store == "classic" else image.digest for image in selected.images
+    )
+
+
 def test_first_backup_captures_actual_mounts_ports_and_environment() -> None:
     container: Final = ContainerInspection.model_validate(
         {

@@ -73,6 +73,22 @@ def test_same_remote_image_skips_download_and_waits_next_interval(tmp_path):
     assert source.calls == 2
 
 
+def test_containerd_manifest_image_ids_skip_unchanged_remote_images(tmp_path):
+    selected = candidate(CURRENT)
+    updater, service, runtime, source, _ = configured(tmp_path, selected)
+    runtime.running = CURRENT.model_copy(
+        update={
+            "images": tuple(
+                image.model_copy(update={"image_id": remote.digest})
+                for image, remote in zip(CURRENT.images, selected.images, strict=True)
+            )
+        }
+    )
+    updater.tick()
+    assert updater.view().status == "current"
+    assert source.calls == 1 and not runtime.events and not service.store.jobs()
+
+
 def test_new_image_is_pinned_and_queued_once_then_deployed_through_backup(tmp_path):
     updater, service, runtime, source, _ = configured(tmp_path)
     updater.tick()

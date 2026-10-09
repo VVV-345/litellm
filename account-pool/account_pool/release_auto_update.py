@@ -51,9 +51,8 @@ class AutoUpdater:
             if candidate is None:
                 self.service.store.finish_auto_check(checked, "waiting", "开发分支尚无完整成功发布的新镜像")
                 return
-            same: Final = {item.service: item.image_id for item in candidate.images} == {
-                item.service: item.image_id for item in current.images
-            }
+            running: Final = {item.service: item.image_id for item in current.images}
+            same: Final = all(running.get(item.service) in (item.image_id, item.digest) for item in candidate.images)
             if same:
                 self.service.store.finish_auto_check(checked, "current", "远程镜像与运行镜像相同，已跳过", candidate)
                 return

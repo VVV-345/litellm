@@ -96,7 +96,7 @@ python3 releasectl.py deploy 新提交前10位
 
 发布器读取 GitHub API 中固定仓库 `VVV-345/litellm` 的 `CLIProxyAPI分支` HEAD 及成功的 `publish-deployment-images.yml` 记录，再检查 GHCR 两个配套镜像的当前运行平台。没有完整成功构建时等待下轮，不改用其他分支或较旧提交。GitHub 元数据接口当前按公开仓库读取，服务器须能访问 GitHub API 和 GHCR；私有 GHCR 镜像还需要发布器自己的 Docker 登录配置
 
-比较的是两项运行镜像 ID 与远程 manifest 的配置摘要，不只比较标签或 commit。同镜像跳过，不拉取、不停服务；新镜像按检查时固定的 `@sha256` 拉取，并再次验证镜像 ID 与完整 commit。标签在检查后被覆盖也不会换成另一个候选
+比较的是两项运行镜像 ID 与远程 manifest 身份，不只比较标签或 commit。兼容 Docker classic 返回 config 摘要，以及 containerd 镜像存储返回 manifest 摘要。同镜像跳过，不拉取、不停服务；新镜像按检查时固定的 `@sha256` 拉取，并再次验证镜像 ID 与完整 commit。标签在检查后被覆盖也不会换成另一个候选
 
 拉取完成后沿用现有归档、数据库备份及兼容性硬门槛，不放开跨 schema 部署。Compose 启动完成后，额外检查 LiteLLM `/health/readiness` 的数据库连接和 Manager 经鉴权的环境列表接口，并确认运行镜像仍匹配。每个服务的应用就绪检查最多等待约 60 秒。此检查不调用付费模型，也不要求所有账号都有额度；不能代替真实上游请求验收
 

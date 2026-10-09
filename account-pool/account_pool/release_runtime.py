@@ -595,7 +595,7 @@ class DockerReleaseRuntime:
         except ReleaseError as error:
             raise ReleaseDownloadError("镜像下载失败，旧服务保持不变") from error
         actual: Final = self.inspect_image(reference, selected.service)
-        if actual.image_id != selected.image_id or actual.revision != candidate.commit:
+        if actual.image_id not in (selected.image_id, selected.digest) or actual.revision != candidate.commit:
             raise ReleaseError("拉取后的镜像身份与检查结果不一致，未替换服务")
         return actual
 
