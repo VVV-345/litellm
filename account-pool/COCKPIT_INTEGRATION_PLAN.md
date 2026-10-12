@@ -470,6 +470,24 @@ Cockpit 新增页面功能时，不直接复制 UI 源码。先把功能拆成�
 
 只把已确认的行为重新实现到 LiteLLM 的页面和服务端。对于 CLIProxyAPI 上游已有的 MIT 能力，可以按许可证复用或升级；Cockpit Tools 本身是 CC BY-NC-SA 4.0，商业使用受限，不能无条件复制 Cockpit 的 React、Rust 或定制 Go 源码。Cockpit 对上游 CLIProxyAPI 的修改还需要逐文件确认其来源和许可证
 
+### 11.3 Cockpit 插件兼容边界
+
+Cockpit 的插件管理属于 CLIProxyAPI 卡片运行时，不属于 LiteLLM 核心进程。当前号池的调用链是：
+
+```text
+管理员页面
+  -> LiteLLM /account_pool 管理接口
+  -> Manager 卡片插件编排
+  -> 指定 CLIProxyAPI 环境的 /v0/management/plugin* 接口
+  -> 该卡片自己的 /data/plugins
+```
+
+因此，已经安装在 CLIProxyAPI 环境中的 Cockpit 兼容插件可以按卡片使用，但不能通过 LiteLLM 的全局插件机制直接加载。非 CLIProxyAPI 卡片会被服务端拒绝，插件 ID、版本和来源必须先由该卡片的 plugin-store 返回并通过校验。页面只显示状态和配置，不返回插件文件、凭据或完整运行配置
+
+Manager 侧的 `PluginService` 是受批准的 sidecar manifest 和启停状态记录，不负责执行插件，也不能把 Cockpit 的动态库装进 LiteLLM 进程。这样可以保留 LiteLLM 的鉴权、路由和计费边界，避免插件读取其他卡片的密钥或跨越账号隔离网络
+
+若后续需要全局插件能力，应实现独立 sidecar 或插件运行器，并为每个插件声明运行时版本、入口、能力范围、供应商范围和卡片范围。安装前校验来源和 SHA-256，启停、更新和卸载保留旧版本以便回滚；在此之前不应把 Cockpit 源码或二进制复制到 LiteLLM 镜像中
+
 ### 11.3 版本兼容矩阵
 
 建议维护一份运行时矩阵
