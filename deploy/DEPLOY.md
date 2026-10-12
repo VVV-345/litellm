@@ -1,5 +1,7 @@
 # 号池单机部署指南
 
+日常更新、GitHub/GHCR 凭据核对、兼容性检查和回退统一从 [更新操作手册](UPDATE_RUNBOOK.md) 开始；本文主要用于首次安装
+
 五个基础容器一起起：LiteLLM 主服务、号池 Manager、两个独立数据库、Docker Socket Proxy。账号容器由 Manager 按需创建。镜像从 ghcr.io/vvv-345 拉取，不需要在服务器上构建。LiteLLM、数据库和 Manager 的宿主机端口只绑定回环地址，公网入口必须使用 HTTPS 反向代理
 
 ## 首次部署

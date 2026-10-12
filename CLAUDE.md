@@ -126,6 +126,8 @@ Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, sim
 
 ## Account Pool Maintenance
 
+Before deployment, image replacement, release-worker maintenance, or upstream updates, read `deploy/UPDATE_RUNBOOK.md` and follow its credential, compatibility, backup, verification, and rollback gates. Record the actual host, paths, version, and unfinished step rather than relying on defaults or prior memory
+
 For account-pool refactoring or changes to its LiteLLM integration, read [the maintenance playbook](account-pool/MAINTENANCE.md) and the applicable [Manager instructions](account-pool/AGENTS.md) or [dashboard instructions](ui/litellm-dashboard/CLAUDE.md)
 
 Keep behavior-preserving moves separate from changes to defaults, API contracts, routing, billing, persistence, or deployment. Record the starting commit and existing failures before a broad refactor. Move one responsibility with its callers and tests, preserve public import paths where needed, and verify it before expanding scope
