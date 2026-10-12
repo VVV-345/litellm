@@ -1557,7 +1557,8 @@ export interface paths {
         };
         /** Get Proxy Gateway Configuration */
         get: operations["get_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_get"];
-        put?: never;
+        /** Update Proxy Gateway Configuration */
+        put: operations["update_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2377,9 +2378,6 @@ export interface paths {
          * @description Get all audit logs with filtering and pagination.
          *
          *     Returns a paginated response of audit logs matching the specified filters.
-         *
-         *     Note: object_team_id and object_key_hash use Prisma JSON path filtering,
-         *     which requires PostgreSQL.
          */
         get: operations["get_audit_logs_audit_get"];
         put?: never;
@@ -12883,240 +12881,6 @@ export interface paths {
          *     ```
          */
         post: operations["validate_policy_policy_validate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Project
-         * @description Delete projects
-         *
-         *     Parameters:
-         *     - project_ids: *List[str]* - List of project ids to delete
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location --request DELETE 'http://0.0.0.0:4000/project/delete' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_ids": ["project-123", "project-456"]
-         *     }'
-         *     ```
-         */
-        delete: operations["delete_project_project_delete_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/info": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Project Info
-         * @description Get information about a specific project
-         *
-         *     Parameters:
-         *     - project_id: *str* - The project id to fetch info for
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/info?project_id=project-123' \
-         *     --header 'Authorization: Bearer sk-1234'
-         *     ```
-         */
-        get: operations["project_info_project_info_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/list": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Projects
-         * @description List all projects that the user has access to
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/list' \
-         *     --header 'Authorization: Bearer sk-1234'
-         *     ```
-         */
-        get: operations["list_projects_project_list_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/new": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * New Project
-         * @description Create a new project. Projects sit between teams and keys in the hierarchy.
-         *
-         *     Only admins or team admins can create projects.
-         *
-         *     # Parameters
-         *
-         *     - project_alias: *Optional[str]* - The name of the project.
-         *     - description: *Optional[str]* - Description of the project's purpose and use case.
-         *     - team_id: *str* - The team id that this project belongs to. Required.
-         *     - models: *List* - The models the project has access to.
-         *     - budget_id: *Optional[str]* - The id for a budget (tpm/rpm/max budget) for the project.
-         *     ### IF NO BUDGET ID - CREATE ONE WITH THESE PARAMS ###
-         *     - max_budget: *Optional[float]* - Max budget for project
-         *     - tpm_limit: *Optional[int]* - Max tpm limit for project
-         *     - rpm_limit: *Optional[int]* - Max rpm limit for project
-         *     - max_parallel_requests: *Optional[int]* - Max parallel requests for project
-         *     - soft_budget: *Optional[float]* - Get a slack alert when this soft budget is reached. Don't block requests.
-         *     - model_max_budget: *Optional[dict]* - Max budget for a specific model. Example: {"gpt-4": 100.0, "gpt-3.5-turbo": 50.0}
-         *     - model_rpm_limit: *Optional[dict]* - RPM limits per model. Example: {"gpt-4": 1000, "gpt-3.5-turbo": 5000}
-         *     - model_tpm_limit: *Optional[dict]* - TPM limits per model. Example: {"gpt-4": 50000, "gpt-3.5-turbo": 100000}
-         *     - budget_duration: *Optional[str]* - Frequency of reseting project budget
-         *     - metadata: *Optional[dict]* - Metadata for project, store information for project. Example metadata - {"use_case_id": "SNOW-12345", "responsible_ai_id": "RAI-67890"}
-         *     - tags: *Optional[list]* - Tags for the project. Example: ["production", "api"]
-         *     - blocked: *bool* - Flag indicating if the project is blocked or not - will stop all calls from keys with this project_id.
-         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - project-specific object permission. Example - {"vector_stores": ["vector_store_1", "vector_store_2"]}. IF null or {} then no object permission.
-         *
-         *     Example 1: Create new project **without** a budget_id, with model-specific limits
-         *
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/new' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_alias": "flight-search-assistant",
-         *         "description": "AI-powered flight search and booking assistant",
-         *         "team_id": "team-123",
-         *         "models": ["gpt-4", "gpt-3.5-turbo"],
-         *         "max_budget": 100,
-         *         "model_rpm_limit": {
-         *             "gpt-4": 1000,
-         *             "gpt-3.5-turbo": 5000
-         *         },
-         *         "model_tpm_limit": {
-         *             "gpt-4": 50000,
-         *             "gpt-3.5-turbo": 100000
-         *         },
-         *         "metadata": {
-         *             "use_case_id": "SNOW-12345",
-         *             "responsible_ai_id": "RAI-67890"
-         *         }
-         *     }'
-         *     ```
-         *
-         *     Example 2: Create new project **with** a budget_id
-         *
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/new' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_alias": "hotel-recommendations",
-         *         "description": "Personalized hotel recommendation engine",
-         *         "team_id": "team-123",
-         *         "models": ["claude-3-sonnet"],
-         *         "budget_id": "428eeaa8-f3ac-4e85-a8fb-7dc8d7aa8689",
-         *         "metadata": {
-         *             "use_case_id": "SNOW-54321"
-         *         }
-         *     }'
-         *     ```
-         */
-        post: operations["new_project_project_new_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/project/update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Update Project
-         * @description Update a project
-         *
-         *     Parameters:
-         *     - project_id: *str* - The project id to update. Required.
-         *     - project_alias: *Optional[str]* - Updated name for the project
-         *     - description: *Optional[str]* - Updated description for the project
-         *     - team_id: *Optional[str]* - Updated team_id for the project
-         *     - metadata: *Optional[dict]* - Updated metadata for project
-         *     - models: *Optional[list]* - Updated list of models for the project
-         *     - blocked: *Optional[bool]* - Updated blocked status
-         *     - max_budget: *Optional[float]* - Updated max budget
-         *     - tpm_limit: *Optional[int]* - Updated tpm limit
-         *     - rpm_limit: *Optional[int]* - Updated rpm limit
-         *     - model_rpm_limit: *Optional[dict]* - Updated RPM limits per model
-         *     - model_tpm_limit: *Optional[dict]* - Updated TPM limits per model
-         *     - budget_duration: *Optional[str]* - Updated budget duration
-         *     - tags: *Optional[list]* - Updated list of tags for the project
-         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - Updated object permission
-         *
-         *     Example:
-         *     ```bash
-         *     curl --location 'http://0.0.0.0:4000/project/update' \
-         *     --header 'Authorization: Bearer sk-1234' \
-         *     --header 'Content-Type: application/json' \
-         *     --data '{
-         *         "project_id": "project-123",
-         *         "description": "Updated flight search system with enhanced capabilities",
-         *         "max_budget": 200,
-         *         "model_rpm_limit": {
-         *             "gpt-4": 2000,
-         *             "gpt-3.5-turbo": 10000
-         *         },
-         *         "metadata": {
-         *             "use_case_id": "SNOW-12345",
-         *             "status": "active"
-         *         }
-         *     }'
-         *     ```
-         */
-        post: operations["update_project_project_update_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -24010,7 +23774,25 @@ export interface components {
             description?: string | null;
         };
         /** AccessSettingsProfile */
-        AccessSettingsProfile: {
+        "AccessSettingsProfile-Input": {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["AccessSettingsValues"];
+        };
+        /** AccessSettingsProfile */
+        "AccessSettingsProfile-Output": {
             /**
              * Card Ids
              * @default []
@@ -24626,6 +24408,13 @@ export interface components {
             /** Config Path */
             config_path?: string | null;
         };
+        /** AccountPoolProxyGatewayConfigurationRequest */
+        AccountPoolProxyGatewayConfigurationRequest: {
+            /** Content */
+            content?: string | null;
+            /** Url */
+            url?: string | null;
+        };
         /** AccountPoolProxyGatewayDelay */
         AccountPoolProxyGatewayDelay: {
             /** Checked At */
@@ -24787,12 +24576,12 @@ export interface components {
             session_affinity_ttl_seconds: number;
         };
         /** AccountPoolSettings */
-        AccountPoolSettings: {
+        "AccountPoolSettings-Input": {
             /**
              * Access Profiles
              * @default []
              */
-            access_profiles: components["schemas"]["AccessSettingsProfile"][];
+            access_profiles: components["schemas"]["AccessSettingsProfile-Input"][];
             /**
              * Advanced Profiles
              * @default []
@@ -24938,12 +24727,284 @@ export interface components {
             oauth_request_scoped_errors?: {
                 [key: string]: components["schemas"]["OAuthRequestScopedErrorRule"][];
             };
-            payload?: components["schemas"]["PayloadSettings"];
+            payload?: components["schemas"]["PayloadSettings-Input"];
             /**
              * Payload Profiles
              * @default []
              */
-            payload_profiles: components["schemas"]["PayloadSettingsProfile"][];
+            payload_profiles: components["schemas"]["PayloadSettingsProfile-Input"][];
+            /**
+             * Plugins Enabled
+             * @default false
+             */
+            plugins_enabled: boolean;
+            /**
+             * Quota Profiles
+             * @default []
+             */
+            quota_profiles: components["schemas"]["QuotaSettingsProfile"][];
+            /**
+             * Quota Refresh Interval Minutes
+             * @default 5
+             * @enum {integer}
+             */
+            quota_refresh_interval_minutes: 5 | 15 | 30 | 60;
+            /**
+             * Quota Switch Preview Model
+             * @default false
+             */
+            quota_switch_preview_model: boolean;
+            /**
+             * Quota Switch Project
+             * @default false
+             */
+            quota_switch_project: boolean;
+            /**
+             * Request Log Enabled
+             * @default false
+             */
+            request_log_enabled: boolean;
+            /**
+             * Request Retry
+             * @default 1
+             */
+            request_retry: number;
+            /**
+             * Request Timeout Seconds
+             * @default 120
+             */
+            request_timeout_seconds: number;
+            /**
+             * Runtime Log Backups
+             * @default 5
+             */
+            runtime_log_backups: number;
+            /**
+             * Runtime Log Console
+             * @default true
+             */
+            runtime_log_console: boolean;
+            /**
+             * Runtime Log File
+             * @default false
+             */
+            runtime_log_file: boolean;
+            /**
+             * Runtime Log Format
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_format: "inherit" | "text" | "json";
+            /**
+             * Runtime Log Level
+             * @default inherit
+             * @enum {string}
+             */
+            runtime_log_level: "inherit" | "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+            /**
+             * Runtime Log Max Mb
+             * @default 100
+             */
+            runtime_log_max_mb: number;
+            /**
+             * Runtime Log Quiet Dependencies
+             * @default true
+             */
+            runtime_log_quiet_dependencies: boolean;
+            /**
+             * Runtime Log Stacktrace
+             * @default true
+             */
+            runtime_log_stacktrace: boolean;
+            /**
+             * Streaming Enabled
+             * @default true
+             */
+            streaming_enabled: boolean;
+            /**
+             * Streaming Profiles
+             * @default []
+             */
+            streaming_profiles: components["schemas"]["StreamingSettingsProfile"][];
+            /**
+             * Streaming Rules
+             * @default []
+             */
+            streaming_rules: components["schemas"]["StreamingRule"][];
+            /**
+             * Usage Statistics Enabled
+             * @default false
+             */
+            usage_statistics_enabled: boolean;
+            /**
+             * Websocket Auth Enabled
+             * @default false
+             */
+            websocket_auth_enabled: boolean;
+            /**
+             * Websocket Enabled
+             * @default false
+             */
+            websocket_enabled: boolean;
+        };
+        /** AccountPoolSettings */
+        "AccountPoolSettings-Output": {
+            /**
+             * Access Profiles
+             * @default []
+             */
+            access_profiles: components["schemas"]["AccessSettingsProfile-Output"][];
+            /**
+             * Advanced Profiles
+             * @default []
+             */
+            advanced_profiles: components["schemas"]["AdvancedSettingsProfile"][];
+            /**
+             * Auth Refresh Interval Minutes
+             * @default 15
+             * @enum {integer}
+             */
+            auth_refresh_interval_minutes: 5 | 15 | 30 | 60;
+            /**
+             * Common Profiles
+             * @default []
+             */
+            common_profiles: components["schemas"]["CommonSettingsProfile"][];
+            /**
+             * Daily Log Max Rows
+             * @default 0
+             */
+            daily_log_max_rows: number;
+            /**
+             * Daily Log Retention Days
+             * @default 30
+             */
+            daily_log_retention_days: number;
+            /**
+             * Debug Logging Enabled
+             * @default false
+             */
+            debug_logging_enabled: boolean;
+            /**
+             * Default Concurrency Limit
+             * @default 1
+             */
+            default_concurrency_limit: number;
+            /**
+             * Default Model Discovery
+             * @default true
+             */
+            default_model_discovery: boolean;
+            /** Default Proxy Profile Id */
+            default_proxy_profile_id?: string | null;
+            /**
+             * Default Route
+             * @default auto
+             * @enum {string}
+             */
+            default_route: "auto" | "priority" | "random" | "quota";
+            /**
+             * Error Logs Max Files
+             * @default 10
+             */
+            error_logs_max_files: number;
+            /**
+             * File Logging Enabled
+             * @default false
+             */
+            file_logging_enabled: boolean;
+            /**
+             * Force Model Prefix
+             * @default false
+             */
+            force_model_prefix: boolean;
+            /**
+             * Full Log Max Body Kb
+             * @default 16384
+             */
+            full_log_max_body_kb: number;
+            /**
+             * Full Log Max Storage Mb
+             * @default 0
+             */
+            full_log_max_storage_mb: number;
+            /**
+             * Full Log Retention Days
+             * @default 30
+             */
+            full_log_retention_days: number;
+            /**
+             * Full Log Sample Percent
+             * @default 100
+             */
+            full_log_sample_percent: number;
+            /**
+             * Full Log Skip Failed
+             * @default false
+             */
+            full_log_skip_failed: boolean;
+            /**
+             * Full Log Success Enabled
+             * @default true
+             */
+            full_log_success_enabled: boolean;
+            /**
+             * Full Logging Enabled
+             * @default false
+             */
+            full_logging_enabled: boolean;
+            /**
+             * Log Redact Fields
+             * @default []
+             */
+            log_redact_fields: string[];
+            /**
+             * Logs Max Total Size Mb
+             * @default 0
+             */
+            logs_max_total_size_mb: number;
+            /**
+             * Max Attempts
+             * @default 1
+             */
+            max_attempts: number;
+            /**
+             * Max Retry Credentials
+             * @default 1
+             */
+            max_retry_credentials: number;
+            /**
+             * Max Retry Interval
+             * @default 0
+             */
+            max_retry_interval: number;
+            /**
+             * Network Profiles
+             * @default []
+             */
+            network_profiles: components["schemas"]["NetworkSettingsProfile"][];
+            /**
+             * Oauth Excluded Models
+             * @default []
+             */
+            oauth_excluded_models: string[];
+            /** Oauth Model Aliases */
+            oauth_model_aliases?: {
+                [key: string]: [
+                    string,
+                    string
+                ][];
+            };
+            /** Oauth Request Scoped Errors */
+            oauth_request_scoped_errors?: {
+                [key: string]: components["schemas"]["OAuthRequestScopedErrorRule"][];
+            };
+            payload?: components["schemas"]["PayloadSettings-Output"];
+            /**
+             * Payload Profiles
+             * @default []
+             */
+            payload_profiles: components["schemas"]["PayloadSettingsProfile-Output"][];
             /**
              * Plugins Enabled
              * @default false
@@ -25079,7 +25140,7 @@ export interface components {
              * @enum {string}
              */
             source: "initial" | "update" | "rollback";
-            values: components["schemas"]["AccountPoolSettings"];
+            values: components["schemas"]["AccountPoolSettings-Output"];
             /** Version */
             version: number;
         };
@@ -25103,7 +25164,7 @@ export interface components {
         };
         /** AccountPoolSettingsUpdate */
         AccountPoolSettingsUpdate: {
-            values: components["schemas"]["AccountPoolSettings"];
+            values: components["schemas"]["AccountPoolSettings-Input"];
             /** Version */
             version: number;
         };
@@ -25116,7 +25177,7 @@ export interface components {
             requires_reload: boolean;
             /** Updated At */
             updated_at?: string | null;
-            values: components["schemas"]["AccountPoolSettings"];
+            values: components["schemas"]["AccountPoolSettings-Output"];
             /** Version */
             version: number;
         };
@@ -26473,12 +26534,18 @@ export interface components {
         };
         /** Body_audio_transcriptions_audio_transcriptions_post */
         Body_audio_transcriptions_audio_transcriptions_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_audio_transcriptions_v1_audio_transcriptions_post */
         Body_audio_transcriptions_v1_audio_transcriptions_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_authorize_complete_authorize_complete_post */
@@ -26504,7 +26571,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -26528,7 +26598,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -26552,7 +26625,10 @@ export interface components {
              * @default openai
              */
             custom_llm_provider: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /** Litellm Metadata */
             litellm_metadata?: string | null;
@@ -26571,7 +26647,10 @@ export interface components {
         };
         /** Body_create_vertex_account_pool_vertex_post */
         Body_create_vertex_account_pool_vertex_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Location
@@ -26697,7 +26776,10 @@ export interface components {
              * Format: uuid
              */
             card_id: string;
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Replace
@@ -26707,21 +26789,30 @@ export interface components {
         };
         /** Body_upload_logo_upload_logo_post */
         Body_upload_logo_upload_logo_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_video_create_character_v1_videos_characters_post */
         Body_video_create_character_v1_videos_characters_post: {
             /** Name */
             name: string;
-            /** Video */
+            /**
+             * Video
+             * Format: binary
+             */
             video: string;
         };
         /** Body_video_create_character_videos_characters_post */
         Body_video_create_character_videos_characters_post: {
             /** Name */
             name: string;
-            /** Video */
+            /**
+             * Video
+             * Format: binary
+             */
             video: string;
         };
         /** Body_video_generation_v1_videos_post */
@@ -29406,14 +29497,6 @@ export interface components {
         DeleteOrganizationRequest: {
             /** Organization Ids */
             organization_ids: string[];
-        };
-        /**
-         * DeleteProjectRequest
-         * @description Request model for DELETE /project/delete
-         */
-        DeleteProjectRequest: {
-            /** Project Ids */
-            project_ids: string[];
         };
         /**
          * DeleteSkillResponse
@@ -32789,65 +32872,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /**
-         * LiteLLM_ProjectTable
-         * @description Database model representation for project
-         */
-        LiteLLM_ProjectTable: {
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Created At */
-            created_at?: string | null;
-            /** Created By */
-            created_by?: string | null;
-            /** Description */
-            description?: string | null;
-            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Spend */
-            model_spend?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
-            /** Object Permission Id */
-            object_permission_id?: string | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /**
-             * Spend
-             * @default 0
-             */
-            spend: number;
-            /** Team Id */
-            team_id?: string | null;
-            /** Updated At */
-            updated_at?: string | null;
-            /** Updated By */
-            updated_by?: string | null;
-        };
         /** LiteLLM_ProxyModelTable */
         LiteLLM_ProxyModelTable: {
             /**
@@ -35338,142 +35362,6 @@ export interface components {
             /** Users */
             users?: components["schemas"]["LiteLLM_UserTable"][] | null;
         };
-        /**
-         * NewProjectRequest
-         * @description Request model for POST /project/new
-         */
-        NewProjectRequest: {
-            /** Allowed Models */
-            allowed_models?: string[] | null;
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Duration */
-            budget_duration?: string | null;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Guardrails */
-            guardrails?: string[] | null;
-            /** Max Budget */
-            max_budget?: number | null;
-            /** Max Parallel Requests */
-            max_parallel_requests?: number | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Itpm Limit */
-            model_itpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Max Budget */
-            model_max_budget?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Otpm Limit */
-            model_otpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
-            /** Policies */
-            policies?: string[] | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id?: string | null;
-            /** Rpm Limit */
-            rpm_limit?: number | null;
-            /** Soft Budget */
-            soft_budget?: number | null;
-            /** Tags */
-            tags?: string[] | null;
-            /** Team Id */
-            team_id: string;
-            /** Tpm Limit */
-            tpm_limit?: number | null;
-        };
-        /**
-         * NewProjectResponse
-         * @description Response model for POST /project/new
-         */
-        NewProjectResponse: {
-            /**
-             * Blocked
-             * @default false
-             */
-            blocked: boolean;
-            /** Budget Id */
-            budget_id?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Created By */
-            created_by?: string | null;
-            /** Description */
-            description?: string | null;
-            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Spend */
-            model_spend?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Models
-             * @default []
-             */
-            models: string[];
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
-            /** Object Permission Id */
-            object_permission_id?: string | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /**
-             * Spend
-             * @default 0
-             */
-            spend: number;
-            /** Team Id */
-            team_id?: string | null;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Updated By */
-            updated_by?: string | null;
-        };
         /** NewTeamRequest */
         NewTeamRequest: {
             /** Access Group Ids */
@@ -36696,7 +36584,35 @@ export interface components {
             };
         };
         /** PayloadSettings */
-        PayloadSettings: {
+        "PayloadSettings-Input": {
+            /**
+             * Default
+             * @default []
+             */
+            default: components["schemas"]["PayloadRule"][];
+            /**
+             * Default-Raw
+             * @default []
+             */
+            "default-raw": components["schemas"]["PayloadRule"][];
+            /**
+             * Filter
+             * @default []
+             */
+            filter: components["schemas"]["PayloadFilterRule"][];
+            /**
+             * Override
+             * @default []
+             */
+            override: components["schemas"]["PayloadRule"][];
+            /**
+             * Override-Raw
+             * @default []
+             */
+            "override-raw": components["schemas"]["PayloadRule"][];
+        };
+        /** PayloadSettings */
+        "PayloadSettings-Output": {
             /**
              * Default
              * @default []
@@ -36724,7 +36640,7 @@ export interface components {
             "override-raw": components["schemas"]["PayloadRule"][];
         };
         /** PayloadSettingsProfile */
-        PayloadSettingsProfile: {
+        "PayloadSettingsProfile-Input": {
             /**
              * Card Ids
              * @default []
@@ -36739,7 +36655,25 @@ export interface components {
             inherit_global: boolean;
             /** Name */
             name: string;
-            values?: components["schemas"]["PayloadSettings"];
+            values?: components["schemas"]["PayloadSettings-Input"];
+        };
+        /** PayloadSettingsProfile */
+        "PayloadSettingsProfile-Output": {
+            /**
+             * Card Ids
+             * @default []
+             */
+            card_ids: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inherit Global
+             * @default true
+             */
+            inherit_global: boolean;
+            /** Name */
+            name: string;
+            values?: components["schemas"]["PayloadSettings-Output"];
         };
         /**
          * PerTestingCriteriaResult
@@ -38351,7 +38285,39 @@ export interface components {
             review_notes?: string | null;
         };
         /** ReleaseAction */
-        ReleaseAction: {
+        "ReleaseAction-Input": {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data";
+            candidate?: components["schemas"]["ReleaseCandidate"] | null;
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /**
+             * Force Acknowledgement
+             * @default
+             */
+            force_acknowledgement: string;
+            /** Revision */
+            revision: number;
+            /** Snapshot Id */
+            snapshot_id?: string | null;
+            /** Tag */
+            tag?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /** Version Id */
+            version_id?: string | null;
+        };
+        /** ReleaseAction */
+        "ReleaseAction-Output": {
             /**
              * Action
              * @enum {string}
@@ -38421,7 +38387,7 @@ export interface components {
         };
         /** ReleaseConfirmation */
         ReleaseConfirmation: {
-            action: components["schemas"]["ReleaseAction"];
+            action: components["schemas"]["ReleaseAction-Output"];
             /** Current Commit */
             current_commit: string | null;
             database_snapshot?: components["schemas"]["DatabaseSnapshot"] | null;
@@ -38469,7 +38435,7 @@ export interface components {
         };
         /** ReleaseJob */
         ReleaseJob: {
-            action: components["schemas"]["ReleaseAction"];
+            action: components["schemas"]["ReleaseAction-Output"];
             /**
              * Automatic
              * @default false
@@ -41872,71 +41838,6 @@ export interface components {
              * @description Semantic version; cleared if omitted
              */
             version?: string | null;
-        };
-        /**
-         * UpdateProjectRequest
-         * @description Request model for POST /project/update
-         */
-        UpdateProjectRequest: {
-            /** Allowed Models */
-            allowed_models?: string[] | null;
-            /** Blocked */
-            blocked?: boolean | null;
-            /** Budget Duration */
-            budget_duration?: string | null;
-            /** Budget Id */
-            budget_id?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Guardrails */
-            guardrails?: string[] | null;
-            /** Max Budget */
-            max_budget?: number | null;
-            /** Max Parallel Requests */
-            max_parallel_requests?: number | null;
-            /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Itpm Limit */
-            model_itpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Max Budget */
-            model_max_budget?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Otpm Limit */
-            model_otpm_limit?: {
-                [key: string]: number;
-            } | null;
-            /** Model Rpm Limit */
-            model_rpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Model Tpm Limit */
-            model_tpm_limit?: {
-                [key: string]: unknown;
-            } | null;
-            /** Models */
-            models?: string[] | null;
-            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
-            /** Policies */
-            policies?: string[] | null;
-            /** Project Alias */
-            project_alias?: string | null;
-            /** Project Id */
-            project_id: string;
-            /** Rpm Limit */
-            rpm_limit?: number | null;
-            /** Soft Budget */
-            soft_budget?: number | null;
-            /** Tags */
-            tags?: string[] | null;
-            /** Team Id */
-            team_id?: string | null;
-            /** Tpm Limit */
-            tpm_limit?: number | null;
         };
         /**
          * UpdatePublicModelGroupsRequest
@@ -46346,6 +46247,39 @@ export interface operations {
             };
         };
     };
+    update_proxy_gateway_configuration_account_pool_proxy_gateways_configuration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolProxyGatewayConfigurationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGatewayConfiguration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     measure_proxy_gateway_delays_account_pool_proxy_gateways_delay_post: {
         parameters: {
             query?: never;
@@ -46678,7 +46612,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReleaseAction"];
+                "application/json": components["schemas"]["ReleaseAction-Input"];
             };
         };
         responses: {
@@ -47728,10 +47662,6 @@ export interface operations {
                 start_date?: string | null;
                 /** @description Filter logs before this date */
                 end_date?: string | null;
-                /** @description Filter by team_id present in before_value or updated_values JSON (PostgreSQL only) */
-                object_team_id?: string | null;
-                /** @description Filter by token (key hash) present in before_value or updated_values JSON (PostgreSQL only) */
-                object_key_hash?: string | null;
                 /** @description Column to sort by (e.g. 'updated_at', 'action', 'table_name') */
                 sort_by?: string | null;
                 /** @description Sort order ('asc' or 'desc') */
@@ -61440,156 +61370,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyValidationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_project_project_delete_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DeleteProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    project_info_project_info_get: {
-        parameters: {
-            query: {
-                project_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_projects_project_list_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
-                };
-            };
-        };
-    };
-    new_project_project_new_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NewProjectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_project_project_update_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
                 };
             };
             /** @description Validation Error */

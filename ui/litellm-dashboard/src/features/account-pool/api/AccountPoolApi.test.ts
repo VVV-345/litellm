@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/http/client";
 
-import { createAccountPoolEnvironment, deleteAccountPoolEnvironment } from "./AccountPoolApi";
+import {
+  createAccountPoolEnvironment,
+  deleteAccountPoolEnvironment,
+  updateAccountPoolProxyGatewayConfiguration,
+} from "./AccountPoolApi";
 import type { AccountPoolCreateRequest } from "../utils/AccountPoolTypes";
 
 const postMock = vi.fn();
 const deleteMock = vi.fn();
+const putMock = vi.fn();
 
 vi.mock("uuid", () => ({ v4: () => "operation-123" }));
 
@@ -14,6 +19,7 @@ vi.mock("@/components/networking", () => ({
   apiClient: {
     delete: (...args: unknown[]) => deleteMock(...args),
     post: (...args: unknown[]) => postMock(...args),
+    put: (...args: unknown[]) => putMock(...args),
   },
 }));
 
@@ -21,7 +27,9 @@ describe("createAccountPoolEnvironment", () => {
   beforeEach(() => {
     deleteMock.mockReset();
     postMock.mockReset();
+    putMock.mockReset();
     postMock.mockResolvedValue({});
+    putMock.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
   });
 
   it("sends the selected channel and supplier with no extra fields", async () => {
@@ -71,5 +79,16 @@ describe("createAccountPoolEnvironment", () => {
     expect(deleteMock).toHaveBeenCalledTimes(2);
     expect(deleteMock.mock.calls[0][1]).toMatchObject({ headers: { "Idempotency-Key": "operation-123" } });
     expect(deleteMock.mock.calls[1][1]).toMatchObject({ headers: { "Idempotency-Key": "operation-123" } });
+  });
+
+  it("sends a subscription URL to the proxy configuration endpoint", async () => {
+    const requestBody = { content: undefined, url: "https://example.test/config.yaml" };
+
+    await updateAccountPoolProxyGatewayConfiguration("token-123", requestBody);
+
+    expect(putMock).toHaveBeenCalledWith("/account_pool/proxy-gateways/configuration", {
+      accessToken: "token-123",
+      body: requestBody,
+    });
   });
 });

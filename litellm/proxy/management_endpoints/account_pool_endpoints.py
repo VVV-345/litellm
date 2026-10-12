@@ -6,8 +6,9 @@ import asyncio
 import json
 import os
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
-from typing import Annotated, AsyncContextManager, Final, Literal, Protocol, TypeVar
+from typing import Annotated, Final, Literal, Protocol, TypeVar
 from urllib.parse import quote
 from uuid import UUID
 
@@ -56,7 +57,7 @@ def _browser_relay_url(
     return str(target_url.copy_merge_params(filtered_params))
 
 
-def _connect_browser_websocket(url: str) -> AsyncContextManager[_BrowserWebSocket]:
+def _connect_browser_websocket(url: str) -> AbstractAsyncContextManager[_BrowserWebSocket]:
     return connect(url, proxy=None, open_timeout=30, close_timeout=10, max_size=16 * 1024 * 1024)
 
 
@@ -419,6 +420,13 @@ class AccountPoolProxyGatewayConfiguration(BaseModel):
     config_path: str | None = None
 
 
+class AccountPoolProxyGatewayConfigurationRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str | None = Field(default=None, max_length=2_097_152)
+    url: str | None = Field(default=None, max_length=2048)
+
+
 class AccountPoolProxyGatewayDelay(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -594,7 +602,7 @@ def create_account_pool_router(
     dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
-    browser_websocket_connect: Callable[[str], AsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
+    browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
@@ -1204,6 +1212,20 @@ def create_account_pool_router(
     ) -> AccountPoolProxyGatewayConfiguration:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways/configuration")
+        return _validate_response(response, _GATEWAY_CONFIGURATION)
+
+    @router.put("/proxy-gateways/configuration", response_model=AccountPoolProxyGatewayConfiguration)
+    async def update_proxy_gateway_configuration(
+        request: AccountPoolProxyGatewayConfigurationRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGatewayConfiguration:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/proxy-gateways/configuration",
+            request.model_dump_json().encode("utf-8"),
+        )
         return _validate_response(response, _GATEWAY_CONFIGURATION)
 
     @router.get("/proxy-gateways/nodes", response_model=tuple[AccountPoolClashNode, ...])

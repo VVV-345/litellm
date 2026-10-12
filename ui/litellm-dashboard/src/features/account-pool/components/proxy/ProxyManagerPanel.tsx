@@ -1,10 +1,13 @@
 /** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 import type { AccountPoolProxyGateway, AccountPoolProxyGatewayDelay } from "../../utils/AccountPoolTypes";
 import { useProxyGateways } from "../../hooks/useProxyGateways";
@@ -31,11 +34,27 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
     switchMutation,
     addMutation,
     deleteMutation,
+    configurationMutation,
   } = useProxyGateways(accessToken, enabled);
+  const [configurationContent, setConfigurationContent] = useState("");
+  const [configurationUrl, setConfigurationUrl] = useState("");
+  const [configurationUpdated, setConfigurationUpdated] = useState(false);
 
   if (!enabled) return null;
 
   const switching = switchMutation.isPending || addMutation.isPending || deleteMutation.isPending;
+  const configurationBusy = configurationMutation.isPending;
+  const configurationDisabled = switching || configurationBusy || (!configurationContent.trim() && !configurationUrl.trim());
+  const handleConfigurationUrlChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setConfigurationUrl(event.target.value);
+    if (event.target.value.trim()) setConfigurationContent("");
+    setConfigurationUpdated(false);
+  };
+  const handleConfigurationContentChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    setConfigurationContent(event.target.value);
+    if (event.target.value.trim()) setConfigurationUrl("");
+    setConfigurationUpdated(false);
+  };
 
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
@@ -72,6 +91,63 @@ export const ProxyManagerPanel = ({ accessToken, enabled }: ProxyManagerPanelPro
           >
             <RefreshCw className={gatewaysLoading || delaysLoading ? "size-4 animate-spin" : "size-4"} />
           </Button>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 border-t border-border/60 pt-4">
+        <div className="grid gap-1.5">
+          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-url">
+            {t("accountPool.proxyGateways.subscriptionUrl")}
+          </label>
+          <Input
+            id="proxy-gateway-configuration-url"
+            value={configurationUrl}
+            onChange={handleConfigurationUrlChange}
+            placeholder="https://example.com/config.yaml"
+            disabled={switching || configurationBusy}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-content">
+            {t("accountPool.proxyGateways.configurationContent")}
+          </label>
+          <Textarea
+            id="proxy-gateway-configuration-content"
+            value={configurationContent}
+            onChange={handleConfigurationContentChange}
+            placeholder={t("accountPool.proxyGateways.configurationContentPlaceholder")}
+            rows={5}
+            disabled={switching || configurationBusy}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setConfigurationUpdated(false);
+              configurationMutation.mutate(
+                {
+                  content: configurationContent.trim() || undefined,
+                  url: configurationUrl.trim() || undefined,
+                },
+                { onSuccess: () => setConfigurationUpdated(true) },
+              );
+            }}
+            disabled={configurationDisabled}
+          >
+            {configurationBusy ? t("accountPool.proxyGateways.configurationUpdating") : t("accountPool.proxyGateways.updateConfiguration")}
+          </Button>
+          {configurationUpdated && (
+            <span className="text-xs text-muted-foreground" role="status">
+              {t("accountPool.proxyGateways.configurationUpdated")}
+            </span>
+          )}
+          {configurationMutation.isError && (
+            <span className="text-xs text-destructive" role="alert">
+              {t("accountPool.proxyGateways.configurationUpdateFailed")}
+            </span>
+          )}
         </div>
       </div>
       {gatewaysError && (

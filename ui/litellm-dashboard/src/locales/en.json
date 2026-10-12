@@ -6351,6 +6351,13 @@
       "selectNodePlaceholder": "Switch node",
       "configurationPath": "Current configuration file: {{path}}",
       "configurationPathUnavailable": "No configuration file location is declared",
+      "subscriptionUrl": "Subscription URL",
+      "configurationContent": "YAML configuration",
+      "configurationContentPlaceholder": "Paste the Clash or Mihomo YAML configuration",
+      "updateConfiguration": "Update proxy configuration",
+      "configurationUpdating": "Updating...",
+      "configurationUpdated": "Proxy configuration updated",
+      "configurationUpdateFailed": "Proxy configuration update failed",
       "assignment": "Port {{port}} · {{node}}"
     },
     "tabs": {

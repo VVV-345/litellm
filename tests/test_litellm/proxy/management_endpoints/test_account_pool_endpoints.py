@@ -804,6 +804,28 @@ def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
     assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
 
 
+def test_proxy_admin_can_update_proxy_gateway_configuration() -> None:
+    bodies: Final[list[dict[str, object]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/proxy-gateways/configuration"
+        assert request.method == "PUT"
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"config_path": "/opt/litellm/mihomo/config.yaml"}, request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+
+    with TestClient(app) as client:
+        response: Final = client.put(
+            "/account_pool/proxy-gateways/configuration",
+            json={"url": "https://example.test/config.yaml"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
+    assert bodies == [{"content": None, "url": "https://example.test/config.yaml"}]
+
+
 @pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))
 def test_proxy_gateway_delay_is_forwarded_only_for_admins(role: LitellmUserRoles) -> None:
     payload: Final = [

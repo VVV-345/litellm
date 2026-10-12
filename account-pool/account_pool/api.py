@@ -13,9 +13,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from starlette.background import BackgroundTask
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.background import BackgroundTask
 
 from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
@@ -69,6 +69,13 @@ T = TypeVar("T")
 
 class GatewaySwitchRequest(BaseModel):
     node_name: str = Field(min_length=1, max_length=256)
+
+
+class GatewayConfigurationRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str | None = Field(default=None, max_length=2_097_152)
+    url: str | None = Field(default=None, max_length=2048)
 
 
 class ClashNodeView(BaseModel):
@@ -850,6 +857,13 @@ def create_router(
     @router.get("/api/proxy-gateways/configuration", dependencies=[Depends(require_manager)])
     async def get_proxy_gateway_configuration() -> GatewayConfigurationView:
         return service.proxy_gateway_configuration()
+
+    @router.put("/api/proxy-gateways/configuration", dependencies=[Depends(require_manager)])
+    async def update_proxy_gateway_configuration(request: GatewayConfigurationRequest) -> GatewayConfigurationView:
+        try:
+            return await service.update_proxy_gateway_configuration(content=request.content, url=request.url)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.get("/api/proxy-gateways/nodes", dependencies=[Depends(require_manager)])
     async def list_clash_nodes() -> tuple[ClashNodeView, ...]:

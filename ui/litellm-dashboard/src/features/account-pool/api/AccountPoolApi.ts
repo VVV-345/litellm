@@ -13,6 +13,7 @@ import type {
   AccountPoolProxyGatewayConfiguration,
   AccountPoolProxyGateway,
   AccountPoolProxyGatewayDelay,
+  AccountPoolProxyGatewayConfigurationRequest,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
 } from "../utils/AccountPoolTypes";
@@ -184,6 +185,15 @@ export const getAccountPoolProxyGatewayConfiguration = (
   accessToken: string,
 ): Promise<AccountPoolProxyGatewayConfiguration> =>
   apiClient.get<AccountPoolProxyGatewayConfiguration>("/account_pool/proxy-gateways/configuration", { accessToken });
+
+export const updateAccountPoolProxyGatewayConfiguration = (
+  accessToken: string,
+  request: AccountPoolProxyGatewayConfigurationRequest,
+): Promise<AccountPoolProxyGatewayConfiguration> =>
+  apiClient.put<AccountPoolProxyGatewayConfiguration>("/account_pool/proxy-gateways/configuration", {
+    accessToken,
+    body: request,
+  });
 
 export const listAccountPoolClashNodes = (accessToken: string): Promise<AccountPoolClashNode[]> =>
   apiClient.get<AccountPoolClashNode[]>("/account_pool/proxy-gateways/nodes", { accessToken });

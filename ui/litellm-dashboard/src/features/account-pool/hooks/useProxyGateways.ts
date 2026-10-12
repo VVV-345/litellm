@@ -10,6 +10,7 @@ import {
   listAccountPoolProxyGateways,
   measureAccountPoolProxyGatewayDelays,
   switchAccountPoolProxyGateway,
+  updateAccountPoolProxyGatewayConfiguration,
 } from "../api/AccountPoolApi";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 
@@ -91,6 +92,16 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     },
     onSuccess: invalidate,
   });
+  const configurationMutation = useMutation({
+    mutationFn: async ({ content, url }: { content?: string; url?: string }) => {
+      if (!accessToken) throw new Error("Access token required");
+      return updateAccountPoolProxyGatewayConfiguration(accessToken, { content, url });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewayConfiguration(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewaysRoot });
+    },
+  });
   return {
     gateways: gatewaysQuery.data ?? [],
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
@@ -111,5 +122,6 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     switchMutation,
     addMutation,
     deleteMutation,
+    configurationMutation,
   };
 };

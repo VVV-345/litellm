@@ -39,6 +39,10 @@ export type AccountPoolProxyGateway = {
 export type AccountPoolProxyGatewayConfiguration = {
   config_path: string | null;
 };
+export type AccountPoolProxyGatewayConfigurationRequest = {
+  content?: string;
+  url?: string;
+};
 export type AccountPoolProxyGatewayDelay = components["schemas"]["AccountPoolProxyGatewayDelay"];
 export type AccountPoolClashNode = {
   name: string;

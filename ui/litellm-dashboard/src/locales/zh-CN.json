@@ -6351,6 +6351,13 @@
       "selectNodePlaceholder": "切换节点",
       "configurationPath": "当前配置文件：{{path}}",
       "configurationPathUnavailable": "当前未声明配置文件位置",
+      "subscriptionUrl": "订阅链接",
+      "configurationContent": "YAML 配置内容",
+      "configurationContentPlaceholder": "粘贴 Clash 或 Mihomo YAML 配置",
+      "updateConfiguration": "更新代理配置",
+      "configurationUpdating": "更新中…",
+      "configurationUpdated": "代理配置已更新",
+      "configurationUpdateFailed": "代理配置更新失败",
       "assignment": "端口 {{port}} · {{node}}"
     },
     "tabs": {

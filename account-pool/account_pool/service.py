@@ -426,6 +426,11 @@ class EnvironmentService:
     def proxy_gateway_configuration(self) -> GatewayConfigurationView:
         return self._proxy_gateways.configuration()
 
+    async def update_proxy_gateway_configuration(
+        self, *, content: str | None = None, url: str | None = None
+    ) -> GatewayConfigurationView:
+        return await self._proxy_gateways.update_configuration(content=content, url=url)
+
     async def list_clash_nodes(self) -> tuple[ClashProxyNode, ...]:
         return await self._proxy_gateways.list_nodes()
 

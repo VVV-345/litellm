@@ -202,6 +202,19 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 
 这条命令不部署 Browser Worker。若之前未启用，保持未启用；若本次明确要升级它，需要对应 GHCR `@sha256:`、会话兼容和独立验证，不把 tag 填进只接受 digest 的配置
 
+## 6.1 网页端替换代理配置
+
+号池代理配置可从 Dashboard 的代理网关面板更新，不需要登录服务器手工覆盖文件。更新入口通过 LiteLLM 管理接口转发到 Manager，仍受代理管理员权限和 Manager 鉴权保护。当前页面支持两种输入方式，二选一：
+
+- 将完整 Clash YAML 粘贴到“配置内容”
+- 填写 HTTPS 或 HTTP 订阅 URL
+
+当前页面没有直接上传本地文件的控件。需要替换本地文件时，先读取文件内容再粘贴，或将文件放在受信任的 HTTPS 地址后使用订阅 URL。URL 不允许携带用户名或密码，不允许重定向，也不允许指向 localhost、内网、链路本地、保留或未指定地址。内容上限为 2 MiB，必须是 UTF-8 且解析结果必须为 YAML 对象
+
+Manager 在写入前保存当前文件，并保留已登记的 `gateway-<port>` listener 与 `clash-gateway-<port>` proxy-group，避免更新订阅时丢失现有网关端口。配置使用同目录临时文件和原子替换写回，随后请求 Clash reload。reload 失败时恢复原文件并再次 reload；恢复也失败则保持错误状态，不把更新报告为成功
+
+发布或回滚后必须重新打开 Dashboard 页面，确认当前配置路径、登记端口、节点列表和切换功能仍可读。不要直接在服务器覆盖配置文件，也不要把完整订阅内容、代理凭据或 Token 写入日志、提交或工单。若更新失败，先查看 Manager 的脱敏错误和配置文件 hash，确认原文件仍存在，再按第 8 节处理，不要重复提交同一候选
+
 ## 7. 更新后验收与版本对齐
 
 ```bash

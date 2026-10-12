@@ -23,6 +23,7 @@ const listGateways = vi.fn();
 const listNodes = vi.fn();
 const switchGateway = vi.fn();
 const measureDelays = vi.fn();
+const updateConfiguration = vi.fn();
 const delay: AccountPoolProxyGatewayDelay = {
   port: 7891,
   current_node: "美国01",
@@ -37,6 +38,7 @@ vi.mock("../../api/AccountPoolApi", () => ({
   listAccountPoolClashNodes: (...args: unknown[]) => listNodes(...args),
   switchAccountPoolProxyGateway: (...args: unknown[]) => switchGateway(...args),
   measureAccountPoolProxyGatewayDelays: (...args: unknown[]) => measureDelays(...args),
+  updateAccountPoolProxyGatewayConfiguration: (...args: unknown[]) => updateConfiguration(...args),
 }));
 
 const renderPanel = (enabled = true) => {
@@ -57,6 +59,7 @@ describe("ProxyManagerPanel", () => {
     listGateways.mockResolvedValue(gateways);
     listNodes.mockResolvedValue([{ name: "美国01", proxy_type: "Shadowsocks" }]);
     measureDelays.mockResolvedValue([delay]);
+    updateConfiguration.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
   });
 
   it("renders gateway rows with the current node and switches on selection", async () => {
@@ -154,5 +157,19 @@ describe("ProxyManagerPanel", () => {
     expect(await screen.findByText("当前节点：日本02")).toBeInTheDocument();
     expect(await screen.findByText("节点延迟：未检测")).toBeInTheDocument();
     expect(screen.queryByText("节点延迟：183 ms")).not.toBeInTheDocument();
+  });
+
+  it("updates the proxy configuration from a subscription URL", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.type(await screen.findByLabelText("订阅链接"), "https://example.test/config.yaml");
+    await user.click(screen.getByRole("button", { name: "更新代理配置" }));
+
+    expect(updateConfiguration).toHaveBeenCalledWith("token", {
+      content: undefined,
+      url: "https://example.test/config.yaml",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("代理配置已更新");
   });
 });

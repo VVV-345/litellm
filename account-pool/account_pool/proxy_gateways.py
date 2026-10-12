@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Final
+from typing import Final, cast
+from urllib.parse import urlsplit
 
+import httpx
 import yaml
 
 from account_pool.clash import ClashController, ClashDelayResult, ClashDelayStatus, ClashError, ClashProxyNode
@@ -18,6 +21,8 @@ from account_pool.config import Settings
 from account_pool.ports import ProxyProfileRepository
 
 _GATEWAY_PROFILE_PREFIX: Final = "clash-gateway-"
+_MAX_CONFIGURATION_BYTES: Final = 2 * 1024 * 1024
+_MAX_CONFIGURATION_URL_LENGTH: Final = 2048
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +56,8 @@ class ProxyGatewayService:
         settings: Settings,
         profiles: ProxyProfileRepository,
         controller: ClashController,
+        *,
+        fetch_configuration: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         self._settings: Final = settings
         self._profiles: Final = profiles
@@ -59,9 +66,10 @@ class ProxyGatewayService:
         self._registry_lock: Final = asyncio.Lock()
         self._profile_locks: Final[dict[str, asyncio.Lock]] = {}
         self._dynamic_registry: Final = callable(getattr(profiles, "delete_gateway", None))
+        self._fetch_configuration: Final = fetch_configuration or self._download_configuration
 
     @asynccontextmanager
-    async def profile_operation(self, profile_id: str | None) -> AsyncIterator[None]:
+    async def profile_operation(self, profile_id: str | None) -> AsyncGenerator[None, None]:
         if profile_id is None or not profile_id.startswith(_GATEWAY_PROFILE_PREFIX):
             yield
             return
@@ -97,6 +105,145 @@ class ProxyGatewayService:
 
     def configuration(self) -> GatewayConfigurationView:
         return GatewayConfigurationView(config_path=self._settings.clash_config_path or None)
+
+    async def update_configuration(
+        self, *, content: str | None = None, url: str | None = None
+    ) -> GatewayConfigurationView:
+        if (content is None) == (url is None):
+            raise ClashError("provide exactly one of content or url")
+        source: Final = content if content is not None else await self._load_subscription(url)
+        self._validate_configuration_content(source)
+        config_path: Final = self._settings.clash_config_path
+        if not config_path:
+            raise ClashError("clash config path is not configured")
+        try:
+            async with self._registry_lock:
+                with open(config_path, encoding="utf-8") as handle:
+                    original: Final = handle.read()
+                original_config: Final = cast(object, yaml.safe_load(original))
+                parsed_value: Final = cast(object, yaml.safe_load(source))
+                if not isinstance(parsed_value, dict):
+                    raise ClashError("clash config must be a YAML object")
+                parsed: Final = cast(dict[object, object], parsed_value)
+                await self._preserve_registered_gateways(parsed, original_config)
+                updated: Final = yaml.safe_dump(parsed, allow_unicode=True, sort_keys=False)
+                directory: Final = os.path.dirname(config_path) or "."
+                self._replace_config(config_path, directory, updated)
+                try:
+                    await self._controller.reload_config(self._settings.clash_runtime_config_path)
+                except Exception as error:
+                    self._replace_config(config_path, directory, original)
+                    try:
+                        await self._controller.reload_config(self._settings.clash_runtime_config_path)
+                    except Exception:
+                        pass
+                    raise ClashError("clash configuration update failed") from error
+        except ClashError:
+            raise
+        except (OSError, yaml.YAMLError) as error:
+            raise ClashError("clash configuration update failed") from error
+        return self.configuration()
+
+    async def _load_subscription(self, url: str | None) -> str:
+        if url is None:
+            raise ClashError("subscription URL is required")
+        self._validate_subscription_url(url)
+        try:
+            return await self._fetch_configuration(url)
+        except ClashError:
+            raise
+        except Exception as error:
+            raise ClashError("proxy configuration download failed") from error
+
+    async def _preserve_registered_gateways(self, config: dict[object, object], original: object) -> None:
+        ports: Final = await self._registered_ports()
+        if not ports or not isinstance(original, dict):
+            return
+        original_map: Final = cast(dict[object, object], original)
+        listener_names: Final = frozenset(f"gateway-{port}" for port in ports)
+        group_names: Final = frozenset(self.gateway_profile_id(port) for port in ports)
+
+        def entry_name(item: object) -> object:
+            return cast(dict[object, object], item).get("name") if isinstance(item, dict) else None
+
+        def named_entries(value: object, names: frozenset[str]) -> tuple[dict[object, object], ...]:
+            if not isinstance(value, list):
+                return ()
+            entries: Final = cast(list[object], value)
+            return tuple(
+                cast(dict[object, object], item)
+                for item in entries
+                if isinstance(item, dict) and entry_name(cast(object, item)) in names
+            )
+
+        def without_names(value: object, names: frozenset[str]) -> tuple[object, ...]:
+            if not isinstance(value, list):
+                return ()
+            entries: Final = cast(list[object], value)
+            return tuple(
+                item
+                for item in entries
+                if entry_name(item) not in names
+            )
+
+        preserved_listeners: Final = named_entries(original_map.get("listeners"), listener_names)
+        preserved_groups: Final = named_entries(original_map.get("proxy-groups"), group_names)
+        config["listeners"] = (*without_names(config.get("listeners"), listener_names), *preserved_listeners)
+        config["proxy-groups"] = (*without_names(config.get("proxy-groups"), group_names), *preserved_groups)
+
+    @staticmethod
+    def _validate_configuration_content(content: str) -> None:
+        if not content.strip():
+            raise ClashError("proxy configuration cannot be empty")
+        if len(content.encode("utf-8")) > _MAX_CONFIGURATION_BYTES:
+            raise ClashError("proxy configuration is too large")
+
+    @staticmethod
+    def _validate_subscription_url(url: str) -> None:
+        if len(url) > _MAX_CONFIGURATION_URL_LENGTH:
+            raise ClashError("subscription URL is too long")
+        try:
+            parsed: Final = urlsplit(url)
+            port: Final = parsed.port
+        except ValueError as error:
+            raise ClashError("subscription URL is invalid") from error
+        hostname: Final = parsed.hostname
+        if (
+            parsed.scheme not in {"http", "https"}
+            or hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or port is not None
+            and not 1 <= port <= 65535
+        ):
+            raise ClashError("subscription URL must be an HTTP(S) URL without credentials")
+        normalized_host: Final = hostname.lower().rstrip(".")
+        if normalized_host in {"localhost", "host.docker.internal"} or normalized_host.endswith((".local", ".internal")):
+            raise ClashError("subscription URL must not target a local host")
+        try:
+            address: Final = ipaddress.ip_address(normalized_host)
+        except ValueError:
+            return
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_unspecified:
+            raise ClashError("subscription URL must not target a private address")
+
+    @staticmethod
+    async def _download_configuration(url: str) -> str:
+        try:
+            async with httpx.AsyncClient(timeout=20.0, trust_env=False, follow_redirects=False) as client:
+                response: Final = await client.get(url)
+        except httpx.HTTPError as error:
+            raise ClashError("proxy configuration download failed") from error
+        if 300 <= response.status_code < 400:
+            raise ClashError("subscription URL redirects are not allowed")
+        if response.status_code != 200:
+            raise ClashError("proxy configuration download failed")
+        if len(response.content) > _MAX_CONFIGURATION_BYTES:
+            raise ClashError("proxy configuration is too large")
+        try:
+            return response.content.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ClashError("proxy configuration must be UTF-8 YAML") from error
 
     @staticmethod
     def gateway_profile_id(port: int) -> str:
