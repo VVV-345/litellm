@@ -66,9 +66,11 @@ def backoff_seconds(milliseconds: int, same_card_attempt: int) -> float:
 
 
 class StreamBootstrap:
-    def __init__(self, chunks: AsyncIterator[bytes]) -> None:
+    def __init__(
+        self, chunks: AsyncIterator[bytes], *, responses_api: bool = False, anthropic_messages: bool = False
+    ) -> None:
         self.chunks: Final = chunks
-        self.state: Final = EventStream()
+        self.state: Final = EventStream(responses_api=responses_api, anthropic_messages=anthropic_messages)
         self.buffer: Final = io.BytesIO()
         self.pending: asyncio.Task[bytes] | None = None
         self.overflow: bytes = b""

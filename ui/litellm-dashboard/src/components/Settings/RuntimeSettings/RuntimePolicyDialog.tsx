@@ -117,6 +117,7 @@ const defaults: FormPolicy = {
     image_generation: "inherit",
     websocket: "inherit",
     request_timeout_seconds: 120,
+    read_timeout_seconds: null,
     debug_log_enabled: false,
   },
   codex: null,
@@ -598,6 +599,12 @@ function PolicyForm({
             description("request_timeout_seconds"),
             policy.transport.request_timeout_seconds,
             (next) => updateTransport("request_timeout_seconds", next),
+          )}
+          {optionalNumberField(
+            t("accountPool.policy.read_timeout_seconds"),
+            description("read_timeout_seconds"),
+            policy.transport.read_timeout_seconds,
+            (next) => updateTransport("read_timeout_seconds", next),
           )}
           {toggleField(
             t("accountPool.policy.debug_log_enabled"),

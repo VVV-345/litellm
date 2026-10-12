@@ -7,7 +7,7 @@ import io
 import json
 import math
 import re
-from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
 from functools import cache, reduce
 from types import MappingProxyType
 from typing import Final, Protocol, TypedDict, cast
@@ -21,10 +21,12 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
 from typing_extensions import ReadOnly
 
+import litellm
 from litellm._logging import redact_secrets, verbose_proxy_logger
 from litellm.litellm_core_utils import token_counter as token_counter_module
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.litellm_core_utils.url_utils import validate_url
+from litellm.proxy.common_utils.sse_keepalive import wrap_passthrough_sse_bytes_with_keepalive_pings
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
@@ -51,7 +53,12 @@ from litellm.proxy.management_endpoints.account_pool_signature import (
     signature_error,
     signature_recovery_message,
 )
-from litellm.proxy.management_endpoints.account_pool_stream import EventStream, cache_usage_tokens, usage_tokens
+from litellm.proxy.management_endpoints.account_pool_stream import (
+    EventStream,
+    IncompleteStreamError,
+    cache_usage_tokens,
+    usage_tokens,
+)
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
 from litellm.types.llms.openai import (
@@ -200,11 +207,19 @@ class Attempt:
             detail=detail,
         )
         self.started = False
-        self.send: Final = send
+        self._send: Final = send
         self.request_id: Final = lease.request_id
         self.account_id: Final = lease.account_id
         self.key_id: Final = lease.key_id
         self.attempt_number: Final = lease.attempt
+
+    async def send(self, message: Message) -> None:
+        try:
+            await self._send(message)
+        except TimeoutError:
+            raise
+        except OSError:
+            raise ClientDisconnect from None
 
     async def emit(self, message: Message) -> None:
         if message["type"] == "http.response.start":
@@ -541,6 +556,10 @@ async def execute(
     deadline: float = float("inf"),
     signature_recovered: bool = False,
 ) -> bool:
+    read_seconds: Final = min(
+        resolution.policy.transport.read_timeout_seconds or seconds,
+        route.account.policy.transport.read_timeout_seconds or seconds,
+    )
     recovery_payload: Final = safe_signature_recovery(payload) if not signature_recovered else None
     recovery_reason: Final = (
         "retry_exhausted" if signature_recovered else signature_recovery_reason(payload) or "no_removable_state"
@@ -615,7 +634,7 @@ async def execute(
                 params=tuple(request.query_params.multi_items()),
                 headers=headers,
                 content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode(),
-                timeout=seconds,
+                timeout=httpx.Timeout(seconds, read=read_seconds),
             )
             with attempt.timing.phase("upstream_headers"):
                 response: Final = await selected_client.send(upstream, stream=True)
@@ -700,7 +719,11 @@ async def execute(
                     if "text/event-stream" not in response.headers.get("content-type", ""):
                         raise ValueError("Upstream did not return an event stream")
                     if recovery_payload is not None:
-                        bootstrap: Final = StreamBootstrap(response.aiter_bytes())
+                        bootstrap: Final = StreamBootstrap(
+                            response.aiter_bytes(),
+                            responses_api=request.url.path == "/v1/responses",
+                            anthropic_messages=request.url.path == "/v1/messages",
+                        )
                         try:
                             await bootstrap.prepare()
                             if (
@@ -779,12 +802,31 @@ async def execute(
             finally:
                 await response.aclose()
     except asyncio.CancelledError:
-        attempt.outcome(499, "Downstream disconnected", stage="response")
+        attempt.outcome(499, "Downstream disconnected", stage="response", upstream_code="downstream_disconnected")
         raise
     except (httpx.HTTPError, TimeoutError, ValueError, ClientDisconnect, OSError) as error:
-        disconnected: Final = isinstance(error, (ClientDisconnect, OSError)) and not isinstance(error, httpx.HTTPError)
+        disconnected: Final = isinstance(error, ClientDisconnect)
         status: Final = (
             499 if disconnected else 504 if isinstance(error, (TimeoutError, httpx.TimeoutException)) else 502
+        )
+        failure_code: Final = (
+            "downstream_disconnected"
+            if disconnected
+            else "upstream_read_timeout"
+            if isinstance(error, httpx.ReadTimeout)
+            else "upstream_connect_timeout"
+            if isinstance(error, httpx.ConnectTimeout)
+            else "upstream_pool_timeout"
+            if isinstance(error, httpx.PoolTimeout)
+            else "upstream_write_timeout"
+            if isinstance(error, httpx.WriteTimeout)
+            else "request_timeout"
+            if isinstance(error, TimeoutError)
+            else "stream_incomplete"
+            if isinstance(error, IncompleteStreamError)
+            else "upstream_invalid_response"
+            if isinstance(error, ValueError)
+            else "upstream_connection_error"
         )
         retry_connection: Final = (
             next_id is not None
@@ -796,6 +838,7 @@ async def execute(
             status,
             "Downstream disconnected" if disconnected else "Upstream connection or response failed",
             stage="response" if attempt.started else "connection",
+            upstream_code=failure_code,
             retryable=retry_connection,
             switched_account=retry_connection and next_id != route.account.id,
             next_account_id=str(next_id) if retry_connection and next_id != route.account.id else None,
@@ -811,7 +854,7 @@ async def execute(
         elif attempt.started and not disconnected:
             stream_error: Final[dict[str, JsonValue]] = {
                 "message": "Upstream stream interrupted",
-                "code": "stream_interrupted",
+                "code": failure_code,
                 "status_code": status,
             }
             envelope: Final = attempt.stream_state.error_envelope(stream_error)
@@ -1041,7 +1084,11 @@ async def guarded_stream_response(
     if (next_id is None and not standard_accounting) or not replay_safe(payload):
         await stream_response(request, response, attempt, cost_usd)
         return True
-    bootstrap: Final = StreamBootstrap(response.aiter_bytes())
+    bootstrap: Final = StreamBootstrap(
+        response.aiter_bytes(),
+        responses_api=request.url.path == "/v1/responses",
+        anthropic_messages=request.url.path == "/v1/messages",
+    )
     try:
         await bootstrap.prepare()
         if bootstrap.state.failed and not bootstrap.state.meaningful:
@@ -1105,25 +1152,30 @@ async def stream_response(
 ) -> None:
     state: Final = attempt.stream_state
 
-    async def chunks() -> AsyncIterator[bytes]:
-        async for chunk in source if source is not None else response.aiter_bytes():
-            if attempt.log is not None:
-                attempt.log.capture(chunk)
-            for frame in state.feed(chunk):
+    async def chunks() -> AsyncGenerator[bytes, None]:
+        try:
+            async for chunk in source if source is not None else response.aiter_bytes():
                 if attempt.log is not None:
-                    attempt.log.observe_frame(frame)
-                yield state.observe(frame)
+                    attempt.log.capture(chunk)
+                for frame in state.feed(chunk):
+                    if attempt.log is not None:
+                        attempt.log.observe_frame(frame)
+                    yield state.observe(frame)
+                    if state.terminal:
+                        break
                 if state.terminal:
                     break
-            if state.terminal:
-                break
+        except TimeoutError as error:
+            raise httpx.ReadTimeout("Upstream read timed out") from error
+        except OSError as error:
+            raise httpx.ReadError("Upstream connection failed") from error
         final: Final = state.finish()
         if final is not None:
             if attempt.log is not None:
                 attempt.log.observe_frame(final)
             yield state.observe(final)
         if not state.terminal:
-            raise ValueError("Upstream event stream ended before completion")
+            raise IncompleteStreamError("Upstream event stream ended before completion")
         if state.failed:
             attempt.outcome(
                 state.error_status,
@@ -1145,7 +1197,9 @@ async def stream_response(
             )
 
     await StreamingResponse(
-        chunks(),
+        wrap_passthrough_sse_bytes_with_keepalive_pings(
+            chunks(), litellm.sse_keepalive_ping_interval_seconds, {"content-type": "text/event-stream"}
+        ),
         status_code=response.status_code,
         media_type="text/event-stream",
         headers={

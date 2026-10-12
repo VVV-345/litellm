@@ -6797,6 +6797,7 @@
       "image_generation": "图片生成",
       "websocket": "WebSocket",
       "request_timeout_seconds": "请求超时（秒）",
+      "read_timeout_seconds": "读取空闲超时（秒）",
       "debug_log_enabled": "调试日志（始终脱敏）",
       "descriptions": {
         "tags": "给卡片添加便于搜索和管理的标签，不影响实际路由顺序",
@@ -6821,7 +6822,8 @@
         "fallback_enabled": "同卡尝试耗尽或不可用时，按策略切换到同供应商、同模型的其他卡片；最多切换一次、共 10 次尝试，请求开始 90 秒后不再启动新尝试，单次请求仍受超时设置限制",
         "image_generation": "控制当前卡片是否允许图片生成请求；继承默认会沿用全局设置",
         "websocket": "控制 Responses 和 Realtime 的 WebSocket 连接；继承默认会沿用全局设置",
-        "request_timeout_seconds": "单次上游请求或连接允许等待的最长时间，超时后按失败处理",
+        "request_timeout_seconds": "单次请求的总时限，包含流式输出全过程；收到数据或心跳不会重置",
+        "read_timeout_seconds": "等待上游下一批数据的最长时间；留空沿用请求总超时。代理心跳不会重置上游读取计时",
         "debug_log_enabled": "记录额外的路由和传输诊断信息，认证信息与敏感内容仍会脱敏"
       },
       "provider": "供应商专属设置",

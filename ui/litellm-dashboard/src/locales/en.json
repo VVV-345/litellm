@@ -6797,6 +6797,7 @@
       "image_generation": "Image generation",
       "websocket": "WebSocket",
       "request_timeout_seconds": "Request timeout (seconds)",
+      "read_timeout_seconds": "Read idle timeout (seconds)",
       "debug_log_enabled": "Debug logging (always redacted)",
       "descriptions": {
         "tags": "Add labels for search and management. Tags do not change routing order",
@@ -6821,7 +6822,8 @@
         "fallback_enabled": "After same-card attempts are exhausted or the card is unavailable, select another card for the same supplier and model. At most one switch and 10 total attempts; no new attempts after 90 seconds. Each attempt retains its request timeout",
         "image_generation": "Control whether this card accepts image generation requests. Inherit uses the global setting",
         "websocket": "Control WebSocket connections for Responses and Realtime. Inherit uses the global setting",
-        "request_timeout_seconds": "The maximum time allowed for one upstream request or connection before it fails",
+        "request_timeout_seconds": "Total time limit for one request, including the entire stream; data and heartbeats do not reset it",
+        "read_timeout_seconds": "Maximum wait for the next upstream data; leave blank to use the total request timeout. Proxy heartbeats do not reset upstream reads",
         "debug_log_enabled": "Record additional routing and transport diagnostics while keeping credentials and sensitive data redacted"
       },
       "provider": "Provider settings",

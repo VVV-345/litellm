@@ -51,6 +51,8 @@ class ModelAlias(BaseModel):
 class TransportPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+
     image_generation: Literal["inherit", "enabled", "disabled"] = "inherit"
     websocket: Literal["inherit", "enabled", "disabled"] = "inherit"
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)

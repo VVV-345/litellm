@@ -44,6 +44,10 @@ def cache_usage_tokens(data: dict[str, JsonValue]) -> tuple[int | None, int | No
     )
 
 
+class IncompleteStreamError(ValueError):
+    pass
+
+
 class EventStream:
     def __init__(self, *, responses_api: bool = False, anthropic_messages: bool = False) -> None:
         self.responses_api: Final = responses_api
@@ -73,6 +77,8 @@ class EventStream:
     def observe(self, frame: bytes) -> bytes:
         payload: Final = b"\n".join(line[5:].lstrip(b" ") for line in frame.splitlines() if line.startswith(b"data:"))
         if payload == b"[DONE]":
+            if self.responses_api or self.anthropic_messages:
+                return b""
             self.terminal = True
         elif payload:
             self.observe_payload(_JSON.validate_json(payload))

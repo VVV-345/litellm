@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -92,6 +92,18 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   );
 
 describe("RuntimePolicyDialog", () => {
+  it("saves a separate read timeout without changing the total timeout or routing", async () => {
+    renderDialog();
+    const readTimeout = await screen.findByRole("spinbutton", { name: /读取空闲超时|Read idle timeout/i });
+    fireEvent.change(readTimeout, { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    const saved = savePolicy.mock.calls[0][3] as AccountPolicy;
+    expect(saved.transport?.read_timeout_seconds).toBe(60);
+    expect(saved.transport?.request_timeout_seconds).toBe(120);
+    expect(saved.routing?.strategy).toBe("plan");
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     getPolicy.mockResolvedValue(policyView);

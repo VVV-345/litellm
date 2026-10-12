@@ -424,3 +424,12 @@ def test_maybe_raise_for_error_event_maps_vector_store_timeout_to_retriable_504(
     with pytest.raises(MidStreamFallbackError) as exc_info:
         iterator._maybe_raise_for_error_event(chunk)
     assert exc_info.value.status_code == 504
+
+
+@pytest.mark.parametrize("code,status", [
+    ("request_timeout", 504), ("upstream_read_timeout", 504), ("upstream_connect_timeout", 504),
+    ("upstream_pool_timeout", 504), ("upstream_write_timeout", 504), ("stream_incomplete", 502),
+    ("upstream_connection_error", 502), ("upstream_invalid_response", 502),
+])
+def test_account_pool_failure_codes_preserve_gateway_http_status(code, status):
+    assert _status_code_for_error_fields(None, code) == status

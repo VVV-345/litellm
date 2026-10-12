@@ -1932,3 +1932,272 @@ def test_signature_recovery_keeps_multimodal_inputs_and_does_not_replay_unsigned
     }
     unsigned = {"messages": [user, {"role": "assistant", "content": [], "refusal": "Cannot do that"}]}
     assert recover_signature_history(unsigned) is None
+
+
+@pytest.mark.parametrize("with_tools", [False, True])
+def test_responses_done_without_terminal_event_is_failure(with_tools: bool) -> None:
+    body = b'data: {"type":"response.output_text.delta","delta":"partial"}\n\ndata: [DONE]\n\n'
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, content=body, headers={"content-type": "text/event-stream"}), retry=True
+    )
+    with client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "stream": True, **({"tools": [{"type": "function"}]} if with_tools else {})},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert control.finished[0].http_status == 502
+    assert control.finished[0].upstream_code == "stream_incomplete"
+    assert len(control.acquisitions) == 1
+    assert "partial" in response.text
+    assert "response.completed" not in response.text
+    assert "[DONE]" not in response.text
+    assert '"type": "error"' in response.text
+
+
+async def run_transport_case(upstream: httpx.AsyncByteStream, *, seconds: int = 3, send_error: bool = False):
+    from starlette.requests import Request
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, execute
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+    lease = await control.acquire(
+        AcquireRequest(
+            card_key=_KEY,
+            account_id=control.resolution.card_id,
+            request_id=uuid4(),
+            model="model-a",
+            card_version=1,
+            policy_version=1,
+            account_version=2,
+            account_policy_version=1,
+            timeout_seconds=seconds,
+            attempt=1,
+        )
+    )
+    assert isinstance(lease, Lease)
+    messages = []
+
+    async def send(message):
+        if send_error and message["type"] == "http.response.body":
+            raise BrokenPipeError("private downstream address")
+        messages.append(message)
+
+    request = Request(
+        {
+            "type": "http",
+            "path": "/v1/responses",
+            "method": "POST",
+            "headers": [],
+            "query_string": b"",
+            "asgi": {"spec_version": "2.4"},
+        }
+    )
+    selected = routes(control.resolution, "model-a", "/v1/responses", Headers())
+    assert not isinstance(selected, Rejected)
+    attempt = Attempt(lease, "/v1/responses", send)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=upstream)
+        )
+    ) as client:
+        await execute(
+            request,
+            {"model": "model-a", "stream": True},
+            selected[0],
+            control.resolution,
+            client,
+            attempt,
+            None,
+            seconds,
+        )
+    return attempt, b"".join(message.get("body", b"") for message in messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,status,code",
+    [
+        ("total", 504, "request_timeout"),
+        ("read", 504, "upstream_read_timeout"),
+        ("upstream_os", 502, "upstream_connection_error"),
+        ("downstream", 499, "downstream_disconnected"),
+    ],
+)
+async def test_stream_transport_failures_have_distinct_causes(mode: str, status: int, code: str) -> None:
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.created","sequence_number":0}\n\n'
+            if mode == "total":
+                while True:
+                    await asyncio.sleep(0.05)
+                    yield b": upstream ping\n\n"
+            if mode == "read":
+                raise httpx.ReadTimeout("private upstream token")
+            if mode == "upstream_os":
+                raise OSError("private upstream address")
+            yield b'data: {"type":"response.completed","sequence_number":1}\n\n'
+
+    attempt, body = await run_transport_case(Upstream(), seconds=1, send_error=mode == "downstream")
+    assert attempt.result.http_status == status
+    assert attempt.result.upstream_code == code
+    assert "private" not in (attempt.result.model_dump_json() + body.decode())
+    assert not attempt.result.retryable
+    if mode != "downstream":
+        assert '"type": "error"' in body.decode()
+        assert code.encode() in body
+        assert b"response.completed" not in body
+    print(
+        json.dumps(
+            {
+                "case": mode,
+                "status": attempt.result.http_status,
+                "code": attempt.result.upstream_code,
+                "error_frame": b'"type": "error"' in body,
+            }
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_account_pool_stream_uses_existing_keepalive_setting() -> None:
+    import litellm
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.created"}\n\n'
+            await asyncio.sleep(0.15)
+            yield b'data: {"type":"response.completed"}\n\n'
+
+    previous = litellm.sse_keepalive_ping_interval_seconds
+    try:
+        litellm.sse_keepalive_ping_interval_seconds = 0.03
+        attempt, body = await run_transport_case(Upstream())
+    finally:
+        litellm.sse_keepalive_ping_interval_seconds = previous
+    assert b": ping" in body
+    assert attempt.result.http_status == 200
+    assert body.count(b"response.completed") == 1
+
+
+@pytest.mark.parametrize("api", [False, True])
+def test_stream_bootstrap_requires_responses_terminal_event(api: bool) -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
+
+    async def chunks():
+        yield b"data: [DONE]\n\n"
+
+    bootstrap = StreamBootstrap(chunks(), responses_api=api)
+    bootstrap.capture(b"data: [DONE]\n\n")
+    assert bootstrap.state.terminal is (not api)
+
+
+def test_read_timeout_policy_roundtrips_between_manager_and_gateway() -> None:
+    from account_pool.policies import TransportPolicy as ManagerTransport
+
+    manager = ManagerTransport(request_timeout_seconds=300, read_timeout_seconds=60)
+    gateway = TransportPolicy.model_validate_json(manager.model_dump_json())
+    assert gateway.request_timeout_seconds == 300
+    assert gateway.read_timeout_seconds == 60
+    assert ManagerTransport.model_validate_json(gateway.model_dump_json()) == manager
+    for cls in (ManagerTransport, TransportPolicy):
+        assert cls().read_timeout_seconds is None
+        with pytest.raises(ValueError):
+            cls(read_timeout_seconds=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [1, 8])
+async def test_read_idle_timeout_uses_real_socket_and_keeps_parallel_streams(count: int) -> None:
+    from starlette.requests import Request
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, execute
+
+    closed = []
+
+    async def upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        try:
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n")
+            writer.write(b'data: {"type":"response.created"}\n\n')
+            await writer.drain()
+            await asyncio.sleep(1.3)
+            writer.write(b'data: {"type":"response.completed"}\n\n')
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            closed.append(True)
+
+    server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+    address = server.sockets[0].getsockname()
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+    account = control.resolution.candidates[0]
+
+    class LocalTransport(httpx.AsyncHTTPTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            local = httpx.Request(
+                request.method,
+                request.url.copy_with(host="127.0.0.1", port=address[1]),
+                headers=request.headers,
+                stream=request.stream,
+                extensions=request.extensions,
+            )
+            return await super().handle_async_request(local)
+
+    async def call(idle: int):
+        resolution = control.resolution.model_copy(
+            update={
+                "policy": AccountPolicy(
+                    transport=TransportPolicy(request_timeout_seconds=10, read_timeout_seconds=idle)
+                ),
+                "candidates": (account,),
+            }
+        )
+        lease = await control.acquire(
+            AcquireRequest(
+                card_key=_KEY,
+                account_id=account.id,
+                request_id=uuid4(),
+                model="model-a",
+                card_version=1,
+                policy_version=1,
+                account_version=2,
+                account_policy_version=1,
+                timeout_seconds=10,
+                attempt=1,
+            )
+        )
+        assert isinstance(lease, Lease)
+        request = Request(
+            {
+                "type": "http",
+                "path": "/v1/responses",
+                "method": "POST",
+                "headers": [],
+                "query_string": b"",
+                "asgi": {"spec_version": "2.4"},
+            }
+        )
+        messages = []
+
+        async def send(message):
+            messages.append(message)
+
+        selected = routes(resolution, "model-a", "/v1/responses", Headers())
+        assert not isinstance(selected, Rejected)
+        attempt = Attempt(lease, "/v1/responses", send)
+        async with httpx.AsyncClient(transport=LocalTransport(verify=False), trust_env=False) as client:
+            await execute(
+                request, {"model": "model-a", "stream": True}, selected[0], resolution, client, attempt, None, 10
+            )
+        body = b"".join(m.get("body", b"") for m in messages)
+        return attempt.result.http_status, attempt.result.upstream_code, b"response.completed" in body
+
+    try:
+        failures = await asyncio.gather(*(call(1) for _ in range(count)))
+        successes = await asyncio.gather(*(call(5) for _ in range(count)))
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert failures == [(504, "upstream_read_timeout", False)] * count
+    assert successes == [(200, None, True)] * count
+    assert len(closed) == count * 2

@@ -41360,6 +41360,8 @@ export interface components {
              * @enum {string}
              */
             image_generation: "inherit" | "enabled" | "disabled";
+            /** Read Timeout Seconds */
+            read_timeout_seconds?: number | null;
             /**
              * Request Timeout Seconds
              * @default 120
