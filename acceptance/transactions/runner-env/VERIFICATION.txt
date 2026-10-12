@@ -1,0 +1,103 @@
+VERIFIED TRANSACTION
+Date: 2026-10-12
+TARGET / MODIFIED_FILE: D:\Work2api\litellm\acceptance\run.py
+GOAL: execute() omits unset account-pool database opt-in variables from child processes, preserving explicit opt-in semantics
+Changed field: execute.environment
+Input: identical probe command checks whether ACCOUNT_POOL_TEST_DATABASE_URL exists in execute()'s child environment
+No verification command wrote to TARGET; its SHA-256 at verification close is recorded below
+
+BASELINE
+Command: python acceptance\transactions\runner-env\probe.py acceptance\transactions\runner-env\BASELINE.py
+stdout:
+ACCOUNT_POOL_TEST_DATABASE_URL=present
+CHILD_EXIT=0
+stderr: (empty)
+process exit status: 0
+
+Observed behavior: baseline assigns the unset database opt-in variable as an empty value, so the child sees the variable as present
+
+MODIFIED
+Command: python acceptance\transactions\runner-env\probe.py acceptance\run.py
+stdout:
+ACCOUNT_POOL_TEST_DATABASE_URL=absent
+CHILD_EXIT=0
+stderr: (empty)
+process exit status: 0
+Observed behavior: modified runner removes both database opt-in variables from the inherited child environment
+
+PATCH RECONSTRUCTION
+Command: & 'C:\Program Files\Git\usr\bin\patch.exe' -p1 -i 'D:\Work2api\litellm\acceptance\transactions\runner-env\DIFF_FILE.patch' -d 'D:\Work2api\litellm\acceptance\transactions\runner-env\rollback-check-patch'
+stdout/stderr as returned by exec:
+(Stripping trailing CRs from patch; use --binary to disable.)
+patching file run.py
+process exit status: 0
+The reconstructed run.py SHA-256 equals MODIFIED_FILE SHA-256
+
+ROLLBACK EXECUTION
+Command: & 'C:\Program Files\Git\bin\bash.exe' -lc './acceptance/transactions/runner-env/ROLLBACK.sh acceptance/transactions/runner-env/rollback-check.py'
+stdout: (empty)
+stderr: (empty)
+process exit status: 0
+Additional checks: sh -n ROLLBACK.sh exit 0; Git Bash test -x ROLLBACK.sh exit 0
+
+ROLLBACK
+Command: python acceptance\transactions\runner-env\probe.py acceptance\transactions\runner-env\rollback-check.py
+stdout:
+ACCOUNT_POOL_TEST_DATABASE_URL=present
+CHILD_EXIT=0
+stderr: (empty)
+process exit status: 0
+Observed behavior: restored copy reproduces BASELINE behavior
+
+CORRECTED TOOL ERRORS
+1. Command: git apply --unsafe-paths --directory=D:/Work2api/litellm/acceptance/transactions/runner-env/rollback-check-patch acceptance/transactions/runner-env/DIFF_FILE.patch
+   stdout: (empty)
+   stderr: error: patch failed: D:/Work2api/litellm/acceptance/transactions/runner-env/rollback-check-patch/run.py:37
+   error: D:/Work2api/litellm/acceptance/transactions/runner-env/rollback-check-patch/run.py: patch does not apply
+   process exit status: 1
+   Correction: use Git Bash patch.exe for the unified diff
+2. Command: & 'C:\Program Files\Git\usr\bin\patch.exe' -p1 --dry-run -i 'acceptance\transactions\runner-env\DIFF_FILE.patch' -d 'acceptance\transactions\runner-env\rollback-check-patch'
+   stdout/stderr as returned by exec: /usr/bin/patch: **** Can't open patch file 'acceptance\transactions\runner-env\DIFF_FILE.patch' : No such file or directory
+   process exit status: 1
+   Correction: provide the patch file's absolute path because -d changes the working directory
+3. Corrected dry-run with the absolute patch path returned "checking file run.py", exit status 0; actual patch application returned "patching file run.py", exit status 0
+
+SHA-256
+BASELINE.py: 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+MODIFIED_FILE acceptance/run.py: BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+DIFF_FILE.patch: B2FFAE87F5A8C8D698FFC13E408252189FA3842B6B514E3C12174EF5E2F7F153
+ROLLBACK.sh: B2E79BE940D779C35CD3ACF509F75DACEAABF5CB11F3AE9D42AB5E787C21EDE8
+Reconstructed MODIFIED_FILE copy: BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+Rolled-back copy: 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+
+HASH COMMAND
+Command: Get-FileHash acceptance\transactions\runner-env\BASELINE.py,acceptance\run.py,acceptance\transactions\runner-env\rollback-check.py,acceptance\transactions\runner-env\rollback-check-patch\run.py,acceptance\transactions\runner-env\DIFF_FILE.patch,acceptance\transactions\runner-env\ROLLBACK.sh -Algorithm SHA256 | Format-List Path,Hash
+stdout:
+Path : D:\Work2api\litellm\acceptance\transactions\runner-env\BASELINE.py
+Hash : 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+
+Path : D:\Work2api\litellm\acceptance\run.py
+Hash : BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+
+Path : D:\Work2api\litellm\acceptance\transactions\runner-env\rollback-check.py
+Hash : 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+
+Path : D:\Work2api\litellm\acceptance\transactions\runner-env\rollback-check-patch\run.py
+Hash : BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+
+Path : D:\Work2api\litellm\acceptance\transactions\runner-env\DIFF_FILE.patch
+Hash : BF1182BFC194EA2C55383618A988A2B77E7B9638058BD0627F740542D6FB89C8
+
+Path : D:\Work2api\litellm\acceptance\transactions\runner-env\ROLLBACK.sh
+Hash : B2E79BE940D779C35CD3ACF509F75DACEAABF5CB11F3AE9D42AB5E787C21EDE8
+
+stderr: (empty)
+process exit status: 0
+
+FINAL MODIFIED RECHECK
+Command: python acceptance\transactions\runner-env\probe.py acceptance\run.py
+stdout:
+ACCOUNT_POOL_TEST_DATABASE_URL=absent
+CHILD_EXIT=0
+stderr: (empty)
+process exit status: 0

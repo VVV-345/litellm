@@ -1,0 +1,83 @@
+--- a/run.py
++++ b/run.py
+@@ -39,0 +40 @@
++    evidence: NotRequired[str]
+@@ -42 +43 @@
+-def classify(exit_code: int, output: str) -> Status:
++def classify(exit_code: int, output: str, case_id: str | None = None) -> Status:
+@@ -44,0 +46,8 @@
++    if case_id is not None and case_id.startswith("live-"):
++        try:
++            live_status: Final = json.loads(output)["status"]
++        except (json.JSONDecodeError, KeyError, TypeError):
++            return "blocked"
++        if live_status in ("failed", "blocked", "partial"):
++            return live_status
++        return "passed" if live_status == "passed" else "blocked"
+@@ -53 +62,2 @@
+-        **os.environ,
++        **{key: value for key, value in os.environ.items()
++           if key not in ("ACCOUNT_POOL_TEST_DATABASE_URL", "ACCOUNT_POOL_STATS_TEST_DATABASE_URL")},
+@@ -57,2 +67 @@
+-        "ACCOUNT_POOL_TEST_DATABASE_URL": "",
+-        "ACCOUNT_POOL_STATS_TEST_DATABASE_URL": "",
++        "PYTHONIOENCODING": "utf-8",
+@@ -76 +85 @@
+-        status=classify(process.returncode, (process.stdout + process.stderr).decode("utf-8", errors="replace")),
++        status=classify(process.returncode, process.stdout.decode("utf-8", errors="replace"), case_id),
+@@ -81,0 +91,18 @@
++def record_manual(case_id: str, status: Status, evidence: str, output: Path) -> Result:
++    evidence_path: Final = output / f"{case_id}.evidence.txt"
++    evidence_path.parent.mkdir(parents=True, exist_ok=True)
++    evidence_path.write_text(evidence.rstrip() + "\n", encoding="utf-8")
++    now: Final = datetime.now(timezone.utc).isoformat()
++    return Result(
++        status=status,
++        exit_code=None,
++        command=[],
++        cwd="",
++        started_at=now,
++        finished_at=now,
++        stdout="",
++        stderr="",
++        evidence=str(evidence_path),
++    )
++
++
+@@ -86 +113,5 @@
+-        f"{case['scope']} | {case.get('criterion', '')} |"
++        f"{case['scope']} | {case.get('criterion', '')} | {results.get(case['id'], {}).get('evidence', '')} |"
++        for case in matrix
++    )
++    accepted: Final = all(
++        case.get("excluded") or (case["id"] in results and results[case["id"]]["status"] == "passed")
+@@ -89 +119,0 @@
+-    accepted: Final = all(case.get("excluded") or results.get(case["id"], {}).get("status") == "passed" for case in matrix)
+@@ -94,2 +124,2 @@
+-        "| 编号 | 项目 | 实现状态 | 验收状态 | 范围 | 通过标准 |",
+-        "| --- | --- | --- | --- | --- | --- |", *rows, "",
++        "| 编号 | 项目 | 实现状态 | 验收状态 | 范围 | 通过标准 | 证据 |",
++        "| --- | --- | --- | --- | --- | --- | --- |", *rows, "",
+@@ -103,0 +134 @@
++    parser.add_argument("--manual", nargs=3, action="append", metavar=("ID", "STATUS", "EVIDENCE"), default=[])
+@@ -111 +142,11 @@
+-        parser.error("select only registered executable cases")
++        parser.error("--cases accepts only registered executable cases")
++    by_id: Final = {case["id"]: case for case in matrix}
++    if any(
++        case_id not in by_id
++        or by_id[case_id].get("command")
++        or by_id[case_id].get("excluded")
++        or status not in ("passed", "failed", "partial", "blocked", "not_run")
++        or not evidence.strip()
++        for case_id, status, evidence in args.manual
++    ):
++        parser.error("--manual requires an unexcluded manual case, valid status, and evidence reference")
+@@ -115 +156,6 @@
+-    results: Final[dict[str, Result]] = {}
++    results: Final[dict[str, Result]] = {
++        case_id: record_manual(case_id, status, evidence, output)
++        for case_id, status, evidence in args.manual
++    }
++    (output / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
++    (output / "REPORT.md").write_text(render_report(matrix, results, commit, args.run_id), encoding="utf-8")
