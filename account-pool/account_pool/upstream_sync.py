@@ -14,8 +14,9 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, ValidationError
 
 from account_pool.config import Settings
+from account_pool.upstream_readiness import inspect_readiness
 
-UpstreamSyncState = Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted"]
+UpstreamSyncState = Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted", "pr_created"]
 UpstreamSyncAction = Literal["none", "analyze", "promote"]
 UpstreamSyncTarget = Literal["cliproxyapi", "litellm"]
 
@@ -35,6 +36,8 @@ class UpstreamSyncReport(BaseModel):
     state: UpstreamSyncState = "idle"
     action: UpstreamSyncAction = "none"
     request_id: UUID | None = None
+    target_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    pull_request_url: HttpUrl | None = None
     target_tag: str | None = None
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     candidate_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
@@ -52,6 +55,10 @@ class UpstreamSyncView(BaseModel):
     upstream_repository: str
     fork_repository: str
     sync_branch: str
+    production_branch: str = "main"
+    workflow_ref: str = "main"
+    configuration_issues: tuple[str, ...] = ()
+    report_stale: bool = False
     current_tag: str
     latest_tag: str
     latest_release_url: HttpUrl
@@ -90,6 +97,18 @@ class _GitHubContent(BaseModel):
 
     encoding: Literal["base64"]
     content: str = Field(max_length=_MAX_ENCODED_CONTENT_LENGTH)
+
+
+class _GitHubRun(BaseModel):
+    display_title: str
+    status: str
+    conclusion: str | None = None
+    html_url: HttpUrl
+    updated_at: AwareDatetime
+
+
+class _GitHubRuns(BaseModel):
+    workflow_runs: tuple[_GitHubRun, ...]
 
 
 class _GitHubError(BaseModel):
@@ -137,9 +156,14 @@ class GitHubUpstreamSyncService:
         if self._owns_client:
             await self._client.aclose()
 
-    async def status(self) -> UpstreamSyncView:
+    async def status(self, request_id: UUID | None = None) -> UpstreamSyncView:
         release: Final = await self._latest_release()
-        report: Final = await self._report()
+        report: Final = await self._tracked_report(request_id)
+        readiness: Final = await inspect_readiness(
+            self._client, self._headers(), self._config.fork_repository,
+            self._config.branch, self._production_branch, self._config.workflow,
+            self._config.workflow_ref, bool(self._token), report.base_sha,
+        )
         return UpstreamSyncView(
             target=self._config.target,
             upstream_repository=self._config.upstream_repository,
@@ -149,12 +173,19 @@ class GitHubUpstreamSyncService:
             latest_tag=release.tag_name,
             latest_release_url=release.html_url,
             update_available=_version_key(release.tag_name) > _version_key(self._config.current_tag),
-            dispatch_configured=bool(self._token),
+            dispatch_configured=not readiness.issues,
+            production_branch=self._production_branch,
+            workflow_ref=self._config.workflow_ref,
+            configuration_issues=readiness.issues,
+            report_stale=readiness.stale,
+
             report=report,
         )
 
     async def analyze(self) -> UpstreamSyncDispatch:
         state: Final = await self.status()
+        if not state.dispatch_configured:
+            raise UpstreamSyncError(409, "Upstream workflow is not configured or accessible")
         if not state.update_available:
             raise UpstreamSyncError(409, "No newer upstream release is available")
         return await self._dispatch("analyze", state.latest_tag)
@@ -162,7 +193,9 @@ class GitHubUpstreamSyncService:
     async def promote(self) -> UpstreamSyncDispatch:
         state: Final = await self.status()
         report: Final = state.report
-        if report.state != "passed" or report.target_tag != state.latest_tag:
+        if not state.dispatch_configured:
+            raise UpstreamSyncError(409, "Upstream workflow is not configured or accessible")
+        if state.report_stale or report.state != "passed" or report.target_tag != state.latest_tag:
             raise UpstreamSyncError(409, "The latest upstream release has not passed compatibility validation")
         return await self._dispatch("promote", state.latest_tag)
 
@@ -221,6 +254,43 @@ class GitHubUpstreamSyncService:
         _version_key(release.tag_name)
         return release
 
+    async def _tracked_report(self, request_id: UUID | None) -> UpstreamSyncReport:
+        report: Final = await self._report()
+        if request_id is None:
+            return report
+        workflow: Final = quote(self._config.workflow, safe="")
+        try:
+            response: Final = await self._client.get(
+                f"/repos/{self._config.fork_repository}/actions/workflows/{workflow}/runs",
+                headers=self._headers(),
+                params={"event": "workflow_dispatch", "branch": self._config.workflow_ref, "per_page": 100},
+            )
+            _raise_github_rate_limit(response)
+            response.raise_for_status()
+            runs: Final = _GitHubRuns.model_validate_json(response.content)
+        except (httpx.HTTPError, ValidationError) as error:
+            raise UpstreamSyncError(502, "Unable to track the GitHub workflow; inspect Actions before retrying") from error
+        run: Final = next((item for item in runs.workflow_runs if str(request_id) in item.display_title), None)
+        if run is None:
+            if report.request_id == request_id and report.state not in ("idle", "queued", "running"):
+                return report
+            return UpstreamSyncReport(
+                request_id=request_id, state="queued",
+                message="No matching run in the latest 100 dispatches; inspect GitHub Actions before retrying",
+            )
+        if run.status != "completed":
+            return UpstreamSyncReport(
+                request_id=request_id, state="running", workflow_url=run.html_url, updated_at=run.updated_at,
+                message="GitHub compatibility workflow is running",
+            )
+        if report.request_id == request_id and (run.conclusion == "success" or report.state in ("failed", "conflict")):
+            return report
+        return UpstreamSyncReport(
+            request_id=request_id, state="failed", workflow_url=run.html_url, updated_at=run.updated_at,
+            message=f"Workflow {run.conclusion or 'completed'}; inspect Actions and the last branch report before retrying",
+            failed_steps=("workflow_or_report_publication",),
+        )
+
     async def _report(self) -> UpstreamSyncReport:
         payload: Final = await self._repository_text(_STATUS_PATH, self._config.branch, required=False)
         if payload is None:
@@ -273,6 +343,10 @@ class GitHubUpstreamSyncService:
             "X-GitHub-Api-Version": "2022-11-28",
             **({"Authorization": f"Bearer {self._token}"} if self._token else {}),
         }
+
+    @property
+    def _production_branch(self) -> str:
+        return "CLIProxyAPI分支" if self._config.target == "litellm" else "main"
 
     @property
     def _token(self) -> str:

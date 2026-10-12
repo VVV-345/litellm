@@ -290,3 +290,8 @@ ui/litellm-dashboard/out/
 litellm-rust/target/
 .claude/worktrees/
 ```
+
+
+## 上游更新与模块说明
+
+两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署与浏览器工作器也有独立说明

@@ -3,7 +3,7 @@ import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
 
 export type ReleaseView = components["schemas"]["ReleaseView"];
-export type ReleaseAction = Omit<components["schemas"]["ReleaseAction-Input"], "text" | "force" | "force_acknowledgement"> & {
+export type ReleaseAction = Omit<components["schemas"]["ReleaseConfirmation"]["action"], "text" | "force" | "force_acknowledgement"> & {
   text?: string;
   force?: boolean;
   force_acknowledgement?: string;

@@ -866,7 +866,9 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
     requested: list[tuple[str, str]] = []
     report: Final = {
         "schema_version": 1,
-        "state": "passed",
+        "state": "pr_created",
+        "target_sha": "a" * 40,
+        "pull_request_url": "https://github.com/VVV-345/litellm/pull/42",
         "action": "analyze",
         "request_id": "af094d6b-f0da-4ad6-aa59-7704393a81a4",
         "target_tag": "v7.3.2",
@@ -883,6 +885,7 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
         def handler(request: httpx.Request) -> httpx.Response:
             requested.append((request.method, request.url.path))
             if request.url.path == f"/api/upstream-sync{suffix}":
+                assert request.url.params["request_id"] == report["request_id"]
                 return httpx.Response(
                     200,
                     json=ManagerUpstreamSyncView.model_validate(
@@ -932,7 +935,7 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
 
     with TestClient(app) as client:
-        status_response: Final = client.get(f"/account_pool/upstream-sync{suffix}")
+        status_response: Final = client.get(f"/account_pool/upstream-sync{suffix}", params={"request_id": report["request_id"]})
         analysis_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/analyze")
         promotion_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/promote")
         review_response: Final = client.get(f"/account_pool/upstream-sync{suffix}/codex-review")
@@ -941,7 +944,8 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
     assert status_response.json()["target"] == target
     for response in (status_response, analysis_response, promotion_response, review_response):
         assert response.headers["cache-control"] == "no-store"
-    assert status_response.json()["report"]["state"] == "passed"
+    assert status_response.json()["report"]["state"] == "pr_created"
+    assert status_response.json()["report"]["pull_request_url"].endswith("/42")
     assert analysis_response.status_code == 202
     assert analysis_response.json()["action"] == "analyze"
     assert promotion_response.status_code == 202

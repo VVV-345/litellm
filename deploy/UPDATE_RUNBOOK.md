@@ -64,7 +64,7 @@
 
 ### 2.1 “写在 .env”不等于“容器收到”
 
-项目 `config.py` 读取 `ACCOUNT_POOL_` 前缀环境变量。当前仓库通用 `deploy/docker-compose.yml` 没有注入上述两个上游 GitHub Token；现场配置可能不同，必须核对。只写 `.env` 而 Compose 没有引用，应用不会获得配置；`restart` 也不会加载修改后的容器环境
+项目 `config.py` 读取 `ACCOUNT_POOL_` 前缀环境变量。本次修改后的通用 `deploy/docker-compose.yml` 和 `account-pool/docker-compose.manager.yml` 已引用两类上游 GitHub Token 及独立版本/分支配置；现场旧 Compose 不会自动获得这些引用，必须核对。只写 `.env` 而 Compose 没有引用，应用不会获得配置；`restart` 也不会加载修改后的容器环境
 
 确认需要配置时，在**服务器实际 Compose 的 account-pool.environment** 中引用，不写真实值到版本库：
 
@@ -265,3 +265,8 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 ```
 
 下次从此记录恢复，不重新猜主机、容器名、Token、版本和路径。执行期间要报告实质进展；碰到新阻断应立即说明原服务状态，不长时间静默
+
+
+## 上游源代码兼容更新
+
+LiteLLM 和 CLIProxyAPI 的仓库、分支、权限、启用步骤及故障处理见 [上游更新维护说明](../account-pool/docs/upstream-updates.md)。兼容检测通过不等于可上线，本手册的备份、真实服务和数据库验收门槛仍然适用

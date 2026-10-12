@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import type { UpstreamSyncView } from "../../api/AccountPoolManagementApi";
+import i18n from "@/i18n";
 import { ApiError } from "@/lib/http/client";
 
 const getStatus = vi.fn();
@@ -88,6 +89,7 @@ const renderPanel = (target: "cliproxyapi" | "litellm" = "cliproxyapi") =>
 describe("AccountPoolUpstreamSyncPanel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    void i18n.changeLanguage("zh-CN");
     getStatus.mockResolvedValue(status());
     const litellmStatus: UpstreamSyncView = {
       ...status(),
@@ -99,6 +101,31 @@ describe("AccountPoolUpstreamSyncPanel", () => {
     analyze.mockResolvedValue(analysisDispatch);
     promote.mockResolvedValue(promotionDispatch);
     getReview.mockResolvedValue(reviewPackage);
+  });
+
+  it("separates LiteLLM copy and PR action from CLIProxyAPI promotion", async () => {
+    renderPanel("litellm");
+    expect(await screen.findByRole("heading", { name: "LiteLLM 上游更新", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建更新 PR" })).toBeDisabled();
+    expect(screen.getByText(/仅为配置的官方基线/)).toBeInTheDocument();
+    expect(screen.queryByText(/完整 Go 测试/)).not.toBeInTheDocument();
+  });
+
+  it("uses English LiteLLM copy without CLIProxyAPI merge wording", async () => {
+    await i18n.changeLanguage("en");
+    renderPanel("litellm");
+    expect(await screen.findByRole("heading", { name: "LiteLLM upstream updates", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create update PR" })).toBeDisabled();
+  });
+
+  it("unlocks after a correlated failed run instead of waiting for a branch report", async () => {
+    getStatus.mockImplementation((_token: string, requestId?: string) => Promise.resolve(requestId ? {
+      ...status("failed"), report: { ...status("failed").report, request_id: requestId, message: "Workflow cancelled" },
+    } : status()));
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /检测合并效果/ }));
+    expect(await screen.findAllByText("检查未通过")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /检测合并效果/ })).toBeEnabled();
   });
 
   it("shows the LiteLLM version without requiring the CLIProxyAPI query", async () => {

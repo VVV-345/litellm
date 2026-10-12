@@ -774,10 +774,12 @@ class UpstreamSyncReport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     schema_version: Literal[1] = 1
-    state: Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted"] = "idle"
+    state: Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted", "pr_created"] = "idle"
     action: Literal["none", "analyze", "promote"] = "none"
     request_id: UUID | None = None
     session_id: str | None = Field(default=None, max_length=128)
+    target_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    pull_request_url: HttpUrl | None = None
     target_tag: str | None = None
     base_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     candidate_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
@@ -795,6 +797,10 @@ class UpstreamSyncView(BaseModel):
     upstream_repository: str
     fork_repository: str
     sync_branch: str
+    production_branch: str = "main"
+    workflow_ref: str = "main"
+    configuration_issues: tuple[str, ...] = ()
+    report_stale: bool = False
     current_tag: str
     latest_tag: str
     latest_release_url: HttpUrl

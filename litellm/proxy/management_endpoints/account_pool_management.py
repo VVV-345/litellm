@@ -169,10 +169,11 @@ def create_management_router(
 
     @router.get("/upstream-sync", response_model=UpstreamSyncView)
     async def upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
-        response: Response,
+        response: Response, request_id: UUID | None = None,
     ) -> UpstreamSyncView:
         response.headers["Cache-Control"] = "no-store"
-        return parse_response(await call("GET", "/api/upstream-sync"), TypeAdapter(UpstreamSyncView))
+        query: Final = "" if request_id is None else f"?request_id={request_id}"
+        return parse_response(await call("GET", "/api/upstream-sync" + query), TypeAdapter(UpstreamSyncView))
 
     @router.post("/upstream-sync/analyze", response_model=UpstreamSyncDispatch, status_code=202)
     async def analyze_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
@@ -206,10 +207,11 @@ def create_management_router(
 
     @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
     async def litellm_upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
-        response: Response,
+        response: Response, request_id: UUID | None = None,
     ) -> UpstreamSyncView:
         response.headers["Cache-Control"] = "no-store"
-        return parse_response(await call("GET", "/api/upstream-sync/litellm"), TypeAdapter(UpstreamSyncView))
+        query: Final = "" if request_id is None else f"?request_id={request_id}"
+        return parse_response(await call("GET", "/api/upstream-sync/litellm" + query), TypeAdapter(UpstreamSyncView))
 
     @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)
     async def analyze_litellm_upstream(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI

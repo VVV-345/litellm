@@ -1,4 +1,4 @@
-/** 本文件展示 CLIProxyAPI 上游同步状态，并调度隔离检测、Codex 审查包和正式合并。 */
+/** 本文件分别展示 LiteLLM 与 CLIProxyAPI 上游状态，调度检测、审查包和各自的更新操作。 */
 
 import { useMutation, useQuery, type UseQueryOptions } from "@tanstack/react-query";
 import { Download, ExternalLink, GitMerge, RefreshCw, SearchCheck } from "lucide-react";
@@ -42,10 +42,10 @@ interface AccountPoolUpstreamSyncPanelProps {
 }
 
 const isPendingRequest = (status: UpstreamSyncView | undefined, requestId: string | null) =>
-  requestId !== null && status?.report.request_id !== requestId;
+  requestId !== null && (status?.report.request_id !== requestId || ["queued", "running"].includes(status?.report.state ?? ""));
 
 const stateBadgeVariant = (state: UpstreamSyncView["report"]["state"] | "queued") => {
-  if (state === "passed" || state === "promoted") return "secondary" as const;
+  if (state === "passed" || state === "promoted" || state === "pr_created") return "secondary" as const;
   if (state === "failed" || state === "conflict") return "destructive" as const;
   return "outline" as const;
 };
@@ -66,8 +66,8 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [promotionOpen, setPromotionOpen] = useState(false);
   const statusQueryOptions: UseQueryOptions<UpstreamSyncView> = {
-    queryKey: accountPoolQueryKeys.upstreamSync(accessToken, target),
-    queryFn: () => (isLiteLLM ? getLiteLLMUpstreamSync(accessToken) : getAccountPoolUpstreamSync(accessToken)),
+    queryKey: [...accountPoolQueryKeys.upstreamSync(accessToken, target), pendingRequestId],
+    queryFn: () => (isLiteLLM ? getLiteLLMUpstreamSync(accessToken, pendingRequestId) : getAccountPoolUpstreamSync(accessToken, pendingRequestId)),
     retry: false,
     refetchInterval: (query) => (isPendingRequest(query.state.data, pendingRequestId) ? 10_000 : false),
   };
@@ -90,7 +90,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
     onSuccess: (dispatch) => {
       setPromotionOpen(false);
       startTracking(dispatch);
-      toast.success(t("accountPool.upstreamSync.promotionQueued"));
+      toast.success(t(`accountPool.upstreamSync.${target}.promotionQueued`));
     },
     onError: (error: Error) => toast.fromError(error),
   });
@@ -127,15 +127,25 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
   const status = statusQuery.data;
   const report = status.report;
   const waitingForReport = isPendingRequest(status, pendingRequestId);
-  const displayedState = waitingForReport ? "queued" : report.state;
+  const displayedState = waitingForReport && report.request_id !== pendingRequestId ? "queued" : report.state;
   const busy = analyzeMutation.isPending || promoteMutation.isPending || waitingForReport;
-  const promotable = report.state === "passed" && report.target_tag === status.latest_tag;
+  const promotable = !status.report_stale && report.state === "passed" && report.target_tag === status.latest_tag;
 
   return (
     <div className="grid gap-5" data-testid="account-pool-upstream-sync">
+      {waitingForReport && (
+        <div className="flex items-center gap-3 text-sm">
+          <a href={`https://github.com/${status.fork_repository}/actions`} target="_blank" rel="noreferrer">
+            {t("accountPool.upstreamSync.openActions")}
+          </a>
+          <Button variant="outline" onClick={() => setPendingRequestId(null)}>
+            {t("accountPool.upstreamSync.stopTracking")}
+          </Button>
+        </div>
+      )}
       <div>
-        <h2 className="text-lg font-semibold">{targetLabel} {t("accountPool.upstreamSync.title")}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.upstreamSync.description")}</p>
+        <h2 className="text-lg font-semibold">{t("accountPool.upstreamSync.title", { target: targetLabel })}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t(`accountPool.upstreamSync.${target}.description`)}</p>
       </div>
       <VersionStatusCard
         status={status}
@@ -151,6 +161,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
       />
       <CompatibilityReportCard status={status} displayedState={displayedState} waitingForReport={waitingForReport} />
       <PromotionDialog
+        target={target}
         open={promotionOpen}
         targetTag={status.latest_tag}
         pending={promoteMutation.isPending}
@@ -236,7 +247,7 @@ function VersionStatusCard({
             disabled={!promotable || !status.dispatch_configured || busy}
           >
             <GitMerge />
-            {t("accountPool.upstreamSync.promote")}
+            {t(`accountPool.upstreamSync.${status.target}.promote`)}
           </Button>
         </div>
         {!status.dispatch_configured && (
@@ -244,7 +255,20 @@ function VersionStatusCard({
             {t("accountPool.upstreamSync.authorizationMissing")}
           </p>
         )}
-        <p className="text-xs text-muted-foreground">{t("accountPool.upstreamSync.safetyNote")}</p>
+        <p className="text-xs text-muted-foreground">{t("accountPool.upstreamSync.baselineNote")}</p>
+        <div className="grid gap-2 text-xs sm:grid-cols-2">
+          <span>{t("accountPool.upstreamSync.sourceRepository")}: {status.upstream_repository}</span>
+          <span>{t("accountPool.upstreamSync.forkRepository")}: {status.fork_repository}</span>
+          <span>{t("accountPool.upstreamSync.productionBranch")}: {status.production_branch}</span>
+          <span>{t("accountPool.upstreamSync.workflowRef")}: {status.workflow_ref}</span>
+        </div>
+        {(status.configuration_issues ?? []).map((issue) => (
+          <p key={issue} role="status" className="text-sm text-amber-700 dark:text-amber-400">
+            {t(`accountPool.upstreamSync.issues.${issue}`, { defaultValue: t("accountPool.upstreamSync.issues.configuration_unavailable") })}
+          </p>
+        ))}
+        {status.report_stale && <p role="status">{t("accountPool.upstreamSync.staleReport")}</p>}
+        <p className="text-xs text-muted-foreground">{t(`accountPool.upstreamSync.${status.target}.safetyNote`)}</p>
       </CardContent>
     </Card>
   );
@@ -261,7 +285,7 @@ function CompatibilityReportCard({ status, displayedState, waitingForReport }: C
   const report = status.report;
   const reportDescription = waitingForReport
     ? t("accountPool.upstreamSync.waitingForReport")
-    : t(`accountPool.upstreamSync.stateDescriptions.${report.state}`);
+    : t(`accountPool.upstreamSync.${status.target}.stateDescriptions.${report.state}`);
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -294,6 +318,7 @@ function CompatibilityReportCard({ status, displayedState, waitingForReport }: C
         )}
         <div className="flex flex-wrap gap-4 text-xs">
           <ExternalLinkItem href={status.latest_release_url} label={t("accountPool.upstreamSync.openRelease")} />
+          {report.pull_request_url && <ExternalLinkItem href={report.pull_request_url} label={t("accountPool.upstreamSync.openPullRequest")} />}
           {report.workflow_url && (
             <ExternalLinkItem href={report.workflow_url} label={t("accountPool.upstreamSync.openWorkflow")} />
           )}
@@ -304,6 +329,7 @@ function CompatibilityReportCard({ status, displayedState, waitingForReport }: C
 }
 
 interface PromotionDialogProps {
+  target: "litellm" | "cliproxyapi";
   open: boolean;
   targetTag: string;
   pending: boolean;
@@ -311,21 +337,21 @@ interface PromotionDialogProps {
   onConfirm: () => void;
 }
 
-function PromotionDialog({ open, targetTag, pending, onOpenChange, onConfirm }: PromotionDialogProps) {
+function PromotionDialog({ target, open, targetTag, pending, onOpenChange, onConfirm }: PromotionDialogProps) {
   const { t } = useTranslation();
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("accountPool.upstreamSync.confirmPromotionTitle")}</AlertDialogTitle>
+          <AlertDialogTitle>{t(`accountPool.upstreamSync.${target}.confirmPromotionTitle`)}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t("accountPool.upstreamSync.confirmPromotionDescription", { tag: targetTag })}
+            {t(`accountPool.upstreamSync.${target}.confirmPromotionDescription`, { tag: targetTag })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>{t("accountPool.cancel")}</AlertDialogCancel>
           <AlertDialogAction variant="destructive" disabled={pending} onClick={onConfirm}>
-            {t("accountPool.upstreamSync.confirmPromotion")}
+            {t(`accountPool.upstreamSync.${target}.confirmPromotion`)}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

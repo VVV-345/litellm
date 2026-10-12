@@ -48,9 +48,21 @@ def _report(state: str = "passed", tag: str = "v7.3.2") -> str:
     )
 
 
+def _ready(request: httpx.Request) -> httpx.Response | None:
+    if "/branches/" in request.url.path:
+        return httpx.Response(200, json={"commit": {"sha": "e851070a0d08fb631d5ee7c64ecfab9a30ecbd2a"}})
+    if "/actions/workflows/" in request.url.path and request.method == "GET":
+        return httpx.Response(200, json={"state": "active"})
+    if "/contents/.github/workflows/" in request.url.path:
+        return _content_response(request, "name: upstream-sync")
+    return None
+
+
 @pytest.mark.asyncio
 async def test_status_reports_latest_release_and_fixed_branch_result() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if (ready := _ready(request)) is not None:
+            return ready
         if request.url.path.endswith("/releases/latest"):
             return httpx.Response(
                 200,
@@ -102,6 +114,8 @@ async def test_github_rate_limits_are_distinct_from_permission_failures(
 @pytest.mark.asyncio
 async def test_analyze_dispatches_only_the_latest_release_to_the_fixed_workflow() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if (ready := _ready(request)) is not None:
+            return ready
         if request.url.path.endswith("/releases/latest"):
             return httpx.Response(
                 200,
@@ -136,6 +150,8 @@ async def test_analyze_dispatches_only_the_latest_release_to_the_fixed_workflow(
 @pytest.mark.asyncio
 async def test_promote_rejects_a_report_for_an_older_release() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if (ready := _ready(request)) is not None:
+            return ready
         if request.url.path.endswith("/releases/latest"):
             return httpx.Response(
                 200,
@@ -179,6 +195,8 @@ async def test_codex_review_package_combines_the_stable_handoff_and_latest_repor
 @pytest.mark.asyncio
 async def test_litellm_sync_uses_a_separate_repository_and_branch() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if (ready := _ready(request)) is not None:
+            return ready
         if request.url.path.endswith("/releases/latest"):
             return httpx.Response(
                 200,
@@ -203,3 +221,83 @@ async def test_litellm_sync_uses_a_separate_repository_and_branch() -> None:
     assert state.fork_repository == "VVV-345/litellm"
     assert state.sync_branch == "codex/litellm-upstream-sync"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_litellm_token_does_not_hide_missing_workflow_and_branch() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(200, json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"})
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    settings = _settings().model_copy(update={"litellm_upstream_sync_github_token": SecretStr("test-token")})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        service = GitHubUpstreamSyncService(settings, client, target="litellm")
+        state = await service.status()
+        assert state.dispatch_configured is False
+        assert "sync_branch_missing" in state.configuration_issues
+        assert "workflow_missing" in state.configuration_issues
+        with pytest.raises(UpstreamSyncError, match="configured"):
+            await service.analyze()
+
+
+def test_litellm_workflow_defaults_to_business_branch_not_main() -> None:
+    assert _settings().litellm_upstream_sync_workflow_ref == "CLIProxyAPI分支"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "success"])
+async def test_tracked_workflow_without_published_report_reaches_terminal_state(conclusion):
+    from uuid import UUID
+    request_id = UUID("11111111-1111-4111-8111-111111111111")
+    def handler(request):
+        if request.url.path.endswith("/runs"):
+            return httpx.Response(200, json={"workflow_runs": [{
+                "display_title": f"litellm-upstream:analyze:v1.105.0:{request_id}",
+                "status": "completed", "conclusion": conclusion,
+                "html_url": "https://github.com/VVV-345/litellm/actions/runs/123",
+                "updated_at": "2026-10-12T12:00:00Z",
+            }]})
+        if (ready := _ready(request)) is not None:
+            return ready
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(200, json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"})
+        return httpx.Response(404)
+    settings = _settings().model_copy(update={"litellm_upstream_sync_github_token": SecretStr("test-token")})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        state = await GitHubUpstreamSyncService(settings, client, target="litellm").status(request_id)
+    assert state.report.request_id == request_id
+    assert state.report.state == "failed"
+    assert str(state.report.workflow_url).endswith("/123")
+
+
+@pytest.mark.asyncio
+async def test_readiness_rejects_explicit_wrong_litellm_workflow_ref():
+    from account_pool.upstream_readiness import inspect_readiness
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_ready), base_url="https://api.github.com") as client:
+        result = await inspect_readiness(client, {}, "VVV-345/litellm", "codex/litellm-upstream-sync", "CLIProxyAPI分支", "litellm-upstream-sync.yml", "main", True, None)
+    assert "workflow_target_mismatch" in result.issues
+
+
+@pytest.mark.asyncio
+async def test_readiness_does_not_call_rate_limit_a_missing_branch():
+    from account_pool.upstream_readiness import inspect_readiness
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(429)), base_url="https://api.github.com") as client:
+        result = await inspect_readiness(client, {}, "VVV-345/litellm", "codex/litellm-upstream-sync", "CLIProxyAPI分支", "litellm-upstream-sync.yml", "CLIProxyAPI分支", True, None)
+    assert result.issues == ("configuration_unavailable",)
+
+
+@pytest.mark.asyncio
+async def test_matching_legacy_report_finishes_tracking_without_run_name_uuid():
+    from uuid import UUID
+    def handler(request):
+        if request.url.path.endswith("/runs"):
+            return httpx.Response(200, json={"workflow_runs": []})
+        if (ready := _ready(request)) is not None:
+            return ready
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(200, json={"tag_name": "v7.3.2", "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2"})
+        return _content_response(request, _report("passed"))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        result = await GitHubUpstreamSyncService(_settings("test-token"), client).status(UUID("af094d6b-f0da-4ad6-aa59-7704393a81a4"))
+    assert result.report.state == "passed"

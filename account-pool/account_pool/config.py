@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     litellm_upstream_sync_workflow: str = Field(
         default="litellm-upstream-sync.yml", pattern=r"^[A-Za-z0-9._-]+\.ya?ml$"
     )
-    litellm_upstream_sync_workflow_ref: str = Field(default="main", pattern=r"^[A-Za-z0-9._/-]+$")
+    litellm_upstream_sync_workflow_ref: str = Field(default="CLIProxyAPI分支", min_length=1, max_length=200)
     clash_controller_url: str = ""
     clash_secret: str = ""
     clash_config_path: str = Field(default="", max_length=1024)

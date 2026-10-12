@@ -1,0 +1,148 @@
+# 分离可信候选准备、无写权限验证和发布；不合并业务分支、不发布镜像
+name: LiteLLM upstream compatibility
+run-name: litellm-upstream:${{ inputs.action }}:${{ inputs.target_tag }}:${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        options: [analyze, promote]
+      target_tag:
+        description: Exact official LiteLLM release tag
+        type: string
+        required: true
+      request_id:
+        description: Manager correlation UUID
+        type: string
+        required: true
+permissions: {}
+concurrency:
+  group: litellm-upstream-sync
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'VVV-345/litellm' && github.ref_name == 'CLIProxyAPI分支'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      state: ${{ steps.prepare.outputs.state }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare immutable candidate without executing it
+        id: prepare
+        env:
+          SYNC_TARGET_TAG: ${{ inputs.target_tag }}
+          SYNC_ACTION: ${{ inputs.action }}
+          SYNC_REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          python .github/scripts/litellm_upstream.py prepare --output "$RUNNER_TEMP/upstream"
+          state=$(python -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/upstream/prepared.json"))["state"])')
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.2
+        id: upload
+        with:
+          name: litellm-upstream-prepared
+          path: |
+            ${{ runner.temp }}/upstream/prepared.json
+            ${{ runner.temp }}/upstream/prepared.bundle
+            ${{ runner.temp }}/upstream/*.txt
+          if-no-files-found: error
+          retention-days: 14
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.state == 'prepared'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/upstream
+      - run: python .github/scripts/litellm_upstream.py restore --output "$RUNNER_TEMP/upstream"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: ui/litellm-dashboard/.nvmrc
+      - uses: ./.github/actions/setup-uv-with-retries
+        with:
+          version: '0.10.9'
+      - name: Locked backend and integration checks
+        working-directory: ${{ runner.temp }}/upstream/candidate
+        env:
+          LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+          PYTHONPATH: account-pool:account-pool/tests:account-pool/tests/account_pool:.
+        run: |
+          uv sync --frozen --group ci --group proxy-dev --extra proxy --extra google --extra semantic-router
+          uv sync --directory account-pool --frozen --extra test
+          account-pool/.venv/bin/python -m pytest -q account-pool/tests -k "not test_manager_and_proxy_onboarding_contracts_match"
+          uv run --no-sync python -m pytest --noconftest -q account-pool/tests/account_pool/test_onboarding_api.py::test_manager_and_proxy_onboarding_contracts_match
+          uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
+          uv run --no-sync python -m pytest -q tests/test_litellm/proxy/management_endpoints/test_account_pool*.py
+          uv run --no-sync python tests/code_coverage_tests/check_migrations_no_data_rewrites.py
+      - name: Scoped frontend tests and production build
+        working-directory: ${{ runner.temp }}/upstream/candidate/ui/litellm-dashboard
+        env:
+          CI: 'true'
+        run: |
+          npm ci
+          npx vitest run --project component src/features/account-pool 'src/app/(dashboard)/account-pool'
+          npm run build
+      - name: Build deployment images without publishing
+        working-directory: ${{ runner.temp }}/upstream/candidate
+        run: |
+          docker build -f Dockerfile -t upstream-litellm-check .
+          docker build -f account-pool/Dockerfile -t upstream-manager-check account-pool
+          docker build -f account-pool/browser-worker/Dockerfile -t upstream-browser-check account-pool
+  publish:
+    needs: [prepare, validate]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # 固定准备任务的不可变 artifact ID，验证任务不提供任何发布输入
+          artifact-ids: ${{ needs.prepare.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/upstream
+      - name: Record platform outcome on pristine prepared candidate
+        env:
+          VALIDATION_RESULTS: '{"validation":"${{ needs.validate.result }}"}'
+        run: |
+          python .github/scripts/litellm_upstream.py restore --output "$RUNNER_TEMP/upstream"
+          python .github/scripts/litellm_upstream.py finish --output "$RUNNER_TEMP/upstream"
+      - name: Publish compatibility report and optional draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .github/scripts/litellm_upstream.py publish --output "$RUNNER_TEMP/upstream"
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.2
+        if: always()
+        with:
+          name: litellm-upstream-result
+          path: ${{ runner.temp }}/upstream/result.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Fail the run for conflicts or failed validation
+        run: python -c 'import json,os; assert json.load(open(os.environ["RUNNER_TEMP"]+"/upstream/result.json"))["state"] in ("passed", "pr_created")'

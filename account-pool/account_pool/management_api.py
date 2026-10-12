@@ -217,9 +217,9 @@ def create_management_router(
     if upstream_sync is not None:
 
         @router.get("/upstream-sync", response_model=UpstreamSyncView)
-        async def upstream_sync_status(response: Response) -> UpstreamSyncView:
+        async def upstream_sync_status(response: Response, request_id: UUID | None = None) -> UpstreamSyncView:
             response.headers["Cache-Control"] = "no-store"
-            return await _upstream_sync_call(upstream_sync.status)
+            return await _upstream_sync_call(lambda: upstream_sync.status(request_id))
 
         @router.post("/upstream-sync/analyze", response_model=UpstreamSyncDispatch, status_code=202)
         async def analyze_upstream(response: Response) -> UpstreamSyncDispatch:
@@ -239,9 +239,9 @@ def create_management_router(
     if litellm_upstream_sync is not None:
 
         @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
-        async def litellm_upstream_sync_status(response: Response) -> UpstreamSyncView:
+        async def litellm_upstream_sync_status(response: Response, request_id: UUID | None = None) -> UpstreamSyncView:
             response.headers["Cache-Control"] = "no-store"
-            return await _upstream_sync_call(litellm_upstream_sync.status)
+            return await _upstream_sync_call(lambda: litellm_upstream_sync.status(request_id))
 
         @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)
         async def analyze_litellm_upstream(response: Response) -> UpstreamSyncDispatch:

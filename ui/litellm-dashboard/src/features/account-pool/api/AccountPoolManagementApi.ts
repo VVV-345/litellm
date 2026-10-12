@@ -16,14 +16,14 @@ export type ErrorStats = Omit<
   cache_creation_input_tokens?: number;
   cache_rate?: number | null;
 };
-export type AccountPoolSettings = components["schemas"]["AccountPoolSettings-Output"];
+export type AccountPoolSettings = components["schemas"]["AccountPoolSettingsView"]["values"];
 type AccountPoolSettingsView = components["schemas"]["AccountPoolSettingsView"];
 type AccountPoolSettingsUpdate = components["schemas"]["AccountPoolSettingsUpdate"];
 export type AccessSettingsValues = components["schemas"]["AccessSettingsValues"];
 export type AdvancedSettingsValues = components["schemas"]["AdvancedSettingsValues"];
 export type CommonSettingsValues = components["schemas"]["CommonSettingsValues"];
 export type NetworkSettingsValues = components["schemas"]["NetworkSettingsValues"];
-export type PayloadSettings = components["schemas"]["PayloadSettings-Output"];
+export type PayloadSettings = NonNullable<AccountPoolSettings["payload"]>;
 export type QuotaSettingsValues = components["schemas"]["QuotaSettingsValues"];
 export type StreamingSettingsValues = components["schemas"]["StreamingSettingsValues"];
 type AccountPoolCredential = components["schemas"]["AccountPoolCredential"];
@@ -280,8 +280,8 @@ export const submitAccountPoolBatch = (
     body: { job_id: createAccountPoolJobId(), action, targets, policy },
   });
 
-export const getAccountPoolUpstreamSync = (accessToken: string) =>
-  apiClient.get<UpstreamSyncView>("/account_pool/upstream-sync", { accessToken });
+export const getAccountPoolUpstreamSync = (accessToken: string, requestId?: string | null) =>
+  apiClient.get<UpstreamSyncView>(`/account_pool/upstream-sync${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`, { accessToken });
 
 export const analyzeAccountPoolUpstream = (accessToken: string) =>
   apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/analyze", { accessToken });
@@ -292,8 +292,8 @@ export const promoteAccountPoolUpstream = (accessToken: string) =>
 export const getAccountPoolCodexReview = (accessToken: string) =>
   apiClient.get<CodexReviewPackage>("/account_pool/upstream-sync/codex-review", { accessToken });
 
-export const getLiteLLMUpstreamSync = (accessToken: string) =>
-  apiClient.get<UpstreamSyncView>("/account_pool/upstream-sync/litellm", { accessToken });
+export const getLiteLLMUpstreamSync = (accessToken: string, requestId?: string | null) =>
+  apiClient.get<UpstreamSyncView>(`/account_pool/upstream-sync/litellm${requestId ? `?request_id=${encodeURIComponent(requestId)}` : ""}`, { accessToken });
 
 export const analyzeLiteLLMUpstream = (accessToken: string) =>
   apiClient.post<UpstreamSyncDispatch>("/account_pool/upstream-sync/litellm/analyze", { accessToken });
