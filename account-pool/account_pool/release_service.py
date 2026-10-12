@@ -712,7 +712,13 @@ class ReleaseService:
             return
         self.store.save_job(
             job.model_copy(
-                update={"status": "recovered", "phase": "已恢复原版本", "message": message, "updated_at": time.time()}
+                update={
+                    "status": "recovered",
+                    "phase": "已恢复原版本",
+                    "message": message,
+                    "updated_at": time.time(),
+                    "retryable": job.automatic,
+                }
             )
         )
 

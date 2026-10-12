@@ -144,13 +144,9 @@ def test_disable_cancels_queued_auto_job_before_it_stops_service(tmp_path):
     assert service.store.jobs()[0].status == "interrupted"
 
 
-@pytest.mark.parametrize("failure", ["schema", "health"])
-def test_failed_deploy_pauses_across_worker_restart(tmp_path, failure):
+def test_incompatible_automatic_deploy_pauses_across_worker_restart(tmp_path):
     updater, service, runtime, source, clock = configured(tmp_path)
-    if failure == "schema":
-        runtime.changed_schema = NEW.id
-    else:
-        runtime.fail_apply = NEW.id
+    runtime.changed_schema = NEW.id
     updater.tick()
     service.run(service.store.jobs()[0])
     restarted = AutoUpdater(ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, service.database), source)
@@ -160,6 +156,27 @@ def test_failed_deploy_pauses_across_worker_restart(tmp_path, failure):
     clock.now += 10000
     restarted.tick()
     assert source.calls == 1
+
+
+def test_automatic_replacement_failure_is_skipped_until_next_check(tmp_path):
+    updater, service, runtime, source, clock = configured(tmp_path)
+    runtime.fail_apply = NEW.id
+
+    updater.tick()
+    service.run(service.store.jobs()[0])
+
+    assert runtime.running == CURRENT
+    assert service.store.jobs()[0].status == "recovered"
+    updater.tick()
+    assert updater.view().enabled
+    assert updater.view().status == "error"
+
+    clock.now += 300
+    updater.tick()
+
+    assert source.calls == 2
+    assert len(service.store.jobs()) == 2
+    assert service.store.jobs()[0].status == "queued"
 
 
 def test_manual_rollback_pauses_auto_update_in_same_queue_transaction(tmp_path):

@@ -246,7 +246,12 @@ class ReleaseStore:
             if job and job.status in ("queued", "running"):
                 return
             succeeded: Final = job is not None and job.status == "succeeded"
-            retryable: Final = job is not None and job.retryable and job.status == "failed"
+            retryable: Final = (
+                job is not None
+                and job.automatic
+                and job.retryable
+                and job.status in ("failed", "recovered")
+            )
             keep_enabled: Final = state.enabled and (succeeded or retryable)
             self._save_auto(
                 db,
