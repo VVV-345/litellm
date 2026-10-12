@@ -69,6 +69,72 @@ def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     ).hexdigest()
 
 
+def _source_named(sources: tuple[tuple[str, bytes], ...], filename: str) -> bytes:
+    return next((source for name, source in sources if PurePosixPath(name).name == filename), b"")
+
+
+def _transport_fields(source: bytes) -> tuple[tuple[str, str], ...]:
+    try:
+        tree: Final = ast.parse(source)
+    except SyntaxError:
+        return ()
+    transport: Final = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "TransportPolicy"
+        ),
+        None,
+    )
+    if transport is None:
+        return ()
+    return tuple(
+        (statement.target.id, ast.dump(statement, include_attributes=False))
+        for statement in transport.body
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name)
+    )
+
+
+def forward_compatible_manager_upgrade(
+    current: tuple[tuple[str, bytes], ...], target: tuple[tuple[str, bytes], ...]
+) -> bool:
+    current_source: Final = _source_named(current, "policies.py")
+    target_source: Final = _source_named(target, "policies.py")
+    if not current_source or not target_source or b"exclude_none=True" not in target_source:
+        return False
+    current_fields: Final = _transport_fields(current_source)
+    target_fields: Final = _transport_fields(target_source)
+    current_names: Final = tuple(name for name, _ in current_fields)
+    target_names: Final = tuple(name for name, _ in target_fields)
+    added: Final = tuple(name for name in target_names if name not in current_names)
+    removed: Final = tuple(name for name in current_names if name not in target_names)
+    current_by_name: Final = dict(current_fields)
+    target_by_name: Final = dict(target_fields)
+    unchanged: Final = all(current_by_name[name] == target_by_name[name] for name in current_names)
+    expected: Final = ast.parse(
+        "read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)"
+    ).body[0]
+    added_field: Final = next(
+        (
+            statement
+            for node in ast.parse(target_source).body
+            if isinstance(node, ast.ClassDef) and node.name == "TransportPolicy"
+            for statement in node.body
+            if isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+            and statement.target.id == "read_timeout_seconds"
+        ),
+        None,
+    )
+    return (
+        added == ("read_timeout_seconds",)
+        and not removed
+        and unchanged
+        and added_field is not None
+        and ast.dump(added_field, include_attributes=False) == ast.dump(expected, include_attributes=False)
+    )
+
+
 def oauth_browser_schema_upgrade(current: OAuthBrowserSchemaEvidence, target: OAuthBrowserSchemaEvidence) -> bool:
     if (current.sources, target.sources) != OAUTH_BROWSER_SOURCE_DIGESTS:
         return False

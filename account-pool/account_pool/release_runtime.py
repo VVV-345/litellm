@@ -29,6 +29,7 @@ from account_pool.release_compatibility import (
     RollbackEvidence,
     credential_contract,
     digest_sources,
+    forward_compatible_manager_upgrade,
     manager_source_digest,
     oauth_browser_schema_upgrade,
 )
@@ -333,6 +334,13 @@ class DockerReleaseRuntime:
     def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         return oauth_browser_schema_upgrade(
             self._oauth_browser_schema_evidence(current), self._oauth_browser_schema_evidence(target)
+        )
+
+    def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
+        current_pool: Final = next(image for image in current.images if image.service == "account-pool")
+        target_pool: Final = next(image for image in target.images if image.service == "account-pool")
+        return forward_compatible_manager_upgrade(
+            self._upgrade_sources(current_pool), self._upgrade_sources(target_pool)
         )
 
     @lru_cache(maxsize=24)

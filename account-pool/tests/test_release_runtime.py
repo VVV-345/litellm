@@ -11,7 +11,7 @@ from typing import Final
 
 import pytest
 import yaml
-from account_pool.release_compatibility import digest_sources
+from account_pool.release_compatibility import digest_sources, forward_compatible_manager_upgrade
 from account_pool.release_models import ReleasePair
 from account_pool.release_runtime import (
     ContainerInspection,
@@ -113,6 +113,42 @@ def test_contract_fingerprint_ignores_file_moves_but_preserves_fields_and_aliase
     )
     assert schema_contract(source) == schema_contract(source, "account_pool/providers/contracts.py")
     assert schema_contract(source) != schema_contract(source.replace('Literal["a"]', 'Literal["b"]'))
+
+
+def test_forward_compatible_policy_upgrade_requires_omitting_default_optional_field() -> None:
+    old: Final = b'''\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    request_timeout_seconds: int = 120
+'''
+    target: Final = b'''\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    request_timeout_seconds: int = 120
+
+def persisted_policy(policy):
+    return policy.model_dump(mode="json", exclude_none=True)
+'''
+    assert forward_compatible_manager_upgrade((("policies.py", old),), (("policies.py", target),))
+
+
+def test_forward_compatible_policy_upgrade_rejects_persisted_default_field() -> None:
+    old: Final = b'''\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    request_timeout_seconds: int = 120
+'''
+    target: Final = b'''\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    request_timeout_seconds: int = 120
+
+def persisted_policy(policy):
+    return policy.model_dump(mode="json")
+'''
+    assert not forward_compatible_manager_upgrade((("policies.py", old),), (("policies.py", target),))
 
 
 def test_credential_contract_follows_moved_encryption_definitions_and_detects_changes() -> None:

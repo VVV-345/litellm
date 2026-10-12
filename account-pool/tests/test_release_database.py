@@ -54,6 +54,17 @@ def test_backup_failure_cannot_claim_recovery_when_application_is_unhealthy(setu
     assert service.store.jobs()[0].phase == "需要人工恢复"
 
 
+def test_forward_compatible_schema_change_is_allowed_only_with_database_backup(setup_data):
+    service, runtime, clock, _ = setup_data
+    runtime.changed_schema = NEW.id
+    runtime.forward_compatible_upgrade = True
+
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+
+    assert service.store.jobs()[0].status == "succeeded"
+    assert runtime.running == NEW
+
+
 class Database:
     def __init__(self) -> None:
         self.data = b"current-data"

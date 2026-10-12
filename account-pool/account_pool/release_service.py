@@ -52,6 +52,8 @@ class ReleaseRuntime(Protocol):
     def export(self, pair: ReleasePair, destination: Path) -> None: ...
     def fingerprint(self, pair: ReleasePair) -> str: ...
     def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
+
+    def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
     def evidence(self, pair: ReleasePair) -> RollbackEvidence: ...
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
@@ -620,11 +622,14 @@ class ReleaseService:
         self.phase(job, "备份当前运行版本")
         recovery: Final = self.backup(current, self.runtime.running_compose())
         # 仅已审阅、旧版可忽略的会话表新增允许带备份升级；失败仍只退镜像，不回放业务数据。
-        if (
-            action.action == "deploy"
-            and self.runtime.fingerprint(target) != recovery.schema_fingerprint
-            and (self.database is None or not self.runtime.is_oauth_browser_schema_upgrade(current, target))
-        ):
+        schema_changed: Final = self.runtime.fingerprint(target) != recovery.schema_fingerprint
+        forward_compatible: Final = self.database is not None and self.runtime.is_forward_compatible_upgrade(
+            current, target
+        )
+        oauth_schema_upgrade: Final = self.database is not None and self.runtime.is_oauth_browser_schema_upgrade(
+            current, target
+        )
+        if action.action == "deploy" and schema_changed and not (forward_compatible or oauth_schema_upgrade):
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")

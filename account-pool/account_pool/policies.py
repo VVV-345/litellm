@@ -8,7 +8,7 @@ from typing import Final, Literal, Protocol
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
 
 from account_pool.domain import EnvironmentRecord, SupplierKind
 from account_pool.repository import database_connection
@@ -195,6 +195,10 @@ class AccountPolicy(BaseModel):
         return self
 
 
+def persisted_policy_payload(policy: AccountPolicy) -> dict[str, JsonValue]:
+    return TypeAdapter(dict[str, JsonValue]).validate_python(policy.model_dump(mode="json", exclude_none=True))
+
+
 class PolicyUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -358,13 +362,13 @@ class PostgresPolicyRepository:
                 ON CONFLICT (card_id) DO NOTHING
                 RETURNING *
                 """,
-                    (card_id, Jsonb(request.policy.model_dump(mode="json")), request.version),
+                    (card_id, Jsonb(persisted_policy_payload(request.policy)), request.version),
                 )
                 if request.version == 0
                 else await connection.execute(
                     "UPDATE account_pool_policies SET version = version + 1, policy = %s "
                     "WHERE card_id = %s AND version = %s RETURNING *",
-                    (Jsonb(request.policy.model_dump(mode="json")), card_id, request.version),
+                    (Jsonb(persisted_policy_payload(request.policy)), card_id, request.version),
                 )
             )
             row: Final = await saved.fetchone()
