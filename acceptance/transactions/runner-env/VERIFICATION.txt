@@ -101,3 +101,25 @@ ACCOUNT_POOL_TEST_DATABASE_URL=absent
 CHILD_EXIT=0
 stderr: (empty)
 process exit status: 0
+
+FINAL ROLE RECHECK AFTER ZERO-CONTEXT PATCH REGENERATION
+BASELINE command: python acceptance\transactions\runner-env\probe.py acceptance\transactions\runner-env\BASELINE.py
+stdout: ACCOUNT_POOL_TEST_DATABASE_URL=present\nCHILD_EXIT=0\n
+stderr: (empty); process exit status: 0
+MODIFIED command: python acceptance\transactions\runner-env\probe.py acceptance\run.py
+stdout: ACCOUNT_POOL_TEST_DATABASE_URL=absent\nCHILD_EXIT=0\n
+stderr: (empty); process exit status: 0
+ROLLBACK command: python acceptance\transactions\runner-env\probe.py acceptance\transactions\runner-env\rollback-check.py
+stdout: ACCOUNT_POOL_TEST_DATABASE_URL=present\nCHILD_EXIT=0\n
+stderr: (empty); process exit status: 0
+
+FINAL HASH RECHECK AFTER ZERO-CONTEXT PATCH REGENERATION
+Command: Get-FileHash acceptance\transactions\runner-env\BASELINE.py,acceptance\run.py,acceptance\transactions\runner-env\rollback-check.py,acceptance\transactions\runner-env\rollback-check-patch\run.py,acceptance\transactions\runner-env\DIFF_FILE.patch,acceptance\transactions\runner-env\ROLLBACK.sh -Algorithm SHA256 | Format-List Path,Hash
+stdout:
+BASELINE.py: 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+MODIFIED_FILE: BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+ROLLBACK copy: 47605D4BC905C9BA5955703B76D13D5A8AF20A922EA0EB3AE52ECBD451597ECE
+Patch-reconstructed MODIFIED copy: BC31E16F7053906CB839E76037B22240E5F6AF83ED8FD7284389D0EE18ECD811
+DIFF_FILE.patch: B2FFAE87F5A8C8D698FFC13E408252189FA3842B6B514E3C12174EF5E2F7F153
+ROLLBACK.sh: B2E79BE940D779C35CD3ACF509F75DACEAABF5CB11F3AE9D42AB5E787C21EDE8
+stderr: (empty); process exit status: 0
