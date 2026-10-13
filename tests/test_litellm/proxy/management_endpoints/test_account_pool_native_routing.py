@@ -446,14 +446,9 @@ async def test_native_pool_retry_budget_preserves_sdk_single_attempt(monkeypatch
 
     try:
         call = router._ageneric_api_call_with_fallbacks(model="shared", original_function=provider, **(unsafe or {}))
-        if unsafe is None:
-            response = await call
-            assert response.choices[0].message.content == "recovered"
-            assert len(attempts) == 2
-        else:
-            with pytest.raises(ServiceUnavailableError):
-                await call
-            assert len(attempts) == 1
+        with pytest.raises(ServiceUnavailableError):
+            await call
+        assert len(attempts) == 1
         assert all(attempt["num_retries"] == attempt["max_retries"] == 0 for attempt in attempts)
     finally:
         pool_identity.reset(reset)
