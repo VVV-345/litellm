@@ -199,7 +199,10 @@ class EventStream:
             )
             self.error_status = (
                 429
-                if self.error_code in ("rate_limit_exceeded", "rate_limit_error", "insufficient_quota")
+                if self.error_code in (
+                    "rate_limit_exceeded", "rate_limit_error", "insufficient_quota",
+                    "quota_exceeded", "quota_exhausted", "usage_limit_reached",
+                )
                 else 401
                 if self.error_code in ("authentication_error", "invalid_api_key")
                 else 400

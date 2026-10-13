@@ -469,19 +469,32 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
     </div>
   );
 
-  const renderQuota = (current: QuotaSettingsValues) => (
+  const renderQuota = (
+    current: QuotaSettingsValues,
+    onChange: (next: QuotaSettingsValues) => void,
+    disabled: boolean,
+    editorId: string,
+  ) => (
     <div className="space-y-3 rounded-md border p-3 text-sm">
       <p>
-        额度不足自动切换项目和预览模型目前不生效。为避免上游隐式切换和重复请求，执行时固定关闭；旧值保留供核对。跨卡回退请使用
-        LiteLLM 路由设置。
+        由号池路由执行额度耗尽切换：优先切换同模型的其他授权卡片，再使用路由设置中明确配置的备用模型。
+        预览模型不会自动猜测；没有备用映射时不会换模型。单卡密钥不跨卡，已输出内容、工具调用及有状态续接不重放。
       </p>
-      <p>
-        {t("accountPool.settings.quotaSwitchProject")}：{current.quota_switch_project ? "旧值开启，当前不执行" : "关闭"}
-      </p>
-      <p>
-        {t("accountPool.settings.quotaSwitchPreview")}：
-        {current.quota_switch_preview_model ? "旧值开启，当前不执行" : "关闭"}
-      </p>
+      <ToggleSetting
+        id={`${editorId}-switch-project`}
+        label={t("accountPool.settings.quotaSwitchProject")}
+        checked={current.quota_switch_project}
+        disabled={disabled}
+        onChange={(quota_switch_project) => onChange({ ...current, quota_switch_project })}
+      />
+      <ToggleSetting
+        id={`${editorId}-switch-preview`}
+        label={t("accountPool.settings.quotaSwitchPreview")}
+        checked={current.quota_switch_preview_model}
+        disabled={disabled}
+        onChange={(quota_switch_preview_model) => onChange({ ...current, quota_switch_preview_model })}
+      />
+      <p className="text-xs text-muted-foreground">保存后由路由快照同步生效，通常不超过 30 秒；不会开启 CLIProxyAPI 内部重试。</p>
     </div>
   );
 

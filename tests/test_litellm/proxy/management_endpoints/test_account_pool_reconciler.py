@@ -191,6 +191,26 @@ async def test_reconcile_unblocks_a_managed_deployment_when_it_is_still_desired(
 
 
 @pytest.mark.asyncio
+async def test_reconcile_refreshes_quota_switches_without_recreating_deployments():
+    from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots
+
+    environment = _environment(routable=True)
+    store = FakeDeploymentStore(desired_deployments((environment,)))
+    previous = snapshots.values
+    try:
+        enabled = environment.model_copy(update={"quota_switch_project": True, "quota_switch_preview_model": True})
+        await reconcile(FakeGatewayClient((enabled,)), store)
+        assert snapshots.values[str(environment.id)].quota_switch_project is True
+        assert snapshots.values[str(environment.id)].quota_switch_preview_model is True
+        await reconcile(FakeGatewayClient((environment,)), store)
+        assert snapshots.values[str(environment.id)].quota_switch_project is False
+        assert snapshots.values[str(environment.id)].quota_switch_preview_model is False
+        assert store.reload_count == 0
+    finally:
+        snapshots.replace(previous)
+
+
+@pytest.mark.asyncio
 async def test_native_routing_migrates_after_manager_upgrade_and_preserves_native_edits():
     from unittest.mock import AsyncMock
 

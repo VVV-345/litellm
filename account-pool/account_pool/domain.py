@@ -542,6 +542,8 @@ class GatewayEnvironment(BaseModel):
     model_aliases: dict[str, str] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
     quota_snapshot_max_age: int = 300
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
     api_base: str
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)

@@ -75,7 +75,7 @@ from account_pool.ports import (
 )
 from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
-from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
+from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 from account_pool.shared.error_safety import safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -457,6 +457,7 @@ class EnvironmentService:
 
     async def list_gateway_environments(self) -> tuple[GatewayEnvironment, ...]:
         records: Final = await self._repository.list()
+        settings: Final = await self._account_pool_settings()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         policies: Final = () if self._policies is None else await self._policies.list()
         by_card: Final = {entry.card_id: entry.policy for entry in policies}
@@ -469,6 +470,8 @@ class EnvironmentService:
                     "model_aliases": {alias.alias: alias.target for alias in policy.model_aliases},
                     "quota_reserve_percent": policy.routing.quota_reserve_percent,
                     "quota_snapshot_max_age": policy.routing.quota_snapshot_max_age,
+                    "quota_switch_project": effective.quota_switch_project,
+                    "quota_switch_preview_model": effective.quota_switch_preview_model,
                     "routing_weight": policy.routing.weight,
                     "routing_order": (20001 if policy.routing.is_backup else 0) - policy.routing.priority,
                     "public_models": tuple(
@@ -491,6 +494,7 @@ class EnvironmentService:
             for record in refreshed
             for endpoint in (self._gateway_environment(record),)
             for policy in (by_card.get(record.id, AccountPolicy()),)
+            for effective in (settings_for_card(settings, record.id),)
         )
 
     def gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:

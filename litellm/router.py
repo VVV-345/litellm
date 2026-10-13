@@ -6922,6 +6922,51 @@ class Router:
         if include_fallback_errors:
             input_kwargs["include_fallback_errors"] = True
 
+        from litellm.proxy.management_endpoints.account_pool_native_routing import (
+            exhausted_snapshot,
+            quota_failover_exclusions,
+        )
+
+        quota_deployments: Final = self.get_model_list(model_name=original_model_group) or []
+        quota_settings: Final = exhausted_snapshot(e, quota_deployments, original_model_group)
+        if quota_settings is not None:
+            # 额度耗尽由号池显式开关接管，不再受 weighted failover 的策略限制。
+            if not replay_safe(kwargs):
+                raise e
+            quota_metadata_name: Final = self._get_metadata_variable_name_from_kwargs(kwargs)
+            quota_metadata: Final = kwargs.get(quota_metadata_name) or {}
+            quota_excluded: Final = quota_failover_exclusions(
+                quota_deployments, getattr(e, "failed_deployment_id", ""),
+                quota_metadata.get("_quota_excluded_ids") or (), original_model_group,
+            )
+            quota_remaining: Final = any(
+                (item.get("model_info") or {}).get("id") not in quota_excluded for item in quota_deployments
+            )
+            # 只读取管理员/密钥保存的显式映射，不从请求参数猜测或生成替代模型。
+            quota_identity: Final = pool_identity.get()
+            quota_mappings: Final = (
+                quota_identity.router_settings.fallbacks
+                if quota_identity and quota_identity.router_settings and quota_identity.router_settings.fallbacks is not None
+                else self.fallbacks
+            )
+            quota_previews, _ = get_fallback_model_group(fallbacks=quota_mappings or [], model_group=original_model_group)
+            quota_targets: Final = [
+                *([{"model": original_model_group, "_excluded_deployment_ids": list(quota_excluded)}]
+                  if quota_settings.quota_switch_project and quota_remaining else []),
+                *(quota_previews or [] if quota_settings.quota_switch_preview_model else []),
+            ]
+            if not quota_targets:
+                raise e
+            return await run_async_fallback(
+                *args,
+                **{
+                    **input_kwargs,
+                    quota_metadata_name: {**quota_metadata, "_quota_excluded_ids": list(quota_excluded)},
+                    "fallback_model_group": quota_targets,
+                    "original_model_group": original_model_group,
+                },
+            )
+
         # ORDER-BASED FALLBACKS: prepend higher order levels to the fallback list
         # Skip for error types that have their own dedicated fallback handlers
         _skip_order_fallback: Final = isinstance(
@@ -7287,9 +7332,13 @@ class Router:
         except Exception as e:
             current_attempt = None
             original_exception = e
+            from litellm.proxy.management_endpoints.account_pool_native_routing import exhausted_snapshot
             from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
             from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
 
+            if exhausted_snapshot(e, self.get_model_list(model_name=model_group) or [], model_group) is not None:
+                # 不在已确认额度耗尽的卡片上消耗同卡重试预算。
+                raise
             if (_metadata.get("account_pool_attempt") and not replay_safe(kwargs)) or isinstance(
                 e, AccountPoolSessionUnavailableError
             ):
@@ -7386,6 +7435,8 @@ class Router:
                     # Always track the latest error so we raise the most
                     # recent exception instead of the first one.
                     original_exception = e
+                    if exhausted_snapshot(e, self.get_model_list(model_name=model_group) or [], model_group) is not None:
+                        raise
 
                     ## LOGGING
                     kwargs = self.log_retry(kwargs=kwargs, e=e)

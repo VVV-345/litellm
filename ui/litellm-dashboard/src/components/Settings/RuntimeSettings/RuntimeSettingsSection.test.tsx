@@ -123,16 +123,24 @@ describe("RuntimeSettingsSection", () => {
     listProxyProfiles.mockResolvedValue([]);
   });
 
-  it("marks unsupported quota switching as inactive and preserves the old values", async () => {
+  it("saves the quota failover switches through the existing settings contract", async () => {
+    const user = userEvent.setup();
     getSettings.mockResolvedValue({
       version: 4,
       values: { ...settings, quota_switch_project: true },
       requires_reload: false,
     });
     renderPanel("quota");
-    expect(await screen.findByText(/目前不生效/)).toBeInTheDocument();
-    expect(screen.getByText(/旧值开启，当前不执行/)).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: /切换项目/ })).not.toBeInTheDocument();
+    const project = await screen.findByRole("switch", { name: /切换项目|Switch project/i });
+    expect(project).toBeChecked();
+    await user.click(project);
+    await user.click(screen.getByRole("switch", { name: /切换预览模型|Switch.*preview/i }));
+    await user.click(screen.getAllByRole("button", { name: /保存配置|Save configuration/i })[0]);
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values).toEqual(expect.objectContaining({
+      quota_switch_project: false,
+      quota_switch_preview_model: true,
+    }));
   });
 
   it("opens streaming settings and saves a named configuration with one selected card", async () => {

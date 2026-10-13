@@ -1408,6 +1408,38 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     assert exported.model_aliases == {"public": record.enabled_models[0]}
 
 
+@pytest.mark.asyncio
+async def test_gateway_exports_effective_quota_switches_for_global_and_card_profile(tmp_path: Path) -> None:
+    from account_pool.settings import QuotaSettingsProfile, QuotaSettingsValues
+
+    record = _record(status=EnvironmentStatus.READY)
+    runtime = FakeRuntime()
+    cli = FakeCLIProxy()
+
+    class StoredSettings:
+        values = AccountPoolSettings(quota_switch_project=True)
+
+        async def get(self):
+            return SimpleNamespace(values=self.values)
+
+    stored = StoredSettings()
+    service = EnvironmentService(
+        settings=_settings(tmp_path), repository=MemoryRepository(record), runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli), global_settings=stored,
+    )
+    global_view = (await service.list_gateway_environments())[0]
+    assert global_view.quota_switch_project is True
+    assert global_view.quota_switch_preview_model is False
+    stored.values = stored.values.model_copy(update={"quota_profiles": (
+        QuotaSettingsProfile(id="quota", name="quota", card_ids=(record.id,), inherit_global=False,
+                             values=QuotaSettingsValues(quota_switch_preview_model=True)),
+    )})
+    card_view = (await service.list_gateway_environments())[0]
+    assert card_view.quota_switch_project is False
+    assert card_view.quota_switch_preview_model is True
+
+
 def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> None:
     observation: Final = _QuotaObservation(
         observed_at=utc_now(),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -49,6 +50,8 @@ class RoutingSnapshot(BaseModel):
     model_cooldowns: dict[str, AwareDatetime] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
     quota_snapshot_max_age: int = 300
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
     plan_rank: int | None = None
     subscription_active_until: AwareDatetime | None = None
 
@@ -63,6 +66,81 @@ class RoutingSnapshots:
 
 snapshots: Final = RoutingSnapshots()
 Deployment = TypeVar("Deployment", bound=Mapping[str, object])
+
+
+def exhausted_snapshot(
+    error: Exception, deployments: Sequence[Mapping[str, object]], model: str | None = None
+) -> RoutingSnapshot | None:
+    """只接管已识别卡片的额度耗尽；普通速率限制仍走原生策略。"""
+    identity: Final = pool_identity.get()
+    if identity is None:
+        return None
+    from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
+
+    if isinstance(error, (RouterRateLimitError, RouterRateLimitErrorBasic)) and model is not None:
+        scoped: Final = tuple(
+            item
+            for item in deployments
+            if isinstance(info := item.get("model_info"), Mapping)
+            and (identity.card_id is None or info.get("account_pool_environment_id") == str(identity.card_id))
+        )
+        known: Final = tuple(snapshot_for(item, snapshots.values) for item in scoped)
+        if not known or any(snapshot is None for snapshot in known):
+            return None
+        depleted: Final = tuple(
+            snapshot
+            for snapshot in known
+            if snapshot is not None
+            and (
+                remaining := snapshot.model_quotas.get(
+                    snapshot.model_aliases.get(model, model), snapshot.quota
+                ).effective(now_utc())[0]
+            )
+            is not None
+            and remaining <= snapshot.quota_reserve_percent
+        )
+        if len(depleted) != len(known):
+            return None
+        # 多卡配置不一致时保守处理：所有耗尽候选都允许，才启用模型替代。
+        return RoutingSnapshot(quota_switch_preview_model=all(s.quota_switch_preview_model for s in depleted))
+    if getattr(error, "status_code", None) != 429:
+        return None
+    if not re.search(r"\b(insufficient_quota|quota_exceeded|usage_limit_reached|quota_exhausted)\b", str(error)):
+        return None
+    failed: Final = getattr(error, "failed_deployment_id", None)
+    for deployment in deployments:
+        info: Final = deployment.get("model_info")
+        if isinstance(info, Mapping) and info.get("id") == failed and info.get("account_pool_environment_id"):
+            return snapshots.values.get(str(info["account_pool_environment_id"]), RoutingSnapshot())
+    return None
+
+
+def quota_failover_exclusions(
+    deployments: Sequence[Mapping[str, object]], failed: str, previous: Sequence[str], model: str
+) -> tuple[str, ...]:
+    """仅保留当前密钥范围内有额度的号池部署，排除本请求已经失败的部署。"""
+    identity: Final = pool_identity.get()
+    eligible: Final = eligible_deployments(deployments, model, snapshots.values, now_utc())
+    return tuple(
+        dict.fromkeys(
+            (
+                *previous,
+                failed,
+                *(
+                    str(info["id"])
+                    for deployment in deployments
+                    if isinstance(info := deployment.get("model_info"), Mapping)
+                    and (
+                        not info.get("account_pool_environment_id")
+                        or deployment not in eligible
+                        or identity is not None
+                        and identity.card_id is not None
+                        and info.get("account_pool_environment_id") != str(identity.card_id)
+                    )
+                ),
+            )
+        )
+    )
 
 
 def snapshot_for(deployment: Mapping[str, object], values: Mapping[str, RoutingSnapshot]) -> RoutingSnapshot | None:

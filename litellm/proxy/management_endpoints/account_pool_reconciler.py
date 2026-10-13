@@ -75,6 +75,8 @@ class GatewayEnvironment(BaseModel):
     model_aliases: dict[str, str] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
     quota_snapshot_max_age: int = 300
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -253,6 +255,8 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
                 model_aliases=environment.model_aliases,
                 quota_reserve_percent=environment.quota_reserve_percent,
                 quota_snapshot_max_age=environment.quota_snapshot_max_age,
+                quota_switch_project=environment.quota_switch_project,
+                quota_switch_preview_model=environment.quota_switch_preview_model,
                 plan_rank=plan_priority(environment.quota.plan_type, environment.quota.auth_file_plan_type),
                 subscription_active_until=environment.quota.subscription_active_until,
             )
