@@ -2020,6 +2020,7 @@ async def run_transport_case(upstream: httpx.AsyncByteStream, *, seconds: int = 
         ("total", 504, "request_timeout"),
         ("read", 504, "upstream_read_timeout"),
         ("upstream_os", 502, "upstream_connection_error"),
+        ("decode", 502, "upstream_invalid_response"),
         ("downstream", 499, "downstream_disconnected"),
     ],
 )
@@ -2035,6 +2036,8 @@ async def test_stream_transport_failures_have_distinct_causes(mode: str, status:
                 raise httpx.ReadTimeout("private upstream token")
             if mode == "upstream_os":
                 raise OSError("private upstream address")
+            if mode == "decode":
+                raise httpx.DecodingError("invalid upstream response encoding")
             yield b'data: {"type":"response.completed","sequence_number":1}\n\n'
 
     attempt, body = await run_transport_case(Upstream(), seconds=1, send_error=mode == "downstream")

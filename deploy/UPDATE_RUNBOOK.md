@@ -226,6 +226,22 @@ Manager 在写入前保存当前文件，并保留已登记的 `gateway-<port>` 
 
 每个已选端口单独探测，即使多个端口选择同一节点也不合并端口结果。切换节点发生在测速期间时，结果会标记为无效，不能把旧节点的延迟显示给新节点。探测地址是代码中的固定无副作用 HTTPS 地址，若该地址在服务器出口被屏蔽，节点和端口都可能显示错误；这时应先在服务器和容器内用相同出口核对网络，再调整探测地址，不要仅凭页面延迟修改路由策略
 
+## 6.3 SSE 断流与 response body 解码错误
+
+`stream disconnected before completion: Transport error: network error: error decoding response body` 不是一个足以定位根因的错误。号池网关会把断流按来源写入 `upstream_code`，常见值如下：
+
+| `upstream_code` | 含义 | 处理方向 |
+| --- | --- | --- |
+| `upstream_read_timeout` | 上游在配置的读取窗口内没有继续发送数据 | 调大卡片传输读取超时，检查上游是否长时间无 token |
+| `stream_incomplete` | 上游提前结束且没有终止事件 | 检查 CLIProxyAPI、节点链路和上游服务日志 |
+| `upstream_invalid_response` | 响应内容或编码无法解析 | 检查上游压缩、编码和反向代理是否改写 SSE |
+| `upstream_connection_error` | 建连、连接复用或传输层失败 | 检查节点端口、服务器出网和连接数 |
+| `downstream_disconnected` | 调用方主动关闭连接 | 不重试带副作用或已输出内容的请求 |
+
+网关已启用 SSE keepalive，并发送 `Cache-Control: no-store` 和 `X-Accel-Buffering: no`，避免空闲期间被代理缓冲或超时。已经发送响应头后不能把请求安全地当作未执行重新提交；可重试只限于尚未输出内容且明确属于建连失败的情况。`httpx.DecodingError` 现在会归类为 `upstream_invalid_response` 并写入可脱敏的 SSE 错误事件，不再笼统报告为连接错误
+
+现场排查必须同时看三层：Manager 的结构化事件、LiteLLM/反向代理的 SSE access log，以及 CLIProxyAPI 和 Clash 的同一请求时间段日志。若 Manager 记录 `upstream_invalid_response`，优先查响应编码或压缩；若记录 `upstream_read_timeout`，优先查读取超时和节点空闲；若 Manager 已记录 `downstream_disconnected`，服务端通常没有代码故障。不要只依据浏览器或 SDK 的 `Transport error` 修改重试次数，也不要把一次健康检查 200 当成流式链路正常
+
 ## 7. 更新后验收与版本对齐
 
 ```bash

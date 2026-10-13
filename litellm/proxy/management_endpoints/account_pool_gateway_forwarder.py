@@ -825,7 +825,7 @@ async def execute(
             else "stream_incomplete"
             if isinstance(error, IncompleteStreamError)
             else "upstream_invalid_response"
-            if isinstance(error, ValueError)
+            if isinstance(error, (ValueError, httpx.DecodingError))
             else "upstream_connection_error"
         )
         retry_connection: Final = (
