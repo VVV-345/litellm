@@ -46,6 +46,8 @@ class GatewayDelayView:
     status: ClashDelayStatus
     delay_ms: int | None
     checked_at: datetime
+    gateway_status: ClashDelayStatus
+    gateway_delay_ms: int | None
 
 
 class ProxyGatewayService:
@@ -96,6 +98,12 @@ class ProxyGatewayService:
                 raise ClashError("clash controller is not configured")
 
             async def reload_config(self, path: str) -> None:
+                raise ClashError("clash controller is not configured")
+
+            async def measure_delay(self, node_name: str) -> ClashDelayResult:
+                raise ClashError("clash controller is not configured")
+
+            async def measure_gateway_delay(self, proxy_url: str) -> ClashDelayResult:
                 raise ClashError("clash controller is not configured")
 
         return cls(settings, profiles, _InactiveController())  # pyright: ignore[reportArgumentType]  # structural controller double
@@ -298,14 +306,34 @@ class ProxyGatewayService:
         nodes: Final = tuple(dict.fromkeys(node for node in selected if node is not None))
         measurements: Final = await asyncio.gather(*(self._measure_node(node) for node in nodes))
         results: Final = dict(zip(nodes, measurements, strict=True))
+        gateway_targets: Final = tuple(
+            (port, node) for port, node in zip(ports, selected, strict=True) if node is not None
+        )
+        gateway_measurements: Final = await asyncio.gather(
+            *(self._measure_gateway(port) for port, _ in gateway_targets)
+        )
+        gateway_results: Final = dict(zip((port for port, _ in gateway_targets), gateway_measurements, strict=True))
         observed: Final = await self._controller.selector_currents(selectors)
         checked_at: Final = datetime.now(timezone.utc)
         # 检测期间节点若被切换，旧结果不能归到新节点名下。
         return tuple(
-            GatewayDelayView(port, current, result.status, result.delay_ms, checked_at)
+            GatewayDelayView(
+                port,
+                current,
+                result.status,
+                result.delay_ms,
+                checked_at,
+                gateway_result.status,
+                gateway_result.delay_ms,
+            )
             for port, previous, current in zip(ports, selected, observed, strict=True)
             for result in (
                 results.get(current, ClashDelayResult("error"))
+                if current is not None and current == previous
+                else ClashDelayResult("error"),
+            )
+            for gateway_result in (
+                gateway_results.get(port, ClashDelayResult("error"))
                 if current is not None and current == previous
                 else ClashDelayResult("error"),
             )
@@ -314,6 +342,10 @@ class ProxyGatewayService:
     async def _measure_node(self, node_name: str) -> ClashDelayResult:
         async with self._delay_slots:
             return await self._controller.measure_delay(node_name)
+
+    async def _measure_gateway(self, port: int) -> ClashDelayResult:
+        async with self._delay_slots:
+            return await self._controller.measure_gateway_delay(self._gateway_proxy_url(port))
 
     async def sync_profiles(self) -> int:
         """把每个网关端口 upsert 进代理名单，返回写入条数；账号配置下拉框因此自动出现网关。"""

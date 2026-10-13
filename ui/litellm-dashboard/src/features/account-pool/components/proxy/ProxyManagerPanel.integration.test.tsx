@@ -30,6 +30,8 @@ const delay: AccountPoolProxyGatewayDelay = {
   status: "ok",
   delay_ms: 183,
   checked_at: "2026-09-08T12:00:00Z",
+  gateway_status: "ok",
+  gateway_delay_ms: 196,
 };
 
 vi.mock("../../api/AccountPoolApi", () => ({

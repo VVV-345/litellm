@@ -435,6 +435,8 @@ class AccountPoolProxyGatewayDelay(BaseModel):
     status: Literal["ok", "timeout", "error"]
     delay_ms: int | None
     checked_at: str
+    gateway_status: Literal["ok", "timeout", "error"] = "error"
+    gateway_delay_ms: int | None = None
 
 
 class AccountPoolClashNode(BaseModel):

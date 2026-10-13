@@ -234,6 +234,11 @@ const GatewayRow = ({
     delayStatus === "ok" && delay?.delay_ms != null
       ? t("accountPool.proxyGateways.delayValue", { delay: delay.delay_ms })
       : t(`accountPool.proxyGateways.delay_${delayStatus}`);
+  const gatewayDelayStatus = delay?.gateway_status ?? "unchecked";
+  const gatewayDelayText =
+    gatewayDelayStatus === "ok" && delay?.gateway_delay_ms != null
+      ? t("accountPool.proxyGateways.delayValue", { delay: delay.gateway_delay_ms })
+      : t(`accountPool.proxyGateways.delay_${gatewayDelayStatus}`);
   return (
     <div className="flex min-w-0 flex-col gap-3 border-b border-border/60 py-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -253,6 +258,12 @@ const GatewayRow = ({
           aria-live="polite"
         >
           {t("accountPool.proxyGateways.delayLabel", { value: delayText })}
+        </p>
+        <p
+          className={`mt-0.5 min-h-4 text-xs tabular-nums ${gatewayDelayStatus === "timeout" || gatewayDelayStatus === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          aria-live="polite"
+        >
+          {t("accountPool.proxyGateways.gatewayDelayLabel", { value: gatewayDelayText })}
         </p>
       </div>
       <div className="flex min-w-0 gap-1 sm:w-64 sm:shrink-0">

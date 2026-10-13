@@ -6329,6 +6329,7 @@
     "proxyGateways": {
       "delayTarget": "延迟测试目标：www.gstatic.com",
       "delayLabel": "节点延迟：{{value}}",
+      "gatewayDelayLabel": "端口链路：{{value}}",
       "delayValue": "{{delay}} ms",
       "delay_checking": "检测中…",
       "delay_unchecked": "未检测",

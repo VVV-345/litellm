@@ -24423,6 +24423,14 @@ export interface components {
             current_node: string | null;
             /** Delay Ms */
             delay_ms: number | null;
+            /** Gateway Delay Ms */
+            gateway_delay_ms?: number | null;
+            /**
+             * Gateway Status
+             * @default error
+             * @enum {string}
+             */
+            gateway_status: "ok" | "timeout" | "error";
             /** Port */
             port: number;
             /**

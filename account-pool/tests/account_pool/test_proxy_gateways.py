@@ -12,12 +12,19 @@ import pytest
 from account_pool.api import create_router
 from account_pool.clash import ClashDelayResult, ClashError, ClashProxyNode
 from account_pool.config import Settings
-from account_pool.domain import AuthorizationFlow, CreateEnvironmentRequest, EnvironmentRecord, EnvironmentStatus, ProxyMode, utc_now
+from account_pool.domain import (
+    AuthorizationFlow,
+    CreateEnvironmentRequest,
+    EnvironmentRecord,
+    EnvironmentStatus,
+    ProxyMode,
+    utc_now,
+)
 from account_pool.ports import AuthorizationStart
-from account_pool.result import Success
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
-from account_pool.service import EnvironmentService
+from account_pool.result import Success
 from account_pool.secrets import EnvironmentSecretDeriver
+from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_account_pool import FakeCLIProxy, FakeRuntime, MemoryRepository, _fake_channels, _record
@@ -30,7 +37,9 @@ class FakeController:
     switched: list[tuple[str, str]] = field(default_factory=list)
     fail_current: bool = False
     delay_results: dict[str, ClashDelayResult] = field(default_factory=dict)
+    gateway_delay_results: dict[str, ClashDelayResult] = field(default_factory=dict)
     measured: list[str] = field(default_factory=list)
+    gateway_measured: list[str] = field(default_factory=list)
     change_during_measurement: tuple[str, str] | None = None
 
     async def list_nodes(self) -> tuple[ClashProxyNode, ...]:
@@ -56,6 +65,10 @@ class FakeController:
             selector, node = self.change_during_measurement
             self.current[selector] = node
         return self.delay_results.get(node_name, ClashDelayResult("error"))
+
+    async def measure_gateway_delay(self, proxy_url: str) -> ClashDelayResult:
+        self.gateway_measured.append(proxy_url)
+        return self.gateway_delay_results.get(proxy_url, ClashDelayResult("error"))
 
 
 @dataclass
@@ -329,6 +342,11 @@ async def test_measure_delays_deduplicates_nodes_and_keeps_individual_failures()
     controller: Final = FakeController(
         current={"clash-gateway-7891": "US01", "clash-gateway-7892": "US01", "clash-gateway-7893": "US02"},
         delay_results={"US01": ClashDelayResult("ok", 183), "US02": ClashDelayResult("timeout")},
+        gateway_delay_results={
+            "http://host.docker.internal:7891": ClashDelayResult("ok", 193),
+            "http://host.docker.internal:7892": ClashDelayResult("ok", 197),
+            "http://host.docker.internal:7893": ClashDelayResult("timeout"),
+        },
     )
     service, _ = _service(_settings((7891, 7892, 7893, 7894)), controller)
 
@@ -341,6 +359,17 @@ async def test_measure_delays_deduplicates_nodes_and_keeps_individual_failures()
         (7893, "US02", "timeout", None),
         (7894, None, "error", None),
     )
+    assert tuple((view.port, view.gateway_status, view.gateway_delay_ms) for view in views) == (
+        (7891, "ok", 193),
+        (7892, "ok", 197),
+        (7893, "timeout", None),
+        (7894, "error", None),
+    )
+    assert controller.gateway_measured == [
+        "http://host.docker.internal:7891",
+        "http://host.docker.internal:7892",
+        "http://host.docker.internal:7893",
+    ]
     assert all(view.checked_at.tzinfo is not None for view in views)
 
 

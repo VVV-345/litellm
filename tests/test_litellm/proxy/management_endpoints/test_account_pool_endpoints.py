@@ -835,6 +835,8 @@ def test_proxy_gateway_delay_is_forwarded_only_for_admins(role: LitellmUserRoles
             "status": "timeout",
             "delay_ms": None,
             "checked_at": "2026-09-08T12:00:00Z",
+            "gateway_status": "error",
+            "gateway_delay_ms": None,
         }
     ]
 

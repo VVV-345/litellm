@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Final, Literal
 from urllib.parse import quote, urlsplit
 
@@ -72,12 +75,14 @@ class ClashController:
         controller_url: str,
         secret: str = "",
         client: httpx.AsyncClient | None = None,
+        gateway_client_factory: Callable[[str], AbstractAsyncContextManager[httpx.AsyncClient]] | None = None,
     ) -> None:
         parsed: Final = urlsplit(controller_url)
         self._base_url: Final = f"{parsed.scheme}://{parsed.netloc}"
         self._secret: Final = secret
         self._client: Final = client or httpx.AsyncClient(timeout=_TIMEOUT_SECONDS, trust_env=False)
         self._owns_client: Final = client is None
+        self._gateway_client_factory: Final = gateway_client_factory or self._default_gateway_client
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -130,6 +135,19 @@ class ClashController:
             return ClashDelayResult("error")
         return ClashDelayResult("ok", delay)
 
+    async def measure_gateway_delay(self, proxy_url: str) -> ClashDelayResult:
+        started: Final = perf_counter()
+        try:
+            async with self._gateway_client_factory(proxy_url) as client:
+                response: Final = await client.get(_DELAY_TEST_URL)
+        except httpx.TimeoutException:
+            return ClashDelayResult("timeout")
+        except httpx.HTTPError:
+            return ClashDelayResult("error")
+        if not 200 <= response.status_code < 300:
+            return ClashDelayResult("error")
+        return ClashDelayResult("ok", max(0, int((perf_counter() - started) * 1000)))
+
     async def switch_selector(self, selector_name: str, node_name: str) -> None:
         response: Final = await self._client.put(
             f"{self._base_url}/proxies/{_quote(selector_name)}",
@@ -166,6 +184,17 @@ class ClashController:
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._secret}"} if self._secret else {}
+
+    @staticmethod
+    @asynccontextmanager
+    async def _default_gateway_client(proxy_url: str) -> AsyncIterator[httpx.AsyncClient]:
+        async with httpx.AsyncClient(
+            proxy=proxy_url,
+            timeout=_DELAY_TIMEOUT_MS / 1000,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
+            yield client
 
 
 def _quote(value: str) -> str:

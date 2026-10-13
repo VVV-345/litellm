@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Final
 
 import httpx
@@ -59,6 +60,34 @@ async def test_delay_uses_encoded_node_name_and_fixed_probe_target() -> None:
         assert await controller.measure_delay("US / 01") == ClashDelayResult("ok", 183)
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_delay_probes_the_selected_listener() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://www.gstatic.com/generate_204"
+        assert request.headers.get("Host") == "www.gstatic.com"
+        return httpx.Response(204)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    @asynccontextmanager
+    async def gateway_client(_: str):
+        yield client
+
+    controller = ClashController(
+        "http://clash.test:9090",
+        secret="s3cret",
+        client=client,
+        gateway_client_factory=gateway_client,
+    )
+    try:
+        result: Final = await controller.measure_gateway_delay("http://host.docker.internal:7891")
+    finally:
+        await client.aclose()
+
+    assert result.status == "ok"
+    assert result.delay_ms is not None and result.delay_ms >= 0
 
 
 @pytest.mark.asyncio
