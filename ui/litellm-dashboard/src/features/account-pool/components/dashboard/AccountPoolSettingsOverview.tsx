@@ -59,8 +59,8 @@ const groups: readonly SettingsGroup[] = [
     title: "出站网络",
     icon: Network,
     href: "models-and-endpoints?tab=retry-settings",
-    scope: "全局默认值可被卡片及命名配置覆盖；调用重试使用 LiteLLM 策略",
-    fields: ["default_proxy_profile_id", "request_timeout_seconds", "websocket_enabled", "network_profiles"],
+    scope: "网关安全重试和传输时限；卡片及命名配置可覆盖未绑定卡片的全局默认值",
+    fields: ["default_proxy_profile_id", "max_attempts", "request_timeout_seconds", "websocket_enabled", "network_profiles"],
   },
   {
     title: "日常日志与完整日志",
@@ -141,7 +141,7 @@ const groups: readonly SettingsGroup[] = [
     icon: History,
     href: "router-settings?tab=loadbalancing",
     scope: "以下旧值仍保留，但不参与当前跨卡选卡与重试；default_route 仍可能影响卡片内部凭证顺序",
-    fields: ["default_route", "max_attempts", "request_retry", "max_retry_credentials", "max_retry_interval"],
+    fields: ["default_route", "request_retry", "max_retry_credentials", "max_retry_interval"],
   },
 ];
 
@@ -189,7 +189,7 @@ const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
   payload: "请求参数规则",
   plugins_enabled: "运行插件启用",
   default_route: "旧默认凭证路由",
-  max_attempts: "旧请求尝试上限",
+  max_attempts: "网关最多尝试次数（含首次）",
   request_retry: "旧上游重试次数",
   max_retry_credentials: "旧重试凭证数",
   max_retry_interval: "旧重试最大间隔",

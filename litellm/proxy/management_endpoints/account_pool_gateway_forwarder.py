@@ -38,7 +38,6 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     Resolution,
     RoutingReason,
 )
-from litellm.proxy.management_endpoints.account_pool_integration import ForwardRetryPolicy
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_retry import (
     StreamBootstrap,
@@ -275,16 +274,12 @@ async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
         await report(control, attempt.result)
 
 
-def retry_allowed(request: Request, resolution: Resolution, status: int, attempt_number: int) -> bool:
-    native: Final = getattr(request.state, "account_pool_retry_policy", None)
-    if isinstance(native, ForwardRetryPolicy):
-        return attempt_number <= native.retries(status)
+def retry_allowed(resolution: Resolution, status: int) -> bool:
     return status in resolution.policy.routing.retryable_statuses
 
 
-def retry_backoff(request: Request, resolution: Resolution) -> int:
-    native: Final = getattr(request.state, "account_pool_retry_policy", None)
-    return native.backoff_ms if isinstance(native, ForwardRetryPolicy) else resolution.policy.routing.backoff_ms
+def retry_backoff(resolution: Resolution) -> int:
+    return resolution.policy.routing.backoff_ms
 
 
 async def forward(
@@ -299,14 +294,8 @@ async def forward(
     send: Send,
 ) -> None:
     routing: Final = resolution.policy.routing
-    standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
-    allow_retry: Final = replay_safe(payload) and not standard_accounting
-    native_retry: Final = getattr(request.state, "account_pool_retry_policy", None)
-    configured_attempts: Final = (
-        1 + max(native_retry.rate_limit, native_retry.timeout, native_retry.server_error)
-        if isinstance(native_retry, ForwardRetryPolicy)
-        else routing.max_attempts
-    )
+    allow_retry: Final = replay_safe(payload)
+    configured_attempts: Final = routing.max_attempts
     max_attempts: Final = configured_attempts if allow_retry else 1
     bound_id: Final = (
         resolution.sticky_account_id if not allow_retry and resolution.sticky_account_id else resolution.card_id
@@ -511,7 +500,7 @@ async def forward_candidate(
         attempt.timing.report(attempt.result.http_status)
     if not completed:
         delay: Final = max(
-            backoff_seconds(retry_backoff(request, resolution), same_card_attempt),
+            backoff_seconds(retry_backoff(resolution), same_card_attempt),
             attempt.result.retry_after_seconds if actual_next_index == route_index else 0,
             attempt.result.model_cooldown_seconds if actual_next_index == route_index else 0,
         )
@@ -678,7 +667,7 @@ async def execute(
                         and not (
                             public_status == 429 and getattr(request.state, "account_pool_standard_accounting", False)
                         )
-                        and retry_allowed(request, resolution, response.status_code, attempt.attempt_number)
+                        and retry_allowed(resolution, response.status_code)
                         and asyncio.get_running_loop().time() < deadline
                     )
                     attempt.outcome(
@@ -832,7 +821,7 @@ async def execute(
             next_id is not None
             and isinstance(error, _SAFE_CONNECT_FAILURES)
             and not attempt.started
-            and retry_allowed(request, resolution, status, attempt.attempt_number)
+            and retry_allowed(resolution, status)
         )
         attempt.outcome(
             status,
@@ -1095,7 +1084,7 @@ async def guarded_stream_response(
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
-                retry_allowed(request, resolution, bootstrap.state.error_status, attempt.attempt_number)
+                retry_allowed(resolution, bootstrap.state.error_status)
                 and not (
                     bootstrap.state.error_status == 429
                     and getattr(request.state, "account_pool_standard_accounting", False)

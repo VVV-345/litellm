@@ -9,7 +9,7 @@ import pytest
 from pytest import Config, Item
 
 
-@pytest.hookimpl
+@pytest.hookimpl(optionalhook=True)
 def pytest_asyncio_loop_factories(
     config: Config,
     item: Item,

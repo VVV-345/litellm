@@ -620,7 +620,16 @@ async def test_real_router_http_request_enters_pool_before_upstream(
 
     def upstream(request):
         if protocol.startswith("quota_") and original.resolution.card_id.hex in request.url.host:
-            return httpx.Response(429, json={"error": {"message": "quota exhausted", "type": "rate_limit_error"}})
+            return httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "message": "quota_exhausted",
+                        "type": "rate_limit_error",
+                        "code": "quota_exhausted",
+                    }
+                },
+            )
         expected_path = (
             "/v1/responses/compact"
             if protocol == "compact"
@@ -781,8 +790,8 @@ async def test_real_router_http_request_enters_pool_before_upstream(
     )
     from datetime import datetime, timezone
 
-    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
     from litellm.proxy import proxy_server
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, snapshots
 
     monkeypatch.setattr(proxy_server, "llm_router", router)
 
@@ -790,7 +799,8 @@ async def test_real_router_http_request_enters_pool_before_upstream(
     snapshots.replace(
         {
             str(item.id): RoutingSnapshot(
-                quota=RoutingQuota(remaining_percent=90 - index * 10, observed_at=datetime.now(timezone.utc))
+                quota=RoutingQuota(remaining_percent=90 - index * 10, observed_at=datetime.now(timezone.utc)),
+                quota_switch_project=protocol == "quota_failover",
             )
             for index, item in enumerate(control.resolution.candidates)
         }
@@ -938,7 +948,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             if protocol == "quota_failover":
                 logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
                 assert logging_kwargs["response_cost"] == pytest.approx(0.0000068)
-        expected_attempts = 4 if protocol == "error" else 2 if protocol == "quota_failover" else 1
+        expected_attempts = 2 if protocol == "error" else 2 if protocol == "quota_failover" else 1
         assert len(control.acquisitions) == expected_attempts
         if protocol == "quota_failover":
             assert [item.account_id for item in control.acquisitions] == [
@@ -1016,6 +1026,36 @@ async def test_native_fallback_cannot_replay_unsafe_pool_request(unsafe):
                 kwargs={"model": "primary", "metadata": {"account_pool_attempt": True}, **unsafe},
             )
         assert error.value is failure
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_native_fallback_does_not_replay_safe_pool_request():
+    router = Router(model_list=[])
+    failure = RuntimeError("pool attempt failed")
+    fallback = AsyncMock(side_effect=AssertionError("outer fallback must not run"))
+    try:
+        with patch("litellm.router.run_async_fallback", fallback):
+            with pytest.raises(RuntimeError, match="pool attempt failed") as error:
+                await router.async_function_with_fallbacks_common_utils(
+                    e=failure,
+                    disable_fallbacks=False,
+                    fallbacks=[{"primary": ["backup"]}],
+                    context_window_fallbacks=None,
+                    content_policy_fallbacks=None,
+                    model_group="primary",
+                    args=(),
+                    kwargs={
+                        "model": "primary",
+                        "metadata": {
+                            "account_pool_attempt": True,
+                        },
+                        "messages": [{"role": "user", "content": "hello"}],
+                    },
+                )
+        assert error.value is failure
+        fallback.assert_not_awaited()
     finally:
         router.discard()
 

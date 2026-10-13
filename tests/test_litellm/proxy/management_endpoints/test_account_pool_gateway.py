@@ -309,7 +309,7 @@ def test_internal_forward_is_one_attempt_and_exposes_pre_output_errors_to_router
             )
         return httpx.Response(503, json={"error": {"type": "server_error", "message": "busy"}})
 
-    _, original = setup_gateway(upstream)
+    _, original = setup_gateway(upstream, max_attempts=1)
 
     class SelectedControl(Control):
         async def resolve(self, request):
@@ -340,6 +340,109 @@ def test_internal_forward_is_one_attempt_and_exposes_pre_output_errors_to_router
     if partial:
         assert "partial" in response.text
         assert "server_is_overloaded" in response.text
+
+
+def test_internal_forward_retries_safe_request_with_gateway_budget(monkeypatch) -> None:
+    from litellm.proxy.management_endpoints.account_pool_integration import (
+        INTERNAL_PREFIX,
+        ForwardRetryPolicy,
+        PoolIdentity,
+        create_ticket,
+    )
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return (
+            httpx.Response(503, json={"error": {"code": "server_is_overloaded"}})
+            if len(calls) == 1
+            else httpx.Response(200, json={"id": "response-ok"})
+        )
+
+    _, original = setup_gateway(upstream, max_attempts=3)
+
+    class InternalControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution
+
+    control = InternalControl(original.resolution)
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+    )
+    identity = PoolIdentity(key_hash="caller", request_id=uuid4())
+    ticket = create_ticket(
+        identity,
+        control.resolution.card_id,
+        retry_policy=ForwardRetryPolicy(rate_limit=0, timeout=0, server_error=0, backoff_ms=0),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            INTERNAL_PREFIX + str(control.resolution.card_id) + "/v1/chat/completions",
+            json={"model": "model-a", "messages": [{"role": "user", "content": "hello"}]},
+            headers={"Authorization": "Bearer " + ticket},
+        )
+
+    assert response.status_code == 200
+    assert len(calls) == 2
+    assert [item.account_id for item in control.acquisitions] == [control.resolution.card_id] * 2
+    assert control.finished[0].retryable
+    assert control.finished[-1].http_status == 200
+
+
+def test_internal_forward_does_not_replay_tools_even_with_gateway_budget(monkeypatch) -> None:
+    from litellm.proxy.management_endpoints.account_pool_integration import (
+        INTERNAL_PREFIX,
+        ForwardRetryPolicy,
+        PoolIdentity,
+        create_ticket,
+    )
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(503, json={"error": {"code": "server_is_overloaded"}})
+
+    _, original = setup_gateway(upstream, max_attempts=3)
+
+    class InternalControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution
+
+    control = InternalControl(original.resolution)
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+    )
+    identity = PoolIdentity(key_hash="caller", request_id=uuid4())
+    ticket = create_ticket(
+        identity,
+        control.resolution.card_id,
+        retry_policy=ForwardRetryPolicy(rate_limit=0, timeout=0, server_error=0, backoff_ms=0),
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            INTERNAL_PREFIX + str(control.resolution.card_id) + "/v1/chat/completions",
+            json={
+                "model": "model-a",
+                "messages": [{"role": "user", "content": "hello"}],
+                "tools": [{"type": "function", "function": {"name": "lookup"}}],
+            },
+            headers={"Authorization": "Bearer " + ticket},
+        )
+
+    assert response.status_code == 503
+    assert len(calls) == len(control.acquisitions) == len(control.finished) == 1
 
 
 @pytest.mark.parametrize(
@@ -1957,6 +2060,7 @@ def test_responses_done_without_terminal_event_is_failure(with_tools: bool) -> N
 
 async def run_transport_case(upstream: httpx.AsyncByteStream, *, seconds: int = 3, send_error: bool = False):
     from starlette.requests import Request
+
     from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, execute
 
     _, control = setup_gateway(lambda _: httpx.Response(200))
@@ -2049,16 +2153,6 @@ async def test_stream_transport_failures_have_distinct_causes(mode: str, status:
         assert '"type": "error"' in body.decode()
         assert code.encode() in body
         assert b"response.completed" not in body
-    print(
-        json.dumps(
-            {
-                "case": mode,
-                "status": attempt.result.http_status,
-                "code": attempt.result.upstream_code,
-                "error_frame": b'"type": "error"' in body,
-            }
-        )
-    )
 
 
 @pytest.mark.asyncio
@@ -2112,6 +2206,7 @@ def test_read_timeout_policy_roundtrips_between_manager_and_gateway() -> None:
 @pytest.mark.parametrize("count", [1, 8])
 async def test_read_idle_timeout_uses_real_socket_and_keeps_parallel_streams(count: int) -> None:
     from starlette.requests import Request
+
     from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, execute
 
     closed = []

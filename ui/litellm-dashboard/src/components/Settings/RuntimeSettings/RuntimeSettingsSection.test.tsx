@@ -187,4 +187,17 @@ describe("RuntimeSettingsSection", () => {
 
     expect(screen.queryByRole("switch", { name: /启用 WebSocket|Enable WebSocket/i })).not.toBeInTheDocument();
   });
+
+  it("saves the global gateway attempt budget", async () => {
+    const user = userEvent.setup();
+    renderPanel("network");
+
+    const attempts = await screen.findByLabelText(/最大尝试次数|Maximum attempts/i);
+    await user.clear(attempts);
+    await user.type(attempts, "3");
+    await user.click((await screen.findAllByRole("button", { name: /保存配置|Save configuration/i }))[0]);
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values).toEqual(expect.objectContaining({ max_attempts: 3 }));
+  });
 });

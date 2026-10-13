@@ -45,7 +45,7 @@ const defaults: AccountPoolSettings = {
   default_concurrency_limit: 1,
   default_model_discovery: true,
   default_proxy_profile_id: null,
-  max_attempts: 1,
+  max_attempts: 3,
   request_timeout_seconds: 120,
   full_log_success_enabled: true,
   full_log_sample_percent: 100,
@@ -456,8 +456,15 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
           </SelectContent>
         </Select>
       </div>
+      <NumberSetting
+        id={`${editorId}-max-attempts`}
+        label={t("accountPool.settings.maxAttempts")}
+        value={current.max_attempts}
+        disabled={disabled}
+        onChange={(max_attempts) => onChange({ ...current, max_attempts })}
+      />
       <p className="text-sm text-muted-foreground">
-        重试次数使用本页 LiteLLM 原生策略，每个候选部署最多重试 4 次；已输出内容或工具调用不重放。
+        网关最多执行该次数，包含首次请求。只对尚未输出的安全请求重试；工具调用、有状态请求和已输出流不会重放。
       </p>
       <NumberSetting
         id={`${editorId}-timeout`}

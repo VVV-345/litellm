@@ -3317,8 +3317,16 @@ class Router:
         model_group_alias: str | None = None
         if self._get_model_from_alias(model=model):
             model_group_alias = model
+        pool_attempt: Final = any(
+            (deployment.get("model_info") or {}).get("account_pool_environment_id") is not None
+            for deployment in (self.get_model_list(model_name=model) or [])
+        )
         kwargs.setdefault(metadata_variable_name, {}).update(
-            {"model_group": model, "model_group_alias": model_group_alias}
+            {
+                "model_group": model,
+                "model_group_alias": model_group_alias,
+                **({"account_pool_attempt": True} if pool_attempt else {}),
+            }
         )
 
     def _set_deployment_num_retries_on_exception(self, exception: Exception, deployment: dict) -> None:
@@ -6888,13 +6896,13 @@ class Router:
         if disable_fallbacks is True or original_model_group is None:
             raise e
 
-        from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
         from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
 
         if isinstance(e, AccountPoolSessionUnavailableError):
             raise e
 
         from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+        from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
         from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
 
         if pool_identity.get() is not None and has_signed_history(kwargs) and any(
@@ -6906,8 +6914,6 @@ class Router:
         pool_attempt: Final = (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get(
             "account_pool_attempt"
         )
-        if pool_attempt and not replay_safe(kwargs):
-            raise e
 
         input_kwargs: Final = {
             "litellm_router": self,
@@ -6966,6 +6972,9 @@ class Router:
                     "original_model_group": original_model_group,
                 },
             )
+
+        if pool_attempt:
+            raise e
 
         # ORDER-BASED FALLBACKS: prepend higher order levels to the fallback list
         # Skip for error types that have their own dedicated fallback handlers
@@ -7333,15 +7342,12 @@ class Router:
             current_attempt = None
             original_exception = e
             from litellm.proxy.management_endpoints.account_pool_native_routing import exhausted_snapshot
-            from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
             from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
 
             if exhausted_snapshot(e, self.get_model_list(model_name=model_group) or [], model_group) is not None:
                 # 不在已确认额度耗尽的卡片上消耗同卡重试预算。
                 raise
-            if (_metadata.get("account_pool_attempt") and not replay_safe(kwargs)) or isinstance(
-                e, AccountPoolSessionUnavailableError
-            ):
+            if _metadata.get("account_pool_attempt") or isinstance(e, AccountPoolSessionUnavailableError):
                 raise
             deployment_num_retries: Final = getattr(e, "num_retries", None)
 

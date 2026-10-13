@@ -90,7 +90,7 @@ class NetworkSettingsValues(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
-    max_attempts: int = Field(default=1, ge=1, le=5)
+    max_attempts: int = Field(default=3, ge=1, le=5)
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
     websocket_enabled: bool = False
 
@@ -196,7 +196,7 @@ class AccountPoolSettings(BaseModel):
     default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
     default_model_discovery: bool = True
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
-    max_attempts: int = Field(default=1, ge=1, le=5)
+    max_attempts: int = Field(default=3, ge=1, le=5)
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15

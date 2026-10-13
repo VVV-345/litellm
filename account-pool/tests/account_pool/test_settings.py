@@ -287,6 +287,11 @@ def test_settings_for_card_resolves_custom_modules_and_global_inheritance() -> N
     assert streaming_mode_for_card(settings, uuid4()) == "inherit"
 
 
+def test_new_settings_default_to_three_gateway_attempts() -> None:
+    assert AccountPoolSettings().max_attempts == 3
+    assert NetworkSettingsValues().max_attempts == 3
+
+
 def test_payload_and_oauth_error_rules_use_cliproxy_wire_names() -> None:
     settings: Final = AccountPoolSettings(
         oauth_request_scoped_errors={
