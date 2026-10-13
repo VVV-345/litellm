@@ -49,6 +49,7 @@ class ReleaseSettings(BaseSettings):
     reserve_bytes: int = Field(default=1024 * 1024 * 1024, ge=0)
     initialize_backups: bool = True
     database_backups: bool = False
+    skip_compatibility_checks: bool = False
 
     @field_validator("root", "deployment")
     @classmethod

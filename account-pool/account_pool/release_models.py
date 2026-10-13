@@ -132,6 +132,7 @@ class ReleaseConfirmation(BaseModel):
     current_commit: str | None
     rollback: RollbackInspection | None = None
     database_snapshot: DatabaseSnapshot | None = None
+    compatibility_bypassed: bool = False
 
 
 class RollbackCheck(BaseModel):

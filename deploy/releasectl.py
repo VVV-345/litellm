@@ -81,10 +81,15 @@ def main() -> None:
     }
     confirmation: Final = call(token, "/prepare", body)
     if action == "apply":
-        inspection: Final = record(confirmation.get("rollback"))
+        inspection_value: Final = confirmation.get("rollback")
+        inspection: Final = record(inspection_value) if inspection_value is not None else {}
         output(json.dumps(inspection, ensure_ascii=False, indent=2))
-        if inspection.get("status") != "compatible" or not confirmation.get("token"):
+        if not confirmation.get("token"):
+            raise SystemExit("未生成切换确认令牌，未提交切换任务")
+        if not confirmation.get("compatibility_bypassed") and inspection.get("status") != "compatible":
             raise SystemExit("该版本未通过回退检查，未提交切换任务")
+    if confirmation.get("compatibility_bypassed"):
+        output("警告：发布器已配置为跳过兼容性检查，仅保留备份、确认、健康检查和失败恢复。")
     output(f"操作：{action}，目标：{target or '当前项目'}，当前 commit：{confirmation['current_commit']}")
     output("删除将移除备份归档；切换会短暂中断服务。数据库和认证文件不随镜像回退。")
     if action == "restore_data":

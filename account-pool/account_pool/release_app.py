@@ -165,6 +165,7 @@ def create_app() -> FastAPI:
         runtime,
         settings.reserve_bytes,
         DockerReleaseDatabase(runtime) if settings.database_backups else None,
+        settings.skip_compatibility_checks,
     )
     return release_application(
         service, settings.token.get_secret_value(), initialize_backups=settings.initialize_backups

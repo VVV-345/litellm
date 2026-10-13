@@ -262,6 +262,36 @@ def test_new_deployment_backs_up_running_images_and_rejects_schema_changes(
     assert service.store.jobs()[0].status == ("succeeded" if compatible else "failed")
 
 
+def test_configured_compatibility_bypass_allows_incompatible_deployment(
+    setup: tuple[ReleaseService, Runtime, Clock],
+) -> None:
+    service, runtime, clock = setup
+    bypassed = ReleaseService(service.store, runtime, 0, skip_compatibility_checks=True)
+    runtime.changed_schema = NEW.id
+    confirmation: Final = bypassed.prepare(action(bypassed, "deploy", tag=NEW.commit), "admin")
+    assert confirmation.token and confirmation.compatibility_bypassed
+    clock.now += confirmation.delay_seconds
+    bypassed.run(bypassed.execute(confirmation.token, "admin"))
+    assert runtime.running == NEW
+    assert bypassed.store.jobs()[0].status == "succeeded"
+
+
+def test_configured_compatibility_bypass_allows_unverified_rollback(
+    setup: tuple[ReleaseService, Runtime, Clock],
+) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    bypassed = ReleaseService(service.store, runtime, 0, skip_compatibility_checks=True)
+    runtime.changed_schema = OLD.id
+    confirmation: Final = bypassed.prepare(action(bypassed, "apply", version_id=OLD.id), "admin")
+    assert confirmation.token and confirmation.compatibility_bypassed
+    assert confirmation.rollback is not None and confirmation.rollback.status == "unverified"
+    clock.now += confirmation.delay_seconds
+    bypassed.run(bypassed.execute(confirmation.token, "admin"))
+    assert runtime.running == OLD
+    assert bypassed.store.jobs()[0].status == "succeeded"
+
+
 def test_notes_and_guide_persist_without_reexporting_images(setup: tuple[ReleaseService, Runtime, Clock]) -> None:
     service, runtime, clock = setup
     service.run(queued(service, clock, action(service, "note", version_id=CURRENT.id, text="可回退基线")))

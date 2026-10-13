@@ -198,7 +198,7 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 
 发布器负责：拉取两个业务镜像并校验身份；验证/创建当前配套镜像归档；兼容性检查；暂停业务、两库新快照和试还原；替换 LiteLLM/Manager；容器及应用就绪检查；失败时按恢复点处理。数据库快照期间业务会暂停，停机时长包含导出、试还原和启动，不能承诺固定几秒
 
-连接中断不等于任务停止。复用已打开终端，重新运行 `status` 读取任务，不盲目再提交 deploy。不得使用 `docker compose down -v`、卷清理、直接更改 active-pair、伪造 schema_fingerprint 或强制绕过保护
+连接中断不等于任务停止。复用已打开终端，重新运行 `status` 读取任务，不盲目再提交 deploy。不得使用 `docker compose down -v`、卷清理、直接更改 active-pair 或伪造 schema_fingerprint。若已得到明确的运维确认并接受数据不兼容风险，只能通过 release-worker 的 `ACCOUNT_POOL_RELEASE_SKIP_COMPATIBILITY_CHECKS=true` 配置跳过 deploy/apply 的兼容性阻断；镜像身份、备份、人工确认、健康检查和失败恢复仍必须执行，确认响应与任务记录必须标明已绕过
 
 这条命令不部署 Browser Worker。若之前未启用，保持未启用；若本次明确要升级它，需要对应 GHCR `@sha256:`、会话兼容和独立验证，不把 tag 填进只接受 digest 的配置
 

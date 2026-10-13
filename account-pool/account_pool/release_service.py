@@ -69,11 +69,13 @@ class ReleaseService:
         runtime: ReleaseRuntime,
         reserve_bytes: int = 1024**3,
         database: ReleaseDatabase | None = None,
+        skip_compatibility_checks: bool = False,
     ) -> None:
         self.store: Final = store
         self.runtime: Final = runtime
         self.reserve_bytes: Final = reserve_bytes
         self.database: Final = database
+        self.skip_compatibility_checks: Final = skip_compatibility_checks
 
     def view(self) -> ReleaseView:
         current: Final = self.current_or_none()
@@ -207,6 +209,23 @@ class ReleaseService:
             )
             return data_prepared.model_copy(update={"database_snapshot": snapshot})
         if action.action == "apply" and view.current is not None:
+            if self.skip_compatibility_checks:
+                selected: Final = next(version for version in view.versions if version.pair.id == action.version_id)
+                report: Final = RollbackInspection(
+                    current_commit=view.current.commit,
+                    target_commit=selected.pair.commit,
+                    status="unverified",
+                    checks=(),
+                    impacts=("已按发布器配置跳过兼容性检查，仅保留备份、确认、健康检查和失败恢复。",),
+                )
+                prepared: Final = self.store.prepare(
+                    action,
+                    actor,
+                    view.current.id,
+                    view.current.commit,
+                    "compatibility-bypassed",
+                )
+                return prepared.model_copy(update={"rollback": report, "compatibility_bypassed": True})
             report, state = self.inspect_rollback(view.current, action.version_id or "", alternatives=True)
             if self.runtime.current().id != view.current.id or self.store.settings()[0] != action.revision:
                 raise ReleaseError("检查期间版本或备份发生变化，请重新检查")
@@ -218,8 +237,11 @@ class ReleaseService:
                 )
             prepared: Final = self.store.prepare(action, actor, view.current.id, view.current.commit, state)
             return prepared.model_copy(update={"rollback": report})
-        return self.store.prepare(
+        prepared: Final = self.store.prepare(
             action, actor, view.current.id if view.current else None, view.current.commit if view.current else None
+        )
+        return prepared.model_copy(
+            update={"compatibility_bypassed": self.skip_compatibility_checks and action.action == "deploy"}
         )
 
     def inspect_rollback(
@@ -622,18 +644,26 @@ class ReleaseService:
         self.phase(job, "备份当前运行版本")
         recovery: Final = self.backup(current, self.runtime.running_compose())
         # 仅已审阅、旧版可忽略的会话表新增允许带备份升级；失败仍只退镜像，不回放业务数据。
-        schema_changed: Final = self.runtime.fingerprint(target) != recovery.schema_fingerprint
-        forward_compatible: Final = self.database is not None and self.runtime.is_forward_compatible_upgrade(
-            current, target
+        compatibility: Final = (
+            (False, False, False)
+            if self.skip_compatibility_checks
+            else (
+                self.runtime.fingerprint(target) != recovery.schema_fingerprint,
+                self.database is not None and self.runtime.is_forward_compatible_upgrade(current, target),
+                self.database is not None and self.runtime.is_oauth_browser_schema_upgrade(current, target),
+            )
         )
-        oauth_schema_upgrade: Final = self.database is not None and self.runtime.is_oauth_browser_schema_upgrade(
-            current, target
-        )
-        if action.action == "deploy" and schema_changed and not (forward_compatible or oauth_schema_upgrade):
+        schema_changed, forward_compatible, oauth_schema_upgrade = compatibility
+        if (
+            not self.skip_compatibility_checks
+            and action.action == "deploy"
+            and schema_changed
+            and not (forward_compatible or oauth_schema_upgrade)
+        ):
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:
             raise ReleaseError("备份期间运行版本已被外部操作更改，停止替换")
-        if action.action == "apply":
+        if action.action == "apply" and not self.skip_compatibility_checks:
             self._require_rollback_check(job, current)
         if self.database is not None:
             self.database.preflight()
@@ -674,7 +704,7 @@ class ReleaseService:
             _, state = self.inspect_data_restore(action)
             if state != job.rollback_state:
                 raise ReleaseError("快照或配置已变化，请重新确认")
-        else:
+        elif not self.skip_compatibility_checks:
             self._require_rollback_check(job, current)
         self.phase(job, "校验并导入备份镜像")
         directory: Final = self.verify(saved)
@@ -682,6 +712,8 @@ class ReleaseService:
         return saved.pair, self.runtime.running_compose()
 
     def _require_rollback_check(self, job: ReleaseJob, current: ReleasePair) -> None:
+        if self.skip_compatibility_checks:
+            return
         report, state = self.inspect_rollback(current, job.action.version_id or "")
         accepted: Final = (
             report.force_allowed and job.action.force_acknowledgement == report.target_commit

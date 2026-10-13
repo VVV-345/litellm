@@ -80,7 +80,9 @@ jobs:
             account-pool/tests/account_pool/test_policies.py \
             account-pool/tests/test_release_auto_update.py \
             account-pool/tests/test_release_catalog.py \
-            account-pool/tests/test_release_database.py
+            account-pool/tests/test_release_database.py \
+            account-pool/tests/test_releases.py \
+            account-pool/tests/test_release_runtime.py
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: ui/litellm-dashboard/.nvmrc
