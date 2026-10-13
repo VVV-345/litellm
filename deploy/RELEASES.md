@@ -23,6 +23,13 @@
 - 回归测试覆盖网关安全重试、不可重放请求、Router 外层 fallback 禁止、默认值和 Dashboard 保存行为。本次修复归入 v1.1 固定版本系列；现有不可变 `v1.1` 标签保持原提交不动，分支 push 后由工作流生成提交 SHA 标签和 `v1.1-<提交前10位>`，不手工创建或移动其他发布标签。
 - 服务器兼容性预检确认当前运行 revision `74f4897111c725bf582d2e734a4dc815c9cdfb22` 是本系列基线的祖先；本次修复未修改数据库 schema、migration、Compose 或发布器契约。正式替换仍须由发布器核对完整 commit、镜像 digest、配置/schema/健康检查及回滚证据，不能仅凭构建成功替换服务。
 
+### v1.1 成功构建记录（2026-10-13）
+
+- GitHub Actions Run `38396790261` 已成功完成，提交为 `965f2fc8d698f52b5e5e06d14682d29d48c6a3ee`。
+- 本次生成并发布 `965f2fc8d6` 和 `v1.1-965f2fc8d6` 镜像标签：`litellm`、`account-pool-manager`、`account-pool-browser-worker` 均完成 amd64/arm64 构建及多架构 manifest 发布。
+- 额度切换、持久化、发布兼容性、Node.js 24.19.0 UI 安装与组件测试、镜像构建和部署摘要门禁全部成功；服务器仍需按本文件和 `UPDATE_RUNBOOK.md` 执行替换验收。
+- 原有不可变 `v1.1` 标签保持不动，本记录将本次修复的成功构建归入 `v1.1` 固定版本系列。
+
 ### 额度切换的 v1.1 语义
 
 “额度与刷新”的 `quota_switch_project` 由号池 Router 执行同模型授权卡片间切换；`quota_switch_preview_model` 使用管理员或密钥已保存的原生 `fallbacks` 映射，不猜测预览模型名。先尝试其他同模型卡片，再尝试明确映射的备用模型；没有映射不换模型。
