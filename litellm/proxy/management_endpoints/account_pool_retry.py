@@ -124,6 +124,8 @@ def replay_safe(payload: Mapping[str, object]) -> bool:
 
     if has_signed_history(dict(payload)):
         return False
+    if has_server_reference(payload):
+        return False
     if any(payload.get(key) for key in ("previous_response_id", "conversation", "tools", "functions", "background")):
         return False
     inputs: Final = payload.get("input")
@@ -149,6 +151,14 @@ def replay_safe(payload: Mapping[str, object]) -> bool:
         )
         for message in cast(list[object], messages)
     )
+
+
+def has_server_reference(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return any(value.get(key) for key in ("file_id", "container_id")) or any(
+            has_server_reference(item) for item in value.values()
+        )
+    return isinstance(value, list) and any(has_server_reference(item) for item in value)
 
 
 def retry_after(headers: Mapping[str, str]) -> int:

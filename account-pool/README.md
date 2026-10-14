@@ -88,7 +88,19 @@ NewAPI 使用卡片 Key 接入 LiteLLM 公共模型入口，配置方法和当�
 
 ## 签名续聊与日志设置（2026-09-20）
 
-号池继续使用 LiteLLM 原生 encrypted_content_affinity 和会话亲和性。切换模型时，仅允许在虚拟密钥授权范围内选择原生判定为同一 `(api_base, api_key)` 的部署；`previous_response_id` 仍严格绑定原部署。其他中转站产生的来源标记在本站无法找到时，只有完整的客户端历史才会移除旧思考状态并重新路由。来源未知的原始签名仍先正常请求，上游明确拒绝签名后，仅在同一卡片、未输出有效内容时恢复一次
+### Responses 额度耗尽续聊
+
+开启现有 `quota_switch_project` 后，Responses 请求可在确认额度耗尽或达到 `quota_reserve_percent` 时，用可见历史在同模型的另一张授权卡片重建请求。普通限流、400、网络故障不会作为额度耗尽处理。保留原有签名校验；只在安全重建时移除旧 reasoning 项与 `previous_response_id`，不转移或解密上游隐藏推理
+
+网关用虚拟 Key、模型、响应 ID 隔离历史，复用 Router 缓存并使用 `ACCOUNT_POOL_MANAGER_TOKEN` 加密。成功完成的普通响应和流式 `response.completed` 保存完整可见历史，单条最大 256 KiB，最长 1 小时；超限不截断保存。多进程、多副本须配置共享 Redis，否则缓存只在当前进程有效，重启、驱逐、到期或密钥轮换都会使历史不可恢复。历史缓存独立于采样日志，不向日志打印明文
+
+`store=false` 不写历史缓存，只能使用客户端本次携带的完整历史恢复。仅带旧响应 ID 且缓存不存在时拒绝跨卡恢复。客户端工具调用和结果必须完整配对；文件、图片、音频、服务端工具、加密压缩、后台任务、conversation、自动截断和不完整历史不迁移。已经向客户端输出内容的流式请求不重放
+
+每次最多重建到一张备用卡，不自动换模型；备用卡失败则结束本次请求。成功后返回新卡片的原生响应 ID，后续请求按新 ID 继续关联。保留当前请求的 instructions 和工具定义，不继承 Responses 协议本来就不继承的上一轮 instructions。换卡会增加历史输入 Token，不保证保留隐藏推理状态。本功能仅支持 HTTP Responses 创建请求，其他协议和 WebSocket 保持原行为
+
+停用时关闭 `quota_switch_project`，不需要数据库迁移。既有加密缓存按 TTL 失效。生产部署前仍需验证 Redis 共享、历史保留要求、真实供应商签名链和客户端工具场景
+
+常规续聊继续使用 LiteLLM 原生 encrypted_content_affinity 和会话亲和性。切换模型时，仅允许在虚拟密钥授权范围内选择原生判定为同一 `(api_base, api_key)` 的部署；原始 `previous_response_id` 仍绑定原部署，上述额度迁移通过重建请求移除该引用，不修改其归属。其他中转站产生的来源标记在本站无法找到时，只有完整的客户端历史才会移除旧思考状态并重新路由。来源未知的原始签名仍先正常请求，上游明确拒绝签名后，仅在同一卡片、未输出有效内容时恢复一次
 
 恢复复用 LiteLLM 的 Anthropic 思考块清理，保留 Responses、Messages 和 Chat Completions 中配对的客户端工具调用及结果。历史缺失、工具未配对、服务端工具、background、conversation 或 previous_response_id 不执行自动恢复，也不会生成、伪造或解密签名。恢复移除隐藏思考状态，不承诺跨供应商完整继承内部推理。切换到其他网站后的兼容处理由对方网站决定
 

@@ -527,6 +527,8 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
         for protocol in (
             "chat",
             "responses",
+            "responses_conversation",
+            "responses_conversation_stream",
             "compact",
             "stream",
             "stream_usage",
@@ -581,7 +583,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
 
     control = (
         MultipleCardControl(original.resolution)
-        if protocol.startswith("quota_")
+        if protocol.startswith("quota_") or protocol.startswith("responses_conversation")
         else InternalControl(original.resolution)
     )
     from litellm.proxy.management_endpoints.account_pool_management_models import CodexPolicy
@@ -618,7 +620,26 @@ async def test_real_router_http_request_enters_pool_before_upstream(
     if protocol == "compact":
         response_body["object"] = "response.compaction"
 
+    conversation_requests = []
+
     def upstream(request):
+        if protocol.startswith("responses_conversation"):
+            import json
+
+            body = json.loads(request.content)
+            conversation_requests.append((request.url.host, body))
+            if len(conversation_requests) > 1 and original.resolution.card_id.hex in request.url.host:
+                return httpx.Response(429, json={"error": {
+                    "message": "insufficient_quota", "type": "rate_limit_error", "code": "insufficient_quota",
+                }})
+            output = [{"type": "message", "id": "msg_history", "role": "assistant", "status": "completed",
+                       "content": [{"type": "output_text", "text": "What use?", "annotations": []}]}]
+            completed = {**response_body, "id": "resp_" + str(len(conversation_requests)), "output": output}
+            if body.get("stream"):
+                return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=(
+                    "data: " + json.dumps({"type": "response.completed", "response": completed}) + "\n\n"
+                ))
+            return httpx.Response(200, json=completed)
         if protocol.startswith("quota_") and original.resolution.card_id.hex in request.url.host:
             return httpx.Response(
                 429,
@@ -780,7 +801,8 @@ async def test_real_router_http_request_enters_pool_before_upstream(
                 },
             }
             for candidate_id in (
-                [item.id for item in control.resolution.candidates] if protocol.startswith("quota_") else [card]
+                [item.id for item in control.resolution.candidates]
+                if protocol.startswith("quota_") or protocol.startswith("responses_conversation") else [card]
             )
         ],
         num_retries=3,
@@ -800,7 +822,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
         {
             str(item.id): RoutingSnapshot(
                 quota=RoutingQuota(remaining_percent=90 - index * 10, observed_at=datetime.now(timezone.utc)),
-                quota_switch_project=protocol == "quota_failover",
+                quota_switch_project=protocol == "quota_failover" or protocol.startswith("responses_conversation"),
             )
             for index, item in enumerate(control.resolution.candidates)
         }
@@ -877,6 +899,29 @@ async def test_real_router_http_request_enters_pool_before_upstream(
                         else {}
                     ),
                 )
+        elif protocol.startswith("responses_conversation"):
+            streaming = protocol.endswith("_stream")
+            initial = await router.aresponses(model="model-a", input="Budget 5000", stream=streaming)
+            if streaming:
+                initial_events = [event async for event in initial]
+                initial_id = initial_events[-1].response.id
+            else:
+                initial_id = initial.id
+            migrated = await router.aresponses(
+                model="model-a", input="Video editing", previous_response_id=initial_id, stream=streaming
+            )
+            if streaming:
+                migrated_events = [event async for event in migrated]
+                assert migrated_events[-1].response.status == "completed"
+            else:
+                assert migrated.status == "completed"
+            assert len(conversation_requests) == 3
+            assert conversation_requests[0][0] == conversation_requests[1][0]
+            assert conversation_requests[2][0] != conversation_requests[0][0]
+            rebuilt = conversation_requests[-1][1]
+            assert not rebuilt.get("previous_response_id")
+            assert rebuilt["input"][0]["content"] == "Budget 5000"
+            assert rebuilt["input"][-1]["content"] == "Video editing"
         elif protocol == "responses":
             response = await router.aresponses(model="model-a", input="hello")
             assert response.usage.total_tokens == 7
@@ -948,7 +993,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             if protocol == "quota_failover":
                 logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
                 assert logging_kwargs["response_cost"] == pytest.approx(0.0000068)
-        expected_attempts = 2 if protocol == "error" else 2 if protocol == "quota_failover" else 1
+        expected_attempts = 3 if protocol.startswith("responses_conversation") else 2 if protocol in ("error", "quota_failover") else 1
         assert len(control.acquisitions) == expected_attempts
         if protocol == "quota_failover":
             assert [item.account_id for item in control.acquisitions] == [

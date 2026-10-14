@@ -5050,7 +5050,23 @@ class Router:
             fallback_kwargs["metadata"] = safe_deep_copy(fallback_kwargs["metadata"])
         fallback_kwargs["original_generic_function"] = original_function
 
-        response: Final = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)
+        from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationStream
+        from litellm.types.llms.openai import ResponsesAPIResponse
+
+        conversation: Final = await Conversation.start(self, kwargs)
+        try:
+            response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)  # rebind-ok: Select the original or rebuilt response on exclusive branches.
+        except Exception as error:
+            rebuilt: Final = conversation.rebuild(self, kwargs, error) if conversation is not None else None
+            if rebuilt is None:
+                raise
+            response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **rebuilt)  # rebind-ok: Select the rebuilt response only after the original fails.
+
+        if conversation is not None and isinstance(response, ResponsesAPIResponse):
+            await conversation.complete(response)
+
+        if conversation is not None and isinstance(response, BaseResponsesAPIStreamingIterator):
+            return ConversationStream(response, conversation)
 
         if (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get("account_pool_attempt"):
             return response
