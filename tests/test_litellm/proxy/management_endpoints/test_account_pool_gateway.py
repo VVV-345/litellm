@@ -335,7 +335,7 @@ def test_internal_forward_is_one_attempt_and_exposes_pre_output_errors_to_router
             json={"model": "model-a", "messages": [{"role": "user", "content": "go"}], "stream": stream},
             headers={"Authorization": "Bearer " + ticket},
         )
-    assert response.status_code == (200 if partial else 502 if stream else 503)
+    assert response.status_code == (200 if partial else 503)
     assert len(calls) == len(control.acquisitions) == len(control.finished) == 1
     if partial:
         assert "partial" in response.text
@@ -395,7 +395,7 @@ def test_internal_forward_retries_safe_request_with_gateway_budget(monkeypatch) 
     assert control.finished[-1].http_status == 200
 
 
-def test_internal_forward_does_not_replay_tools_even_with_gateway_budget(monkeypatch) -> None:
+def test_internal_forward_retries_declared_client_tools_on_same_card(monkeypatch) -> None:
     from litellm.proxy.management_endpoints.account_pool_integration import (
         INTERNAL_PREFIX,
         ForwardRetryPolicy,
@@ -442,7 +442,8 @@ def test_internal_forward_does_not_replay_tools_even_with_gateway_budget(monkeyp
         )
 
     assert response.status_code == 503
-    assert len(calls) == len(control.acquisitions) == len(control.finished) == 1
+    assert len(calls) == len(control.acquisitions) == len(control.finished) == 3
+    assert {item.account_id for item in control.acquisitions} == {control.resolution.card_id}
 
 
 @pytest.mark.parametrize(
@@ -1200,6 +1201,265 @@ def test_stream_start_events_are_discarded_before_same_card_retry(error) -> None
     assert control.finished[-1].http_status == 200
 
 
+@pytest.mark.parametrize("with_history", [False, True])
+def test_preoutput_overload_retries_client_tools_without_exposing_errors(with_history: bool) -> None:
+    calls: list[httpx.Request] = []
+    history = [
+        {"role": "user", "content": "hello"},
+        {"type": "reasoning", "encrypted_content": "preserve-this-state"},
+        {"type": "function_call", "call_id": "old-call", "name": "lookup", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "old-call", "output": "already executed"},
+    ]
+    payload = {
+        "model": "model-a", "stream": True,
+        "input": history if with_history else "hello",
+        "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+    }
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        body = (
+            'data: {"type":"response.created","response":{"id":"discard-me"}}\n\n'
+            'data: {"type":"error","code":"server_is_overloaded"}\n\n'
+            if len(calls) < 3 else
+            'data: {"type":"response.created","response":{"id":"success"}}\n\n'
+            'data: {"type":"response.output_text.delta","delta":"OK"}\n\n'
+            'data: {"type":"response.completed"}\n\n'
+        )
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", json=payload, headers={"Authorization": f"Bearer {_KEY}"})
+    assert response.status_code == 200
+    assert '"delta":"OK"' in response.text
+    assert response.text.count("response.completed") == 1
+    assert "discard-me" not in response.text and "server_is_overloaded" not in response.text
+    assert len(calls) == 3
+    assert {call.url.host for call in calls} == {f"cliproxy-{control.resolution.card_id.hex}"}
+    assert all(json.loads(call.content) == payload for call in calls)
+    assert [item.retryable for item in control.finished] == [True, True, False]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["overload", "timeout", "disconnect", "control", "internal", "internal_final"])
+async def test_delayed_preoutput_overload_stays_hidden_while_keepalive_is_sent(failure: str) -> None:
+    from starlette.requests import Request
+
+    import litellm
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    messages = []
+    calls = []
+    ping = asyncio.Event()
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.created","response":{"id":"discard-me"}}\n\n'
+            if failure == "overload":
+                await asyncio.sleep(15.1)
+            elif failure in ("timeout", "disconnect"):
+                await asyncio.Event().wait()
+            else:
+                await asyncio.sleep(0.1)
+            yield b'data: {"type":"error","code":"server_is_overloaded"}\n\n'
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return (
+            httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Upstream())
+            if len(calls) == 1 or failure == "internal_final" else
+            httpx.Response(200, headers={"content-type": "text/event-stream"},
+                           content=b'data: {"type":"response.completed"}\n\n')
+        )
+
+    async def send(message):
+        messages.append(message)
+        if b": ping" in message.get("body", b""):
+            ping.set()
+
+    async def receive():
+        if failure == "disconnect":
+            await ping.wait()
+            return {"type": "http.disconnect"}
+        await asyncio.Event().wait()
+
+    _, control = setup_gateway(upstream, max_attempts=3)
+    if failure == "timeout":
+        control.resolution = control.resolution.model_copy(update={
+            "policy": control.resolution.policy.model_copy(update={
+                "transport": TransportPolicy(request_timeout_seconds=1),
+            }),
+        })
+    if failure == "control":
+        class RevokedControl(Control):
+            async def finish(self, result):
+                await super().finish(result)
+                self.revoked = True
+
+        control = RevokedControl(control.resolution)
+    request = Request({"type": "http", "path": "/v1/responses", "method": "POST", "headers": [],
+                       "query_string": b"", "asgi": {"spec_version": "2.4"}}, receive)
+    if failure.startswith("internal"):
+        request.state.account_pool_standard_accounting = True
+    selected = routes(control.resolution, "model-a", request.url.path, Headers())
+    assert not isinstance(selected, Rejected)
+    previous = litellm.sse_keepalive_ping_interval_seconds
+    try:
+        litellm.sse_keepalive_ping_interval_seconds = 0.05
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+            task = asyncio.create_task(forward(request, {"model": "model-a", "stream": True}, _KEY, None,
+                                               control.resolution, selected, control, client, send))
+            try:
+                if not failure.startswith("internal"):
+                    await asyncio.wait_for(ping.wait(), timeout=1)
+                    assert not task.done()
+                await asyncio.wait_for(task, timeout=20)
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    finally:
+        litellm.sse_keepalive_ping_interval_seconds = previous
+    body = b"".join(message.get("body", b"") for message in messages)
+    if failure.startswith("internal"):
+        assert not ping.is_set()
+        start: Final = next(message for message in messages if message["type"] == "http.response.start")
+        headers: Final = dict(start["headers"])
+        assert headers[b"x-account-pool-account-id"].decode() == str(control.resolution.card_id)
+        attempts: Final = 3 if failure == "internal_final" else 2
+        assert headers[b"x-account-pool-attempt"] == str(attempts).encode()
+        assert len(calls) == len(control.finished) == attempts
+        assert not control.finished[-1].retryable
+        if failure == "internal_final":
+            assert start["status"] == 503 and b"server_is_overloaded" in body
+        return
+    if failure != "overload":
+        assert len(calls) == 1
+        assert b"response.completed" not in body
+        if failure != "disconnect":
+            assert b'"type": "error"' in body
+            assert messages[-1]["more_body"] is False
+        else:
+            assert control.finished[0].http_status == 499
+        assert sum(message["type"] == "http.response.start" for message in messages) == 1
+        return
+    assert len(calls) == 2
+    assert "discard-me" not in body.decode() and b"server_is_overloaded" not in body
+    assert body.count(b"response.completed") == 1
+    assert sum(message["type"] == "http.response.start" for message in messages) == 1
+    assert [item.retryable for item in control.finished] == [True, False]
+
+
+@pytest.mark.parametrize("code", ["server_is_overloaded", "unclassified_error"])
+def test_tool_retry_requires_explicit_transient_error(code: str) -> None:
+    client, control = setup_gateway(
+        lambda _: httpx.Response(503, json={"error": {"code": code}}), retry=True, max_attempts=3
+    )
+    with client:
+        response = client.post("/v1/responses", json={
+            "model": "model-a", "input": "hello", "tools": [{"type": "function", "name": "lookup"}],
+        }, headers={"Authorization": f"Bearer {_KEY}"})
+    assert response.status_code == 503
+    assert len(control.acquisitions) == (3 if code == "server_is_overloaded" else 1)
+    assert {item.account_id for item in control.acquisitions} == {control.resolution.card_id}
+
+
+@pytest.mark.parametrize("extra", [
+    {"previous_response_id": "old"},
+    {"conversation": "old"},
+    {"background": True},
+    {"tools": [{"type": "web_search"}]},
+    {"input": [{"type": "item_reference", "id": "old"}]},
+    {"input": [{"role": "user", "content": "go"},
+               {"type": "function_call", "call_id": "unpaired", "name": "lookup", "arguments": "{}"}]},
+])
+def test_preoutput_overload_does_not_replay_unrecoverable_state(extra) -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(
+        200, headers={"content-type": "text/event-stream"},
+        content=b'data: {"type":"error","code":"server_is_overloaded"}\n\n',
+    ), retry=True, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", json={
+            "model": "model-a", "stream": True, "input": "hello",
+            "tools": [{"type": "function", "name": "lookup"}], **extra,
+        }, headers={"Authorization": f"Bearer {_KEY}"})
+    assert "server_is_overloaded" in response.text
+    assert len(control.acquisitions) == 1
+    assert not control.finished[0].retryable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/v1/responses", "/v1/messages", "/v1/chat/completions"])
+async def test_retry_keepalive_converts_final_http_error_to_one_sse_error(path: str) -> None:
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    from litellm.proxy.management_endpoints.account_pool_retry import RetryStream
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    request = Request({"type": "http", "path": path, "method": "POST", "headers": []})
+    output = RetryStream(request, send, uuid4())
+    await output.ping()
+    await JSONResponse({"error": {"message": "busy", "code": "server_is_overloaded"}}, status_code=503)(
+        request.scope, request.receive, output.emit
+    )
+    assert sum(message["type"] == "http.response.start" for message in sent) == 1
+    body = b"".join(message.get("body", b"") for message in sent)
+    assert body.count(b"server_is_overloaded") == (2 if path == "/v1/responses" else 1)
+    frame = json.loads(body.split(b"data: ")[-1])
+    assert frame["error"]["status_code"] == 503
+    assert sent[-1]["more_body"] is False
+
+
+@pytest.mark.asyncio
+async def test_retry_keepalive_does_not_write_after_response_commits() -> None:
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    from litellm.proxy.management_endpoints.account_pool_retry import RetryStream
+
+    sent: Final = asyncio.Queue()
+
+    async def send(message):
+        sent.put_nowait(message)
+
+    request: Final = Request({"type": "http", "path": "/v1/responses", "method": "POST", "headers": []})
+    output: Final = RetryStream(request, send, uuid4())
+    await JSONResponse({"error": {"message": "busy"}}, status_code=503)(
+        request.scope, request.receive, output.emit
+    )
+    assert sent.qsize() == 2
+    await output.ping()
+    assert sent.qsize() == 2
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_deadline_does_not_expose_unfinished_handshake_and_closes_reader() -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
+
+    closed = asyncio.Event()
+
+    async def chunks():
+        try:
+            yield b'data: {"type":"response.created"}\n\n'
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    bootstrap = StreamBootstrap(chunks(), responses_api=True)
+    try:
+        with pytest.raises(TimeoutError):
+            await bootstrap.prepare(asyncio.get_running_loop().time() + 0.03)
+        assert not bootstrap.state.meaningful
+    finally:
+        await bootstrap.close()
+    assert closed.is_set()
+
+
 @pytest.mark.parametrize(
     "event",
     [
@@ -1245,12 +1505,14 @@ def test_codex_retries_obey_card_budget_and_tool_replay_boundary(stream_error, t
     assert response.status_code == (200 if stream_error else 503)
     if stream_error:
         assert json.loads(response.text.strip().removeprefix("data: "))["error"]["status_code"] == 502
-    assert len(control.acquisitions) == len(control.finished) == (1 if tools else 10)
+    assert len(control.acquisitions) == len(control.finished) == (5 if tools else 10)
     assert control.acquisitions[0].account_id == control.resolution.card_id
     assert not control.finished[-1].retryable
     if not tools:
         assert len({entry.account_id for entry in control.acquisitions}) == 2
         assert [entry.attempt for entry in control.acquisitions] == list(range(1, 11))
+    else:
+        assert {entry.account_id for entry in control.acquisitions} == {control.resolution.card_id}
 
 
 @pytest.mark.parametrize(

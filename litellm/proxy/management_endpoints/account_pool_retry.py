@@ -6,12 +6,117 @@ import asyncio
 import io
 import math
 import random
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Final, cast
+from types import MappingProxyType
+from typing import Final, TypeVar, cast
+from uuid import UUID
 
+from pydantic import JsonValue, TypeAdapter
+from starlette.requests import ClientDisconnect, Request
+from starlette.types import Message, Send
+
+from litellm.litellm_core_utils.signature_recovery import client_tool, signature_recovery_reason
+from litellm.proxy.common_utils.sse_keepalive import SSE_COMMENT_PING_BYTES, coerce_keepalive_interval
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream
+
+_RESULT: Final = TypeVar("_RESULT")
+_ERROR: Final = TypeAdapter(dict[str, JsonValue])
+_STATUS: Final = TypeAdapter(int)
+_HEADERS: Final = TypeAdapter(tuple[tuple[bytes, bytes], ...])
+_BODY: Final = TypeAdapter(bytes)
+
+
+def same_card_replay_safe(payload: Mapping[str, JsonValue]) -> bool:
+    if replay_safe(payload):
+        return True
+    if any(payload.get(key) for key in ("previous_response_id", "conversation", "background", "functions")):
+        return False
+    history: Final = payload.get("messages", payload.get("input"))
+    if isinstance(history, list) and history:
+        return signature_recovery_reason(payload) is None
+    tools: Final = payload.get("tools")
+    return (
+        (history is None or isinstance(history, str))
+        and (tools is None or isinstance(tools, list) and all(client_tool(tool) for tool in tools))
+    )
+
+
+class RetryStream:
+    def __init__(self, request: Request, send: Send, request_id: UUID) -> None:
+        self.request: Final = request
+        self.send: Final = send
+        self.request_id: Final = request_id
+        self.started = False
+        self.committed = False
+        self.streaming = True
+        self.status = 200
+        self.state: Final = EventStream(
+            responses_api=request.url.path == "/v1/responses", anthropic_messages=request.url.path == "/v1/messages"
+        )
+
+    async def emit(self, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            self.committed = True
+            self.status = _STATUS.validate_python(message["status"])
+            self.streaming = any(
+                name.lower() == b"content-type" and value.startswith(b"text/event-stream")
+                for name, value in _HEADERS.validate_python(message.get("headers", ()))
+            )
+            if self.started:
+                return
+            self.started = True
+            self.streaming = True
+        elif message["type"] == "http.response.body" and not self.streaming:
+            payload: Final = _ERROR.validate_json(_BODY.validate_python(message.get("body", b"{}")))
+            error: Final = payload.get("error", payload)
+            outbound: Final[Message] = {
+                "type": "http.response.body", "more_body": False,
+                "body": self.state.error_frame(self.state.error_envelope(_ERROR.validate_python(MappingProxyType({
+                    **(error if isinstance(error, dict) else {"message": str(error)}),
+                    "status_code": self.status,
+                })))),
+            }
+            await self.send(outbound)
+            return
+        await self.send(message)
+
+    async def ping(self) -> None:
+        if self.committed:
+            return
+        if not self.started:
+            self.started = True
+            start: Final[Message] = {
+                "type": "http.response.start", "status": 200,
+                "headers": (
+                    (b"content-type", b"text/event-stream"), (b"cache-control", b"no-store"),
+                    (b"x-accel-buffering", b"no"), (b"x-request-id", str(self.request_id).encode()),
+                ),
+            }
+            await self.send(start)
+        if not self.committed:
+            body: Final[Message] = {"type": "http.response.body", "body": SSE_COMMENT_PING_BYTES, "more_body": True}
+            await self.send(body)
+
+    async def run(self, operation: Awaitable[_RESULT], interval: float | None) -> _RESULT:
+        pending: Final = asyncio.ensure_future(operation)
+        seconds: Final = coerce_keepalive_interval(10 if interval is None else interval)
+        try:
+            while not pending.done():
+                done, _ = await asyncio.wait((pending,), timeout=seconds or 1)
+                if done:
+                    break
+                if self.committed:
+                    return await pending
+                if await self.request.is_disconnected():
+                    raise ClientDisconnect
+                if seconds is not None and not getattr(self.request.state, "account_pool_standard_accounting", False):
+                    await self.ping()
+            return pending.result()
+        finally:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
 
 
 def replay_safe(payload: Mapping[str, object]) -> bool:
@@ -106,13 +211,12 @@ class StreamBootstrap:
         self.capture(chunk)
         return True
 
-    async def prepare(self) -> None:
-        deadline: Final = asyncio.get_running_loop().time() + 15
+    async def prepare(self, deadline: float = float("inf")) -> None:
         while self.buffer.tell() < 65536 and not self.state.meaningful and not self.state.terminal:
             self.pending = asyncio.create_task(self.next_chunk())
             done, _ = await asyncio.wait((self.pending,), timeout=max(0, deadline - asyncio.get_running_loop().time()))
             if not done:
-                return
+                raise TimeoutError("Pre-output retry deadline exhausted")
             if not self.capture_pending():
                 return
 

@@ -27,7 +27,7 @@ from litellm.litellm_core_utils import token_counter as token_counter_module
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.common_utils.sse_keepalive import wrap_passthrough_sse_bytes_with_keepalive_pings
-from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
+from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
     AcquireRejectionReason,
@@ -40,10 +40,12 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
 )
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_retry import (
+    RetryStream,
     StreamBootstrap,
     backoff_seconds,
     replay_safe,
     retry_after,
+    same_card_replay_safe,
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
@@ -294,11 +296,12 @@ async def forward(
     send: Send,
 ) -> None:
     routing: Final = resolution.policy.routing
-    allow_retry: Final = replay_safe(payload)
+    allow_retry: Final = same_card_replay_safe(payload)
+    allow_failover: Final = replay_safe(payload)
     configured_attempts: Final = routing.max_attempts
     max_attempts: Final = configured_attempts if allow_retry else 1
     bound_id: Final = (
-        resolution.sticky_account_id if not allow_retry and resolution.sticky_account_id else resolution.card_id
+        resolution.sticky_account_id if not allow_failover and resolution.sticky_account_id else resolution.card_id
     )
     scoped: Final = tuple(route for route in selected if route.account.id == bound_id)
     ordered: Final = (
@@ -306,9 +309,13 @@ async def forward(
         if resolution.sticky_account_id is not None and selected[0].account.id == resolution.sticky_account_id
         else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
     )
-    eligible: Final = ordered if routing.fallback_enabled and allow_retry else scoped[:1]
+    eligible: Final = ordered if routing.fallback_enabled and allow_failover else scoped[:1]
     request_id: Final = getattr(request.state, "account_pool_request_id", None) or uuid4()
-    completed, rejections = await forward_candidate(
+    retry_stream: Final = (
+        RetryStream(request, send, request_id) if payload.get("stream") is True and max_attempts > 1 else None
+    )
+    outbound: Final = send if retry_stream is None else retry_stream.emit
+    operation: Final = forward_candidate(
         request,
         payload,
         key,
@@ -317,15 +324,35 @@ async def forward(
         eligible,
         control,
         client,
-        send,
+        outbound,
         request_id,
         route_index=0,
         attempt_number=1,
         max_attempts=max_attempts,
         rejection_reasons=frozenset[AcquireRejectionReason](),
         same_card_attempt=1,
-        deadline=asyncio.get_running_loop().time() + min(90, resolution.policy.transport.request_timeout_seconds),
+        deadline=asyncio.get_running_loop().time() + min(180, resolution.policy.transport.request_timeout_seconds),
     )
+    try:
+        completed, rejections = (
+            await operation if retry_stream is None
+            else await retry_stream.run(operation, litellm.sse_keepalive_ping_interval_seconds)
+        )
+    except (ClientDisconnect, OSError):
+        return
+    except (ControlError, httpx.HTTPError) as error:
+        if retry_stream is None or not retry_stream.started:
+            raise
+        failure: Final[_GatewayErrorEnvelope] = {
+            "error": {
+                "message": "Account pool key or control plane is unavailable", "type": "service_unavailable_error",
+            },
+        }
+        await JSONResponse(
+            failure,
+            status_code=error.status if isinstance(error, ControlError) else 503,
+        )(request.scope, request.receive, outbound)
+        return
     if completed:
         return
     budget_only: Final = rejections == _TOKEN_BUDGET_REJECTIONS
@@ -347,7 +374,7 @@ async def forward(
         content,
         status_code=status,
         headers=response_headers,
-    )(request.scope, request.receive, send)
+    )(request.scope, request.receive, outbound)
 
 
 async def forward_candidate(
@@ -376,7 +403,8 @@ async def forward_candidate(
         return True, frozenset()
     route: Final = selected[route_index]
     seconds: Final = min(
-        resolution.policy.transport.request_timeout_seconds, route.account.policy.transport.request_timeout_seconds
+        resolution.policy.transport.request_timeout_seconds, route.account.policy.transport.request_timeout_seconds,
+        max(1, math.ceil(deadline - asyncio.get_running_loop().time())) if math.isfinite(deadline) else 3600,
     )
     sticky_unavailable: Final = resolution.sticky_account_id is not None and all(
         item.account.id != resolution.sticky_account_id for item in selected
@@ -668,6 +696,10 @@ async def execute(
                             public_status == 429 and getattr(request.state, "account_pool_standard_accounting", False)
                         )
                         and retry_allowed(resolution, response.status_code)
+                        and (replay_safe(payload) or code in (
+                            "server_error", "internal_server_error", "overloaded_error", "overloaded",
+                            "server_is_overloaded", "rate_limit_exceeded", "rate_limit_error",
+                        ))
                         and asyncio.get_running_loop().time() < deadline
                     )
                     attempt.outcome(
@@ -714,7 +746,7 @@ async def execute(
                             anthropic_messages=request.url.path == "/v1/messages",
                         )
                         try:
-                            await bootstrap.prepare()
+                            await bootstrap.prepare(deadline)
                             if (
                                 bootstrap.state.failed
                                 and not bootstrap.state.meaningful
@@ -739,14 +771,17 @@ async def execute(
                                     deadline,
                                     signature_recovered=True,
                                 )
-                            await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
+                            completed_with_history: Final = await guarded_stream_response(
+                                request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline,
+                                bootstrap,
+                            )
                             if attempt.stream_state.signature_rejected:
                                 attempt.outcome(
                                     attempt.result.http_status,
                                     attempt.result.message,
                                     detail="signature_recovery: output_started; same_card=true",
                                 )
-                            return True
+                            return completed_with_history
                         finally:
                             await bootstrap.close()
                     completed: Final = await guarded_stream_response(
@@ -1068,23 +1103,26 @@ async def guarded_stream_response(
     next_id: UUID | None,
     cost_usd: float | None,
     deadline: float,
+    prepared: StreamBootstrap | None = None,
 ) -> bool:
     standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
-    if (next_id is None and not standard_accounting) or not replay_safe(payload):
-        await stream_response(request, response, attempt, cost_usd)
+    if (next_id is None and not standard_accounting) or not same_card_replay_safe(payload):
+        await stream_response(request, response, attempt, cost_usd, None if prepared is None else prepared.replay())
         return True
-    bootstrap: Final = StreamBootstrap(
+    bootstrap: Final = prepared or StreamBootstrap(
         response.aiter_bytes(),
         responses_api=request.url.path == "/v1/responses",
         anthropic_messages=request.url.path == "/v1/messages",
     )
     try:
-        await bootstrap.prepare()
+        if prepared is None:
+            await bootstrap.prepare(deadline)
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             retry: Final = (
-                retry_allowed(resolution, bootstrap.state.error_status)
+                next_id is not None
+                and retry_allowed(resolution, bootstrap.state.error_status)
                 and not (
                     bootstrap.state.error_status == 429
                     and getattr(request.state, "account_pool_standard_accounting", False)
@@ -1100,6 +1138,7 @@ async def guarded_stream_response(
                     "rate_limit_error",
                     "stream_interrupted",
                 )
+                and (replay_safe(payload) or bootstrap.state.error_code != "stream_interrupted")
                 and asyncio.get_running_loop().time() < deadline
             )
             attempt.outcome(

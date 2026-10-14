@@ -29,7 +29,7 @@ _CONTENT: Final = frozenset(
 )
 
 
-def _client_tool(tool: JsonValue) -> bool:
+def client_tool(tool: JsonValue) -> bool:
     if not isinstance(tool, dict):
         return False
     kind: Final = tool.get("type")
@@ -40,7 +40,7 @@ def _client_tool(tool: JsonValue) -> bool:
             and bool(tool.get("name"))
             and isinstance(members, list)
             and all(
-                isinstance(member, dict) and member.get("type") in ("function", "custom") and _client_tool(member)
+                isinstance(member, dict) and member.get("type") in ("function", "custom") and client_tool(member)
                 for member in members
             )
         )
@@ -174,7 +174,7 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if payload.get("functions"):
         return "legacy_function_history"
     tools: Final = [] if payload.get("tools") is None else payload["tools"]
-    if not isinstance(tools, list) or not all(_client_tool(tool) for tool in tools):
+    if not isinstance(tools, list) or not all(client_tool(tool) for tool in tools):
         return "server_or_unknown_tools"
     history: Final = payload.get("messages", payload.get("input"))
     if not isinstance(history, list) or not history:
