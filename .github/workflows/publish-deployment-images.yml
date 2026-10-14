@@ -113,6 +113,8 @@ jobs:
           cache-dependency-path: ui/litellm-dashboard/package-lock.json
       - name: Install and verify quota settings UI
         working-directory: ui/litellm-dashboard
+        env:
+          TZ: Asia/Shanghai
         run: |
           npm ci
           npm exec -- vitest run --project component \
