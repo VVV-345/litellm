@@ -19,7 +19,6 @@ import {
   SlidersHorizontal,
   ListFilter,
   Puzzle,
-  History,
   Workflow,
   Route,
   type LucideIcon,
@@ -136,13 +135,6 @@ const groups: readonly SettingsGroup[] = [
     scope: "号池运行插件列表；插件启用开关在 Router Settings 的通用设置中",
     fields: ["plugins_enabled"],
   },
-  {
-    title: "保留的旧路由值",
-    icon: History,
-    href: "router-settings?tab=loadbalancing",
-    scope: "以下旧值仍保留，但不参与当前跨卡选卡与重试；default_route 仍可能影响卡片内部凭证顺序",
-    fields: ["default_route", "request_retry", "max_retry_credentials", "max_retry_interval"],
-  },
 ];
 
 const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
@@ -188,11 +180,7 @@ const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
   force_model_prefix: "强制模型前缀",
   payload: "请求参数规则",
   plugins_enabled: "运行插件启用",
-  default_route: "旧默认凭证路由",
   max_attempts: "网关最多尝试次数（含首次）",
-  request_retry: "旧上游重试次数",
-  max_retry_credentials: "旧重试凭证数",
-  max_retry_interval: "旧重试最大间隔",
 };
 
 const nativeLabels: Record<string, string> = {

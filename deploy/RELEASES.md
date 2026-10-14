@@ -11,7 +11,9 @@
 - 本项目产品版本以 `deploy/VERSION` 为唯一来源，固定 `v1.1`；只有用户明确要求才能改版本号。这不是 LiteLLM 上游包版本，不改上游 `pyproject.toml` 的版本。
 - 本次发布 Git 标签为 `v1.1`；后续发布使用 `v1.1-<提交前10位>`，不移动或强推已有标签。阶段提交保留 conventional commit 格式，主题注明 `v1.1`。
 - 镜像同时发布原有 `<提交前10位>` 和 `v1.1-<提交前10位>`，OCI version 为 `v1.1`、revision 为完整提交。自动更新继续按 HEAD、成功 workflow 和 SHA/digest 核对，不改成追随可变版本标签。
-- 构建前必须通过额度切换、配置持久化、自动拉取/替换失败重试及页面开关测试；任何门禁失败不开始发布镜像。amd64/arm64 均成功后才发布共享 manifest。
+- `publish-deployment-images.yml` 的构建阶段只向 GHCR 推送按 digest 寻址的无标签镜像，并上传每个镜像架构的 digest 清单。额度切换、数据库兼容与备份/恢复测试、配置持久化、自动拉取/替换失败重试及页面开关测试必须先通过；全部 amd64/arm64 构建成功后，manifest job 才据 digest 发布 GHCR 正式标签，全部 manifest 检查通过后才创建 `v1.1-<提交前10位>` Git tag。
+- 构建失败时不会创建 GHCR 标签或 Git tag；失败任务可能留下无标签的 digest 镜像对象，但它不是可部署版本。正式标签或 Git tag 已存在且指向其他提交时，流水线失败，不移动或强推它们。固定 `v1.1` Git tag 保持不动。
+- 发布兼容回归由 `test_release_runtime.py` 和 `test_release_database.py` 覆盖 schema 例外、额外结构拒绝、双库快照及失败恢复；`test_release_workflow.py` 检查 YAML 依赖关系，确保正式标签步骤位于构建/manifest 门禁之后。
 - `v1.1-*` 镜像构建标签不由最近 20 项清理策略删除，保留回溯能力；存储清理由管理员另行规划。
 - push 会触发 CI；启用自动更新的服务器可能随后部署。push/构建成功不等于服务器替换成功，仍按 UPDATE_RUNBOOK 记录实际运行 revision 和回滚门禁。
 - 发布器默认继续执行兼容性门禁。只有在确认接受数据读写不兼容风险后，才可在 release-worker 的 Compose 环境中设置 `ACCOUNT_POOL_RELEASE_SKIP_COMPATIBILITY_CHECKS=true`；该设置会跳过手动和自动 deploy、apply 的兼容性阻断，不跳过镜像完整性、人工确认、数据库备份、健康检查或失败恢复，确认响应和任务日志会标记已绕过。打开后自动更新也可能部署不兼容版本。
@@ -30,6 +32,13 @@
 - 本次生成并发布 `965f2fc8d6` 和 `v1.1-965f2fc8d6` 镜像标签：`litellm`、`account-pool-manager`、`account-pool-browser-worker` 均完成 amd64/arm64 构建及多架构 manifest 发布。
 - 额度切换、持久化、发布兼容性、Node.js 24.19.0 UI 安装与组件测试、镜像构建和部署摘要门禁全部成功；服务器仍需按本文件和 `UPDATE_RUNBOOK.md` 执行替换验收。
 - 原有不可变 `v1.1` 标签保持不动，本记录将本次修复的成功构建归入 `v1.1` 固定版本系列。
+
+### tag1.1 上游与代理体验改进（2026-10-14）
+
+- 上游页先显示已有查询缓存，再后台刷新；独立 GitHub 就绪检查并行执行，版本与就绪状态短缓存 30 秒。任务运行期间按 request ID 查询对应 Actions 任务和报告，任务结束后刷新总览状态。
+- OAuth 出站代理选项显示 Clash 端口、当前节点及绑定卡片数，并标记号池设置中的默认出站代理。提交值仍是原代理 profile ID，接口字段不变。
+- 设置总览移除旧路由值卡片，但保留后端兼容字段。`default_route` 仍会同步为 CLIProxyAPI 卡内凭证路由策略；在确认不再影响卡内顺序前，不清理该字段或其行为。
+- 发布门禁增加上游刷新、代理选择及发布工作流结构回归。构建阶段只上传无标签 digest；所有架构构建、manifest 和发布前测试通过后才创建 GHCR 正式标签与不可变 Git tag。此记录不代表本次源码已完成 GitHub Actions 构建或服务器替换。
 
 ### 额度切换的 v1.1 语义
 

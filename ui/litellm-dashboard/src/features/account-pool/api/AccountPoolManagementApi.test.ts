@@ -142,12 +142,20 @@ describe("submitAccountPoolBatch", () => {
 
   it("uses the dedicated upstream status, review, analysis, and promotion routes", async () => {
     await getAccountPoolUpstreamSync("token-123");
+    await getAccountPoolUpstreamSync("token-123", "request/1");
+    await getAccountPoolUpstreamSync("token-123", null, true);
     await getAccountPoolCodexReview("token-123");
     await analyzeAccountPoolUpstream("token-123");
     await promoteAccountPoolUpstream("token-123");
 
     expect(getMock).toHaveBeenNthCalledWith(1, "/account_pool/upstream-sync", { accessToken: "token-123" });
-    expect(getMock).toHaveBeenNthCalledWith(2, "/account_pool/upstream-sync/codex-review", {
+    expect(getMock).toHaveBeenNthCalledWith(2, "/account_pool/upstream-sync?request_id=request%2F1", {
+      accessToken: "token-123",
+    });
+    expect(getMock).toHaveBeenNthCalledWith(3, "/account_pool/upstream-sync?refresh=true", {
+      accessToken: "token-123",
+    });
+    expect(getMock).toHaveBeenNthCalledWith(4, "/account_pool/upstream-sync/codex-review", {
       accessToken: "token-123",
     });
     expect(postMock).toHaveBeenNthCalledWith(1, "/account_pool/upstream-sync/analyze", {

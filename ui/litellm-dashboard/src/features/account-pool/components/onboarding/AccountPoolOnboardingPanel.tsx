@@ -22,10 +22,137 @@ import {
   type OnboardingImport,
   type OnboardingPreview,
 } from "../../api/AccountPoolOnboardingApi";
+import { getAccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { AccountPoolOnboardingTasks } from "./AccountPoolOnboardingTasks";
 import { AccountPoolOnboardingTarget } from "./AccountPoolOnboardingTarget";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
-import { accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
+import { accountPoolEnvironmentOptions, accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
+import { proxyGatewayQueryOptions } from "../../hooks/useProxyGateways";
+import type {
+  AccountPoolEnvironment,
+  AccountPoolProxyGateway,
+  AccountPoolProxyProfile,
+} from "../../utils/AccountPoolTypes";
+
+const getGatewayNodeLabel = (gateway: AccountPoolProxyGateway | undefined) =>
+  gateway?.current_node ? `节点：${gateway.current_node}` : "节点未知";
+
+const getGatewayCardUsageLabel = (
+  environments: AccountPoolEnvironment[] | undefined,
+  isPending: boolean,
+  isError: boolean,
+  profileId: string,
+) => {
+  if (isError) return "占用数未知";
+  if (isPending || !environments) return "占用统计中";
+  const cardCount = environments.filter((environment) => environment.proxy_profile_id === profileId).length;
+  return `占用：${cardCount} 张卡片`;
+};
+
+const getProxyProfileOptionLabel = (
+  profile: AccountPoolProxyProfile,
+  gateway: AccountPoolProxyGateway | undefined,
+  cardUsageLabel: string,
+  defaultProxyProfileId: string | undefined,
+) =>
+  [
+    ...(profile.id === defaultProxyProfileId ? ["号池默认出站代理"] : []),
+    profile.name,
+    ...(profile.id.startsWith("clash-gateway-") ? [getGatewayNodeLabel(gateway), cardUsageLabel] : []),
+  ].join(" · ");
+
+interface OnboardingProxySelectorProps {
+  accessToken: string;
+  profiles: readonly AccountPoolProxyProfile[];
+  profilesLoading: boolean;
+  profilesError: boolean;
+  profilesSuccess: boolean;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}
+
+const OnboardingProxySelector = ({
+  accessToken,
+  profiles,
+  profilesLoading,
+  profilesError,
+  profilesSuccess,
+  value,
+  disabled,
+  onChange,
+}: OnboardingProxySelectorProps) => {
+  const environmentsQuery = useQuery(accountPoolEnvironmentOptions(accessToken));
+  const gatewaysQuery = useQuery(proxyGatewayQueryOptions(accessToken));
+  const settingsQueryOptions = {
+    queryKey: accountPoolQueryKeys.settings(accessToken),
+    queryFn: () => getAccountPoolSettings(accessToken),
+    retry: false,
+  };
+  const settingsQuery = useQuery(settingsQueryOptions);
+  const defaultProxyProfileId = settingsQuery.data?.values.default_proxy_profile_id ?? undefined;
+  const defaultProxyProfileExists = profiles.some((profile) => profile.id === defaultProxyProfileId);
+  const defaultProxyNotConfigured = settingsQuery.isSuccess && !defaultProxyProfileId;
+  const defaultProxyProfileConfigured = Boolean(defaultProxyProfileId) && profilesSuccess;
+  const defaultProxyUnavailable =
+    settingsQuery.isSuccess && defaultProxyProfileConfigured && !defaultProxyProfileExists;
+  const gateways = gatewaysQuery.data ?? [];
+  const profileOptions = profiles.map((profile) => {
+    const gateway = gateways.find((item) => item.profile_id === profile.id);
+    const cardUsageLabel = profile.id.startsWith("clash-gateway-")
+      ? getGatewayCardUsageLabel(
+          environmentsQuery.data,
+          environmentsQuery.isPending,
+          environmentsQuery.isError,
+          profile.id,
+        )
+      : "";
+    return {
+      value: profile.id,
+      label: getProxyProfileOptionLabel(profile, gateway, cardUsageLabel, defaultProxyProfileId),
+    };
+  });
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="onboarding-proxy-profile">OAuth 出站代理</Label>
+      <Select
+        items={profileOptions}
+        value={value}
+        onValueChange={(nextValue) => onChange(nextValue ?? "")}
+        disabled={disabled || profilesLoading || profiles.length === 0}
+      >
+        <SelectTrigger id="onboarding-proxy-profile" aria-label="OAuth 出站代理" className="w-full">
+          <SelectValue placeholder="选择代理节点" />
+        </SelectTrigger>
+        <SelectContent align="start" className="min-w-[min(24rem,calc(100vw-2rem))]">
+          {profileOptions.map((profile) => (
+            <SelectItem key={profile.value} value={profile.value}>
+              {profile.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {profilesError && (
+        <p role="alert" className="text-sm text-destructive">
+          代理目录读取失败，请刷新重试
+        </p>
+      )}
+      {profilesSuccess && profiles.length === 0 && <p className="text-sm text-muted-foreground">暂无可用代理节点</p>}
+      {defaultProxyNotConfigured && <p className="text-sm text-muted-foreground">号池默认出站代理未配置</p>}
+      {defaultProxyUnavailable && (
+        <p className="text-sm text-destructive" role="alert">
+          号池默认出站代理当前不可用
+        </p>
+      )}
+      {settingsQuery.isError && (
+        <p className="text-sm text-muted-foreground" role="status">
+          号池默认出站代理状态读取失败
+        </p>
+      )}
+    </div>
+  );
+};
 
 export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: string }) {
   const client = useQueryClient();
@@ -47,7 +174,6 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   });
   const proxyProfiles = proxyProfilesQuery.data ?? [];
   const proxyProfileSelected = proxyProfiles.some((profile) => profile.id === proxyProfileId);
-  const proxyProfileListEmpty = !proxyProfilesQuery.isPending && !proxyProfilesQuery.isError && proxyProfiles.length === 0;
   const supported =
     suppliersQuery.data?.some(
       (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
@@ -189,35 +315,19 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   </select>
                 </div>
                 {source === "oauth" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="onboarding-proxy-profile">OAuth 出站代理</Label>
-                    <Select
-                      items={proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name }))}
-                      value={proxyProfileId}
-                      onValueChange={(value) => {
-                        setProxyProfileId(value ?? "");
-                        reset();
-                      }}
-                      disabled={busy || proxyProfilesQuery.isPending || proxyProfiles.length === 0}
-                    >
-                      <SelectTrigger id="onboarding-proxy-profile" aria-label="OAuth 出站代理">
-                        <SelectValue placeholder="选择代理节点" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {proxyProfiles.map((profile) => (
-                          <SelectItem key={profile.id} value={profile.id}>
-                            {profile.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {proxyProfilesQuery.isError && (
-                      <p role="alert" className="text-sm text-destructive">
-                        代理目录读取失败，请刷新重试
-                      </p>
-                    )}
-                    {proxyProfileListEmpty && <p className="text-sm text-muted-foreground">暂无可用代理节点</p>}
-                  </div>
+                  <OnboardingProxySelector
+                    accessToken={accessToken}
+                    profiles={proxyProfiles}
+                    profilesLoading={proxyProfilesQuery.isPending}
+                    profilesError={proxyProfilesQuery.isError}
+                    profilesSuccess={proxyProfilesQuery.isSuccess}
+                    value={proxyProfileId}
+                    disabled={busy}
+                    onChange={(value) => {
+                      setProxyProfileId(value);
+                      reset();
+                    }}
+                  />
                 )}
                 {source === "oauth" && (
                   <div className="space-y-2">

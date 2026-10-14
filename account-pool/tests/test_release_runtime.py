@@ -116,12 +116,12 @@ def test_contract_fingerprint_ignores_file_moves_but_preserves_fields_and_aliase
 
 
 def test_forward_compatible_policy_upgrade_requires_omitting_default_optional_field() -> None:
-    old: Final = b'''\
+    old: Final = b"""\
 SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
 class TransportPolicy(BaseModel):
     request_timeout_seconds: int = 120
-'''
-    target: Final = b'''\
+"""
+    target: Final = b"""\
 SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
 class TransportPolicy(BaseModel):
     read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
@@ -129,17 +129,20 @@ class TransportPolicy(BaseModel):
 
 def persisted_policy(policy):
     return policy.model_dump(mode="json", exclude_none=True)
-'''
-    assert forward_compatible_manager_upgrade((("policies.py", old),), (("policies.py", target),))
+"""
+    assert forward_compatible_manager_upgrade(
+        (("policies.py", old), ("schema.prisma", b"model A { id String @id }")),
+        (("policies.py", target), ("schema.prisma", b"model A { id String @id }")),
+    )
 
 
 def test_forward_compatible_policy_upgrade_rejects_persisted_default_field() -> None:
-    old: Final = b'''\
+    old: Final = b"""\
 SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
 class TransportPolicy(BaseModel):
     request_timeout_seconds: int = 120
-'''
-    target: Final = b'''\
+"""
+    target: Final = b"""\
 SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
 class TransportPolicy(BaseModel):
     read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
@@ -147,8 +150,80 @@ class TransportPolicy(BaseModel):
 
 def persisted_policy(policy):
     return policy.model_dump(mode="json")
-'''
-    assert not forward_compatible_manager_upgrade((("policies.py", old),), (("policies.py", target),))
+"""
+    assert not forward_compatible_manager_upgrade(
+        (("policies.py", old), ("schema.prisma", b"model A { id String @id }")),
+        (("policies.py", target), ("schema.prisma", b"model A { id String @id }")),
+    )
+
+
+def test_forward_compatible_policy_upgrade_rejects_additional_manager_schema_changes() -> None:
+    old: Final = b"""\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    request_timeout_seconds: int = 120
+"""
+    target: Final = b"""\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    request_timeout_seconds: int = 120
+
+def persisted_policy(policy):
+    return policy.model_dump(mode="json", exclude_none=True)
+"""
+    extra_schema: Final = b'SQL = "ALTER TABLE account_pool_policies ADD COLUMN extra text"\n'
+    assert not forward_compatible_manager_upgrade(
+        (("account_pool/policies.py", old), ("schema.prisma", b"model A { id String @id }")),
+        (
+            ("account_pool/policies.py", target),
+            ("account_pool/migrations.py", extra_schema),
+            ("schema.prisma", b"model A { id String @id }"),
+        ),
+    )
+
+
+def test_forward_compatible_policy_upgrade_rejects_prisma_schema_changes() -> None:
+    old: Final = b"""\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    request_timeout_seconds: int = 120
+"""
+    target: Final = b"""\
+SQL = "CREATE TABLE account_pool_policies (policy jsonb NOT NULL);"
+class TransportPolicy(BaseModel):
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    request_timeout_seconds: int = 120
+
+def persisted_policy(policy):
+    return policy.model_dump(mode="json", exclude_none=True)
+"""
+    assert not forward_compatible_manager_upgrade(
+        (("account_pool/policies.py", old), ("schema.prisma", b"model A { id String @id }")),
+        (("account_pool/policies.py", target), ("schema.prisma", b"model A { id String @id\n value String }")),
+    )
+
+
+def test_forward_compatible_policy_upgrade_requires_schema_evidence_for_both_versions() -> None:
+    old: Final = b"""\
+class TransportPolicy(BaseModel):
+    request_timeout_seconds: int = 120
+"""
+    target: Final = b"""\
+class TransportPolicy(BaseModel):
+    read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    request_timeout_seconds: int = 120
+
+def persisted_policy(policy):
+    return policy.model_dump(mode="json", exclude_none=True)
+"""
+    schema: Final = b"model A { id String @id }"
+    assert not forward_compatible_manager_upgrade(
+        (("policies.py", old), ("schema.prisma", schema)), (("policies.py", target),)
+    )
+    assert not forward_compatible_manager_upgrade(
+        (("policies.py", old),), (("policies.py", target), ("schema.prisma", schema))
+    )
 
 
 def test_credential_contract_follows_moved_encryption_definitions_and_detects_changes() -> None:

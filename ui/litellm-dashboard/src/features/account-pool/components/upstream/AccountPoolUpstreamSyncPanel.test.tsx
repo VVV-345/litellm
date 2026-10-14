@@ -7,8 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolUpstreamSyncPanel } from "./AccountPoolUpstreamSyncPanel";
 import type { UpstreamSyncView } from "../../api/AccountPoolManagementApi";
+import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import i18n from "@/i18n";
+import { UPSTREAM_SYNC_STATUS_CACHE_PREFIX } from "@/lib/cacheEvents";
 import { ApiError } from "@/lib/http/client";
+import { getRequestBaseUrl } from "@/lib/http/runtime";
 
 const getStatus = vi.fn();
 const analyze = vi.fn();
@@ -58,11 +61,15 @@ const status = (state: UpstreamSyncView["report"]["state"] = "idle"): UpstreamSy
   upstream_repository: "router-for-me/CLIProxyAPI",
   fork_repository: "VVV-345/CLIProxyAPI",
   sync_branch: "codex/upstream-sync",
+  production_branch: "main",
+  workflow_ref: "main",
   current_tag: "v7.2.146",
   latest_tag: "v7.3.2",
   latest_release_url: "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
   update_available: true,
   dispatch_configured: true,
+  configuration_issues: [],
+  report_stale: false,
   report: {
     schema_version: 1,
     state,
@@ -79,9 +86,12 @@ const status = (state: UpstreamSyncView["report"]["state"] = "idle"): UpstreamSy
   },
 });
 
-const renderPanel = (target: "cliproxyapi" | "litellm" = "cliproxyapi") =>
+const renderPanel = (
+  target: "cliproxyapi" | "litellm" = "cliproxyapi",
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) =>
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <AccountPoolUpstreamSyncPanel accessToken="token" target={target} />
     </QueryClientProvider>,
   );
@@ -89,6 +99,7 @@ const renderPanel = (target: "cliproxyapi" | "litellm" = "cliproxyapi") =>
 describe("AccountPoolUpstreamSyncPanel", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    sessionStorage.clear();
     void i18n.changeLanguage("zh-CN");
     getStatus.mockResolvedValue(status());
     const litellmStatus: UpstreamSyncView = {
@@ -105,7 +116,7 @@ describe("AccountPoolUpstreamSyncPanel", () => {
 
   it("separates LiteLLM copy and PR action from CLIProxyAPI promotion", async () => {
     renderPanel("litellm");
-    expect(await screen.findByRole("heading", { name: "LiteLLM 上游更新", exact: true })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "LiteLLM 上游更新" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "创建更新 PR" })).toBeDisabled();
     expect(screen.getByText(/仅为配置的官方基线/)).toBeInTheDocument();
     expect(screen.queryByText(/完整 Go 测试/)).not.toBeInTheDocument();
@@ -114,18 +125,26 @@ describe("AccountPoolUpstreamSyncPanel", () => {
   it("uses English LiteLLM copy without CLIProxyAPI merge wording", async () => {
     await i18n.changeLanguage("en");
     renderPanel("litellm");
-    expect(await screen.findByRole("heading", { name: "LiteLLM upstream updates", exact: true })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "LiteLLM upstream updates" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create update PR" })).toBeDisabled();
   });
 
   it("unlocks after a correlated failed run instead of waiting for a branch report", async () => {
-    getStatus.mockImplementation((_token: string, requestId?: string) => Promise.resolve(requestId ? {
-      ...status("failed"), report: { ...status("failed").report, request_id: requestId, message: "Workflow cancelled" },
-    } : status()));
+    getStatus.mockImplementation((_token: string, requestId?: string) =>
+      Promise.resolve(
+        requestId
+          ? {
+              ...status("failed"),
+              report: { ...status("failed").report, request_id: requestId, message: "Workflow cancelled" },
+            }
+          : status(),
+      ),
+    );
     renderPanel();
     await userEvent.click(await screen.findByRole("button", { name: /检测合并效果/ }));
     expect(await screen.findAllByText("检查未通过")).toHaveLength(2);
     expect(screen.getByRole("button", { name: /检测合并效果/ })).toBeEnabled();
+    await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(3));
   });
 
   it("shows the LiteLLM version without requiring the CLIProxyAPI query", async () => {
@@ -167,6 +186,65 @@ describe("AccountPoolUpstreamSyncPanel", () => {
 
     await waitFor(() => expect(analyze).toHaveBeenCalledWith("token"));
     expect(screen.getByRole("button", { name: /正式合并更新|Merge validated update/i })).toBeDisabled();
+  });
+
+  it("keeps the last status visible while a stale status refresh runs", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(accountPoolQueryKeys.upstreamSync("token"), status(), {
+      updatedAt: Date.now() - 31_000,
+    });
+    getStatus.mockReturnValue(new Promise(() => undefined));
+
+    renderPanel("cliproxyapi", queryClient);
+
+    expect(screen.getByText("v7.3.2")).toBeInTheDocument();
+    expect(getStatus).toHaveBeenCalledWith("token", null, false);
+  });
+
+  it("shows the last session snapshot while the first network refresh runs", async () => {
+    const cachedStatus: UpstreamSyncView = {
+      ...status(),
+      latest_tag: "v7.4.0",
+      latest_release_url: "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.4.0",
+    };
+    sessionStorage.setItem(
+      `${UPSTREAM_SYNC_STATUS_CACHE_PREFIX}${encodeURIComponent(getRequestBaseUrl())}:cliproxyapi`,
+      JSON.stringify({ savedAt: Date.now() - 60_000, status: cachedStatus }),
+    );
+    getStatus.mockReturnValue(new Promise<UpstreamSyncView>(() => undefined));
+
+    renderPanel();
+
+    expect(screen.getByText("v7.4.0")).toBeInTheDocument();
+    await waitFor(() => expect(getStatus).toHaveBeenCalledWith("token", null, false));
+  });
+
+  it("manually refreshes the current version status", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("v7.3.2");
+
+    await user.click(screen.getByRole("button", { name: /检查上游更新|Check for updates/i }));
+
+    await waitFor(() => expect(getStatus).toHaveBeenCalledWith("token", null, true));
+  });
+
+  it("tracks the dispatched workflow by its request ID", async () => {
+    getStatus.mockImplementation((_token: string, requestId?: string) =>
+      Promise.resolve(
+        requestId
+          ? {
+              ...status("failed"),
+              report: { ...status("failed").report, request_id: requestId, message: "Workflow failed" },
+            }
+          : status(),
+      ),
+    );
+    renderPanel();
+
+    await userEvent.click(await screen.findByRole("button", { name: /检测合并效果/ }));
+
+    await waitFor(() => expect(getStatus).toHaveBeenCalledWith("token", analysisDispatch.request_id));
   });
 
   it("requires confirmation before promoting a passed compatibility report", async () => {

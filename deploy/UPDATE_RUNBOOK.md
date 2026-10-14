@@ -167,6 +167,8 @@ curl --fail --silent --show-error --max-time 15 https://massallgood.zlia.ai/heal
 
 本字段的受控处理已经固化在发布器门禁中：Manager 只有在精确检测到 `TransportPolicy.read_timeout_seconds: int | None`、默认值为 `None`、持久化使用 `exclude_none=True`，且已启用两库数据库备份时，才允许该单向升级。发布器仍保留结构指纹差异，因此显式写入该字段后回退到旧镜像会继续被拦截。其他新增字段不会自动获得例外，必须新增针对性测试、兼容规则和回退说明
 
+CI 在构建镜像前运行 `account-pool/tests/test_release_runtime.py` 与 `account-pool/tests/test_release_database.py`，分别验证结构兼容边界、额外结构拒绝、两库快照和失败恢复；`account-pool/tests/test_release_workflow.py` 验证正式镜像 tag 和 Git tag 的流水线依赖。CI 通过不取代服务器上的实际 schema 预检、双库备份验证、健康检查和运行镜像身份核对
+
 批准升级规则不等于旧版自动可回退。显式使用新字段后，旧版可能无法读取当前数据，需要专门兼容处理；不要在一次镜像回滚中悄悄删除用户的新配置。回滚检查失败就停止，数据库快照恢复必须另行确认具体快照及数据损失范围
 
 ## 5. 何时先更新 release-worker

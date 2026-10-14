@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -79,11 +80,7 @@ def _transport_fields(source: bytes) -> tuple[tuple[str, str], ...]:
     except SyntaxError:
         return ()
     transport: Final = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "TransportPolicy"
-        ),
+        (node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "TransportPolicy"),
         None,
     )
     if transport is None:
@@ -95,12 +92,84 @@ def _transport_fields(source: bytes) -> tuple[tuple[str, str], ...]:
     )
 
 
+def schema_member_contract(name: str, source: bytes, *, omit_read_timeout_field: bool = False) -> bytes:
+    path: Final = PurePosixPath(name)
+    if path.suffix == ".prisma":
+        return source.replace(b"\r\n", b"\n")
+    if path.suffix != ".py" or path.name.startswith("release_"):
+        return b""
+    tree: Final = ast.parse(source)
+    statements: Final = tuple(
+        " ".join(node.value.split())
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
+    )
+    if not statements:
+        return b""
+    contracts: Final = tuple(
+        f"{node.name}:"
+        + ast.dump(
+            ast.ClassDef(
+                name=node.name,
+                bases=node.bases,
+                keywords=node.keywords,
+                body=[
+                    item
+                    for item in node.body
+                    if isinstance(item, (ast.AnnAssign, ast.Assign))
+                    and not (
+                        omit_read_timeout_field
+                        and path.name == "policies.py"
+                        and node.name == "TransportPolicy"
+                        and isinstance(item, ast.AnnAssign)
+                        and isinstance(item.target, ast.Name)
+                        and item.target.id == "read_timeout_seconds"
+                    )
+                ],
+                decorator_list=[],
+                type_params=[],
+            ),
+            include_attributes=False,
+        )
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(isinstance(base, ast.Name) and base.id in ("BaseModel", "StrEnum", "Enum") for base in node.bases)
+    )
+    aliases: Final = tuple(
+        ast.dump(node, include_attributes=False)
+        for node in tree.body
+        if isinstance(node, (ast.AnnAssign, ast.Assign)) and isinstance(node.value, (ast.Subscript, ast.BinOp))
+    )
+    return "\n".join(sorted((*statements, *contracts, *aliases))).encode()
+
+
+def manager_schema_contract(sources: tuple[tuple[str, bytes], ...], *, omit_read_timeout_field: bool = False) -> bytes:
+    return b"\n".join(
+        sorted(
+            contract
+            for name, source in sources
+            for contract in schema_member_contract(
+                name, source, omit_read_timeout_field=omit_read_timeout_field
+            ).splitlines()
+            if contract
+        )
+    )
+
+
 def forward_compatible_manager_upgrade(
     current: tuple[tuple[str, bytes], ...], target: tuple[tuple[str, bytes], ...]
 ) -> bool:
     current_source: Final = _source_named(current, "policies.py")
     target_source: Final = _source_named(target, "policies.py")
-    if not current_source or not target_source or b"exclude_none=True" not in target_source:
+    if (
+        not current_source
+        or not target_source
+        or not _source_named(current, "schema.prisma")
+        or not _source_named(target, "schema.prisma")
+        or b"exclude_none=True" not in target_source
+    ):
         return False
     current_fields: Final = _transport_fields(current_source)
     target_fields: Final = _transport_fields(target_source)
@@ -111,9 +180,13 @@ def forward_compatible_manager_upgrade(
     current_by_name: Final = dict(current_fields)
     target_by_name: Final = dict(target_fields)
     unchanged: Final = all(current_by_name[name] == target_by_name[name] for name in current_names)
-    expected: Final = ast.parse(
-        "read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)"
-    ).body[0]
+    try:
+        schema_unchanged: Final = manager_schema_contract(current) == manager_schema_contract(
+            target, omit_read_timeout_field=True
+        )
+    except SyntaxError:
+        return False
+    expected: Final = ast.parse("read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)").body[0]
     added_field: Final = next(
         (
             statement
@@ -130,6 +203,7 @@ def forward_compatible_manager_upgrade(
         added == ("read_timeout_seconds",)
         and not removed
         and unchanged
+        and schema_unchanged
         and added_field is not None
         and ast.dump(added_field, include_attributes=False) == ast.dump(expected, include_attributes=False)
     )

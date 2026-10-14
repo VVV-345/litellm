@@ -1,5 +1,6 @@
 """只读检查两类上游工作流的分支和注册状态，不把 Token 存在误认为配置完成。"""
 
+from asyncio import gather
 from dataclasses import dataclass
 from typing import Final
 from urllib.parse import quote
@@ -24,6 +25,7 @@ class Workflow(BaseModel):
 class Readiness:
     issues: tuple[str, ...]
     stale: bool
+    production_sha: str | None = None
 
 
 async def inspect_readiness(
@@ -54,10 +56,12 @@ async def inspect_readiness(
     ):
         return Readiness(("workflow_target_mismatch",), True)
     try:
-        production: Final = await get("branches/" + quote(production_branch, safe=""))
-        sync: Final = await get("branches/" + quote(sync_branch, safe=""))
-        source: Final = await get("contents/.github/workflows/" + quote(workflow, safe=""), workflow_ref)
-        registered: Final = await get("actions/workflows/" + quote(workflow, safe=""))
+        production, sync, source, registered = await gather(
+            get("branches/" + quote(production_branch, safe="")),
+            get("branches/" + quote(sync_branch, safe="")),
+            get("contents/.github/workflows/" + quote(workflow, safe=""), workflow_ref),
+            get("actions/workflows/" + quote(workflow, safe="")),
+        )
         if any(response.status_code not in (200, 404) for response in (production, sync, source, registered)):
             return Readiness(("configuration_unavailable",), True)
         checks: Final = (
@@ -70,9 +74,10 @@ async def inspect_readiness(
             ),
         )
         issues: Final = tuple(name for name, passed in checks if not passed)
-        stale: Final = bool(
-            base_sha and production.is_success and Branch.model_validate_json(production.content).commit.sha != base_sha
+        production_sha: Final = (
+            Branch.model_validate_json(production.content).commit.sha if production.is_success else None
         )
-        return Readiness(issues, stale)
+        stale: Final = bool(base_sha and production_sha is not None and production_sha != base_sha)
+        return Readiness(issues, stale, production_sha)
     except (httpx.HTTPError, ValidationError):
         return Readiness(("configuration_unavailable",), True)

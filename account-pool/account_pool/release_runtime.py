@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import gzip
 import hashlib
 import io
@@ -32,6 +31,7 @@ from account_pool.release_compatibility import (
     forward_compatible_manager_upgrade,
     manager_source_digest,
     oauth_browser_schema_upgrade,
+    schema_member_contract,
 )
 from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair
 from account_pool.release_store import ReleaseDownloadError, ReleaseError, write_private
@@ -340,8 +340,19 @@ class DockerReleaseRuntime:
     def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         current_pool: Final = next(image for image in current.images if image.service == "account-pool")
         target_pool: Final = next(image for image in target.images if image.service == "account-pool")
+        current_proxy: Final = next(image for image in current.images if image.service == "litellm")
+        target_proxy: Final = next(image for image in target.images if image.service == "litellm")
+        current_manager_sources: Final = self._upgrade_sources(current_pool)
+        target_manager_sources: Final = self._upgrade_sources(target_pool)
+        current_prisma: Final = tuple(
+            (name, source) for name, source in self._upgrade_sources(current_proxy) if name == "schema.prisma"
+        )
+        target_prisma: Final = tuple(
+            (name, source) for name, source in self._upgrade_sources(target_proxy) if name == "schema.prisma"
+        )
         return forward_compatible_manager_upgrade(
-            self._upgrade_sources(current_pool), self._upgrade_sources(target_pool)
+            (*current_manager_sources, *current_prisma),
+            (*target_manager_sources, *target_prisma),
         )
 
     @lru_cache(maxsize=24)
@@ -485,43 +496,7 @@ class DockerReleaseRuntime:
         if stream is None:
             return b""
         raw: Final = stream.read()
-        if member.name.endswith(".prisma"):
-            return raw.replace(b"\r\n", b"\n")
-        if Path(member.name).name.startswith("release_"):
-            return b""
-        tree: Final = ast.parse(raw)
-        statements: Final = tuple(
-            " ".join(node.value.split())
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
-        )
-        if not statements:
-            return b""
-        contracts: Final = tuple(
-            f"{node.name}:"
-            + ast.dump(
-                ast.ClassDef(
-                    name=node.name,
-                    bases=node.bases,
-                    keywords=node.keywords,
-                    body=[item for item in node.body if isinstance(item, (ast.AnnAssign, ast.Assign))],
-                    decorator_list=[],
-                    type_params=[],
-                ),
-                include_attributes=False,
-            )
-            for node in tree.body
-            if isinstance(node, ast.ClassDef)
-            and any(isinstance(base, ast.Name) and base.id in ("BaseModel", "StrEnum", "Enum") for base in node.bases)
-        )
-        aliases: Final = tuple(
-            ast.dump(node, include_attributes=False)
-            for node in tree.body
-            if isinstance(node, (ast.AnnAssign, ast.Assign)) and isinstance(node.value, (ast.Subscript, ast.BinOp))
-        )
-        return "\n".join(sorted((*statements, *contracts, *aliases))).encode()
+        return schema_member_contract(member.name, raw)
 
     def load(self, pair: ReleasePair, archive: Path) -> None:
         self.run("image", "load", "--input", str(archive), timeout=3600)

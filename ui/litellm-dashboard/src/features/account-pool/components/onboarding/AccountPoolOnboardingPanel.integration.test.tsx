@@ -126,4 +126,60 @@ describe("onboarding workflows", () => {
       ),
     );
   });
+
+  it("shows the current Clash node and card usage, and marks the configured default proxy", async () => {
+    get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/items")) return [item];
+      if (path.endsWith("/proxy-profiles"))
+        return [
+          { id: "clash-gateway-7891", name: "Clash 端口 7891", protocol: "http" },
+          { id: "proxy-original", name: "主站代理", protocol: "http" },
+        ];
+      if (path.endsWith("/proxy-gateways"))
+        return [
+          {
+            port: 7891,
+            profile_id: "clash-gateway-7891",
+            name: "Clash 端口 7891",
+            proxy_url: "http://proxy.internal:7891",
+            current_node: "日本02",
+          },
+        ];
+      if (path.endsWith("/environments"))
+        return [
+          { id: "card-1", proxy_profile_id: "clash-gateway-7891" },
+          { id: "card-2", proxy_profile_id: "clash-gateway-7891" },
+        ];
+      if (path === "/config/runtime") return { values: { default_proxy_profile_id: "proxy-original" } };
+      if (path.endsWith("/suppliers"))
+        return [
+          { supplier: "openai_codex", display_name: "Codex", authentication: "OAuth", oauth: true, auth_file: true },
+        ];
+      return [];
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("tab", { name: "OAuth 上号" }));
+    await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
+
+    expect(
+      await screen.findByRole("option", { name: "Clash 端口 7891 · 节点：日本02 · 占用：2 张卡片" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "号池默认出站代理 · 主站代理" }));
+
+    const fileInput = screen.getByLabelText("账号 JSON 文件");
+    const content = '[{"email":"account@example.com","mailbox_password":"mail-secret"}]';
+    const file = new File([content], "accounts.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => content });
+    await user.upload(fileInput, file);
+
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/account_pool/onboarding/preview",
+        expect.objectContaining({
+          body: expect.objectContaining({ source: "oauth", proxy_profile_id: "proxy-original" }),
+        }),
+      ),
+    );
+  });
 });

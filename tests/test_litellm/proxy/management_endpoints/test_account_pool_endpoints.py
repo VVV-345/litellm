@@ -910,6 +910,7 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
             requested.append((request.method, request.url.path))
             if request.url.path == f"/api/upstream-sync{suffix}":
                 assert request.url.params["request_id"] == report["request_id"]
+                assert request.url.params["refresh"] == "true"
                 return httpx.Response(
                     200,
                     json=ManagerUpstreamSyncView.model_validate(
@@ -959,7 +960,10 @@ def test_proxy_admin_can_manage_upstream_compatibility_workflow(
     app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)
 
     with TestClient(app) as client:
-        status_response: Final = client.get(f"/account_pool/upstream-sync{suffix}", params={"request_id": report["request_id"]})
+        status_response: Final = client.get(
+            f"/account_pool/upstream-sync{suffix}",
+            params={"request_id": report["request_id"], "refresh": "true"},
+        )
         analysis_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/analyze")
         promotion_response: Final = client.post(f"/account_pool/upstream-sync{suffix}/promote")
         review_response: Final = client.get(f"/account_pool/upstream-sync{suffix}/codex-review")

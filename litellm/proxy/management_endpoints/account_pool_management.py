@@ -38,6 +38,18 @@ ManagementRequest = Callable[
 ]
 
 
+def _upstream_sync_query(request_id: UUID | None, refresh: bool) -> str:
+    query: Final = "&".join(
+        value
+        for value in (
+            f"request_id={request_id}" if request_id is not None else "",
+            "refresh=true" if refresh else "",
+        )
+        if value
+    )
+    return f"?{query}" if query else ""
+
+
 def create_management_router(
     request_manager: ManagementRequest,
     require_admin: Callable[[UserAPIKeyAuth], None],
@@ -169,10 +181,12 @@ def create_management_router(
 
     @router.get("/upstream-sync", response_model=UpstreamSyncView)
     async def upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
-        response: Response, request_id: UUID | None = None,
+        response: Response,
+        request_id: UUID | None = None,
+        refresh: bool = False,
     ) -> UpstreamSyncView:
         response.headers["Cache-Control"] = "no-store"
-        query: Final = "" if request_id is None else f"?request_id={request_id}"
+        query: Final = _upstream_sync_query(request_id, refresh)
         return parse_response(await call("GET", "/api/upstream-sync" + query), TypeAdapter(UpstreamSyncView))
 
     @router.post("/upstream-sync/analyze", response_model=UpstreamSyncDispatch, status_code=202)
@@ -207,10 +221,12 @@ def create_management_router(
 
     @router.get("/upstream-sync/litellm", response_model=UpstreamSyncView)
     async def litellm_upstream_sync_status(  # pyright: ignore[reportUnusedFunction]  # registered by FastAPI
-        response: Response, request_id: UUID | None = None,
+        response: Response,
+        request_id: UUID | None = None,
+        refresh: bool = False,
     ) -> UpstreamSyncView:
         response.headers["Cache-Control"] = "no-store"
-        query: Final = "" if request_id is None else f"?request_id={request_id}"
+        query: Final = _upstream_sync_query(request_id, refresh)
         return parse_response(await call("GET", "/api/upstream-sync/litellm" + query), TypeAdapter(UpstreamSyncView))
 
     @router.post("/upstream-sync/litellm/analyze", response_model=UpstreamSyncDispatch, status_code=202)

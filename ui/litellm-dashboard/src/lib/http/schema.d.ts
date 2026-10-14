@@ -24701,7 +24701,7 @@ export interface components {
             logs_max_total_size_mb: number;
             /**
              * Max Attempts
-             * @default 1
+             * @default 3
              */
             max_attempts: number;
             /**
@@ -24973,7 +24973,7 @@ export interface components {
             logs_max_total_size_mb: number;
             /**
              * Max Attempts
-             * @default 1
+             * @default 3
              */
             max_attempts: number;
             /**
@@ -35035,7 +35035,7 @@ export interface components {
             default_proxy_profile_id?: string | null;
             /**
              * Max Attempts
-             * @default 1
+             * @default 3
              */
             max_attempts: number;
             /**
@@ -46765,6 +46765,7 @@ export interface operations {
         parameters: {
             query?: {
                 request_id?: string | null;
+                refresh?: boolean;
             };
             header?: never;
             path?: never;
@@ -46836,6 +46837,7 @@ export interface operations {
         parameters: {
             query?: {
                 request_id?: string | null;
+                refresh?: boolean;
             };
             header?: never;
             path?: never;

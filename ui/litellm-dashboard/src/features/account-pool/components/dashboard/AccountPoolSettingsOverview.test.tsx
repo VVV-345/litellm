@@ -36,6 +36,10 @@ describe("global settings overview", () => {
       requires_reload: true,
       values: {
         default_concurrency_limit: 7,
+        default_route: "quota",
+        request_retry: 1,
+        max_retry_credentials: 3,
+        max_retry_interval: 15,
         streaming_enabled: false,
         full_logging_enabled: true,
         streaming_profiles: [
@@ -68,7 +72,7 @@ describe("global settings overview", () => {
       "/ui/logs?log_view=settings",
     );
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.getByText(/不参与当前跨卡选卡与重试/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "保留的旧路由值" })).not.toBeInTheDocument();
   });
   it("uses distinct semantic icons without changing link labels", async () => {
     renderOverview();

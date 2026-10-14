@@ -74,13 +74,16 @@ jobs:
             tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_reconciler.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_proxy_admin_can_manage_upstream_compatibility_workflow \
             tests/test_litellm/proxy/management_endpoints/test_deployment_version.py \
             account-pool/tests/test_account_pool.py \
+            account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \
             account-pool/tests/test_release_auto_update.py \
             account-pool/tests/test_release_catalog.py \
             account-pool/tests/test_release_database.py \
+            account-pool/tests/test_release_workflow.py \
             account-pool/tests/test_releases.py \
             account-pool/tests/test_release_runtime.py
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -94,7 +97,12 @@ jobs:
           npm ci
           npm exec -- vitest run --project component \
             src/components/Settings/RuntimeSettings/RuntimeSettingsSection.test.tsx \
-            src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx
+            src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx \
+            src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.test.tsx
+          npm exec -- vitest run --project unit \
+            src/features/account-pool/api/AccountPoolManagementApi.test.ts
+          npm exec -- vitest run --project integration \
+            src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.integration.test.tsx
 
   build-and-publish:
     name: Build ${{ matrix.image }} (${{ matrix.arch }})
@@ -151,22 +159,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish ${{ matrix.image }} for ${{ matrix.arch }}
+      - id: build
+        name: Build ${{ matrix.image }} for ${{ matrix.arch }} by digest
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: linux/${{ matrix.arch }}
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.version.outputs.deploy_tag }}-${{ matrix.arch }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.version.outputs.versioned_tag }}-${{ matrix.arch }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
             org.opencontainers.image.version=${{ needs.version.outputs.release_version }}
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: Record the built image digest
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$DIGEST"
+          mkdir -p /tmp/image-digests
+          printf '{"image":"%s","arch":"%s","digest":"%s"}\n' \
+            "$IMAGE" "$ARCH" "$DIGEST" > "/tmp/image-digests/${IMAGE}-${ARCH}.json"
+
+      - name: Upload the image digest
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: build-digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/image-digests/${{ matrix.image }}-${{ matrix.arch }}.json
+          if-no-files-found: error
+          retention-days: 1
 
   publish-manifest:
     name: Publish ${{ matrix.image }} multi-arch manifest
@@ -192,6 +218,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download image digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: build-digest-${{ matrix.image }}-*
+          path: /tmp/image-digests
+          merge-multiple: true
+
       - name: Publish the shared version tag
         shell: bash
         env:
@@ -200,12 +233,52 @@ jobs:
           VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
         run: |
           image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE}"
+          amd64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-amd64.json")"
+          arm64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-arm64.json")"
           docker buildx imagetools create \
             --tag "${image}:${DEPLOY_TAG}" \
             --tag "${image}:${VERSIONED_TAG}" \
-            "${image}:${DEPLOY_TAG}-amd64" \
-            "${image}:${DEPLOY_TAG}-arm64"
+            "${image}@${amd64_digest}" \
+            "${image}@${arm64_digest}"
           docker buildx imagetools inspect "${image}:${DEPLOY_TAG}"
+
+  create-git-tag:
+    name: Create immutable release Git tag
+    needs:
+      - version
+      - publish-manifest
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the versioned tag without moving existing refs
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          TAG: ${{ needs.version.outputs.versioned_tag }}
+          REVISION: ${{ needs.version.outputs.revision }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const revision = process.env.REVISION;
+
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${tag}`,
+                sha: revision,
+              });
+            } catch (error) {
+              if (error.status !== 422) throw error;
+              const existing = await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${tag}`,
+              });
+              if (existing.data.object.sha !== revision) {
+                throw new Error(`Tag ${tag} already points to ${existing.data.object.sha}, expected ${revision}`);
+              }
+            }
 
   clean-package-versions:
     name: Retain recent package versions
@@ -235,6 +308,7 @@ jobs:
       - version
       - build-and-publish
       - publish-manifest
+      - create-git-tag
       - clean-package-versions
     runs-on: ubuntu-latest
     steps:

@@ -1,9 +1,10 @@
 /** 本文件分别展示 LiteLLM 与 CLIProxyAPI 上游状态，调度检测、审查包和各自的更新操作。 */
 
-import { useMutation, useQuery, type UseQueryOptions } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { Download, ExternalLink, GitMerge, RefreshCw, SearchCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { z } from "zod";
 
 import {
   AlertDialog,
@@ -21,6 +22,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
+import { UPSTREAM_SYNC_STATUS_CACHE_PREFIX } from "@/lib/cacheEvents";
+import { getRequestBaseUrl } from "@/lib/http/runtime";
 
 import {
   analyzeAccountPoolUpstream,
@@ -35,6 +38,66 @@ import {
   type UpstreamSyncView,
 } from "../../api/AccountPoolManagementApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+
+const upstreamSyncReportSnapshotFields = {
+  schema_version: z.literal(1),
+  state: z.enum(["idle", "queued", "running", "conflict", "failed", "passed", "promoted", "pr_created"]),
+  action: z.enum(["none", "analyze", "promote"]),
+  base_sha: z.string().nullable().optional(),
+  candidate_sha: z.string().nullable().optional(),
+  conflict_files: z.array(z.string()),
+  failed_steps: z.array(z.string()),
+  message: z.string(),
+  pull_request_url: z.string().nullable().optional(),
+  request_id: z.string().nullable().optional(),
+  session_id: z.string().nullable().optional(),
+  target_sha: z.string().nullable().optional(),
+  target_tag: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  workflow_url: z.string().nullable().optional(),
+};
+const upstreamSyncReportSnapshotSchema = z.object(upstreamSyncReportSnapshotFields);
+const upstreamSyncStatusSnapshotFields = {
+  target: z.enum(["cliproxyapi", "litellm"]),
+  upstream_repository: z.string(),
+  fork_repository: z.string(),
+  sync_branch: z.string(),
+  production_branch: z.string(),
+  workflow_ref: z.string(),
+  current_tag: z.string(),
+  latest_tag: z.string(),
+  latest_release_url: z.string(),
+  update_available: z.boolean(),
+  dispatch_configured: z.boolean(),
+  configuration_issues: z.array(z.string()),
+  report_stale: z.boolean(),
+  report: upstreamSyncReportSnapshotSchema,
+};
+const upstreamSyncStatusSnapshotSchema = z.object(upstreamSyncStatusSnapshotFields) satisfies z.ZodType<UpstreamSyncView>;
+
+const cachedUpstreamSyncStatusSchema = z.object({ status: upstreamSyncStatusSnapshotSchema });
+
+const getUpstreamSyncStatusCacheKey = (target: "cliproxyapi" | "litellm") =>
+  `${UPSTREAM_SYNC_STATUS_CACHE_PREFIX}${encodeURIComponent(getRequestBaseUrl())}:${target}`;
+
+const readUpstreamSyncStatusSnapshot = (
+  key: string,
+  target: "cliproxyapi" | "litellm",
+): UpstreamSyncView | undefined => {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (raw === null) return undefined;
+    const parsed = cachedUpstreamSyncStatusSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success || parsed.data.status.target !== target) {
+      window.sessionStorage.removeItem(key);
+      return undefined;
+    }
+    return parsed.data.status;
+  } catch {
+    return undefined;
+  }
+};
 
 interface AccountPoolUpstreamSyncPanelProps {
   accessToken: string;
@@ -65,18 +128,72 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
   const targetLabel = isLiteLLM ? "LiteLLM" : "CLIProxyAPI";
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
   const [promotionOpen, setPromotionOpen] = useState(false);
+  const forceRefresh = useRef(false);
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => accountPoolQueryKeys.upstreamSync(accessToken, target), [accessToken, target]);
+  const statusSnapshotKey = getUpstreamSyncStatusCacheKey(target);
+  useLayoutEffect(() => {
+    const snapshot = readUpstreamSyncStatusSnapshot(statusSnapshotKey, target);
+    if (snapshot !== undefined && queryClient.getQueryData(queryKey) === undefined) {
+      queryClient.setQueryData(queryKey, snapshot, { updatedAt: 0 });
+    }
+  }, [queryClient, queryKey, statusSnapshotKey, target]);
   const statusQueryOptions: UseQueryOptions<UpstreamSyncView> = {
-    queryKey: [...accountPoolQueryKeys.upstreamSync(accessToken, target), pendingRequestId],
-    queryFn: () => (isLiteLLM ? getLiteLLMUpstreamSync(accessToken, pendingRequestId) : getAccountPoolUpstreamSync(accessToken, pendingRequestId)),
+    queryKey,
+    queryFn: () =>
+      isLiteLLM
+        ? getLiteLLMUpstreamSync(accessToken, null, forceRefresh.current)
+        : getAccountPoolUpstreamSync(accessToken, null, forceRefresh.current),
     retry: false,
-    refetchInterval: (query) => (isPendingRequest(query.state.data, pendingRequestId) ? 10_000 : false),
+    staleTime: 30_000,
   };
   const statusQuery = useQuery(statusQueryOptions);
+  useEffect(() => {
+    if (typeof window === "undefined" || !statusQuery.isSuccess || !statusQuery.isFetched) return;
+    const status = statusQuery.data;
+    if (status === undefined) return;
+    try {
+      window.sessionStorage.setItem(statusSnapshotKey, JSON.stringify({ status }));
+    } catch {
+      return;
+    }
+  }, [statusQuery.data, statusQuery.dataUpdatedAt, statusQuery.isFetched, statusQuery.isSuccess, statusSnapshotKey]);
+  const taskQuery = useQuery({
+    queryKey: [...queryKey, "task", pendingRequestId],
+    queryFn: () =>
+      isLiteLLM
+        ? getLiteLLMUpstreamSync(accessToken, pendingRequestId)
+        : getAccountPoolUpstreamSync(accessToken, pendingRequestId),
+    enabled: pendingRequestId !== null,
+    retry: false,
+    refetchInterval: (query) => (isPendingRequest(query.state.data, pendingRequestId) ? 10_000 : false),
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  });
+  const waitingForReport = isPendingRequest(taskQuery.data, pendingRequestId);
+  const taskFinished =
+    pendingRequestId !== null &&
+    taskQuery.data?.report.request_id === pendingRequestId &&
+    !["queued", "running"].includes(taskQuery.data.report.state);
+  const status =
+    taskFinished && statusQuery.dataUpdatedAt > taskQuery.dataUpdatedAt
+      ? statusQuery.data ?? taskQuery.data
+      : taskQuery.data ?? statusQuery.data;
+
+  const refreshStatus = () => {
+    forceRefresh.current = true;
+    void statusQuery.refetch().finally(() => {
+      forceRefresh.current = false;
+    });
+  };
 
   const startTracking = (dispatch: UpstreamSyncDispatch) => {
     setPendingRequestId(dispatch.request_id);
-    void statusQuery.refetch();
   };
+  useEffect(() => {
+    if (!taskFinished) return;
+    void queryClient.invalidateQueries({ queryKey, exact: true });
+  }, [taskFinished, queryClient, queryKey]);
   const analyzeMutation = useMutation({
     mutationFn: () => (isLiteLLM ? analyzeLiteLLMUpstream(accessToken) : analyzeAccountPoolUpstream(accessToken)),
     onSuccess: (dispatch) => {
@@ -103,11 +220,12 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
     onError: (error: Error) => toast.fromError(error),
   });
 
-  if (statusQuery.isPending) {
+  if (!status && (statusQuery.isPending || (pendingRequestId !== null && taskQuery.isPending))) {
     return <Skeleton className="h-72 w-full" />;
   }
-  if (statusQuery.isError || !statusQuery.data) {
-    const rateLimited = statusQuery.error instanceof ApiError && statusQuery.error.status === 429;
+  if (!status) {
+    const statusError = statusQuery.error ?? taskQuery.error;
+    const rateLimited = statusError instanceof ApiError && statusError.status === 429;
     return (
       <Card>
         <CardContent className="flex items-center justify-between gap-4 p-6" role="alert">
@@ -116,7 +234,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
               target: targetLabel,
             })}
           </p>
-          <Button type="button" variant="outline" onClick={() => void statusQuery.refetch()}>
+          <Button type="button" variant="outline" onClick={refreshStatus}>
             {t("accountPool.retry")}
           </Button>
         </CardContent>
@@ -124,9 +242,7 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
     );
   }
 
-  const status = statusQuery.data;
   const report = status.report;
-  const waitingForReport = isPendingRequest(status, pendingRequestId);
   const displayedState = waitingForReport && report.request_id !== pendingRequestId ? "queued" : report.state;
   const busy = analyzeMutation.isPending || promoteMutation.isPending || waitingForReport;
   const promotable = !status.report_stale && report.state === "passed" && report.target_tag === status.latest_tag;
@@ -151,10 +267,10 @@ export function AccountPoolUpstreamSyncPanel({ accessToken, target = "cliproxyap
         status={status}
         displayedState={displayedState}
         busy={busy}
-        fetching={statusQuery.isFetching}
+        fetching={statusQuery.isFetching || taskQuery.isFetching}
         reviewPending={reviewMutation.isPending}
         promotable={promotable}
-        onRefresh={() => void statusQuery.refetch()}
+        onRefresh={refreshStatus}
         onAnalyze={() => analyzeMutation.mutate()}
         onReview={() => reviewMutation.mutate()}
         onPromote={() => setPromotionOpen(true)}

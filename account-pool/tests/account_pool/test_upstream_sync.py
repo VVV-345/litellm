@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from typing import Final
@@ -86,6 +87,103 @@ async def test_status_reports_latest_release_and_fixed_branch_result() -> None:
     assert state.dispatch_configured is False
     assert state.report.state == "passed"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_status_reuses_release_and_readiness_checks_for_thirty_seconds() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if (ready := _ready(request)) is not None:
+            return ready
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v7.3.2",
+                    "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                },
+                request=request,
+            )
+        return _content_response(request, _report())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        service = GitHubUpstreamSyncService(_settings("test-token"), client)
+        await service.status()
+        await service.status()
+
+    assert sum(path.endswith("/releases/latest") for path in paths) == 1
+    assert sum("/branches/" in path for path in paths) == 2
+    assert sum("/contents/.github/workflows/" in path for path in paths) == 1
+    assert sum("/actions/workflows/" in path for path in paths) == 1
+    assert sum(path.endswith("upstream-sync-status.json") for path in paths) == 2
+
+
+@pytest.mark.asyncio
+async def test_manual_status_refresh_bypasses_the_short_cache() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if (ready := _ready(request)) is not None:
+            return ready
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v7.3.2",
+                    "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                },
+                request=request,
+            )
+        return _content_response(request, _report())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        service = GitHubUpstreamSyncService(_settings("test-token"), client)
+        await service.status()
+        await service.status()
+        await service.status(refresh=True)
+
+    assert sum(path.endswith("/releases/latest") for path in paths) == 2
+    assert sum("/branches/" in path for path in paths) == 4
+    assert sum("/contents/.github/workflows/" in path for path in paths) == 2
+    assert sum("/actions/workflows/" in path for path in paths) == 2
+
+
+@pytest.mark.asyncio
+async def test_independent_readiness_requests_start_concurrently() -> None:
+    readiness_paths: list[str] = []
+    all_started = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if (
+            "/branches/" in request.url.path
+            or "/contents/.github/workflows/" in request.url.path
+            or "/actions/workflows/" in request.url.path
+        ):
+            readiness_paths.append(request.url.path)
+            if len(readiness_paths) == 4:
+                all_started.set()
+            await asyncio.wait_for(all_started.wait(), timeout=1)
+        if (ready := _ready(request)) is not None:
+            return ready
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v7.3.2",
+                    "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                },
+                request=request,
+            )
+        return _content_response(request, _report())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        state = await GitHubUpstreamSyncService(_settings("test-token"), client).status()
+
+    assert state.dispatch_configured is True
+    assert len(readiness_paths) == 4
 
 
 @pytest.mark.asyncio
@@ -227,7 +325,10 @@ async def test_litellm_sync_uses_a_separate_repository_and_branch() -> None:
 async def test_litellm_token_does_not_hide_missing_workflow_and_branch() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/releases/latest"):
-            return httpx.Response(200, json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"})
+            return httpx.Response(
+                200,
+                json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"},
+            )
         return httpx.Response(404, json={"message": "Not Found"})
 
     settings = _settings().model_copy(update={"litellm_upstream_sync_github_token": SecretStr("test-token")})
@@ -249,20 +350,34 @@ def test_litellm_workflow_defaults_to_business_branch_not_main() -> None:
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "success"])
 async def test_tracked_workflow_without_published_report_reaches_terminal_state(conclusion):
     from uuid import UUID
+
     request_id = UUID("11111111-1111-4111-8111-111111111111")
+
     def handler(request):
         if request.url.path.endswith("/runs"):
-            return httpx.Response(200, json={"workflow_runs": [{
-                "display_title": f"litellm-upstream:analyze:v1.105.0:{request_id}",
-                "status": "completed", "conclusion": conclusion,
-                "html_url": "https://github.com/VVV-345/litellm/actions/runs/123",
-                "updated_at": "2026-10-12T12:00:00Z",
-            }]})
+            return httpx.Response(
+                200,
+                json={
+                    "workflow_runs": [
+                        {
+                            "display_title": f"litellm-upstream:analyze:v1.105.0:{request_id}",
+                            "status": "completed",
+                            "conclusion": conclusion,
+                            "html_url": "https://github.com/VVV-345/litellm/actions/runs/123",
+                            "updated_at": "2026-10-12T12:00:00Z",
+                        }
+                    ]
+                },
+            )
         if (ready := _ready(request)) is not None:
             return ready
         if request.url.path.endswith("/releases/latest"):
-            return httpx.Response(200, json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"})
+            return httpx.Response(
+                200,
+                json={"tag_name": "v1.105.0", "html_url": "https://github.com/BerriAI/litellm/releases/tag/v1.105.0"},
+            )
         return httpx.Response(404)
+
     settings = _settings().model_copy(update={"litellm_upstream_sync_github_token": SecretStr("test-token")})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         state = await GitHubUpstreamSyncService(settings, client, target="litellm").status(request_id)
@@ -274,30 +389,105 @@ async def test_tracked_workflow_without_published_report_reaches_terminal_state(
 @pytest.mark.asyncio
 async def test_readiness_rejects_explicit_wrong_litellm_workflow_ref():
     from account_pool.upstream_readiness import inspect_readiness
+
     async with httpx.AsyncClient(transport=httpx.MockTransport(_ready), base_url="https://api.github.com") as client:
-        result = await inspect_readiness(client, {}, "VVV-345/litellm", "codex/litellm-upstream-sync", "CLIProxyAPI分支", "litellm-upstream-sync.yml", "main", True, None)
+        result = await inspect_readiness(
+            client,
+            {},
+            "VVV-345/litellm",
+            "codex/litellm-upstream-sync",
+            "CLIProxyAPI分支",
+            "litellm-upstream-sync.yml",
+            "main",
+            True,
+            None,
+        )
     assert "workflow_target_mismatch" in result.issues
 
 
 @pytest.mark.asyncio
 async def test_readiness_does_not_call_rate_limit_a_missing_branch():
     from account_pool.upstream_readiness import inspect_readiness
-    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(429)), base_url="https://api.github.com") as client:
-        result = await inspect_readiness(client, {}, "VVV-345/litellm", "codex/litellm-upstream-sync", "CLIProxyAPI分支", "litellm-upstream-sync.yml", "CLIProxyAPI分支", True, None)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(429)), base_url="https://api.github.com"
+    ) as client:
+        result = await inspect_readiness(
+            client,
+            {},
+            "VVV-345/litellm",
+            "codex/litellm-upstream-sync",
+            "CLIProxyAPI分支",
+            "litellm-upstream-sync.yml",
+            "CLIProxyAPI分支",
+            True,
+            None,
+        )
     assert result.issues == ("configuration_unavailable",)
 
 
 @pytest.mark.asyncio
 async def test_matching_legacy_report_finishes_tracking_without_run_name_uuid():
     from uuid import UUID
+
     def handler(request):
         if request.url.path.endswith("/runs"):
             return httpx.Response(200, json={"workflow_runs": []})
         if (ready := _ready(request)) is not None:
             return ready
         if request.url.path.endswith("/releases/latest"):
-            return httpx.Response(200, json={"tag_name": "v7.3.2", "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2"})
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v7.3.2",
+                    "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                },
+            )
         return _content_response(request, _report("passed"))
+
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
-        result = await GitHubUpstreamSyncService(_settings("test-token"), client).status(UUID("af094d6b-f0da-4ad6-aa59-7704393a81a4"))
+        result = await GitHubUpstreamSyncService(_settings("test-token"), client).status(
+            UUID("af094d6b-f0da-4ad6-aa59-7704393a81a4")
+        )
     assert result.report.state == "passed"
+
+
+@pytest.mark.asyncio
+async def test_workflow_poll_only_reads_the_matching_run_and_compatibility_report() -> None:
+    from uuid import UUID
+
+    request_id = UUID("af094d6b-f0da-4ad6-aa59-7704393a81a4")
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path.endswith("/releases/latest"):
+            return httpx.Response(
+                200,
+                json={
+                    "tag_name": "v7.3.2",
+                    "html_url": "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.3.2",
+                },
+                request=request,
+            )
+        if request.url.path.endswith("/runs"):
+            return httpx.Response(200, json={"workflow_runs": []}, request=request)
+        if (ready := _ready(request)) is not None:
+            return ready
+        return _content_response(request, _report())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        service = GitHubUpstreamSyncService(_settings("test-token"), client)
+        await service.status()
+        paths.clear()
+
+        await service.status(request_id)
+
+    assert len(paths) == 2
+    assert any(path.endswith("/runs") for path in paths)
+    assert any(path.endswith("upstream-sync-status.json") for path in paths)
+    assert not any(path.endswith("/releases/latest") or "/branches/" in path for path in paths)
+    assert not any(
+        "/contents/.github/workflows/" in path or ("/actions/workflows/" in path and not path.endswith("/runs"))
+        for path in paths
+    )

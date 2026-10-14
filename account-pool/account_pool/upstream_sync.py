@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import re
+import time
 from dataclasses import dataclass
 from typing import Final, Literal, overload
 from urllib.parse import quote
@@ -14,7 +16,7 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, ValidationError
 
 from account_pool.config import Settings
-from account_pool.upstream_readiness import inspect_readiness
+from account_pool.upstream_readiness import Readiness, inspect_readiness
 
 UpstreamSyncState = Literal["idle", "queued", "running", "conflict", "failed", "passed", "promoted", "pr_created"]
 UpstreamSyncAction = Literal["none", "analyze", "promote"]
@@ -27,6 +29,7 @@ _HANDOFF_PATH: Final = "CODEX_UPSTREAM_SYNC.md"
 _TAG_PATTERN: Final = re.compile(r"^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:[.-][0-9A-Za-z.-]+)?$")
 _MAX_CONTENT_BYTES: Final = 2_000_000
 _MAX_ENCODED_CONTENT_LENGTH: Final = 2_700_000
+_STATUS_CACHE_SECONDS: Final = 30
 
 
 class UpstreamSyncReport(BaseModel):
@@ -129,6 +132,13 @@ class _TargetConfig:
     token: str
 
 
+@dataclass(frozen=True, slots=True)
+class _StatusSnapshot:
+    cached_at: float
+    release: _GitHubRelease
+    readiness: Readiness
+
+
 class UpstreamSyncError(Exception):
     def __init__(self, status_code: int, message: str) -> None:
         super().__init__(message)
@@ -151,19 +161,27 @@ class GitHubUpstreamSyncService:
             trust_env=False,
         )
         self._owns_client: Final = client is None
+        self._status_cache: _StatusSnapshot | None = None
+        self._status_cache_lock: Final = asyncio.Lock()
 
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()
 
-    async def status(self, request_id: UUID | None = None) -> UpstreamSyncView:
-        release: Final = await self._latest_release()
-        report: Final = await self._tracked_report(request_id)
-        readiness: Final = await inspect_readiness(
-            self._client, self._headers(), self._config.fork_repository,
-            self._config.branch, self._production_branch, self._config.workflow,
-            self._config.workflow_ref, bool(self._token), report.base_sha,
-        )
+    async def status(self, request_id: UUID | None = None, *, refresh: bool = False) -> UpstreamSyncView:
+        if request_id is None:
+            report, snapshot = await asyncio.gather(self._report(), self._status_snapshot(refresh=refresh))
+            return self._status_view(snapshot, report)
+        if (cached_snapshot := self._status_cache) is None:
+            report, snapshot, runs = await asyncio.gather(
+                self._report(), self._status_snapshot(), self._workflow_runs(request_id)
+            )
+            return self._status_view(snapshot, _tracked_report_result(request_id, report, runs))
+        return self._status_view(cached_snapshot, await self._tracked_report(request_id))
+
+    def _status_view(self, snapshot: _StatusSnapshot, report: UpstreamSyncReport) -> UpstreamSyncView:
+        release: Final = snapshot.release
+        readiness: Final = snapshot.readiness
         return UpstreamSyncView(
             target=self._config.target,
             upstream_repository=self._config.upstream_repository,
@@ -177,8 +195,8 @@ class GitHubUpstreamSyncService:
             production_branch=self._production_branch,
             workflow_ref=self._config.workflow_ref,
             configuration_issues=readiness.issues,
-            report_stale=readiness.stale,
-
+            report_stale=readiness.stale
+            or bool(report.base_sha and readiness.production_sha and readiness.production_sha != report.base_sha),
             report=report,
         )
 
@@ -254,10 +272,11 @@ class GitHubUpstreamSyncService:
         _version_key(release.tag_name)
         return release
 
-    async def _tracked_report(self, request_id: UUID | None) -> UpstreamSyncReport:
-        report: Final = await self._report()
-        if request_id is None:
-            return report
+    async def _tracked_report(self, request_id: UUID) -> UpstreamSyncReport:
+        report, runs = await asyncio.gather(self._report(), self._workflow_runs(request_id))
+        return _tracked_report_result(request_id, report, runs)
+
+    async def _workflow_runs(self, request_id: UUID) -> _GitHubRuns:
         workflow: Final = quote(self._config.workflow, safe="")
         try:
             response: Final = await self._client.get(
@@ -269,27 +288,44 @@ class GitHubUpstreamSyncService:
             response.raise_for_status()
             runs: Final = _GitHubRuns.model_validate_json(response.content)
         except (httpx.HTTPError, ValidationError) as error:
-            raise UpstreamSyncError(502, "Unable to track the GitHub workflow; inspect Actions before retrying") from error
-        run: Final = next((item for item in runs.workflow_runs if str(request_id) in item.display_title), None)
-        if run is None:
-            if report.request_id == request_id and report.state not in ("idle", "queued", "running"):
-                return report
-            return UpstreamSyncReport(
-                request_id=request_id, state="queued",
-                message="No matching run in the latest 100 dispatches; inspect GitHub Actions before retrying",
+            raise UpstreamSyncError(
+                502, "Unable to track the GitHub workflow; inspect Actions before retrying"
+            ) from error
+        return runs
+
+    async def _status_snapshot(self, *, refresh: bool = False) -> _StatusSnapshot:
+        if not refresh:
+            initial_snapshot: Final = self._valid_status_snapshot()
+            if initial_snapshot is not None:
+                return initial_snapshot
+        async with self._status_cache_lock:
+            if not refresh:
+                locked_snapshot: Final = self._valid_status_snapshot()
+                if locked_snapshot is not None:
+                    return locked_snapshot
+            release, readiness = await asyncio.gather(
+                self._latest_release(),
+                inspect_readiness(
+                    self._client,
+                    self._headers(),
+                    self._config.fork_repository,
+                    self._config.branch,
+                    self._production_branch,
+                    self._config.workflow,
+                    self._config.workflow_ref,
+                    bool(self._token),
+                    None,
+                ),
             )
-        if run.status != "completed":
-            return UpstreamSyncReport(
-                request_id=request_id, state="running", workflow_url=run.html_url, updated_at=run.updated_at,
-                message="GitHub compatibility workflow is running",
-            )
-        if report.request_id == request_id and (run.conclusion == "success" or report.state in ("failed", "conflict")):
-            return report
-        return UpstreamSyncReport(
-            request_id=request_id, state="failed", workflow_url=run.html_url, updated_at=run.updated_at,
-            message=f"Workflow {run.conclusion or 'completed'}; inspect Actions and the last branch report before retrying",
-            failed_steps=("workflow_or_report_publication",),
-        )
+            snapshot: Final = _StatusSnapshot(time.monotonic(), release, readiness)
+            self._status_cache = snapshot
+            return snapshot
+
+    def _valid_status_snapshot(self) -> _StatusSnapshot | None:
+        snapshot: Final = self._status_cache
+        if snapshot is None or time.monotonic() - snapshot.cached_at >= _STATUS_CACHE_SECONDS:
+            return None
+        return snapshot
 
     async def _report(self) -> UpstreamSyncReport:
         payload: Final = await self._repository_text(_STATUS_PATH, self._config.branch, required=False)
@@ -351,6 +387,36 @@ class GitHubUpstreamSyncService:
     @property
     def _token(self) -> str:
         return self._config.token
+
+
+def _tracked_report_result(request_id: UUID, report: UpstreamSyncReport, runs: _GitHubRuns) -> UpstreamSyncReport:
+    run: Final = next((item for item in runs.workflow_runs if str(request_id) in item.display_title), None)
+    if run is None:
+        if report.request_id == request_id and report.state not in ("idle", "queued", "running"):
+            return report
+        return UpstreamSyncReport(
+            request_id=request_id,
+            state="queued",
+            message="No matching run in the latest 100 dispatches; inspect GitHub Actions before retrying",
+        )
+    if run.status != "completed":
+        return UpstreamSyncReport(
+            request_id=request_id,
+            state="running",
+            workflow_url=run.html_url,
+            updated_at=run.updated_at,
+            message="GitHub compatibility workflow is running",
+        )
+    if report.request_id == request_id and (run.conclusion == "success" or report.state in ("failed", "conflict")):
+        return report
+    return UpstreamSyncReport(
+        request_id=request_id,
+        state="failed",
+        workflow_url=run.html_url,
+        updated_at=run.updated_at,
+        message=f"Workflow {run.conclusion or 'completed'}; inspect Actions and the last branch report before retrying",
+        failed_steps=("workflow_or_report_publication",),
+    )
 
 
 def _target_config(settings: Settings, target: UpstreamSyncTarget) -> _TargetConfig:

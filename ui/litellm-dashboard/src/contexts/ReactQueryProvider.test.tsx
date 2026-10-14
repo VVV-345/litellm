@@ -1,7 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { notifyDashboardDataChanged, resetDashboardSession } from "@/lib/cacheEvents";
+import {
+  notifyDashboardDataChanged,
+  resetDashboardSession,
+  UPSTREAM_SYNC_STATUS_CACHE_PREFIX,
+} from "@/lib/cacheEvents";
 import { clearTokenCookies } from "@/utils/cookieUtils";
 import { registerBaseUrlGetter } from "@/lib/http/runtime";
 import ReactQueryProvider from "./ReactQueryProvider";
@@ -61,6 +65,8 @@ describe("query session boundary", () => {
     sessionStorage.setItem("userModelsuser", "old models");
     sessionStorage.setItem("possibleUserRoles", "old roles");
     sessionStorage.setItem("excludeInternalHealthChecks", "true");
+    const statusSnapshotKey = `${UPSTREAM_SYNC_STATUS_CACHE_PREFIX}${encodeURIComponent("https://worker.test")}:cliproxyapi`;
+    sessionStorage.setItem(statusSnapshotKey, "old status");
     registerBaseUrlGetter(() => "https://worker.test");
     act(() => resetDashboardSession());
     expect(client).not.toBe(previous);
@@ -69,6 +75,7 @@ describe("query session boundary", () => {
     expect(sessionStorage.getItem("userModelsuser")).toBeNull();
     expect(sessionStorage.getItem("possibleUserRoles")).toBeNull();
     expect(sessionStorage.getItem("excludeInternalHealthChecks")).toBe("true");
+    expect(sessionStorage.getItem(statusSnapshotKey)).toBeNull();
     client.setQueryData(["list"], "worker records");
     act(() => clearTokenCookies());
     expect(client.getQueryData(["list"])).toBeUndefined();
