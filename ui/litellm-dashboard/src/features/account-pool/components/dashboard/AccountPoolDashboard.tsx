@@ -22,6 +22,7 @@ interface AccountPoolDashboardProps {
   statsByCard: ReadonlyMap<string, ErrorStats>;
   statsLoading: boolean;
   standardSummary?: ErrorStats;
+  gatewayLatency?: { p95_ms: number | null; p99_ms: number | null; sample_count: number };
   statsError?: boolean;
   renderCard: (environment: AccountPoolEnvironment, stats: ErrorStats | undefined) => ReactNode;
   quotaRefreshStatus: AccountPoolQuotaRefreshStatus | null;
@@ -36,6 +37,7 @@ export const AccountPoolDashboard = ({
   statsByCard,
   statsLoading,
   standardSummary,
+  gatewayLatency,
   statsError = false,
   renderCard,
   quotaRefreshStatus,
@@ -50,6 +52,8 @@ export const AccountPoolDashboard = ({
       ? t("accountPool.dashboard.unknown")
       : `${summary.successRate.toFixed(1)}%`;
   const metric = (value: number) => (statsError ? t("accountPool.dashboard.unknown") : formatInteger(value));
+  const latencyMetric = (value: number | null | undefined) =>
+    statsError || value == null ? t("accountPool.dashboard.unknown") : `${Math.round(value)} ms`;
 
   return (
     <div className="grid gap-5" data-testid="account-pool-dashboard">
@@ -101,6 +105,34 @@ export const AccountPoolDashboard = ({
                 {formatInteger(summary.enabledCards)} / {formatInteger(summary.totalCards)}
               </p>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.enabled")}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <Gauge className="size-5 text-amber-600" />
+            <div>
+              <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayP95")}</p>
+              <p className="text-2xl font-semibold">
+                {statsLoading ? <Skeleton className="h-7 w-16" /> : latencyMetric(gatewayLatency?.p95_ms)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("accountPool.dashboard.gatewayLatencySamples", {
+                  count: statsError ? t("accountPool.dashboard.unknown") : (gatewayLatency?.sample_count ?? 0),
+                })}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <Gauge className="size-5 text-orange-600" />
+            <div>
+              <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayP99")}</p>
+              <p className="text-2xl font-semibold">
+                {statsLoading ? <Skeleton className="h-7 w-16" /> : latencyMetric(gatewayLatency?.p99_ms)}
+              </p>
+              <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayLatencyWindow")}</p>
             </div>
           </CardContent>
         </Card>

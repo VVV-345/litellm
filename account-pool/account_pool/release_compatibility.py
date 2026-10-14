@@ -53,6 +53,38 @@ OAUTH_BROWSER_SCHEMA_ADDITIONS: Final = (
     b"ON account_pool_oauth_browser_sessions (environment_id) WHERE status IN ('starting', 'active', 'callback_pending')",
 )
 
+# 只允许此处审阅过的初始目录 schema 通过自动兼容门禁。
+PROXY_CATALOG_SCHEMA_ADDITIONS: Final = tuple(
+    sorted(
+        (
+            b"CREATE INDEX IF NOT EXISTS account_pool_isp_binding_profile_idx ON account_pool_proxy_gateway_isp_bindings (isp_profile_id)",
+            b"CREATE INDEX IF NOT EXISTS account_pool_isp_expiry_idx ON account_pool_isp_profiles (expires_on)",
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_isp_profiles ( id uuid PRIMARY KEY, "
+                b"name text NOT NULL, protocol text NOT NULL CHECK (protocol IN ('http', 'https', 'socks5')), "
+                b"host text NOT NULL, port integer NOT NULL CHECK (port BETWEEN 1 AND 65535), "
+                b"credentials_ciphertext text NOT NULL, expires_on date, enabled boolean NOT NULL DEFAULT true, "
+                b"created_at timestamptz NOT NULL DEFAULT now() )"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_proxy_configuration_profiles ( id uuid PRIMARY KEY, "
+                b"name text NOT NULL, content_ciphertext text NOT NULL, source_url_ciphertext text, "
+                b"created_at timestamptz NOT NULL )"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_proxy_configuration_state ( singleton boolean PRIMARY KEY "
+                b"DEFAULT true CHECK (singleton), active_profile_id uuid NOT NULL "
+                b"REFERENCES account_pool_proxy_configuration_profiles(id) ON DELETE RESTRICT )"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_isp_bindings ( port integer PRIMARY KEY "
+                b"REFERENCES account_pool_proxy_gateways(port) ON DELETE CASCADE, isp_profile_id uuid NOT NULL "
+                b"REFERENCES account_pool_isp_profiles(id) ON DELETE RESTRICT )"
+            ),
+        )
+    )
+)
+
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
@@ -156,6 +188,26 @@ def manager_schema_contract(sources: tuple[tuple[str, bytes], ...], *, omit_read
             if contract
         )
     )
+
+def additive_manager_schema_upgrade(
+    current: tuple[tuple[str, bytes], ...], target: tuple[tuple[str, bytes], ...]
+) -> bool:
+    if not current or not target or _source_named(current, "schema.prisma") != _source_named(target, "schema.prisma"):
+        return False
+    try:
+        before: Final = manager_schema_contract(current)
+        after: Final = manager_schema_contract(target)
+    except SyntaxError:
+        return False
+    additions: Final = tuple(line for line in after.splitlines() if line not in before.splitlines())
+    if additions != PROXY_CATALOG_SCHEMA_ADDITIONS:
+        return False
+    return all(
+        line.startswith(b"CREATE TABLE IF NOT EXISTS account_pool_")
+        or line.startswith(b"CREATE INDEX IF NOT EXISTS account_pool_")
+        or line.startswith(b"CREATE UNIQUE INDEX IF NOT EXISTS account_pool_")
+        for line in additions
+    ) and all(line in after.splitlines() for line in before.splitlines())
 
 
 def forward_compatible_manager_upgrade(

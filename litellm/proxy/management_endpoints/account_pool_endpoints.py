@@ -28,6 +28,7 @@ from litellm.proxy.management_endpoints.account_pool_observability import Accoun
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
 from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
+from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
 
@@ -412,6 +413,7 @@ class AccountPoolProxyGateway(BaseModel):
     name: str
     proxy_url: str
     current_node: str | None = None
+    isp_profile_id: UUID | None = None
 
 
 class AccountPoolProxyGatewayConfiguration(BaseModel):
@@ -422,6 +424,8 @@ class AccountPoolProxyGatewayConfiguration(BaseModel):
 
 class AccountPoolProxyGatewayConfigurationRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str | None = Field(default=None, max_length=120)
 
     content: str | None = Field(default=None, max_length=2_097_152)
     url: str | None = Field(default=None, max_length=2048)
@@ -450,6 +454,11 @@ class AccountPoolGatewaySwitchRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     node_name: str = Field(min_length=1, max_length=256)
+
+
+class AccountPoolGatewayISPBinding(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    profile_id: UUID
 
 
 _ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
@@ -1273,6 +1282,19 @@ def create_account_pool_router(
                 response.status_code, "Proxy gateway deletion failed; remove account references and retry"
             )
 
+    @router.put("/proxy-gateways/{port}/isp", response_model=AccountPoolProxyGateway)
+    async def bind_gateway_isp(
+        port: int,
+        request: AccountPoolGatewayISPBinding,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "PUT", f"/api/proxy-gateways/{port}/isp", request.model_dump_json().encode()
+        )
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     router.include_router(create_onboarding_router(management_request, _require_proxy_admin))
     router.include_router(create_release_router(_require_proxy_admin, release_client_factory))

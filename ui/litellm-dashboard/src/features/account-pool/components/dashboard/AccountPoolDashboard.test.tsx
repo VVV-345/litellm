@@ -56,4 +56,25 @@ describe("AccountPoolDashboard", () => {
 
     expect(onRefreshQuotas).toHaveBeenCalledOnce();
   });
+
+  it("shows gateway response-header p95 and p99 with the sample count", () => {
+    render(
+      <AccountPoolDashboard
+        environments={[]}
+        statsByCard={new Map()}
+        statsLoading={false}
+        gatewayLatency={{ p95_ms: 125.4, p99_ms: 240.8, sample_count: 100 }}
+        renderCard={vi.fn()}
+        quotaRefreshStatus={refreshStatus}
+        onRefreshQuotas={vi.fn()}
+        refreshingQuotas={false}
+      />,
+    );
+
+    expect(screen.getByText("代理网关 P95")).toBeInTheDocument();
+    expect(screen.getByText("代理网关 P99")).toBeInTheDocument();
+    expect(screen.getByText("125 ms")).toBeInTheDocument();
+    expect(screen.getByText("241 ms")).toBeInTheDocument();
+    expect(screen.getByText("近 7 天 100 个样本")).toBeInTheDocument();
+  });
 });

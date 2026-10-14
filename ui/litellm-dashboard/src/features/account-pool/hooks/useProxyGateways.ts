@@ -4,15 +4,29 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   addAccountPoolProxyGateway,
+  activateAccountPoolProxyConfiguration,
+  bindAccountPoolProxyGatewayISP,
+  deleteAccountPoolISPProxy,
   deleteAccountPoolProxyGateway,
+  deleteAccountPoolProxyConfiguration,
   getAccountPoolProxyGatewayConfiguration,
+  importAccountPoolISPProxies,
   listAccountPoolClashNodes,
+  listAccountPoolISPProxies,
+  listAccountPoolProxyConfigurations,
   listAccountPoolProxyGateways,
   measureAccountPoolProxyGatewayDelays,
+  saveAccountPoolProxyConfiguration,
   switchAccountPoolProxyGateway,
+  updateAccountPoolISPProxy,
   updateAccountPoolProxyGatewayConfiguration,
 } from "../api/AccountPoolApi";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
+import type {
+  AccountPoolISPProxyUpdateRequest,
+  AccountPoolProxyConfigurationProfileRequest,
+  AccountPoolProxyGateway,
+} from "../utils/AccountPoolTypes";
 
 export const proxyGatewayQueryOptions = (accessToken: string | null) => ({
   queryKey: accountPoolQueryKeys.proxyGateways(accessToken),
@@ -58,6 +72,27 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     retry: false,
     staleTime: 60_000,
   });
+  const configurationsQuery = useQuery({
+    queryKey: accountPoolQueryKeys.proxyConfigurations(accessToken),
+    queryFn: () => {
+      if (!accessToken) throw new Error("Access token required");
+      return listAccountPoolProxyConfigurations(accessToken);
+    },
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const ispsQuery = useQuery({
+    queryKey: accountPoolQueryKeys.proxyIsps(accessToken),
+    queryFn: () => {
+      if (!accessToken) throw new Error("Access token required");
+      return listAccountPoolISPProxies(accessToken);
+    },
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
   const nodesQuery = useQuery({
     queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken),
     queryFn: () => {
@@ -68,6 +103,8 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     retry: false,
   });
   const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken) });
     void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewaysRoot });
     void queryClient.resetQueries({ queryKey: delaysKey });
   };
@@ -76,7 +113,13 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
       if (!accessToken) throw new Error("Access token required");
       return switchAccountPoolProxyGateway(accessToken, port, nodeName);
     },
-    onSuccess: invalidate,
+    onSuccess: (gateway) => {
+      queryClient.setQueryData<AccountPoolProxyGateway[]>(
+        accountPoolQueryKeys.proxyGateways(accessToken),
+        (current) => current?.map((item) => (item.port === gateway.port ? gateway : item)),
+      );
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
+    },
   });
   const addMutation = useMutation({
     mutationFn: async () => {
@@ -93,20 +136,89 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     onSuccess: invalidate,
   });
   const configurationMutation = useMutation({
-    mutationFn: async ({ content, url }: { content?: string; url?: string }) => {
+    mutationFn: async ({ content, url, name }: { content?: string; url?: string; name?: string }) => {
       if (!accessToken) throw new Error("Access token required");
-      return updateAccountPoolProxyGatewayConfiguration(accessToken, { content, url });
+      return updateAccountPoolProxyGatewayConfiguration(accessToken, { content, url, name });
     },
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyConfigurations(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken) });
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewayConfiguration(accessToken) });
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewaysRoot });
     },
+  });
+  const configurationSaveMutation = useMutation({
+    mutationFn: async (request: AccountPoolProxyConfigurationProfileRequest) => {
+      if (!accessToken) throw new Error("Access token required");
+      return saveAccountPoolProxyConfiguration(accessToken, request);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyConfigurations(accessToken) });
+    },
+  });
+  const configurationActivateMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      if (!accessToken) throw new Error("Access token required");
+      return activateAccountPoolProxyConfiguration(accessToken, profileId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyConfigurations(accessToken) });
+      invalidate();
+    },
+  });
+  const configurationDeleteMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      if (!accessToken) throw new Error("Access token required");
+      return deleteAccountPoolProxyConfiguration(accessToken, profileId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyConfigurations(accessToken) });
+    },
+  });
+  const ispImportMutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!accessToken) throw new Error("Access token required");
+      return importAccountPoolISPProxies(accessToken, content);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
+    },
+  });
+  const ispUpdateMutation = useMutation({
+    mutationFn: async ({ profileId, request }: { profileId: string; request: AccountPoolISPProxyUpdateRequest }) => {
+      if (!accessToken) throw new Error("Access token required");
+      return updateAccountPoolISPProxy(accessToken, profileId, request);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
+      invalidate();
+    },
+  });
+  const ispDeleteMutation = useMutation({
+    mutationFn: async (profileId: string) => {
+      if (!accessToken) throw new Error("Access token required");
+      return deleteAccountPoolISPProxy(accessToken, profileId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
+    },
+  });
+  const bindISPMutation = useMutation({
+    mutationFn: async ({ port, profileId }: { port: number; profileId: string }) => {
+      if (!accessToken) throw new Error("Access token required");
+      return bindAccountPoolProxyGatewayISP(accessToken, port, profileId);
+    },
+    onSuccess: invalidate,
   });
   return {
     gateways: gatewaysQuery.data ?? [],
     gatewaysLoading: gatewaysQuery.isLoading || gatewaysQuery.isFetching,
     gatewaysError: gatewaysQuery.isError ? gatewaysQuery.error.message ?? null : null,
     configuration: configurationQuery.data ?? null,
+    configurations: configurationsQuery.data ?? [],
+    isps: ispsQuery.data ?? [],
+    ispsLoading: ispsQuery.isLoading,
+    ispsError: ispsQuery.isError,
     delays: delaysQuery.data ?? [],
     delaysLoading: delaysQuery.isFetching,
     delaysError: delaysQuery.isError,
@@ -115,6 +227,8 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
       void delaysQuery.refetch();
       void nodesQuery.refetch();
       void configurationQuery.refetch();
+      void configurationsQuery.refetch();
+      void ispsQuery.refetch();
     },
     nodes: nodesQuery.data ?? [],
     nodesLoading: nodesQuery.isLoading || nodesQuery.isFetching,
@@ -123,5 +237,12 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     addMutation,
     deleteMutation,
     configurationMutation,
+    configurationSaveMutation,
+    configurationActivateMutation,
+    configurationDeleteMutation,
+    ispImportMutation,
+    ispUpdateMutation,
+    ispDeleteMutation,
+    bindISPMutation,
   };
 };

@@ -35,11 +35,38 @@ export type AccountPoolProxyGateway = {
   name: string;
   proxy_url: string;
   current_node: string | null;
+  isp_profile_id?: string | null;
 };
 export type AccountPoolProxyGatewayConfiguration = {
   config_path: string | null;
 };
 export type AccountPoolProxyGatewayConfigurationRequest = {
+  name?: string;
+  content?: string;
+  url?: string;
+};
+export type AccountPoolISPProxy = {
+  id: string;
+  name: string;
+  protocol: "http" | "https" | "socks5";
+  host: string;
+  port: number;
+  expires_on: string | null;
+  enabled: boolean;
+  bound_ports: number[];
+};
+export type AccountPoolISPProxyUpdateRequest = Omit<AccountPoolISPProxy, "id" | "bound_ports"> & {
+  username?: string | null;
+  password?: string | null;
+};
+export type AccountPoolProxyConfigurationProfile = {
+  id: string;
+  name: string;
+  created_at: string;
+  active: boolean;
+};
+export type AccountPoolProxyConfigurationProfileRequest = {
+  name: string;
   content?: string;
   url?: string;
 };

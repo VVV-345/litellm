@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from litellm.proxy.db.prisma_client import PrismaWrapper
 from litellm.proxy.db.routing_prisma_wrapper import RoutingPrismaWrapper
 from litellm.proxy.management_endpoints.account_pool_observability import standard_dashboard
+from litellm.proxy.management_endpoints.account_pool_timing import GatewayLatencyStats
 
 
 @pytest.mark.asyncio
@@ -36,7 +37,8 @@ async def test_standard_dashboard_preserves_final_results_and_cache_usage() -> N
         assert since == now - timedelta(days=30)
         return [{"account_id": str(account), **totals}, {"account_id": None, **totals}]
 
-    dashboard: Final = await standard_dashboard(query, now=now)
+    latency: Final = GatewayLatencyStats(p95_ms=95, p99_ms=99, sample_count=100)
+    dashboard: Final = await standard_dashboard(query, now=now, timing_query=lambda: latency)
 
     assert dashboard.summary.total_requests == 4
     assert dashboard.summary.failed_requests == 1
@@ -45,6 +47,7 @@ async def test_standard_dashboard_preserves_final_results_and_cache_usage() -> N
     assert dashboard.cards[0].cache_creation_input_tokens == 10
     assert dashboard.cards[0].statistics_source == "litellm"
     assert dashboard.occurred_from == now - timedelta(days=30)
+    assert dashboard.gateway_latency == latency
 
 
 @pytest.mark.asyncio
@@ -53,7 +56,7 @@ async def test_standard_dashboard_does_not_hide_database_failure_as_zero_request
         raise HTTPException(503, "LiteLLM statistics database is unavailable")
 
     with pytest.raises(HTTPException) as failure:
-        await standard_dashboard(unavailable)
+        await standard_dashboard(unavailable, timing_query=GatewayLatencyStats)
     assert failure.value.status_code == 503
 
 
@@ -67,7 +70,7 @@ async def test_statistics_use_dynamic_prisma_query_and_read_replica(replica: boo
         RoutingPrismaWrapper(PrismaWrapper(SimpleNamespace(query_raw=writer_query)), reader) if replica else reader
     )
     with patch("litellm.proxy.proxy_server.prisma_client", SimpleNamespace(db=database)):
-        report: Final = await standard_dashboard()
+        report: Final = await standard_dashboard(timing_query=GatewayLatencyStats)
     assert report.summary.total_requests == 0
     query.assert_awaited_once()
     writer_query.assert_not_awaited()
@@ -84,7 +87,7 @@ async def test_statistics_query_against_postgres_prisma_binding() -> None:
     await client.connect()
     try:
         with patch("litellm.proxy.proxy_server.prisma_client", SimpleNamespace(db=PrismaWrapper(client))):
-            report: Final = await standard_dashboard()
+            report: Final = await standard_dashboard(timing_query=GatewayLatencyStats)
         assert report.statistics_source == "litellm"
         assert report.summary.total_requests >= 0
     finally:

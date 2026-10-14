@@ -538,6 +538,7 @@ def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUser
     if role == LitellmUserRoles.PROXY_ADMIN:
         assert response.json()["summary"]["total_requests"] == 4
         assert response.json()["statistics_source"] == "litellm"
+        assert response.json()["gateway_latency"]["sample_count"] == 0
 
 
 def test_malformed_manager_environment_response_is_rejected() -> None:
@@ -804,6 +805,37 @@ def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
     assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
 
 
+@pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))
+def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: LitellmUserRoles) -> None:
+    identity: Final = str(uuid4())
+    isp: Final = {"id": identity, "name": "ISP", "protocol": "http", "host": "proxy.test", "port": 1234,
+                  "expires_on": None, "enabled": True, "bound_ports": [], "password": "never-return"}
+    profile: Final = {"id": identity, "name": "file", "created_at": "2026-10-14T00:00:00Z", "active": False,
+                      "content": "never-return"}
+    operations: Final = (
+        ("GET", "/proxy-isps", None, [isp]),
+        ("POST", "/proxy-isps/import", {"content": "proxy.test:1234:user:pass"}, [isp]),
+        ("PUT", f"/proxy-isps/{identity}", {k: v for k, v in isp.items() if k not in {"id", "bound_ports"}}, isp),
+        ("DELETE", f"/proxy-isps/{identity}", None, None),
+        ("GET", "/proxy-gateways/configurations", None, [profile]),
+        ("POST", "/proxy-gateways/configurations", {"name": "file", "content": "proxies: []"}, profile),
+        ("PUT", f"/proxy-gateways/configurations/{identity}/activate", None, profile),
+        ("DELETE", f"/proxy-gateways/configurations/{identity}", None, None),
+    )
+    for method, path, body, payload in operations:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert role == LitellmUserRoles.PROXY_ADMIN
+            assert request.url.path == "/api" + path
+            assert request.method == method
+            return httpx.Response(204) if payload is None else httpx.Response(200, json=payload)
+
+        app: Final = _app(UserAPIKeyAuth(user_role=role), _gateway_factory(handler))
+        with TestClient(app) as client:
+            response: Final = client.request(method, "/account_pool" + path, json=body)
+        assert response.status_code == (403 if role != LitellmUserRoles.PROXY_ADMIN else 204 if payload is None else 201 if method == "POST" else 200)
+        assert "never-return" not in response.text
+
+
 def test_proxy_admin_can_update_proxy_gateway_configuration() -> None:
     bodies: Final[list[dict[str, object]]] = []
 
@@ -823,7 +855,7 @@ def test_proxy_admin_can_update_proxy_gateway_configuration() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
-    assert bodies == [{"content": None, "url": "https://example.test/config.yaml"}]
+    assert bodies == [{"name": None, "content": None, "url": "https://example.test/config.yaml"}]
 
 
 @pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))

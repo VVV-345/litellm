@@ -11,7 +11,11 @@ from typing import Final
 
 import pytest
 import yaml
-from account_pool.release_compatibility import digest_sources, forward_compatible_manager_upgrade
+from account_pool.release_compatibility import (
+    additive_manager_schema_upgrade,
+    digest_sources,
+    forward_compatible_manager_upgrade,
+)
 from account_pool.release_models import ReleasePair
 from account_pool.release_runtime import (
     ContainerInspection,
@@ -659,3 +663,15 @@ def test_oauth_browser_upgrade_runtime_reads_raw_prisma_and_complete_manager_sou
     assert not runtime.is_oauth_browser_schema_upgrade(pair, pair)
     assert not any(call[0] in ("start", "run", "exec") for call in command.calls)
     assert all("--network" in call and "none" in call for call in command.calls if call[0] == "create")
+
+
+def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
+    root: Final = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline: Final = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+                           if path.name != "proxy_catalog_repository.py") + (("schema.prisma", b"model A { id String @id }"),)
+    catalog: Final = ("proxy_catalog_repository.py", (root / "proxy_catalog_repository.py").read_bytes())
+    target: Final = (*baseline, catalog)
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="ALTER TABLE old DROP COLUMN id"')))
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))

@@ -50,9 +50,22 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.10
+        env:
+          POSTGRES_USER: proxy_catalog_test
+          POSTGRES_PASSWORD: isolated-test-only
+          POSTGRES_DB: proxy_catalog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U proxy_catalog_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       PYTHONPATH: account-pool:.
       LITELLM_LOCAL_MODEL_COST_MAP: 'True'
+      PROXY_CATALOG_TEST_DATABASE_URL: postgresql://proxy_catalog_test:isolated-test-only@127.0.0.1:5432/proxy_catalog_test
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -74,12 +87,19 @@ jobs:
             tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_reconciler.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_full_logs.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_observability.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_proxy_admin_can_manage_upstream_compatibility_workflow \
             tests/test_litellm/proxy/management_endpoints/test_deployment_version.py \
             account-pool/tests/test_account_pool.py \
             account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \
+            account-pool/tests/account_pool/test_isp_profiles.py \
+            account-pool/tests/account_pool/test_proxy_catalog_schema.py \
+            account-pool/tests/account_pool/test_proxy_catalog_postgres.py \
+            account-pool/tests/account_pool/test_proxy_gateways.py \
+            account-pool/tests/account_pool/test_proxy_configuration.py \
             account-pool/tests/test_release_auto_update.py \
             account-pool/tests/test_release_catalog.py \
             account-pool/tests/test_release_database.py \
@@ -97,8 +117,11 @@ jobs:
           npm ci
           npm exec -- vitest run --project component \
             src/components/Settings/RuntimeSettings/RuntimeSettingsSection.test.tsx \
+            src/features/account-pool/components/dashboard/AccountPoolDashboard.test.tsx \
             src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx \
             src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.test.tsx
+          npm exec -- vitest run --project integration \
+            src/features/account-pool/components/proxy/ProxyManagerPanel.integration.test.tsx
           npm exec -- vitest run --project unit \
             src/features/account-pool/api/AccountPoolManagementApi.test.ts
           npm exec -- vitest run --project integration \
@@ -300,7 +323,7 @@ jobs:
           package-type: container
           min-versions-to-keep: 20
           token: ${{ secrets.GITHUB_TOKEN }}
-          ignore-versions: '^v1\.1-.*$'
+          ignore-versions: '^v1\.[0-9]+-.*$'
 
   summary:
     name: Write deployment summary

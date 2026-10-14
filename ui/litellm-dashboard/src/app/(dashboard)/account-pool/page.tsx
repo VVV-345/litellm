@@ -149,7 +149,11 @@ export default function AccountPoolPage() {
   const dataTabActive = ACCOUNT_POOL_DATA_TABS.has(activeTab);
   const cardTabActive = ACCOUNT_POOL_CARD_TABS.has(activeTab);
   const dashboardActive = activeTab === "dashboard";
-  const environmentsQuery = useAccountPoolQuery(accessToken, canManage && dataTabActive, dataTabActive);
+  const environmentsQuery = useAccountPoolQuery(
+    accessToken,
+    canManage && (dataTabActive || activeTab === "proxy-layer"),
+    dataTabActive,
+  );
   const quotaRefreshStatusQuery = useQuery({
     ...accountPoolQuotaRefreshStatusOptions(accessToken),
     enabled: canManage && accessToken !== null && dashboardActive,
@@ -456,6 +460,7 @@ export default function AccountPoolPage() {
                 statsByCard={statsByCard}
                 statsLoading={statsLoading}
                 standardSummary={dashboardStatsQuery.data?.summary}
+                gatewayLatency={dashboardStatsQuery.data?.gateway_latency}
                 statsError={dashboardStatsQuery.isError}
                 renderCard={renderCard}
                 quotaRefreshStatus={quotaRefreshStatusQuery.data ?? null}
@@ -526,7 +531,12 @@ export default function AccountPoolPage() {
             active={activeTab === "proxy-layer"}
             visited={isTabVisited("proxy-layer")}
           >
-            <ProxyManagerPanel accessToken={accessToken} enabled={canManage} />
+            <ProxyManagerPanel
+              accessToken={accessToken}
+              enabled={canManage}
+              environments={environments}
+              environmentsLoading={environmentsQuery.isLoading || environmentsQuery.isError}
+            />
           </DeferredTabPanel>
           <DeferredTabPanel
             value="oauth"

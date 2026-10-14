@@ -10,7 +10,15 @@ from contextlib import contextmanager
 from typing import Final
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class GatewayLatencyStats(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    p95_ms: float | None = None
+    p99_ms: float | None = None
+    sample_count: int = Field(default=0, ge=0)
 
 from litellm._logging import verbose_proxy_logger
 

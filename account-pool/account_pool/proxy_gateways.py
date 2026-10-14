@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import os
 import tempfile
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Final, cast
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 import yaml
@@ -19,8 +21,11 @@ import yaml
 from account_pool.clash import ClashController, ClashDelayResult, ClashDelayStatus, ClashError, ClashProxyNode
 from account_pool.config import Settings
 from account_pool.ports import ProxyProfileRepository
+from account_pool.proxy_catalog import ISPProxyProfile, ProxyConfigurationProfileView
+from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 
 _GATEWAY_PROFILE_PREFIX: Final = "clash-gateway-"
+_LOGGER: Final = logging.getLogger(__name__)
 _MAX_CONFIGURATION_BYTES: Final = 2 * 1024 * 1024
 _MAX_CONFIGURATION_URL_LENGTH: Final = 2048
 
@@ -32,6 +37,7 @@ class GatewayView:
     name: str
     proxy_url: str
     current_node: str | None
+    isp_profile_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +66,7 @@ class ProxyGatewayService:
         controller: ClashController,
         *,
         fetch_configuration: Callable[[str], Awaitable[str]] | None = None,
+        catalog: ProxyCatalogRepository | None = None,
     ) -> None:
         self._settings: Final = settings
         self._profiles: Final = profiles
@@ -69,6 +76,7 @@ class ProxyGatewayService:
         self._profile_locks: Final[dict[str, asyncio.Lock]] = {}
         self._dynamic_registry: Final = callable(getattr(profiles, "delete_gateway", None))
         self._fetch_configuration: Final = fetch_configuration or self._download_configuration
+        self._catalog: Final = catalog
 
     @asynccontextmanager
     async def profile_operation(self, profile_id: str | None) -> AsyncGenerator[None, None]:
@@ -81,7 +89,13 @@ class ProxyGatewayService:
             yield
 
     @classmethod
-    def disabled(cls, settings: Settings, profiles: ProxyProfileRepository) -> ProxyGatewayService:
+    def disabled(
+        cls,
+        settings: Settings,
+        profiles: ProxyProfileRepository,
+        *,
+        catalog: ProxyCatalogRepository | None = None,
+    ) -> ProxyGatewayService:
         """Clash 未配置时的占位实例：列表为空，调用切换即报错。"""
 
         class _InactiveController:
@@ -106,21 +120,103 @@ class ProxyGatewayService:
             async def measure_gateway_delay(self, proxy_url: str) -> ClashDelayResult:
                 raise ClashError("clash controller is not configured")
 
-        return cls(settings, profiles, _InactiveController())  # pyright: ignore[reportArgumentType]  # structural controller double
+        return cls(settings, profiles, _InactiveController(), catalog=catalog)  # pyright: ignore[reportArgumentType]  # structural controller double
 
     async def list_nodes(self) -> tuple[ClashProxyNode, ...]:
-        return await self._controller.list_nodes()
+        return tuple(node for node in await self._controller.list_nodes() if not node.name.startswith("account-pool-isp-"))
+
+    async def enforce_inactive_isps(self, today: date) -> None:
+        await self.reconcile_isp_bindings(today)
+
+    async def reconcile_isp_bindings(self, today: date) -> None:
+        if self._catalog is None:
+            return
+        async with self._registry_lock:
+            for port, profile_id in await self._catalog.list_isp_bindings():
+                profile: Final = await self._catalog.get_isp(profile_id)
+                if profile is None:
+                    raise ClashError("bound ISP profile is missing")
+                await self._apply_isp_binding(profile, port, today)
+
+    async def _apply_isp_binding(self, profile: ISPProxyProfile, port: int, today: date) -> None:
+        active: Final = profile.enabled and not profile.expired(today)
+        await self._ensure_isp_node(profile, port, active=active)
+        selected: Final = self.isp_node_name(profile.id) if active else "REJECT"
+        if await self._controller.selector_current(self._selector_name(port)) != selected:
+            await self._controller.switch_selector(self._selector_name(port), selected)
 
     def configuration(self) -> GatewayConfigurationView:
         return GatewayConfigurationView(config_path=self._settings.clash_config_path or None)
 
     async def update_configuration(
-        self, *, content: str | None = None, url: str | None = None
+        self, *, content: str | None = None, url: str | None = None, name: str | None = None
     ) -> GatewayConfigurationView:
         if (content is None) == (url is None):
             raise ClashError("provide exactly one of content or url")
         source: Final = content if content is not None else await self._load_subscription(url)
         self._validate_configuration_content(source)
+        if self._catalog is not None:
+            profile_name: Final = name or datetime.now(timezone.utc).strftime("配置 %Y-%m-%d %H:%M:%S UTC")
+            profile: Final = await self.save_configuration_profile(
+                profile_name, content=source
+            )
+            await self.activate_configuration_profile(profile.id)
+            return self.configuration()
+        async with self._registry_lock:
+            await self._apply_configuration_source(source)
+        return self.configuration()
+
+    async def initialize_saved_configuration(self) -> None:
+        if self._catalog is None or not self._settings.clash_config_path:
+            return
+        try:
+            with open(self._settings.clash_config_path, encoding="utf-8") as handle:
+                current: Final = handle.read()
+        except OSError:
+            return
+        await self._catalog.ensure_active_configuration("当前配置", current)
+
+    async def list_configuration_profiles(self) -> tuple[ProxyConfigurationProfileView, ...]:
+        if self._catalog is None:
+            return ()
+        profiles: Final = await self._catalog.list_configuration_views()
+        return tuple(
+            ProxyConfigurationProfileView(id=profile_id, name=name, created_at=created_at, active=active)
+            for profile_id, name, created_at, active in profiles
+        )
+
+    async def save_configuration_profile(
+        self, name: str, *, content: str | None = None, url: str | None = None
+    ) -> ProxyConfigurationProfileView:
+        if self._catalog is None:
+            raise ClashError("proxy configuration catalog is not configured")
+        normalized_name: Final = name.strip()
+        if not normalized_name or len(normalized_name) > 120:
+            raise ClashError("configuration name is invalid")
+        if (content is None) == (url is None):
+            raise ClashError("provide exactly one of content or url")
+        source: Final = content if content is not None else await self._load_subscription(url)
+        self._validate_configuration_content(source)
+        try:
+            parsed: Final = yaml.safe_load(source)
+        except yaml.YAMLError as error:
+            raise ClashError("proxy configuration is invalid YAML") from error
+        if not isinstance(parsed, dict):
+            raise ClashError("clash config must be a YAML object")
+        profile: Final = await self._catalog.save_configuration(normalized_name, source, url)
+        return ProxyConfigurationProfileView(
+            id=profile.id,
+            name=profile.name,
+            created_at=profile.created_at,
+            active=False,
+        )
+
+    async def activate_configuration_profile(self, profile_id: UUID) -> ProxyConfigurationProfileView:
+        if self._catalog is None:
+            raise ClashError("proxy configuration catalog is not configured")
+        profile: Final = await self._catalog.get_configuration(profile_id)
+        if profile is None:
+            raise ClashError("proxy configuration profile was not found")
         config_path: Final = self._settings.clash_config_path
         if not config_path:
             raise ClashError("clash config path is not configured")
@@ -128,29 +224,46 @@ class ProxyGatewayService:
             async with self._registry_lock:
                 with open(config_path, encoding="utf-8") as handle:
                     original: Final = handle.read()
-                original_config: Final = cast(object, yaml.safe_load(original))
-                parsed_value: Final = cast(object, yaml.safe_load(source))
-                if not isinstance(parsed_value, dict):
-                    raise ClashError("clash config must be a YAML object")
-                parsed: Final = cast(dict[object, object], parsed_value)
-                await self._preserve_registered_gateways(parsed, original_config)
-                updated: Final = yaml.safe_dump(parsed, allow_unicode=True, sort_keys=False)
-                directory: Final = os.path.dirname(config_path) or "."
-                self._replace_config(config_path, directory, updated)
-                try:
-                    await self._controller.reload_config(self._settings.clash_runtime_config_path)
-                except Exception as error:
-                    self._replace_config(config_path, directory, original)
-                    try:
-                        await self._controller.reload_config(self._settings.clash_runtime_config_path)
-                    except Exception:
-                        pass
-                    raise ClashError("clash configuration update failed") from error
+                await self._apply_configuration_source(profile.content)
+                if not await self._catalog.activate_configuration(profile_id):
+                    with open(config_path, encoding="utf-8") as handle:
+                        applied: Final = handle.read()
+                    await self._write_and_reload(config_path, original, applied)
+                    raise ClashError("proxy configuration activation failed")
         except ClashError:
             raise
+        except OSError as error:
+            raise ClashError("clash configuration update failed") from error
+        return ProxyConfigurationProfileView(
+            id=profile.id,
+            name=profile.name,
+            created_at=profile.created_at,
+            active=True,
+        )
+
+    async def delete_configuration_profile(self, profile_id: UUID) -> None:
+        if self._catalog is None:
+            raise ClashError("proxy configuration catalog is not configured")
+        if not await self._catalog.delete_configuration(profile_id):
+            raise ClashError("active or missing proxy configuration cannot be deleted")
+
+    async def _apply_configuration_source(self, source: str) -> None:
+        config_path: Final = self._settings.clash_config_path
+        if not config_path:
+            raise ClashError("clash config path is not configured")
+        try:
+            with open(config_path, encoding="utf-8") as handle:
+                original: Final = handle.read()
+            original_config: Final = cast(object, yaml.safe_load(original))
+            parsed_value: Final = cast(object, yaml.safe_load(source))
         except (OSError, yaml.YAMLError) as error:
             raise ClashError("clash configuration update failed") from error
-        return self.configuration()
+        if not isinstance(parsed_value, dict):
+            raise ClashError("clash config must be a YAML object")
+        parsed: Final = cast(dict[object, object], parsed_value)
+        await self._preserve_registered_gateways(parsed, original_config)
+        updated: Final = yaml.safe_dump(parsed, allow_unicode=True, sort_keys=False)
+        await self._write_and_reload(config_path, updated, original)
 
     async def _load_subscription(self, url: str | None) -> str:
         if url is None:
@@ -170,6 +283,8 @@ class ProxyGatewayService:
         original_map: Final = cast(dict[object, object], original)
         listener_names: Final = frozenset(f"gateway-{port}" for port in ports)
         group_names: Final = frozenset(self.gateway_profile_id(port) for port in ports)
+        bindings: Final = () if self._catalog is None else await self._catalog.list_isp_bindings()
+        isp_names: Final = frozenset(self.isp_node_name(profile_id) for _, profile_id in bindings)
 
         def entry_name(item: object) -> object:
             return cast(dict[object, object], item).get("name") if isinstance(item, dict) else None
@@ -195,9 +310,24 @@ class ProxyGatewayService:
             )
 
         preserved_listeners: Final = named_entries(original_map.get("listeners"), listener_names)
-        preserved_groups: Final = named_entries(original_map.get("proxy-groups"), group_names)
+        available: Final = tuple(
+            entry_name(item) for key in ("proxies", "proxy-groups") for item in config.get(key, [])
+            if isinstance(item, dict) and isinstance(entry_name(item), str) and entry_name(item) not in group_names
+        )
+        bound_selectors: Final = frozenset(self._selector_name(port) for port, _ in bindings)
+        preserved_groups: Final = tuple(
+            group if entry_name(group) in bound_selectors else {
+                **group,
+                "proxies": list(available) or ["REJECT"],
+                "use": list(config.get("proxy-providers", {})),
+            }
+            for group in named_entries(original_map.get("proxy-groups"), group_names)
+        )
+        preserved_isp_proxies: Final = named_entries(original_map.get("proxies"), isp_names)
         config["listeners"] = (*without_names(config.get("listeners"), listener_names), *preserved_listeners)
         config["proxy-groups"] = (*without_names(config.get("proxy-groups"), group_names), *preserved_groups)
+        if isp_names:
+            config["proxies"] = (*without_names(config.get("proxies"), isp_names), *preserved_isp_proxies)
 
     @staticmethod
     def _validate_configuration_content(content: str) -> None:
@@ -265,6 +395,8 @@ class ProxyGatewayService:
         ports: Final = await self._registered_ports()
         if not ports:
             return ()
+        bindings: Final = () if self._catalog is None else await self._catalog.list_isp_bindings()
+        bound_profiles: Final = dict(bindings)
         views: list[GatewayView] = []
         for port in ports:
             selector: Final = self._selector_name(port)
@@ -279,14 +411,25 @@ class ProxyGatewayService:
                     name=self.gateway_profile_name(port),
                     proxy_url=self._gateway_proxy_url(port),
                     current_node=current_node,
+                    isp_profile_id=bound_profiles.get(port),
                 )
             )
         return tuple(views)
 
     async def switch_gateway(self, port: int, node_name: str) -> GatewayView:
+        if node_name.startswith("account-pool-isp-"):
+            raise ClashError("ISP nodes must use the ISP binding endpoint")
+        async with self._registry_lock:
+            return await self._switch_gateway(port, node_name)
+
+    async def _switch_gateway(self, port: int, node_name: str) -> GatewayView:
         if port not in await self._registered_ports():
             raise ClashError(f"gateway port {port} is not registered")
+        if self._catalog is not None and any(bound_port == port for bound_port, _ in await self._catalog.list_isp_bindings()):
+            await self._set_gateway_node(port, node_name)
         await self._controller.switch_selector(self._selector_name(port), node_name)
+        if self._catalog is not None:
+            await self._catalog.unbind_isp(port)
         current_node: Final = await self._controller.selector_current(self._selector_name(port))
         return GatewayView(
             port=port,
@@ -295,6 +438,127 @@ class ProxyGatewayService:
             proxy_url=self._gateway_proxy_url(port),
             current_node=current_node,
         )
+
+    async def bind_isp_gateway(self, port: int, profile_id: UUID, today: date | None = None) -> GatewayView:
+        async with self._registry_lock:
+            return await self._bind_isp_gateway(port, profile_id, today or date.today())
+
+    async def _bind_isp_gateway(self, port: int, profile_id: UUID, today: date) -> GatewayView:
+        if self._catalog is None:
+            raise ClashError("ISP proxy catalog is not configured")
+        if port not in await self._registered_ports():
+            raise ClashError(f"gateway port {port} is not registered")
+        profile: Final = await self._catalog.get_isp(profile_id)
+        if profile is None or not profile.enabled or profile.expired(today or date.today()):
+            raise ClashError("ISP profile is unavailable or expired")
+        selector: Final = self._selector_name(port)
+        node_name: Final = self.isp_node_name(profile_id)
+        previous: Final = await self._controller.selector_current(selector)
+        await self._ensure_isp_node(profile, port)
+        await self._controller.switch_selector(selector, node_name)
+        try:
+            await self._catalog.bind_isp(port, profile_id)
+        except Exception as error:
+            if previous is not None:
+                try:
+                    await self._controller.switch_selector(selector, previous)
+                except ClashError:
+                    pass
+            raise ClashError("ISP gateway binding failed") from error
+        return GatewayView(
+            port=port,
+            profile_id=self.gateway_profile_id(port),
+            name=self.gateway_profile_name(port),
+            proxy_url=self._gateway_proxy_url(port),
+            current_node=await self._controller.selector_current(selector),
+            isp_profile_id=profile_id,
+        )
+
+    @staticmethod
+    def isp_node_name(profile_id: UUID) -> str:
+        return f"account-pool-isp-{profile_id.hex}"
+
+    async def _ensure_isp_node(self, profile: ISPProxyProfile, port: int, *, active: bool = True) -> None:
+        config_path: Final = self._settings.clash_config_path
+        if not config_path:
+            raise ClashError("clash config path is not configured")
+        try:
+            with open(config_path, encoding="utf-8") as handle:
+                original: Final = handle.read()
+            config_value: Final = yaml.safe_load(original)
+        except (OSError, yaml.YAMLError) as error:
+            raise ClashError("clash configuration is unavailable") from error
+        if not isinstance(config_value, dict):
+            raise ClashError("clash config must be a YAML object")
+        config: Final = cast(dict[object, object], config_value)
+        proxies: Final = config.get("proxies", [])
+        groups: Final = config.get("proxy-groups", [])
+        if not isinstance(proxies, list) or not isinstance(groups, list):
+            raise ClashError("clash config does not contain valid proxies and proxy-groups")
+        proxy_name: Final = self.isp_node_name(profile.id)
+        proxy: Final = {
+            "name": proxy_name,
+            "type": "http" if profile.protocol == "https" else profile.protocol,
+            "server": profile.host,
+            "port": profile.port,
+            **({"tls": True} if profile.protocol == "https" else {}),
+            **({"username": profile.username} if profile.username else {}),
+            **({"password": profile.password} if profile.password else {}),
+        }
+        selector: Final = self._selector_name(port)
+        matched: Final = tuple(
+            item for item in groups if isinstance(item, dict) and item.get("name") == selector
+        )
+        if not matched or not isinstance(matched[0], dict):
+            raise ClashError("gateway selector is missing")
+        group: Final = matched[0]
+        choices: Final = group.get("proxies", [])
+        if not isinstance(choices, list) or any(not isinstance(choice, str) for choice in choices):
+            raise ClashError("gateway selector has invalid choices")
+        updated_group: Final = {
+            "name": selector,
+            "type": "select",
+            "proxies": [proxy_name, "REJECT"] if active else ["REJECT"],
+        }
+        updated_groups: Final = [
+            updated_group if isinstance(item, dict) and item.get("name") == selector else item for item in groups
+        ]
+        updated_proxies: Final = [
+            item for item in proxies if not isinstance(item, dict) or item.get("name") != proxy_name
+        ] + ([proxy] if active else [])
+        config["proxies"] = updated_proxies
+        config["proxy-groups"] = updated_groups
+        updated: Final = yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
+        await self._write_and_reload(config_path, updated, original)
+
+    async def _set_gateway_node(self, port: int, node_name: str) -> None:
+        if node_name not in {node.name for node in await self.list_nodes()}:
+            raise ClashError("proxy node is unavailable")
+        config_path: Final = self._settings.clash_config_path
+        with open(config_path, encoding="utf-8") as handle:
+            original: Final = handle.read()
+        config: Final = yaml.safe_load(original)
+        selector: Final = self._selector_name(port)
+        config["proxy-groups"] = [
+            {"name": selector, "type": "select", "proxies": [node_name, "REJECT"]}
+            if group.get("name") == selector else group for group in config.get("proxy-groups", [])
+        ]
+        await self._write_and_reload(config_path, yaml.safe_dump(config, allow_unicode=True, sort_keys=False), original)
+
+    async def _write_and_reload(self, config_path: str, updated: str, original: str) -> None:
+        if updated == original:
+            return
+        directory: Final = os.path.dirname(config_path) or "."
+        try:
+            self._replace_config(config_path, directory, updated)
+            await self._controller.reload_config(self._settings.clash_runtime_config_path)
+        except Exception as error:
+            self._replace_config(config_path, directory, original)
+            try:
+                await self._controller.reload_config(self._settings.clash_runtime_config_path)
+            except Exception:
+                pass
+            raise ClashError("clash configuration update failed") from error
 
     async def measure_delays(self) -> tuple[GatewayDelayView, ...]:
         ports: Final = await self._registered_ports()
@@ -458,7 +722,10 @@ class ProxyGatewayService:
             if not isinstance(template, dict) or not isinstance(group, dict):
                 raise ClashError("clash gateway template is missing")
             listeners.append({**template, "name": f"gateway-{port}", "port": port, "proxy": name})
-            groups.append({**group, "name": name})
+            choices: Final = group.get("proxies", [])
+            if not isinstance(choices, list) or any(not isinstance(choice, str) for choice in choices):
+                raise ClashError("clash gateway template has invalid choices")
+            groups.append({**group, "name": name, "proxies": list(dict.fromkeys((*choices, "REJECT")))})
         else:
             config["listeners"] = [item for item in listeners if not (isinstance(item, dict) and item.get("name") == f"gateway-{port}")]
             config["proxy-groups"] = [item for item in groups if not (isinstance(item, dict) and item.get("name") == name)]

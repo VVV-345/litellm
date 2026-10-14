@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Final
 from uuid import UUID
 
@@ -39,6 +40,9 @@ from account_pool.plugins import PluginService, PostgresPluginRepository, parse_
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.proxy_catalog_repository import PostgresProxyCatalogRepository, ProxyCatalogCipher
+from account_pool.proxy_catalog_service import ProxyCatalogService
+from account_pool.proxy_expiry import ISPExpiryScheduler
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
@@ -75,6 +79,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
+    proxy_catalog_repository: Final = PostgresProxyCatalogRepository(
+        resolved.database_url, ProxyCatalogCipher(secrets)
+    )
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
@@ -86,10 +93,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
     proxy_gateways: Final = (
-        ProxyGatewayService(resolved, profiles, controller)
+        ProxyGatewayService(resolved, profiles, controller, catalog=proxy_catalog_repository)
         if controller is not None
-        else ProxyGatewayService.disabled(resolved, profiles)
+        else ProxyGatewayService.disabled(resolved, profiles, catalog=proxy_catalog_repository)
     )
+    proxy_catalog: Final = ProxyCatalogService(proxy_catalog_repository, proxy_gateways.reconcile_isp_bindings)
+    proxy_expiry_scheduler: Final = ISPExpiryScheduler(proxy_catalog, proxy_gateways)
     service: Final = EnvironmentService(
         settings=resolved,
         repository=environments,
@@ -141,6 +150,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await environments.initialize()
         await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
+        await proxy_catalog_repository.initialize()
+        await proxy_gateways.initialize_saved_configuration()
         await policies.initialize()
         await leases.initialize()
         await batches.initialize()
@@ -149,6 +160,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
             await proxy_gateways.sync_profiles()
+        try:
+            await proxy_expiry_scheduler.run_once(date.today())
+        except Exception as error:
+            _LOGGER.warning("ISP startup reconciliation failed; periodic retry pending: %s", error.__class__.__name__)
         await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
@@ -179,6 +194,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         browser_cleanup_task: Final = asyncio.create_task(
             _reap_oauth_browser_sessions_until_cancelled(browser_sessions, browser_runtime, retry_stopped)
         )
+        proxy_expiry_task: Final = asyncio.create_task(proxy_expiry_scheduler.run_until_cancelled(retry_stopped))
         try:
             yield
         finally:
@@ -191,12 +207,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             quota_refresh_task.cancel()
             auth_refresh_task.cancel()
             browser_cleanup_task.cancel()
+            proxy_expiry_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
+            await asyncio.gather(proxy_expiry_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:
@@ -247,6 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             quota_scheduler=quota_scheduler,
             auth_refresh_scheduler=auth_refresh_scheduler,
             proxy_profiles=profiles,
+            proxy_catalog=proxy_catalog,
             browser_sessions=browser_sessions,
             browser_runtime=browser_runtime,
         )

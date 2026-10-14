@@ -50,6 +50,11 @@ interface AccountPoolDashboardStats {
   cards: ErrorStats[];
   statistics_source?: "litellm";
   occurred_from?: string;
+  gateway_latency: {
+    p95_ms: number | null;
+    p99_ms: number | null;
+    sample_count: number;
+  };
 }
 type BatchJob = components["schemas"]["BatchJob"];
 export type BatchAction = components["schemas"]["BatchRequest"]["action"];

@@ -27,6 +27,7 @@ from account_pool.release_compatibility import (
     OAuthBrowserSchemaEvidence,
     RollbackEvidence,
     credential_contract,
+    additive_manager_schema_upgrade,
     digest_sources,
     forward_compatible_manager_upgrade,
     manager_source_digest,
@@ -336,6 +337,9 @@ class DockerReleaseRuntime:
         return oauth_browser_schema_upgrade(
             self._oauth_browser_schema_evidence(current), self._oauth_browser_schema_evidence(target)
         )
+
+    def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
+        return additive_manager_schema_upgrade(self._upgrade_sources(current), self._upgrade_sources(target))
 
     def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         current_pool: Final = next(image for image in current.images if image.service == "account-pool")

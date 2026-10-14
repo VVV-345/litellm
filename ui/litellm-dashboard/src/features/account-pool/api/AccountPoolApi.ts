@@ -14,6 +14,10 @@ import type {
   AccountPoolProxyGateway,
   AccountPoolProxyGatewayDelay,
   AccountPoolProxyGatewayConfigurationRequest,
+  AccountPoolISPProxy,
+  AccountPoolISPProxyUpdateRequest,
+  AccountPoolProxyConfigurationProfile,
+  AccountPoolProxyConfigurationProfileRequest,
   AccountPoolProxyProfile,
   AccountPoolUpdateRequest,
 } from "../utils/AccountPoolTypes";
@@ -195,6 +199,57 @@ export const updateAccountPoolProxyGatewayConfiguration = (
     body: request,
   });
 
+export const listAccountPoolProxyConfigurations = (accessToken: string): Promise<AccountPoolProxyConfigurationProfile[]> =>
+  apiClient.get<AccountPoolProxyConfigurationProfile[]>("/account_pool/proxy-gateways/configurations", { accessToken });
+
+export const saveAccountPoolProxyConfiguration = (
+  accessToken: string,
+  request: AccountPoolProxyConfigurationProfileRequest,
+): Promise<AccountPoolProxyConfigurationProfile> =>
+  apiClient.post<AccountPoolProxyConfigurationProfile>("/account_pool/proxy-gateways/configurations", {
+    accessToken,
+    body: request,
+  });
+
+export const activateAccountPoolProxyConfiguration = (
+  accessToken: string,
+  profileId: string,
+): Promise<AccountPoolProxyConfigurationProfile> =>
+  apiClient.put<AccountPoolProxyConfigurationProfile>(
+    `/account_pool/proxy-gateways/configurations/${encodeURIComponent(profileId)}/activate`,
+    { accessToken },
+  );
+
+export const deleteAccountPoolProxyConfiguration = (accessToken: string, profileId: string): Promise<void> =>
+  apiClient.delete<void>(`/account_pool/proxy-gateways/configurations/${encodeURIComponent(profileId)}`, {
+    accessToken,
+  });
+
+export const listAccountPoolISPProxies = (accessToken: string): Promise<AccountPoolISPProxy[]> =>
+  apiClient.get<AccountPoolISPProxy[]>("/account_pool/proxy-isps", { accessToken });
+
+export const importAccountPoolISPProxies = (
+  accessToken: string,
+  content: string,
+): Promise<AccountPoolISPProxy[]> =>
+  apiClient.post<AccountPoolISPProxy[]>("/account_pool/proxy-isps/import", {
+    accessToken,
+    body: { content },
+  });
+
+export const updateAccountPoolISPProxy = (
+  accessToken: string,
+  profileId: string,
+  request: AccountPoolISPProxyUpdateRequest,
+): Promise<AccountPoolISPProxy> =>
+  apiClient.put<AccountPoolISPProxy>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}`, {
+    accessToken,
+    body: request,
+  });
+
+export const deleteAccountPoolISPProxy = (accessToken: string, profileId: string): Promise<void> =>
+  apiClient.delete<void>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}`, { accessToken });
+
 export const listAccountPoolClashNodes = (accessToken: string): Promise<AccountPoolClashNode[]> =>
   apiClient.get<AccountPoolClashNode[]>("/account_pool/proxy-gateways/nodes", { accessToken });
 
@@ -206,6 +261,16 @@ export const switchAccountPoolProxyGateway = (
   apiClient.put<AccountPoolProxyGateway>(`/account_pool/proxy-gateways/${port}`, {
     accessToken,
     body: { node_name: nodeName },
+  });
+
+export const bindAccountPoolProxyGatewayISP = (
+  accessToken: string,
+  port: number,
+  profileId: string,
+): Promise<AccountPoolProxyGateway> =>
+  apiClient.put<AccountPoolProxyGateway>(`/account_pool/proxy-gateways/${port}/isp`, {
+    accessToken,
+    body: { profile_id: profileId },
   });
 
 export const addAccountPoolProxyGateway = (accessToken: string): Promise<AccountPoolProxyGateway> =>

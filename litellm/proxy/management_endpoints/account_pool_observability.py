@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Final, Literal, Protocol, cast
@@ -11,10 +12,15 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from litellm.proxy.management_endpoints.account_pool_management_models import ErrorStats
+from litellm.proxy.management_endpoints.account_pool_timing import GatewayLatencyStats
 
 
 class StatsQuery(Protocol):
     async def __call__(self, sql: str, since: datetime) -> object: ...
+
+
+class TimingStatsQuery(Protocol):
+    def __call__(self) -> GatewayLatencyStats: ...
 
 
 _STANDARD_STATS_SQL: Final = """
@@ -92,10 +98,17 @@ class AccountPoolDashboardStats(BaseModel):
     cards: tuple[ErrorStats, ...]
     statistics_source: Literal["litellm"] = "litellm"
     occurred_from: datetime
+    gateway_latency: GatewayLatencyStats = Field(default_factory=GatewayLatencyStats)
 
 
 class StatisticsDatabase(Protocol):
     async def query_raw(self, sql: str, since: datetime) -> object: ...
+
+
+def query_gateway_latency_stats() -> GatewayLatencyStats:
+    from litellm.proxy.management_endpoints.account_pool_full_logs import full_log_store
+
+    return full_log_store().gateway_latency_stats()
 
 
 async def query_standard_stats(sql: str, since: datetime) -> object:
@@ -111,12 +124,21 @@ async def query_standard_stats(sql: str, since: datetime) -> object:
 
 
 async def standard_dashboard(
-    query: StatsQuery = query_standard_stats, *, now: datetime | None = None
+    query: StatsQuery = query_standard_stats,
+    *,
+    now: datetime | None = None,
+    timing_query: TimingStatsQuery = query_gateway_latency_stats,
 ) -> AccountPoolDashboardStats:
     since: Final = (now or datetime.now(timezone.utc)) - timedelta(days=30)
-    rows: Final = TypeAdapter(tuple[StandardAccountStats, ...]).validate_python(await query(_STANDARD_STATS_SQL, since))
+    rows_result: Final
+    gateway_latency: Final
+    rows_result, gateway_latency = await asyncio.gather(
+        query(_STANDARD_STATS_SQL, since), asyncio.to_thread(timing_query)
+    )
+    rows: Final = TypeAdapter(tuple[StandardAccountStats, ...]).validate_python(rows_result)
     return AccountPoolDashboardStats(
         summary=next((row.public() for row in rows if row.account_id is None), ErrorStats(statistics_source="litellm")),
         cards=tuple(row.public() for row in rows if row.account_id is not None),
         occurred_from=since,
+        gateway_latency=gateway_latency,
     )

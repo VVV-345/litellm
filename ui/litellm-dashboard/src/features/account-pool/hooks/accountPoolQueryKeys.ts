@@ -46,6 +46,9 @@ export const accountPoolQueryKeys = {
     [...ACCOUNT_POOL_ROOT, "proxy-gateway-delays", accessToken] as const,
   proxyGatewayConfiguration: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "proxy-gateway-configuration", accessToken] as const,
+  proxyConfigurations: (accessToken: string | null) =>
+    [...ACCOUNT_POOL_ROOT, "proxy-configurations", accessToken] as const,
+  proxyIsps: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "proxy-isps", accessToken] as const,
   proxyGatewayNodes: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "proxy-gateway-nodes", accessToken] as const,
 } as const;

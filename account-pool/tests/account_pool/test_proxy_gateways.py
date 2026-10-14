@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Final, cast
 from urllib.parse import urlsplit
+from uuid import UUID, uuid4
 
 import pytest
 from account_pool.api import create_router
-from account_pool.clash import ClashDelayResult, ClashError, ClashProxyNode
+from account_pool.clash import ClashController, ClashDelayResult, ClashError, ClashProxyNode
 from account_pool.config import Settings
 from account_pool.domain import (
     AuthorizationFlow,
@@ -20,8 +21,9 @@ from account_pool.domain import (
     ProxyMode,
     utc_now,
 )
-from account_pool.ports import AuthorizationStart
+from account_pool.ports import AuthorizationStart, ProxyProfileRepository
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
+from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 from account_pool.result import Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService

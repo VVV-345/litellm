@@ -7,7 +7,7 @@ import hmac
 import html
 import json
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
@@ -53,6 +53,8 @@ from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
+from account_pool.proxy_catalog import ISPProxyProfileView, ProxyConfigurationProfileView
+from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.quota_scheduler import (
     AuthFileRefreshStatus,
     QuotaRefreshScheduler,
@@ -76,6 +78,40 @@ class GatewayConfigurationRequest(BaseModel):
 
     content: str | None = Field(default=None, max_length=2_097_152)
     url: str | None = Field(default=None, max_length=2048)
+    name: str | None = Field(default=None, max_length=120)
+
+
+class GatewayConfigurationProfileRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    content: str | None = Field(default=None, max_length=2_097_152)
+    url: str | None = Field(default=None, max_length=2048)
+
+
+class ISPProfileImportRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str = Field(min_length=1, max_length=2_097_152, repr=False)
+
+
+class ISPProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    protocol: Literal["http", "https", "socks5"]
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=512, repr=False)
+    password: str | None = Field(default=None, max_length=2048, repr=False)
+    expires_on: date | None = None
+    enabled: bool
+
+
+class GatewayISPBindingRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    profile_id: UUID
 
 
 class ClashNodeView(BaseModel):
@@ -237,6 +273,7 @@ def create_router(
     quota_scheduler: QuotaRefreshScheduler | None = None,
     auth_refresh_scheduler: RefreshScheduler | None = None,
     proxy_profiles: ProxyProfileRepository | None = None,
+    proxy_catalog: ProxyCatalogService | None = None,
     browser_sessions: OAuthBrowserSessionService | None = None,
     browser_runtime: OAuthBrowserRuntime | None = None,
 ) -> APIRouter:
@@ -840,6 +877,45 @@ def create_router(
     async def list_proxy_profiles() -> tuple[ProxyProfile, ...]:
         return await service.list_proxy_profiles()
 
+    if proxy_catalog is not None:
+
+        @router.get("/api/proxy-isps", dependencies=[Depends(require_manager)])
+        async def list_proxy_isps() -> tuple[ISPProxyProfileView, ...]:
+            return await proxy_catalog.list_isps()
+
+        @router.post("/api/proxy-isps/import", dependencies=[Depends(require_manager)], status_code=201)
+        async def import_proxy_isps(request: ISPProfileImportRequest) -> tuple[ISPProxyProfileView, ...]:
+            try:
+                return await proxy_catalog.import_isps(request.content)
+            except ValueError as error:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+
+        @router.put("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)])
+        async def update_proxy_isp(
+            profile_id: UUID, request: ISPProfileUpdateRequest
+        ) -> ISPProxyProfileView:
+            try:
+                return await proxy_catalog.update_isp(
+                    profile_id,
+                    name=request.name,
+                    protocol=request.protocol,
+                    host=request.host,
+                    port=request.port,
+                    username=request.username,
+                    password=request.password,
+                    expires_on=request.expires_on,
+                    enabled=request.enabled,
+                )
+            except (ValueError, ClashError) as error:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
+
+        @router.delete("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)
+        async def delete_proxy_isp(profile_id: UUID) -> None:
+            try:
+                await proxy_catalog.delete_isp(profile_id)
+            except (ValueError, ClashError) as error:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
+
     @router.get("/api/proxy-gateways", dependencies=[Depends(require_manager)])
     async def list_proxy_gateways() -> tuple[GatewayView, ...]:
         try:
@@ -861,9 +937,43 @@ def create_router(
     @router.put("/api/proxy-gateways/configuration", dependencies=[Depends(require_manager)])
     async def update_proxy_gateway_configuration(request: GatewayConfigurationRequest) -> GatewayConfigurationView:
         try:
-            return await service.update_proxy_gateway_configuration(content=request.content, url=request.url)
+            return await service.update_proxy_gateway_configuration(
+                content=request.content, url=request.url, name=request.name
+            )
         except ClashError as error:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+
+    @router.get("/api/proxy-gateways/configurations", dependencies=[Depends(require_manager)])
+    async def list_proxy_gateway_configurations() -> tuple[ProxyConfigurationProfileView, ...]:
+        return await service.list_proxy_gateway_configurations()
+
+    @router.post("/api/proxy-gateways/configurations", dependencies=[Depends(require_manager)], status_code=201)
+    async def save_proxy_gateway_configuration(
+        request: GatewayConfigurationProfileRequest,
+    ) -> ProxyConfigurationProfileView:
+        try:
+            return await service.save_proxy_gateway_configuration(
+                request.name, content=request.content, url=request.url
+            )
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+
+    @router.put(
+        "/api/proxy-gateways/configurations/{profile_id}/activate",
+        dependencies=[Depends(require_manager)],
+    )
+    async def activate_proxy_gateway_configuration(profile_id: UUID) -> ProxyConfigurationProfileView:
+        try:
+            return await service.activate_proxy_gateway_configuration(profile_id)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    @router.delete("/api/proxy-gateways/configurations/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)
+    async def delete_proxy_gateway_configuration(profile_id: UUID) -> None:
+        try:
+            await service.delete_proxy_gateway_configuration(profile_id)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     @router.get("/api/proxy-gateways/nodes", dependencies=[Depends(require_manager)])
     async def list_clash_nodes() -> tuple[ClashNodeView, ...]:
@@ -882,6 +992,13 @@ def create_router(
             return await service.switch_proxy_gateway(port, request.node_name)
         except ClashError as error:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+    @router.put("/api/proxy-gateways/{port}/isp", dependencies=[Depends(require_manager)])
+    async def bind_proxy_gateway_isp(port: int, request: GatewayISPBindingRequest) -> GatewayView:
+        try:
+            return await service.bind_proxy_gateway_isp(port, request.profile_id)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 
     @router.post("/api/proxy-gateways", dependencies=[Depends(require_manager)], status_code=201)
     async def add_proxy_gateway() -> GatewayView:

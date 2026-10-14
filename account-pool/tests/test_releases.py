@@ -107,6 +107,9 @@ class Runtime:
     def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         return self.forward_compatible_upgrade and current == CURRENT and target == NEW
 
+    def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
+        return False
+
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
         if self.missing_image == pair.id:
             raise ReleaseError("镜像已清理")

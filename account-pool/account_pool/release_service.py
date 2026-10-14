@@ -54,6 +54,8 @@ class ReleaseRuntime(Protocol):
     def is_oauth_browser_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
 
     def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
+
+    def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
     def evidence(self, pair: ReleasePair) -> RollbackEvidence: ...
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
@@ -645,20 +647,21 @@ class ReleaseService:
         recovery: Final = self.backup(current, self.runtime.running_compose())
         # 仅已审阅、旧版可忽略的会话表新增允许带备份升级；失败仍只退镜像，不回放业务数据。
         compatibility: Final = (
-            (False, False, False)
+            (False, False, False, False)
             if self.skip_compatibility_checks
             else (
                 self.runtime.fingerprint(target) != recovery.schema_fingerprint,
                 self.database is not None and self.runtime.is_forward_compatible_upgrade(current, target),
                 self.database is not None and self.runtime.is_oauth_browser_schema_upgrade(current, target),
+                self.database is not None and self.runtime.is_additive_manager_schema_upgrade(current, target),
             )
         )
-        schema_changed, forward_compatible, oauth_schema_upgrade = compatibility
+        schema_changed, forward_compatible, oauth_schema_upgrade, additive_manager_upgrade = compatibility
         if (
             not self.skip_compatibility_checks
             and action.action == "deploy"
             and schema_changed
-            and not (forward_compatible or oauth_schema_upgrade)
+            and not (forward_compatible or oauth_schema_upgrade or additive_manager_upgrade)
         ):
             raise ReleaseError("版本间数据库结构或持久化配置格式不同，已备份当前版本；请先完成数据兼容处理")
         if self.runtime.current().id != current.id:

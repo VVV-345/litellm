@@ -69,6 +69,10 @@ def test_release_tags_wait_for_all_image_builds() -> None:
     assert any("test_release_workflow.py" in command for command in pytest_commands)
     assert any("test_release_runtime.py" in command for command in pytest_commands)
     assert any("test_release_database.py" in command for command in pytest_commands)
+    assert any("test_proxy_catalog_schema.py" in command for command in pytest_commands)
+    assert any("test_isp_profiles.py" in command for command in pytest_commands)
+    assert any("test_proxy_gateways.py" in command for command in pytest_commands)
+    assert any("test_proxy_configuration.py" in command for command in pytest_commands)
     assert any("account_pool/test_upstream_sync.py" in command for command in pytest_commands)
     assert any("test_account_pool_endpoints.py" in command for command in pytest_commands)
     assert any(
@@ -76,6 +80,7 @@ def test_release_tags_wait_for_all_image_builds() -> None:
         for command in pytest_commands
     )
     assert any("AccountPoolOnboardingPanel.integration.test.tsx" in command for command in pytest_commands)
+    assert any("ProxyManagerPanel.integration.test.tsx" in command for command in pytest_commands)
     assert any("AccountPoolManagementApi.test.ts" in command for command in pytest_commands)
 
     summary_job: Final = JSON_MAP.validate_python(jobs["summary"])

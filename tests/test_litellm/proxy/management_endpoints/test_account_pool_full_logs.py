@@ -430,6 +430,43 @@ def test_timing_is_persistent_request_scoped_and_independent_of_body_storage(sto
     assert reopened.timing(request_id) == ()
 
 
+def test_gateway_latency_stats_use_recent_upstream_header_phases(store: FullLogStore) -> None:
+    from litellm.proxy.management_endpoints.account_pool_timing import TimingPhase
+
+    now: Final = datetime.now(timezone.utc)
+    samples: Final = tuple(
+        TimingPhase(attempt=1, phase="upstream_headers", duration_ms=float(value), status=200)
+        for value in range(1, 101)
+    )
+    store.save_timing(uuid4(), samples)
+    store.save_timing(
+        uuid4(),
+        (
+            TimingPhase(attempt=1, phase="resolve", duration_ms=9999, status=200),
+            TimingPhase(attempt=1, phase="upstream_headers", duration_ms=10000, status=200),
+        ),
+    )
+    with store.timing_connection() as connection:
+        connection.execute(
+            "UPDATE request_timings SET recorded_at = ? WHERE duration_ms = ?",
+            ((now - timedelta(days=8)).timestamp(), 10000),
+        )
+
+    stats: Final = store.gateway_latency_stats(now=now)
+
+    assert stats.sample_count == 100
+    assert stats.p95_ms == 95
+    assert stats.p99_ms == 99
+
+
+def test_gateway_latency_stats_are_empty_without_samples(store: FullLogStore) -> None:
+    stats: Final = store.gateway_latency_stats(now=datetime.now(timezone.utc))
+
+    assert stats.sample_count == 0
+    assert stats.p95_ms is None
+    assert stats.p99_ms is None
+
+
 @pytest.mark.parametrize("percent,success,expected", [(0, True, 0), (100, True, 1), (0, False, 1)])
 def test_success_sampling_preserves_failures_and_usage(store, percent, success, expected):
     client, control = setup_gateway(

@@ -75,6 +75,7 @@ from account_pool.ports import (
 )
 from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
+from account_pool.proxy_catalog import ProxyConfigurationProfileView
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 from account_pool.shared.error_safety import safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
@@ -427,9 +428,23 @@ class EnvironmentService:
         return self._proxy_gateways.configuration()
 
     async def update_proxy_gateway_configuration(
-        self, *, content: str | None = None, url: str | None = None
+        self, *, content: str | None = None, url: str | None = None, name: str | None = None
     ) -> GatewayConfigurationView:
-        return await self._proxy_gateways.update_configuration(content=content, url=url)
+        return await self._proxy_gateways.update_configuration(content=content, url=url, name=name)
+
+    async def list_proxy_gateway_configurations(self) -> tuple[ProxyConfigurationProfileView, ...]:
+        return await self._proxy_gateways.list_configuration_profiles()
+
+    async def save_proxy_gateway_configuration(
+        self, name: str, *, content: str | None = None, url: str | None = None
+    ) -> ProxyConfigurationProfileView:
+        return await self._proxy_gateways.save_configuration_profile(name, content=content, url=url)
+
+    async def activate_proxy_gateway_configuration(self, profile_id: UUID) -> ProxyConfigurationProfileView:
+        return await self._proxy_gateways.activate_configuration_profile(profile_id)
+
+    async def delete_proxy_gateway_configuration(self, profile_id: UUID) -> None:
+        await self._proxy_gateways.delete_configuration_profile(profile_id)
 
     async def list_clash_nodes(self) -> tuple[ClashProxyNode, ...]:
         return await self._proxy_gateways.list_nodes()
@@ -442,6 +457,20 @@ class EnvironmentService:
             if any(record.proxy_profile_id == profile_id and _oauth_proxy_in_use(record, now) for record in records):
                 raise ClashError("gateway cannot be changed during OAuth authorization")
             view: Final = await self._proxy_gateways.switch_gateway(port, node_name)
+            await self._proxy_gateways.sync_profiles()
+            return view
+
+    async def bind_proxy_gateway_isp(self, port: int, profile_id: UUID) -> GatewayView:
+        gateway_profile_id: Final = self._proxy_gateways.gateway_profile_id(port)
+        async with self._proxy_gateways.profile_operation(gateway_profile_id):
+            records: Final = await self._repository.list()
+            now: Final = utc_now()
+            if any(
+                record.proxy_profile_id == gateway_profile_id and _oauth_proxy_in_use(record, now)
+                for record in records
+            ):
+                raise ClashError("gateway cannot be changed during OAuth authorization")
+            view: Final = await self._proxy_gateways.bind_isp_gateway(port, profile_id)
             await self._proxy_gateways.sync_profiles()
             return view
 

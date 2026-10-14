@@ -9,6 +9,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import cache
+from math import ceil
 from pathlib import Path
 from typing import Final, Literal
 from uuid import UUID
@@ -16,7 +17,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
 
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import FinishRequest
-from litellm.proxy.management_endpoints.account_pool_timing import TimingPhase
+from litellm.proxy.management_endpoints.account_pool_timing import GatewayLatencyStats, TimingPhase
 
 
 class FullLogSummary(BaseModel):
@@ -205,6 +206,26 @@ class FullLogStore:
         return tuple(
             TimingPhase(attempt=row[0], phase=row[1], duration_ms=row[2], status=row[3], segment_id=row[4])
             for row in rows
+        )
+
+    def gateway_latency_stats(self, *, now: datetime | None = None) -> GatewayLatencyStats:
+        database_path: Final = self.root / "timings.sqlite3"
+        if not database_path.exists():
+            return GatewayLatencyStats()
+        cutoff: Final = ((now or datetime.now(timezone.utc)) - timedelta(days=7)).timestamp()
+        with self.timing_connection() as connection:
+            rows: Final = connection.execute(
+                "SELECT duration_ms FROM request_timings WHERE phase = ? AND recorded_at >= ?",
+                ("upstream_headers", cutoff),
+            ).fetchall()
+        durations: Final = tuple(sorted(float(row[0]) for row in rows))
+        if not durations:
+            return GatewayLatencyStats()
+        sample_count: Final = len(durations)
+        return GatewayLatencyStats(
+            p95_ms=durations[ceil(sample_count * 0.95) - 1],
+            p99_ms=durations[ceil(sample_count * 0.99) - 1],
+            sample_count=sample_count,
         )
 
     def append(self, record: FullLogRecord) -> None:

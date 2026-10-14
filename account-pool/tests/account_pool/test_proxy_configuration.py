@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Final, cast
+from uuid import UUID, uuid4
 
 import pytest
 from account_pool.api import create_router
 from account_pool.clash import ClashController, ClashError, ClashProxyNode
 from account_pool.config import Settings
 from account_pool.ports import ProxyProfileRepository
-from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.proxy_catalog import ISPProxyProfile, ProxyConfigurationProfile
+from account_pool.proxy_catalog_repository import ProxyCatalogRepository
+from account_pool.proxy_gateways import GatewayConfigurationView, ProxyGatewayService
 from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -54,8 +58,10 @@ class Profiles:
 class ConfigurationService:
     gateway: ProxyGatewayService
 
-    async def update_proxy_gateway_configuration(self, *, content: str | None = None, url: str | None = None):
-        return await self.gateway.update_configuration(content=content, url=url)
+    async def update_proxy_gateway_configuration(
+        self, *, content: str | None = None, url: str | None = None, name: str | None = None
+    ) -> GatewayConfigurationView:
+        return await self.gateway.update_configuration(content=content, url=url, name=name)
 
 
 def _settings(config_path: str, ports: tuple[int, ...] = ()) -> Settings:
@@ -151,6 +157,62 @@ async def test_update_configuration_preserves_existing_gateway_entries(tmp_path:
     assert "clash-gateway-7891" in updated
 
 
+@pytest.mark.asyncio
+async def test_configuration_profiles_are_saved_separately_and_switchable(tmp_path: Path) -> None:
+    class Catalog:
+        def __init__(self) -> None:
+            self.profiles: dict[UUID, ProxyConfigurationProfile] = {}
+            self.active_id: UUID | None = None
+
+        async def list_isp_bindings(self) -> tuple[tuple[int, UUID], ...]:
+            return ()
+
+        async def list_configuration_views(self) -> tuple[tuple[UUID, str, datetime, bool], ...]:
+            return tuple(
+                (profile.id, profile.name, profile.created_at, profile.id == self.active_id)
+                for profile in self.profiles.values()
+            )
+
+        async def save_configuration(self, name: str, content: str, source_url: str | None):
+            profile: Final = ProxyConfigurationProfile(
+                id=uuid4(), name=name, content=content, source_url=source_url, created_at=datetime.now(timezone.utc)
+            )
+            self.profiles[profile.id] = profile
+            return profile
+
+        async def get_configuration(self, profile_id: UUID):
+            return self.profiles.get(profile_id)
+
+        async def activate_configuration(self, profile_id: UUID) -> bool:
+            self.active_id = profile_id
+            return profile_id in self.profiles
+
+    config_path: Final = tmp_path / "config.yaml"
+    initial: Final = "external-controller: 127.0.0.1:9090\nlisteners: []\nproxy-groups: []\n"
+    first: Final = "external-controller: 127.0.0.1:9091\nlisteners: []\nproxy-groups: []\n"
+    second: Final = "external-controller: 127.0.0.1:9092\nlisteners: []\nproxy-groups: []\n"
+    config_path.write_text(initial, encoding="utf-8")
+    controller: Final = ConfigController()
+    catalog: Final = Catalog()
+    service: Final = ProxyGatewayService(
+        _settings(str(config_path)),
+        cast(ProxyProfileRepository, Profiles()),
+        cast(ClashController, controller),
+        catalog=cast(ProxyCatalogRepository, catalog),
+    )
+
+    saved_first: Final = await service.save_configuration_profile("First", content=first)
+    saved_second: Final = await service.save_configuration_profile("Second", content=second)
+
+    assert config_path.read_text(encoding="utf-8") == initial
+    assert len(catalog.profiles) == 2
+    await service.activate_configuration_profile(saved_second.id)
+    assert "9092" in config_path.read_text(encoding="utf-8")
+    await service.activate_configuration_profile(saved_first.id)
+    assert "9091" in config_path.read_text(encoding="utf-8")
+    assert len(catalog.profiles) == 2
+
+
 def test_configuration_api_rejects_ambiguous_and_invalid_inputs(tmp_path: Path) -> None:
     config_path: Final = tmp_path / "config.yaml"
     config_path.write_text("listeners: []\n", encoding="utf-8")
@@ -178,3 +240,60 @@ def test_configuration_api_rejects_ambiguous_and_invalid_inputs(tmp_path: Path) 
     assert both.status_code == 422
     assert scalar.status_code == 422
     assert private.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_isp_expiry_persists_reject_and_edit_refreshes_bound_node(tmp_path: Path) -> None:
+    import yaml
+
+    profile_id: Final = uuid4()
+
+    class Catalog:
+        profile = ISPProxyProfile(id=profile_id, name="ISP", protocol="http", host="isp.test", port=1234,
+                                  password="first-secret", expires_on=date(2026, 11, 1))
+        bindings: tuple[tuple[int, UUID], ...] = ()
+
+        async def get_isp(self, identity):
+            return self.profile if identity == profile_id else None
+
+        async def list_isp_bindings(self):
+            return self.bindings
+
+        async def list_inactive_isp_bindings(self, today):
+            return self.bindings if not self.profile.enabled or self.profile.expired(today) else ()
+
+        async def bind_isp(self, port, identity):
+            self.bindings = (*self.bindings, (port, identity))
+
+    class Controller(ConfigController):
+        current: dict[str, str] = {}
+
+        async def switch_selector(self, selector_name, node_name):
+            self.current[selector_name] = node_name
+
+        async def selector_current(self, selector_name):
+            return self.current.get(selector_name)
+
+    config_path: Final = tmp_path / "config.yaml"
+    config_path.write_text(
+        "proxies: [{name: old, type: http, server: old.test, port: 80}]\n"
+        "listeners: [{name: gateway-7891, port: 7891, proxy: clash-gateway-7891}]\n"
+        "proxy-groups: [{name: clash-gateway-7891, type: select, proxies: [old]}]\n",
+        encoding="utf-8",
+    )
+    catalog: Final = Catalog()
+    controller: Final = Controller()
+    service: Final = ProxyGatewayService(_settings(str(config_path), (7891,)), cast(ProxyProfileRepository, Profiles()),
+                                        cast(ClashController, controller), catalog=cast(ProxyCatalogRepository, catalog))
+    await service.bind_isp_gateway(7891, profile_id, date(2026, 10, 14))
+    catalog.profile = catalog.profile.model_copy(update={"password": "new-secret"})
+    await service.reconcile_isp_bindings(date(2026, 10, 14))
+    assert "new-secret" in config_path.read_text(encoding="utf-8")
+    await service.reconcile_isp_bindings(date(2026, 11, 1))
+    config: Final = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    group: Final = next(group for group in config["proxy-groups"] if group["name"] == "clash-gateway-7891")
+    assert group["proxies"][0] == "REJECT"
+    assert all(proxy["name"] != service.isp_node_name(profile_id) for proxy in config["proxies"])
+    assert controller.current["clash-gateway-7891"] == "REJECT"
+    with pytest.raises(ClashError):
+        await service.switch_gateway(7891, service.isp_node_name(profile_id))
