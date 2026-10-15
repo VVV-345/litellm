@@ -38,12 +38,13 @@ def deployment(card, order=0):
         (None, True, False, 1),
     ],
 )
-async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind, enabled, bound, expected):
+async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind, enabled, bound, expected, monkeypatch):
     import httpx
 
     from litellm.exceptions import ServiceUnavailableError
     from litellm.types.llms.openai import ResponsesAPIResponse
 
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
     first, second = uuid4(), uuid4()
     router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
     previous = snapshots.values
@@ -88,12 +89,13 @@ async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind,
 
 
 @pytest.mark.asyncio
-async def test_availability_failure_does_not_enable_quota_only_preview_model():
+async def test_availability_failure_does_not_enable_quota_only_preview_model(monkeypatch):
     import httpx
 
     from litellm.exceptions import ServiceUnavailableError
     from litellm.types.llms.openai import ResponsesAPIResponse
 
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
     card, preview = uuid4(), uuid4()
     router = Router(
         model_list=[deployment(card), {**deployment(preview), "model_name": "preview"}],
