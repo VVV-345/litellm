@@ -1,4 +1,4 @@
-"""Responses 可见历史的短期加密缓存与额度迁移，不保存上游签名。"""
+"""Responses 可见历史的短期加密缓存与安全迁移，不保存上游签名。"""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
+import httpx
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
 
 from litellm._logging import verbose_proxy_logger
@@ -141,6 +142,20 @@ def portable_item(item: Mapping[str, JsonValue]) -> bool:
     )
 
 
+def retry_exhausted(error: BaseException, depth: int = 0) -> bool:
+    headers: Final = getattr(error, "headers", None)
+    response: Final = getattr(error, "response", None)
+    if (
+        isinstance(headers, (Mapping, httpx.Headers))
+        and cast(Mapping[str, object], headers).get("x-account-pool-rebuild") == "retry-exhausted"  # cast-ok: Only compare the opaque exception header value after checking the mapping protocol.
+        or isinstance(response, httpx.Response)
+        and response.headers.get("x-account-pool-rebuild") == "retry-exhausted"
+    ):
+        return True
+    previous: Final = error.__cause__ or error.__context__
+    return depth < 5 and previous is not None and retry_exhausted(previous, depth + 1)
+
+
 class Conversation:
     def __init__(
         self,
@@ -167,7 +182,8 @@ class Conversation:
             return None
         deployments: Final = router.get_model_list(model_name=model) or ()
         if not any(
-            (snapshot := snapshot_for(item, quota_snapshots.values)) is not None and snapshot.quota_switch_project
+            (snapshot := snapshot_for(item, quota_snapshots.values)) is not None
+            and (snapshot.quota_switch_project or snapshot.fallback_enabled)
             for item in deployments
         ):
             return None
@@ -195,21 +211,24 @@ class Conversation:
         )
         return cls(identity, model, request, history, origin, store)
 
-    def rebuild(self, router: Router, payload: Mapping[str, object], error: Exception) -> Mapping[str, object] | None:
+    def can_replay(self, router: Router, payload: Mapping[str, object]) -> bool:
         if (
             self.history is None
             or payload.get("disable_fallbacks")
             or payload.get("max_fallbacks", router.max_fallbacks) == 0
         ):
-            return None
+            return False
         if not has_signed_history(payload):
-            return None
+            return False
         if self.request.get("truncation") == "auto":
-            return None
+            return False
         restored: Final = _JSON.validate_python(
             MappingProxyType({**self.request, "input": _INPUT.validate_python(self.history)})
         )
-        if signature_recovery_reason(restored) is not None:
+        return signature_recovery_reason(restored) is None
+
+    def rebuild(self, router: Router, payload: Mapping[str, object], error: Exception) -> Mapping[str, object] | None:
+        if not self.can_replay(router, payload):
             return None
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
@@ -219,7 +238,7 @@ class Conversation:
         if origin is None:
             return None
         snapshot: Final = snapshot_for(origin, quota_snapshots.values)
-        if snapshot is None or not snapshot.quota_switch_project:
+        if snapshot is None:
             return None
         quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(self.model, self.model), snapshot.quota)
         remaining: Final = quota.effective(now_utc())[0]
@@ -229,7 +248,10 @@ class Conversation:
             and remaining is not None
             and remaining <= snapshot.quota_reserve_percent
         )
-        if exhausted_snapshot(error, deployments, self.model) is None and not depleted_before_call:
+        quota_migration: Final = snapshot.quota_switch_project and (
+            exhausted_snapshot(error, deployments, self.model) is not None or depleted_before_call
+        )
+        if not quota_migration and not (snapshot.fallback_enabled and retry_exhausted(error)):
             return None
         previous_excluded: Final = payload.get("_excluded_deployment_ids")
         excluded: Final = quota_failover_exclusions(
@@ -240,7 +262,7 @@ class Conversation:
         )
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
-        verbose_proxy_logger.info("Account pool conversation quota migration; request_id=%s", self.identity.request_id)
+        verbose_proxy_logger.info("Account pool conversation migration; request_id=%s", self.identity.request_id)
         return MappingProxyType(
             {
                 **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),

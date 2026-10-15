@@ -220,6 +220,7 @@ class AccountPoolGatewayMiddleware:
                     "account_pool_request_id": ticket.identity.request_id,
                     "account_pool_standard_accounting": True,
                     "account_pool_retry_policy": ticket.retry_policy,
+                    "account_pool_conversation_replay": ticket.conversation_replay,
                 },
             }
             gateway: Final = AccountPoolGatewayMiddleware(

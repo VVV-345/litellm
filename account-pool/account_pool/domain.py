@@ -544,6 +544,7 @@ class GatewayEnvironment(BaseModel):
     quota_snapshot_max_age: int = 300
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
+    fallback_enabled: bool = False
     api_base: str
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)

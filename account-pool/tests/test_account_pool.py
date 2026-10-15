@@ -1385,7 +1385,7 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     policy = PolicyView(
         card_id=record.id,
         policy=AccountPolicy(
-            routing=RoutingPolicy(quota_reserve_percent=10, quota_snapshot_max_age=120),
+            routing=RoutingPolicy(quota_reserve_percent=10, quota_snapshot_max_age=120, fallback_enabled=True),
             model_aliases=(ModelAlias(alias="public", target=record.enabled_models[0]),),
         ),
     )
@@ -1405,6 +1405,7 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     assert exported.quota == quota
     assert exported.quota_reserve_percent == 10
     assert exported.quota_snapshot_max_age == 120
+    assert exported.fallback_enabled is True
     assert exported.model_aliases == {"public": record.enabled_models[0]}
 
 
@@ -2441,6 +2442,45 @@ async def test_elapsed_automatic_cooldown_requires_health_before_quota_refresh(t
     assert cli.health_calls == 1
     assert cli.read_calls == 0
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("healthy", [True, False])
+async def test_quota_refresh_rechecks_cooling_card_before_recovery(tmp_path: Path, healthy: bool) -> None:
+    record: Final = _record(
+        status=EnvironmentStatus.COOLING_DOWN,
+        cooldown_until=utc_now() + timedelta(hours=1),
+    ).model_copy(update={"automatic_cooldown": True})
+    cli: Final = FakeCLIProxy(data_plane_healthy=healthy)
+    cli.read_result = record.model_copy(update={
+        "status": EnvironmentStatus.READY, "automatic_cooldown": False, "cooldown_until": None,
+    })
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service._refresh_if_needed(record, refresh_quota=True)
+
+    assert result.status is (EnvironmentStatus.READY if healthy else EnvironmentStatus.COOLING_DOWN)
+    assert result.automatic_cooldown is not healthy
+    assert cli.refresh_quota_calls == [True]
+    assert cli.health_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled,manual,refreshes", [(True, False, 1), (False, False, 0), (True, True, 0)])
+async def test_scheduled_quota_refresh_includes_automatic_cooling_cards(
+    tmp_path: Path, enabled: bool, manual: bool, refreshes: int,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(update={
+        "enabled": enabled, "manual_cooldown": manual, "automatic_cooldown": True,
+    })
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    assert await service.refresh_ready_quotas() == ()
+    assert cli.refresh_quota_calls == [True] * refreshes
+
+
+@pytest.mark.asyncio
+async def test_configuration_update_keeps_active_cooldown(tmp_path: Path) -> None:
     record: Final = _record(
         status=EnvironmentStatus.COOLING_DOWN,
         cooldown_until=utc_now() + timedelta(minutes=5),
@@ -4507,3 +4547,50 @@ async def test_failed_card_creation_does_not_leave_an_orphan_credential_claim(tm
     await service._ownership.claim(replacement, identity.fingerprints)
     assert await service._ownership.owns(replacement, identity.fingerprints)
     assert cli.direct_credentials == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("used,enabled,manual,code,want", [
+    (10, True, False, "insufficient_quota", EnvironmentStatus.READY),
+    (100, True, False, "insufficient_quota", EnvironmentStatus.COOLING_DOWN),
+    (10, False, False, "insufficient_quota", EnvironmentStatus.DISABLED),
+    (10, True, True, "insufficient_quota", EnvironmentStatus.COOLING_DOWN),
+    (10, True, False, "invalid_api_key", EnvironmentStatus.COOLING_DOWN),
+])
+async def test_refreshed_quota_releases_expired_quota_cooldown_only(
+    used: int, enabled: bool, manual: bool, code: str, want: EnvironmentStatus,
+) -> None:
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(update={
+        "enabled": enabled, "manual_cooldown": manual, "automatic_cooldown": True,
+        "cooldown_until": utc_now() - timedelta(minutes=1),
+    })
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v0/management/auth-files":
+            return httpx.Response(200, json={"files": [{
+                "name": "codex.json", "provider": "codex", "auth_index": "test", "unavailable": True,
+                "status": "error", "status_message": json.dumps({"error": {"code": code}}),
+                "next_retry_after": (utc_now() - timedelta(seconds=5)).isoformat(),
+            }]})
+        if request.url.path == "/v0/management/auth-files/models":
+            return httpx.Response(200, json={"models": [{"id": "gpt-5"}]})
+        assert request.url.path == "/v0/management/api-call"
+        payload: Final = json.loads(request.content)
+        body: Final = (
+            {"rate_limit": {"primary_window": {
+                "used_percent": used, "limit_window_seconds": 18000, "reset_after_seconds": 3600,
+            }}}
+            if str(payload["url"]).endswith("/usage") else {}
+        )
+        return httpx.Response(200, json={"status_code": 200, "header": {}, "body": json.dumps(body)})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+        observed: Final = await proxy.read_account(record, refresh_quota=True)
+        reread: Final = await proxy.read_account(observed)
+
+    assert observed.quota.windows[0].remaining_percent == 100 - used
+    assert observed.status is want
+    assert observed.enabled is enabled
+    assert observed.manual_cooldown is manual
+    assert reread.status is want

@@ -1,10 +1,11 @@
 /** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
-import { Check, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -145,7 +146,28 @@ export const ProxyManagerPanel = ({
 
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
-      <div className="flex items-center justify-between gap-3">
+      <ISPProxyCatalogPanel
+        profiles={isps}
+        loading={ispsLoading}
+        failed={ispsError}
+        busy={
+          switching ||
+          profileBusy ||
+          configurationBusy ||
+          ispImportMutation.isPending ||
+          ispUpdateMutation.isPending ||
+          ispDeleteMutation.isPending
+        }
+        mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
+        onImport={async (content) => {
+          await ispImportMutation.mutateAsync(content);
+        }}
+        onUpdate={async (profileId, request: AccountPoolISPProxyUpdateRequest) => {
+          await ispUpdateMutation.mutateAsync({ profileId, request });
+        }}
+        onDelete={(profileId) => ispDeleteMutation.mutate(profileId)}
+      />
+      <div className="mt-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{t("accountPool.proxyGateways.title")}</p>
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.description")}</p>
@@ -157,16 +179,7 @@ export const ProxyManagerPanel = ({
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.delayTarget")}</p>
         </div>
         <div className="flex shrink-0 gap-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addMutation.mutate()}
-            disabled={gatewaysLoading || switching || !configuration?.config_path}
-          >
-            <Plus className="size-4" />
-            {t("accountPool.proxyGateways.add")}
-          </Button>
+
           <Button
             type="button"
             variant="ghost"
@@ -313,86 +326,83 @@ export const ProxyManagerPanel = ({
           </div>
         </div>
       )}
-      {gatewaysError && (
-        <div className="mt-3 flex items-center justify-between gap-2" role="alert">
-          <p className="text-xs text-destructive">{t("accountPool.proxyGateways.loadFailed")}</p>
+      <Collapsible className="mt-4 border-t border-border/60 pt-3">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between text-sm font-medium">
+          {t("accountPool.proxyGateways.portSettings", { count: gateways.length })}
+          <ChevronDown className="size-4 transition-transform group-aria-expanded:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={refetchGateways}
-            disabled={gatewaysLoading || delaysLoading}
+            onClick={() => addMutation.mutate()}
+            disabled={gatewaysLoading || switching || !configuration?.config_path}
           >
-            {t("accountPool.retry")}
+            <Plus className="size-4" />
+            {t("accountPool.proxyGateways.add")}
           </Button>
-        </div>
-      )}
-      {nodesError && !gatewaysError && (
-        <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.nodesUnavailable")}</p>
-      )}
-      {switchMutation.isError && (
-        <p className="mt-3 text-xs text-destructive" role="alert">
-          {t("accountPool.proxyGateways.switchFailed")}
-        </p>
-      )}
-      {(addMutation.isError || deleteMutation.isError) && (
-        <p className="mt-3 text-xs text-destructive" role="alert">
-          {t("accountPool.proxyGateways.mutationFailed")}
-        </p>
-      )}
-      {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
-        <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
-      )}
-      <div className="mt-3 grid gap-2">
-        {gateways.map((gateway) => (
-          <GatewayRow
-            key={gateway.profile_id}
-            gateway={gateway}
-            nodes={nodes}
-            isps={isps}
-            cardCount={
-              environmentsLoading
-                ? null
-                : environments.filter((environment) => environment.proxy_profile_id === gateway.profile_id).length
-            }
-            delay={delays.find(
-              (result) => result.port === gateway.port && result.current_node === gateway.current_node,
-            )}
-            delaysLoading={delaysLoading}
-            delaysError={delaysError}
-            disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
-            onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
-            onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
-            onDelete={() => deleteMutation.mutate(gateway.port)}
-          />
-        ))}
-      </div>
-      {bindISPMutation.isError && (
-        <p className="mt-3 text-xs text-destructive" role="alert">
-          {t("accountPool.proxyGateways.switchFailed")}
-        </p>
-      )}
-      <ISPProxyCatalogPanel
-        profiles={isps}
-        loading={ispsLoading}
-        failed={ispsError}
-        busy={
-          switching ||
-          profileBusy ||
-          configurationBusy ||
-          ispImportMutation.isPending ||
-          ispUpdateMutation.isPending ||
-          ispDeleteMutation.isPending
-        }
-        mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
-        onImport={async (content) => {
-          await ispImportMutation.mutateAsync(content);
-        }}
-        onUpdate={async (profileId, request: AccountPoolISPProxyUpdateRequest) => {
-          await ispUpdateMutation.mutateAsync({ profileId, request });
-        }}
-        onDelete={(profileId) => ispDeleteMutation.mutate(profileId)}
-      />
+          {gatewaysError && (
+            <div className="mt-3 flex items-center justify-between gap-2" role="alert">
+              <p className="text-xs text-destructive">{t("accountPool.proxyGateways.loadFailed")}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={refetchGateways}
+                disabled={gatewaysLoading || delaysLoading}
+              >
+                {t("accountPool.retry")}
+              </Button>
+            </div>
+          )}
+          {nodesError && !gatewaysError && (
+            <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.nodesUnavailable")}</p>
+          )}
+          {switchMutation.isError && (
+            <p className="mt-3 text-xs text-destructive" role="alert">
+              {t("accountPool.proxyGateways.switchFailed")}
+            </p>
+          )}
+          {(addMutation.isError || deleteMutation.isError) && (
+            <p className="mt-3 text-xs text-destructive" role="alert">
+              {t("accountPool.proxyGateways.mutationFailed")}
+            </p>
+          )}
+          {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
+          )}
+          <div className="mt-3 grid gap-2">
+            {gateways.map((gateway) => (
+              <GatewayRow
+                key={gateway.profile_id}
+                gateway={gateway}
+                nodes={nodes}
+                isps={isps}
+                cardCount={
+                  environmentsLoading
+                    ? null
+                    : environments.filter((environment) => environment.proxy_profile_id === gateway.profile_id).length
+                }
+                delay={delays.find(
+                  (result) => result.port === gateway.port && result.current_node === gateway.current_node,
+                )}
+                delaysLoading={delaysLoading}
+                delaysError={delaysError}
+                disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
+                onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
+                onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
+                onDelete={() => deleteMutation.mutate(gateway.port)}
+              />
+            ))}
+          </div>
+          {bindISPMutation.isError && (
+            <p className="mt-3 text-xs text-destructive" role="alert">
+              {t("accountPool.proxyGateways.switchFailed")}
+            </p>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 };

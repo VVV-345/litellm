@@ -529,6 +529,16 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
             "responses",
             "responses_conversation",
             "responses_conversation_stream",
+            "responses_conversation_fault",
+            "responses_conversation_fault_stream",
+            "responses_conversation_fault_encrypted",
+            "responses_conversation_fault_connect",
+            "responses_conversation_fault_read_timeout",
+            "responses_conversation_fault_disabled",
+            "responses_conversation_fault_backup_error",
+            "responses_conversation_fault_stream_error",
+            "responses_conversation_fault_signature",
+            "responses_conversation_fault_signature_stream_error",
             "compact",
             "stream",
             "stream_usage",
@@ -573,7 +583,12 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             },
             persist_across_reloads=False,
         )
-    _, original = setup_gateway(lambda _: httpx.Response(200))
+    fault_recovery = protocol.startswith("responses_conversation_fault")
+    fault_blocked = protocol.endswith(("_read_timeout", "_disabled", "_backup_error", "_signature")) or "_signature_" in protocol
+    _, original = setup_gateway(
+        lambda _: httpx.Response(200), retry=fault_recovery and not protocol.endswith("_disabled"),
+        max_attempts=3 if fault_recovery else 2,
+    )
 
     class MultipleCardControl(Control):
         async def resolve(self, request):
@@ -628,7 +643,24 @@ async def test_real_router_http_request_enters_pool_before_upstream(
 
             body = json.loads(request.content)
             conversation_requests.append((request.url.host, body))
-            if len(conversation_requests) > 1 and original.resolution.card_id.hex in request.url.host:
+            if len(conversation_requests) > 1 and (
+                original.resolution.card_id.hex in request.url.host or protocol.endswith("_backup_error")
+            ):
+                if fault_recovery:
+                    if "_signature" in protocol and len(conversation_requests) == 2:
+                        return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}})
+                    if protocol.endswith("_read_timeout"):
+                        raise httpx.ReadTimeout("ambiguous execution", request=request)
+                    if protocol.endswith("_connect"):
+                        raise httpx.ConnectError("connection refused", request=request)
+                    if protocol.endswith("_stream_error"):
+                        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=(
+                            'data: {"type":"response.failed","response":{"error":'
+                            '{"code":"server_is_overloaded","message":"overloaded"}}}\n\n'
+                        ))
+                    return httpx.Response(503, json={"error": {
+                        "message": "temporarily overloaded", "type": "server_error", "code": "server_is_overloaded",
+                    }})
                 return httpx.Response(429, json={"error": {
                     "message": "insufficient_quota", "type": "rate_limit_error", "code": "insufficient_quota",
                 }})
@@ -822,7 +854,10 @@ async def test_real_router_http_request_enters_pool_before_upstream(
         {
             str(item.id): RoutingSnapshot(
                 quota=RoutingQuota(remaining_percent=90 - index * 10, observed_at=datetime.now(timezone.utc)),
-                quota_switch_project=protocol == "quota_failover" or protocol.startswith("responses_conversation"),
+                quota_switch_project=not fault_recovery and (
+                    protocol == "quota_failover" or protocol.startswith("responses_conversation")
+                ),
+                fallback_enabled=fault_recovery,
             )
             for index, item in enumerate(control.resolution.candidates)
         }
@@ -900,28 +935,53 @@ async def test_real_router_http_request_enters_pool_before_upstream(
                     ),
                 )
         elif protocol.startswith("responses_conversation"):
-            streaming = protocol.endswith("_stream")
+            streaming = protocol.endswith(("_stream", "_stream_error"))
             initial = await router.aresponses(model="model-a", input="Budget 5000", stream=streaming)
             if streaming:
                 initial_events = [event async for event in initial]
                 initial_id = initial_events[-1].response.id
             else:
                 initial_id = initial.id
-            migrated = await router.aresponses(
-                model="model-a", input="Video editing", previous_response_id=initial_id, stream=streaming
-            )
+            continuation = {"input": "Video editing", "previous_response_id": initial_id}
+            if protocol.endswith(("_encrypted", "_signature")) or "_signature_" in protocol:
+                from litellm.responses.utils import ResponsesAPIRequestUtils
+
+                initial_card = ResponsesAPIRequestUtils.get_model_id_from_response_id(initial_id)
+                continuation = {"store": False, "input": [
+                    {"role": "user", "content": "Budget 5000"},
+                    {"type": "reasoning", "encrypted_content": ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("old-state", initial_card)},
+                    {"role": "assistant", "content": "What use?"},
+                    {"role": "user", "content": "Video editing"},
+                ]}
+            if fault_blocked:
+                with pytest.raises(Exception):
+                    await router.aresponses(model="model-a", stream=streaming, **continuation)
+                expected = (2 if protocol.endswith("_read_timeout") else 3 if "_signature" in protocol
+                            else 5 if protocol.endswith("_backup_error") else 4)
+                assert len(conversation_requests) == expected
+                assert len({host for host, _ in conversation_requests}) == (2 if protocol.endswith("_backup_error") else 1)
+                return
+            migrated = await router.aresponses(model="model-a", stream=streaming, **continuation)
             if streaming:
                 migrated_events = [event async for event in migrated]
                 assert migrated_events[-1].response.status == "completed"
             else:
                 assert migrated.status == "completed"
-            assert len(conversation_requests) == 3
+            expected_calls = 5 if fault_recovery else 3
+            assert len(conversation_requests) == expected_calls
             assert conversation_requests[0][0] == conversation_requests[1][0]
-            assert conversation_requests[2][0] != conversation_requests[0][0]
+            assert all(host == conversation_requests[0][0] for host, _ in conversation_requests[:-1])
+            assert conversation_requests[-1][0] != conversation_requests[0][0]
             rebuilt = conversation_requests[-1][1]
             assert not rebuilt.get("previous_response_id")
+            assert all(item.get("type") != "reasoning" for item in rebuilt["input"])
             assert rebuilt["input"][0]["content"] == "Budget 5000"
             assert rebuilt["input"][-1]["content"] == "Video editing"
+            if fault_recovery:
+                migrated_id = migrated_events[-1].response.id if streaming else migrated.id
+                await router.aresponses(model="model-a", input="Which GPU?", previous_response_id=migrated_id)
+                assert conversation_requests[-1][0] != conversation_requests[0][0]
+                assert conversation_requests[-1][1]["previous_response_id"] == "resp_5"
         elif protocol == "responses":
             response = await router.aresponses(model="model-a", input="hello")
             assert response.usage.total_tokens == 7
@@ -993,7 +1053,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             if protocol == "quota_failover":
                 logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
                 assert logging_kwargs["response_cost"] == pytest.approx(0.0000068)
-        expected_attempts = 3 if protocol.startswith("responses_conversation") else 2 if protocol in ("error", "quota_failover") else 1
+        expected_attempts = 6 if fault_recovery else 3 if protocol.startswith("responses_conversation") else 2 if protocol in ("error", "quota_failover") else 1
         assert len(control.acquisitions) == expected_attempts
         if protocol == "quota_failover":
             assert [item.account_id for item in control.acquisitions] == [

@@ -488,3 +488,13 @@ async def test_card_ingress_preserves_key_retry_budget_without_enabling_cross_ca
         assert received[0]["fallbacks"] == []
     finally:
         pool_identity.reset(reset)
+
+
+def test_refreshed_quota_above_manual_reserve_reenables_routing():
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+
+    now = datetime.now(timezone.utc)
+    exhausted = RoutingSnapshot(quota=RoutingQuota(remaining_percent=10, observed_at=now), quota_reserve_percent=10)
+    refreshed = RoutingSnapshot(quota=RoutingQuota(remaining_percent=90, observed_at=now), quota_reserve_percent=10)
+    assert not available(exhausted, "shared", now)
+    assert available(refreshed, "shared", now)

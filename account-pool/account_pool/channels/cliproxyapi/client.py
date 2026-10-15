@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Final
 from uuid import UUID
 from weakref import WeakValueDictionary
@@ -308,13 +308,32 @@ class HttpCLIProxyClient:
             and auth_file.next_retry_after <= now
             and upstream_code == "server_is_overloaded"
         )
+        # 复用本次或短期内的供应商观测，避免普通页面刷新又被上游旧 unavailable 标记锁回冷却。
+        recovery_quota: Final = record.quota if refreshed_quota is None else refreshed_quota.quota
+        quota_recovered: Final = (
+            recovery_quota.source == "provider_api"
+            and recovery_quota.refresh_status in ("complete", "partial")
+            and recovery_quota.refresh_attempted_at is not None
+            and now - timedelta(minutes=5) <= recovery_quota.refresh_attempted_at <= now
+            and bool(recovery_quota.windows)
+            and all(
+                window.remaining_percent > 0 and (window.resets_at is None or window.resets_at > now)
+                for window in recovery_quota.windows
+            )
+            and upstream_code in ("insufficient_quota", "quota_exceeded", "usage_limit_reached", "quota_exhausted")
+            and (auth_file.next_retry_after is None or auth_file.next_retry_after <= now)
+            and (
+                refreshed_quota is not None
+                or auth_file.next_retry_after is not None and recovery_quota.refresh_attempted_at >= auth_file.next_retry_after
+            )
+        )
         cooldown_until: Final = effective_cooldown_until_value(
             record, None if model_aggregate else auth_file.next_retry_after, now
         )
         automatically_cooling: Final = (
             auth_file.disabled
             or authentication_failed
-            or (auth_file.unavailable and not model_aggregate and not overload_elapsed)
+            or (auth_file.unavailable and not model_aggregate and not overload_elapsed and not quota_recovered)
             or (cooldown_until is not None and cooldown_until > now)
         )
         status: Final = (

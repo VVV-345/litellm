@@ -77,6 +77,7 @@ class GatewayEnvironment(BaseModel):
     quota_snapshot_max_age: int = 300
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
+    fallback_enabled: bool = False
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -257,6 +258,7 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
                 quota_snapshot_max_age=environment.quota_snapshot_max_age,
                 quota_switch_project=environment.quota_switch_project,
                 quota_switch_preview_model=environment.quota_switch_preview_model,
+                fallback_enabled=environment.fallback_enabled,
                 plan_rank=plan_priority(environment.quota.plan_type, environment.quota.auth_file_plan_type),
                 subscription_active_until=environment.quota.subscription_active_until,
             )

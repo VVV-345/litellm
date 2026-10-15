@@ -85,3 +85,14 @@ def test_release_tags_wait_for_all_image_builds() -> None:
 
     summary_job: Final = JSON_MAP.validate_python(jobs["summary"])
     assert "create-git-tag" in STRING_LIST.validate_python(summary_job["needs"])
+
+
+def test_incremented_version_alias_waits_for_success_marker() -> None:
+    path: Final = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
+    workflow: Final = JSON_MAP.validate_python(yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
+    jobs: Final = JSON_MAP.validate_python(workflow["jobs"])
+    alias: Final = JSON_MAP.validate_python(jobs["publish-version-alias"])
+    assert {"version", "create-git-tag"}.issubset(STRING_LIST.validate_python(alias["needs"]))
+    concurrency: Final = JSON_MAP.validate_python(workflow["concurrency"])
+    assert concurrency["group"] == "publish-deployment-images"
+    assert concurrency["cancel-in-progress"] == "false"

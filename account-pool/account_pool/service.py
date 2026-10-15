@@ -263,7 +263,11 @@ class EnvironmentService:
 
     async def refresh_ready_quotas(self, max_concurrency: int = 3) -> tuple[UUID, ...]:
         records: Final = await self._repository.list()
-        ready: Final = tuple(record for record in records if record.status is EnvironmentStatus.READY)
+        ready: Final = tuple(
+            record for record in records
+            if record.status is EnvironmentStatus.READY
+            or (record.status is EnvironmentStatus.COOLING_DOWN and record.enabled and not record.manual_cooldown)
+        )
         semaphore: Final = asyncio.Semaphore(max(1, max_concurrency))
 
         async def refresh(record: EnvironmentRecord) -> UUID | None:
@@ -501,6 +505,7 @@ class EnvironmentService:
                     "quota_snapshot_max_age": policy.routing.quota_snapshot_max_age,
                     "quota_switch_project": effective.quota_switch_project,
                     "quota_switch_preview_model": effective.quota_switch_preview_model,
+                    "fallback_enabled": policy.routing.fallback_enabled,
                     "routing_weight": policy.routing.weight,
                     "routing_order": (20001 if policy.routing.is_backup else 0) - policy.routing.priority,
                     "public_models": tuple(
@@ -763,7 +768,7 @@ class EnvironmentService:
             if current.auth_file_name is None and current.channel is not ChannelKind.OPENAI_COMPATIBLE:
                 return current
             channel: Final = self._channel(current)
-            if not credential_state_changed:
+            if not credential_state_changed and not refresh_quota:
                 if current.automatic_cooldown and not await channel.data_plane_health_check(current):
                     return current
                 if _cooldown_active(current):
@@ -798,8 +803,26 @@ class EnvironmentService:
                 if refresh_quota or raise_on_error:
                     raise
                 return current
+            # 额度刷新不能被旧冷却时间挡住，但自动恢复仍必须通过数据面探活。
+            recovery_blocked: Final = (
+                refresh_quota
+                and current.enabled
+                and not current.manual_cooldown
+                and (current.automatic_cooldown or current.status is EnvironmentStatus.COOLING_DOWN)
+                and observed.status is EnvironmentStatus.READY
+                and not await channel.data_plane_health_check(observed)
+            )
             refreshed: Final = observed.model_copy(
                 update={
+                    **(
+                        {
+                            "status": current.status,
+                            "automatic_cooldown": current.automatic_cooldown,
+                            "cooldown_until": current.cooldown_until,
+                        }
+                        if recovery_blocked
+                        else {}
+                    ),
                     "version": current.version,
                     "desired_state": current.desired_state,
                     "operation_id": current.operation_id,

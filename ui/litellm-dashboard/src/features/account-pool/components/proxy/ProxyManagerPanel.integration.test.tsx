@@ -1,9 +1,11 @@
 /** 本文件验证代理面板的刷新、节点切换与延迟状态展示，仅替换网络请求。 */
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import i18n from "@/i18n";
 
 import { ProxyManagerPanel } from "./ProxyManagerPanel";
 import type {
@@ -84,7 +86,8 @@ const renderPanel = (enabled = true, environments: AccountPoolEnvironment[] = []
 };
 
 describe("ProxyManagerPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();
     getConfiguration.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
     listGateways.mockResolvedValue(gateways);
@@ -107,6 +110,24 @@ describe("ProxyManagerPanel", () => {
     bindIsp.mockResolvedValue(undefined);
   });
 
+  it("keeps ISP and configuration visible with port settings collapsed until opened", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const configuration = await screen.findByLabelText("配置名称");
+    const isp = screen.getByText("ISP 代理");
+    expect(configuration).toBeVisible();
+    expect(isp).toBeVisible();
+    expect(isp.compareDocumentPosition(configuration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const trigger = screen.getByRole("button", { name: /Clash 端口设置/ });
+    expect(configuration.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox", { name: /Clash 端口 7891/ })).not.toBeInTheDocument();
+    await user.click(trigger);
+    expect(await screen.findByRole("combobox", { name: /Clash 端口 7891/ })).toBeVisible();
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("switches nodes without restarting the all-gateway delay check", async () => {
     const user = userEvent.setup();
     listGateways.mockResolvedValue(gateways);
@@ -119,6 +140,7 @@ describe("ProxyManagerPanel", () => {
       return { ...gateways[0], current_node: "日本02" };
     });
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByText("当前节点：美国01")).toBeInTheDocument();
     expect(await screen.findByText("当前配置文件：/opt/litellm/mihomo/config.yaml")).toBeInTheDocument();
@@ -142,6 +164,7 @@ describe("ProxyManagerPanel", () => {
     listNodes.mockResolvedValue([{ name: "日本02", proxy_type: "Vmess" }]);
     switchGateway.mockRejectedValue(new Error("clash rejected the selection"));
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     await user.click(await screen.findByRole("combobox", { name: /Clash 端口 7891/ }));
     await user.click(await screen.findByRole("option", { name: "日本02" }));
@@ -153,6 +176,7 @@ describe("ProxyManagerPanel", () => {
   it("shows the Clash error hint when the manager cannot reach Clash", async () => {
     listGateways.mockRejectedValue(new Error("clash controller returned status 502"));
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/Clash/);
   });
@@ -169,6 +193,7 @@ describe("ProxyManagerPanel", () => {
   it("refreshes latency and hides the old value while checking", async () => {
     const user = userEvent.setup();
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
     expect(await screen.findByText("节点延迟：183 ms")).toBeInTheDocument();
     const pending = Promise.withResolvers<AccountPoolProxyGatewayDelay[]>();
     measureDelays.mockReturnValueOnce(pending.promise);
@@ -187,6 +212,7 @@ describe("ProxyManagerPanel", () => {
   it("reports a failed refresh instead of retaining a successful measurement", async () => {
     const user = userEvent.setup();
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
     expect(await screen.findByText("节点延迟：183 ms")).toBeInTheDocument();
     measureDelays.mockRejectedValueOnce(new Error("controller unavailable"));
 
@@ -200,6 +226,7 @@ describe("ProxyManagerPanel", () => {
   it("does not attach an old node measurement to a new node", async () => {
     listGateways.mockResolvedValue([{ ...gateways[0], current_node: "日本02" }]);
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByText("当前节点：日本02")).toBeInTheDocument();
     expect(await screen.findByText("节点延迟：未检测")).toBeInTheDocument();
@@ -209,6 +236,7 @@ describe("ProxyManagerPanel", () => {
   it("updates the proxy configuration from a subscription URL", async () => {
     const user = userEvent.setup();
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     await user.type(await screen.findByLabelText("订阅链接"), "https://example.test/config.yaml");
     await user.click(screen.getByRole("button", { name: "更新代理配置" }));
@@ -223,6 +251,7 @@ describe("ProxyManagerPanel", () => {
   it("saves multiple configuration files without replacing the active configuration", async () => {
     const user = userEvent.setup();
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
     const fileInput = await screen.findByLabelText("配置文件");
     const files = [
       new File(["proxies: []\n"], "office.yaml", { type: "text/yaml" }),
@@ -248,6 +277,7 @@ describe("ProxyManagerPanel", () => {
     ];
     listConfigurations.mockResolvedValue(profiles);
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     await user.click(await screen.findByRole("button", { name: "启用代理配置 home.yaml" }));
 
@@ -272,6 +302,7 @@ describe("ProxyManagerPanel", () => {
       { id: "card-2", proxy_profile_id: "clash-gateway-7891" },
     ] as AccountPoolEnvironment[];
     renderPanel(true, environments);
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByText("占用：2 张卡片")).toBeInTheDocument();
     await user.click(await screen.findByRole("combobox", { name: /Clash 端口 7891/ }));
@@ -285,6 +316,7 @@ describe("ProxyManagerPanel", () => {
     const imported: AccountPoolISPProxy[] = [];
     importIsps.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(imported), 10)));
     renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     const input = await screen.findByLabelText("批量导入 ISP");
     await user.type(input, "http://proxy.example.test:1234");

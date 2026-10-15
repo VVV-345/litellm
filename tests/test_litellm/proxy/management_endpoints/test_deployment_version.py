@@ -28,9 +28,35 @@ def test_release_version_cli(tmp_path, version, revision, valid):
         assert result.stdout.splitlines() == [
             f"deploy_tag={revision[:10]}",
             f"revision={revision}",
-            "release_version=v1.1",
-            f"versioned_tag=v1.1-{revision[:10]}",
+            "release_version=v1.1.1",
+            f"versioned_tag=v1.1.1-{revision[:10]}",
         ]
     else:
         assert result.returncode != 0
         assert "deploy_tag=" not in result.stdout
+
+
+@pytest.mark.parametrize("tags,bump,want", [
+    ("", "patch", "v1.2.1"),
+    ("v1.2.1-1111111111\nv1.2.2-2222222222", "patch", "v1.2.3"),
+    ("v1.2.9-1111111111\nv1.2.10-2222222222", "patch", "v1.2.11"),
+    ("v1.2.2-1111111111", "minor", "v1.3"),
+    ("v1.2.2-1111111111", "major", "v2.0"),
+    ("v2.0-1111111111", "patch", "v2.0.1"),
+    ("v1.2.2-aaaaaaaaaa", "patch", "v1.2.2"),
+    ("v1.2.1-1111111111\ncandidate-v9.9.9", "patch", "v1.2.2"),
+])
+def test_successful_release_sequence(tmp_path, tags, bump, want):
+    version = tmp_path / "VERSION"
+    version.write_text("v1.2", encoding="utf-8")
+    successful = tmp_path / "tags.txt"
+    successful.write_text(tags, encoding="utf-8")
+    command = [sys.executable, str(SCRIPT), str(version), "a" * 40,
+               "--tags-file", str(successful), "--bump", bump]
+    first = subprocess.run(command, capture_output=True, text=True)
+    second = subprocess.run(command, capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    assert f"release_version={want}\n" in first.stdout
+    # 失败的构建没有成功标签，重新计算不得消耗版本号。
+    assert second.stdout == first.stdout
+    assert successful.read_text(encoding="utf-8") == tags

@@ -6327,6 +6327,7 @@
       "vertex": "Google Vertex"
     },
     "proxyGateways": {
+      "portSettings": "Clash 端口设置（{{count}}）",
       "delayTarget": "延迟测试目标：www.gstatic.com",
       "delayLabel": "节点延迟：{{value}}",
       "gatewayDelayLabel": "端口链路：{{value}}",

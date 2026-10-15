@@ -6327,6 +6327,7 @@
       "vertex": "Google Vertex"
     },
     "proxyGateways": {
+      "portSettings": "Clash port settings ({{count}})",
       "delayTarget": "Latency test target: www.gstatic.com",
       "delayLabel": "Node latency: {{value}}",
       "gatewayDelayLabel": "Port path: {{value}}",

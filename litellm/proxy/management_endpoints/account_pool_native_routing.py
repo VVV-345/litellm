@@ -52,6 +52,7 @@ class RoutingSnapshot(BaseModel):
     quota_snapshot_max_age: int = 300
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
+    fallback_enabled: bool = False
     plan_rank: int | None = None
     subscription_active_until: AwareDatetime | None = None
 

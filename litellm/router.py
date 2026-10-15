@@ -5051,16 +5051,26 @@ class Router:
         fallback_kwargs["original_generic_function"] = original_function
 
         from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationStream
+        from litellm.proxy.management_endpoints.account_pool_integration import conversation_replay
         from litellm.types.llms.openai import ResponsesAPIResponse
 
         conversation: Final = await Conversation.start(self, kwargs)
+        replay_token: Final = conversation_replay.set(
+            "safe" if conversation is not None and conversation.can_replay(self, kwargs) else "disabled"
+        )
         try:
             response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)  # rebind-ok: Select the original or rebuilt response on exclusive branches.
         except Exception as error:
             rebuilt: Final = conversation.rebuild(self, kwargs, error) if conversation is not None else None
             if rebuilt is None:
                 raise
-            response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **rebuilt)  # rebind-ok: Select the rebuilt response only after the original fails.
+            migrated_token: Final = conversation_replay.set("migrated")
+            try:
+                response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **rebuilt)  # rebind-ok: Select the rebuilt response only after the original fails.
+            finally:
+                conversation_replay.reset(migrated_token)
+        finally:
+            conversation_replay.reset(replay_token)
 
         if conversation is not None and isinstance(response, ResponsesAPIResponse):
             await conversation.complete(response)

@@ -104,6 +104,7 @@ class ForwardTicket(BaseModel):
     expires: int
     retry_policy: ForwardRetryPolicy | None = None
     timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+    conversation_replay: Literal["disabled", "safe", "migrated"] = "disabled"
 
 
 def forwarding_timeout(identity: PoolIdentity, params: Mapping[str, object], streaming: bool) -> int | None:
@@ -284,6 +285,9 @@ def key_cache(value: object) -> KeyCache:
 
 
 pool_identity: Final[ContextVar[PoolIdentity | None]] = ContextVar("account_pool_identity", default=None)
+conversation_replay: Final[ContextVar[Literal["disabled", "safe", "migrated"]]] = ContextVar(
+    "account_pool_conversation_replay", default="disabled"
+)
 
 
 def bind_router_settings(settings: Mapping[str, object]) -> None:
@@ -311,6 +315,7 @@ def create_ticket(
         expires=int(time.time()) + 120,
         retry_policy=retry_policy,
         timeout_seconds=timeout_seconds,
+        conversation_replay=conversation_replay.get(),
     )
     encoded: Final = base64.urlsafe_b64encode(body.model_dump_json().encode()).decode()
     signature: Final = hmac.new(signing_key(), encoded.encode(), hashlib.sha256).hexdigest()

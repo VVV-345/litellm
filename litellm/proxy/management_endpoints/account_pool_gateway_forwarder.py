@@ -284,6 +284,20 @@ def retry_backoff(resolution: Resolution) -> int:
     return resolution.policy.routing.backoff_ms
 
 
+def conversation_retry(request: Request) -> bool:
+    return request.url.path == "/v1/responses" and getattr(
+        request.state, "account_pool_conversation_replay", "disabled"
+    ) == "safe"
+
+
+def rebuild_headers(request: Request, resolution: Resolution, retryable: bool) -> dict[str, str]:
+    return (
+        {"x-account-pool-rebuild": "retry-exhausted"}
+        if conversation_retry(request) and resolution.policy.routing.fallback_enabled and retryable
+        else {}
+    )
+
+
 async def forward(
     request: Request,
     payload: dict[str, JsonValue],
@@ -296,8 +310,9 @@ async def forward(
     send: Send,
 ) -> None:
     routing: Final = resolution.policy.routing
-    allow_retry: Final = same_card_replay_safe(payload)
-    allow_failover: Final = replay_safe(payload)
+    migrated: Final = getattr(request.state, "account_pool_conversation_replay", "disabled") == "migrated"
+    allow_retry: Final = not migrated and (same_card_replay_safe(payload) or conversation_retry(request))
+    allow_failover: Final = not migrated and replay_safe(payload)
     configured_attempts: Final = routing.max_attempts
     max_attempts: Final = configured_attempts if allow_retry else 1
     bound_id: Final = (
@@ -689,11 +704,11 @@ async def execute(
                         attempt.log.capture(json.dumps(error_payload).encode())
                         attempt.log.observe(error_payload)
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
-                    retry: Final = (
-                        next_id is not None
-                        and not signature_error(error_payload)
+                    retryable: Final = (
+                        not signature_error(error_payload)
                         and not (
                             public_status == 429 and getattr(request.state, "account_pool_standard_accounting", False)
+                            and not (conversation_retry(request) and code in ("rate_limit_exceeded", "rate_limit_error"))
                         )
                         and retry_allowed(resolution, response.status_code)
                         and (replay_safe(payload) or code in (
@@ -702,6 +717,7 @@ async def execute(
                         ))
                         and asyncio.get_running_loop().time() < deadline
                     )
+                    retry: Final = next_id is not None and retryable
                     attempt.outcome(
                         public_status,
                         f"Upstream HTTP {response.status_code}",
@@ -733,7 +749,10 @@ async def execute(
                         if signature_error(error_payload)
                         else error_payload,
                         status_code=public_status,
-                        headers=public_response_headers(response.headers),
+                        headers={
+                            **public_response_headers(response.headers),
+                            **rebuild_headers(request, resolution, retryable and not signature_recovered),
+                        },
                     )(request.scope, request.receive, attempt.emit)
                     return True
                 if payload.get("stream") is True:
@@ -785,7 +804,8 @@ async def execute(
                         finally:
                             await bootstrap.close()
                     completed: Final = await guarded_stream_response(
-                        request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline
+                        request, response, payload, route, resolution, attempt, next_id, cost_usd, deadline,
+                        signature_recovered=signature_recovered,
                     )
                     if attempt.stream_state.signature_rejected:
                         stream_reason: Final = "output_started" if attempt.stream_state.meaningful else recovery_reason
@@ -852,12 +872,13 @@ async def execute(
             if isinstance(error, (ValueError, httpx.DecodingError))
             else "upstream_connection_error"
         )
-        retry_connection: Final = (
-            next_id is not None
-            and isinstance(error, _SAFE_CONNECT_FAILURES)
+        safe_connection: Final = (
+            isinstance(error, _SAFE_CONNECT_FAILURES)
             and not attempt.started
             and retry_allowed(resolution, status)
+            and asyncio.get_running_loop().time() < deadline
         )
+        retry_connection: Final = next_id is not None and safe_connection
         attempt.outcome(
             status,
             "Downstream disconnected" if disconnected else "Upstream connection or response failed",
@@ -870,7 +891,10 @@ async def execute(
         if retry_connection:
             return False
         if not attempt.started and not disconnected:
-            await JSONResponse({"error": {"message": attempt.result.message}}, status_code=status)(
+            await JSONResponse(
+                {"error": {"message": attempt.result.message}}, status_code=status,
+                headers=rebuild_headers(request, resolution, safe_connection and not signature_recovered),
+            )(
                 request.scope,
                 request.receive,
                 attempt.emit,
@@ -1104,9 +1128,10 @@ async def guarded_stream_response(
     cost_usd: float | None,
     deadline: float,
     prepared: StreamBootstrap | None = None,
+    signature_recovered: bool = False,
 ) -> bool:
     standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
-    if (next_id is None and not standard_accounting) or not same_card_replay_safe(payload):
+    if (next_id is None and not standard_accounting) or not (same_card_replay_safe(payload) or conversation_retry(request)):
         await stream_response(request, response, attempt, cost_usd, None if prepared is None else prepared.replay())
         return True
     bootstrap: Final = prepared or StreamBootstrap(
@@ -1120,12 +1145,15 @@ async def guarded_stream_response(
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
-            retry: Final = (
-                next_id is not None
-                and retry_allowed(resolution, bootstrap.state.error_status)
+            retryable: Final = (
+                retry_allowed(resolution, bootstrap.state.error_status)
                 and not (
                     bootstrap.state.error_status == 429
                     and getattr(request.state, "account_pool_standard_accounting", False)
+                    and not (
+                        conversation_retry(request)
+                        and bootstrap.state.error_code in ("rate_limit_exceeded", "rate_limit_error")
+                    )
                 )
                 and bootstrap.state.error_code
                 in (
@@ -1141,6 +1169,7 @@ async def guarded_stream_response(
                 and (replay_safe(payload) or bootstrap.state.error_code != "stream_interrupted")
                 and asyncio.get_running_loop().time() < deadline
             )
+            retry: Final = next_id is not None and retryable
             attempt.outcome(
                 bootstrap.state.error_status,
                 str(bootstrap.state.public_error()["message"]),
@@ -1160,9 +1189,11 @@ async def guarded_stream_response(
             await JSONResponse(
                 {"error": bootstrap.state.public_error()},
                 status_code=bootstrap.state.error_status,
-                headers={"Retry-After": str(attempt.result.model_cooldown_seconds)}
-                if attempt.result.model_cooldown_seconds
-                else {},
+                headers={
+                    **({"Retry-After": str(attempt.result.model_cooldown_seconds)}
+                       if attempt.result.model_cooldown_seconds else {}),
+                    **rebuild_headers(request, resolution, retryable and not signature_recovered),
+                },
             )(request.scope, request.receive, attempt.emit)
             return True
         await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
