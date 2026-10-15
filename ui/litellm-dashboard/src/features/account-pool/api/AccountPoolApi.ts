@@ -15,6 +15,7 @@ import type {
   AccountPoolProxyGatewayDelay,
   AccountPoolProxyGatewayConfigurationRequest,
   AccountPoolISPProxy,
+  AccountPoolISPProbe,
   AccountPoolISPProxyUpdateRequest,
   AccountPoolProxyConfigurationProfile,
   AccountPoolProxyConfigurationProfileRequest,
@@ -224,6 +225,9 @@ export const deleteAccountPoolProxyConfiguration = (accessToken: string, profile
   apiClient.delete<void>(`/account_pool/proxy-gateways/configurations/${encodeURIComponent(profileId)}`, {
     accessToken,
   });
+
+export const probeAccountPoolISP = (accessToken: string, profileId: string): Promise<AccountPoolISPProbe> =>
+  apiClient.post<AccountPoolISPProbe>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}/probe`, { accessToken });
 
 export const listAccountPoolISPProxies = (accessToken: string): Promise<AccountPoolISPProxy[]> =>
   apiClient.get<AccountPoolISPProxy[]>("/account_pool/proxy-isps", { accessToken });

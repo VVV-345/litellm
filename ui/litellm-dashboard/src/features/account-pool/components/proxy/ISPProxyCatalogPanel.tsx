@@ -9,10 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AccountPoolISPProxy, AccountPoolISPProxyUpdateRequest } from "../../utils/AccountPoolTypes";
+import type { AccountPoolISPProbe, AccountPoolISPProxy, AccountPoolISPProxyUpdateRequest } from "../../utils/AccountPoolTypes";
 
 interface ISPProxyCatalogPanelProps {
   profiles: AccountPoolISPProxy[];
+  probes: Record<string, AccountPoolISPProbe>;
+  probing: boolean;
+  onProbe: (ids: string[]) => void;
   loading: boolean;
   failed: boolean;
   busy: boolean;
@@ -46,6 +49,9 @@ const draftFrom = (profile: AccountPoolISPProxy): ISPProxyDraft => ({
 
 export const ISPProxyCatalogPanel = ({
   profiles,
+  probes,
+  probing,
+  onProbe,
   loading,
   failed,
   busy,
@@ -61,6 +67,9 @@ export const ISPProxyCatalogPanel = ({
   const [imported, setImported] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedProfileId, setSavedProfileId] = useState<string | null>(null);
+
+  const disabled = busy || saving || probing;
+  const unknown = t("accountPool.proxyGateways.ispUnknown");
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file: File | undefined = event.target.files?.[0];
@@ -102,13 +111,19 @@ export const ISPProxyCatalogPanel = ({
         </h3>
         <span className="text-xs tabular-nums text-muted-foreground">{profiles.length}</span>
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">{t("accountPool.proxyGateways.ispProbeHint")}</p>
+      <Button type="button" variant="outline" size="sm" className="mt-2"
+        disabled={disabled || loading || profiles.length === 0}
+        onClick={() => onProbe(profiles.map((profile) => profile.id))}>
+        {t("accountPool.proxyGateways.ispProbeAll")}
+      </Button>
       <div className="mt-3 grid gap-2">
         <Input
           type="file"
           accept=".txt,.csv,.yaml,.yml,.json,.conf"
           aria-label={t("accountPool.proxyGateways.ispFile")}
           onChange={(event) => void handleFile(event)}
-          disabled={busy || saving}
+          disabled={disabled}
         />
         <Textarea
           value={source}
@@ -119,14 +134,14 @@ export const ISPProxyCatalogPanel = ({
           placeholder={t("accountPool.proxyGateways.ispImportPlaceholder")}
           rows={3}
           aria-label={t("accountPool.proxyGateways.ispImport")}
-          disabled={busy || saving}
+          disabled={disabled}
         />
         <div className="flex items-center gap-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={busy || saving || !source.trim()}
+            disabled={disabled || !source.trim()}
             onClick={() => void importProfiles()}
           >
             {t("accountPool.proxyGateways.importIsps")}
@@ -172,19 +187,40 @@ export const ISPProxyCatalogPanel = ({
               {profile.bound_ports.length > 0 &&
                 ` · ${t("accountPool.proxyGateways.ispPorts", { ports: profile.bound_ports.join(", ") })}`}
             </p>
+            <div className="mt-2 space-y-1 break-words text-xs text-muted-foreground" aria-live="polite">
+              <p>{t("accountPool.proxyGateways.ispProbeStatus", {
+                value: t(`accountPool.proxyGateways.ispProbe_${probes[profile.id]?.status ?? "unknown"}`),
+              })}</p>
+              <p>{t("accountPool.proxyGateways.ispExitIp", { value: probes[profile.id]?.exit_ip ?? unknown })}</p>
+              <p>{t("accountPool.proxyGateways.ispLocation", {
+                value: [probes[profile.id]?.country, probes[profile.id]?.region, probes[profile.id]?.city].filter(Boolean).join(" / ") || unknown,
+              })}</p>
+              <p>{t("accountPool.proxyGateways.ispOperator", { value: probes[profile.id]?.isp ?? unknown })}</p>
+              <p>{t("accountPool.proxyGateways.ispLatency", {
+                value: probes[profile.id]?.delay_ms != null ? `${probes[profile.id].delay_ms} ms` : unknown,
+              })}</p>
+              <p>{t("accountPool.proxyGateways.ispCheckedAt", {
+                value: probes[profile.id] ? new Date(probes[profile.id].checked_at).toLocaleString() : unknown,
+              })}</p>
+            </div>
             {savedProfileId === profile.id && (
               <p className="mt-1 text-xs text-muted-foreground" role="status">
                 {t("accountPool.proxyGateways.ispSaved")}
               </p>
             )}
             <div className="mt-2 flex justify-end gap-1">
+              <Button type="button" variant="outline" size="sm" disabled={disabled}
+                aria-label={t("accountPool.proxyGateways.ispProbeOne", { name: profile.name })}
+                onClick={() => onProbe([profile.id])}>
+                {t(probing ? "accountPool.proxyGateways.ispProbing" : "accountPool.proxyGateways.ispProbe")}
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 aria-label={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
                 title={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
-                disabled={busy || saving}
+                disabled={disabled}
                 onClick={() => {
                   setEditingId(profile.id);
                   setDraft(draftFrom(profile));
@@ -198,7 +234,7 @@ export const ISPProxyCatalogPanel = ({
                 size="icon"
                 aria-label={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
                 title={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
-                disabled={busy || saving || profile.bound_ports.length > 0}
+                disabled={disabled || profile.bound_ports.length > 0}
                 onClick={() => {
                   if (window.confirm(t("accountPool.proxyGateways.deleteIspConfirm", { name: profile.name }))) {
                     onDelete(profile.id);
@@ -214,7 +250,7 @@ export const ISPProxyCatalogPanel = ({
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                   aria-label={t("accountPool.proxyGateways.ispName")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <Select
                   value={draft.protocol}
@@ -223,7 +259,7 @@ export const ISPProxyCatalogPanel = ({
                       setDraft({ ...draft, protocol: value });
                     }
                   }}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 >
                   <SelectTrigger aria-label={t("accountPool.proxyGateways.ispProtocol")}>
                     <SelectValue />
@@ -238,7 +274,7 @@ export const ISPProxyCatalogPanel = ({
                   value={draft.host}
                   onChange={(event) => setDraft({ ...draft, host: event.target.value })}
                   aria-label={t("accountPool.proxyGateways.ispHost")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <Input
                   type="number"
@@ -247,21 +283,21 @@ export const ISPProxyCatalogPanel = ({
                   value={draft.port}
                   onChange={(event) => setDraft({ ...draft, port: event.target.value })}
                   aria-label={t("accountPool.proxyGateways.ispPort")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <Input
                   type="date"
                   value={draft.expires_on}
                   onChange={(event) => setDraft({ ...draft, expires_on: event.target.value })}
                   aria-label={t("accountPool.proxyGateways.ispExpiration")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
                     checked={draft.enabled}
                     onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
-                    disabled={busy || saving}
+                    disabled={disabled}
                   />
                   {t("accountPool.proxyGateways.ispEnabled")}
                 </label>
@@ -270,7 +306,7 @@ export const ISPProxyCatalogPanel = ({
                   onChange={(event) => setDraft({ ...draft, username: event.target.value })}
                   placeholder={t("accountPool.proxyGateways.ispUsername")}
                   aria-label={t("accountPool.proxyGateways.ispUsername")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <Input
                   type="password"
@@ -278,7 +314,7 @@ export const ISPProxyCatalogPanel = ({
                   onChange={(event) => setDraft({ ...draft, password: event.target.value })}
                   placeholder={t("accountPool.proxyGateways.ispPassword")}
                   aria-label={t("accountPool.proxyGateways.ispPassword")}
-                  disabled={busy || saving}
+                  disabled={disabled}
                 />
                 <div className="col-span-2 flex justify-end gap-2">
                   <Button
@@ -286,14 +322,14 @@ export const ISPProxyCatalogPanel = ({
                     variant="ghost"
                     size="sm"
                     onClick={() => setEditingId(null)}
-                    disabled={busy || saving}
+                    disabled={disabled}
                   >
                     {t("accountPool.cancel")}
                   </Button>
                   <Button
                     type="button"
                     size="sm"
-                    disabled={busy || saving || !draft.name.trim() || !draft.host.trim() || !draft.port}
+                    disabled={disabled || !draft.name.trim() || !draft.host.trim() || !draft.port}
                     onClick={() =>
                       void saveProfile(profile.id, {
                         name: draft.name.trim(),

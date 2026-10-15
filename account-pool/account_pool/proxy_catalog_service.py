@@ -7,14 +7,25 @@ from datetime import date
 from typing import Final
 from uuid import UUID
 
+from account_pool.isp_probe import ISPProbe, ISPProbeResult
 from account_pool.proxy_catalog import ISPProxyProfile, ISPProxyProfileView, parse_isp_import
 from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 
 
 class ProxyCatalogService:
-    def __init__(self, repository: ProxyCatalogRepository, reconcile: Callable[[date], Awaitable[None]] | None = None) -> None:
+    def __init__(
+        self, repository: ProxyCatalogRepository, reconcile: Callable[[date], Awaitable[None]] | None = None,
+        probe: ISPProbe | None = None,
+    ) -> None:
         self._repository: Final = repository
         self._reconcile: Final = reconcile
+        self._probe: Final = probe or ISPProbe()
+
+    async def probe_isp(self, profile_id: UUID) -> ISPProbeResult:
+        profile: Final = await self._repository.get_isp(profile_id)
+        if profile is None:
+            raise ValueError("ISP profile was not found")
+        return await self._probe.probe(profile)
 
     async def list_isps(self) -> tuple[ISPProxyProfileView, ...]:
         profiles: Final = await self._repository.list_isps()

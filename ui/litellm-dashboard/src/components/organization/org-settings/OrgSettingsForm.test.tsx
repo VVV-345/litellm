@@ -1,3 +1,4 @@
+import type { Mock } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -68,7 +69,7 @@ const org: Organization = {
 };
 
 const renderForm = (overrides?: {
-  patchOrganization?: ReturnType<typeof vi.fn>;
+  patchOrganization?: Mock;
   onSaved?: () => void;
   org?: Organization;
 }) => {

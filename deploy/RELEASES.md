@@ -211,3 +211,20 @@ python3 releasectl.py recover
 本次按用户要求将 `deploy/VERSION` 设为 `v1.3`。已有成功标签仍在较低系列时，下一次普通构建使用 `v1.3`，失败重试不占号；只有配套镜像发布成功才写入不可变成功标签。成功后的后续构建依次使用 `v1.3.1`、`v1.3.2`。此文件表示目标版本，不表示镜像已经构建成功，也不自动部署服务器
 
 SSE 心跳设置支持继承、关闭及大于 0 到 300 秒的间隔。原生模型组如果混用号池和普通部署，在选定部署前的等待阶段仍沿用全局心跳；实际选择号池后使用号池设置。不为此改变普通原生部署的心跳策略
+
+## ISP 手动检测
+
+`v1.3` 候选加入 ISP 单个和全部检测，展示实际出口 IP、近似国家/地区和城市、运营商、请求延迟、连通状态及检测时间。Manager 经所选 ISP 访问 `https://api.ipify.org?format=json` 测量完整请求耗时，再向 `https://ipwho.is/<出口 IP>` 查询位置；不发送代理凭据。第三方服务可能限流或不可用，位置失败时保留出口 IP 和延迟，不据此更改代理配置。全部检测按顺序执行，Manager 同时最多处理 3 个检测请求，每个请求总上限 12 秒。结果仅保存在当前用户的界面查询缓存，不写数据库
+
+验收入口：号池页面的 ISP 代理卡片，点击“检测”或“检测全部 ISP”。镜像发布成功不等于服务器已部署，仍沿用既有版本和发布门禁
+
+
+### v1.3 前端依赖安全修复（2026-10-15）
+
+Next.js / eslint-config-next 升至 16.3.8，moment 升至 2.31.0，Vitest 配套工具升至 4.1.11，并更新 sharp、js-yaml、brace-expansion 及锁文件内相关间接依赖。保留 `.npmrc` 的生命周期禁用、最低发布天数和引擎检查，Docker 安装层提前复制该策略与本地依赖
+
+braces 尚无官方修复版，按用户选择保留开发工具，在 `ui/litellm-dashboard/vendor/braces` 保存 3.0.3 原版本与 MIT 许可证，仅限制解析器的花括号和圆括号总嵌套深度为 128。来源完整性和原始差异见该目录的 `SECURITY.md`、`SECURITY.patch`。普通 glob、范围、转义及 micromatch/fast-glob 调用链均有回归覆盖；手工构造 AST 不属于外部字符串补丁边界
+
+本轮完整及生产 npm 审计均为 0，但 registry audit 不审计本地包，必须同时运行 `node --test scripts/braces-security.test.mjs`。官方修复版可用后，先复跑相同用例，再撤销本地依赖和 override，不伪造上游版本或忽略告警
+
+Next 16.3 默认改用 TypeScript CLI，构建明确保留原 TypeScript API 检查方式（`experimental.useTypeScriptCli=false`），没有禁用源代码类型检查。全量 tsc 的既有测试诊断仍须独立记录，不能以生产构建通过代替测试类型检查。本地隔离 webpack 生产构建已生成 52 个静态页面，尚不代表 GHCR 镜像发布或服务器部署成功

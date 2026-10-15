@@ -1,0 +1,12 @@
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -145,0 +146,4 @@
++      // Bound AST depth before recursive compile, expand or stringify traversals.
++      if (stack.length > 128) {
++        throw new SyntaxError('Pattern nesting exceeds 128 levels');
++      }
+@@ -197,0 +202,4 @@
++      // Bound AST depth before recursive compile, expand or stringify traversals.
++      if (stack.length > 128) {
++        throw new SyntaxError('Pattern nesting exceeds 128 levels');
++      }

@@ -110,6 +110,8 @@ jobs:
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \
             account-pool/tests/account_pool/test_isp_profiles.py \
+            account-pool/tests/account_pool/test_isp_probe.py \
+            tests/test_litellm/test_dockerfile_non_root.py \
             account-pool/tests/account_pool/test_proxy_catalog_schema.py \
             account-pool/tests/account_pool/test_proxy_catalog_postgres.py \
             account-pool/tests/account_pool/test_proxy_gateways.py \
@@ -131,6 +133,7 @@ jobs:
           TZ: Asia/Shanghai
         run: |
           npm ci
+          node --test scripts/braces-security.test.mjs
           npm exec -- vitest run --project component \
             src/components/Settings/RuntimeSettings/RuntimeSettingsSection.test.tsx \
             src/features/account-pool/components/dashboard/AccountPoolDashboard.test.tsx \

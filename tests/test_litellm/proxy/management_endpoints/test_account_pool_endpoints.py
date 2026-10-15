@@ -814,6 +814,8 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
                       "content": "never-return"}
     operations: Final = (
         ("GET", "/proxy-isps", None, [isp]),
+        ("POST", f"/proxy-isps/{identity}/probe", None, {"profile_id": identity, "status": "ok",
+         "checked_at": "2026-10-15T00:00:00Z", "exit_ip": "8.8.8.8", "delay_ms": 42, "password": "never-return"}),
         ("POST", "/proxy-isps/import", {"content": "proxy.test:1234:user:pass"}, [isp]),
         ("PUT", f"/proxy-isps/{identity}", {k: v for k, v in isp.items() if k not in {"id", "bound_ports"}}, isp),
         ("DELETE", f"/proxy-isps/{identity}", None, None),
@@ -832,7 +834,7 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
         app: Final = _app(UserAPIKeyAuth(user_role=role), _gateway_factory(handler))
         with TestClient(app) as client:
             response: Final = client.request(method, "/account_pool" + path, json=body)
-        assert response.status_code == (403 if role != LitellmUserRoles.PROXY_ADMIN else 204 if payload is None else 201 if method == "POST" else 200)
+        assert response.status_code == (403 if role != LitellmUserRoles.PROXY_ADMIN else 204 if payload is None else 201 if method == "POST" and not path.endswith("/probe") else 200)
         assert "never-return" not in response.text
 
 

@@ -32,6 +32,20 @@ class AccountPoolISPImport(BaseModel):
     content: str = Field(min_length=1, max_length=2_097_152, repr=False)
 
 
+class AccountPoolISPProbe(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: UUID
+    status: Literal["ok", "timeout", "error"]
+    checked_at: datetime
+    exit_ip: str | None = None
+    delay_ms: int | None = None
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    isp: str | None = None
+
+
 class AccountPoolISPUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     name: str = Field(min_length=1, max_length=120)
@@ -76,6 +90,13 @@ def create_proxy_catalog_router(
     @router.get("/proxy-isps")
     async def list_isps() -> tuple[AccountPoolISPProxy, ...]:
         return parse_response(await call("GET", '/proxy-isps'), TypeAdapter(tuple[AccountPoolISPProxy, ...]))
+
+    async def probe_isp(profile_id: UUID) -> AccountPoolISPProbe:
+        return parse_response(
+            await call("POST", f"/proxy-isps/{profile_id}/probe"), TypeAdapter(AccountPoolISPProbe)
+        )
+
+    router.add_api_route("/proxy-isps/{profile_id}/probe", probe_isp, methods=["POST"])
 
     @router.post("/proxy-isps/import", status_code=201)
     async def import_isps(request: AccountPoolISPImport) -> tuple[AccountPoolISPProxy, ...]:

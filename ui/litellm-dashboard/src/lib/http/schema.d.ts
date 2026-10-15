@@ -1739,6 +1739,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/proxy-isps/{profile_id}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Isp */
+        post: operations["probe_isp_account_pool_proxy_isps__profile_id__probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/proxy-profiles": {
         parameters: {
             query?: never;
@@ -24556,6 +24573,36 @@ export interface components {
             /** Content */
             content: string;
         };
+        /** AccountPoolISPProbe */
+        AccountPoolISPProbe: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** City */
+            city?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Delay Ms */
+            delay_ms?: number | null;
+            /** Exit Ip */
+            exit_ip?: string | null;
+            /** Isp */
+            isp?: string | null;
+            /**
+             * Profile Id
+             * Format: uuid
+             */
+            profile_id: string;
+            /** Region */
+            region?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "timeout" | "error";
+        };
         /** AccountPoolISPProxy */
         AccountPoolISPProxy: {
             /**
@@ -47033,6 +47080,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probe_isp_account_pool_proxy_isps__profile_id__probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolISPProbe"];
+                };
             };
             /** @description Validation Error */
             422: {

@@ -1,3 +1,4 @@
+import type { Mock } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -67,8 +68,8 @@ const SAVED_BODY = {
 };
 
 const renderForm = (overrides?: {
-  fetchSettings?: ReturnType<typeof vi.fn>;
-  updateSettings?: ReturnType<typeof vi.fn>;
+  fetchSettings?: Mock;
+  updateSettings?: Mock;
 }) => {
   const fetchSettings = overrides?.fetchSettings ?? vi.fn().mockResolvedValue(SETTINGS);
   const updateSettings = overrides?.updateSettings ?? vi.fn().mockResolvedValue(undefined);

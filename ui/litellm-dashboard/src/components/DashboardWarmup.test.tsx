@@ -20,6 +20,7 @@ vi.mock("@/components/view_logs", () => ({
 }));
 vi.mock("@/lib/dashboardBackground", () => ({ dashboardBackgroundTasks: () => [] }));
 const router = {
+  bfcacheId: "test",
   prefetch: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),

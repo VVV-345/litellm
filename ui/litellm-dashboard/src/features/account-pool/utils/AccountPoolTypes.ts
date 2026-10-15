@@ -45,6 +45,7 @@ export type AccountPoolProxyGatewayConfigurationRequest = {
   content?: string;
   url?: string;
 };
+export type AccountPoolISPProbe = components["schemas"]["AccountPoolISPProbe"];
 export type AccountPoolISPProxy = {
   id: string;
   name: string;

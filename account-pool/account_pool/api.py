@@ -37,6 +37,7 @@ from account_pool.domain import (
 )
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.gateway_service import GatewayService, create_gateway_router
+from account_pool.isp_probe import ISPProbeResult
 from account_pool.management_api import create_management_router
 from account_pool.oauth_browser import (
     OAuthBrowserCallback,
@@ -52,9 +53,9 @@ from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
-from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.proxy_catalog import ISPProxyProfileView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.quota_scheduler import (
     AuthFileRefreshStatus,
     QuotaRefreshScheduler,
@@ -882,6 +883,13 @@ def create_router(
         @router.get("/api/proxy-isps", dependencies=[Depends(require_manager)])
         async def list_proxy_isps() -> tuple[ISPProxyProfileView, ...]:
             return await proxy_catalog.list_isps()
+
+        @router.post("/api/proxy-isps/{profile_id}/probe", dependencies=[Depends(require_manager)])
+        async def probe_proxy_isp(profile_id: UUID) -> ISPProbeResult:
+            try:
+                return await proxy_catalog.probe_isp(profile_id)
+            except ValueError as error:
+                raise HTTPException(status_code=404, detail="ISP profile was not found") from error
 
         @router.post("/api/proxy-isps/import", dependencies=[Depends(require_manager)], status_code=201)
         async def import_proxy_isps(request: ISPProfileImportRequest) -> tuple[ISPProxyProfileView, ...]:

@@ -9,7 +9,7 @@ import local from "./scripts/eslint-rules/index.mjs";
 
 const eslintConfig = [
   {
-    ignores: [".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", "src/lib/http/schema.d.ts"],
+    ignores: ["vendor/**", ".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", "src/lib/http/schema.d.ts"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

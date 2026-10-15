@@ -16,6 +16,7 @@ import {
   listAccountPoolProxyConfigurations,
   listAccountPoolProxyGateways,
   measureAccountPoolProxyGatewayDelays,
+  probeAccountPoolISP,
   saveAccountPoolProxyConfiguration,
   switchAccountPoolProxyGateway,
   updateAccountPoolISPProxy,
@@ -24,6 +25,7 @@ import {
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import type {
   AccountPoolISPProxyUpdateRequest,
+  AccountPoolISPProbe,
   AccountPoolProxyConfigurationProfileRequest,
   AccountPoolProxyGateway,
 } from "../utils/AccountPoolTypes";
@@ -93,6 +95,33 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
+  const probeKey = accountPoolQueryKeys.ispProbes(accessToken);
+  const probesQuery = useQuery<Record<string, AccountPoolISPProbe>>({
+    queryKey: probeKey,
+    queryFn: async () => ({}),
+    enabled: false,
+  });
+  const ispProbeMutation = useMutation({
+    mutationFn: async (profileIds: string[]) => {
+      if (!enabled || !accessToken) throw new Error("Access token required");
+      for (const profileId of profileIds) {
+        queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) =>
+          Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== profileId)),
+        );
+        const result = await probeAccountPoolISP(accessToken, profileId).catch((): AccountPoolISPProbe => ({
+          profile_id: profileId, status: "error", checked_at: new Date().toISOString(),
+        }));
+        queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) => ({
+          ...current, [profileId]: result,
+        }));
+      }
+    },
+  });
+  const clearProbe = (profileId: string) => {
+    queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) =>
+      Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== profileId)),
+    );
+  };
   const nodesQuery = useQuery({
     queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken),
     queryFn: () => {
@@ -189,7 +218,8 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
       if (!accessToken) throw new Error("Access token required");
       return updateAccountPoolISPProxy(accessToken, profileId, request);
     },
-    onSuccess: () => {
+    onSuccess: (_data, { profileId }) => {
+      clearProbe(profileId);
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
       invalidate();
     },
@@ -199,7 +229,8 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
       if (!accessToken) throw new Error("Access token required");
       return deleteAccountPoolISPProxy(accessToken, profileId);
     },
-    onSuccess: () => {
+    onSuccess: (_data, profileId) => {
+      clearProbe(profileId);
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
     },
   });
@@ -217,6 +248,8 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     configuration: configurationQuery.data ?? null,
     configurations: configurationsQuery.data ?? [],
     isps: ispsQuery.data ?? [],
+    ispProbes: probesQuery.data ?? {},
+    ispProbeMutation,
     ispsLoading: ispsQuery.isLoading,
     ispsError: ispsQuery.isError,
     delays: delaysQuery.data ?? [],

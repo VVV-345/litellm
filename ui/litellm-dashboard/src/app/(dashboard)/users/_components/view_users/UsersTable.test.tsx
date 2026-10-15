@@ -1,9 +1,11 @@
+import i18n from "@/i18n";
+import type { Mock } from "vitest";
 /* @vitest-environment jsdom */
 import type { PaginationState, RowSelectionState, SortingState } from "@tanstack/react-table";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserInfo } from "@/components/networking";
 
@@ -39,7 +41,7 @@ interface HarnessOverrides {
   onUserClick?: (userId: string, openInEditMode?: boolean) => void;
   onDeleteUser?: (user: UserInfo) => void;
   onResetPassword?: (userId: string) => void;
-  onSortingChange?: ReturnType<typeof vi.fn>;
+  onSortingChange?: Mock;
 }
 
 /**
@@ -275,4 +277,8 @@ describe("UsersTable", () => {
     const dataRow = rows[rows.length - 1];
     expect(within(dataRow).getByTestId("user-actions-user-1")).toBeInTheDocument();
   });
+});
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
 });

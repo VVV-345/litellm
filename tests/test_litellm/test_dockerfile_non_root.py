@@ -52,3 +52,14 @@ def test_final_user_directive_is_numeric():
         f"Dockerfile.non_root final USER is {final_user} (root); the non_root image "
         "must run as a non-zero UID."
     )
+
+
+@pytest.mark.parametrize("dockerfile", ["Dockerfile", "docker/Dockerfile.database", "docker/Dockerfile.non_root", "ui/Dockerfile"])
+def test_ui_install_includes_local_security_patch_and_npm_policy(dockerfile):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    contents = (root / dockerfile).read_text(encoding="utf-8")
+    install = contents.index("npm ci")
+    assert contents.index("COPY ui/litellm-dashboard/vendor/ ./vendor/") < install
+    assert contents.index("ui/litellm-dashboard/.npmrc") < install
