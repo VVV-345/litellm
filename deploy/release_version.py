@@ -44,7 +44,12 @@ def main() -> int:
         (value for value, sha in successful if sha == revision[:10]), key=version_parts, default=None
     )
     major, minor, patch = max((version_parts(version), *(version_parts(value) for value, _ in successful)))
+    # 显式提升 VERSION 系列时先发布该版本；成功后才从标签递增补丁号。
+    requested_series: Final = bool(successful) and version_parts(version) > max(
+        version_parts(value) for value, _ in successful
+    )
     next_version: Final = existing or (
+        version if args.bump == "patch" and requested_series else
         f"v{major + 1}.0" if args.bump == "major"
         else f"v{major}.{minor + 1}" if args.bump == "minor"
         else f"v{major}.{minor}.{patch + 1}"

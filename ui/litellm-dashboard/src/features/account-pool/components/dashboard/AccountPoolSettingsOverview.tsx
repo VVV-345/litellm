@@ -112,7 +112,7 @@ const groups: readonly SettingsGroup[] = [
     icon: Waves,
     href: "router-settings?tab=streaming",
     scope: "全局流式开关，可由卡片绑定的命名配置覆盖",
-    fields: ["streaming_enabled", "streaming_profiles", "streaming_rules"],
+    fields: ["streaming_enabled", "streaming_profiles", "streaming_rules", "sse_heartbeat_interval_seconds"],
   },
   {
     title: "高级运行设置",
@@ -175,6 +175,7 @@ const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
   quota_refresh_interval_minutes: "额度刷新间隔（分钟）",
   auth_refresh_interval_minutes: "认证刷新间隔（分钟）",
   streaming_enabled: "允许流式传输",
+  sse_heartbeat_interval_seconds: "SSE 心跳间隔（秒，0 为关闭）",
   streaming_rules: "历史流式规则",
   websocket_auth_enabled: "WebSocket 鉴权",
   force_model_prefix: "强制模型前缀",

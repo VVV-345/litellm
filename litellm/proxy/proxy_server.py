@@ -8461,11 +8461,14 @@ async def _iter_with_keepalive(
 class _DeploymentKeepaliveConfig(NamedTuple):
     keepalive_seconds: object
     allow_client_override: bool
+    account_pool_interval: float | None = None
 
 
 def _keepalive_from_deployment_config(
     request_data: Mapping[str, Any], response: object
 ) -> _DeploymentKeepaliveConfig | None:
+    from litellm.proxy.management_endpoints.account_pool_reconciler import AccountPoolHeartbeatMetadata
+
     if llm_router is None:
         return None
 
@@ -8484,6 +8487,10 @@ def _keepalive_from_deployment_config(
         return _DeploymentKeepaliveConfig(
             keepalive_seconds=getattr(deployment.litellm_params, "keepalive_seconds", None),
             allow_client_override=bool(getattr(deployment.litellm_params, "allow_client_keepalive_override", False)),
+            account_pool_interval=(
+                AccountPoolHeartbeatMetadata.model_validate(deployment.model_info, from_attributes=True).interval_seconds
+                if getattr(getattr(deployment, "model_info", None), "managed_by", None) == "account_pool" else None
+            ),
         )
 
     # No model_id at all to pin down which deployment actually served this
@@ -8491,6 +8498,7 @@ def _keepalive_from_deployment_config(
     # model_name agrees on both keepalive_seconds and
     # allow_client_keepalive_override (including deployments that leave either
     # field unset), so a stream never inherits a sibling deployment's policy.
+    deployments: Final = llm_router.get_model_list(model_name=request_data.get("model")) or ()
     configs: Final = frozenset(
         (
             (deployment_dict.get("litellm_params") or _EMPTY_MAPPING).get("keepalive_seconds"),
@@ -8498,12 +8506,17 @@ def _keepalive_from_deployment_config(
                 (deployment_dict.get("litellm_params") or _EMPTY_MAPPING).get("allow_client_keepalive_override", False)
             ),
         )
-        for deployment_dict in llm_router.get_model_list(model_name=request_data.get("model")) or ()
+        for deployment_dict in deployments
     )
     if len(configs) == 1:
         keepalive_seconds, allow_client_override = next(iter(configs))
+        pool_intervals: Final = frozenset(
+            AccountPoolHeartbeatMetadata.deployment_interval(deployment_dict) for deployment_dict in deployments
+        )
         return _DeploymentKeepaliveConfig(
-            keepalive_seconds=keepalive_seconds, allow_client_override=allow_client_override
+            keepalive_seconds=keepalive_seconds,
+            allow_client_override=allow_client_override,
+            account_pool_interval=next(iter(pool_intervals)) if len(pool_intervals) == 1 else None,
         )
     return None
 
@@ -8519,6 +8532,8 @@ def _is_explicit_keepalive_disable(raw: object) -> bool:
 
 def _resolve_keepalive_seconds(request_data: Mapping[str, object], response: object = None) -> float:
     deployment_config: Final = _keepalive_from_deployment_config(request_data, response)
+    if deployment_config is not None and deployment_config.account_pool_interval is not None:
+        return deployment_config.account_pool_interval
     deployment_raw: Final = deployment_config.keepalive_seconds if deployment_config is not None else None
     allow_client_override: Final = deployment_config.allow_client_override if deployment_config is not None else False
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -78,6 +79,7 @@ class GatewayEnvironment(BaseModel):
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
     fallback_enabled: bool = False
+    sse_heartbeat_interval_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
     api_base: str
     api_key: str = Field(min_length=1)
     custom_llm_provider: Literal["openai"] = "openai"
@@ -102,6 +104,7 @@ class ManagedDeployment:
     routing_order: int | None = field(default=None, compare=False)
     native_routing_migrated: bool = False
     supported_endpoints: tuple[str, ...] = ()
+    sse_heartbeat_interval_seconds: float | None = None
 
     @property
     def routing_defaults(self) -> dict[str, object]:
@@ -121,6 +124,8 @@ class ManagedDeployment:
             "max_parallel_requests": self.max_parallel_requests,
             "num_retries": 0,
             "max_retries": 0,
+            **({"keepalive_seconds": self.sse_heartbeat_interval_seconds, "allow_client_keepalive_override": False}
+               if self.sse_heartbeat_interval_seconds is not None else {}),
         }
 
     @property
@@ -132,6 +137,7 @@ class ManagedDeployment:
             "account_pool_model": self.model_name,
             "account_pool_native_routing": self.native_routing_migrated,
             "supported_endpoints": self.supported_endpoints,
+            "account_pool_sse_heartbeat": self.sse_heartbeat_interval_seconds,
         }
 
 
@@ -163,6 +169,21 @@ class ManagerGatewayClient:
         )
         response.raise_for_status()
         return _GATEWAY_ENVIRONMENTS.validate_json(response.content)
+
+
+class AccountPoolHeartbeatMetadata(BaseModel):
+    managed_by: str | None = None
+    account_pool_sse_heartbeat: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
+    account_pool_native_keepalive: dict[str, object] | None = None
+
+    @classmethod
+    def deployment_interval(cls, deployment: Mapping[str, object]) -> float | None:
+        info: Final = TypeAdapter(dict[str, object]).validate_python(deployment.get("model_info") or {})
+        return cls.model_validate(info).interval_seconds if info.get("managed_by") == _MANAGED_BY else None
+
+    @property
+    def interval_seconds(self) -> float | None:
+        return self.account_pool_sse_heartbeat if self.managed_by == _MANAGED_BY else None
 
 
 class _StoredProperties(BaseModel):
@@ -202,17 +223,31 @@ class LiteLLMDeploymentStore:
                     raise
                 return await self.upsert(deployment)
         preserved: Final = _StoredProperties.model_validate(current, from_attributes=True)
+        heartbeat: Final = AccountPoolHeartbeatMetadata.model_validate(preserved.model_info or {})
+        heartbeat_keys: Final = ("keepalive_seconds", "allow_client_keepalive_override")
+        native_keepalive: Final = (
+            heartbeat.account_pool_native_keepalive or {}
+            if heartbeat.account_pool_sse_heartbeat is not None
+            else {key: value for key, value in preserved.litellm_params.items() if key in heartbeat_keys}
+        )
+        inherited_params: Final = {
+            **{key: value for key, value in preserved.litellm_params.items() if key not in heartbeat_keys},
+            **native_keepalive,
+        }
         await self._repository.update_model(
             model_id=deployment.id,
             model_name=deployment.model_name,
             litellm_params={
                 **deployment.routing_defaults,
-                **preserved.litellm_params,
+                **inherited_params,
                 **deployment.litellm_params,
             },
             model_info={
                 **(preserved.model_info or {}),
                 **deployment.model_info,
+                "account_pool_native_keepalive": (
+                    native_keepalive if deployment.sse_heartbeat_interval_seconds is not None else None
+                ),
                 "account_pool_native_routing": deployment.native_routing_migrated
                 or (current_deployment is not None and current_deployment.native_routing_migrated),
             },
@@ -353,6 +388,7 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         routing_weight=environment.routing_weight,
         routing_order=environment.routing_order,
         native_routing_migrated=environment.routing_weight is not None and environment.routing_order is not None,
+        sse_heartbeat_interval_seconds=environment.sse_heartbeat_interval_seconds,
     )
 
 
@@ -387,6 +423,9 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         and isinstance(blocked, bool)
     ):
         raise RuntimeError(f"managed account pool deployment {row.model_id} is malformed")
+    heartbeat: Final = AccountPoolHeartbeatMetadata.model_validate(
+        _StoredProperties.model_validate(row, from_attributes=True).model_info or {}
+    )
     return ManagedDeployment(
         id=row.model_id,
         environment_id=environment_id,
@@ -398,6 +437,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         blocked=blocked,
         native_routing_migrated=info.get("account_pool_native_routing") is True,
         supported_endpoints=TypeAdapter(tuple[str, ...]).validate_python(info.get("supported_endpoints", ())),
+        sse_heartbeat_interval_seconds=heartbeat.account_pool_sse_heartbeat,
     )
 
 

@@ -28,7 +28,7 @@ _FIELDS: Final = {
         "network_profiles",
     ),
     "quota": ("quota_switch_project", "quota_switch_preview_model", "quota_profiles"),
-    "streaming": ("streaming_enabled", "streaming_profiles", "streaming_rules"),
+    "streaming": ("streaming_enabled", "streaming_profiles", "streaming_rules", "sse_heartbeat_interval_seconds"),
     "advanced": ("plugins_enabled", "websocket_auth_enabled", "force_model_prefix", "advanced_profiles"),
     "payload": ("payload", "payload_profiles"),
 }

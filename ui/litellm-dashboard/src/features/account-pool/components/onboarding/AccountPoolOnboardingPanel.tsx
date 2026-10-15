@@ -29,37 +29,10 @@ import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { accountPoolEnvironmentOptions, accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
 import { proxyGatewayQueryOptions } from "../../hooks/useProxyGateways";
 import type {
-  AccountPoolEnvironment,
-  AccountPoolProxyGateway,
   AccountPoolProxyProfile,
 } from "../../utils/AccountPoolTypes";
 
-const getGatewayNodeLabel = (gateway: AccountPoolProxyGateway | undefined) =>
-  gateway?.current_node ? `节点：${gateway.current_node}` : "节点未知";
-
-const getGatewayCardUsageLabel = (
-  environments: AccountPoolEnvironment[] | undefined,
-  isPending: boolean,
-  isError: boolean,
-  profileId: string,
-) => {
-  if (isError) return "占用数未知";
-  if (isPending || !environments) return "占用统计中";
-  const cardCount = environments.filter((environment) => environment.proxy_profile_id === profileId).length;
-  return `占用：${cardCount} 张卡片`;
-};
-
-const getProxyProfileOptionLabel = (
-  profile: AccountPoolProxyProfile,
-  gateway: AccountPoolProxyGateway | undefined,
-  cardUsageLabel: string,
-  defaultProxyProfileId: string | undefined,
-) =>
-  [
-    ...(profile.id === defaultProxyProfileId ? ["号池默认出站代理"] : []),
-    profile.name,
-    ...(profile.id.startsWith("clash-gateway-") ? [getGatewayNodeLabel(gateway), cardUsageLabel] : []),
-  ].join(" · ");
+import { proxyOptionLabel } from "../../utils/AccountPoolProxyOptions";
 
 interface OnboardingProxySelectorProps {
   accessToken: string;
@@ -97,21 +70,15 @@ const OnboardingProxySelector = ({
   const defaultProxyUnavailable =
     settingsQuery.isSuccess && defaultProxyProfileConfigured && !defaultProxyProfileExists;
   const gateways = gatewaysQuery.data ?? [];
-  const profileOptions = profiles.map((profile) => {
-    const gateway = gateways.find((item) => item.profile_id === profile.id);
-    const cardUsageLabel = profile.id.startsWith("clash-gateway-")
-      ? getGatewayCardUsageLabel(
-          environmentsQuery.data,
-          environmentsQuery.isPending,
-          environmentsQuery.isError,
-          profile.id,
-        )
-      : "";
-    return {
-      value: profile.id,
-      label: getProxyProfileOptionLabel(profile, gateway, cardUsageLabel, defaultProxyProfileId),
-    };
-  });
+  const profileOptions = profiles.map((profile) => ({
+    value: profile.id,
+    label: proxyOptionLabel(
+      profile,
+      gatewaysQuery.isError ? [] : gateways,
+      environmentsQuery.isError ? undefined : environmentsQuery.data,
+      defaultProxyProfileId,
+    ),
+  }));
 
   return (
     <div className="space-y-2">

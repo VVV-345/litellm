@@ -351,7 +351,7 @@ async def forward(
     try:
         completed, rejections = (
             await operation if retry_stream is None
-            else await retry_stream.run(operation, litellm.sse_keepalive_ping_interval_seconds)
+            else await retry_stream.run(operation, heartbeat_interval(resolution.sse_heartbeat_interval_seconds))
         )
     except (ClientDisconnect, OSError):
         return
@@ -1132,7 +1132,8 @@ async def guarded_stream_response(
 ) -> bool:
     standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
     if (next_id is None and not standard_accounting) or not (same_card_replay_safe(payload) or conversation_retry(request)):
-        await stream_response(request, response, attempt, cost_usd, None if prepared is None else prepared.replay())
+        await stream_response(request, response, attempt, cost_usd, None if prepared is None else prepared.replay(),
+                              resolution.sse_heartbeat_interval_seconds)
         return True
     bootstrap: Final = prepared or StreamBootstrap(
         response.aiter_bytes(),
@@ -1196,10 +1197,15 @@ async def guarded_stream_response(
                 },
             )(request.scope, request.receive, attempt.emit)
             return True
-        await stream_response(request, response, attempt, cost_usd, bootstrap.replay())
+        await stream_response(request, response, attempt, cost_usd, bootstrap.replay(),
+                              resolution.sse_heartbeat_interval_seconds)
         return True
     finally:
         await bootstrap.close()
+
+
+def heartbeat_interval(override: float | None) -> float | None:
+    return litellm.sse_keepalive_ping_interval_seconds if override is None else override
 
 
 async def stream_response(
@@ -1208,6 +1214,7 @@ async def stream_response(
     attempt: Attempt,
     cost_usd: float | None,
     source: AsyncIterator[bytes] | None = None,
+    heartbeat: float | None = None,
 ) -> None:
     state: Final = attempt.stream_state
 
@@ -1257,7 +1264,7 @@ async def stream_response(
 
     await StreamingResponse(
         wrap_passthrough_sse_bytes_with_keepalive_pings(
-            chunks(), litellm.sse_keepalive_ping_interval_seconds, {"content-type": "text/event-stream"}
+            chunks(), heartbeat_interval(heartbeat), {"content-type": "text/event-stream"}
         ),
         status_code=response.status_code,
         media_type="text/event-stream",

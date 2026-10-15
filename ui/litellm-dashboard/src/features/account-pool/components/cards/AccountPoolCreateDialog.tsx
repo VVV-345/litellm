@@ -1,6 +1,5 @@
 /** 本文件从 AI 提供商入口创建卡片，并按供应商展示授权引导。 */
 
-import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,13 +24,12 @@ import {
   createVertexAccountPoolEnvironment,
 } from "../../api/AccountPoolApi";
 import { cancelAccountPoolOAuthSession } from "../../api/AccountPoolManagementApi";
-import { accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
+import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 import { AccountPoolAuthorizationPanel } from "../credentials/AccountPoolAuthorizationPanel";
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
   AccountPoolAuthorization,
   AccountPoolEnvironment,
-  AccountPoolProxyProfile,
   AccountPoolSupplier,
 } from "../../utils/AccountPoolTypes";
 
@@ -77,11 +75,8 @@ export const AccountPoolCreateDialog = ({
   const [saving, setSaving] = useState(false);
   const requiresOAuthProxy =
     authorization === null && !DIRECT_CREDENTIAL_SUPPLIERS.has(supplier) && !(supplier === "xai" && useApiKey);
-  const proxyProfilesQuery = useQuery({
-    ...accountPoolProxyProfileOptions(accessToken),
-    enabled: open && accessToken !== null && requiresOAuthProxy,
-  });
-  const proxyProfiles: readonly AccountPoolProxyProfile[] = proxyProfilesQuery.data ?? [];
+  const { profilesQuery: proxyProfilesQuery, profiles: proxyProfiles, options: proxyOptions, defaultLabel } =
+    useAccountPoolProxyOptions(accessToken, open && requiresOAuthProxy);
   const selectedProxyProfileExists = proxyProfiles.some((profile) => profile.id === proxyProfileId);
   const proxySelectionReady = selectedProxyProfileExists && proxyProfilesQuery.isSuccess;
   const canStartOAuth = !saving && Boolean(name.trim()) && proxySelectionReady;
@@ -230,21 +225,22 @@ export const AccountPoolCreateDialog = ({
     <div className="grid gap-2">
       <Label htmlFor="account-pool-proxy-profile">{t("accountPool.create.outboundProxy")}</Label>
       <Select
-        items={proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+        items={proxyOptions}
         value={proxyProfileId}
         onValueChange={(value) => setProxyProfileId(value ?? "")}
       >
-        <SelectTrigger id="account-pool-proxy-profile" aria-label={t("accountPool.create.outboundProxy")}>
+        <SelectTrigger className="w-full" id="account-pool-proxy-profile" aria-label={t("accountPool.create.outboundProxy")}>
           <SelectValue placeholder={t("accountPool.create.selectProxyProfile")} />
         </SelectTrigger>
         <SelectContent>
-          {proxyProfiles.map((profile) => (
-            <SelectItem key={profile.id} value={profile.id}>
-              {profile.name}
+          {proxyOptions.map((profile) => (
+            <SelectItem key={profile.value} value={profile.value}>
+              {profile.label}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
+      <p className="text-sm text-muted-foreground" role="status">{defaultLabel}</p>
       {proxyProfilesQuery.isError && (
         <p role="alert" className="text-sm text-destructive">
           {t("accountPool.create.proxyProfilesLoadFailed")}

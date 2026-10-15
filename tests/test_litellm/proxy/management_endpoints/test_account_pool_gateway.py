@@ -2320,12 +2320,14 @@ def test_responses_done_without_terminal_event_is_failure(with_tools: bool) -> N
     assert '"type": "error"' in response.text
 
 
-async def run_transport_case(upstream: httpx.AsyncByteStream, *, seconds: int = 3, send_error: bool = False):
+async def run_transport_case(upstream: httpx.AsyncByteStream, *, seconds: int = 3, send_error: bool = False,
+                             heartbeat: float | None = None):
     from starlette.requests import Request
 
     from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import Attempt, execute
 
     _, control = setup_gateway(lambda _: httpx.Response(200))
+    control.resolution = control.resolution.model_copy(update={"sse_heartbeat_interval_seconds": heartbeat})
     lease = await control.acquire(
         AcquireRequest(
             card_key=_KEY,
@@ -2436,6 +2438,29 @@ async def test_account_pool_stream_uses_existing_keepalive_setting() -> None:
     assert b": ping" in body
     assert attempt.result.http_status == 200
     assert body.count(b"response.completed") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interval,global_interval,has_ping", [(0, 0.03, False), (0.03, 0, True), (0.3, 0.03, False)])
+async def test_account_pool_heartbeat_override_is_scoped(interval, global_interval, has_ping):
+    import litellm
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.created"}\n\n'
+            await asyncio.sleep(0.15)
+            yield b'data: {"type":"response.completed"}\n\n'
+
+    previous = litellm.sse_keepalive_ping_interval_seconds
+    try:
+        litellm.sse_keepalive_ping_interval_seconds = global_interval
+        attempt, body = await run_transport_case(Upstream(), heartbeat=interval)
+        assert (b": ping" in body) is has_ping
+        assert litellm.sse_keepalive_ping_interval_seconds == global_interval
+        assert attempt.result.http_status == 200
+        assert body.count(b"response.completed") == 1
+    finally:
+        litellm.sse_keepalive_ping_interval_seconds = previous
 
 
 @pytest.mark.parametrize("api", [False, True])

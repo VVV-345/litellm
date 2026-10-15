@@ -1418,7 +1418,7 @@ async def test_gateway_exports_effective_quota_switches_for_global_and_card_prof
     cli = FakeCLIProxy()
 
     class StoredSettings:
-        values = AccountPoolSettings(quota_switch_project=True)
+        values = AccountPoolSettings(quota_switch_project=True, sse_heartbeat_interval_seconds=17)
 
         async def get(self):
             return SimpleNamespace(values=self.values)
@@ -1431,6 +1431,7 @@ async def test_gateway_exports_effective_quota_switches_for_global_and_card_prof
     )
     global_view = (await service.list_gateway_environments())[0]
     assert global_view.quota_switch_project is True
+    assert global_view.sse_heartbeat_interval_seconds == 17
     assert global_view.quota_switch_preview_model is False
     stored.values = stored.values.model_copy(update={"quota_profiles": (
         QuotaSettingsProfile(id="quota", name="quota", card_ids=(record.id,), inherit_global=False,

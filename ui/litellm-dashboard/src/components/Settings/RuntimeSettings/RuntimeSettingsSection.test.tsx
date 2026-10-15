@@ -1,7 +1,7 @@
 /** 本文件验证流式子模块可打开、创建独立配置并在保存时提交卡片绑定。 */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -121,6 +121,56 @@ describe("RuntimeSettingsSection", () => {
     getSettings.mockResolvedValue({ version: 4, values: settings, requires_reload: false });
     updateSettings.mockResolvedValue({ version: 5, values: settings, requires_reload: false });
     listProxyProfiles.mockResolvedValue([]);
+  });
+
+  it("saves the heartbeat interval without disabling streaming", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const heartbeat = await screen.findByRole("combobox", { name: "SSE 心跳" });
+    await user.click(heartbeat);
+    await user.click(await screen.findByRole("option", { name: "开启" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "心跳间隔（秒）" }), { target: { value: "17" } });
+    await user.click(screen.getByRole("button", { name: "保存心跳设置" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values).toEqual(expect.objectContaining({
+      sse_heartbeat_interval_seconds: 17, streaming_enabled: true,
+    }));
+  });
+
+  it("keeps the heartbeat input mounted while clearing and entering a fractional interval", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("combobox", { name: "SSE 心跳" }));
+    await user.click(await screen.findByRole("option", { name: "开启" }));
+    const input = screen.getByRole("spinbutton", { name: "心跳间隔（秒）" });
+    await user.clear(input);
+    expect(input).toBeInTheDocument();
+    await user.type(input, "0.5");
+    await user.click(screen.getByRole("button", { name: "保存心跳设置" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values.sse_heartbeat_interval_seconds).toBe(0.5);
+  });
+
+  it.each(["", "0", "-1", "301"])("rejects invalid enabled heartbeat interval %s", async (interval) => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole("combobox", { name: "SSE 心跳" }));
+    await user.click(await screen.findByRole("option", { name: "开启" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "心跳间隔（秒）" }), { target: { value: interval } });
+    await user.click(screen.getByRole("button", { name: "保存心跳设置" }));
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole("spinbutton", { name: "心跳间隔（秒）" })).toBeInTheDocument();
+  });
+
+  it.each(["关闭", "保持现有配置"])("saves heartbeat mode %s explicitly", async (mode) => {
+    const user = userEvent.setup();
+    getSettings.mockResolvedValue({ version: 4, values: { ...settings, sse_heartbeat_interval_seconds: 17 } });
+    renderPanel();
+    await user.click(await screen.findByRole("combobox", { name: "SSE 心跳" }));
+    await user.click(await screen.findByRole("option", { name: mode }));
+    await user.click(screen.getByRole("button", { name: "保存心跳设置" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values.sse_heartbeat_interval_seconds).toBe(mode === "关闭" ? 0 : null);
   });
 
   it("saves the quota failover switches through the existing settings contract", async () => {

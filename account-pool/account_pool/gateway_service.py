@@ -135,6 +135,7 @@ class GatewayService:
             full_log_retention_days=global_settings.full_log_retention_days if global_settings else 30,
             sticky_account_id=await self.leases.sticky(binding),
             streaming_mode=streaming_mode,
+            sse_heartbeat_interval_seconds=global_settings.sse_heartbeat_interval_seconds if global_settings else None,
             websocket_enabled=websocket_enabled,
             enabled_models=self.gateway(card).enabled_models,
         )

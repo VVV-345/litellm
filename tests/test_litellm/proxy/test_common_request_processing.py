@@ -7629,3 +7629,85 @@ def test_log_llm_api_exception_traceback_only_for_unexpected_errors(exc, expect_
     records = [r for r in caplog.records if "_handle_llm_api_exception(): Exception occured" in r.getMessage()]
     assert len(records) == 1
     assert (records[0].exc_info is not None) is expect_traceback
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("managed_by, interval, global_interval, expect_ping", [
+    ("account_pool", 0, 0.01, False),
+    ("account_pool", 0.01, 0, True),
+    ("account_pool", None, 0.01, True),
+    (None, 0, 0.01, True),
+])
+@pytest.mark.parametrize("has_model_id", [True, False])
+async def test_messages_stream_uses_account_pool_heartbeat_override(
+    monkeypatch, managed_by, interval, global_interval, expect_ping, has_model_id
+):
+    import litellm.proxy.common_request_processing as crp
+
+    router: Final = litellm.Router(model_list=[{
+        "model_name": "native-model",
+        "litellm_params": {"model": "openai/native-model", "api_key": "test"},
+        "model_info": {"id": "native-id", "managed_by": managed_by,
+                       "account_pool_sse_heartbeat": interval},
+    }])
+    async def stream():
+        yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+        await asyncio.sleep(0.06)
+        yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+    async def route(**kwargs):
+        async def call():
+            return stream()
+        return call()
+
+    monkeypatch.setattr(crp, "route_request", route)
+    monkeypatch.setattr(litellm, "anthropic_sse_ping_interval_seconds", global_interval)
+    monkeypatch.setattr(litellm, "sse_keepalive_ping_interval_seconds", None)
+    logging_obj: Final = MagicMock()
+    logging_obj.model_call_details = {}
+    logging_obj.litellm_call_id = "heartbeat-test"
+    logging_obj.cost_breakdown = None
+    logging_obj._on_deferred_stream_complete = None
+    logging_obj._enqueue_deferred_logging = None
+    processor: Final = ProxyBaseLLMRequestProcessing(data={
+        "model": "native-model", "stream": True, "litellm_logging_obj": logging_obj,
+        "litellm_metadata": {"model_info": {"id": "native-id"} if has_model_id else {}},
+    })
+    proxy_logging: Final = ProxyLogging(user_api_key_cache=MagicMock())
+    async def receive():
+        await asyncio.Event().wait()
+        return {"type": "http.disconnect"}
+
+    result: Final = await processor.base_process_llm_request(
+        request=Request({"type": "http", "method": "POST", "path": "/v1/messages", "headers": []}, receive=receive),
+        fastapi_response=Response(), user_api_key_dict=ProxyUserAPIKeyAuth(api_key="sk-test"),
+        route_type="anthropic_messages", proxy_logging_obj=proxy_logging, general_settings={},
+        proxy_config=MagicMock(spec=ProxyConfig), llm_router=router, skip_pre_call_logic=True,
+    )
+    chunks: Final = [chunk async for chunk in result.body_iterator]
+    body: Final = b"".join(chunk.encode() if isinstance(chunk, str) else chunk for chunk in chunks)
+    assert b"event: message_start" in body and b"event: message_stop" in body
+    assert b'"error"' not in body
+    assert (b"event: ping" in body) is expect_ping
+
+
+def test_mixed_account_pool_candidates_keep_global_heartbeat_until_deployment_is_known(monkeypatch):
+    from litellm.proxy.common_request_processing import anthropic_keepalive_interval
+
+    router: Final = litellm.Router(model_list=[
+        {"model_name": "shared", "litellm_params": {
+            "model": "openai/shared", "api_key": "test", "keepalive_seconds": 0,
+        }, "model_info": {"id": "pool", "managed_by": "account_pool", "account_pool_sse_heartbeat": 0}},
+        {"model_name": "shared", "litellm_params": {
+            "model": "openai/shared", "api_key": "test",
+        }, "model_info": {"id": "native"}},
+    ])
+    monkeypatch.setattr(litellm, "sse_keepalive_ping_interval_seconds", 9)
+    monkeypatch.setattr(litellm, "anthropic_sse_ping_interval_seconds", 11)
+    data: Final = {"model": "shared", "stream": True}
+    assert ttft_keepalive_interval(data, router) == 9
+    assert anthropic_keepalive_interval("shared", "", router) == 11
+    assert anthropic_keepalive_interval("shared", "pool", router) == 0
+    assert anthropic_keepalive_interval("shared", "native", router) == 11
+    assert anthropic_keepalive_interval("shared", "stale", router) == 11
+    assert anthropic_keepalive_interval("shared", "pool", None) == 11

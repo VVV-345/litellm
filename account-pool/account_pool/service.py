@@ -504,6 +504,7 @@ class EnvironmentService:
                     "quota_reserve_percent": policy.routing.quota_reserve_percent,
                     "quota_snapshot_max_age": policy.routing.quota_snapshot_max_age,
                     "quota_switch_project": effective.quota_switch_project,
+                    "sse_heartbeat_interval_seconds": settings.sse_heartbeat_interval_seconds,
                     "quota_switch_preview_model": effective.quota_switch_preview_model,
                     "fallback_enabled": policy.routing.fallback_enabled,
                     "routing_weight": policy.routing.weight,

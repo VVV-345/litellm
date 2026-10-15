@@ -558,6 +558,7 @@ class AccountPoolSettings(BaseModel):
     payload: PayloadSettings = Field(default_factory=PayloadSettings)
     plugins_enabled: bool = False
     streaming_enabled: bool = True
+    sse_heartbeat_interval_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
     common_profiles: tuple[CommonSettingsProfile, ...] = Field(default=(), max_length=100)
     access_profiles: tuple[AccessSettingsProfile, ...] = Field(default=(), max_length=100)
     network_profiles: tuple[NetworkSettingsProfile, ...] = Field(default=(), max_length=100)

@@ -60,3 +60,23 @@ def test_successful_release_sequence(tmp_path, tags, bump, want):
     # 失败的构建没有成功标签，重新计算不得消耗版本号。
     assert second.stdout == first.stdout
     assert successful.read_text(encoding="utf-8") == tags
+
+
+@pytest.mark.parametrize("tags,want", [
+    ("v1.2-1111111111", "v1.3"),
+    ("v1.2.2-1111111111", "v1.3"),
+    ("v1.3-1111111111", "v1.3.1"),
+    ("v1.3.1-1111111111", "v1.3.2"),
+])
+def test_explicit_release_series_starts_at_requested_version(tmp_path, tags, want):
+    version = tmp_path / "VERSION"
+    version.write_text("v1.3", encoding="utf-8")
+    successful = tmp_path / "tags.txt"
+    successful.write_text(tags, encoding="utf-8")
+    command = [sys.executable, str(SCRIPT), str(version), "a" * 40, "--tags-file", str(successful)]
+    first = subprocess.run(command, capture_output=True, text=True)
+    retry = subprocess.run(command, capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    assert f"release_version={want}\n" in first.stdout
+    assert retry.stdout == first.stdout
+    assert successful.read_text(encoding="utf-8") == tags

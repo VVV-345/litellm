@@ -163,7 +163,7 @@ describe("onboarding workflows", () => {
     await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
 
     expect(
-      await screen.findByRole("option", { name: "Clash 端口 7891 · 节点：日本02 · 占用：2 张卡片" }),
+      await screen.findByRole("option", { name: "Clash 端口 7891 · 节点：日本02 · 同节点 2 张卡片" }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: "号池默认出站代理 · 主站代理" }));
 

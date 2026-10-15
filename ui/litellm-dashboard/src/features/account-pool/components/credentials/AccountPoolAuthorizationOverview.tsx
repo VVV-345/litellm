@@ -12,6 +12,7 @@ import { statusLabel, statusVariant } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import type { AccountPoolSupplier } from "../../utils/AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
+import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 
 const OAUTH_PROVIDERS: readonly AccountPoolSupplier[] = [
   "kimi",
@@ -22,20 +23,26 @@ const OAUTH_PROVIDERS: readonly AccountPoolSupplier[] = [
 ];
 
 export const AccountPoolAuthorizationOverview = ({
+  accessToken,
+  active = true,
   environments,
   onCreate,
   onAuthorize,
 }: {
+  accessToken: string | null;
+  active?: boolean;
   environments: readonly AccountPoolEnvironment[];
   onCreate: (supplier: AccountPoolSupplier) => void;
   onAuthorize: (environment: AccountPoolEnvironment) => void;
 }) => {
   const { t } = useTranslation();
+  const { defaultLabel } = useAccountPoolProxyOptions(accessToken, active);
   return (
     <div className="grid gap-5">
       <div>
         <h2 className="text-lg font-semibold">{t("accountPool.oauth.title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.oauth.description")}</p>
+        <p className="mt-2 text-sm text-muted-foreground" role="status">{defaultLabel}</p>
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {OAUTH_PROVIDERS.map((supplier) => {

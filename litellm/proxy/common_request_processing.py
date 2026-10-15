@@ -1005,6 +1005,28 @@ def ttft_keepalive_interval(request_data: Mapping[str, object], llm_router: Rout
     return resolve_ttft_keepalive_interval(deployments, litellm.sse_keepalive_ping_interval_seconds)
 
 
+def anthropic_keepalive_interval(
+    requested_model: str | None, model_id: str, llm_router: Router | None
+) -> float | str | None:
+    from litellm.proxy.management_endpoints.account_pool_reconciler import AccountPoolHeartbeatMetadata
+
+    if llm_router is None:
+        return litellm.anthropic_sse_ping_interval_seconds
+    if model_id:
+        deployment: Final = llm_router.get_deployment(model_id)
+        interval: Final = (
+            AccountPoolHeartbeatMetadata.model_validate(deployment.model_info, from_attributes=True).interval_seconds
+            if deployment is not None and getattr(deployment.model_info, "managed_by", None) == "account_pool" else None
+        )
+        return litellm.anthropic_sse_ping_interval_seconds if interval is None else interval
+    intervals: Final = frozenset(
+        AccountPoolHeartbeatMetadata.deployment_interval(candidate)
+        for candidate in (llm_router.get_model_list(model_name=requested_model) or ())
+    ) if isinstance(requested_model, str) else frozenset[float | None]()
+    agreed: Final = next(iter(intervals)) if len(intervals) == 1 else None
+    return litellm.anthropic_sse_ping_interval_seconds if agreed is None else agreed
+
+
 async def _aclose_late_response(produced: Response) -> None:
     """Run the cleanup Starlette would have run, for a response it never called.
 
@@ -2468,7 +2490,11 @@ class ProxyBaseLLMRequestProcessing:
                         return await create_response(
                             generator=wrap_sse_stream_with_keepalive_pings(
                                 stream=selected_data_generator,
-                                ping_interval_seconds=litellm.anthropic_sse_ping_interval_seconds,
+                                ping_interval_seconds=anthropic_keepalive_interval(
+                                    requested_model_from_client if isinstance(requested_model_from_client, str) else None,
+                                    model_id,
+                                    llm_router,
+                                ),
                             ),
                             media_type="text/event-stream",
                             headers=custom_headers,

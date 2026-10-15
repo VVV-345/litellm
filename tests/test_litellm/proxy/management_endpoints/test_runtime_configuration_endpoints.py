@@ -36,6 +36,28 @@ def test_streaming_save_preserves_quota_provider_proxy_logs_and_payload():
     assert error.value.status_code == 409
 
 
+@pytest.mark.parametrize("interval", [None, 0, 15, 300])
+def test_heartbeat_runtime_save_and_roundtrip(interval):
+    from account_pool.settings import AccountPoolSettings as ManagerSettings
+
+    current = AccountPoolSettingsView(version=2, values=AccountPoolSettings(default_proxy_profile_id="keep"))
+    patch = AccountPoolSettingsUpdate(version=2, values=AccountPoolSettings(sse_heartbeat_interval_seconds=interval))
+    merged = merge_runtime_settings(current, patch, "streaming")
+    restored = ManagerSettings.model_validate_json(merged.values.model_dump_json())
+    assert restored.sse_heartbeat_interval_seconds == interval
+    assert restored.default_proxy_profile_id == "keep"
+
+
+@pytest.mark.parametrize("interval", [-1, 301, float("nan"), float("inf")])
+def test_heartbeat_rejects_invalid_interval(interval):
+    from account_pool.settings import AccountPoolSettings as ManagerSettings
+    from pydantic import ValidationError
+
+    for model in (AccountPoolSettings, ManagerSettings):
+        with pytest.raises(ValidationError):
+            model(sse_heartbeat_interval_seconds=interval)
+
+
 @pytest.mark.parametrize("admin", [False, True])
 def test_native_runtime_api_requires_admin_and_writes_only_selected_module(admin):
     calls = []

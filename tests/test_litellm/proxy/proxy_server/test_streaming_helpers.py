@@ -1819,3 +1819,43 @@ async def test_run_thread_stream_is_untouched_while_keepalives_are_unconfigured(
 
     assert not any(chunk.startswith(": ping") for chunk in chunks)
     assert chunks[-1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.parametrize("managed_by, interval, expected", [
+    ("account_pool", 0.5, 0.5),
+    ("account_pool", None, 1.0),
+    (None, 0.5, 1.0),
+])
+@pytest.mark.parametrize("has_model_id", [True, False])
+def test_account_pool_fractional_heartbeat_is_not_clamped(monkeypatch, managed_by, interval, expected, has_model_id):
+    import litellm
+    import litellm.proxy.proxy_server as ps
+
+    router = litellm.Router(model_list=[{
+        "model_name": "native-model",
+        "litellm_params": {"model": "openai/native-model", "api_key": "test", "keepalive_seconds": 0.5},
+        "model_info": {"id": "native-id", "managed_by": managed_by,
+                       "account_pool_sse_heartbeat": interval},
+    }])
+    monkeypatch.setattr(ps, "llm_router", router)
+    response = litellm.ModelResponse()
+    if has_model_id:
+        response._hidden_params["model_id"] = "native-id"
+    assert _resolve_keepalive_seconds({"model": "native-model", "keepalive_seconds": 2}, response) == expected
+
+
+def test_mixed_pool_and_native_hard_disable_remains_disabled_without_model_id(monkeypatch):
+    import litellm
+    import litellm.proxy.proxy_server as ps
+
+    router = litellm.Router(model_list=[
+        {"model_name": "shared", "litellm_params": {
+            "model": "openai/shared", "api_key": "test", "keepalive_seconds": 0,
+        }, "model_info": {"id": "pool", "managed_by": "account_pool", "account_pool_sse_heartbeat": 0}},
+        {"model_name": "shared", "litellm_params": {
+            "model": "openai/shared", "api_key": "test", "keepalive_seconds": 0,
+        }, "model_info": {"id": "native"}},
+    ])
+    monkeypatch.setattr(ps, "llm_router", router)
+    monkeypatch.setattr(litellm, "sse_keepalive_ping_interval_seconds", 12)
+    assert _resolve_keepalive_seconds({"model": "shared"}) == 0

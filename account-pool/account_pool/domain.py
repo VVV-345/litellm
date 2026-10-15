@@ -545,6 +545,7 @@ class GatewayEnvironment(BaseModel):
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
     fallback_enabled: bool = False
+    sse_heartbeat_interval_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
     api_base: str
     api_key: str = Field(repr=False)
     credentials: tuple[GatewayCredential, ...] = Field(default=(), repr=False)

@@ -25275,6 +25275,8 @@ export interface components {
              * @default true
              */
             runtime_log_stacktrace: boolean;
+            /** Sse Heartbeat Interval Seconds */
+            sse_heartbeat_interval_seconds?: number | null;
             /**
              * Streaming Enabled
              * @default true

@@ -105,6 +105,7 @@ class Resolution(BaseModel):
     full_log_retention_days: int = 30
     sticky_account_id: UUID | None = None
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit"
+    sse_heartbeat_interval_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
     websocket_enabled: bool = False
     enabled_models: tuple[str, ...] = ()
 

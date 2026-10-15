@@ -404,6 +404,7 @@ async def test_named_network_and_streaming_profiles_reach_gateway_resolution() -
     assert isinstance(issued, Success)
     settings: Final = StaticSettings(
         AccountPoolSettings(
+            sse_heartbeat_interval_seconds=17,
             max_attempts=2,
             request_timeout_seconds=120,
             network_profiles=(
@@ -439,6 +440,7 @@ async def test_named_network_and_streaming_profiles_reach_gateway_resolution() -
     resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
 
     assert resolution.streaming_mode == "disabled"
+    assert resolution.sse_heartbeat_interval_seconds == 17
     assert resolution.policy.routing.max_attempts == 4
     assert resolution.policy.transport.request_timeout_seconds == 300
 

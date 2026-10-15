@@ -545,6 +545,8 @@ export default function AccountPoolPage() {
             visited={isTabVisited("oauth")}
           >
             <AccountPoolAuthorizationOverview
+              accessToken={accessToken}
+              active={activeTab === "oauth"}
               environments={environments}
               onCreate={openCreateDialog}
               onAuthorize={handleAuthorize}

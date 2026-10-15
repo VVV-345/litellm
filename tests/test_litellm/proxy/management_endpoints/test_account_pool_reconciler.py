@@ -78,6 +78,18 @@ def test_desired_deployments_keep_protocol_identity_stable() -> None:
     assert [deployment.model_name for deployment in deployments] == ["gpt-5", "gpt-4.1"]
 
 
+@pytest.mark.parametrize("interval", [0, 17])
+def test_heartbeat_reaches_native_managed_deployment(interval):
+    from litellm.proxy.common_utils.sse_keepalive import resolve_ttft_keepalive_interval
+
+    environment = _environment(routable=True).model_copy(update={"sse_heartbeat_interval_seconds": interval})
+    deployment = desired_deployments((environment,))[0]
+    assert deployment.litellm_params["keepalive_seconds"] == interval
+    assert deployment.litellm_params["allow_client_keepalive_override"] is False
+    resolved = resolve_ttft_keepalive_interval(({"litellm_params": deployment.litellm_params},), 10)
+    assert resolved == (None if interval == 0 else 17)
+
+
 def test_non_routable_snapshots_keep_disabled_deployments() -> None:
     blocked: Final = _environment(routable=False, models=("gpt-5", "gpt-4.1"))
 
@@ -263,3 +275,43 @@ def test_messages_native_capability_is_advertised_only_when_channel_supports_it(
     native = generic.model_copy(update={"supported_endpoints": ("/v1/messages",)})
     assert _deployment_passes_through_anthropic_messages(desired_deployments((native,))[0].model_info)
     assert not _deployment_passes_through_anthropic_messages(desired_deployments((generic,))[0].model_info)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_params", [
+    {"keepalive_seconds": 23, "allow_client_keepalive_override": True},
+    {"keepalive_seconds": 0, "allow_client_keepalive_override": False},
+    {"keepalive_seconds": None},
+    {},
+])
+async def test_heartbeat_inherit_restores_native_params_after_multiple_overrides(native_params):
+    from unittest.mock import AsyncMock
+
+    from litellm.models.model import LiteLLM_ProxyModelTable
+    from litellm.proxy.management_endpoints.account_pool_reconciler import LiteLLMDeploymentStore
+    from litellm.repositories.model_repository import ModelRepository
+
+    inherited: Final = desired_deployments((_environment(routable=True),))[0]
+    row: Final = LiteLLM_ProxyModelTable(
+        model_id=inherited.id,
+        model_name=inherited.model_name,
+        litellm_params={**inherited.litellm_params, **native_params, "timeout": 91},
+        model_info=inherited.model_info,
+        blocked=False,
+    )
+    repository: Final = AsyncMock(spec=ModelRepository)
+    repository.find_by_id.return_value = row
+    store: Final = LiteLLMDeploymentStore(None, repository)
+    for interval in (0, 17, None, 4, None):
+        assert await store.upsert(replace(inherited, sse_heartbeat_interval_seconds=interval)) is True
+        saved = repository.update_model.call_args.kwargs
+        expected: Final = native_params if interval is None else {
+            "keepalive_seconds": interval, "allow_client_keepalive_override": False,
+        }
+        assert {key: value for key, value in saved["litellm_params"].items()
+                if key in ("keepalive_seconds", "allow_client_keepalive_override")} == expected
+        assert saved["litellm_params"]["timeout"] == 91
+        repository.find_by_id.return_value = row.model_copy(update={
+            "litellm_params": saved["litellm_params"], "model_info": saved["model_info"],
+        })
+        assert await store.upsert(replace(inherited, sse_heartbeat_interval_seconds=interval)) is False

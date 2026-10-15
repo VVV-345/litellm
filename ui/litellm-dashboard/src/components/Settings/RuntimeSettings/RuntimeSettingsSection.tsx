@@ -87,6 +87,7 @@ const defaults: AccountPoolSettings = {
   payload: emptyPayload,
   plugins_enabled: false,
   streaming_enabled: true,
+  sse_heartbeat_interval_seconds: null,
   common_profiles: [],
   access_profiles: [],
   network_profiles: [],
@@ -140,13 +141,21 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
   const profilesQuery = useQuery(accountPoolProxyProfileOptions(accessToken));
   const [draft, setDraft] = useState<AccountPoolSettings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [heartbeatText, setHeartbeatText] = useState<string | null>(null);
   const [jsonTexts, setJsonTexts] = useState<Record<string, string>>({});
   const [invalidEditorIds, setInvalidEditorIds] = useState<string[]>([]);
 
   const version = settingsQuery.data?.version ?? 0;
   const values = draft ?? settingsQuery.data?.values ?? defaults;
+  const explicitHeartbeatMode = values.sse_heartbeat_interval_seconds === 0 ? "disabled" : "enabled";
+  const heartbeatMode = values.sse_heartbeat_interval_seconds == null ? "inherit" : explicitHeartbeatMode;
   const update = <K extends keyof AccountPoolSettings>(key: K, value: AccountPoolSettings[K]) =>
     setDraft((current) => ({ ...(current ?? settingsQuery.data?.values ?? defaults), [key]: value }));
+  const changeHeartbeatMode = (mode: string | null) => {
+    setHeartbeatText(null);
+    const interval = mode === "disabled" ? 0 : 10;
+    update("sse_heartbeat_interval_seconds", mode === "inherit" ? null : interval);
+  };
   const patchValues = (patch: Partial<AccountPoolSettings>) =>
     setDraft((current) => ({ ...(current ?? settingsQuery.data?.values ?? defaults), ...patch }));
   const markEditor = (editorId: string, valid: boolean) =>
@@ -185,6 +194,15 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
     ...(values.payload_profiles ?? []),
   ];
   const save = async () => {
+    const heartbeat = heartbeatText === null ? values.sse_heartbeat_interval_seconds : Number(heartbeatText);
+    if (heartbeatText !== null && (!heartbeatText.trim() || heartbeat == null || heartbeat <= 0)) {
+      toast.error("开启 SSE 心跳时，间隔必须大于 0 秒");
+      return;
+    }
+    if (heartbeat != null && (!Number.isFinite(heartbeat) || heartbeat < 0 || heartbeat > 300)) {
+      toast.error("SSE 心跳间隔必须在 0 到 300 秒之间，0 表示关闭");
+      return;
+    }
     if (invalidEditorIds.length > 0) {
       toast.error(t("accountPool.settings.invalidJsonEditors"));
       return;
@@ -195,9 +213,10 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
     }
     setBusy(true);
     try {
-      const saved = await updateAccountPoolSettings(accessToken, { version, values }, category);
+      const saved = await updateAccountPoolSettings(accessToken, { version, values: { ...values, sse_heartbeat_interval_seconds: heartbeat } }, category);
       await settingsQuery.refetch();
       setDraft(null);
+      setHeartbeatText(null);
       setJsonTexts({});
       setInvalidEditorIds([]);
       toast.success(
@@ -665,6 +684,35 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
           )}
 
           {category === "streaming" && (
+            <div className="grid gap-4">
+              <Card><CardContent className="grid gap-3 pt-4">
+                <Label htmlFor="sse-heartbeat-mode">SSE 心跳</Label>
+                <Select
+                  items={[{ value: "inherit", label: "保持现有配置" }, { value: "enabled", label: "开启" }, { value: "disabled", label: "关闭" }]}
+                  value={heartbeatMode}
+                  disabled={busy}
+                  onValueChange={changeHeartbeatMode}
+                >
+                  <SelectTrigger id="sse-heartbeat-mode" aria-label="SSE 心跳"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inherit">保持现有配置</SelectItem>
+                    <SelectItem value="enabled">开启</SelectItem>
+                    <SelectItem value="disabled">关闭</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(values.sse_heartbeat_interval_seconds ?? 0) > 0 && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="sse-heartbeat-interval">心跳间隔（秒）</Label>
+                    <Input
+                      id="sse-heartbeat-interval" type="number" step="any" min="0" max="300" disabled={busy}
+                      value={heartbeatText ?? String(values.sse_heartbeat_interval_seconds)}
+                      onChange={(event) => setHeartbeatText(event.target.value)}
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">仅影响号池请求；空闲时发送 SSE 注释，不改变模型内容。保持现有配置不会改变当前行为。保存后新请求生效。</p>
+                <Button disabled={busy || settingsQuery.isPending || settingsQuery.isError} onClick={() => void save()}>保存心跳设置</Button>
+              </CardContent></Card>
             <RuntimeSettingsProfileSection
               moduleName={t("accountPool.settings.categories.streaming")}
               globalValues={streamingGlobal}
@@ -677,6 +725,7 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
               onSave={() => void save()}
               renderValues={renderStreaming}
             />
+            </div>
           )}
 
           {category === "advanced" && (
