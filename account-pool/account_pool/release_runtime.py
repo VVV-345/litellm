@@ -79,10 +79,12 @@ class ImageInspection(BaseModel):
     id: str = Field(alias="Id")
     size: int = Field(default=0, alias="Size")
     digests: tuple[str, ...] | None = Field(default=None, alias="RepoDigests")
+    tags: tuple[str, ...] | None = Field(default=None, alias="RepoTags")
     config: dict[str, JsonValue] = Field(alias="Config")
 
 
 class ContainerInspection(BaseModel):
+    name: str = Field(default="", alias="Name")
     image: str = Field(alias="Image")
     config: dict[str, JsonValue] = Field(alias="Config")
     mounts: tuple[MountInspection, ...] = Field(default=(), alias="Mounts")
@@ -228,12 +230,13 @@ class DockerReleaseRuntime:
         references: Final = tuple(
             (service, line)
             for service, repository in REPOSITORIES.items()
-            for line in self.run("image", "ls", repository, "--format", "{{.Repository}}:{{.Tag}}")
-            .decode()
-            .splitlines()
-            if re.fullmatch(re.escape(repository) + r":[a-f0-9]{10,40}", line)
+            for source in (repository, "litellm-backup/" + service)
+            for line in self.run("image", "ls", source, "--quiet", "--no-trunc").decode().splitlines()
+            if re.fullmatch(r"sha256:[a-f0-9]{64}", line)
         )
-        images: Final = tuple(self.inspect_image(reference, service) for service, reference in references)
+        images: Final = tuple(
+            self.inspect_image(reference, service) for service, reference in dict.fromkeys(references)
+        )
         commits: Final = tuple(dict.fromkeys(image.revision for image in images))
         pairs: Final = tuple(
             image_pair((first, second))
@@ -244,6 +247,56 @@ class DockerReleaseRuntime:
             if second.revision == commit and second.service == "account-pool"
         )
         return tuple({pair.id: pair for pair in pairs}.values())
+
+    def image_users(self, pair: ReleasePair) -> tuple[str, ...]:
+        identifiers: Final = self.run("ps", "-aq").decode().split()
+        if not identifiers:
+            return ()
+        containers: Final = TypeAdapter(tuple[ContainerInspection, ...]).validate_json(
+            self.run("inspect", *identifiers)
+        )
+        return tuple(
+            container.name or container.image
+            for container in containers
+            if container.image in {image.image_id for image in pair.images}
+        )
+
+    def _removal_references(self, image: ReleaseImage) -> tuple[str, ...]:
+        inspected: Final = TypeAdapter(tuple[ImageInspection, ...]).validate_json(
+            self.run("image", "inspect", image.image_id)
+        )[0]
+        actual: Final = self.inspect_image(image.image_id, image.service)
+        if actual.image_id != image.image_id or actual.revision != image.revision:
+            raise ReleaseError("镜像身份已变化，请重新扫描")
+        references: Final = tuple(dict.fromkeys((*(inspected.tags or ()), *(inspected.digests or ()))))
+        if any(
+            not reference.startswith(
+                (
+                    REPOSITORIES[image.service] + ":",
+                    REPOSITORIES[image.service] + "@sha256:",
+                    "litellm-backup/" + image.service + ":",
+                )
+            )
+            for reference in references
+        ):
+            raise ReleaseError("镜像还被其他仓库标签引用，不能删除")
+        return inspected.tags or inspected.digests or (image.image_id,)
+
+    def remove_images(self, pair: ReleasePair) -> None:
+        if self.image_users(pair):
+            raise ReleaseError("镜像被容器引用，不能删除")
+        references: Final = tuple(self._removal_references(image) for image in pair.images)
+        for image, expected in zip(pair.images, references, strict=True):
+            if self.image_users(pair) or self._removal_references(image) != expected:
+                raise ReleaseError("镜像引用已变化，请重新扫描")
+            self.run("image", "rm", *expected)
+            if image.image_id in self.run("image", "ls", "--quiet", "--no-trunc").decode().split():
+                if self.image_users(pair):
+                    raise ReleaseError("镜像被容器引用，不能删除")
+                self._removal_references(image)
+                self.run("image", "rm", image.image_id)
+            if image.image_id in self.run("image", "ls", "--quiet", "--no-trunc").decode().split():
+                raise ReleaseError("镜像仍有引用，未完全删除，请重新扫描")
 
     def compose(self) -> bytes:
         raw: Final = self.run(

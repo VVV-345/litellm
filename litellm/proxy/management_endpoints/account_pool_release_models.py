@@ -111,10 +111,36 @@ class ReleaseVersion(BaseModel):
     problem: str | None = None
 
 
+class LocalReleaseVersion(BaseModel):
+    pair: ReleasePair
+    current: bool = False
+    backed_up: bool = False
+    image_users: tuple[str, ...] = ()
+    protected_reason: str | None = None
+
+
+class ReleaseImageView(BaseModel):
+    versions: tuple[LocalReleaseVersion, ...]
+    revision: int
+
+
 class ReleaseAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    action: Literal["apply", "delete", "note", "guide", "scan", "deploy", "recover", "restore_data"]
+    action: Literal[
+        "apply",
+        "delete",
+        "note",
+        "guide",
+        "scan",
+        "deploy",
+        "recover",
+        "restore_data",
+        "backup_selected",
+        "delete_backups",
+        "delete_images",
+    ]
     version_id: ReleaseId | None = None
+    version_ids: tuple[ReleaseId, ...] | None = Field(default=None, max_length=100)
     text: str = Field(default="", max_length=12000)
     tag: Annotated[str, Field(pattern=r"^[a-f0-9]{10,40}$")] | None = None
     revision: int = Field(ge=0)
@@ -132,6 +158,7 @@ class ReleaseConfirmation(BaseModel):
     current_commit: str | None
     rollback: RollbackInspection | None = None
     database_snapshot: DatabaseSnapshot | None = None
+    compatibility_bypassed: bool = False
 
 
 class RollbackCheck(BaseModel):

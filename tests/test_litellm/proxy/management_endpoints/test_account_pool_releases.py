@@ -30,6 +30,32 @@ def test_public_and_worker_contracts_match() -> None:
 
 
 @pytest.mark.parametrize("admin", (True, False))
+def test_image_inventory_is_admin_only_and_does_not_create_backups(monkeypatch, admin):
+    monkeypatch.setenv("ACCOUNT_POOL_RELEASE_TOKEN", "s" * 32)
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="admin" if admin else "member")
+
+    def require_admin(user):
+        if user.user_id != "admin":
+            raise HTTPException(403, "admin only")
+
+    def transport(request):
+        assert admin and request.method == "GET"
+        assert str(request.url) == "http://release-worker:8092/api/releases/images"
+        return httpx.Response(200, json={"versions": [], "revision": 4})
+
+    app.include_router(
+        create_release_router(require_admin, lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport)))
+    )
+    with TestClient(app) as client:
+        response = client.get("/releases/images")
+    assert response.status_code == (200 if admin else 403)
+    if admin:
+        assert response.json() == {"versions": [], "revision": 4}
+        assert response.headers["Cache-Control"] == "no-store"
+
+
+@pytest.mark.parametrize("admin", (True, False))
 def test_admin_authentication_and_internal_token_forwarding(monkeypatch: pytest.MonkeyPatch, admin: bool) -> None:
     monkeypatch.setenv("ACCOUNT_POOL_RELEASE_TOKEN", "s" * 32)
     app: Final = FastAPI()

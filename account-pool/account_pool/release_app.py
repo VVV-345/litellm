@@ -23,6 +23,7 @@ from account_pool.release_models import (
     ReleaseConfirmation,
     ReleaseExecute,
     ReleaseId,
+    ReleaseImageView,
     ReleaseJob,
     ReleaseView,
 )
@@ -145,8 +146,12 @@ def release_application(service: ReleaseService, token: str, *, initialize_backu
     def auto_check(_actor: Annotated[str, Depends(authenticate)]) -> AutoUpdateView:
         return updater.check()
 
+    def images(_actor: Annotated[str, Depends(authenticate)]) -> ReleaseImageView:
+        return service.images()
+
     app.exception_handler(ReleaseError)(release_error)
     app.add_api_route("/health", health, methods=["GET"])
+    app.add_api_route("/api/releases/images", images, methods=["GET"])
     app.add_api_route("/api/releases", view, methods=["GET"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/prepare", prepare, methods=["POST"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/execute", execute, methods=["POST"], response_model_exclude_none=True)

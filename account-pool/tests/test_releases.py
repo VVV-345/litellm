@@ -64,6 +64,8 @@ class Runtime:
         self.missing_feature: str | None = None
         self.missing_image: str | None = None
         self.fail_health = False
+        self.local_pairs = (CURRENT, OLD, NEW)
+        self.used_pairs: tuple[str, ...] = ()
 
     def check_health(self, pair: ReleasePair) -> None:
         if self.fail_health:
@@ -73,7 +75,16 @@ class Runtime:
         return self.running
 
     def discover(self) -> tuple[ReleasePair, ...]:
-        return (CURRENT, OLD)
+        return self.local_pairs
+
+    def image_users(self, selected: ReleasePair) -> tuple[str, ...]:
+        return ("protected-container",) if selected.id in (self.running.id, *self.used_pairs) else ()
+
+    def remove_images(self, selected: ReleasePair) -> None:
+        if self.image_users(selected):
+            raise ReleaseError("镜像被容器引用")
+        self.local_pairs = tuple(item for item in self.local_pairs if item.id != selected.id)
+        self.events += ("remove:" + selected.id,)
 
     def compose(self) -> bytes:
         return json.dumps(
@@ -361,6 +372,107 @@ def test_delete_removes_files_and_protects_current(setup: tuple[ReleaseService, 
     assert service.store.backup(OLD.id) is None
     assert service.store.path(CURRENT.id).is_dir()
     assert runtime.running == CURRENT
+
+
+def test_image_scan_only_lists_and_selected_backup_does_not_import_other_versions(setup) -> None:
+    service, runtime, clock = setup
+    inventory = service.images()
+    assert {item.pair.id for item in inventory.versions} == {CURRENT.id, OLD.id, NEW.id}
+    assert service.store.entries() == ()
+    request = ReleaseAction(action="backup_selected", version_ids=(OLD.id,), revision=0)
+    service.run(queued(service, clock, request))
+    assert service.store.backup(OLD.id) is not None
+    assert service.store.backup(NEW.id) is None
+    assert service.store.backup(CURRENT.id) is None
+    assert runtime.running == CURRENT
+
+
+def test_legacy_scan_backs_up_current_without_reimporting_deleted_history(setup) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    service.run(queued(service, clock, action(service, "delete", version_id=OLD.id)))
+    service.run(queued(service, clock, action(service, "scan")))
+    assert service.store.backup(CURRENT.id) is not None
+    assert service.store.backup(OLD.id) is None
+    assert service.store.backup(NEW.id) is None
+
+
+@pytest.mark.parametrize("operation", ("delete_backups", "delete_images"))
+def test_batch_delete_protects_current_before_deleting_anything(setup, operation) -> None:
+    service, runtime, _ = setup
+    service.backup(OLD, runtime.compose())
+    service.backup(CURRENT, runtime.compose())
+    request = ReleaseAction(action=operation, version_ids=(OLD.id, CURRENT.id), revision=service.store.settings()[0])
+    with pytest.raises(ReleaseError, match="当前|引用"):
+        service.prepare(request, "admin")
+    assert service.store.backup(OLD.id) is not None
+    assert OLD in runtime.discover()
+
+
+def test_batch_image_delete_requires_valid_backup_and_rechecks_container_use(setup) -> None:
+    service, runtime, clock = setup
+    request = ReleaseAction(action="delete_images", version_ids=(OLD.id,), revision=service.store.settings()[0])
+    with pytest.raises(ReleaseError, match="备份"):
+        service.prepare(request, "admin")
+    service.backup(OLD, runtime.compose())
+    request = request.model_copy(update={"revision": service.store.settings()[0]})
+    job = queued(service, clock, request)
+    runtime.used_pairs = (OLD.id,)
+    service.run(job)
+    assert service.store.jobs()[0].status == "failed"
+    assert OLD in runtime.discover()
+
+
+@pytest.mark.parametrize("problem", ("corrupt", "recovery"))
+def test_batch_image_delete_rejects_corruption_and_recovery_references(setup, problem) -> None:
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    if problem == "corrupt":
+        archive = service.store.path(OLD.id) / "images.tar.gz"
+        archive.write_bytes(b"x" * archive.stat().st_size)
+    else:
+        job = queued(service, clock, action(service, "guide", text="test"))
+        service.store.save_job(job.model_copy(update={"status": "failed", "recovery_id": OLD.id}))
+    with pytest.raises(ReleaseError, match="校验|恢复"):
+        service.prepare(
+            ReleaseAction(action="delete_images", version_ids=(OLD.id,), revision=service.store.settings()[0]), "admin"
+        )
+    assert OLD in runtime.discover()
+
+
+def test_batch_image_delete_preserves_archives_and_batch_backup_delete_preserves_images(setup) -> None:
+    service, runtime, clock = setup
+    for selected in (OLD, NEW):
+        service.backup(selected, runtime.compose())
+    service.run(
+        queued(
+            service,
+            clock,
+            ReleaseAction(action="delete_images", version_ids=(OLD.id, NEW.id), revision=service.store.settings()[0]),
+        )
+    )
+    assert runtime.discover() == (CURRENT,)
+    assert service.store.backup(OLD.id) and service.store.backup(NEW.id)
+    runtime.local_pairs = (CURRENT, OLD, NEW)
+    service.run(
+        queued(
+            service,
+            clock,
+            ReleaseAction(action="delete_backups", version_ids=(OLD.id, NEW.id), revision=service.store.settings()[0]),
+        )
+    )
+    assert service.store.backup(OLD.id) is None and service.store.backup(NEW.id) is None
+    assert runtime.discover() == (CURRENT, OLD, NEW)
+
+
+@pytest.mark.parametrize("operation", ("backup_selected", "delete_backups", "delete_images"))
+def test_batch_actions_reject_empty_duplicate_or_mixed_targets(setup, operation) -> None:
+    service, _, _ = setup
+    for targets, single in (((), None), ((OLD.id, OLD.id), None), ((OLD.id,), OLD.id)):
+        with pytest.raises(ReleaseError):
+            service.prepare(
+                ReleaseAction(action=operation, version_ids=targets, version_id=single, revision=0), "admin"
+            )
 
 
 def test_queue_rechecks_current_and_commands_use_selected_commit(setup: tuple[ReleaseService, Runtime, Clock]) -> None:

@@ -12,6 +12,7 @@ import {
   ReleaseCommandsCard,
 } from "./AccountPoolReleaseCards";
 import { AccountPoolReleaseConfirmation } from "./AccountPoolReleaseConfirmation";
+import { AccountPoolImageManager } from "./AccountPoolImageManager";
 import {
   executeRelease,
   listReleases,
@@ -29,7 +30,10 @@ const actionTitles: Record<ReleaseAction["action"], string> = {
   delete: "删除镜像备份",
   note: "保存版本备注",
   guide: "保存回退说明",
-  scan: "扫描并备份本机镜像",
+  scan: "备份当前运行版本",
+  backup_selected: "备份所选镜像",
+  delete_backups: "批量删除备份",
+  delete_images: "批量删除本机镜像",
   deploy: "部署新版本",
   recover: "恢复运行版本",
   restore_data: "恢复程序与数据库快照",
@@ -79,6 +83,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
   const refresh = () =>
     Promise.all([
       client.invalidateQueries({ queryKey }),
+      client.invalidateQueries({ queryKey: accountPoolQueryKeys.releaseImages(accessToken) }),
       client.invalidateQueries({ queryKey: accountPoolQueryKeys.releaseCommandsRoot(accessToken) }),
     ]);
   const preparation = useMutation({
@@ -157,18 +162,19 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
               prepare(
                 { action: "scan" },
                 data.database_backups_enabled
-                  ? "将刷新当前版本的两库快照，期间业务暂停。新快照校验成功后替换旧引用；历史镜像仅归档，不补造历史数据库。"
-                  : "将当前版本和本机已有的配套历史镜像保存为归档。数据库备份未启用，不包含数据库。",
+                  ? "仅刷新当前版本的镜像备份和两库快照，期间业务暂停。新快照校验成功后替换旧引用，不自动备份历史镜像。"
+                  : "仅将当前运行版本保存为归档，不自动备份历史镜像。数据库备份未启用，不包含数据库。",
               )
             }
           >
-            扫描并备份
+            备份当前版本
           </Button>
           <Button variant="ghost" aria-label="刷新版本列表" disabled={query.isFetching} onClick={() => void refresh()}>
             <RefreshCw className={query.isFetching ? "animate-spin" : ""} />
           </Button>
         </div>
       </div>
+      <AccountPoolImageManager accessToken={accessToken} data={data} busy={busy} prepare={prepare} />
       {query.isError && (
         <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
           暂时无法连接，保留上次数据并继续重试。服务切换期间可能短暂中断。

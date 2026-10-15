@@ -1876,6 +1876,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/releases/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Images */
+        get: operations["images_account_pool_releases_images_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/releases/prepare": {
         parameters: {
             query?: never;
@@ -34517,6 +34534,27 @@ export interface components {
          * @enum {string}
          */
         LitellmUserRoles: "proxy_admin" | "proxy_admin_viewer" | "org_admin" | "internal_user" | "internal_user_viewer" | "team" | "customer";
+        /** LocalReleaseVersion */
+        LocalReleaseVersion: {
+            /**
+             * Backed Up
+             * @default false
+             */
+            backed_up: boolean;
+            /**
+             * Current
+             * @default false
+             */
+            current: boolean;
+            /**
+             * Image Users
+             * @default []
+             */
+            image_users: string[];
+            pair: components["schemas"]["ReleasePair"];
+            /** Protected Reason */
+            protected_reason?: string | null;
+        };
         /** LoggingCallbackStatus */
         LoggingCallbackStatus: {
             /** Callbacks */
@@ -38599,7 +38637,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data";
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data" | "backup_selected" | "delete_backups" | "delete_images";
             candidate?: components["schemas"]["ReleaseCandidate"] | null;
             /**
              * Force
@@ -38624,6 +38662,8 @@ export interface components {
             text: string;
             /** Version Id */
             version_id?: string | null;
+            /** Version Ids */
+            version_ids?: string[] | null;
         };
         /** ReleaseBackup */
         ReleaseBackup: {
@@ -38665,6 +38705,11 @@ export interface components {
         /** ReleaseConfirmation */
         ReleaseConfirmation: {
             action: components["schemas"]["ReleaseAction"];
+            /**
+             * Compatibility Bypassed
+             * @default false
+             */
+            compatibility_bypassed: boolean;
             /** Current Commit */
             current_commit: string | null;
             database_snapshot?: components["schemas"]["DatabaseSnapshot"] | null;
@@ -38709,6 +38754,13 @@ export interface components {
             service: "litellm" | "account-pool";
             /** Size */
             size: number;
+        };
+        /** ReleaseImageView */
+        ReleaseImageView: {
+            /** Revision */
+            revision: number;
+            /** Versions */
+            versions: components["schemas"]["LocalReleaseVersion"][];
         };
         /** ReleaseJob */
         ReleaseJob: {
@@ -47206,6 +47258,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    images_account_pool_releases_images_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseImageView"];
                 };
             };
         };

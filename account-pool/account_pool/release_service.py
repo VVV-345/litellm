@@ -20,11 +20,13 @@ from account_pool.release_compatibility import (
 from account_pool.release_database import ReleaseDatabase
 from account_pool.release_models import (
     DatabaseSnapshot,
+    LocalReleaseVersion,
     ReleaseAction,
     ReleaseBackup,
     ReleaseCandidate,
     ReleaseCommands,
     ReleaseConfirmation,
+    ReleaseImageView,
     ReleaseJob,
     ReleasePair,
     ReleaseVersion,
@@ -47,6 +49,8 @@ class ReleaseRuntime(Protocol):
     def run(self, *args: str, timeout: int = 120) -> bytes: ...
     def current(self) -> ReleasePair: ...
     def discover(self) -> tuple[ReleasePair, ...]: ...
+    def image_users(self, pair: ReleasePair) -> tuple[str, ...]: ...
+    def remove_images(self, pair: ReleasePair) -> None: ...
     def compose(self) -> bytes: ...
     def running_compose(self) -> bytes: ...
     def export(self, pair: ReleasePair, destination: Path) -> None: ...
@@ -83,6 +87,55 @@ class ReleaseService:
         current: Final = self.current_or_none()
         problems: Final = () if current else ("无法识别当前运行的配套版本，请检查容器状态与部署项目名",)
         return self._view(current, problems)
+
+    def images(self) -> ReleaseImageView:
+        current: Final = self.runtime.current()
+        pairs: Final = {pair.id: pair for pair in (current, *self.runtime.discover())}
+        return ReleaseImageView(
+            revision=self.store.settings()[0],
+            versions=tuple(
+                LocalReleaseVersion(
+                    pair=pair,
+                    current=pair.id == current.id,
+                    backed_up=backup is not None and self.available(backup),
+                    image_users=self.runtime.image_users(pair),
+                    protected_reason="被故障恢复任务引用" if self._recovery_protected(pair.id) else None,
+                )
+                for pair in pairs.values()
+                for backup in (self.store.backup(pair.id),)
+            ),
+        )
+
+    def _recovery_protected(self, version_id: str) -> bool:
+        return any(
+            item.recovery_id == version_id and item.status in ("failed", "running", "interrupted")
+            for item in self.store.jobs()
+        )
+
+    def _batch_targets(self, action: ReleaseAction, current: ReleasePair) -> tuple[ReleasePair, ...]:
+        if not action.version_ids or len(set(action.version_ids)) != len(action.version_ids) or action.version_id:
+            raise ReleaseError("请选择不重复的版本，批量操作不能混用单个版本")
+        candidates: Final = (
+            tuple(backup.pair for _, backup, _ in self.store.entries() if backup)
+            if action.action == "delete_backups"
+            else (current, *self.runtime.discover())
+        )
+        known: Final = {pair.id: pair for pair in candidates}
+        if any(identifier not in known for identifier in action.version_ids):
+            raise ReleaseError("所选版本已变化，请重新扫描")
+        selected: Final = tuple(known[identifier] for identifier in action.version_ids)
+        for pair in selected:
+            if action.action == "backup_selected":
+                continue
+            if pair.id == current.id or self._recovery_protected(pair.id):
+                raise ReleaseError("当前版本或故障恢复引用的版本不能删除")
+            if action.action == "delete_images":
+                if self.runtime.image_users(pair):
+                    raise ReleaseError("镜像被容器引用，不能删除")
+                if (backup := self.store.backup(pair.id)) is None:
+                    raise ReleaseError("请先备份所选镜像，再删除本机镜像")
+                self.verify(backup)
+        return selected
 
     def current_or_none(self) -> ReleasePair | None:
         try:
@@ -154,6 +207,9 @@ class ReleaseService:
         return directory
 
     def prepare(self, action: ReleaseAction, actor: str) -> ReleaseConfirmation:
+        batch: Final = action.action in ("backup_selected", "delete_backups", "delete_images")
+        if action.version_ids and not batch:
+            raise ReleaseError("此操作不接受批量版本")
         if action.candidate is not None and (action.action != "deploy" or action.tag != action.candidate.commit):
             raise ReleaseError("固定镜像信息只能用于对应版本部署")
         if action.action != "apply" and (action.force or action.force_acknowledgement):
@@ -174,6 +230,12 @@ class ReleaseService:
             raise ReleaseError("上次恢复尚未完成，请先使用服务器 recover 入口，保留现场和恢复点")
         if view.revision != action.revision:
             raise ReleaseError("页面数据已更新，请刷新后重试")
+        if batch:
+            if view.current is None:
+                raise ReleaseError("无法识别当前运行版本")
+            self._batch_targets(action, view.current)
+            if action.text:
+                raise ReleaseError("此操作不接受说明内容")
         if action.action in ("apply", "delete", "note", "restore_data"):
             selected: Final = next((version for version in view.versions if version.pair.id == action.version_id), None)
             if selected is None:
@@ -567,6 +629,46 @@ class ReleaseService:
             completed.model_copy(update={"status": "succeeded", "phase": "完成", "updated_at": time.time()})
         )
 
+    def _backup_current(self, job: ReleaseJob, current: ReleasePair) -> None:
+        self.phase(job, "备份当前运行版本")
+        saved_current: Final = self.backup(current, self.runtime.running_compose())
+        if self.database is not None:
+            self.database.preflight()
+            self.phase(job, "暂停业务并备份数据库", saved_current.pair.id)
+            self.database.stop()
+            self.capture_database(saved_current)
+            self.database.start()
+            self.runtime.check_health(current)
+            self.phase(job, "数据库备份完成")
+
+    def _delete_backup(self, job: ReleaseJob, current: ReleasePair, version_id: str | None) -> None:
+        if not version_id or version_id == current.id:
+            raise ReleaseError("当前运行版本不能删除")
+        if any(
+            item.recovery_id == version_id and item.status in ("failed", "running", "interrupted")
+            for item in self.store.jobs()
+        ):
+            raise ReleaseError("该版本仍被故障恢复任务引用，不能删除")
+        self.phase(job, "删除镜像备份文件")
+        directory: Final = self.store.path(version_id)
+        if directory.exists():
+            # 只删除受控备份目录的固定文件，不递归跟随路径或符号链接。
+            expected: Final = {"images.tar.gz", "images.pending.gz", "compose.json", "manifest.json"}
+            if any(
+                (
+                    path.name not in expected
+                    and not re.fullmatch(r"database-[a-f0-9]{32}-(db|account-pool-db)\.dump", path.name)
+                )
+                or path.is_dir()
+                or path.is_symlink()
+                for path in directory.iterdir()
+            ):
+                raise ReleaseError("备份目录包含异常文件，停止删除")
+            for path in directory.iterdir():
+                path.unlink()
+            directory.rmdir()
+        self.store.remove(version_id)
+
     def _perform(self, job: ReleaseJob) -> None:
         if job.automatic and self.database is None:
             raise ReleaseError("自动部署需要数据库备份，未替换服务")
@@ -596,49 +698,29 @@ class ReleaseService:
         current: Final = self.runtime.current()
         if current.id != job.expected_current_id:
             raise ReleaseError("确认后运行版本已变化，请重新操作")
+        if action.action in ("backup_selected", "delete_backups", "delete_images"):
+            targets: Final = self._batch_targets(action, current)
+            for pair in targets:
+                if self.runtime.current().id != current.id:
+                    raise ReleaseError("批量操作期间运行版本已变化，请重新扫描")
+                if action.action == "backup_selected":
+                    self.phase(job, f"备份选中镜像 {pair.commit[:10]}")
+                    if pair.id == current.id:
+                        self._backup_current(job, current)
+                    else:
+                        self.backup(pair, self.runtime.running_compose(), imported=True)
+                elif action.action == "delete_backups":
+                    self._delete_backup(job, current, pair.id)
+                else:
+                    self.phase(job, f"删除本机镜像 {pair.commit[:10]}，保留归档")
+                    self.runtime.remove_images(pair)
+                    self.store.touch()
+            return
         if action.action == "scan":
-            self.phase(job, "备份当前运行版本")
-            saved_current: Final = self.backup(current, self.runtime.running_compose())
-            if self.database is not None:
-                self.database.preflight()
-                self.phase(job, "暂停业务并备份数据库", saved_current.pair.id)
-                self.database.stop()
-                self.capture_database(saved_current)
-                self.database.start()
-                self.runtime.check_health(current)
-                self.phase(job, "数据库备份完成")
-            for pair in self.runtime.discover():
-                if pair.id != current.id:
-                    self.phase(job, f"备份历史镜像 {pair.commit[:10]}")
-                    self.backup(pair, self.runtime.running_compose(), imported=True)
+            self._backup_current(job, current)
             return
         if action.action == "delete":
-            if not action.version_id or action.version_id == current.id:
-                raise ReleaseError("当前运行版本不能删除")
-            if any(
-                item.recovery_id == action.version_id and item.status in ("failed", "running", "interrupted")
-                for item in self.store.jobs()
-            ):
-                raise ReleaseError("该版本仍被故障恢复任务引用，不能删除")
-            self.phase(job, "删除镜像备份文件")
-            directory: Final = self.store.path(action.version_id)
-            if directory.exists():
-                # 只删除受控备份目录的固定文件，不递归跟随路径或符号链接。
-                expected: Final = {"images.tar.gz", "images.pending.gz", "compose.json", "manifest.json"}
-                if any(
-                    (
-                        path.name not in expected
-                        and not re.fullmatch(r"database-[a-f0-9]{32}-(db|account-pool-db)\.dump", path.name)
-                    )
-                    or path.is_dir()
-                    or path.is_symlink()
-                    for path in directory.iterdir()
-                ):
-                    raise ReleaseError("备份目录包含异常文件，停止删除")
-                for path in directory.iterdir():
-                    path.unlink()
-                directory.rmdir()
-            self.store.remove(action.version_id)
+            self._delete_backup(job, current, action.version_id)
             return
         target, configuration = self._target(job, current)
         if target.id == current.id:

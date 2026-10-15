@@ -10,6 +10,7 @@ import {
   listReleases,
   prepareRelease,
   releaseCommands,
+  scanReleaseImages,
   type ReleaseView,
   type ReleaseJob,
   type ReleaseConfirmation,
@@ -20,6 +21,7 @@ vi.mock("../../api/AccountPoolReleasesApi", () => ({
   listReleases: vi.fn(),
   prepareRelease: vi.fn(),
   releaseCommands: vi.fn(),
+  scanReleaseImages: vi.fn(),
 }));
 
 const pair = (char: string): NonNullable<ReleaseView["current"]> => ({
@@ -46,7 +48,7 @@ const pair = (char: string): NonNullable<ReleaseView["current"]> => ({
 });
 const current = pair("b");
 const old = pair("a");
-const actionDefaults = { text: "", force: false, force_acknowledgement: "" };
+const actionDefaults = { text: "", force: false, force_acknowledgement: "", version_ids: [] };
 const report: NonNullable<ReleaseConfirmation["rollback"]> = {
   current_commit: current.commit,
   target_commit: old.commit,
@@ -113,6 +115,7 @@ describe("project releases", () => {
       ] as [NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][0], NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][1]],
     };
     render(<AccountPoolReleaseConfirmation confirmation={{
+      compatibility_bypassed: false,
       token: "a".repeat(64), action: { ...actionDefaults, action: "restore_data", version_id: old.id, snapshot_id: snapshot.id, revision: 3 },
       current_commit: current.commit, delay_seconds: 0, expires_in_seconds: 300, database_snapshot: snapshot,
     }} title="恢复程序与数据库快照" description="恢复旧数据" busy={false} onConfirm={onConfirm} onClose={vi.fn()} />);
@@ -128,11 +131,16 @@ describe("project releases", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(listReleases).mockResolvedValue(view);
+    vi.mocked(scanReleaseImages).mockResolvedValue({ revision: 3, versions: [
+      { pair: current, current: true, backed_up: true, image_users: ["running"] },
+      { pair: old, current: false, backed_up: true, image_users: [] },
+    ] });
     vi.mocked(releaseCommands).mockResolvedValue({
       branch: "git switch -c codex/fix-version " + old.commit,
       revert: "git revert --no-commit " + old.commit + "..HEAD",
     });
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
+      compatibility_bypassed: false,
       token: "c".repeat(64),
       action: { ...actionDefaults, ...action },
       delay_seconds: 0,
@@ -162,6 +170,33 @@ describe("project releases", () => {
         <AccountPoolReleasesPanel accessToken="admin" />
       </QueryClientProvider>,
     );
+
+  it("scans without backing up and sends only selected versions for backup or image deletion", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "扫描本机镜像" }));
+    expect(await screen.findByRole("checkbox", { name: "选择本机镜像 aaaaaaaaaa" })).toBeInTheDocument();
+    expect(prepareRelease).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox", { name: "选择本机镜像 aaaaaaaaaa" }));
+    await user.click(screen.getByRole("button", { name: "备份所选镜像" }));
+    expect(prepareRelease).toHaveBeenCalledWith("admin", expect.objectContaining({ action: "backup_selected", version_ids: [old.id] }));
+    await user.click(await screen.findByRole("button", { name: "取消" }));
+    await user.click(screen.getByRole("button", { name: "删除所选本机镜像" }));
+    expect(prepareRelease).toHaveBeenLastCalledWith("admin", expect.objectContaining({ action: "delete_images", version_ids: [old.id] }));
+    expect(await screen.findByText(/保留镜像归档/)).toBeInTheDocument();
+  });
+
+  it("keeps current backups protected and separates batch backup deletion from Docker images", async () => {
+    const user = userEvent.setup();
+    mount();
+    const protectedBackup = await screen.findByRole("checkbox", { name: "选择备份 bbbbbbbbbb" });
+    expect(protectedBackup).toHaveAttribute("aria-disabled", "true");
+    await user.click(protectedBackup);
+    expect(protectedBackup).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "选择备份 aaaaaaaaaa" }));
+    await user.click(screen.getByRole("button", { name: "删除所选备份" }));
+    expect(prepareRelease).toHaveBeenCalledWith("admin", expect.objectContaining({ action: "delete_backups", version_ids: [old.id] }));
+  });
 
   it("protects the current version and applies the selected archive with explicit confirmation", async () => {
     const user = userEvent.setup();
@@ -207,6 +242,7 @@ describe("project releases", () => {
       <AccountPoolReleaseConfirmation
         confirmation={{
           token: "token",
+          compatibility_bypassed: false,
           action: { ...actionDefaults, action: delay === 10 ? "delete" : "apply", revision: 0 },
           delay_seconds: delay,
           expires_in_seconds: 300,
@@ -236,6 +272,7 @@ describe("project releases", () => {
       <AccountPoolReleaseConfirmation
         confirmation={{
           token: "",
+          compatibility_bypassed: false,
           action: { ...actionDefaults, action: "apply", revision: 3 },
           expires_in_seconds: 300,
           delay_seconds: 0,
@@ -263,6 +300,7 @@ describe("project releases", () => {
   it("rechecks an alternative version before issuing a new confirmation", async () => {
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
       token: "",
+      compatibility_bypassed: false,
       expires_in_seconds: 300,
       action: { ...actionDefaults, ...action },
       delay_seconds: 0,
@@ -290,6 +328,7 @@ describe("project releases", () => {
   it("requires the selected version before preparing force and a second click before execution", async () => {
     vi.mocked(prepareRelease).mockImplementation(async (_, action) => ({
       token: action.force ? "f".repeat(64) : "",
+      compatibility_bypassed: false,
       action: { ...actionDefaults, ...action },
       expires_in_seconds: 300,
       delay_seconds: 0,

@@ -289,6 +289,91 @@ def test_pair_identity_uses_images_and_not_discovery_order(tmp_path: Path) -> No
     assert image_pair((current.images[1], current.images[0])).id == current.id
 
 
+@pytest.mark.parametrize("used,foreign", ((False, False), (True, False), (False, True)))
+def test_image_cleanup_checks_all_containers_and_tags_without_force(tmp_path, used, foreign):
+    from account_pool.release_store import ReleaseError
+
+    calls = []
+    repositories = {"a": "ghcr.io/vvv-345/litellm", "b": "ghcr.io/vvv-345/account-pool-manager"}
+
+    def command(*args, timeout=120):
+        calls.append(args)
+        if args == ("ps", "-aq"):
+            return b"container"
+        if args[0] == "inspect":
+            return json.dumps(
+                [{"Name": "/stopped-worker", "Image": "sha256:" + ("a" if used else "d") * 64, "Config": {}}]
+            ).encode()
+        if args[:2] == ("image", "inspect"):
+            char = args[2][-1]
+            return json.dumps(
+                [
+                    {
+                        "Id": args[2],
+                        "Size": 100,
+                        "RepoTags": [
+                            repositories[char] + ":v1.2",
+                            *(["unrelated/app:keep"] if foreign and char == "b" else []),
+                        ],
+                        "Config": {"Labels": {"org.opencontainers.image.revision": "c" * 40}},
+                    }
+                ]
+            ).encode()
+        if args[:2] == ("image", "rm"):
+            return b"Deleted"
+        if args == ("image", "ls", "--quiet", "--no-trunc"):
+            return b""
+        raise AssertionError(args)
+
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy"), command
+    )
+    target = image_pair(
+        (
+            runtime.inspect_image("sha256:" + "a" * 64, "litellm"),
+            runtime.inspect_image("sha256:" + "b" * 64, "account-pool"),
+        )
+    )
+    if used or foreign:
+        with pytest.raises(ReleaseError):
+            runtime.remove_images(target)
+        assert not any(call[:2] == ("image", "rm") for call in calls)
+    else:
+        runtime.remove_images(target)
+        assert [call for call in calls if call[:2] == ("image", "rm")] == [
+            ("image", "rm", "ghcr.io/vvv-345/litellm:v1.2"),
+            ("image", "rm", "ghcr.io/vvv-345/account-pool-manager:v1.2"),
+        ]
+    assert not any("--force" in call or "prune" in call for call in calls)
+
+
+def test_image_discovery_accepts_version_aliases_and_backup_only_images(tmp_path):
+    calls = []
+
+    def command(*args, timeout=120):
+        calls.append(args)
+        if args[:2] == ("image", "ls"):
+            if args[2] == "ghcr.io/vvv-345/litellm":
+                return b"sha256:" + b"a" * 64 + b"\nsha256:" + b"a" * 64
+            if args[2] == "litellm-backup/account-pool":
+                return b"sha256:" + b"b" * 64
+            return b""
+        if args[:2] == ("image", "inspect"):
+            return json.dumps(
+                [{"Id": args[2], "Size": 100, "Config": {"Labels": {"org.opencontainers.image.revision": "c" * 40}}}]
+            ).encode()
+        raise AssertionError(args)
+
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy"), command
+    )
+    pairs = runtime.discover()
+    assert len(pairs) == 1
+    assert pairs[0].commit == "c" * 40
+    assert {image.image_id for image in pairs[0].images} == {"sha256:" + "a" * 64, "sha256:" + "b" * 64}
+    assert not any(call[1] in ("pull", "build", "rm") for call in calls)
+
+
 def test_pinned_candidate_pull_checks_image_identity_before_deploy(tmp_path: Path) -> None:
     from account_pool.release_models import ReleaseCandidate, RemoteReleaseImage
     from account_pool.release_store import ReleaseError

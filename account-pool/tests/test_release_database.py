@@ -168,7 +168,7 @@ def test_scan_refreshes_data_even_when_image_archive_exists(setup_data):
     assert runtime.events.count("export:" + CURRENT.id) == 1
     assert not any((service.store.path(CURRENT.id) / item.filename).exists() for item in first.files)
     assert all((service.store.path(CURRENT.id) / item.filename).read_bytes() == b"next-data" for item in second.files)
-    assert service.store.backup(OLD.id).database_snapshot is None
+    assert service.store.backup(OLD.id) is None
     assert database.events == ["stop", "capture", "start"] * 2
 
 

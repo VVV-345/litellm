@@ -324,6 +324,10 @@ class ReleaseStore:
             db.execute("DELETE FROM versions WHERE id=?", (version_id,))
             db.execute("UPDATE settings SET revision=revision+1 WHERE id=1")
 
+    def touch(self) -> None:
+        with self.connection() as db:
+            db.execute("UPDATE settings SET revision=revision+1 WHERE id=1")
+
     def edit(self, action: ReleaseAction) -> None:
         with self.connection() as db:
             if action.action == "note":
@@ -344,7 +348,9 @@ class ReleaseStore:
         rollback_state: str | None = None,
     ) -> ReleaseConfirmation:
         token: Final = secrets.token_hex(32)
-        delay: Final = 10 if action.action in ("delete", "restore_data") or action.force else 5
+        delay: Final = (
+            10 if action.action in ("delete", "delete_backups", "delete_images", "restore_data") or action.force else 5
+        )
         now: Final = self.clock()
         with self.connection() as db:
             db.execute("DELETE FROM confirmations WHERE expires<?", (now,))
