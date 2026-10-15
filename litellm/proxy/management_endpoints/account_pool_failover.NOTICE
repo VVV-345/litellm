@@ -1,0 +1,20 @@
+号池故障分类移植来源与许可说明
+
+account_pool_failover.py contains a Python adaptation of error classification and
+bounded retry decisions from Wei-Shaw/sub2api
+Source: https://github.com/Wei-Shaw/sub2api
+Revision: 698d142468ab15374bc22bd5247759e5b7352006
+Original work: sub2api contributors, copyright retained by the original authors
+Adaptation date: 2026-10-15
+License: LGPL-3.0-or-later, without warranty
+
+The original Go implementation was adapted into pure Python classifications,
+with LiteLLM error envelopes and CLIProxyAPI unavailable-model compatibility
+The adapter does not copy the Go scheduler, database, authentication, or server
+The Python adapter source is distributed in the same package and can be replaced
+or modified without modifying the surrounding application
+
+The complete LGPL v3 and incorporated GPL v3 are provided in the adjacent
+account_pool_failover.LICENSE and account_pool_failover.GPL-3.0 files
+The remaining LiteLLM code retains its existing license
+See account-pool/docs/sub2api-port.md in the repository for behavior differences

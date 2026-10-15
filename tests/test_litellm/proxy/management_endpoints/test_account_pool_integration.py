@@ -102,6 +102,15 @@ def test_native_retry_settings_use_key_then_model_then_global_and_bound_attempts
     assert settings.retries(401) == settings.retries(400) == 0
 
 
+def test_signed_forward_tickets_preserve_one_request_retry_deadline(signing_secret):
+    identity = PoolIdentity(key_hash="caller", request_id=uuid4(), retry_deadline=time.time() - 1)
+    cards = (uuid4(), uuid4())
+    for card in cards:
+        ticket = verify_ticket(create_ticket(identity, card), card)
+        assert ticket.identity.retry_deadline == identity.retry_deadline
+        assert ticket.identity.retry_deadline < time.time()
+
+
 def test_unbound_native_key_preserves_native_alias_and_card_candidates():
     from litellm.proxy._types import UserAPIKeyAuth
     from litellm.proxy.management_endpoints.account_pool_integration import bind_identity
@@ -229,11 +238,11 @@ def test_native_quota_failure_returns_to_router_without_waiting_on_same_card(sig
                     httpx.Response(
                         200,
                         headers={"content-type": "text/event-stream"},
-                        content='data: {"error":{"code":"rate_limit_exceeded","type":"rate_limit_error"}}\n\n',
+                        content='data: {"error":{"code":"usage_limit_reached","type":"rate_limit_error"}}\n\n',
                     )
                     if stream
                     else httpx.Response(
-                        429, json={"error": {"code": "rate_limit_exceeded"}}, headers={"retry-after": "60"}
+                        429, json={"error": {"code": "usage_limit_reached"}}, headers={"retry-after": "60"}
                     )
                 )
             )
@@ -529,6 +538,9 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
             "responses",
             "responses_conversation",
             "responses_conversation_stream",
+            "responses_conversation_preflight",
+            "responses_conversation_preflight_stream",
+            "responses_conversation_preflight_bound",
             "responses_conversation_fault",
             "responses_conversation_fault_stream",
             "responses_conversation_fault_encrypted",
@@ -594,7 +606,18 @@ async def test_real_router_http_request_enters_pool_before_upstream(
         async def resolve(self, request):
             assert request.card_key == ""
             assert request.trusted_card_id in [item.id for item in self.resolution.candidates]
-            return self.resolution.model_copy(update={"card_id": request.trusted_card_id})
+            return self.resolution.model_copy(
+                update={
+                    "card_id": request.trusted_card_id,
+                    "candidates": tuple(
+                        item.model_copy(update={"remaining_percent": 0})
+                        if "_preflight" in protocol and conversation_requests and item.id == original.resolution.card_id
+                        else item
+                        for item in self.resolution.candidates
+                        if item.id == request.trusted_card_id
+                    ),
+                }
+            )
 
     control = (
         MultipleCardControl(original.resolution)
@@ -864,7 +887,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
     )
     token = pool_identity.set(
         PoolIdentity(
-            key_hash="standard-virtual-key", request_id=uuid4(), card_id=card if protocol == "quota_bound" else None
+            key_hash="standard-virtual-key", request_id=uuid4(), card_id=card if protocol.endswith("_bound") else None
         )
     )
     logged = asyncio.Queue()
@@ -943,6 +966,13 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             else:
                 initial_id = initial.id
             continuation = {"input": "Video editing", "previous_response_id": initial_id}
+            if protocol == "responses_conversation_preflight_bound":
+                from litellm.exceptions import ServiceUnavailableError
+
+                with pytest.raises(ServiceUnavailableError):
+                    await router.aresponses(model="model-a", **continuation)
+                assert len(conversation_requests) == 1
+                return
             if protocol.endswith(("_encrypted", "_signature")) or "_signature_" in protocol:
                 from litellm.responses.utils import ResponsesAPIRequestUtils
 
@@ -967,9 +997,10 @@ async def test_real_router_http_request_enters_pool_before_upstream(
                 assert migrated_events[-1].response.status == "completed"
             else:
                 assert migrated.status == "completed"
-            expected_calls = 5 if fault_recovery else 3
+            expected_calls = 2 if "_preflight" in protocol else 5 if fault_recovery else 3
             assert len(conversation_requests) == expected_calls
-            assert conversation_requests[0][0] == conversation_requests[1][0]
+            if "_preflight" not in protocol:
+                assert conversation_requests[0][0] == conversation_requests[1][0]
             assert all(host == conversation_requests[0][0] for host, _ in conversation_requests[:-1])
             assert conversation_requests[-1][0] != conversation_requests[0][0]
             rebuilt = conversation_requests[-1][1]
@@ -1053,7 +1084,17 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             if protocol == "quota_failover":
                 logging_kwargs, _ = await asyncio.wait_for(logged.get(), timeout=5)
                 assert logging_kwargs["response_cost"] == pytest.approx(0.0000068)
-        expected_attempts = 6 if fault_recovery else 3 if protocol.startswith("responses_conversation") else 2 if protocol in ("error", "quota_failover") else 1
+        expected_attempts = (
+            2
+            if "_preflight" in protocol
+            else 6
+            if fault_recovery
+            else 3
+            if protocol.startswith("responses_conversation")
+            else 2
+            if protocol in ("error", "quota_failover")
+            else 1
+        )
         assert len(control.acquisitions) == expected_attempts
         if protocol == "quota_failover":
             assert [item.account_id for item in control.acquisitions] == [

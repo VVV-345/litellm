@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Final
 
 from pydantic import JsonValue, TypeAdapter
@@ -58,6 +60,7 @@ class EventStream:
         self.meaningful = False
         self.error_code: str | None = None
         self.error_type: str | None = None
+        self.error_info: Mapping[str, JsonValue] = MappingProxyType({})
         self.error_status = 502
         self.signature_rejected = False
         self.signature_recovery_reason: str | None = None
@@ -186,6 +189,9 @@ class EventStream:
             response: Final = event.get("response")
             nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
             error: Final = nested if isinstance(nested, dict) else event
+            self.error_info = MappingProxyType(
+                {key: error[key] for key in ("code", "type", "resets_in_seconds", "resets_at") if key in error}
+            )
             from litellm.proxy.management_endpoints.account_pool_signature import signature_error
 
             self.signature_rejected = signature_error(error)

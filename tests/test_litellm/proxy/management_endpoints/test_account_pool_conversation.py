@@ -54,6 +54,55 @@ def chosen(kwargs):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("updated_snapshot", [False, True])
+async def test_gateway_quota_503_rebuilds_saved_history_despite_failed_deployment(pool, updated_snapshot):
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+
+    router, (first, second) = pool
+    calls = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        calls.append((card, copy.deepcopy(kwargs.get("input")), kwargs.get("previous_response_id")))
+        if len(calls) > 1 and card == str(first):
+            if updated_snapshot:
+                snapshots.replace(
+                    {
+                        str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0)),
+                        str(second): RoutingSnapshot(quota_switch_project=True),
+                    }
+                )
+            raise ServiceUnavailableError(
+                message='{"error":{"type":"account_pool_error","code":"account_pool_quota_exhausted"}}',
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    503,
+                    headers={"x-account-pool-failure": "quota_exhausted"},
+                    request=httpx.Request("POST", "http://local/v1/responses"),
+                ),
+            )
+        return response(card)
+
+    initial = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Budget 5000"
+    )
+    result = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Continue", previous_response_id=initial.id
+    )
+    assert result.status == "completed"
+    assert [call[0] for call in calls] == [str(first), str(first), str(second)]
+    assert calls[-1][2] is None
+    assert calls[-1][1] == [
+        {"role": "user", "content": "Budget 5000"},
+        {"type": "message", "role": "assistant", "content": "What is the intended use?"},
+        {"role": "user", "content": "Continue"},
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("preemptive", [False, True])
 async def test_saved_history_rebuilds_on_new_card_and_next_turn_uses_new_response(pool, preemptive):
     router, (first, second) = pool

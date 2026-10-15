@@ -25,6 +25,7 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     now_utc,
     quota_failover_exclusions,
     snapshot_for,
+    unavailable_snapshot,
 )
 from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots as quota_snapshots
 from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
@@ -251,7 +252,10 @@ class Conversation:
         quota_migration: Final = snapshot.quota_switch_project and (
             exhausted_snapshot(error, deployments, self.model) is not None or depleted_before_call
         )
-        if not quota_migration and not (snapshot.fallback_enabled and retry_exhausted(error)):
+        if not quota_migration and not (
+            snapshot.fallback_enabled
+            and (retry_exhausted(error) or unavailable_snapshot(error, deployments) is not None)
+        ):
             return None
         previous_excluded: Final = payload.get("_excluded_deployment_ids")
         excluded: Final = quota_failover_exclusions(

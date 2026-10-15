@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final, TypeVar, cast
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
+from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
 from litellm.proxy.management_endpoints.account_pool_session import has_signed_history, session_identifier
 from litellm.responses.utils import ResponsesAPIRequestUtils
@@ -74,7 +75,7 @@ def exhausted_snapshot(
 ) -> RoutingSnapshot | None:
     """只接管已识别卡片的额度耗尽；普通速率限制仍走原生策略。"""
     identity: Final = pool_identity.get()
-    if identity is None:
+    if identity is None or exception_header(error, "x-account-pool-rebuild") == "disabled":
         return None
     from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
 
@@ -104,9 +105,12 @@ def exhausted_snapshot(
             return None
         # 多卡配置不一致时保守处理：所有耗尽候选都允许，才启用模型替代。
         return RoutingSnapshot(quota_switch_preview_model=all(s.quota_switch_preview_model for s in depleted))
-    if getattr(error, "status_code", None) != 429:
-        return None
-    if not re.search(r"\b(insufficient_quota|quota_exceeded|usage_limit_reached|quota_exhausted)\b", str(error)):
+    failure: Final = exception_failure(error)
+    if failure != "quota_exhausted" and not (
+        failure is None
+        and getattr(error, "status_code", None) == 429
+        and re.search(r"\b(insufficient_quota|quota_exceeded|usage_limit_reached|quota_exhausted)\b", str(error))
+    ):
         return None
     failed: Final = getattr(error, "failed_deployment_id", None)
     for deployment in deployments:
@@ -114,6 +118,41 @@ def exhausted_snapshot(
         if isinstance(info, Mapping) and info.get("id") == failed and info.get("account_pool_environment_id"):
             return snapshots.values.get(str(info["account_pool_environment_id"]), RoutingSnapshot())
     return None
+
+
+def unavailable_snapshot(error: Exception, deployments: Sequence[Mapping[str, object]]) -> RoutingSnapshot | None:
+    reason: Final = exception_failure(error)
+    replay: Final = exception_header(error, "x-account-pool-rebuild")
+    if (
+        pool_identity.get() is None
+        or replay == "disabled"
+        or reason
+        not in (
+            "rate_limit",
+            "upstream_unavailable",
+            "model_unavailable",
+            "account_unavailable",
+            "subscription_expired",
+        )
+    ):
+        return None
+    if reason in ("rate_limit", "upstream_unavailable") and replay != "retry-exhausted":
+        return None
+    failed: Final = getattr(error, "failed_deployment_id", None)
+    return next(
+        (
+            snapshot
+            for deployment in deployments
+            if isinstance(info := deployment.get("model_info"), Mapping)
+            and cast(  # cast-ok: Only the deployment ID is read from the checked model-info mapping.
+                Mapping[str, object], info
+            ).get("id")
+            == failed
+            and (snapshot := snapshot_for(deployment, snapshots.values)) is not None
+            and snapshot.fallback_enabled
+        ),
+        None,
+    )
 
 
 def quota_failover_exclusions(

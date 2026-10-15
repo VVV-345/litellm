@@ -25,6 +25,137 @@ def deployment(card, order=0):
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,enabled,bound,expected",
+    [
+        ("upstream_unavailable", True, False, 2),
+        ("model_unavailable", True, False, 2),
+        ("rate_limit", True, False, 2),
+        ("upstream_unavailable", False, False, 1),
+        ("upstream_unavailable", True, True, 1),
+        ("request_rejected", True, False, 1),
+        (None, True, False, 1),
+    ],
+)
+async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind, enabled, bound, expected):
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4(), card_id=first if bound else None))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=enabled) for card in (first, second)})
+    attempts = []
+
+    async def provider(**kwargs):
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(card)
+        if card == str(first):
+            raise ServiceUnavailableError(
+                message="unavailable",
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    503,
+                    headers={"x-account-pool-failure": kind, "x-account-pool-rebuild": "retry-exhausted"}
+                    if kind
+                    else {},
+                    request=httpx.Request("POST", "http://local/v1/responses"),
+                ),
+            )
+        return ResponsesAPIResponse(id="resp_success", created_at=1, model="shared", status="completed", output=[])
+
+    try:
+        if expected == 1:
+            with pytest.raises(ServiceUnavailableError):
+                await router._aresponses_with_streaming_fallbacks(
+                    original_function=provider, model="shared", input="hello"
+                )
+        else:
+            result = await router._aresponses_with_streaming_fallbacks(
+                original_function=provider, model="shared", input="hello"
+            )
+            assert result.status == "completed"
+        assert attempts == [str(first), str(second)][:expected]
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_availability_failure_does_not_enable_quota_only_preview_model():
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    card, preview = uuid4(), uuid4()
+    router = Router(
+        model_list=[deployment(card), {**deployment(preview), "model_name": "preview"}],
+        num_retries=0,
+        max_fallbacks=2,
+        fallbacks=[{"shared": ["preview"]}],
+    )
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True, quota_switch_preview_model=True)})
+    attempts = []
+
+    async def provider(**kwargs):
+        attempts.append(kwargs["model"])
+        if kwargs["litellm_metadata"]["model_info"]["id"] == str(preview):
+            return ResponsesAPIResponse(id="resp_preview", created_at=1, model="preview", status="completed", output=[])
+        raise ServiceUnavailableError(
+            message="temporary capacity",
+            model="shared",
+            llm_provider="openai",
+            response=httpx.Response(
+                503,
+                headers={"x-account-pool-failure": "upstream_unavailable", "x-account-pool-rebuild": "retry-exhausted"},
+                request=httpx.Request("POST", "http://local/v1/responses"),
+            ),
+        )
+
+    try:
+        with pytest.raises(ServiceUnavailableError):
+            await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input="hello")
+        assert len(attempts) == 1
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
+
+
+def test_typed_transient_error_overrides_quota_words_in_legacy_message():
+    import httpx
+
+    from litellm.exceptions import RateLimitError
+    from litellm.proxy.management_endpoints.account_pool_native_routing import exhausted_snapshot
+
+    card = uuid4()
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    error = RateLimitError(
+        message="echoed diagnostic: insufficient_quota",
+        model="shared",
+        llm_provider="openai",
+        response=httpx.Response(
+            429,
+            headers={"x-account-pool-failure": "rate_limit"},
+            request=httpx.Request("POST", "http://local/v1/responses"),
+        ),
+    )
+    error.failed_deployment_id = str(card)
+    try:
+        assert exhausted_snapshot(error, [deployment(card)], "shared") is None
+    finally:
+        pool_identity.reset(reset)
+
+
 def test_quota_alias_staleness_and_expiry_are_checked_without_network():
     now = datetime.now(timezone.utc)
     cards = [uuid4() for _ in range(5)]

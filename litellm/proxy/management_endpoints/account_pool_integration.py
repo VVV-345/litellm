@@ -21,6 +21,7 @@ from starlette.requests import Request
 from typing_extensions import ReadOnly
 
 from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.management_endpoints.account_pool_failover import RETRY_WINDOW_SECONDS
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Resolution, ResolveRequest
 from litellm.proxy.management_endpoints.account_pool_management_models import CardKeyStatus
 from litellm.repositories.table_repositories import DeletedVerificationTokenRepository
@@ -50,6 +51,7 @@ class PoolIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
     key_hash: str
     request_id: UUID
+    retry_deadline: float = Field(default_factory=lambda: time.time() + RETRY_WINDOW_SECONDS, allow_inf_nan=False)
     card_id: UUID | None = None
     binding_id: UUID | None = None
     headers: tuple[tuple[str, str], ...] = ()

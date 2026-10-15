@@ -19,6 +19,7 @@ from starlette.types import Message, Send
 
 from litellm.litellm_core_utils.signature_recovery import client_tool, signature_recovery_reason
 from litellm.proxy.common_utils.sse_keepalive import SSE_COMMENT_PING_BYTES, coerce_keepalive_interval
+from litellm.proxy.management_endpoints.account_pool_failover import MAX_RETRY_DELAY_SECONDS
 from litellm.proxy.management_endpoints.account_pool_stream import EventStream
 
 _RESULT: Final = TypeVar("_RESULT")
@@ -177,7 +178,9 @@ def retry_after(headers: Mapping[str, str]) -> int:
 
 
 def backoff_seconds(milliseconds: int, same_card_attempt: int) -> float:
-    return min(60, milliseconds / 1000 * math.pow(2.0, same_card_attempt - 1)) * random.uniform(0.8, 1.0)
+    return min(MAX_RETRY_DELAY_SECONDS, milliseconds / 1000 * math.pow(2.0, same_card_attempt - 1)) * random.uniform(
+        0.8, 1.0
+    )
 
 
 class StreamBootstrap:

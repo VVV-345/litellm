@@ -4,8 +4,8 @@ version = "1.100.0"
 description = "Library to easily interface with LLM API providers"
 readme = "README.md"
 requires-python = ">=3.10, <3.15"
-license = "MIT"
-license-files = ["LICENSE"]
+license = "MIT AND LGPL-3.0-or-later"
+license-files = ["LICENSE", "litellm/proxy/management_endpoints/account_pool_failover.LICENSE", "litellm/proxy/management_endpoints/account_pool_failover.GPL-3.0", "litellm/proxy/management_endpoints/account_pool_failover.NOTICE"]
 authors = [
     { name = "BerriAI" },
 ]
@@ -270,7 +270,7 @@ manifest-path = "litellm-rust/crates/python-bridge/Cargo.toml"
 module-name = "litellm.rust_bridge._native"
 python-source = "."
 bindings = "pyo3"
-include = ["litellm/proxy/_experimental/out/**"]
+include = ["litellm/proxy/_experimental/out/**", "litellm/proxy/management_endpoints/account_pool_failover.LICENSE", "litellm/proxy/management_endpoints/account_pool_failover.GPL-3.0", "litellm/proxy/management_endpoints/account_pool_failover.NOTICE"]
 exclude = [
     "litellm/proxy/enterprise",
     "litellm/proxy/enterprise/**",

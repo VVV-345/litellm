@@ -250,7 +250,18 @@ class GatewayService:
         lease: Final = await self.leases.get(request.lease_id)
         if lease is None:
             return
-        observed_delay: Final = await self.cooldown_delay(lease) if request.http_status >= 400 else 0
+        # 瞬时失败的同卡预算由网关持有，不能用持久冷却提前阻断下一次已获准的重试。
+        request_scoped: Final = (
+            request.failure_reason in ("request_rejected", "policy_rejected")
+            or request.failure_reason in ("rate_limit", "upstream_unavailable")
+            and request.retryable
+            and not request.switched_account
+            or request.failure_reason == "upstream_unavailable"
+            and request.upstream_code in ("server_is_overloaded", "overloaded_error", "overloaded")
+        )
+        observed_delay: Final = (
+            await self.cooldown_delay(lease) if request.http_status >= 400 and not request_scoped else 0
+        )
         failed: Final = request.http_status >= 400
         category: Final = (
             "authentication"
@@ -328,7 +339,7 @@ class GatewayService:
             full_log_state=request.full_log_state,
             spend_sync_state=request.spend_sync_state,
         )
-        cooldown: Final = 300 if request.http_status in (401, 403) else 0
+        cooldown: Final = 300 if request.http_status in (401, 403) and not request_scoped else 0
         actual_tokens: Final = (
             0
             if failed
@@ -346,11 +357,17 @@ class GatewayService:
                 lease,
                 cooldown,
                 actual_tokens,
-                model_cooldown_seconds=max(
+                model_cooldown_seconds=0
+                if request_scoped
+                else max(
                     observed_delay,
                     request.model_cooldown_seconds,
                     request.retry_after_seconds,
-                    60 if request.http_status == 429 else 0,
+                    60
+                    if request.http_status == 429 and request.failure_reason is None
+                    else 5
+                    if request.failure_reason == "rate_limit"
+                    else 0,
                 ),
                 model_succeeded=not failed,
             )

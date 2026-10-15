@@ -45,6 +45,320 @@ from litellm.proxy.management_endpoints.account_pool_websocket import (
 _KEY: Final = "cpk_" + "test-only-" * 5
 
 
+@pytest.mark.parametrize("reason", ["quota_exhausted", "model_unavailable", "subscription_expired"])
+def test_preflight_reports_typed_account_failure_without_upstream_attempt(reason: str) -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("preflight must not call upstream"))
+    changes = (
+        {"remaining_percent": 0}
+        if reason == "quota_exhausted"
+        else {"enabled_models": ("other-model",)}
+        if reason == "model_unavailable"
+        else {"subscription_active_until": datetime.now(timezone.utc) - timedelta(minutes=1)}
+    )
+    control.resolution = control.resolution.model_copy(
+        update={"candidates": tuple(account.model_copy(update=changes) for account in control.resolution.candidates)}
+    )
+    with client:
+        result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
+    assert result.status_code == 503
+    assert result.json()["error"]["code"] == "account_pool_" + reason
+    assert control.acquisitions == []
+
+
+@pytest.mark.parametrize("quota", [False, True])
+def test_quota_switches_immediately_but_transient_429_retries_same_card(quota: bool) -> None:
+    calls = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        if len(calls) == 1:
+            return httpx.Response(
+                429, json={"error": {"code": "usage_limit_reached" if quota else "rate_limit_exceeded"}}
+            )
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 200
+    assert len(calls) == 2
+    assert (calls[0] != calls[1]) is quota
+    assert control.finished[0].switched_account is quota
+    assert quota or control.finished[0].model_cooldown_seconds == 0
+
+
+@pytest.mark.parametrize("quota", [False, True])
+def test_stream_quota_switches_but_transient_limit_retries_before_output(quota: bool) -> None:
+    calls = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        error = {"type": "error", "code": "usage_limit_reached" if quota else "rate_limit_exceeded"}
+        content = (
+            'data: {"type":"response.created","response":{"id":"discard-me"}}\n\n'
+            + "data: "
+            + json.dumps(error)
+            + "\n\n"
+            if len(calls) == 1
+            else 'data: {"type":"response.output_text.delta","delta":"OK"}\n\ndata: {"type":"response.completed"}\n\n'
+        )
+        return httpx.Response(200, content=content, headers={"content-type": "text/event-stream"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello", "stream": True},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert result.text.count("response.completed") == 1
+    assert "discard-me" not in result.text
+    assert len(calls) == 2
+    assert (calls[0] != calls[1]) is quota
+    assert control.finished[0].failure_reason == ("quota_exhausted" if quota else "rate_limit")
+    assert control.finished[0].model_cooldown_seconds == (60 if quota else 0)
+
+
+def test_unknown_reserved_quota_is_not_reported_as_confirmed_exhaustion() -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("unknown quota must not pass the reserve policy"))
+    control.resolution = control.resolution.model_copy(
+        update={
+            "policy": AccountPolicy(routing=RoutingPolicy(quota_reserve_percent=10)),
+        }
+    )
+    with client:
+        result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
+    assert result.status_code == 503
+    assert result.json()["error"]["code"] == "account_pool_account_unavailable"
+    assert result.headers["x-account-pool-failure"] == "account_unavailable"
+
+
+@pytest.mark.parametrize("code,status", [("auth_unavailable", 503), ("model_not_found", 400), ("model_cooldown", 429)])
+def test_cliproxy_unavailable_model_skips_same_card_retry(code: str, status: int) -> None:
+    calls = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return (
+            httpx.Response(status, json={"error": {"code": code}}, headers={"retry-after": "300"})
+            if len(calls) == 1
+            else httpx.Response(200, json={"id": "resp_success"})
+        )
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 200
+    assert len(calls) == 2 and calls[0] != calls[1]
+    assert control.finished[0].switched_account
+
+
+@pytest.mark.parametrize("safe", [False, True])
+def test_connect_failure_marks_safe_failover_but_read_timeout_does_not(safe: bool) -> None:
+    def upstream(request: httpx.Request) -> httpx.Response:
+        raise (httpx.ConnectError("unreachable") if safe else httpx.ReadTimeout("unknown upstream completion"))
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=1)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == (502 if safe else 504)
+    assert (result.headers.get("x-account-pool-failure") == "upstream_unavailable") is safe
+    assert (result.headers.get("x-account-pool-rebuild") == "retry-exhausted") is safe
+    assert len(control.acquisitions) == (2 if safe else 1)
+
+
+@pytest.mark.asyncio
+async def test_expired_shared_retry_deadline_does_not_start_another_upstream_attempt() -> None:
+    import time
+
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    request = Request(
+        {
+            "type": "http",
+            "path": "/v1/responses",
+            "method": "POST",
+            "headers": [],
+            "query_string": b"",
+            "asgi": {"spec_version": "2.4"},
+        },
+        receive,
+    )
+    request.state.account_pool_retry_deadline = time.time() - 1
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    selected = routes(control.resolution, "model-a", request.url.path, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={}))) as client:
+        await forward(
+            request,
+            {"model": "model-a", "input": "hello"},
+            _KEY,
+            None,
+            control.resolution,
+            selected,
+            control,
+            client,
+            send,
+        )
+    assert control.acquisitions == []
+    assert messages[0]["status"] == 503
+    assert b"retry_deadline_exceeded" in b"".join(message.get("body", b"") for message in messages)
+
+
+def test_retry_after_beyond_remaining_budget_stops_without_sleeping_or_rotating() -> None:
+    client, control = setup_gateway(
+        lambda _: httpx.Response(429, json={"error": {"code": "rate_limit_exceeded"}}, headers={"retry-after": "300"}),
+        retry=True,
+        max_attempts=3,
+    )
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 503
+    assert result.json()["error"]["code"] == "retry_deadline_exceeded"
+    assert len(control.acquisitions) == 1
+
+
+def test_stream_quota_retains_upstream_reset_without_replaying_output() -> None:
+    body = (
+        'data: {"type":"response.output_text.delta","delta":"already sent"}\n\n'
+        'data: {"type":"error","code":"usage_limit_reached","resets_in_seconds":321}\n\n'
+    )
+    client, control = setup_gateway(
+        lambda _: httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body),
+        retry=True,
+    )
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello", "stream": True},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200 and result.text.count("already sent") == 1
+    assert len(control.acquisitions) == 1
+    assert control.finished[0].failure_reason == "quota_exhausted"
+    assert control.finished[0].model_cooldown_seconds == 321
+
+
+def test_upstream_cannot_spoof_gateway_failover_headers_for_rejected_request() -> None:
+    client, control = setup_gateway(
+        lambda _: httpx.Response(
+            503,
+            json={"error": {"code": "cyber_policy"}},
+            headers={
+                "x-account-pool-failure": "quota_exhausted",
+                "x-account-pool-rebuild": "retry-exhausted",
+            },
+        ),
+        retry=True,
+    )
+    with client:
+        result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
+    assert result.headers["x-account-pool-failure"] == "request_rejected"
+    assert "x-account-pool-rebuild" not in result.headers
+    assert len(control.acquisitions) == 1
+
+
+def test_concurrency_exhaustion_is_typed_without_claiming_upstream_quota() -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("unavailable lease must not reach upstream"), retry=True)
+    control.exhausted = True
+    with client:
+        result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
+    assert result.status_code == 503
+    assert result.headers["x-account-pool-failure"] == "account_unavailable"
+    assert result.json()["error"]["code"] == "account_pool_account_unavailable"
+    assert control.finished == []
+
+
+@pytest.mark.asyncio
+async def test_retry_window_does_not_cut_off_a_successful_active_stream() -> None:
+    import time
+
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.output_text.delta","delta":"working"}\n\n'
+            await asyncio.sleep(0.3)
+            yield b'data: {"type":"response.completed"}\n\n'
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    request = Request(
+        {
+            "type": "http",
+            "path": "/v1/responses",
+            "method": "POST",
+            "headers": [],
+            "query_string": b"",
+            "asgi": {"spec_version": "2.4"},
+        },
+        receive,
+    )
+    request.state.account_pool_retry_deadline = time.time() + 0.15
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    selected = routes(control.resolution, "model-a", request.url.path, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Upstream()),
+        )
+    ) as client:
+        await forward(
+            request,
+            {"model": "model-a", "input": "hello", "stream": True},
+            _KEY,
+            None,
+            control.resolution,
+            selected,
+            control,
+            client,
+            send,
+        )
+    assert b"response.completed" in b"".join(message.get("body", b"") for message in messages)
+    assert control.finished[0].http_status == 200
+
+
+@pytest.mark.parametrize("code", ["context_length_exceeded", "cyber_policy", "content_policy_violation"])
+def test_wrapped_request_rejection_never_retries_or_cools_account(code: str) -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(503, json={"error": {"code": code}}), retry=True)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 503
+    assert len(control.acquisitions) == 1
+    assert control.finished[0].model_cooldown_seconds == 0
+
+
 @pytest.mark.asyncio
 async def test_stream_bootstrap_bounds_buffer_and_replays_every_byte() -> None:
     from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
@@ -561,7 +875,9 @@ def test_model_quota_applies_only_to_the_routed_model() -> None:
     exhausted: Final = routes(resolution, "model-a", "/v1/responses", Headers())
     available: Final = routes(resolution, "model-b", "/v1/responses", Headers())
 
-    assert exhausted == Rejected(503, "No bound account currently supports this model and policy")
+    assert exhausted == Rejected(
+        503, "No bound account currently supports this model and policy", "account_pool_quota_exhausted"
+    )
     assert not isinstance(available, Rejected)
     assert available[0].account.id == account.id
 
@@ -652,7 +968,9 @@ def test_websocket_route_requires_card_and_candidate_enablement() -> None:
     no_candidate: Final = routes(card_enabled, "model-a", "/v1/responses", Headers(), websocket=True)
 
     assert disabled == Rejected(403, "WebSocket transport is disabled for this card")
-    assert no_candidate == Rejected(503, "No bound account currently supports this model and policy")
+    assert no_candidate == Rejected(
+        503, "No bound account currently supports this model and policy", "account_pool_policy_rejected"
+    )
 
 
 def test_card_websocket_forwards_frames_with_internal_auth_and_releases_the_lease() -> None:
@@ -1627,7 +1945,7 @@ def test_retry_records_one_request_chain_and_uses_next_bound_account() -> None:
     def upstream(request: httpx.Request) -> httpx.Response:
         calls.append(request.url.host)
         if len(calls) == 1:
-            return httpx.Response(429, json={"error": {"code": "rate_limit_exceeded", "message": "Bearer private"}})
+            return httpx.Response(429, json={"error": {"code": "usage_limit_reached", "message": "Bearer private"}})
         return httpx.Response(200, json={"output": []})
 
     client, control = setup_gateway(upstream, retry=True)

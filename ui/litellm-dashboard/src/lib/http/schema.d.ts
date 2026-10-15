@@ -30414,6 +30414,8 @@ export interface components {
             detail?: string | null;
             /** Endpoint */
             endpoint: string;
+            /** Failure Reason */
+            failure_reason?: ("quota_exhausted" | "rate_limit" | "upstream_unavailable" | "request_rejected" | "model_unavailable" | "account_unavailable" | "subscription_expired" | "policy_rejected") | null;
             /**
              * Full Log State
              * @default disabled

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from litellm.proxy.management_endpoints.account_pool_failover import FailureReason
 from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPolicy,
     ChannelKind,
@@ -151,6 +152,7 @@ class FinishRequest(BaseModel):
     stage: Literal["connection", "upstream", "response"] = "upstream"
     message: str = Field(max_length=500)
     upstream_code: str | None = Field(default=None, max_length=120)
+    failure_reason: FailureReason | None = None
     retry_after_seconds: int = Field(default=0, ge=0, le=86400)
     model_cooldown_seconds: int = Field(default=0, ge=0, le=86400)
     retryable: bool = False

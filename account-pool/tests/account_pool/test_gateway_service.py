@@ -139,6 +139,79 @@ class FailingLogs(MemoryLogs):
         raise RuntimeError("log storage unavailable")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,reason,code,retrying,reported,expected",
+    [
+        (429, "rate_limit", "rate_limit_exceeded", True, 0, 0),
+        (503, "upstream_unavailable", "server_error", True, 1, 0),
+        (503, "upstream_unavailable", "server_is_overloaded", False, 0, 0),
+        (403, "request_rejected", "content_policy_violation", False, 0, 0),
+        (429, "quota_exhausted", "usage_limit_reached", False, 321, 321),
+        (429, "rate_limit", "rate_limit_exceeded", False, 0, 55),
+        (429, None, None, False, 0, 60),
+    ],
+)
+async def test_classified_request_failures_do_not_poison_account_cooldown(
+    status,
+    reason,
+    code,
+    retrying,
+    reported,
+    expected,
+) -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    leases: Final = MemoryLeases()
+
+    async def observed(record: EnvironmentRecord) -> tuple[ModelCooldown, ...]:
+        return (ModelCooldown(model="gpt-5", retry_at=utc_now() + timedelta(seconds=55)),)
+
+    service: Final = GatewayService(
+        keys,
+        MemoryRepository(card),
+        MemoryPolicies(),
+        leases,
+        ErrorLogService(MemoryLogs()),
+        gateway,
+        model_cooldowns=observed,
+    )
+    resolved: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    account: Final = resolved.candidates[0]
+    lease: Final = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            account_id=card.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolved.card_version,
+            policy_version=resolved.policy_version,
+            account_version=account.environment_version,
+            account_policy_version=account.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=status,
+            message="classified failure",
+            endpoint="/v1/responses",
+            failure_reason=reason,
+            upstream_code=code,
+            retryable=retrying,
+            model_cooldown_seconds=reported,
+            retry_after_seconds=2,
+        )
+    )
+    assert leases.model_cooldowns.get((card.id, "gpt-5"), 0) == expected
+    assert leases.cooled == ()
+    assert not leases.leases
+
+
 class StaticSettings:
     def __init__(self, values: AccountPoolSettings) -> None:
         self.values: Final = values

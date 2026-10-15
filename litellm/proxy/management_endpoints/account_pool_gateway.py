@@ -20,7 +20,7 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocket
-from typing_extensions import ReadOnly
+from typing_extensions import NotRequired, ReadOnly
 
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl, ManagerControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
@@ -72,6 +72,7 @@ class _ModelList(TypedDict):
 class _ErrorDetail(TypedDict):
     message: ReadOnly[str]
     type: ReadOnly[str]
+    code: NotRequired[ReadOnly[str]]
 
 
 class _ErrorEnvelope(TypedDict):
@@ -220,6 +221,7 @@ class AccountPoolGatewayMiddleware:
                     "account_pool_request_id": ticket.identity.request_id,
                     "account_pool_standard_accounting": True,
                     "account_pool_retry_policy": ticket.retry_policy,
+                    "account_pool_retry_deadline": ticket.identity.retry_deadline,
                     "account_pool_conversation_replay": ticket.conversation_replay,
                 },
             }
@@ -309,7 +311,7 @@ class AccountPoolGatewayMiddleware:
                 stream: Final = payload.get("stream") is True
                 selected: Final = routes(resolution, model, path, headers, has_images, stream)
                 if isinstance(selected, Rejected):
-                    await error_response(selected.status, selected.message)(scope, receive, send)
+                    await error_response(selected.status, selected.message, selected.code)(scope, receive, send)
                     return
                 await forward(request, payload, key, session, resolution, selected, control, client, send)
         except ClientDisconnect:
@@ -432,12 +434,17 @@ def model_entry(name: str) -> _ModelEntry:
     return entry
 
 
-def error_response(status: int, message: str) -> JSONResponse:
-    content: Final[_ErrorEnvelope] = {
-        "error": {"message": message, "type": "account_pool_error"},
-    }
+def error_response(status: int, message: str, code: str | None = None) -> JSONResponse:
+    plain: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error"}
+    classified: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error", "code": code or ""}
+    content: Final[_ErrorEnvelope] = {"error": classified if code else plain}
+    classified_headers: Final = (
+        MappingProxyType({**_NO_STORE_HEADERS, "x-account-pool-failure": code.removeprefix("account_pool_")})
+        if code
+        else _NO_STORE_HEADERS
+    )
     return JSONResponse(
         content,
         status_code=status,
-        headers=_NO_STORE_HEADERS,
+        headers=classified_headers,
     )

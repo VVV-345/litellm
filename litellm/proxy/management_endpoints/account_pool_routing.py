@@ -25,6 +25,7 @@ class Route:
 class Rejected:
     status: int
     message: str
+    code: str | None = None
 
 
 def protocol_policy(
@@ -140,7 +141,7 @@ def routes(
     if resolution.enabled_models and target not in resolution.enabled_models:
         return Rejected(403, "Model is outside the originating card scope")
     now: Final = datetime.now(timezone.utc)
-    eligible: Final = tuple(
+    compatible: Final = tuple(
         Route(account, mapped, "automatic")
         for account in resolution.candidates
         if (mapped := target_model(account.policy, target)) in account.enabled_models
@@ -148,13 +149,32 @@ def routes(
         and model not in account.policy.excluded_models
         and target not in account.policy.excluded_models
         and mapped not in account.policy.excluded_models
-        and quota_available(account, resolution.policy, mapped)
-        and subscription_active(account, now)
         and (not websocket or account.websocket_enabled)
         and protocol_policy(account.policy, path, headers, image_generation, stream, resolution.streaming_mode) is None
     )
+    active: Final = tuple(route for route in compatible if subscription_active(route.account, now))
+    eligible: Final = tuple(route for route in active if quota_available(route.account, resolution.policy, route.model))
     if not eligible:
-        return Rejected(503, "No bound account currently supports this model and policy")
+        depleted: Final = bool(active) and all(
+            (remaining := quota_state(route.account, route.model)[0]) is not None
+            and remaining
+            <= max(resolution.policy.routing.quota_reserve_percent, route.account.policy.routing.quota_reserve_percent)
+            for route in active
+        )
+        reason: Final = (
+            "quota_exhausted"
+            if depleted
+            else "account_unavailable"
+            if active
+            else "subscription_expired"
+            if compatible
+            else "account_unavailable"
+            if not resolution.candidates
+            else "policy_rejected"
+            if any(target_model(account.policy, target) in account.enabled_models for account in resolution.candidates)
+            else "model_unavailable"
+        )
+        return Rejected(503, "No bound account currently supports this model and policy", f"account_pool_{reason}")
     preferred: Final = resolution.policy.routing.preferred_account_ids
 
     def rank(route: Route) -> tuple[bool, bool, int, float, float, float]:

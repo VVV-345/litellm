@@ -6957,10 +6957,13 @@ class Router:
         from litellm.proxy.management_endpoints.account_pool_native_routing import (
             exhausted_snapshot,
             quota_failover_exclusions,
+            unavailable_snapshot,
         )
 
         quota_deployments: Final = self.get_model_list(model_name=original_model_group) or []
-        quota_settings: Final = exhausted_snapshot(e, quota_deployments, original_model_group)
+        depleted_settings: Final = exhausted_snapshot(e, quota_deployments, original_model_group)
+        unavailable_settings: Final = unavailable_snapshot(e, quota_deployments)
+        quota_settings: Final = depleted_settings or unavailable_settings
         if quota_settings is not None:
             # 额度耗尽由号池显式开关接管，不再受 weighted failover 的策略限制。
             if not replay_safe(kwargs):
@@ -6983,9 +6986,13 @@ class Router:
             )
             quota_previews, _ = get_fallback_model_group(fallbacks=quota_mappings or [], model_group=original_model_group)
             quota_targets: Final = [
-                *([{"model": original_model_group, "_excluded_deployment_ids": list(quota_excluded)}]
-                  if quota_settings.quota_switch_project and quota_remaining else []),
-                *(quota_previews or [] if quota_settings.quota_switch_preview_model else []),
+                *(
+                    [{"model": original_model_group, "_excluded_deployment_ids": list(quota_excluded)}]
+                    if (quota_settings.quota_switch_project if depleted_settings else unavailable_settings is not None)
+                    and quota_remaining
+                    else []
+                ),
+                *(quota_previews or [] if depleted_settings and depleted_settings.quota_switch_preview_model else []),
             ]
             if not quota_targets:
                 raise e
