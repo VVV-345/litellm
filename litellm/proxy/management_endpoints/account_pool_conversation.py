@@ -19,11 +19,12 @@ from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import ServiceUnavailableError
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
-from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_failover import exception_header
+from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     exhausted_snapshot,
     now_utc,
+    quota_depleted,
     quota_failover_exclusions,
     snapshot_for,
     unavailable_snapshot,
@@ -32,7 +33,10 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import snaps
 from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
 from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 from litellm.responses.utils import ResponsesAPIRequestUtils
-from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck, EncryptedContentOriginUnavailableError
+from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+    EncryptedContentAffinityCheck,
+    EncryptedContentOriginUnavailableError,
+)
 from litellm.types.llms.openai import ResponseCompletedEvent, ResponsesAPIResponse, ResponsesAPIStreamingResponse
 from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
 
@@ -280,13 +284,10 @@ class Conversation:
         snapshot: Final = snapshot_for(origin, quota_snapshots.values)
         if snapshot is None:
             return None
-        quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(self.model, self.model), snapshot.quota)
-        remaining: Final = quota.effective(now_utc())[0]
         depleted_before_call: Final = (
             isinstance(error, (RouterRateLimitError, RouterRateLimitErrorBasic, ServiceUnavailableError))
             and getattr(error, "failed_deployment_id", None) is None
-            and remaining is not None
-            and remaining <= snapshot.quota_reserve_percent
+            and quota_depleted(snapshot, self.model, now_utc())
         )
         quota_migration: Final = snapshot.quota_switch_project and (
             exhausted_snapshot(error, deployments, self.model) is not None or depleted_before_call

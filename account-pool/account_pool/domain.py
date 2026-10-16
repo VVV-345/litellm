@@ -541,7 +541,11 @@ class GatewayEnvironment(BaseModel):
     model_cooldowns: tuple[ModelCooldown, ...] = ()
     model_aliases: dict[str, str] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = 300
+    supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
+    passthrough_enabled: bool = False
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
     fallback_enabled: bool = False

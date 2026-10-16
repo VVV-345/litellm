@@ -180,6 +180,7 @@ def create_model_test_router(
         started: Final = time.perf_counter()
         identity: Final = PoolIdentity(
             key_hash=user.api_key or "master", request_id=uuid4(), card_id=card_id, model_test=True,
+            protocol=request.mode,
             retry_deadline=time.time() + 30,
             router_settings=UpdateRouterConfig(
                 num_retries=0, timeout=30, retry_after=0, model_group_retry_policy={},
@@ -188,7 +189,7 @@ def create_model_test_router(
         )
         reset: Final = pool_identity.set(identity)
         parameters: Final = {
-            "model": selected.model_info.id, "specific_deployment": True, "stream": request.stream,
+            "model": selected.model_info.id, "stream": request.stream,
             "num_retries": 0, "max_retries": 0, "disable_fallbacks": True, "timeout": 30,
             "caching": False, "cache": {"no-cache": True, "no-store": True},
             "metadata": {"user_api_key": user.api_key, "account_pool_model_test": True},

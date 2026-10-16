@@ -48,22 +48,37 @@ export const useProxyGatewayQuery = (accessToken: string | null, enabled: boolea
     enabled: enabled && accessToken !== null,
   });
 
-export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
-  const queryClient = useQueryClient();
-  const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
-  const delaysKey = accountPoolQueryKeys.proxyGatewayDelays(accessToken);
-  const delaysQuery = useQuery({
-    queryKey: delaysKey,
+export const useProxyGatewayDelays = (accessToken: string | null, enabled: boolean) => useQuery({
+    queryKey: accountPoolQueryKeys.proxyGatewayDelays(accessToken),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return measureAccountPoolProxyGatewayDelays(accessToken);
     },
     enabled: enabled && accessToken !== null,
     retry: false,
-    staleTime: Infinity,
+    staleTime: 60_000,
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
+    refetchInterval: 60_000,
   });
+
+export const useProxyISPQuery = (accessToken: string | null, enabled: boolean) => useQuery({
+    queryKey: accountPoolQueryKeys.proxyIsps(accessToken),
+    queryFn: () => {
+      if (!accessToken) throw new Error("Access token required");
+      return listAccountPoolISPProxies(accessToken);
+    },
+    enabled: enabled && accessToken !== null,
+    retry: false,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+
+export const useProxyGateways = (accessToken: string | null, enabled: boolean) => {
+  const queryClient = useQueryClient();
+  const gatewaysQuery = useProxyGatewayQuery(accessToken, enabled);
+  const delaysKey = accountPoolQueryKeys.proxyGatewayDelays(accessToken);
+  const delaysQuery = useProxyGatewayDelays(accessToken, enabled);
   const configurationQuery = useQuery({
     queryKey: accountPoolQueryKeys.proxyGatewayConfiguration(accessToken),
     queryFn: () => {
@@ -85,17 +100,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     staleTime: 60_000,
   });
   const ispsKey = accountPoolQueryKeys.proxyIsps(accessToken);
-  const ispsQuery = useQuery({
-    queryKey: ispsKey,
-    queryFn: () => {
-      if (!accessToken) throw new Error("Access token required");
-      return listAccountPoolISPProxies(accessToken);
-    },
-    enabled: enabled && accessToken !== null,
-    retry: false,
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-  });
+  const ispsQuery = useProxyISPQuery(accessToken, enabled);
   const ispProbeMutation = useMutation({
     mutationFn: async (profileIds: string[]) => {
       if (!enabled || !accessToken) throw new Error("Access token required");

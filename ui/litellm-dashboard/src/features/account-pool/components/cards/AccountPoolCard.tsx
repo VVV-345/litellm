@@ -24,7 +24,8 @@ import {
 } from "../../utils/AccountPoolFormatters";
 import type { ErrorStats } from "../../api/AccountPoolManagementApi";
 import type { PolicyView } from "../../api/AccountPoolManagementApi";
-import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "../../utils/AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolProxyGateway, AccountPoolProxyGatewayDelay, AccountPoolISPProbe } from "../../utils/AccountPoolTypes";
+import { accountPoolLatency } from "../../utils/accountPoolLatency";
 import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
 import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "../../utils/accountPoolDashboardSelectors";
@@ -32,6 +33,8 @@ import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "../../uti
 interface AccountPoolCardProps {
   environment: AccountPoolEnvironment;
   proxyGateway?: AccountPoolProxyGateway;
+  proxyDelay?: AccountPoolProxyGatewayDelay;
+  ispProbe?: AccountPoolISPProbe | null;
   onConfigure: (environment: AccountPoolEnvironment) => void;
   onEnabledChange: (environment: AccountPoolEnvironment, enabled: boolean) => void;
   onAuthorize: (environment: AccountPoolEnvironment) => void;
@@ -50,6 +53,8 @@ interface AccountPoolCardProps {
 const AccountPoolCardComponent = ({
   environment,
   proxyGateway,
+  proxyDelay,
+  ispProbe,
   onConfigure,
   onEnabledChange,
   onAuthorize,
@@ -65,6 +70,7 @@ const AccountPoolCardComponent = ({
   disabled = false,
 }: AccountPoolCardProps) => {
   const { t, i18n } = useTranslation();
+  const latency = accountPoolLatency(proxyGateway, proxyDelay, ispProbe);
   const quotaWindow = mostConstrainedWindow(environment);
   const configuredPort = environment.proxy_profile_id?.match(/^clash-gateway-(\d+)$/)?.[1];
   const proxyPort = proxyGateway?.port ?? configuredPort;
@@ -268,6 +274,10 @@ const AccountPoolCardComponent = ({
           <p className="mt-1 break-words font-medium">
             {environment.proxy_mode === "default_gateway" ? t("accountPool.config.defaultGateway") : proxyLabel}
           </p>
+        </div>
+        <div className="flex items-center justify-between gap-2 text-xs" title={latency.checkedAt ? formatDateTime(latency.checkedAt, i18n.language) : undefined}>
+          <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
+          <span className="font-medium tabular-nums">{latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

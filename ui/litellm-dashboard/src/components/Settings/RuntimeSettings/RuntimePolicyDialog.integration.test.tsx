@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import i18n from "@/i18n";
 import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
 import type { AccountPolicy, PolicyView } from "@/features/account-pool/api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
@@ -92,6 +93,27 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   );
 
 describe("RuntimePolicyDialog", () => {
+  it("saves separate reserve windows and controlled passthrough without changing inherited protocols", async () => {
+    renderDialog();
+    fireEvent.change(await screen.findByRole("spinbutton", { name: "5 小时额度保留比例 (%)" }), { target: { value: "10" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "周额度保留比例 (%)" }), { target: { value: "25" } });
+    fireEvent.click(screen.getByRole("switch", { name: "开启协议透传" }));
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    const saved = savePolicy.mock.calls[0][3] as AccountPolicy;
+    expect(saved.routing).toMatchObject({ quota_reserve_5h_percent: 10, quota_reserve_weekly_percent: 25 });
+    expect(saved.transport).toMatchObject({ supported_protocols: null, passthrough_enabled: true });
+  });
+
+  it("saves an explicit empty protocol set instead of silently restoring defaults", async () => {
+    renderDialog();
+    fireEvent.click(await screen.findByRole("switch", { name: "继承默认协议" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    expect((savePolicy.mock.calls[0][3] as AccountPolicy).transport?.supported_protocols).toEqual([]);
+  });
+
   it("saves a separate read timeout without changing the total timeout or routing", async () => {
     renderDialog();
     const readTimeout = await screen.findByRole("spinbutton", { name: /读取空闲超时|Read idle timeout/i });
@@ -105,6 +127,7 @@ describe("RuntimePolicyDialog", () => {
   });
 
   beforeEach(() => {
+    void i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();
     getPolicy.mockResolvedValue(policyView);
     savePolicy.mockResolvedValue(policyView);

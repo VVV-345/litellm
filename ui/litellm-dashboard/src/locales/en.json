@@ -6831,7 +6831,30 @@
       "manage": "Manage card key for {{name}}",
       "manageShort": "Card key"
     },
+    "nodeLatency": {
+      "label": "Exit-node latency",
+      "unknown": "Not measured",
+      "stale": "Probe expired",
+      "timeout": "Probe timed out",
+      "error": "Probe failed"
+    },
     "policy": {
+      "quota_reserve_5h_percent": "5-hour quota reserve (%)",
+      "quota_reserve_weekly_percent": "Weekly quota reserve (%)",
+      "windowReserveDescription": "Applies only to the provider's {{window}} window. Stop at or below this remaining percentage. Blank inherits the general reserve; 0 stops only at exhaustion.",
+      "windowCompatibility": "Match actual window durations for Codex, Claude and other suppliers. Daily, monthly and unknown windows use the general reserve. Missing provider windows are not inferred.",
+      "inheritProtocols": "Inherit default protocols",
+      "inheritProtocolsDescription": "Keep existing protocol capabilities, or turn off to select permitted protocols.",
+      "supported_protocols": "Supported protocols",
+      "supportedProtocolsDescription": "Only selected protocols are allowed. Clearing all rejects model requests on this card; this does not add provider capabilities.",
+      "passthrough_enabled": "Enable protocol passthrough",
+      "passthroughDescription": "Keep the same protocol between the client and card gateway, retaining auth, quota, logging and billing. Not byte-for-byte forwarding or cross-provider reasoning-signature migration.",
+      "protocols": {
+        "chat": "OpenAI Chat Completions",
+        "responses": "OpenAI Responses",
+        "messages": "Anthropic Messages",
+        "images": "OpenAI Images"
+      },
       "title": "Account policy: {{name}}",
       "description": "Manage account scope, routing, transport, and provider settings for this card",
       "manage": "Edit account policy for {{name}}",

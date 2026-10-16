@@ -53,7 +53,7 @@ def test_selected_card_only_and_no_retry(mode, result):
     assert response.status_code == 200
     assert response.json()["success"] is True
     kwargs, identity = router.calls[0]
-    assert kwargs["model"] == "selected" and kwargs["specific_deployment"] is True
+    assert kwargs["model"] == "selected" and kwargs.get("specific_deployment") is not True
     assert kwargs["num_retries"] == 0 and kwargs["disable_fallbacks"] is True
     assert identity.card_id == CARD and identity.router_settings.num_retries == 0
     assert identity.router_settings.retry_policy.InternalServerErrorRetries == 0
@@ -93,3 +93,31 @@ def test_error_does_not_expose_credentials():
     response = client_for(RouterDouble(RuntimeError("Bearer sk-secret https://private/?token=abc"))).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
     assert response.json()["success"] is False
     assert "sk-secret" not in response.text and "private" not in response.text
+
+
+@pytest.mark.parametrize("mode", ["chat", "responses"])
+def test_real_router_resolves_card_by_deployment_id(monkeypatch, mode):
+    import litellm
+    from litellm import Router
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    calls = []
+    async def upstream(**kwargs):
+        calls.append(kwargs)
+        if mode == "chat":
+            return litellm.ModelResponse(choices=[{"message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}])
+        return ResponsesAPIResponse(id="resp_test", created_at=1, model="test-model", object="response", status="completed", output=[{"type": "message", "role": "assistant", "status": "completed", "id": "msg_test", "content": [{"type": "output_text", "text": "Hello", "annotations": []}]}])
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "x" * 32)
+    monkeypatch.setattr(litellm, "acompletion" if mode == "chat" else "aresponses", upstream)
+    router = Router(model_list=[
+        {"model_name": "test-model", "litellm_params": {"model": "openai/test-model", "api_key": "unused"}, "model_info": {"id": "other-id", "account_pool_environment_id": str(uuid4())}},
+        {"model_name": "test-model", "litellm_params": {"model": "openai/test-model", "api_key": "unused"}, "model_info": {"id": "selected-id", "account_pool_environment_id": str(CARD)}},
+    ], num_retries=0)
+    try:
+        response = client_for(router).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model", "mode": mode})
+        assert response.json()["success"] is True, response.json()
+        assert len(calls) == 1
+        assert calls[0]["model_info"]["id"] == "selected-id"
+    finally:
+        router.discard()

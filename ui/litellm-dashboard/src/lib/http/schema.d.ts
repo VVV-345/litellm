@@ -39659,11 +39659,15 @@ export interface components {
              * @default 0
              */
             priority: number;
+            /** Quota Reserve 5H Percent */
+            quota_reserve_5h_percent?: number | null;
             /**
              * Quota Reserve Percent
              * @default 0
              */
             quota_reserve_percent: number;
+            /** Quota Reserve Weekly Percent */
+            quota_reserve_weekly_percent?: number | null;
             /**
              * Quota Snapshot Max Age
              * @default 300
@@ -41816,6 +41820,11 @@ export interface components {
              * @enum {string}
              */
             image_generation: "inherit" | "enabled" | "disabled";
+            /**
+             * Passthrough Enabled
+             * @default false
+             */
+            passthrough_enabled: boolean;
             /** Read Timeout Seconds */
             read_timeout_seconds?: number | null;
             /**
@@ -41823,6 +41832,8 @@ export interface components {
              * @default 120
              */
             request_timeout_seconds: number;
+            /** Supported Protocols */
+            supported_protocols?: ("chat" | "responses" | "messages" | "images")[] | null;
             /**
              * Websocket
              * @default inherit

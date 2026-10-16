@@ -310,6 +310,17 @@ class AccountPoolGatewayMiddleware:
                 has_images: Final = isinstance(image_tools, list) and any(
                     isinstance(item, dict) and item.get("type") == "image_generation" for item in image_tools
                 )
+                from litellm.proxy.management_endpoints.account_pool_protocols import request_protocol
+
+                if isinstance(control, TrustedControl):
+                    ingress_protocol: Final = control.ticket.identity.protocol
+                    allowed_protocols: Final = resolution.policy.transport.supported_protocols
+                    if ingress_protocol is not None and allowed_protocols is not None and ingress_protocol not in allowed_protocols:
+                        await error_response(403, "This protocol is disabled for this account", "account_pool_protocol_disabled")(scope, receive, send)
+                        return
+                    if resolution.policy.transport.passthrough_enabled and ingress_protocol != request_protocol(path):
+                        await error_response(400, "Protocol passthrough requires the original request protocol", "account_pool_protocol_conversion_disabled")(scope, receive, send)
+                        return
                 stream: Final = payload.get("stream") is True
                 selected: Final = routes(resolution, model, path, headers, has_images, stream)
                 if isinstance(selected, Rejected):

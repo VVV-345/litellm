@@ -1011,6 +1011,11 @@ def responses_api_bridge_check(
     api_base: str | None = None,
 ) -> tuple[dict, str]:
     model_info: dict[str, object] = {}
+    if "litellm.proxy.management_endpoints.account_pool_integration" in sys.modules:
+        from litellm.proxy.management_endpoints.account_pool_protocols import passthrough_for_base
+
+        if passthrough_for_base(api_base):
+            return model_info, model.removeprefix("responses/")
 
     # Global flag: route ALL OpenAI chat completions through Responses API.
     # Returns early with minimal model_info; callers only inspect the "mode" key.

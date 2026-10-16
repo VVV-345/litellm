@@ -6831,7 +6831,30 @@
       "manage": "管理 {{name}} 的卡片 Key",
       "manageShort": "卡片 Key"
     },
+    "nodeLatency": {
+      "label": "出口节点延迟",
+      "unknown": "尚未探测",
+      "stale": "探测已过期",
+      "timeout": "探测超时",
+      "error": "探测失败"
+    },
     "policy": {
+      "quota_reserve_5h_percent": "5 小时额度保留比例 (%)",
+      "quota_reserve_weekly_percent": "周额度保留比例 (%)",
+      "windowReserveDescription": "仅用于供应商返回的 {{window}} 窗口；剩余比例达到此值时停用。留空沿用通用比例，0 表示仅耗尽时停用。",
+      "windowCompatibility": "Codex / Claude 等按实际窗口时长匹配。日、月及未知周期沿用通用比例，不会当成周额度；供应商未返回窗口时不虚构额度。",
+      "inheritProtocols": "继承默认协议",
+      "inheritProtocolsDescription": "沿用现有协议能力；关闭后可选择此卡允许的协议。",
+      "supported_protocols": "支持协议（多选）",
+      "supportedProtocolsDescription": "只放行所选协议；全部取消会拒绝此卡的模型请求，不会给供应商增加协议能力。",
+      "passthrough_enabled": "开启协议透传",
+      "passthroughDescription": "保持客户端与卡片网关使用同一协议，保留鉴权、额度、日志和计费。不保证逐字节原样，也不能迁移其他上游的思考签名。",
+      "protocols": {
+        "chat": "OpenAI Chat Completions",
+        "responses": "OpenAI Responses",
+        "messages": "Anthropic Messages",
+        "images": "OpenAI Images"
+      },
       "title": "账号策略：{{name}}",
       "description": "管理仅作用于当前卡片的账号范围、路由、传输和供应商设置",
       "manage": "编辑 {{name}} 的账号策略",

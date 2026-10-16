@@ -161,6 +161,8 @@ class RoutingPolicy(BaseModel):
     session_affinity: bool = False
     session_affinity_ttl: int = Field(default=3600, ge=60, le=86400)
     quota_reserve_percent: int = Field(default=0, ge=0, le=100)
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = Field(default=300, ge=10, le=86400)
     token_budget_limit: int | None = Field(default=None, ge=1, le=1000000000000)
     token_budget_window_seconds: int = Field(default=3600, ge=60, le=2592000)
@@ -186,6 +188,9 @@ class ModelAlias(BaseModel):
 
 class TransportPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
+    passthrough_enabled: bool = False
 
     read_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
 

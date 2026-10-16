@@ -105,6 +105,8 @@ const defaults: FormPolicy = {
     session_affinity: false,
     session_affinity_ttl: 3600,
     quota_reserve_percent: 0,
+    quota_reserve_5h_percent: null,
+    quota_reserve_weekly_percent: null,
     quota_snapshot_max_age: 300,
     token_budget_limit: null,
     token_budget_window_seconds: 3600,
@@ -114,6 +116,8 @@ const defaults: FormPolicy = {
     fallback_enabled: false,
   },
   transport: {
+    supported_protocols: null,
+    passthrough_enabled: false,
     image_generation: "inherit",
     websocket: "inherit",
     request_timeout_seconds: 120,
@@ -158,11 +162,11 @@ export function RuntimePolicyDialog({
   const options = buildAccountPoolPolicyOptions(environment, environments, policies);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b border-border px-6 pt-6 pb-4">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="shrink-0 border-b border-border px-6 pt-5 pb-3 pr-12">
           <DialogTitle>{t("accountPool.policy.title", { name: environment.name })}</DialogTitle>
           <DialogDescription>{t("accountPool.policy.description")}</DialogDescription>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+          <div className="flex flex-col items-start justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-sm sm:flex-row sm:items-center">
             <p className="min-w-0 flex-1 leading-6 text-muted-foreground">
               {t("accountPool.policy.cardScopedDescription")}
             </p>
@@ -171,7 +175,7 @@ export function RuntimePolicyDialog({
             </Button>
           </div>
         </DialogHeader>
-        <div className="max-h-[calc(100dvh-14rem)] overflow-y-auto px-6 pb-6">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-6">
           {query.isPending && <p className="py-6">{t("accountPool.management.loading")}</p>}
           {query.isError && (
             <div className="grid gap-3 py-6" role="alert">
@@ -309,6 +313,7 @@ function PolicyForm({
     descriptionText: string,
     current: number | null | undefined,
     change: (next: number | null) => void,
+    max?: number,
   ) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
@@ -320,6 +325,9 @@ function PolicyForm({
           aria-label={label}
           type="number"
           value={current ?? ""}
+          min={max === undefined ? undefined : 0}
+          max={max}
+          step={1}
           disabled={busy}
           onChange={(event) => change(event.target.value ? Number(event.target.value) : null)}
         />
@@ -496,7 +504,7 @@ function PolicyForm({
           <p className="font-medium">{t(`accountPool.policy.runtimeStatus.${value.runtime_status ?? "partial"}`)}</p>
           {value.runtime_error && <p className="mt-1 text-xs text-muted-foreground">{value.runtime_error}</p>}
         </div>
-        <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <dl className="grid gap-3 sm:grid-cols-2">
           {value.capabilities?.map((capability) => (
             <div key={capability.name} className="min-w-0 rounded-lg border border-border p-3">
               <dt className="break-words font-medium leading-5">
@@ -545,7 +553,7 @@ function PolicyForm({
             </dl>
           </div>
         </details>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <p className="text-sm text-muted-foreground">
             卡片之间的权重、优先级、回退和会话亲和性使用 LiteLLM 路由设置；虚拟密钥指定卡片时仅在该卡片内调用。
           </p>
@@ -555,6 +563,21 @@ function PolicyForm({
             policy.routing.quota_reserve_percent,
             (next) => updateRouting("quota_reserve_percent", next),
           )}
+          {optionalNumberField(
+            t("accountPool.policy.quota_reserve_5h_percent"),
+            t("accountPool.policy.windowReserveDescription", { window: "5 小时 / 300 min" }),
+            policy.routing.quota_reserve_5h_percent,
+            (next) => updateRouting("quota_reserve_5h_percent", next),
+            100,
+          )}
+          {optionalNumberField(
+            t("accountPool.policy.quota_reserve_weekly_percent"),
+            t("accountPool.policy.windowReserveDescription", { window: "7 天 / 10080 min" }),
+            policy.routing.quota_reserve_weekly_percent,
+            (next) => updateRouting("quota_reserve_weekly_percent", next),
+            100,
+          )}
+          <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.policy.windowCompatibility")}</p>
           {numberField(
             t("accountPool.policy.quota_snapshot_max_age"),
             description("quota_snapshot_max_age"),
@@ -580,7 +603,26 @@ function PolicyForm({
       </section>
       <section className="grid gap-3">
         <h3 className="font-medium">{t("accountPool.policy.transport")}</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {toggleField(
+            t("accountPool.policy.inheritProtocols"), t("accountPool.policy.inheritProtocolsDescription"),
+            policy.transport.supported_protocols == null,
+            (next) => updateTransport("supported_protocols", next ? null : ["chat", "responses", "messages", "images"]),
+          )}
+          {policy.transport.supported_protocols != null && multiField({
+            label: t("accountPool.policy.supported_protocols"),
+            description: t("accountPool.policy.supportedProtocolsDescription"),
+            selected: policy.transport.supported_protocols,
+            control: {
+              entries: ["chat", "responses", "messages", "images"].map((protocol) => ({ value: protocol, label: t(`accountPool.policy.protocols.${protocol}`) })),
+              change: (next) => updateTransport("supported_protocols", next as NonNullable<Transport["supported_protocols"]>),
+            },
+          })}
+          {toggleField(
+            t("accountPool.policy.passthrough_enabled"), t("accountPool.policy.passthroughDescription"),
+            policy.transport.passthrough_enabled ?? false,
+            (next) => updateTransport("passthrough_enabled", next),
+          )}
           {selectField(
             t("accountPool.policy.image_generation"),
             description("image_generation"),

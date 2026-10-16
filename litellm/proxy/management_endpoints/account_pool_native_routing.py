@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Literal, TypeVar, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 
 
 class RoutingQuotaWindow(BaseModel):
-    remaining_percent: float
+    model_config = ConfigDict(frozen=True)
+    window_minutes: int | None = Field(default=None, ge=1)
+    remaining_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
     resets_at: AwareDatetime | None = None
 
 
@@ -50,7 +52,11 @@ class RoutingSnapshot(BaseModel):
     model_aliases: dict[str, str] = Field(default_factory=dict)
     model_cooldowns: dict[str, AwareDatetime] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = 300
+    supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
+    passthrough_enabled: bool = False
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
     fallback_enabled: bool = False
@@ -93,13 +99,7 @@ def exhausted_snapshot(
             snapshot
             for snapshot in known
             if snapshot is not None
-            and (
-                remaining := snapshot.model_quotas.get(
-                    snapshot.model_aliases.get(model, model), snapshot.quota
-                ).effective(now_utc())[0]
-            )
-            is not None
-            and remaining <= snapshot.quota_reserve_percent
+            and quota_depleted(snapshot, model, now_utc())
         )
         if len(depleted) != len(known):
             return None
@@ -191,6 +191,25 @@ def snapshot_for(deployment: Mapping[str, object], values: Mapping[str, RoutingS
     return values.get(card) if isinstance(card, str) else None
 
 
+def window_reserve(snapshot: RoutingSnapshot, minutes: int | None) -> float:
+    override: Final = (
+        snapshot.quota_reserve_5h_percent if minutes == 300
+        else snapshot.quota_reserve_weekly_percent if minutes == 10080 else None
+    )
+    return snapshot.quota_reserve_percent if override is None else override
+
+
+def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
+    quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
+    if quota.windows:
+        return any(
+            (window.resets_at is None or window.resets_at > now)
+            and window.remaining_percent <= window_reserve(snapshot, window.window_minutes)
+            for window in quota.windows
+        )
+    return quota.remaining_percent is not None and quota.remaining_percent <= snapshot.quota_reserve_percent
+
+
 def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     target: Final = snapshot.model_aliases.get(model, model)
     cooldown: Final = snapshot.model_cooldowns.get(target)
@@ -200,9 +219,10 @@ def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
         return False
     quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
     remaining, observed = quota.effective(now)
-    if remaining is not None and remaining <= snapshot.quota_reserve_percent:
+    if quota_depleted(snapshot, model, now):
         return False
-    if snapshot.quota_reserve_percent == 0:
+    reserves: Final = tuple(window_reserve(snapshot, window.window_minutes) for window in quota.windows)
+    if max(reserves, default=snapshot.quota_reserve_percent) == 0:
         return True
     return (
         remaining is not None
@@ -211,13 +231,20 @@ def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     )
 
 
+def protocol_available(snapshot: RoutingSnapshot) -> bool:
+    identity: Final = pool_identity.get()
+    return (snapshot.supported_protocols is None or identity is None or identity.protocol is None
+            or identity.protocol in snapshot.supported_protocols)
+
+
 def eligible_deployments(
     deployments: Sequence[Deployment], model: str, values: Mapping[str, RoutingSnapshot], now: datetime
 ) -> list[Deployment]:
     return [
         deployment
         for deployment in deployments
-        if (snapshot := snapshot_for(deployment, values)) is None or available(snapshot, model, now)
+        if (snapshot := snapshot_for(deployment, values)) is None
+        or (protocol_available(snapshot) and available(snapshot, model, now))
     ]
 
 

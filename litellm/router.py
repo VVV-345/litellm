@@ -3604,6 +3604,15 @@ class Router:
             if pool_caller is None:
                 raise ValueError("Account pool deployments require authenticated proxy ingress")
             pool_account: Final = UUID(str(pool_environment))
+            from litellm.proxy.management_endpoints.account_pool_native_routing import protocol_available, snapshots
+
+            pool_snapshot: Final = snapshots.values.get(str(pool_account))
+            if pool_snapshot is not None and not protocol_available(pool_snapshot):
+                from fastapi import HTTPException
+
+                raise HTTPException(403, "account_pool_protocol_disabled: This protocol is disabled for this account")
+            if pool_snapshot is not None and pool_snapshot.passthrough_enabled:
+                kwargs["use_chat_completions_api"] = False
             if function_name == "_ageneric_api_call_with_fallbacks":
                 from litellm.proxy.management_endpoints.account_pool_conversation import compatible_reasoning_input
 

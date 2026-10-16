@@ -2959,3 +2959,66 @@ def test_signed_test_and_migration_attempt_limits(monkeypatch, model_test, migra
     assert result.headers.get("x-account-pool-attempt") == str(expected)
     if migrated:
         assert result.headers["x-account-pool-rebuild"] == "retry-exhausted"
+
+
+@pytest.mark.parametrize("ingress,path,status", [("chat", "/v1/chat/completions", 200), ("chat", "/v1/responses", 400), ("responses", "/v1/responses", 200)])
+def test_controlled_passthrough_retains_protocol_auth_and_lease(monkeypatch, ingress, path, status):
+    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    calls = []
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"id": "test", "usage": {"input_tokens": 3, "output_tokens": 2}})
+    _, original = setup_gateway(upstream, max_attempts=1)
+    policy = original.resolution.policy.model_copy(update={"transport": TransportPolicy(passthrough_enabled=True, supported_protocols=("chat", "responses"))})
+    resolution = original.resolution.model_copy(update={"policy": policy, "candidates": original.resolution.candidates[:1]})
+    class InternalControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution
+    control = InternalControl(resolution)
+    app = FastAPI()
+    app.add_middleware(AccountPoolGatewayMiddleware, control_factory=lambda _: control, client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+    identity = PoolIdentity(key_hash="virtual-key", request_id=uuid4(), protocol=ingress)
+    ticket = create_ticket(identity, resolution.card_id)
+    body = {"model": "model-a", "messages": [{"role": "user", "content": "hi"}], "vendor_option": {"keep": True}}
+    with TestClient(app) as client:
+        url = INTERNAL_PREFIX + str(resolution.card_id) + path
+        unauthorized = client.post(url, json=body, headers={"Authorization": "Bearer invalid"})
+        assert unauthorized.status_code >= 400
+        assert not calls and not control.acquisitions
+        response = client.post(url, json=body, headers={"Authorization": "Bearer " + ticket})
+    assert response.status_code == status, response.text
+    if status == 200:
+        assert len(calls) == len(control.acquisitions) == len(control.finished) == 1
+        assert calls[0].url.path == path
+        assert json.loads(calls[0].content) == body
+        assert calls[0].headers["authorization"] == "Bearer internal-secret"
+        assert response.json()["usage"]["output_tokens"] == 2
+    else:
+        assert response.json()["error"]["code"] == "account_pool_protocol_conversion_disabled"
+        assert not calls and not control.acquisitions
+
+
+def test_passthrough_does_not_bypass_quota(monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    def upstream(request):
+        pytest.fail("depleted card must not send upstream")
+    _, original = setup_gateway(upstream, max_attempts=1)
+    policy = original.resolution.policy.model_copy(update={"transport": TransportPolicy(passthrough_enabled=True)})
+    resolution = original.resolution.model_copy(update={"policy": policy, "candidates": tuple(c.model_copy(update={"remaining_percent": 0}) for c in original.resolution.candidates[:1])})
+    class InternalControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution
+    control = InternalControl(resolution)
+    app = FastAPI()
+    app.add_middleware(AccountPoolGatewayMiddleware, control_factory=lambda _: control, client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+    ticket = create_ticket(PoolIdentity(key_hash="virtual-key", request_id=uuid4(), protocol="responses"), resolution.card_id)
+    with TestClient(app) as client:
+        response = client.post(INTERNAL_PREFIX + str(resolution.card_id) + "/v1/responses", json={"model": "model-a", "input": "hi"}, headers={"Authorization": "Bearer " + ticket})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "account_pool_quota_exhausted"
+    assert not control.acquisitions

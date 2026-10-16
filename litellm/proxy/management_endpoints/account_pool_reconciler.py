@@ -31,6 +31,7 @@ _DEFAULT_INTERVAL_SECONDS: Final = 30.0
 
 
 class QuotaWindow(BaseModel):
+    window_minutes: int | None = None
     remaining_percent: float
     resets_at: AwareDatetime | None = None
 
@@ -46,7 +47,7 @@ class QuotaSnapshot(BaseModel):
         return RoutingQuota(
             remaining_percent=min((window.remaining_percent for window in self.windows), default=None),
             observed_at=self.observed_at,
-            windows=tuple(RoutingQuotaWindow(remaining_percent=w.remaining_percent, resets_at=w.resets_at) for w in self.windows),
+            windows=tuple(RoutingQuotaWindow(window_minutes=w.window_minutes, remaining_percent=w.remaining_percent, resets_at=w.resets_at) for w in self.windows),
         )
 
 
@@ -75,7 +76,11 @@ class GatewayEnvironment(BaseModel):
     model_cooldowns: tuple[ModelCooldown, ...] = ()
     model_aliases: dict[str, str] = Field(default_factory=dict)
     quota_reserve_percent: float = 0
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = 300
+    supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
+    passthrough_enabled: bool = False
     quota_switch_project: bool = False
     quota_switch_preview_model: bool = False
     fallback_enabled: bool = False
@@ -290,6 +295,10 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
                 model_cooldowns={item.model: item.retry_at for item in environment.model_cooldowns},
                 model_aliases=environment.model_aliases,
                 quota_reserve_percent=environment.quota_reserve_percent,
+                quota_reserve_5h_percent=environment.quota_reserve_5h_percent,
+                quota_reserve_weekly_percent=environment.quota_reserve_weekly_percent,
+                supported_protocols=environment.supported_protocols,
+                passthrough_enabled=environment.passthrough_enabled,
                 quota_snapshot_max_age=environment.quota_snapshot_max_age,
                 quota_switch_project=environment.quota_switch_project,
                 quota_switch_preview_model=environment.quota_switch_preview_model,
@@ -383,7 +392,8 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         api_key="account-pool-internal",
         max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
-        supported_endpoints=environment.supported_endpoints,
+        supported_endpoints=(tuple(dict.fromkeys((*environment.supported_endpoints, "/v1/messages")))
+                             if environment.passthrough_enabled else environment.supported_endpoints),
         blocked=not environment.routable,
         routing_weight=environment.routing_weight,
         routing_order=environment.routing_order,

@@ -74,8 +74,8 @@ from account_pool.ports import (
     ProxyProfileRepository,
 )
 from account_pool.providers.usage.contracts import ProviderQuotaError
-from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.proxy_catalog import ProxyConfigurationProfileView
+from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository, settings_for_card
 from account_pool.shared.error_safety import safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
@@ -502,6 +502,10 @@ class EnvironmentService:
                     "model_cooldowns": record.model_cooldowns,
                     "model_aliases": {alias.alias: alias.target for alias in policy.model_aliases},
                     "quota_reserve_percent": policy.routing.quota_reserve_percent,
+                    "quota_reserve_5h_percent": policy.routing.quota_reserve_5h_percent,
+                    "quota_reserve_weekly_percent": policy.routing.quota_reserve_weekly_percent,
+                    "supported_protocols": policy.transport.supported_protocols,
+                    "passthrough_enabled": policy.transport.passthrough_enabled,
                     "quota_snapshot_max_age": policy.routing.quota_snapshot_max_age,
                     "quota_switch_project": effective.quota_switch_project,
                     "sse_heartbeat_interval_seconds": settings.sse_heartbeat_interval_seconds,

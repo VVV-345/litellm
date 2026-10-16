@@ -50,6 +50,7 @@ CARD_ROUTES: Final = (
 class PoolIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
     key_hash: str
+    protocol: Literal["chat", "responses", "messages", "images"] | None = None
     model_test: bool = False
     attempt_limit: int = Field(default=10, ge=1, le=10)
     request_id: UUID
@@ -357,6 +358,8 @@ def check_deployment(environment_id: object) -> None:
 
 
 def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
+    from litellm.proxy.management_endpoints.account_pool_protocols import request_protocol
+
     scope: Final = KeyAuthScope.model_validate(auth, from_attributes=True)
     metadata: Final = scope.metadata
     resolution: Final[object] = getattr(request.state, "account_pool_resolution", None)
@@ -366,6 +369,7 @@ def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
         raise HTTPException(403, "This endpoint is not available to card keys")
     identity: Final = PoolIdentity(
         key_hash=auth.api_key or "master",
+        protocol=request_protocol(request.url.path),
         request_id=uuid4(),
         card_id=card,
         binding_id=binding,

@@ -5,13 +5,16 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
 
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Candidate, Resolution, RoutingReason
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy
+
+if TYPE_CHECKING:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +39,12 @@ def protocol_policy(
     stream: bool = False,
     streaming_mode: Literal["inherit", "enabled", "disabled"] = "inherit",
 ) -> Rejected | None:
+    from litellm.proxy.management_endpoints.account_pool_protocols import request_protocol
+
+    protocol: Final = request_protocol(path)
+    allowed: Final = policy.transport.supported_protocols
+    if allowed is not None and protocol is not None and protocol not in allowed:
+        return Rejected(403, "This protocol is disabled for this account", "account_pool_protocol_disabled")
     if (path.startswith("/v1/images/") or image_generation) and policy.transport.image_generation == "disabled":
         return Rejected(403, "Image generation is disabled for this account")
     if stream and streaming_mode == "disabled":
@@ -69,19 +78,37 @@ def quota_state(account: Candidate, model: str) -> tuple[float | None, datetime 
     )
 
 
-def quota_available(account: Candidate, policy: AccountPolicy, model: str) -> bool:
-    remaining_percent, observed_at = quota_state(account, model)
-    reserve: Final = max(policy.routing.quota_reserve_percent, account.policy.routing.quota_reserve_percent)
-    if remaining_percent is not None and remaining_percent <= reserve:
-        return False
-    if reserve == 0:
-        return True
-    max_age: Final = min(policy.routing.quota_snapshot_max_age, account.policy.routing.quota_snapshot_max_age)
-    return (
-        remaining_percent is not None
-        and observed_at is not None
-        and (datetime.now(timezone.utc) - observed_at).total_seconds() <= max_age
+def quota_snapshot(account: Candidate, policy: AccountPolicy, model: str) -> RoutingSnapshot:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import (
+        RoutingQuota,
+        RoutingQuotaWindow,
+        RoutingSnapshot,
     )
+
+    model_quota: Final = next((quota for quota in account.model_quotas if quota.model == model), None)
+    windows: Final = model_quota.windows if model_quota is not None else account.quota_windows
+    remaining, observed = quota_state(account, model)
+    return RoutingSnapshot(
+        quota=RoutingQuota(remaining_percent=remaining, observed_at=observed, windows=tuple(
+            RoutingQuotaWindow.model_validate(window.model_dump()) for window in windows
+        )),
+        quota_reserve_percent=max(policy.routing.quota_reserve_percent, account.policy.routing.quota_reserve_percent),
+        quota_reserve_5h_percent=max(
+            item.quota_reserve_5h_percent if item.quota_reserve_5h_percent is not None else item.quota_reserve_percent
+            for item in (policy.routing, account.policy.routing)
+        ),
+        quota_reserve_weekly_percent=max(
+            item.quota_reserve_weekly_percent if item.quota_reserve_weekly_percent is not None else item.quota_reserve_percent
+            for item in (policy.routing, account.policy.routing)
+        ),
+        quota_snapshot_max_age=min(policy.routing.quota_snapshot_max_age, account.policy.routing.quota_snapshot_max_age),
+    )
+
+
+def quota_available(account: Candidate, policy: AccountPolicy, model: str) -> bool:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+
+    return available(quota_snapshot(account, policy, model), model, datetime.now(timezone.utc))
 
 
 def plan_rank(account: Candidate) -> int | None:
@@ -155,10 +182,10 @@ def routes(
     active: Final = tuple(route for route in compatible if subscription_active(route.account, now))
     eligible: Final = tuple(route for route in active if quota_available(route.account, resolution.policy, route.model))
     if not eligible:
+        from litellm.proxy.management_endpoints.account_pool_native_routing import quota_depleted
+
         depleted: Final = bool(active) and all(
-            (remaining := quota_state(route.account, route.model)[0]) is not None
-            and remaining
-            <= max(resolution.policy.routing.quota_reserve_percent, route.account.policy.routing.quota_reserve_percent)
+            quota_depleted(quota_snapshot(route.account, resolution.policy, route.model), route.model, now)
             for route in active
         )
         reason: Final = (

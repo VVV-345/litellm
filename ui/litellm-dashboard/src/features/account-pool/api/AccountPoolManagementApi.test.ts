@@ -66,6 +66,7 @@ const policy: AccountPolicy = {
   excluded_models: [],
   model_aliases: [],
   transport: {
+    passthrough_enabled: false,
     image_generation: "inherit",
     websocket: "inherit",
     request_timeout_seconds: 120,

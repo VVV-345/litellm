@@ -2,6 +2,8 @@
 
 "use client";
 
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
+import { getAccountPoolSettings } from "@/features/account-pool/api/AccountPoolManagementApi";
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
@@ -88,7 +90,7 @@ import {
 } from "@/features/account-pool/utils/accountPoolSelectors";
 import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
-import { useProxyGatewayQuery } from "@/features/account-pool/hooks/useProxyGateways";
+import { useProxyGatewayQuery, useProxyGatewayDelays, useProxyISPQuery } from "@/features/account-pool/hooks/useProxyGateways";
 
 const AccountPoolModelTestDialog = dynamic(
   () =>
@@ -169,6 +171,15 @@ export default function AccountPoolPage() {
     refetchInterval: 15_000,
   });
   const gatewaysQuery = useProxyGatewayQuery(accessToken, canManage && cardTabActive);
+  const proxySettingsQuery = useQuery({
+    queryKey: accountPoolQueryKeys.settings(accessToken),
+    queryFn: () => getAccountPoolSettings(accessToken!),
+    enabled: canManage && accessToken !== null && cardTabActive,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const gatewayDelaysQuery = useProxyGatewayDelays(accessToken, canManage && cardTabActive);
+  const proxyISPsQuery = useProxyISPQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
     ...accountPoolPolicyOptions(accessToken),
     enabled: canManage && accessToken !== null && cardTabActive,
@@ -268,12 +279,17 @@ export default function AccountPoolPage() {
   const renderCard = useCallback(
     (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => {
       const policyView = policiesByCard.get(environment.id);
+      const profileId = environment.proxy_mode === "default_gateway"
+        ? proxySettingsQuery.data?.values.default_proxy_profile_id : environment.proxy_profile_id;
+      const gateway = profileId ? gatewaysByProfile.get(profileId) : undefined;
       return (
         <AccountPoolCard
           key={environment.id}
           environment={environment}
           requestStats={requestStats}
-          proxyGateway={environment.proxy_profile_id ? gatewaysByProfile.get(environment.proxy_profile_id) : undefined}
+          proxyGateway={gateway}
+          proxyDelay={gatewayDelaysQuery.data?.find((delay) => delay.port === gateway?.port)}
+          ispProbe={!gateway ? proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.last_probe : undefined}
           onConfigure={setConfigEnvironment}
           onEnabledChange={handleEnabledChange}
           onAuthorize={handleAuthorize}
@@ -289,7 +305,7 @@ export default function AccountPoolPage() {
         />
       );
     },
-    [busy, gatewaysByProfile, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+    [busy, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 

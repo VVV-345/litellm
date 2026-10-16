@@ -22,6 +22,7 @@ from account_pool.gateway_contracts import (
     Candidate,
     CandidateModelCooldown,
     CandidateModelQuota,
+    CandidateQuotaWindow,
     FinishRequest,
     Lease,
     Resolution,
@@ -188,11 +189,13 @@ class GatewayService:
             policy=effective_policy,
             remaining_percent=remaining,
             quota_observed_at=observed,
+            quota_windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in record.quota.windows),
             model_quotas=tuple(
                 CandidateModelQuota(
                     model=item.model,
                     remaining_percent=remaining,
                     observed_at=observed,
+                    windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in item.quota.windows),
                 )
                 for item in record.model_quotas
                 if item.quota.windows
