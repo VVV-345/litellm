@@ -33,7 +33,7 @@ import anyio
 import httpx
 import openai
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from typing_extensions import overload
 
 import litellm
@@ -164,6 +164,9 @@ from litellm.router_utils.health_state_cache import DeploymentHealthCache
 from litellm.router_utils.pre_call_checks.deployment_affinity_check import (
     DeploymentAffinityCheck,
     warn_on_unknown_model_group_affinity_flags,
+)
+from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+    EncryptedContentAffinityCheck,
 )
 from litellm.router_utils.pre_call_checks.io_token_rate_limit_check import (
     build_io_token_rate_limit_headers,
@@ -351,6 +354,20 @@ def model_info_is_active_for_environment(model_info: Mapping[str, object] | None
     if litellm_environment in supported_environments:
         return True
     return False
+
+
+_FALLBACK_HOP_ADAPTER: Final = TypeAdapter(Mapping[str, object])
+
+
+def _deployment_that_just_failed(request_metadata: object) -> str | None:
+    try:
+        model_info: Final = _FALLBACK_HOP_ADAPTER.validate_python(
+            _FALLBACK_HOP_ADAPTER.validate_python(request_metadata).get("model_info")
+        )
+    except ValidationError:
+        return None
+    model_id: Final = model_info.get("id")
+    return model_id if isinstance(model_id, str) else None
 
 
 _PreRoutingStrategyT = TypeVar("_PreRoutingStrategyT")
@@ -1927,10 +1944,6 @@ class Router:
                 )
 
     def _add_encrypted_content_affinity_check(self, enable_global_affinity: bool) -> None:
-        from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
-            EncryptedContentAffinityCheck,
-        )
-
         def _move_before_deployment_affinity(
             callback_list: list[Any],
             callback_to_move: EncryptedContentAffinityCheck,
@@ -2082,6 +2095,28 @@ class Router:
                 self.optional_callbacks = []
             self.optional_callbacks.append(_callback)
             litellm.logging_callback_manager.add_litellm_callback(_callback)
+
+    def set_optional_pre_call_checks(self, optional_pre_call_checks: OptionalPreCallChecks | None) -> None:
+        if optional_pre_call_checks is None:
+            return
+        if "encrypted_content_affinity" not in optional_pre_call_checks and self.optional_callbacks is not None:
+            for callback in tuple(self.optional_callbacks or ()):
+                if not isinstance(callback, EncryptedContentAffinityCheck):
+                    continue
+                if callback.has_model_group_affinity_enabled(self.model_group_affinity_config):
+                    callback.enable_global_affinity = False
+                    callback.model_group_affinity_config = self.model_group_affinity_config or {}
+                    continue
+                self.optional_callbacks.remove(callback)
+                if not any(
+                    router is not self
+                    and any(isinstance(cb, EncryptedContentAffinityCheck) for cb in (router.optional_callbacks or ()))
+                    for router in tuple(_live_routers)
+                ):
+                    for registered in tuple(litellm.callbacks):
+                        if isinstance(registered, EncryptedContentAffinityCheck):
+                            litellm.logging_callback_manager.remove_callback_from_all_lists(registered)
+        self.add_optional_pre_call_checks(optional_pre_call_checks)
 
     def print_deployment(self, deployment: dict):
         """
@@ -3451,10 +3486,11 @@ class Router:
         function_name: str | None = None,
     ) -> None:
         """
-        3 jobs:
+        4 jobs:
         - Adds selected deployment, model_info and api_base to kwargs["metadata"] (used for logging)
         - Adds default litellm params to kwargs, if set.
         - Merges tools from deployment with request (proxy-configured tools + request tools).
+        - On fallback, strips incompatible encrypted reasoning while keeping readable summaries.
         """
         for key in self._forwarded_alias_marker_keys_the_deployment_sets(
             deployment=deployment, forwarded_keys=kwargs.pop(_ALIAS_MARKER_FORWARDED_PARAMS_KWARG, ())
@@ -3476,6 +3512,10 @@ class Router:
 
         metadata_variable_name: Final = _get_router_metadata_variable_name(
             function_name=function_name,
+        )
+
+        deployment_that_just_failed: Final = _deployment_that_just_failed(
+            _FALLBACK_HOP_ADAPTER.validate_python(kwargs).get(metadata_variable_name)
         )
 
         kwargs.setdefault(metadata_variable_name, {}).update(
@@ -3532,6 +3572,14 @@ class Router:
             kwargs["timeout"] = self._get_timeout(kwargs=kwargs, data=deployment["litellm_params"])
 
         self._update_kwargs_with_default_litellm_params(kwargs=kwargs, metadata_variable_name=metadata_variable_name)
+        hop_kwargs: Final = _FALLBACK_HOP_ADAPTER.validate_python(kwargs)
+        fallback_depth: Final = hop_kwargs.get("fallback_depth")
+        if isinstance(fallback_depth, int) and fallback_depth > 0:
+            EncryptedContentAffinityCheck.strip_reasoning_the_targets_cannot_decrypt(
+                self, hop_kwargs.get("input"), hop_kwargs.get("messages"),
+                (_FALLBACK_HOP_ADAPTER.validate_python(deployment),),
+                unmarked_origin=deployment_that_just_failed,
+            )
 
         if "litellm.proxy.management_endpoints.account_pool_integration" not in sys.modules:
             if model_info.get("account_pool_environment_id") is not None:
@@ -5091,6 +5139,15 @@ class Router:
             return response
 
         if kwargs.get("stream") and isinstance(response, BaseResponsesAPIStreamingIterator):
+            routed_metadata: Final = getattr(response, "litellm_metadata", None)
+            routed_id: Final = _deployment_that_just_failed(routed_metadata) or _deployment_that_just_failed(
+                {"model_info": {"id": get_hidden_params_dict(response).get("model_id")}}
+            )
+            if routed_id is not None:
+                fallback_kwargs["litellm_metadata"] = {
+                    **_FALLBACK_HOP_ADAPTER.validate_python(fallback_kwargs.get("litellm_metadata") or {}),
+                    "model_info": {"id": routed_id},
+                }
             return await self._aresponses_streaming_iterator(
                 response=response,
                 initial_kwargs=fallback_kwargs,
@@ -11367,6 +11424,7 @@ class Router:
         """
         # only the following settings are allowed to be configured
         _allowed_settings: Final = [
+            "optional_pre_call_checks",
             "routing_strategy_args",
             "routing_strategy",
             "routing_groups",
@@ -11403,6 +11461,8 @@ class Router:
                 if var in _int_settings:
                     _casted_value = int(kwargs[var])
                     setattr(self, var, _casted_value)
+                elif var == "optional_pre_call_checks":
+                    self.set_optional_pre_call_checks(kwargs[var])
                 elif var == "account_pool_routing":
                     self.account_pool_routing = AccountPoolRoutingConfig.model_validate(kwargs[var] or {})
                     if self.account_pool_routing.session_affinity:

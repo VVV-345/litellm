@@ -6,7 +6,7 @@ import io
 import json
 import mimetypes
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import groupby
 from os import PathLike
 from pathlib import Path
@@ -2148,3 +2148,90 @@ def text_completion_prompt_to_messages(prompt: object) -> tuple[AllMessageValues
     if string_entries and len(string_entries) == len(entries):
         return tuple(ChatCompletionUserMessage(role="user", content=entry) for entry in string_entries)
     raise ValueError(f"`prompt` must be a non-empty string or a non-empty list of strings. Got: {prompt_type_name}.")
+
+
+ENCRYPTED_REASONING_SIGNATURE_PREFIX: Final = "litellm_encrypted_reasoning:"
+
+
+
+def _carries_encrypted_reasoning(signature: object) -> bool:
+    return isinstance(signature, str) and signature.startswith(ENCRYPTED_REASONING_SIGNATURE_PREFIX)
+
+
+def encrypted_content_from_signature(signature: object) -> str | None:
+    if not isinstance(signature, str) or not _carries_encrypted_reasoning(signature):
+        return None
+    return signature.removeprefix(ENCRYPTED_REASONING_SIGNATURE_PREFIX) or None
+
+
+def _encrypted_reasoning_field(block: Mapping[str, object]) -> object:
+    match block.get("type"):
+        case "thinking":
+            return block.get("signature")
+        case "redacted_thinking":
+            return block.get("data")
+        case _:
+            return None
+
+
+def encrypted_content_of_block(block: Mapping[str, object]) -> str | None:
+    return encrypted_content_from_signature(_encrypted_reasoning_field(block))
+
+
+def is_encrypted_reasoning_block(block: object) -> bool:
+    """A thinking or redacted_thinking block carrying Responses API encrypted reasoning.
+
+    Only the Responses API that minted the content can read it back, so an Anthropic
+    backend has to drop such a block rather than fail signature verification on it.
+    """
+    if not isinstance(block, Mapping):
+        return False
+    mapping: Final = cast(Mapping[str, object], block)  # cast-ok: narrowed by isinstance
+    return _carries_encrypted_reasoning(_encrypted_reasoning_field(mapping))
+
+
+def anthropic_content_lists(messages: Sequence[object]) -> Iterator[object]:
+    return (
+        cast(list[object], content)  # cast-ok: narrowed by isinstance
+        for message in messages
+        if isinstance(message, Mapping)
+        for content in (cast(Mapping[str, object], message).get("content"),)  # cast-ok: narrowed by isinstance
+        if isinstance(content, list)
+    )
+
+
+def _strip_encrypted_reasoning_from_blocks(
+    content: object,
+    *,
+    should_strip: Callable[[Mapping[str, object]], bool] | None = None,
+) -> None:
+    blocks: Final = cast(list[object], content)  # cast-ok: narrowed by the caller's isinstance
+    kept: Final = tuple(
+        block
+        for block in blocks
+        if not is_encrypted_reasoning_block(block)
+        or (should_strip is not None and not should_strip(cast(Mapping[str, object], block)))
+    )
+    blocks[:] = kept
+
+
+def strip_encrypted_reasoning_from_messages(
+    messages: object,
+    *,
+    should_strip: Callable[[Mapping[str, object]], bool] | None = None,
+) -> None:
+    """Drop the bridge-tagged reasoning blocks a routed deployment cannot decrypt from
+    Anthropic-shaped history.
+
+    The whole block goes, the way #40280 drops undecryptable Responses ``input`` items: a
+    provider that did not mint the block rejects it signed (a foreign signature) and unsigned
+    (a missing signature) alike, so keeping its text as an unsigned thinking block only moves
+    the 400 from the router to the provider.
+
+    Mutates the content lists in place: the router's fallback snapshot shares these
+    message objects, so a rebound list would replay the stripped blocks on the fallback hop.
+    """
+    if not isinstance(messages, list):
+        return
+    for content in anthropic_content_lists(cast(list[object], messages)):  # cast-ok: untyped client json
+        _strip_encrypted_reasoning_from_blocks(content, should_strip=should_strip)

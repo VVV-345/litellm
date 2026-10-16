@@ -209,6 +209,9 @@ LITELLM_TRACE_CONTROL_METADATA_FIELDS: Final = frozenset(
 )
 
 _UNTRUSTED_ROOT_CONTROL_FIELDS: Final = (
+    "fallback_depth",
+    "_target_order",
+    "attempted_targets",
     "proxy_server_request",
     "standard_logging_object",
     "secret_fields",

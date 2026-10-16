@@ -15,11 +15,15 @@ The mechanism works without any cache and supports two encoding strategies:
   encrypted_content back to their original forms before sending to the upstream provider.
 """
 
+import copy
 import time
 from typing import List, Optional
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from litellm import Router
+from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
 
 
 import litellm
@@ -1184,6 +1188,7 @@ def _make_originating_mock(api_base: str, api_key: str):
     from unittest.mock import MagicMock
 
     originating = MagicMock()
+    originating.model_info.account_pool_environment_id = "pool-card"
     originating.litellm_params.model_dump.return_value = {
         "api_base": api_base,
         "api_key": api_key,
@@ -1209,7 +1214,7 @@ def _make_router_mock_with_cooldown(
 
 
 @pytest.mark.asyncio
-async def test_affinity_raises_service_unavailable_when_origin_cooled_for_non_429():
+async def test_pool_affinity_raises_service_unavailable_when_origin_cooled_for_non_429():
     """
     Originating deployment is in the router config, in cooldown for a non-429
     cause (e.g. a 500), and no boundary peer is configured. The check must
@@ -1270,7 +1275,7 @@ async def test_affinity_raises_service_unavailable_when_origin_cooled_for_non_42
 
 
 @pytest.mark.asyncio
-async def test_affinity_raises_rate_limit_with_retry_after_when_origin_cooled_for_429():
+async def test_pool_affinity_raises_rate_limit_with_retry_after_when_origin_cooled_for_429():
     """
     Originating deployment is in cooldown specifically because of a 429.
     The check must surface this as a 429 RateLimitError with a Retry-After
@@ -1333,7 +1338,7 @@ async def test_affinity_raises_rate_limit_with_retry_after_when_origin_cooled_fo
 
 
 @pytest.mark.asyncio
-async def test_affinity_raises_service_unavailable_when_origin_filtered_without_cooldown_entry():
+async def test_pool_affinity_raises_service_unavailable_when_origin_filtered_without_cooldown_entry():
     """
     Originating deployment is configured but absent from healthy_deployments
     with no active cooldown entry. Surface as 503 (we cannot prove the cause
@@ -1377,7 +1382,7 @@ async def test_affinity_raises_service_unavailable_when_origin_filtered_without_
 
 
 @pytest.mark.asyncio
-async def test_affinity_raises_bad_request_when_origin_removed():
+async def test_pool_affinity_raises_bad_request_when_origin_removed():
     """
     Originating deployment was removed from the router config and no boundary
     peer is available. This is permanent (the stale encrypted_content cannot
@@ -1399,7 +1404,7 @@ async def test_affinity_raises_bad_request_when_origin_removed():
     )
     healthy_only_b = [
         {
-            "model_info": {"id": "deployment-b"},
+            "model_info": {"id": "deployment-b", "account_pool_environment_id": "pool-card"},
             "litellm_params": {
                 "api_base": "https://account-b.openai.azure.com/",
                 "api_key": "key-b",
@@ -1654,5 +1659,301 @@ async def test_model_group_encrypted_content_affinity_overrides_global_deploymen
 
         assert after_encrypted_content_affinity == [deployment_b]
         assert request_kwargs.get("_encrypted_content_affinity_pinned") is True
+    finally:
+        router.discard()
+
+def _official_router():
+    return Router(
+        model_list=[
+            {
+                "model_name": "official",
+                "model_info": {"id": name},
+                "litellm_params": {"model": "openai/test-model", "api_base": base, "api_key": "test", "order": order},
+            }
+            for name, base, order in (
+                ("a", "https://a.invalid/v1", 1),
+                ("b", "https://b.invalid/v1", 2),
+                ("peer", "https://a.invalid/v1", 2),
+            )
+        ],
+        num_retries=0,
+        optional_pre_call_checks=["encrypted_content_affinity"],
+    )
+
+
+def _official_item(origin, summary=True):
+    from litellm.responses.utils import ResponsesAPIRequestUtils
+
+    return {
+        "type": "reasoning",
+        "id": "rs_" + origin,
+        "encrypted_content": ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("opaque", origin),
+        "summary": [{"type": "summary_text", "text": "Budget 5000"}] if summary else [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_official_no_peer_keeps_history_and_summary():
+    router = _official_router()
+    try:
+        history = [{"role": "user", "content": "continue"}, _official_item("a")]
+        result = await EncryptedContentAffinityCheck(router).async_filter_deployments(
+            "official", [router.model_list[1]], None, {"input": history, "litellm_metadata": {}}
+        )
+        assert result == [router.model_list[1]]
+        assert history == [
+            {"role": "user", "content": "continue"},
+            {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Budget 5000"}]},
+        ]
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_official_pin_strips_only_foreign_reasoning():
+    router = _official_router()
+    try:
+        history = [_official_item("a"), _official_item("b"), _official_item("peer")]
+        original = copy.deepcopy(history)
+        result = await EncryptedContentAffinityCheck(router).async_filter_deployments(
+            "official", router.model_list, None, {"input": history, "litellm_metadata": {}}
+        )
+        assert result[0]["model_info"]["id"] == "a"
+        assert history[0] == original[0] and history[2] == original[2]
+        assert "encrypted_content" not in history[1] and "id" not in history[1]
+        assert history[1]["summary"] == original[1]["summary"]
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_official_target_order_beats_old_pin():
+    router = _official_router()
+    try:
+        history = [_official_item("a")]
+        result = await EncryptedContentAffinityCheck(router).async_filter_deployments(
+            "official",
+            router.model_list[:2],
+            None,
+            {"input": history, "litellm_metadata": {}, "_target_order": 2, "fallback_depth": 1},
+        )
+        assert [x["model_info"]["id"] for x in result] == ["b"]
+        assert "encrypted_content" not in history[0]
+    finally:
+        router.discard()
+
+
+@pytest.mark.parametrize("target,kept", [("b", False), ("peer", True)])
+@pytest.mark.parametrize("surface", ["responses", "chat"])
+def test_official_dispatch_handles_unmarked_fallback(target, kept, surface):
+    router = _official_router()
+    try:
+        item = {
+            "type": "reasoning",
+            "encrypted_content": "unmarked",
+            "summary": [{"type": "summary_text", "text": "Budget 5000"}],
+        }
+        metadata_key = "litellm_metadata" if surface == "responses" else "metadata"
+        payload = {"fallback_depth": 1, "input": [item], metadata_key: {"model_info": {"id": "a"}}}
+        if surface == "chat":
+            payload["litellm_metadata"] = {"model_info": {"id": "b"}}
+        deployment = next(x for x in router.model_list if x["model_info"]["id"] == target)
+        router._update_kwargs_with_deployment(
+            deployment,
+            payload,
+            function_name="_ageneric_api_call_with_fallbacks" if surface == "responses" else "acompletion",
+        )
+        assert ("encrypted_content" in payload["input"][0]) is kept
+        assert payload["input"][0]["summary"] == item["summary"]
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_official_anthropic_bridge_strips_foreign_only():
+    router = _official_router()
+    try:
+        blocks = [
+            {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "litellm_encrypted_reasoning:" + _official_item(origin)["encrypted_content"],
+            }
+            for origin in ("a", "b")
+        ]
+        blocks.append({"type": "text", "text": "Visible answer"})
+        messages = [{"role": "assistant", "content": blocks}]
+        result = await EncryptedContentAffinityCheck(router).async_filter_deployments(
+            "official", router.model_list, messages, {"metadata": {}}
+        )
+        assert result[0]["model_info"]["id"] == "a"
+        assert len(blocks) == 2 and blocks[-1]["text"] == "Visible answer"
+    finally:
+        router.discard()
+
+
+
+@pytest.mark.parametrize("per_group", [False, True])
+def test_official_runtime_disable_affinity_keeps_per_group_setting(per_group):
+    router = _official_router()
+    try:
+        if per_group:
+            router.model_group_affinity_config = {"official": ["encrypted_content_affinity"]}
+        router.update_settings(optional_pre_call_checks=[])
+        callbacks = [cb for cb in router.optional_callbacks if isinstance(cb, EncryptedContentAffinityCheck)]
+        assert len(callbacks) == int(per_group)
+        if callbacks:
+            assert callbacks[0].enable_global_affinity is False
+            assert callbacks[0]._is_enabled_for_model_group("official")
+        router.update_settings(optional_pre_call_checks=["encrypted_content_affinity"])
+        assert sum(isinstance(cb, EncryptedContentAffinityCheck) for cb in router.optional_callbacks) == 1
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("marked", [False, True])
+async def test_official_real_order_fallback_keeps_visible_context(marked):
+    from litellm.exceptions import ServiceUnavailableError
+
+    router = _official_router()
+    router.delete_deployment("peer")
+    calls = []
+    item = _official_item("a")
+    if not marked:
+        item["encrypted_content"] = "unmarked"
+    history = [
+        {"role": "user", "content": "Budget 5000"},
+        item,
+        {"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "call_1", "output": "result"},
+        {"role": "user", "content": "continue"},
+    ]
+
+    async def provider(**kwargs):
+        selected = kwargs["litellm_metadata"]["model_info"]["id"]
+        calls.append(selected)
+        if selected == "a":
+            raise ServiceUnavailableError(message="unavailable", llm_provider="openai", model="official")
+        assert selected == "b"
+        assert kwargs["input"][0] == history[0]
+        assert kwargs["input"][2:] == history[2:]
+        assert kwargs["input"][1]["summary"] == item["summary"]
+        assert "encrypted_content" not in kwargs["input"][1]
+        return _build_mock_response([{"type": "message", "role": "assistant", "content": "continued"}])
+
+    try:
+        result = await router._aresponses_with_streaming_fallbacks(
+            original_function=provider, model="official", input=copy.deepcopy(history)
+        )
+        assert result.status == "completed"
+        assert calls == ["a", "b"]
+    finally:
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_official_unknown_origin_strips_without_changing_tools():
+    router = _official_router()
+    try:
+        history = [
+            _official_item("removed"),
+            {"type": "function_call", "call_id": "call_1", "name": "lookup", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "call_1", "output": "result"},
+        ]
+        saved_tools = copy.deepcopy(history[1:])
+        result = await EncryptedContentAffinityCheck(router).async_filter_deployments(
+            "official", router.model_list, None, {"input": history}
+        )
+        assert result == router.model_list
+        assert history[1:] == saved_tools
+        assert "encrypted_content" not in history[0]
+    finally:
+        router.discard()
+
+
+def test_official_runtime_toggle_does_not_remove_other_router_callback():
+    first, second = _official_router(), _official_router()
+    try:
+        second_callback = next(cb for cb in second.optional_callbacks if isinstance(cb, EncryptedContentAffinityCheck))
+        first.update_settings(optional_pre_call_checks=[])
+        assert any(isinstance(cb, EncryptedContentAffinityCheck) for cb in litellm.callbacks)
+        assert second_callback.enable_global_affinity
+        second.update_settings(optional_pre_call_checks=[])
+        assert not any(isinstance(cb, EncryptedContentAffinityCheck) for cb in litellm.callbacks)
+    finally:
+        first.discard()
+        second.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("same_boundary", [False, True])
+@pytest.mark.parametrize("bridge", [False, True])
+async def test_official_stream_fallback_remembers_source_boundary(same_boundary, bridge):
+    from litellm.exceptions import MidStreamFallbackError, ServiceUnavailableError
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+    from litellm.types.llms.openai import ResponseCompletedEvent
+
+    router = _official_router()
+    router.delete_deployment("b" if same_boundary else "peer")
+    target = "peer" if same_boundary else "b"
+    attempts = []
+
+    class Stream(BaseResponsesAPIStreamingIterator):
+        def __init__(self, selected, metadata):
+            self.selected = selected
+            self.completed_response = None
+            if not bridge:
+                self.litellm_metadata = copy.deepcopy(metadata)
+            self._hidden_params = {"model_id": selected}
+            self.sent = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.sent:
+                raise StopAsyncIteration
+            self.sent = True
+            if self.selected == "a":
+                raise MidStreamFallbackError(
+                    message="stream unavailable",
+                    model="official",
+                    llm_provider="openai",
+                    original_exception=ServiceUnavailableError(
+                        message="unavailable", model="official", llm_provider="openai"
+                    ),
+                    generated_content="",
+                    is_pre_first_chunk=True,
+                )
+            return ResponseCompletedEvent(type="response.completed", response=_build_mock_response([]))
+
+        async def aclose(self):
+            pass
+
+    async def provider(**kwargs):
+        selected = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(selected)
+        if selected == target:
+            assert ("encrypted_content" in kwargs["input"][0]) is same_boundary
+            assert kwargs["input"][0]["summary"][0]["text"] == "Budget 5000"
+        return Stream(selected, kwargs["litellm_metadata"])
+
+    try:
+        stream = await router._aresponses_with_streaming_fallbacks(
+            original_function=provider,
+            model="official",
+            stream=True,
+            input=[
+                {
+                    "type": "reasoning",
+                    "encrypted_content": "unmarked",
+                    "summary": [{"type": "summary_text", "text": "Budget 5000"}],
+                }
+            ],
+        )
+        assert (await anext(stream)).type == "response.completed"
+        assert attempts == ["a", target]
+        await stream.aclose()
     finally:
         router.discard()

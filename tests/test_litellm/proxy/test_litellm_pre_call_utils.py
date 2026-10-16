@@ -967,6 +967,10 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
         "model": "gpt-3.5-turbo",
         "messages": [{"role": "user", "content": "hello"}],
         "mock_response": "free response",
+        "fallback_depth": 1,
+        "_target_order": 2,
+        "attempted_targets": ["forged"],
+        "max_fallbacks": 0,
         "mock_tool_calls": [{"id": "call_1"}],
         "disable_global_guardrails": True,
         "enable_prompt_caching": True,
@@ -991,6 +995,11 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
     assert "enable_prompt_caching" not in updated
     assert "routing_decision" not in updated
     assert "litellm_gateway_injected_cache" not in updated
+
+    assert "fallback_depth" not in updated
+    assert "_target_order" not in updated
+    assert "attempted_targets" not in updated
+    assert updated["max_fallbacks"] == 0
 
     stripped_keys = {
         "disable_global_guardrails",
