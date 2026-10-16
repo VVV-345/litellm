@@ -809,15 +809,19 @@ def test_proxy_admin_can_read_proxy_gateway_configuration_location() -> None:
 def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: LitellmUserRoles) -> None:
     identity: Final = str(uuid4())
     isp: Final = {"id": identity, "name": "ISP", "protocol": "http", "host": "proxy.test", "port": 1234,
-                  "expires_on": None, "enabled": True, "bound_ports": [], "password": "never-return"}
+                  "expires_on": None, "enabled": True, "credentials_configured": True, "bound_ports": [],
+                  "last_probe": None, "password": "never-return"}
     profile: Final = {"id": identity, "name": "file", "created_at": "2026-10-14T00:00:00Z", "active": False,
                       "content": "never-return"}
     operations: Final = (
         ("GET", "/proxy-isps", None, [isp]),
         ("POST", f"/proxy-isps/{identity}/probe", None, {"profile_id": identity, "status": "ok",
-         "checked_at": "2026-10-15T00:00:00Z", "exit_ip": "8.8.8.8", "delay_ms": 42, "password": "never-return"}),
+         "checked_at": "2026-10-15T00:00:00Z", "exit_ip": "8.8.8.8", "delay_ms": 42,
+         "error": None, "password": "never-return"}),
         ("POST", "/proxy-isps/import", {"content": "proxy.test:1234:user:pass"}, [isp]),
-        ("PUT", f"/proxy-isps/{identity}", {k: v for k, v in isp.items() if k not in {"id", "bound_ports"}}, isp),
+        ("PUT", f"/proxy-isps/{identity}", {
+            k: v for k, v in isp.items() if k not in {"id", "bound_ports", "credentials_configured", "last_probe"}
+        }, isp),
         ("DELETE", f"/proxy-isps/{identity}", None, None),
         ("GET", "/proxy-gateways/configurations", None, [profile]),
         ("POST", "/proxy-gateways/configurations", {"name": "file", "content": "proxies: []"}, profile),
@@ -836,6 +840,28 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
             response: Final = client.request(method, "/account_pool" + path, json=body)
         assert response.status_code == (403 if role != LitellmUserRoles.PROXY_ADMIN else 204 if payload is None else 201 if method == "POST" and not path.endswith("/probe") else 200)
         assert "never-return" not in response.text
+
+
+@pytest.mark.parametrize("operation", ("import", "update"))
+def test_invalid_isp_request_never_echoes_credentials(operation: str) -> None:
+    secret: Final = "must-not-echo-private-password"
+    path, body = (
+        ("/account_pool/proxy-isps/import", {"content": {"password": secret}})
+        if operation == "import" else
+        (f"/account_pool/proxy-isps/{uuid4()}", {
+            "name": "ISP", "protocol": "http", "host": "proxy.test", "port": 80,
+            "enabled": True, "password": {"invalid": secret},
+        })
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("invalid payload must not reach the manager")
+
+    app: Final = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _gateway_factory(handler))
+    with TestClient(app) as client:
+        response: Final = client.request("POST" if operation == "import" else "PUT", path, json=body)
+    assert response.status_code == 422
+    assert secret not in response.text
 
 
 def test_proxy_admin_can_update_proxy_gateway_configuration() -> None:

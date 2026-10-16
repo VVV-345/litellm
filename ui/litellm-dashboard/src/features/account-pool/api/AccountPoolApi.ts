@@ -2,6 +2,8 @@
 
 import { v4 as uuidv4 } from "uuid";
 
+import type { components } from "@/lib/http/schema";
+
 import { apiClient } from "@/components/networking";
 import { ApiError } from "@/lib/http/client";
 
@@ -200,7 +202,9 @@ export const updateAccountPoolProxyGatewayConfiguration = (
     body: request,
   });
 
-export const listAccountPoolProxyConfigurations = (accessToken: string): Promise<AccountPoolProxyConfigurationProfile[]> =>
+export const listAccountPoolProxyConfigurations = (
+  accessToken: string,
+): Promise<AccountPoolProxyConfigurationProfile[]> =>
   apiClient.get<AccountPoolProxyConfigurationProfile[]>("/account_pool/proxy-gateways/configurations", { accessToken });
 
 export const saveAccountPoolProxyConfiguration = (
@@ -227,15 +231,14 @@ export const deleteAccountPoolProxyConfiguration = (accessToken: string, profile
   });
 
 export const probeAccountPoolISP = (accessToken: string, profileId: string): Promise<AccountPoolISPProbe> =>
-  apiClient.post<AccountPoolISPProbe>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}/probe`, { accessToken });
+  apiClient.post<AccountPoolISPProbe>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}/probe`, {
+    accessToken,
+  });
 
 export const listAccountPoolISPProxies = (accessToken: string): Promise<AccountPoolISPProxy[]> =>
   apiClient.get<AccountPoolISPProxy[]>("/account_pool/proxy-isps", { accessToken });
 
-export const importAccountPoolISPProxies = (
-  accessToken: string,
-  content: string,
-): Promise<AccountPoolISPProxy[]> =>
+export const importAccountPoolISPProxies = (accessToken: string, content: string): Promise<AccountPoolISPProxy[]> =>
   apiClient.post<AccountPoolISPProxy[]>("/account_pool/proxy-isps/import", {
     accessToken,
     body: { content },
@@ -282,3 +285,14 @@ export const addAccountPoolProxyGateway = (accessToken: string): Promise<Account
 
 export const deleteAccountPoolProxyGateway = (accessToken: string, port: number): Promise<void> =>
   apiClient.delete<void>(`/account_pool/proxy-gateways/${port}`, { accessToken });
+
+export type AccountPoolModelTestResult = components["schemas"]["AccountPoolModelTestResult"];
+export const testAccountPoolModel = (
+  accessToken: string,
+  cardId: string,
+  request: components["schemas"]["AccountPoolModelTestRequest"],
+): Promise<AccountPoolModelTestResult> =>
+  apiClient.post<AccountPoolModelTestResult>(`/account_pool/environments/${encodeURIComponent(cardId)}/test`, {
+    accessToken,
+    body: request,
+  });

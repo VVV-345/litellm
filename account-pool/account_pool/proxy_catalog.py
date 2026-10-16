@@ -76,6 +76,21 @@ class ISPProxyProfile(BaseModel):
         return self.expires_on is not None and self.expires_on <= today
 
 
+class ISPProbeResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: UUID
+    status: Literal["ok", "timeout", "error"]
+    checked_at: datetime
+    exit_ip: str | None = None
+    delay_ms: int | None = None
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    isp: str | None = None
+    error: str | None = None
+
+
 class ISPProxyProfileView(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -86,7 +101,9 @@ class ISPProxyProfileView(BaseModel):
     port: int
     expires_on: date | None
     enabled: bool
+    credentials_configured: bool
     bound_ports: tuple[int, ...] = ()
+    last_probe: ISPProbeResult | None = None
 
 
 class ProxyConfigurationProfile(BaseModel):

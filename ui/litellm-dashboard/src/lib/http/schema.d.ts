@@ -909,6 +909,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{card_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Model */
+        post: operations["test_model_account_pool_environments__card_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}": {
         parameters: {
             query?: never;
@@ -24586,6 +24603,8 @@ export interface components {
             country?: string | null;
             /** Delay Ms */
             delay_ms?: number | null;
+            /** Error */
+            error?: string | null;
             /** Exit Ip */
             exit_ip?: string | null;
             /** Isp */
@@ -24610,6 +24629,8 @@ export interface components {
              * @default []
              */
             bound_ports: number[];
+            /** Credentials Configured */
+            credentials_configured: boolean;
             /** Enabled */
             enabled: boolean;
             /** Expires On */
@@ -24621,6 +24642,7 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            last_probe?: components["schemas"]["AccountPoolISPProbe"] | null;
             /** Name */
             name: string;
             /** Port */
@@ -24633,6 +24655,11 @@ export interface components {
         };
         /** AccountPoolISPUpdate */
         AccountPoolISPUpdate: {
+            /**
+             * Clear Credentials
+             * @default false
+             */
+            clear_credentials: boolean;
             /** Enabled */
             enabled: boolean;
             /** Expires On */
@@ -24690,6 +24717,47 @@ export interface components {
             /** Model */
             model: string;
             quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolModelTestRequest */
+        AccountPoolModelTestRequest: {
+            /**
+             * Mode
+             * @default chat
+             * @enum {string}
+             */
+            mode: "chat" | "responses";
+            /** Model */
+            model: string;
+            /**
+             * Stream
+             * @default false
+             */
+            stream: boolean;
+        };
+        /** AccountPoolModelTestResult */
+        AccountPoolModelTestResult: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Elapsed Ms */
+            elapsed_ms: number;
+            /** Error Code */
+            error_code?: string | null;
+            /** Message */
+            message: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "chat" | "responses";
+            /** Model */
+            model: string;
+            /** Stream */
+            stream: boolean;
+            /** Success */
+            success: boolean;
         };
         /** AccountPoolOAuthBrowserSession */
         AccountPoolOAuthBrowserSession: {
@@ -45341,6 +45409,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_model_account_pool_environments__card_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolModelTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolModelTestResult"];
                 };
             };
             /** @description Validation Error */

@@ -9,7 +9,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, TypeVar, cast
 
 import httpx
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
@@ -20,6 +20,7 @@ from litellm.exceptions import ServiceUnavailableError
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
+from litellm.proxy.management_endpoints.account_pool_failover import exception_header
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     exhausted_snapshot,
     now_utc,
@@ -31,7 +32,7 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import snaps
 from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
 from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 from litellm.responses.utils import ResponsesAPIRequestUtils
-from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
+from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck, EncryptedContentOriginUnavailableError
 from litellm.types.llms.openai import ResponseCompletedEvent, ResponsesAPIResponse, ResponsesAPIStreamingResponse
 from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
 
@@ -45,6 +46,7 @@ _DEPLOYMENTS: Final = TypeAdapter(tuple[Mapping[str, object], ...])
 _FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conversation", "store", "truncation"))
 _MAX_BYTES: Final = 256 * 1024
 _TTL: Final = 3600
+_Result = TypeVar("_Result")
 
 
 class ConversationRecord(BaseModel):
@@ -102,16 +104,51 @@ def visible_input(value: object) -> tuple[Mapping[str, JsonValue], ...] | None:
     if any(not portable_item(item) for item in items):
         return None
     return tuple(
-        MappingProxyType(
-            {
-                key: content
-                for key, content in item.items()
-                if key not in ("id", "status", "encrypted_content") and content is not None
-            }
-        )
+        kept
         for item in items
-        if item.get("type") != "reasoning"
+        if (kept := readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
+            key: content for key, content in item.items()
+            if key not in ("id", "status", "encrypted_content") and content is not None
+        })) is not None
     )
+
+
+def readable_reasoning(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+    readable: Final = any(
+        isinstance(value, str) and bool(value.strip())
+        or isinstance(value, list) and any(isinstance(block, dict) and bool(block.get("text")) for block in value)
+        for key in ("summary", "content")
+        if (value := item.get(key)) is not None
+    )
+    return MappingProxyType({key: value for key, value in item.items() if key not in ("id", "encrypted_content", "status")}) if readable else None
+
+
+def compatible_reasoning_input(router: Router, payload: Mapping[str, object], selected: str) -> list[dict[str, JsonValue]] | None:
+    raw_input: Final = payload.get("input")
+    if not isinstance(raw_input, list) or not any(
+        isinstance(item, dict) and item.get("type") == "reasoning" and item.get("encrypted_content")
+        for item in raw_input
+    ):
+        return None
+    history: Final = visible_input(raw_input)
+    if history is None or payload.get("previous_response_id"):
+        return None
+    portable: Final = _JSON.validate_python({**{key: value for key, value in payload.items() if key in _FIELDS}, "input": _INPUT.validate_python(history)})
+    if signature_recovery_reason(portable) is not None:
+        return None
+    items: Final = _INPUT.validate_python(payload.get("input"))
+    deployment: Final = router.get_deployment(model_id=selected)
+    boundary: Final = EncryptedContentAffinityCheck._encryption_boundary_key(deployment.litellm_params) if deployment is not None else None  # pyright: ignore[reportPrivateUsage]  # Share the authoritative encryption-boundary comparison.
+
+    def keep(item: dict[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+        if item.get("type") != "reasoning" or not item.get("encrypted_content"):
+            return item
+        origin: Final = EncryptedContentAffinityCheck._extract_model_id_from_input([item])  # pyright: ignore[reportPrivateUsage]  # Decode both native marker formats.
+        source: Final = router.get_deployment(model_id=origin) if origin else None
+        same: Final = origin == selected or boundary is not None and source is not None and EncryptedContentAffinityCheck._encryption_boundary_key(source.litellm_params) == boundary  # pyright: ignore[reportPrivateUsage]  # Preserve only matching backend credentials.
+        return item if same else readable_reasoning(item)
+
+    return [dict(kept) for item in items if (kept := keep(item)) is not None]
 
 
 def portable_item(item: Mapping[str, JsonValue]) -> bool:
@@ -228,8 +265,10 @@ class Conversation:
         )
         return signature_recovery_reason(restored) is None
 
-    def rebuild(self, router: Router, payload: Mapping[str, object], error: Exception) -> Mapping[str, object] | None:
-        if not self.can_replay(router, payload):
+    def rebuild(
+        self, router: Router, payload: Mapping[str, object], error: Exception, *, migrated: bool = False
+    ) -> Mapping[str, object] | None:
+        if not migrated and not self.can_replay(router, payload):
             return None
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
@@ -254,7 +293,10 @@ class Conversation:
         )
         if not quota_migration and not (
             snapshot.fallback_enabled
-            and (retry_exhausted(error) or unavailable_snapshot(error, deployments) is not None)
+            and (
+                isinstance(error, EncryptedContentOriginUnavailableError)
+                or retry_exhausted(error) or unavailable_snapshot(error, deployments) is not None
+            )
         ):
             return None
         previous_excluded: Final = payload.get("_excluded_deployment_ids")
@@ -276,6 +318,37 @@ class Conversation:
                 "num_retries": 0,
             }
         )
+
+    async def recover(
+        self,
+        router: Router,
+        payload: Mapping[str, object],
+        error: Exception,
+        invoke: Callable[[Mapping[str, object]], Awaitable[_Result]],
+        *,
+        remaining: int = 10,
+        migrated: bool = False,
+    ) -> _Result:
+        raw_attempts: Final = exception_header(error, "x-account-pool-attempt")
+        used: Final = (
+            min(10, max(1, int(raw_attempts))) if raw_attempts and raw_attempts.isdecimal()
+            else 0 if isinstance(error, EncryptedContentOriginUnavailableError) else 1
+        )
+        excluded_before: Final = payload.get("_excluded_deployment_ids")
+        failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
+        if migrated and isinstance(excluded_before, (tuple, list)) and failed in excluded_before:
+            raise error
+        budget: Final = remaining - used
+        rebuilt: Final = self.rebuild(router, payload, error, migrated=migrated)
+        if rebuilt is None or budget <= 0 or time.time() >= self.identity.retry_deadline:
+            raise error
+        token: Final = pool_identity.set(self.identity.model_copy(update={"attempt_limit": budget}))
+        try:
+            return await invoke(rebuilt)
+        except Exception as next_error:
+            return await self.recover(router, rebuilt, next_error, invoke, remaining=budget, migrated=True)
+        finally:
+            pool_identity.reset(token)
 
     async def complete(self, response: ResponsesAPIResponse) -> None:
         if self.request.get("store") is False or self.history is None or response.status != "completed":

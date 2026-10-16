@@ -760,3 +760,21 @@ def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     assert not additive_manager_schema_upgrade(target, baseline)
     assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="ALTER TABLE old DROP COLUMN id"')))
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))
+
+
+def test_isp_probe_upgrade_allows_only_the_exact_additive_table() -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    probe: Final = next(statement for statement in _SCHEMA if "account_pool_isp_probe_results" in statement)
+    catalog: Final = tuple(statement for statement in _SCHEMA if statement != probe)
+    baseline: Final = (("schema.prisma", b"model A { id String @id }"),
+                       ("catalog.py", f"SQL = {catalog!r}".encode()))
+    target: Final = (*baseline, ("probe.py", f"SQL = {probe!r}".encode()))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (
+        "probe.py", f"SQL = {probe.replace('exit_ip inet', 'exit_ip text')!r}".encode(),
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "unreviewed.py", b'SQL = "CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid PRIMARY KEY)"',
+    )))

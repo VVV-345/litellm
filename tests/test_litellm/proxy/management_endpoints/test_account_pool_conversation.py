@@ -459,3 +459,65 @@ async def test_stream_error_after_output_is_not_replayed_or_saved(pool):
     with pytest.raises(RateLimitError):
         await anext(stream)
     assert attempts == [str(first)]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remaining", [None, 50])
+async def test_pre_call_unavailable_origin_rebuilds_with_nonempty_quota(pool, remaining):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
+    router, (first, second) = pool
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True, quota=RoutingQuota(remaining_percent=remaining)) for card in (first, second)})
+    encrypted = ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("opaque", str(first))
+    payload = {"model": "shared", "store": False, "input": [{"role": "user", "content": "Budget 5000"}, {"type": "reasoning", "encrypted_content": encrypted}, {"role": "assistant", "content": "For what?"}, {"role": "user", "content": "Editing"}]}
+    conversation = await Conversation.start(router, payload)
+    error = await EncryptedContentAffinityCheck(router)._unavailable_origin_error("shared", str(first), router.get_deployment(str(first)), None)
+    rebuilt = conversation.rebuild(router, payload, error)
+    assert rebuilt is not None
+    assert rebuilt["input"] == [payload["input"][0], payload["input"][2], payload["input"][3]]
+    assert str(first) in rebuilt["_excluded_deployment_ids"]
+
+@pytest.mark.asyncio
+async def test_rebuilt_second_card_failure_reaches_third_with_same_context(pool):
+    import httpx
+    from litellm.exceptions import ServiceUnavailableError
+    router, (first, second) = pool
+    third = uuid4()
+    from litellm.types.router import Deployment
+    router.add_deployment(Deployment(model_name="shared", model_info={"id": str(third), "account_pool_environment_id": str(third)}, litellm_params={"model": "openai/test-model", "api_key": "test", "order": 2}))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True) for card in (first, second, third)})
+    calls = []
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        calls.append(card)
+        if card != str(third):
+            raise ServiceUnavailableError(message="unavailable", model="shared", llm_provider="openai", response=httpx.Response(503, headers={"x-account-pool-failure": "upstream_unavailable", "x-account-pool-rebuild": "retry-exhausted", "x-account-pool-attempt": "1"}, request=httpx.Request("POST", "http://local")))
+        assert kwargs["input"] == [{"role": "user", "content": "Budget 5000"}, {"role": "user", "content": "Editing"}]
+        return response(third)
+    result = await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input=[{"role": "user", "content": "Budget 5000"}, {"type": "reasoning", "encrypted_content": "opaque"}, {"role": "user", "content": "Editing"}])
+    assert result.status == "completed"
+    assert calls == [str(first), str(second), str(third)]
+
+@pytest.mark.asyncio
+async def test_mixed_origin_reasoning_preserves_selected_boundary_and_readable_summary(pool):
+    router, (first, second) = pool
+    from litellm.proxy.management_endpoints.account_pool_conversation import compatible_reasoning_input
+    first_state = ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("a", str(first))
+    second_state = ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("b", str(second))
+    history = [{"role": "user", "content": "hello"}, {"type": "reasoning", "encrypted_content": first_state}, {"type": "reasoning", "id": "old", "encrypted_content": second_state, "summary": [{"type": "summary_text", "text": "Visible summary"}]}, {"role": "assistant", "content": "Hello"}, {"role": "user", "content": "continue"}]
+    result = compatible_reasoning_input(router, {"input": history}, str(first))
+    assert result[1] == history[1]
+    assert result[2] == {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Visible summary"}]}
+    assert history[2]["encrypted_content"] == second_state
+
+@pytest.mark.asyncio
+async def test_mixed_reasoning_is_cleaned_at_real_router_dispatch(pool):
+    router, (first, second) = pool
+    first_state = ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("a", str(first))
+    second_state = ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("b", str(second))
+    async def provider(**kwargs):
+        assert chosen(kwargs) == str(first)
+        assert len(kwargs["input"]) == 2
+        assert kwargs["input"][1]["encrypted_content"] == first_state
+        return response(first)
+    result = await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input=[{"role": "user", "content": "hello"}, {"type": "reasoning", "encrypted_content": first_state}, {"type": "reasoning", "encrypted_content": second_state}])
+    assert result.status == "completed"

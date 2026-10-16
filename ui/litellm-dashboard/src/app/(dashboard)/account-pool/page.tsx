@@ -90,6 +90,14 @@ import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccoun
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 import { useProxyGatewayQuery } from "@/features/account-pool/hooks/useProxyGateways";
 
+const AccountPoolModelTestDialog = dynamic(
+  () =>
+    import("@/features/account-pool/components/cards/AccountPoolModelTestDialog").then(
+      (module) => module.AccountPoolModelTestDialog,
+    ),
+  { loading: ModuleLoading },
+);
+
 const PAGE_SIZE = 24;
 const POOL_TABS = [
   "dashboard",
@@ -123,6 +131,7 @@ export default function AccountPoolPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams?.get("tab") ?? "dashboard";
+  const [testEnvironment, setTestEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -272,6 +281,7 @@ export default function AccountPoolPage() {
           onManageKey={handleManageKey}
           onManagePolicy={setPolicyEnvironment}
           onViewLogs={handleViewLogs}
+          onTest={setTestEnvironment}
           tags={policyView?.policy?.tags}
           group={policyView?.policy?.group}
           policy={policyView}
@@ -645,6 +655,14 @@ export default function AccountPoolPage() {
             if (!open) setAuthorization(null);
           }}
           onCreated={() => void environmentsQuery.refetch()}
+        />
+      )}
+      {testEnvironment && accessToken && (
+        <AccountPoolModelTestDialog
+          key={testEnvironment.id}
+          accessToken={accessToken}
+          environment={testEnvironment}
+          onClose={() => setTestEnvironment(null)}
         />
       )}
       {configEnvironment && (

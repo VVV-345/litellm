@@ -56,6 +56,10 @@ if TYPE_CHECKING:
     from litellm.router import Router
 
 
+class EncryptedContentOriginUnavailableError(ServiceUnavailableError):
+    """标识本地亲和性检查拒绝，恢复逻辑不依赖错误文案。"""
+
+
 class EncryptedContentAffinityCheck(CustomLogger):
     """
     Routes follow-up Responses API requests to the deployment that produced
@@ -329,7 +333,7 @@ class EncryptedContentAffinityCheck(CustomLogger):
                 ),
             )
 
-        return ServiceUnavailableError(
+        return EncryptedContentOriginUnavailableError(
             message=(
                 "The deployment that produced this encrypted_content is "
                 "currently unavailable (likely cooled down), and no deployment "

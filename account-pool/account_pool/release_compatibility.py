@@ -86,6 +86,15 @@ PROXY_CATALOG_SCHEMA_ADDITIONS: Final = tuple(
 )
 
 
+ISP_PROBE_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_isp_probe_results ( profile_id uuid PRIMARY KEY "
+    b"REFERENCES account_pool_isp_profiles(id) ON DELETE CASCADE, "
+    b"status text NOT NULL CHECK (status IN ('ok', 'timeout', 'error')), checked_at timestamptz NOT NULL, "
+    b"exit_ip inet, country text, region text, city text, isp text, "
+    b"delay_ms integer CHECK (delay_ms >= 0), error text )",
+)
+
+
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
         b"\n".join(
@@ -200,7 +209,11 @@ def additive_manager_schema_upgrade(
     except SyntaxError:
         return False
     additions: Final = tuple(line for line in after.splitlines() if line not in before.splitlines())
-    if additions != PROXY_CATALOG_SCHEMA_ADDITIONS:
+    if additions not in (
+        PROXY_CATALOG_SCHEMA_ADDITIONS,
+        ISP_PROBE_SCHEMA_ADDITIONS,
+        tuple(sorted((*PROXY_CATALOG_SCHEMA_ADDITIONS, *ISP_PROBE_SCHEMA_ADDITIONS))),
+    ):
         return False
     return all(
         line.startswith(b"CREATE TABLE IF NOT EXISTS account_pool_")

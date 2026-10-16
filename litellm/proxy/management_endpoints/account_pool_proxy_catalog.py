@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from litellm.proxy._types import UserAPIKeyAuth
@@ -15,16 +17,17 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_management import ManagementRequest, parse_response
 
 
-class AccountPoolISPProxy(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    id: UUID
-    name: str
-    protocol: Literal["http", "https", "socks5"]
-    host: str
-    port: int
-    expires_on: date | None
-    enabled: bool
-    bound_ports: tuple[int, ...] = ()
+class ProxyCatalogRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                raise HTTPException(422, "Invalid proxy catalog request; check fields and import size") from None
+
+        return validated
 
 
 class AccountPoolISPImport(BaseModel):
@@ -44,6 +47,21 @@ class AccountPoolISPProbe(BaseModel):
     region: str | None = None
     city: str | None = None
     isp: str | None = None
+    error: str | None = None
+
+
+class AccountPoolISPProxy(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    id: UUID
+    name: str
+    protocol: Literal["http", "https", "socks5"]
+    host: str
+    port: int
+    expires_on: date | None
+    enabled: bool
+    credentials_configured: bool
+    bound_ports: tuple[int, ...] = ()
+    last_probe: AccountPoolISPProbe | None = None
 
 
 class AccountPoolISPUpdate(BaseModel):
@@ -54,6 +72,7 @@ class AccountPoolISPUpdate(BaseModel):
     port: int = Field(ge=1, le=65535)
     username: str | None = Field(default=None, max_length=512, repr=False)
     password: str | None = Field(default=None, max_length=2048, repr=False)
+    clear_credentials: bool = False
     expires_on: date | None = None
     enabled: bool
 
@@ -79,7 +98,7 @@ def create_proxy_catalog_router(
     def authorize(user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]) -> None:
         require_admin(user)
 
-    router: Final = APIRouter(dependencies=[Depends(authorize)])
+    router: Final = APIRouter(dependencies=[Depends(authorize)], route_class=ProxyCatalogRoute)
 
     async def call(method: Literal["GET", "POST", "PUT", "DELETE"], path: str, body: bytes | None = None) -> bytes:
         response: Final = await request_manager(method, "/api" + path, body)

@@ -25,7 +25,7 @@ import {
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import type {
   AccountPoolISPProxyUpdateRequest,
-  AccountPoolISPProbe,
+  AccountPoolISPProxy,
   AccountPoolProxyConfigurationProfileRequest,
   AccountPoolProxyGateway,
 } from "../utils/AccountPoolTypes";
@@ -84,8 +84,9 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     retry: false,
     staleTime: 60_000,
   });
+  const ispsKey = accountPoolQueryKeys.proxyIsps(accessToken);
   const ispsQuery = useQuery({
-    queryKey: accountPoolQueryKeys.proxyIsps(accessToken),
+    queryKey: ispsKey,
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
       return listAccountPoolISPProxies(accessToken);
@@ -95,33 +96,27 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     staleTime: 15_000,
     refetchInterval: 30_000,
   });
-  const probeKey = accountPoolQueryKeys.ispProbes(accessToken);
-  const probesQuery = useQuery<Record<string, AccountPoolISPProbe>>({
-    queryKey: probeKey,
-    queryFn: async () => ({}),
-    enabled: false,
-  });
   const ispProbeMutation = useMutation({
     mutationFn: async (profileIds: string[]) => {
       if (!enabled || !accessToken) throw new Error("Access token required");
+      let firstError: unknown = null;
       for (const profileId of profileIds) {
-        queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) =>
-          Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== profileId)),
-        );
-        const result = await probeAccountPoolISP(accessToken, profileId).catch((): AccountPoolISPProbe => ({
-          profile_id: profileId, status: "error", checked_at: new Date().toISOString(),
-        }));
-        queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) => ({
-          ...current, [profileId]: result,
-        }));
+        try {
+          const result = await probeAccountPoolISP(accessToken, profileId);
+          await queryClient.cancelQueries({ queryKey: ispsKey, exact: true });
+          queryClient.setQueryData<AccountPoolISPProxy[]>(ispsKey, (current) =>
+            current?.map((profile) => profile.id === profileId &&
+              (!profile.last_probe || new Date(result.checked_at) >= new Date(profile.last_probe.checked_at))
+              ? { ...profile, last_probe: result }
+              : profile),
+          );
+        } catch (error) {
+          firstError ??= error;
+        }
       }
+      if (firstError !== null) throw firstError;
     },
   });
-  const clearProbe = (profileId: string) => {
-    queryClient.setQueryData<Record<string, AccountPoolISPProbe>>(probeKey, (current) =>
-      Object.fromEntries(Object.entries(current ?? {}).filter(([id]) => id !== profileId)),
-    );
-  };
   const nodesQuery = useQuery({
     queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken),
     queryFn: () => {
@@ -218,19 +213,14 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
       if (!accessToken) throw new Error("Access token required");
       return updateAccountPoolISPProxy(accessToken, profileId, request);
     },
-    onSuccess: (_data, { profileId }) => {
-      clearProbe(profileId);
-      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
-      invalidate();
-    },
+    onSuccess: invalidate,
   });
   const ispDeleteMutation = useMutation({
     mutationFn: async (profileId: string) => {
       if (!accessToken) throw new Error("Access token required");
       return deleteAccountPoolISPProxy(accessToken, profileId);
     },
-    onSuccess: (_data, profileId) => {
-      clearProbe(profileId);
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
     },
   });
@@ -248,7 +238,6 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     configuration: configurationQuery.data ?? null,
     configurations: configurationsQuery.data ?? [],
     isps: ispsQuery.data ?? [],
-    ispProbes: probesQuery.data ?? {},
     ispProbeMutation,
     ispsLoading: ispsQuery.isLoading,
     ispsError: ispsQuery.isError,

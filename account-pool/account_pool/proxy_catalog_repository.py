@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter
 
-from account_pool.proxy_catalog import ISPProxyInput, ISPProxyProfile, ProxyConfigurationProfile
+from account_pool.proxy_catalog import ISPProbeResult, ISPProxyInput, ISPProxyProfile, ProxyConfigurationProfile
 from account_pool.repository import database_connection
 from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 
@@ -30,6 +30,20 @@ _SCHEMA: Final = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS account_pool_isp_expiry_idx ON account_pool_isp_profiles (expires_on)",
+    """
+    CREATE TABLE IF NOT EXISTS account_pool_isp_probe_results (
+        profile_id uuid PRIMARY KEY REFERENCES account_pool_isp_profiles(id) ON DELETE CASCADE,
+        status text NOT NULL CHECK (status IN ('ok', 'timeout', 'error')),
+        checked_at timestamptz NOT NULL,
+        exit_ip inet,
+        country text,
+        region text,
+        city text,
+        isp text,
+        delay_ms integer CHECK (delay_ms >= 0),
+        error text
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_isp_bindings (
         port integer PRIMARY KEY REFERENCES account_pool_proxy_gateways(port) ON DELETE CASCADE,
@@ -60,11 +74,15 @@ class ProxyCatalogRepository(Protocol):
 
     async def list_isps(self) -> tuple[ISPProxyProfile, ...]: ...
 
+    async def list_isp_probes(self) -> tuple[ISPProbeResult, ...]: ...
+
     async def get_isp(self, profile_id: UUID) -> ISPProxyProfile | None: ...
 
     async def save_isps(self, profiles: tuple[ISPProxyInput, ...]) -> tuple[ISPProxyProfile, ...]: ...
 
     async def update_isp(self, profile: ISPProxyProfile) -> ISPProxyProfile | None: ...
+
+    async def save_isp_probe(self, result: ISPProbeResult) -> ISPProbeResult: ...
 
     async def delete_isp(self, profile_id: UUID) -> bool: ...
 
@@ -120,6 +138,15 @@ class PostgresProxyCatalogRepository:
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
         return tuple(self._isp_from_row(row) for row in rows)
 
+    async def list_isp_probes(self) -> tuple[ISPProbeResult, ...]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT profile_id, status, checked_at, exit_ip, country, region, city, isp, delay_ms, error "
+                "FROM account_pool_isp_probe_results ORDER BY checked_at DESC, profile_id"
+            )
+            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
+        return tuple(self._probe_from_row(row) for row in rows)
+
     async def get_isp(self, profile_id: UUID) -> ISPProxyProfile | None:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
@@ -168,6 +195,39 @@ class PostgresProxyCatalogRepository:
             )
             row: Final = await cursor.fetchone()
         return None if row is None else self._isp_from_row(row)
+
+    async def save_isp_probe(self, result: ISPProbeResult) -> ISPProbeResult:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                INSERT INTO account_pool_isp_probe_results
+                    (profile_id, status, checked_at, exit_ip, country, region, city, isp, delay_ms, error)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (profile_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    checked_at = EXCLUDED.checked_at,
+                    exit_ip = EXCLUDED.exit_ip,
+                    country = EXCLUDED.country,
+                    region = EXCLUDED.region,
+                    city = EXCLUDED.city,
+                    isp = EXCLUDED.isp,
+                    delay_ms = EXCLUDED.delay_ms,
+                    error = EXCLUDED.error
+                WHERE account_pool_isp_probe_results.checked_at <= EXCLUDED.checked_at
+                RETURNING *
+                """,
+                self._probe_parameters(result),
+            )
+            written: Final = await cursor.fetchone()
+            if written is not None:
+                return self._probe_from_row(written)
+            latest: Final = await connection.execute(
+                "SELECT * FROM account_pool_isp_probe_results WHERE profile_id = %s", (result.profile_id,)
+            )
+            row: Final = await latest.fetchone()
+        if row is None:
+            raise ValueError("ISP probe result was not found")
+        return self._probe_from_row(row)
 
     async def delete_isp(self, profile_id: UUID) -> bool:
         async with database_connection(self._database_url) as connection:
@@ -378,4 +438,24 @@ class PostgresProxyCatalogRepository:
             password=credentials[1],
             expires_on=expiry if isinstance(expiry, date) else None,
             enabled=bool(row["enabled"]),
+        )
+
+    def _probe_from_row(self, row: Mapping[str, object]) -> ISPProbeResult:
+        return ISPProbeResult.model_validate({
+            **row,
+            "exit_ip": None if row.get("exit_ip") is None else str(row["exit_ip"]),
+        })
+
+    def _probe_parameters(self, result: ISPProbeResult) -> tuple[object, ...]:
+        return (
+            result.profile_id,
+            result.status,
+            result.checked_at,
+            result.exit_ip,
+            result.country,
+            result.region,
+            result.city,
+            result.isp,
+            result.delay_ms,
+            result.error,
         )

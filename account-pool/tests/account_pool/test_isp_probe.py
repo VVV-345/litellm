@@ -74,16 +74,26 @@ async def test_catalog_probe_does_not_change_or_save_profile():
     profile = ISPProxyProfile(id=uuid4(), name="ISP", protocol="http", host="proxy.example", port=80)
 
     class Repository:
+        def __init__(self):
+            self.saved = []
+
         async def get_isp(self, identity):
             return profile if identity == profile.id else None
+
+        async def save_isp_probe(self, result):
+            self.saved.append(result)
+            return result
 
     class Probe:
         async def probe(self, value):
             assert value is profile
             return ISPProbeResult(profile_id=value.id, status="timeout", checked_at=datetime.now(timezone.utc))
 
-    service = ProxyCatalogService(Repository(), probe=Probe())
-    assert (await service.probe_isp(profile.id)).status == "timeout"
+    repository = Repository()
+    service = ProxyCatalogService(repository, probe=Probe())
+    result = await service.probe_isp(profile.id)
+    assert result.status == "timeout"
+    assert repository.saved == [result]
     with pytest.raises(ValueError, match="not found"):
         await service.probe_isp(uuid4())
 
@@ -104,6 +114,9 @@ async def test_manager_probe_route_auth_unknown_profile_and_read_only_result():
         async def get_isp(self, identity):
             calls.append(identity)
             return profile if identity == profile.id else None
+
+        async def save_isp_probe(self, result):
+            return result
 
     class Probe:
         async def probe(self, value):
@@ -144,3 +157,109 @@ async def test_invalid_saved_proxy_address_returns_redacted_failure():
     result = await ISPProbe().probe(profile)
     assert result.status == "error"
     assert "do-not-return" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ("list", "probe", "import", "update", "delete"))
+async def test_manager_isp_storage_failure_is_explicit_and_redacted(operation):
+    import psycopg
+    from fastapi import FastAPI
+
+    from account_pool.api import create_router
+    from account_pool.proxy_catalog_service import ProxyCatalogService
+
+    class Repository:
+        async def list_isps(self):
+            raise psycopg.OperationalError("postgresql://private-user:private-password@database")
+
+        async def get_isp(self, identity):
+            raise psycopg.OperationalError("postgresql://private-user:private-password@database")
+
+        async def save_isps(self, profiles):
+            raise psycopg.OperationalError("postgresql://private-user:private-password@database")
+
+        async def delete_isp(self, identity):
+            raise psycopg.OperationalError("postgresql://private-user:private-password@database")
+
+    identity = uuid4()
+    requests = {
+        "list": ("GET", "/api/proxy-isps", None),
+        "probe": ("POST", f"/api/proxy-isps/{identity}/probe", None),
+        "import": ("POST", "/api/proxy-isps/import", {"content": "http://proxy.test:8080"}),
+        "update": ("PUT", f"/api/proxy-isps/{identity}", {
+            "name": "ISP", "protocol": "http", "host": "proxy.test", "port": 8080, "enabled": True,
+        }),
+        "delete": ("DELETE", f"/api/proxy-isps/{identity}", None),
+    }
+    app = FastAPI()
+    app.include_router(create_router(object(), "manager-test", proxy_catalog=ProxyCatalogService(Repository())))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test",
+    ) as client:
+        method, path, body = requests[operation]
+        response = await client.request(method, path, json=body, headers={"Authorization": "Bearer manager-test"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ISP catalog storage unavailable; retry"
+    assert "private-" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_probe_save_failure_is_not_reported_as_a_successful_measurement():
+    import psycopg
+    from fastapi import FastAPI
+    from datetime import datetime, timezone
+
+    from account_pool.api import create_router
+    from account_pool.isp_probe import ISPProbeResult
+    from account_pool.proxy_catalog_service import ProxyCatalogService
+
+    profile = ISPProxyProfile(id=uuid4(), name="ISP", protocol="http", host="proxy.example", port=80)
+
+    class Repository:
+        async def get_isp(self, identity):
+            return profile
+
+        async def save_isp_probe(self, result):
+            raise psycopg.OperationalError("private database connection details")
+
+    class Probe:
+        async def probe(self, value):
+            return ISPProbeResult(profile_id=value.id, status="ok", checked_at=datetime.now(timezone.utc),
+                                  exit_ip="8.8.8.8", delay_ms=12)
+
+    app = FastAPI()
+    app.include_router(create_router(object(), "manager-test", proxy_catalog=ProxyCatalogService(Repository(), probe=Probe())))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test",
+    ) as client:
+        response = await client.post(f"/api/proxy-isps/{profile.id}/probe", headers={"Authorization": "Bearer manager-test"})
+    assert response.status_code == 503
+    assert response.json()["detail"] == "ISP catalog storage unavailable; retry"
+    assert "private" not in response.text and "8.8.8.8" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ("import", "update"))
+async def test_invalid_isp_request_does_not_echo_credentials(operation):
+    from fastapi import FastAPI
+
+    from account_pool.api import create_router
+
+    secret = "must-not-echo-private-password"
+    path, body = (
+        ("/api/proxy-isps/import", {"content": {"password": secret}})
+        if operation == "import" else
+        (f"/api/proxy-isps/{uuid4()}", {
+            "name": "ISP", "protocol": "http", "host": "proxy.test", "port": 80,
+            "enabled": True, "password": {"invalid": secret},
+        })
+    )
+    app = FastAPI()
+    app.include_router(create_router(object(), "manager-test", proxy_catalog=object()))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.request(
+            "POST" if operation == "import" else "PUT", path, json=body,
+            headers={"Authorization": "Bearer manager-test"},
+        )
+    assert response.status_code == 422
+    assert secret not in response.text

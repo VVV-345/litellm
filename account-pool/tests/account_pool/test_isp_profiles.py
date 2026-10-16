@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Final, cast
 from uuid import UUID, uuid4
 
 import pytest
 
+from account_pool.isp_probe import ISPProbeResult
 from account_pool.proxy_catalog import ISPProxyInput, ISPProxyProfile, parse_isp_import
 from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 from account_pool.proxy_catalog_service import ProxyCatalogService
@@ -95,6 +96,9 @@ async def test_isp_import_is_saved_without_returning_credentials() -> None:
         async def list_isp_bindings(self) -> tuple[tuple[int, UUID], ...]:
             return ()
 
+        async def list_isp_probes(self):
+            return ()
+
     repository: Final = Repository()
     service: Final = ProxyCatalogService(cast(ProxyCatalogRepository, repository))
 
@@ -105,8 +109,122 @@ async def test_isp_import_is_saved_without_returning_credentials() -> None:
     assert len(repository.profiles) == 1
     assert profiles[0].name == "ISP A"
     assert profiles[0].host == "proxy.example"
+    assert profiles[0].credentials_configured
     assert "alice" not in repr(profiles)
     assert "top-secret" not in repr(profiles)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "username,password,expected",
+    (
+        (None, None, ("alice", "secret")),
+        ("", "", ("alice", "secret")),
+        ("  ", "  ", ("alice", "secret")),
+        ("bob", "", ("bob", "secret")),
+        ("", "new-secret", ("alice", "new-secret")),
+        (None, "  valid-secret  ", ("alice", "  valid-secret  ")),
+    ),
+)
+async def test_isp_edit_preserves_credentials_until_explicitly_cleared(
+    username: str | None, password: str | None, expected: tuple[str, str]
+) -> None:
+    profile_id: Final = uuid4()
+    original: Final = ISPProxyProfile(
+        id=profile_id,
+        name="ISP",
+        protocol="http",
+        host="proxy.example",
+        port=80,
+        username="alice",
+        password="secret",
+    )
+
+    class Repository:
+        def __init__(self) -> None:
+            self.profile = original
+
+        async def get_isp(self, identity: UUID) -> ISPProxyProfile | None:
+            return self.profile if identity == profile_id else None
+
+        async def update_isp(self, profile: ISPProxyProfile) -> ISPProxyProfile:
+            self.profile = profile
+            return profile
+
+        async def list_isps(self) -> tuple[ISPProxyProfile, ...]:
+            return (self.profile,)
+
+        async def list_isp_bindings(self) -> tuple[tuple[int, UUID], ...]:
+            return ()
+
+        async def list_isp_probes(self) -> tuple[ISPProbeResult, ...]:
+            return ()
+
+    repository: Final = Repository()
+    service: Final = ProxyCatalogService(cast(ProxyCatalogRepository, repository))
+
+    preserved: Final = await service.update_isp(
+        profile_id,
+        name="renamed",
+        protocol="http",
+        host="proxy.example",
+        port=80,
+        username=username,
+        password=password,
+        clear_credentials=False,
+        expires_on=None,
+        enabled=True,
+    )
+    assert preserved.credentials_configured
+    assert (repository.profile.username, repository.profile.password) == expected
+
+    cleared: Final = await service.update_isp(
+        profile_id,
+        name="renamed",
+        protocol="http",
+        host="proxy.example",
+        port=80,
+        username=None,
+        password=None,
+        clear_credentials=True,
+        expires_on=None,
+        enabled=True,
+    )
+    assert not cleared.credentials_configured
+    assert repository.profile.username == ""
+    assert repository.profile.password == ""
+
+
+@pytest.mark.asyncio
+async def test_isp_list_includes_persisted_probe_without_exposing_credentials() -> None:
+    profile: Final = ISPProxyProfile(
+        id=uuid4(), name="ISP", protocol="http", host="proxy.example", port=80,
+        username="alice", password="secret",
+    )
+    probe: Final = ISPProbeResult(
+        profile_id=profile.id,
+        status="ok",
+        checked_at=datetime(2026, 10, 16, tzinfo=timezone.utc),
+        exit_ip="8.8.8.8",
+        delay_ms=82,
+    )
+
+    class Repository:
+        async def list_isps(self):
+            return (profile,)
+
+        async def list_isp_bindings(self):
+            return ()
+
+        async def list_isp_probes(self):
+            return (probe,)
+
+    profiles: Final = await ProxyCatalogService(cast(ProxyCatalogRepository, Repository())).list_isps()
+
+    assert profiles[0].credentials_configured
+    assert profiles[0].last_probe == probe
+    assert "alice" not in repr(profiles)
+    assert "secret" not in repr(profiles)
 
 
 @pytest.mark.asyncio

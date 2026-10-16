@@ -11,9 +11,12 @@ from datetime import date, datetime
 from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from psycopg import Error as DatabaseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 
@@ -70,6 +73,22 @@ _BEARER: Final = HTTPBearer(auto_error=False)
 T = TypeVar("T")
 
 
+class ISPCatalogRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                # 默认校验错误会回显密码 input，目录接口只返回安全错误。
+                raise HTTPException(422, "Invalid ISP request; check fields and import size") from None
+            except DatabaseError:
+                raise HTTPException(503, "ISP catalog storage unavailable; retry") from None
+
+        return validated
+
+
 class GatewaySwitchRequest(BaseModel):
     node_name: str = Field(min_length=1, max_length=256)
 
@@ -105,6 +124,7 @@ class ISPProfileUpdateRequest(BaseModel):
     port: int = Field(ge=1, le=65535)
     username: str | None = Field(default=None, max_length=512, repr=False)
     password: str | None = Field(default=None, max_length=2048, repr=False)
+    clear_credentials: bool = False
     expires_on: date | None = None
     enabled: bool
 
@@ -879,26 +899,27 @@ def create_router(
         return await service.list_proxy_profiles()
 
     if proxy_catalog is not None:
+        isp_router: Final = APIRouter(route_class=ISPCatalogRoute)
 
-        @router.get("/api/proxy-isps", dependencies=[Depends(require_manager)])
+        @isp_router.get("/api/proxy-isps", dependencies=[Depends(require_manager)])
         async def list_proxy_isps() -> tuple[ISPProxyProfileView, ...]:
             return await proxy_catalog.list_isps()
 
-        @router.post("/api/proxy-isps/{profile_id}/probe", dependencies=[Depends(require_manager)])
+        @isp_router.post("/api/proxy-isps/{profile_id}/probe", dependencies=[Depends(require_manager)])
         async def probe_proxy_isp(profile_id: UUID) -> ISPProbeResult:
             try:
                 return await proxy_catalog.probe_isp(profile_id)
             except ValueError as error:
                 raise HTTPException(status_code=404, detail="ISP profile was not found") from error
 
-        @router.post("/api/proxy-isps/import", dependencies=[Depends(require_manager)], status_code=201)
+        @isp_router.post("/api/proxy-isps/import", dependencies=[Depends(require_manager)], status_code=201)
         async def import_proxy_isps(request: ISPProfileImportRequest) -> tuple[ISPProxyProfileView, ...]:
             try:
                 return await proxy_catalog.import_isps(request.content)
             except ValueError as error:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
-        @router.put("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)])
+        @isp_router.put("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)])
         async def update_proxy_isp(
             profile_id: UUID, request: ISPProfileUpdateRequest
         ) -> ISPProxyProfileView:
@@ -911,18 +932,21 @@ def create_router(
                     port=request.port,
                     username=request.username,
                     password=request.password,
+                    clear_credentials=request.clear_credentials,
                     expires_on=request.expires_on,
                     enabled=request.enabled,
                 )
             except (ValueError, ClashError) as error:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
 
-        @router.delete("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)
+        @isp_router.delete("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)
         async def delete_proxy_isp(profile_id: UUID) -> None:
             try:
                 await proxy_catalog.delete_isp(profile_id)
             except (ValueError, ClashError) as error:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
+
+        router.include_router(isp_router)
 
     @router.get("/api/proxy-gateways", dependencies=[Depends(require_manager)])
     async def list_proxy_gateways() -> tuple[GatewayView, ...]:

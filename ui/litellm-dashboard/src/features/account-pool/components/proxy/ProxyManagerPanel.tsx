@@ -61,7 +61,6 @@ export const ProxyManagerPanel = ({
     ispImportMutation,
     ispUpdateMutation,
     ispDeleteMutation,
-    ispProbes,
     ispProbeMutation,
     bindISPMutation,
   } = useProxyGateways(accessToken, enabled);
@@ -149,8 +148,8 @@ export const ProxyManagerPanel = ({
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
       <ISPProxyCatalogPanel
-        probes={ispProbes}
         probing={ispProbeMutation.isPending}
+        probeFailed={ispProbeMutation.isError}
         onProbe={(ids) => ispProbeMutation.mutate(ids)}
         profiles={isps}
         loading={ispsLoading}
@@ -163,7 +162,9 @@ export const ProxyManagerPanel = ({
           ispUpdateMutation.isPending ||
           ispDeleteMutation.isPending
         }
-        mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
+        mutationFailed={
+          ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError
+        }
         onImport={async (content) => {
           await ispImportMutation.mutateAsync(content);
         }}

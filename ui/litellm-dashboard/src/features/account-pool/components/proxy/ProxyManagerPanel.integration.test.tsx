@@ -42,6 +42,10 @@ const updateIsp = vi.fn();
 const deleteIsp = vi.fn();
 const bindIsp = vi.fn();
 const probeIsp = vi.fn();
+const ispProfile: AccountPoolISPProxy = {
+  id: "isp-1", name: "ISP A", protocol: "http", host: "proxy.test", port: 8080,
+  expires_on: null, enabled: true, credentials_configured: true, bound_ports: [], last_probe: null,
+};
 const delay: AccountPoolProxyGatewayDelay = {
   port: 7891,
   current_node: "美国01",
@@ -296,7 +300,9 @@ describe("ProxyManagerPanel", () => {
       port: 1234,
       expires_on: "2026-12-31",
       enabled: true,
+      credentials_configured: false,
       bound_ports: [],
+      last_probe: null,
     };
     listIsps.mockResolvedValue([profile]);
     const environments = [
@@ -311,6 +317,101 @@ describe("ProxyManagerPanel", () => {
     await user.click(await screen.findByRole("option", { name: "Residential ISP" }));
 
     expect(bindIsp).toHaveBeenCalledWith("token", 7891, "isp-1");
+  });
+
+  it("shows the persisted probe latency beside the ISP card title", async () => {
+    await i18n.changeLanguage("zh-CN");
+    listIsps.mockResolvedValue([{
+      id: "isp-1",
+      name: "ISP A",
+      protocol: "http",
+      host: "proxy.test",
+      port: 8080,
+      expires_on: null,
+      enabled: true,
+      credentials_configured: true,
+      bound_ports: [],
+      last_probe: {
+        profile_id: "isp-1",
+        status: "ok",
+        checked_at: new Date().toISOString(),
+        exit_ip: "8.8.8.8",
+        delay_ms: 82,
+      },
+    }]);
+    renderPanel();
+
+    expect(await screen.findByText("ISP A")).toHaveTextContent("延迟 82 ms");
+  });
+
+  it("distinguishes saved credentials from an unauthenticated ISP and sends explicit clearing", async () => {
+    listIsps.mockResolvedValue([ispProfile]);
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 ISP A" }));
+    expect(screen.getByLabelText("用户名")).toHaveValue("");
+    expect(screen.getByLabelText("密码")).toHaveAttribute("placeholder", "已保存，留空保持不变");
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "ISP renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await screen.findByText("ISP 配置已保存");
+    expect(updateIsp).toHaveBeenCalledWith("token", "isp-1", expect.objectContaining({
+      name: "ISP renamed", username: null, password: null, clear_credentials: false,
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "编辑 ISP A" }));
+    fireEvent.click(screen.getByRole("button", { name: "清除凭据" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("保存后将清除");
+    listIsps.mockResolvedValue([{ ...ispProfile, credentials_configured: false }]);
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(updateIsp).toHaveBeenLastCalledWith("token", "isp-1", expect.objectContaining({
+      username: null, password: null, clear_credentials: true,
+    })));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 ISP A" }));
+    expect(screen.getByLabelText("密码")).toHaveAttribute("placeholder", "密码");
+    expect(screen.getByRole("button", { name: "清除凭据" })).toBeDisabled();
+  });
+
+  it("keeps the last saved result visible when the probe request or persistence fails", async () => {
+    listIsps.mockResolvedValue([{
+      ...ispProfile,
+      last_probe: { profile_id: "isp-1", status: "ok", checked_at: new Date().toISOString(), delay_ms: 82, exit_ip: "8.8.8.8" },
+    }]);
+    probeIsp.mockRejectedValue(new Error("database credentials must not be shown"));
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "检测 ISP A" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("探测请求或保存失败");
+    expect(screen.getByText("出口 IP：8.8.8.8")).toBeVisible();
+    expect(screen.queryByText(/database credentials/)).not.toBeInTheDocument();
+  });
+
+  it("uses the latest server result after a refresh instead of an older local probe", async () => {
+    const current = { profile_id: "isp-1", status: "ok", checked_at: new Date().toISOString(), delay_ms: 82, exit_ip: "8.8.8.8" };
+    listIsps.mockResolvedValue([ispProfile]);
+    probeIsp.mockImplementation(async () => {
+      listIsps.mockResolvedValue([{ ...ispProfile, last_probe: current }]);
+      return current;
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "检测 ISP A" }));
+    await screen.findByText("出口 IP：8.8.8.8");
+    listIsps.mockResolvedValue([{ ...ispProfile, last_probe: { ...current, exit_ip: "1.1.1.1", delay_ms: 16 } }]);
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新号池" }));
+    expect(await screen.findByText("出口 IP：1.1.1.1")).toBeVisible();
+    expect(screen.queryByText("出口 IP：8.8.8.8")).not.toBeInTheDocument();
+  });
+
+  it("marks expired latency and does not hide cached ISP cards on a list failure", async () => {
+    listIsps.mockResolvedValue([{
+      ...ispProfile,
+      last_probe: { profile_id: "isp-1", status: "ok", checked_at: "2020-01-01T00:00:00Z", delay_ms: 82 },
+    }]);
+    renderPanel();
+    expect(await screen.findByText("ISP A")).toHaveTextContent("82 ms，数据已过期");
+    listIsps.mockRejectedValue(new Error("database credentials must not be shown"));
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新号池" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ISP 列表读取失败");
+    expect(screen.getByText("ISP A")).toBeVisible();
+    expect(screen.queryByText("暂无 ISP 配置")).not.toBeInTheDocument();
   });
 
   it("imports ISP records without clearing the form before the request resolves", async () => {
@@ -331,11 +432,15 @@ describe("ProxyManagerPanel", () => {
   it("detects ISP exit details on demand and replaces stale results after failure", async () => {
     await i18n.changeLanguage("zh-CN");
     const profile: AccountPoolISPProxy = { id: "isp-1", name: "ISP A", protocol: "http", host: "proxy.test",
-      port: 8080, expires_on: null, enabled: true, bound_ports: [] };
+      port: 8080, expires_on: null, enabled: true, credentials_configured: false, bound_ports: [], last_probe: null };
     listIsps.mockResolvedValue([profile]);
-    probeIsp.mockResolvedValue({ profile_id: profile.id, status: "ok", exit_ip: "8.8.8.8", delay_ms: 42,
+    const savedProbe = { profile_id: profile.id, status: "ok", exit_ip: "8.8.8.8", delay_ms: 42,
       country: "United States", region: "California", city: "Mountain View", isp: "Example operator",
-      checked_at: "2026-10-15T00:00:00Z" });
+       checked_at: "2026-10-15T00:00:00Z" };
+    probeIsp.mockImplementation(async () => {
+      listIsps.mockResolvedValue([{ ...profile, last_probe: savedProbe }]);
+      return savedProbe;
+    });
     renderPanel();
     const button = await screen.findByRole("button", { name: "检测 ISP A" });
     expect(probeIsp).not.toHaveBeenCalled();
@@ -345,7 +450,11 @@ describe("ProxyManagerPanel", () => {
     expect(screen.getByText(/位置（近似）：United States/)).toHaveTextContent("Mountain View");
     expect(screen.getByText("运营商：Example operator")).toBeVisible();
     expect(probeIsp).toHaveBeenCalledWith("token", "isp-1");
-    probeIsp.mockRejectedValueOnce(new Error("request unavailable"));
+    probeIsp.mockImplementationOnce(async () => {
+      const failedProbe = { profile_id: profile.id, status: "error", checked_at: new Date().toISOString(), error: "probe_failed" };
+      listIsps.mockResolvedValue([{ ...profile, last_probe: failedProbe }]);
+      return failedProbe;
+    });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
     expect(await screen.findByText("连通状态：检测失败")).toBeVisible();
@@ -357,7 +466,8 @@ describe("ProxyManagerPanel", () => {
     await i18n.changeLanguage("zh-CN");
     probeIsp.mockReset();
     listIsps.mockResolvedValue(["A", "B"].map((name) => ({ id: name, name, protocol: "http",
-      host: "proxy.test", port: 8080, expires_on: null, enabled: true, bound_ports: [] })));
+      host: "proxy.test", port: 8080, expires_on: null, enabled: true, credentials_configured: false,
+      bound_ports: [], last_probe: null })));
     const pending = Promise.withResolvers<unknown>();
     probeIsp.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ profile_id: "B", status: "timeout",
       exit_ip: null, delay_ms: null, checked_at: "2026-10-15T00:00:00Z" });
@@ -368,7 +478,7 @@ describe("ProxyManagerPanel", () => {
     expect(screen.getByRole("button", { name: "检测全部 ISP" })).toBeDisabled();
     await act(async () => pending.reject(new Error("unavailable")));
     expect(await screen.findByText("连通状态：超时")).toBeVisible();
-    expect(screen.getByText("连通状态：检测失败")).toBeVisible();
+    expect(screen.getByText("连通状态：未检测")).toBeVisible();
     expect(probeIsp).toHaveBeenNthCalledWith(2, "token", "B");
   });
 

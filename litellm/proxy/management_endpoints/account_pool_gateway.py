@@ -222,6 +222,8 @@ class AccountPoolGatewayMiddleware:
                     "account_pool_standard_accounting": True,
                     "account_pool_retry_policy": ticket.retry_policy,
                     "account_pool_retry_deadline": ticket.identity.retry_deadline,
+                    "account_pool_attempt_limit": ticket.identity.attempt_limit,
+                    "account_pool_model_test": ticket.identity.model_test,
                     "account_pool_conversation_replay": ticket.conversation_replay,
                 },
             }

@@ -1,6 +1,6 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
-import { KeyRound, SlidersHorizontal, Trash2, Settings2 } from "lucide-react";
+import { PlugZap, KeyRound, SlidersHorizontal, Trash2, Settings2 } from "lucide-react";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -38,6 +38,7 @@ interface AccountPoolCardProps {
   onDelete: (environment: AccountPoolEnvironment) => void;
   onManageKey: (environment: AccountPoolEnvironment) => void;
   onManagePolicy: (environment: AccountPoolEnvironment) => void;
+  onTest?: (environment: AccountPoolEnvironment) => void;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
   requestStats?: ErrorStats;
   tags?: string[];
@@ -56,6 +57,7 @@ const AccountPoolCardComponent = ({
   onManageKey,
   onManagePolicy,
   onViewLogs,
+  onTest,
   requestStats,
   tags = [],
   group,
@@ -173,6 +175,19 @@ const AccountPoolCardComponent = ({
             />
           </div>
           <div className="flex items-center gap-1">
+            {onTest && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onTest(environment)}
+                disabled={disabled || !environment.enabled || environment.enabled_models.length === 0}
+                aria-label={t("accountPool.modelTest.title", { name: environment.name })}
+                title={t("accountPool.modelTest.short")}
+              >
+                <PlugZap />
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"

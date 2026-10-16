@@ -50,6 +50,8 @@ CARD_ROUTES: Final = (
 class PoolIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
     key_hash: str
+    model_test: bool = False
+    attempt_limit: int = Field(default=10, ge=1, le=10)
     request_id: UUID
     retry_deadline: float = Field(default_factory=lambda: time.time() + RETRY_WINDOW_SECONDS, allow_inf_nan=False)
     card_id: UUID | None = None

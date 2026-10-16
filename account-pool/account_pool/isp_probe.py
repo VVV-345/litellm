@@ -8,27 +8,12 @@ from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from time import perf_counter
-from typing import Final, Literal
-from uuid import UUID
+from typing import Final
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress
+from pydantic import BaseModel, Field, IPvAnyAddress
 
-from account_pool.proxy_catalog import ISPProxyProfile
-
-
-class ISPProbeResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    profile_id: UUID
-    status: Literal["ok", "timeout", "error"]
-    checked_at: datetime
-    exit_ip: str | None = None
-    delay_ms: int | None = None
-    country: str | None = None
-    region: str | None = None
-    city: str | None = None
-    isp: str | None = None
+from account_pool.proxy_catalog import ISPProbeResult, ISPProxyProfile
 
 
 class _ExitIP(BaseModel):
@@ -66,9 +51,9 @@ class ISPProbe:
             async with asyncio.timeout(12), self._slots:
                 return await self._probe(profile, checked_at)
         except (httpx.TimeoutException, TimeoutError):
-            return ISPProbeResult(profile_id=profile.id, status="timeout", checked_at=checked_at)
+            return ISPProbeResult(profile_id=profile.id, status="timeout", checked_at=checked_at, error="timeout")
         except (httpx.HTTPError, httpx.InvalidURL, ValueError):
-            return ISPProbeResult(profile_id=profile.id, status="error", checked_at=checked_at)
+            return ISPProbeResult(profile_id=profile.id, status="error", checked_at=checked_at, error="probe_failed")
 
     async def _probe(self, profile: ISPProxyProfile, checked_at: datetime) -> ISPProbeResult:
         proxy: Final = str(httpx.URL(

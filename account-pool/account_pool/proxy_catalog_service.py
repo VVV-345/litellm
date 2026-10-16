@@ -7,8 +7,8 @@ from datetime import date
 from typing import Final
 from uuid import UUID
 
-from account_pool.isp_probe import ISPProbe, ISPProbeResult
-from account_pool.proxy_catalog import ISPProxyProfile, ISPProxyProfileView, parse_isp_import
+from account_pool.isp_probe import ISPProbe
+from account_pool.proxy_catalog import ISPProbeResult, ISPProxyProfile, ISPProxyProfileView, parse_isp_import
 from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 
 
@@ -25,11 +25,13 @@ class ProxyCatalogService:
         profile: Final = await self._repository.get_isp(profile_id)
         if profile is None:
             raise ValueError("ISP profile was not found")
-        return await self._probe.probe(profile)
+        result: Final = await self._probe.probe(profile)
+        return await self._repository.save_isp_probe(result)
 
     async def list_isps(self) -> tuple[ISPProxyProfileView, ...]:
         profiles: Final = await self._repository.list_isps()
         bindings: Final = await self._repository.list_isp_bindings()
+        probes: Final = {result.profile_id: result for result in await self._repository.list_isp_probes()}
         ports_by_profile: Final = {
             profile_id: tuple(port for port, bound_id in bindings if bound_id == profile_id)
             for profile_id in (profile.id for profile in profiles)
@@ -43,7 +45,9 @@ class ProxyCatalogService:
                 port=profile.port,
                 expires_on=profile.expires_on,
                 enabled=profile.enabled and not profile.expired(date.today()),
+                credentials_configured=bool(profile.username or profile.password),
                 bound_ports=ports_by_profile[profile.id],
+                last_probe=probes.get(profile.id),
             )
             for profile in profiles
         )
@@ -62,6 +66,7 @@ class ProxyCatalogService:
         port: int,
         username: str | None,
         password: str | None,
+        clear_credentials: bool = False,
         expires_on: date | None,
         enabled: bool,
     ) -> ISPProxyProfileView:
@@ -74,8 +79,8 @@ class ProxyCatalogService:
             protocol=protocol,
             host=host,
             port=port,
-            username=current.username if username is None else username,
-            password=current.password if password is None else password,
+            username="" if clear_credentials else username if username and username.strip() else current.username,
+            password="" if clear_credentials else password if password and password.strip() else current.password,
             expires_on=expires_on,
             enabled=enabled,
         )

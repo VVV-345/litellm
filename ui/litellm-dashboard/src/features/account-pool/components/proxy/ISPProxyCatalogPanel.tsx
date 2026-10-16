@@ -1,7 +1,7 @@
 /** 本文件展示紧凑的 ISP 档案卡片，并管理导入、编辑和删除动作。 */
 
 import { Pencil, Trash2 } from "lucide-react";
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AccountPoolISPProbe, AccountPoolISPProxy, AccountPoolISPProxyUpdateRequest } from "../../utils/AccountPoolTypes";
+import type { AccountPoolISPProxy, AccountPoolISPProxyUpdateRequest } from "../../utils/AccountPoolTypes";
 
 interface ISPProxyCatalogPanelProps {
   profiles: AccountPoolISPProxy[];
-  probes: Record<string, AccountPoolISPProbe>;
   probing: boolean;
+  probeFailed: boolean;
   onProbe: (ids: string[]) => void;
   loading: boolean;
   failed: boolean;
@@ -33,8 +33,11 @@ interface ISPProxyDraft {
   expires_on: string;
   username: string;
   password: string;
+  clear_credentials: boolean;
   enabled: boolean;
 }
+
+const ISP_PROBE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const draftFrom = (profile: AccountPoolISPProxy): ISPProxyDraft => ({
   name: profile.name,
@@ -44,13 +47,14 @@ const draftFrom = (profile: AccountPoolISPProxy): ISPProxyDraft => ({
   expires_on: profile.expires_on ?? "",
   username: "",
   password: "",
+  clear_credentials: false,
   enabled: profile.enabled,
 });
 
 export const ISPProxyCatalogPanel = ({
   profiles,
-  probes,
   probing,
+  probeFailed,
   onProbe,
   loading,
   failed,
@@ -67,6 +71,12 @@ export const ISPProxyCatalogPanel = ({
   const [imported, setImported] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedProfileId, setSavedProfileId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const disabled = busy || saving || probing;
   const unknown = t("accountPool.proxyGateways.ispUnknown");
@@ -117,6 +127,11 @@ export const ISPProxyCatalogPanel = ({
         onClick={() => onProbe(profiles.map((profile) => profile.id))}>
         {t("accountPool.proxyGateways.ispProbeAll")}
       </Button>
+      {probeFailed && (
+        <p className="mt-2 text-xs text-destructive" role="alert">
+          {t("accountPool.proxyGateways.ispProbeRequestFailed")}
+        </p>
+      )}
       <div className="mt-3 grid gap-2">
         <Input
           type="file"
@@ -167,11 +182,23 @@ export const ISPProxyCatalogPanel = ({
         <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.ispsEmpty")}</p>
       )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {profiles.map((profile) => (
+        {profiles.map((profile) => {
+          const probe = profile.last_probe;
+          const stale = probe != null && now - new Date(probe.checked_at).getTime() > ISP_PROBE_MAX_AGE_MS;
+          const cardProbeLabel = probe?.status === "ok" && probe.delay_ms != null
+            ? t("accountPool.proxyGateways.ispCardLatency", {
+                value: probe.delay_ms,
+                stale: stale ? t("accountPool.proxyGateways.ispProbeStale") : "",
+              })
+            : t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`);
+          return (
           <article key={profile.id} className="min-w-0 rounded-md border border-border/70 p-3">
             <div className="flex min-w-0 items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{profile.name}</p>
+                <p className="break-words text-sm font-medium">
+                  {profile.name}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">{cardProbeLabel}</span>
+                </p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {profile.protocol}://{profile.host}:{profile.port}
                 </p>
@@ -189,18 +216,18 @@ export const ISPProxyCatalogPanel = ({
             </p>
             <div className="mt-2 space-y-1 break-words text-xs text-muted-foreground" aria-live="polite">
               <p>{t("accountPool.proxyGateways.ispProbeStatus", {
-                value: t(`accountPool.proxyGateways.ispProbe_${probes[profile.id]?.status ?? "unknown"}`),
+                value: t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`),
               })}</p>
-              <p>{t("accountPool.proxyGateways.ispExitIp", { value: probes[profile.id]?.exit_ip ?? unknown })}</p>
+              <p>{t("accountPool.proxyGateways.ispExitIp", { value: probe?.exit_ip ?? unknown })}</p>
               <p>{t("accountPool.proxyGateways.ispLocation", {
-                value: [probes[profile.id]?.country, probes[profile.id]?.region, probes[profile.id]?.city].filter(Boolean).join(" / ") || unknown,
+                value: [probe?.country, probe?.region, probe?.city].filter(Boolean).join(" / ") || unknown,
               })}</p>
-              <p>{t("accountPool.proxyGateways.ispOperator", { value: probes[profile.id]?.isp ?? unknown })}</p>
+              <p>{t("accountPool.proxyGateways.ispOperator", { value: probe?.isp ?? unknown })}</p>
               <p>{t("accountPool.proxyGateways.ispLatency", {
-                value: probes[profile.id]?.delay_ms != null ? `${probes[profile.id].delay_ms} ms` : unknown,
+                value: probe?.delay_ms != null ? `${probe.delay_ms} ms` : unknown,
               })}</p>
               <p>{t("accountPool.proxyGateways.ispCheckedAt", {
-                value: probes[profile.id] ? new Date(probes[profile.id].checked_at).toLocaleString() : unknown,
+                value: probe ? new Date(probe.checked_at).toLocaleString() : unknown,
               })}</p>
             </div>
             {savedProfileId === profile.id && (
@@ -303,20 +330,43 @@ export const ISPProxyCatalogPanel = ({
                 </label>
                 <Input
                   value={draft.username}
-                  onChange={(event) => setDraft({ ...draft, username: event.target.value })}
-                  placeholder={t("accountPool.proxyGateways.ispUsername")}
+                  onChange={(event) => setDraft({ ...draft, username: event.target.value, clear_credentials: false })}
+                  placeholder={t(profile.credentials_configured && !draft.clear_credentials
+                    ? "accountPool.proxyGateways.ispUsernamePlaceholder"
+                    : "accountPool.proxyGateways.ispUsername")}
                   aria-label={t("accountPool.proxyGateways.ispUsername")}
                   disabled={disabled}
                 />
                 <Input
                   type="password"
                   value={draft.password}
-                  onChange={(event) => setDraft({ ...draft, password: event.target.value })}
-                  placeholder={t("accountPool.proxyGateways.ispPassword")}
+                  onChange={(event) => setDraft({ ...draft, password: event.target.value, clear_credentials: false })}
+                  placeholder={t(profile.credentials_configured && !draft.clear_credentials
+                    ? "accountPool.proxyGateways.ispPasswordPlaceholder"
+                    : "accountPool.proxyGateways.ispPassword")}
                   aria-label={t("accountPool.proxyGateways.ispPassword")}
                   disabled={disabled}
                 />
+                <div className="col-span-2 space-y-1 text-xs text-muted-foreground">
+                  <p>{t(profile.credentials_configured
+                    ? "accountPool.proxyGateways.ispCredentialsConfigured"
+                    : "accountPool.proxyGateways.ispCredentialsNotConfigured")}</p>
+                  {draft.clear_credentials && (
+                    <p className="text-destructive" role="alert">
+                      {t("accountPool.proxyGateways.ispCredentialsWillClear")}
+                    </p>
+                  )}
+                </div>
                 <div className="col-span-2 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={disabled || !profile.credentials_configured}
+                    onClick={() => setDraft({ ...draft, username: "", password: "", clear_credentials: true })}
+                  >
+                    {t("accountPool.proxyGateways.ispClearCredentials")}
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"
@@ -340,6 +390,7 @@ export const ISPProxyCatalogPanel = ({
                         enabled: draft.enabled,
                         username: draft.username || null,
                         password: draft.password || null,
+                        clear_credentials: draft.clear_credentials,
                       })
                     }
                   >
@@ -349,7 +400,8 @@ export const ISPProxyCatalogPanel = ({
               </div>
             )}
           </article>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

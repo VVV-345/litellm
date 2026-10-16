@@ -2928,3 +2928,34 @@ async def test_read_idle_timeout_uses_real_socket_and_keeps_parallel_streams(cou
     assert failures == [(504, "upstream_read_timeout", False)] * count
     assert successes == [(200, None, True)] * count
     assert len(closed) == count * 2
+
+@pytest.mark.parametrize("model_test,migrated,limit,expected", [
+    (True, False, 10, 1), (False, True, 2, 1), (False, False, 2, 2),
+])
+def test_signed_test_and_migration_attempt_limits(monkeypatch, model_test, migrated, limit, expected):
+    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket, conversation_replay
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-manager-key-" * 3)
+    calls = []
+    def upstream(request):
+        calls.append(request.url.host)
+        return httpx.Response(503, json={"error": {"code": "server_is_overloaded"}})
+    _, original = setup_gateway(upstream, retry=True, max_attempts=5)
+    class InternalControl(Control):
+        async def resolve(self, request):
+            assert request.trusted_card_id == self.resolution.card_id
+            return self.resolution
+    control = InternalControl(original.resolution)
+    app = FastAPI()
+    app.add_middleware(AccountPoolGatewayMiddleware, control_factory=lambda _: control, client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)))
+    token = conversation_replay.set("migrated" if migrated else "disabled")
+    try:
+        ticket = create_ticket(PoolIdentity(key_hash="caller", request_id=uuid4(), card_id=control.resolution.card_id, model_test=model_test, attempt_limit=limit), control.resolution.card_id)
+    finally:
+        conversation_replay.reset(token)
+    with TestClient(app) as client:
+        result = client.post(INTERNAL_PREFIX + str(control.resolution.card_id) + "/v1/responses", json={"model": "model-a", "input": [{"role": "user", "content": "hello"}]}, headers={"Authorization": "Bearer " + ticket})
+    assert result.status_code == 503
+    assert len(calls) == expected and len(set(calls)) == 1
+    assert result.headers.get("x-account-pool-attempt") == str(expected)
+    if migrated:
+        assert result.headers["x-account-pool-rebuild"] == "retry-exhausted"

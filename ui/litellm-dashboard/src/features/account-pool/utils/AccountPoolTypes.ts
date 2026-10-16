@@ -46,20 +46,8 @@ export type AccountPoolProxyGatewayConfigurationRequest = {
   url?: string;
 };
 export type AccountPoolISPProbe = components["schemas"]["AccountPoolISPProbe"];
-export type AccountPoolISPProxy = {
-  id: string;
-  name: string;
-  protocol: "http" | "https" | "socks5";
-  host: string;
-  port: number;
-  expires_on: string | null;
-  enabled: boolean;
-  bound_ports: number[];
-};
-export type AccountPoolISPProxyUpdateRequest = Omit<AccountPoolISPProxy, "id" | "bound_ports"> & {
-  username?: string | null;
-  password?: string | null;
-};
+export type AccountPoolISPProxy = components["schemas"]["AccountPoolISPProxy"];
+export type AccountPoolISPProxyUpdateRequest = components["schemas"]["AccountPoolISPUpdate"];
 export type AccountPoolProxyConfigurationProfile = {
   id: string;
   name: string;

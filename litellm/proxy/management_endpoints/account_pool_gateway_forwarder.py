@@ -341,7 +341,10 @@ async def forward(
     migrated: Final = getattr(request.state, "account_pool_conversation_replay", "disabled") == "migrated"
     allow_retry: Final = not migrated and (same_card_replay_safe(payload) or conversation_retry(request))
     allow_failover: Final = not migrated and replay_safe(payload)
-    configured_attempts: Final = routing.max_attempts
+    configured_attempts: Final = min(
+        routing.max_attempts, getattr(request.state, "account_pool_attempt_limit", 10),
+        1 if getattr(request.state, "account_pool_model_test", False) else 10,
+    )
     max_attempts: Final = configured_attempts if allow_retry else 1
     bound_id: Final = (
         resolution.sticky_account_id if not allow_failover and resolution.sticky_account_id else resolution.card_id
@@ -352,7 +355,10 @@ async def forward(
         if resolution.sticky_account_id is not None and selected[0].account.id == resolution.sticky_account_id
         else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
     )
-    eligible: Final = ordered if routing.fallback_enabled and allow_failover else scoped[:1]
+    eligible: Final = (
+        ordered if routing.fallback_enabled and allow_failover
+        and not getattr(request.state, "account_pool_model_test", False) else scoped[:1]
+    )
     request_id: Final = getattr(request.state, "account_pool_request_id", None) or uuid4()
     retry_stream: Final = (
         RetryStream(request, send, request_id) if payload.get("stream") is True and max_attempts > 1 else None
@@ -447,7 +453,8 @@ async def forward_candidate(
     same_card_attempt: int = 1,
     deadline: float = float("inf"),
 ) -> tuple[bool, frozenset[AcquireRejectionReason]]:
-    if route_index >= len(selected) or attempt_number > 10:
+    attempt_limit: Final = min(10, getattr(request.state, "account_pool_attempt_limit", 10))
+    if route_index >= len(selected) or attempt_number > attempt_limit:
         return False, rejection_reasons
     if attempt_number > 1 and asyncio.get_running_loop().time() >= deadline:
         return False, rejection_reasons
@@ -540,11 +547,12 @@ async def forward_candidate(
     next_index: Final = route_index if same_card_retry else route_index + 1
     next_id: Final = (
         selected[next_index].account.id
-        if attempt_number < 10 and next_index < len(selected) and asyncio.get_running_loop().time() < deadline
+        if attempt_number < attempt_limit and next_index < len(selected) and asyncio.get_running_loop().time() < deadline
         else None
     )
     alternate_id: Final = (
-        selected[route_index + 1].account.id if attempt_number < 10 and route_index + 1 < len(selected) else None
+        selected[route_index + 1].account.id
+        if attempt_number < attempt_limit and route_index + 1 < len(selected) else None
     )
     debug_detail: Final = (
         safe_debug_detail(request, payload, route) if resolution.policy.transport.debug_log_enabled else None

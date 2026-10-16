@@ -3556,6 +3556,12 @@ class Router:
             if pool_caller is None:
                 raise ValueError("Account pool deployments require authenticated proxy ingress")
             pool_account: Final = UUID(str(pool_environment))
+            if function_name == "_ageneric_api_call_with_fallbacks":
+                from litellm.proxy.management_endpoints.account_pool_conversation import compatible_reasoning_input
+
+                compatible_input: Final = compatible_reasoning_input(self, kwargs, str(model_info.get("id")))
+                if compatible_input is not None:
+                    kwargs["input"] = compatible_input
             from litellm.proxy.management_endpoints.account_pool_session import session_identifier
 
             pool_session_id: Final = session_identifier(dict(pool_caller.headers), kwargs)
@@ -5061,12 +5067,15 @@ class Router:
         try:
             response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)  # rebind-ok: Select the original or rebuilt response on exclusive branches.
         except Exception as error:
-            rebuilt: Final = conversation.rebuild(self, kwargs, error) if conversation is not None else None
-            if rebuilt is None:
+            if conversation is None:
                 raise
+
+            async def invoke_rebuilt(payload: Mapping[str, object]) -> ResponsesAPIResponse | BaseResponsesAPIStreamingIterator:
+                return await self._ageneric_api_call_with_fallbacks(original_function=original_function, **payload)
+
             migrated_token: Final = conversation_replay.set("migrated")
             try:
-                response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **rebuilt)  # rebind-ok: Select the rebuilt response only after the original fails.
+                response = await conversation.recover(self, fallback_kwargs, error, invoke_rebuilt)
             finally:
                 conversation_replay.reset(migrated_token)
         finally:
