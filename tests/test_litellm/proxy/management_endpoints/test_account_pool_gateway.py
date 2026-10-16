@@ -89,6 +89,30 @@ def test_quota_switches_immediately_but_transient_429_retries_same_card(quota: b
     assert quota or control.finished[0].model_cooldown_seconds == 0
 
 
+def test_account_pool_quota_rejection_switches_cards() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        if len(calls) == 1:
+            return httpx.Response(
+                503,
+                json={"error": {"type": "account_pool_error", "code": "account_pool_quota_exhausted"}},
+            )
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 200
+    assert len(calls) == 2 and calls[0] != calls[1]
+    assert control.finished[0].failure_reason == "quota_exhausted"
+    assert control.finished[0].model_cooldown_seconds == 60
+    assert control.finished[0].switched_account
+
+
 @pytest.mark.parametrize("quota", [False, True])
 def test_stream_quota_switches_but_transient_limit_retries_before_output(quota: bool) -> None:
     calls = []

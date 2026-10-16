@@ -27,6 +27,7 @@ FailureReason: TypeAlias = Literal[
     "policy_rejected",
 ]
 QUOTA_CODES: Final = frozenset(("insufficient_quota", "quota_exceeded", "usage_limit_reached", "quota_exhausted"))
+ACCOUNT_POOL_QUOTA_CODES: Final = frozenset(("account_pool_quota_exhausted",))
 REQUEST_CODES: Final = frozenset(
     (
         "context_length_exceeded",
@@ -84,6 +85,8 @@ def classify_failure(status: int, payload: Mapping[str, object], headers: Mappin
         else payload
     )
     codes: Final = frozenset(str(error.get(key, "")) for key in ("code", "type"))
+    if codes & ACCOUNT_POOL_QUOTA_CODES:
+        return Failure("quota_exhausted", True, cooldown_seconds=60)
     if codes & (REQUEST_CODES - frozenset(("invalid_request_error",))):
         return Failure("request_rejected", False)
     if "model_not_found" in codes:
