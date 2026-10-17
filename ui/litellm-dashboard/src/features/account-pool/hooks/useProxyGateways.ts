@@ -57,9 +57,11 @@ export const useProxyGatewayDelays = (accessToken: string | null, enabled: boole
     enabled: enabled && accessToken !== null,
     retry: false,
     staleTime: 60_000,
-    refetchOnMount: "always",
+    refetchOnMount: true,
     refetchOnWindowFocus: false,
-    refetchInterval: 60_000,
+    refetchInterval: (query) => query.state.status === "error"
+      ? 60_000
+      : Math.max(1000, 60_000 - (Date.now() - query.state.dataUpdatedAt)),
   });
 
 export const useProxyISPQuery = (accessToken: string | null, enabled: boolean) => useQuery({

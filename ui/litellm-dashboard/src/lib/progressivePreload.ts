@@ -1,3 +1,5 @@
+import { reportModuleLoadError } from "./dashboardRecovery";
+
 type Preload = () => unknown | Promise<unknown>;
 
 export interface PreloadTask {
@@ -28,7 +30,16 @@ export interface RunPreloadStagesOptions {
 
 const emptyProgress = (total: number): PreloadProgress => ({ completed: 0, total, failed: 0 });
 
-const defaultYield = () => new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+const defaultYield = (signal?: AbortSignal) => new Promise<void>((resolve) => {
+  const finish = () => {
+    stop();
+    signal?.removeEventListener("abort", finish);
+    resolve();
+  };
+  const stop = schedulePreloads([finish]);
+  signal?.addEventListener("abort", finish, { once: true });
+  if (signal?.aborted) finish();
+});
 
 const defaultIsVisible = () => !document.hidden;
 
@@ -57,7 +68,7 @@ export async function runPreloadStages(
 ): Promise<PreloadStageProgress> {
   const isVisible = options.isVisible ?? defaultIsVisible;
   const waitUntilVisible = options.waitForVisible ?? (() => waitForVisible(isVisible, options.signal));
-  const yieldBetweenTasks = options.yieldBetweenTasks ?? defaultYield;
+  const yieldBetweenTasks = options.yieldBetweenTasks ?? (() => defaultYield(options.signal));
   let primary = emptyProgress(primaryTasks.length);
   const backgroundTotal = backgroundBatches.reduce((total, batch) => total + batch.length, 0);
   let background = emptyProgress(backgroundTotal);
@@ -68,13 +79,15 @@ export async function runPreloadStages(
 
   const runTask = async (task: PreloadTask, target: "primary" | "background") => {
     if (options.signal?.aborted) return;
+    await yieldBetweenTasks();
     await waitUntilVisible();
     if (options.signal?.aborted) return;
     let failed = false;
     try {
       await task.run();
-    } catch {
+    } catch (error) {
       failed = true;
+      reportModuleLoadError(error);
     }
     if (options.signal?.aborted) return;
     const current = target === "primary" ? primary : background;
@@ -87,10 +100,9 @@ export async function runPreloadStages(
     else background = next;
     progress = { primary, background, stage: progress.stage };
     options.onProgress?.(progress);
-    await yieldBetweenTasks();
   };
 
-  await Promise.all(primaryTasks.map((task) => runTask(task, "primary")));
+  for (const task of primaryTasks) await runTask(task, "primary");
   if (options.signal?.aborted || primary.failed > 0) return progress;
   progress = { primary, background, stage: "background" };
   options.onProgress?.(progress);
@@ -111,7 +123,7 @@ export async function runPreloadStages(
 
   for (const batch of [...backgroundBatches, ...additionalBatches]) {
     if (options.signal?.aborted) return progress;
-    await Promise.all(batch.map((task) => runTask(task, "background")));
+    for (const task of batch) await runTask(task, "background");
   }
 
   progress = { primary, background, stage: "complete" };

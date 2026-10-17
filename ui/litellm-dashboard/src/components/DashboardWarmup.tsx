@@ -42,7 +42,7 @@ import {
 import { runPreloadStages, type PreloadStageProgress, type PreloadTask } from "@/lib/progressivePreload";
 import { all_admin_roles, rolesAllowedToViewWriteScopedPages } from "@/utils/roles";
 import { preloadModelsModules } from "@/app/(dashboard)/models-and-endpoints/preloadModels";
-import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
+import { ACCOUNT_POOL_MODULE_LOADERS } from "@/features/account-pool/preloadModules";
 import {
   DEFAULT_LOGS_SORTING,
   initialLogsRange,
@@ -185,7 +185,6 @@ const createPrimaryTasks = (
       runQuery(queryClient, accountPoolDashboardStatsOptions(accessToken)),
       runQuery(queryClient, accountPoolQuotaRefreshStatusOptions(accessToken)),
       runQuery(queryClient, proxyGatewayQueryOptions(accessToken)),
-      preloadAccountPoolModules(),
       runQuery(queryClient, {
         queryKey: accountPoolQueryKeys.providerFamilies(accessToken),
         queryFn: () => listAccountPoolProviderFamilies(accessToken),
@@ -235,6 +234,7 @@ const batchesOfTwo = (tasks: readonly PreloadTask[]): PreloadTask[][] =>
 const createBackgroundBatches = async (context: DashboardWarmupContext, signal: AbortSignal) => {
   const { queryClient, accessToken, userRole } = context;
   const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal)];
+  if (canManageAccountPool(userRole, false)) tasks.push(...ACCOUNT_POOL_MODULE_LOADERS.map((run, index) => task(`account-pool-module-${index}`, run)));
   tasks.push(task("other-log-modules", preloadOtherLogModules));
   if (canManageAccountPool(userRole, false)) {
     tasks.unshift(
@@ -299,11 +299,7 @@ function WarmupProgress({
   const value = progressPercent(succeeded, progress.total);
   return (
     <div
-      className={
-        primaryOnly
-          ? "flex min-h-screen items-center justify-center bg-background p-6"
-          : "fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
-      }
+      className="fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
       role="status"
       aria-live="polite"
     >
@@ -329,7 +325,7 @@ function WarmupProgress({
             {progress.failed} 个模块加载失败，尚未准备完成
           </p>
         )}
-        {progress.failed > 0 && progress.completed === progress.total && <Button onClick={retry}>重试加载</Button>}
+        {progress.failed > 0 && <Button onClick={retry}>重试加载</Button>}
       </div>
     </div>
   );
@@ -340,7 +336,6 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
   const { mode } = usePluginMode();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [readyKey, setReadyKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PreloadStageProgress>({
     primary: { completed: 0, total: PRIMARY_PAGES.length, failed: 0 },
@@ -350,7 +345,6 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
 
   const shouldWarmup = Boolean(accessToken && mode === "ai-gateway");
   const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}:${attempt}` : null;
-  const ready = !shouldWarmup || readyKey === warmupKey;
 
   useEffect(() => {
     if (!accessToken || mode !== "ai-gateway") {
@@ -372,7 +366,6 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
       (next) => {
         if (controller.signal.aborted) return;
         setState(next);
-        if (next.stage !== "primary") setReadyKey(warmupKey);
       },
       controller.signal,
     );
@@ -383,12 +376,11 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
   }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt]);
 
   const retry = () => setAttempt((value) => value + 1);
-  if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} />;
   return (
     <>
       {children}
-      {(state.stage === "background" || state.background.failed > 0) && (
-        <WarmupProgress state={state} primaryOnly={false} retry={retry} />
+      {(shouldWarmup && (state.primary.failed > 0 || state.background.failed > 0)) && (
+        <WarmupProgress state={state} primaryOnly={state.primary.failed > 0} retry={retry} />
       )}
     </>
   );

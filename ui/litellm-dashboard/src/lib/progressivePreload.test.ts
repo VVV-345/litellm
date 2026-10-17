@@ -108,6 +108,40 @@ describe("progressive preloading", () => {
     expect(progress.at(-1)).toEqual({ stage: "complete", primary: 2, background: 1 });
   });
 
+  it("runs primary modules sequentially rather than competing for the same idle slot", async () => {
+    const pending = Promise.withResolvers<void>();
+    const next = vi.fn();
+    const finished = runPreloadStages(
+      [
+        { id: "first", run: () => pending.promise },
+        { id: "next", run: next },
+      ],
+      [],
+      { yieldBetweenTasks: async () => {} },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect(next).not.toHaveBeenCalled();
+    pending.resolve();
+    await finished;
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("cancels an idle warmup and settles without loading after logout", async () => {
+    const idle = vi.fn(() => 4);
+    const cancel = vi.fn();
+    vi.stubGlobal("window", { setTimeout, clearTimeout, requestIdleCallback: idle, cancelIdleCallback: cancel });
+    const controller = new AbortController();
+    const load = vi.fn();
+    const finished = runPreloadStages([{ id: "first", run: load }], [], { signal: controller.signal });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(idle).toHaveBeenCalledOnce();
+    expect(load).not.toHaveBeenCalled();
+    controller.abort();
+    await finished;
+    expect(cancel).toHaveBeenCalledWith(4);
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("keeps the primary screen blocked when a required task fails", async () => {
     const laterTask = vi.fn();
     const result = await runPreloadStages(

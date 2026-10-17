@@ -186,7 +186,10 @@ export const listAccountPoolProxyGateways = (accessToken: string): Promise<Accou
   apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken });
 
 export const measureAccountPoolProxyGatewayDelays = (accessToken: string): Promise<AccountPoolProxyGatewayDelay[]> =>
-  apiClient.post<AccountPoolProxyGatewayDelay[]>("/account_pool/proxy-gateways/delay", { accessToken });
+  apiClient.post<AccountPoolProxyGatewayDelay[]>("/account_pool/proxy-gateways/delay", {
+    accessToken,
+    invalidateOnSuccess: false,
+  });
 
 export const getAccountPoolProxyGatewayConfiguration = (
   accessToken: string,

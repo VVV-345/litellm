@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ApiError } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
+import { confirmDiscardChanges, useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 import {
   getAccountPoolEnvironment,
@@ -62,6 +63,9 @@ export const RuntimeConfigDialog = ({
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<AccountPoolUpdateRequest>(() => toUpdateRequest(environment));
   const [saving, setSaving] = useState(false);
+  const [initialForm, setInitialForm] = useState(() => toUpdateRequest(environment));
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
+  useUnsavedChanges(dirty || saving);
   const lifecycleDisabled = !canConfigureEnvironment(environment);
   const profilesQuery = useQuery({
     ...accountPoolProxyProfileOptions(accessToken),
@@ -70,7 +74,7 @@ export const RuntimeConfigDialog = ({
   const profiles = profilesQuery.data ?? [];
   const gatewaysQuery = useProxyGatewayQuery(accessToken, open);
   const gateways = gatewaysQuery.data ?? [];
-  const profilesLoading = profilesQuery.isLoading || profilesQuery.isFetching;
+  const profilesLoading = profilesQuery.isLoading;
   const profilesError = profilesQuery.isError ? t("accountPool.config.proxyProfilesLoadFailed") : null;
   const profileSelectionError =
     form.proxy_mode === "profile" && !profilesError
@@ -101,6 +105,9 @@ export const RuntimeConfigDialog = ({
     setSaving(true);
     try {
       const saved = await updateAccountPoolEnvironment(accessToken, environment.id, form);
+      const savedForm = toUpdateRequest(saved);
+      setForm(savedForm);
+      setInitialForm(savedForm);
       onSaved(saved);
       onOpenChange(false);
       toast.success(t("accountPool.config.saved"));
@@ -113,6 +120,9 @@ export const RuntimeConfigDialog = ({
       ) {
         try {
           const saved = await getAccountPoolEnvironment(accessToken, environment.id);
+          const savedForm = toUpdateRequest(saved);
+          setForm(savedForm);
+          setInitialForm(savedForm);
           onSaved(saved);
         } catch {
           onRefresh();
@@ -133,7 +143,7 @@ export const RuntimeConfigDialog = ({
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && saving) return;
+        if (!nextOpen && (saving || !confirmDiscardChanges())) return;
         onOpenChange(nextOpen);
       }}
     >
@@ -350,7 +360,7 @@ export const RuntimeConfigDialog = ({
               ))}
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              <Button type="button" variant="outline" onClick={() => { if (confirmDiscardChanges()) onOpenChange(false); }} disabled={saving}>
                 {t("accountPool.cancel")}
               </Button>
               <Button

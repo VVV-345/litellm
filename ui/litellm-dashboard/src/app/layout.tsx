@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { I18nProvider } from "@/contexts/I18nProvider";
 import ReactQueryProvider from "@/contexts/ReactQueryProvider";
 import { Toaster } from "@/components/ui/sonner";
+import DashboardRecovery from "@/components/DashboardRecovery";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -16,6 +17,7 @@ export const metadata: Metadata = {
   title: "LiteLLM Dashboard",
   description: "LiteLLM Proxy Admin UI",
   icons: { icon: "/get_favicon" },
+  other: { "litellm-ui-build": process.env.NEXT_PUBLIC_UI_BUILD_ID ?? "development" },
 };
 
 export default function RootLayout({
@@ -29,6 +31,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <I18nProvider>
+          <DashboardRecovery />
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
             <NuqsAdapter>
               <AuthProvider>

@@ -1,4 +1,13 @@
 {
+  "dashboardRecovery": {
+      "newVersion": "A new dashboard version is available",
+      "moduleFailed": "Module failed to load. Retry or update the page",
+      "pageFailed": "Page failed to load. Retry, or update after a deployment",
+      "keepDraft": "No automatic reload. Retry or update reloads the page. Save your configuration first.",
+      "retry": "Retry loading",
+      "update": "Update page",
+      "discardChanges": "You have unsaved configuration changes. Discard them and continue?"
+  },
   "language": {
     "switch": "中文",
     "english": "English",

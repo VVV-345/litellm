@@ -1,7 +1,8 @@
 /** 编辑单张号池卡片的路由、传输和供应商策略。 */
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { confirmDiscardChanges, useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import { useTranslation } from "react-i18next";
 
 import { MultiSelect, type MultiSelectOption } from "@/components/shared/MultiSelect";
@@ -151,17 +152,27 @@ export function RuntimePolicyDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const queryOptions = {
     queryKey: accountPoolQueryKeys.policy(accessToken, environment.id),
     queryFn: () => getAccountPolicy(accessToken, environment.id),
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    initialData: () => policies.find((policy) => policy.card_id === environment.id),
+    initialDataUpdatedAt: 0,
   };
   const query = useQuery(queryOptions);
   const options = buildAccountPoolPolicyOptions(environment, environments, policies);
+  const save = async (policy: AccountPolicy, version: number) => {
+    const saved = await saveAccountPolicy(accessToken, environment.id, version, policy);
+    await queryClient.cancelQueries({ queryKey: queryOptions.queryKey, exact: true });
+    queryClient.setQueryData(queryOptions.queryKey, saved);
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.policies(accessToken) });
+    return saved;
+  };
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && confirmDiscardChanges() && onClose()}>
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="shrink-0 border-b border-border px-6 pt-5 pb-3 pr-12">
           <DialogTitle>{t("accountPool.policy.title", { name: environment.name })}</DialogTitle>
@@ -170,7 +181,7 @@ export function RuntimePolicyDialog({
             <p className="min-w-0 flex-1 leading-6 text-muted-foreground">
               {t("accountPool.policy.cardScopedDescription")}
             </p>
-            <Button type="button" variant="outline" size="sm" onClick={onOpenRuntimeConfig}>
+            <Button type="button" variant="outline" size="sm" onClick={() => { if (confirmDiscardChanges()) onOpenRuntimeConfig(); }}>
               {t("accountPool.policy.openRuntimeConfig")}
             </Button>
           </div>
@@ -187,14 +198,11 @@ export function RuntimePolicyDialog({
           )}
           {query.data && (
             <PolicyForm
-              key={query.data.version}
+              key={environment.id}
               value={query.data}
               environment={environment}
               options={options}
-              save={async (policy) => {
-                await saveAccountPolicy(accessToken, environment.id, query.data.version, policy);
-                await query.refetch();
-              }}
+              save={save}
             />
           )}
         </div>
@@ -212,7 +220,7 @@ function PolicyForm({
   value: PolicyView;
   environment: AccountPoolEnvironment;
   options: AccountPoolPolicyOptions;
-  save: (policy: AccountPolicy) => Promise<void>;
+  save: (policy: AccountPolicy, version: number) => Promise<PolicyView>;
 }) {
   const { t } = useTranslation();
   const source = value.policy ?? defaults;
@@ -231,6 +239,17 @@ function PolicyForm({
   const [policy, setPolicy] = useState<FormPolicy>(initial);
   const [busy, setBusy] = useState(false);
   const [aliases, setAliases] = useState(policy.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
+  const [base, setBase] = useState(value);
+  const [baseline, setBaseline] = useState(initial);
+  const initialAliases = (input: FormPolicy) => input.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", ");
+  const edited = JSON.stringify(policy) !== JSON.stringify(baseline) || aliases !== initialAliases(baseline);
+  if (!edited && !busy && base !== value) {
+    setBase(value);
+    setPolicy(initial);
+    setBaseline(initial);
+    setAliases(initial.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
+  }
+  useUnsavedChanges(edited || busy);
   const codex = policy.codex ?? codexDefaults;
   const claude = policy.claude ?? claudeDefaults;
   const kimi = policy.kimi ?? kimiDefaults;
@@ -437,7 +456,10 @@ function PolicyForm({
           ? { antigravity: parsedAntigravity }
           : {}),
       };
-      await save(nextPolicy);
+      const saved = await save(nextPolicy, base.version);
+      setBaseline(policy);
+      setAliases(initialAliases(policy));
+      setBase({ ...saved });
       toast.success(t("accountPool.policy.saved"));
     } catch (error) {
       toast.fromError(error);
@@ -681,7 +703,7 @@ function PolicyForm({
         </div>
       </section>
       <div className="sticky bottom-0 z-sticky -mx-6 flex items-center justify-between gap-3 border-t border-border bg-popover/95 px-6 py-4 backdrop-blur">
-        <p className="text-xs text-muted-foreground">{t("accountPool.policy.version", { version: value.version })}</p>
+        <p className="text-xs text-muted-foreground">{t("accountPool.policy.version", { version: base.version })}</p>
         <Button type="submit" disabled={busy}>
           {t(busy ? "accountPool.config.saving" : "accountPool.config.save")}
         </Button>

@@ -18,6 +18,7 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   signal?: AbortSignal;
   cache?: RequestCache;
+  invalidateOnSuccess?: boolean;
 }
 
 export class ApiError extends Error {
@@ -125,13 +126,25 @@ const appendQuery = (url: string, query: QueryParams | undefined): string => {
   return url.includes("?") ? `${url}&${qs}` : `${url}?${qs}`;
 };
 
+export const fetchDashboardBuildId = async (url: string, signal?: AbortSignal): Promise<string | null> => {
+  const response = await fetch(url, {
+    cache: "no-store",
+    credentials: "same-origin",
+    signal,
+    headers: { Accept: "text/html" },
+  });
+  if (!response.ok || response.redirected) return null;
+  const html = await response.text();
+  return new DOMParser().parseFromString(html, "text/html")
+    .querySelector<HTMLMetaElement>('meta[name="litellm-ui-build"]')?.content ?? null;
+};
+
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { getBaseUrl, getAuthHeaderName, onError, fetchImpl } = config;
   const doFetch: typeof fetch = async (input, init) => {
     const response = await cachedDashboardRequest(input, init, (target, options) =>
       (fetchImpl ?? globalThis.fetch)(target, { cache: "no-store", ...options }),
     );
-    if (response.ok && init?.method !== "GET") notifyDashboardDataChanged();
     return response;
   };
 
@@ -160,6 +173,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     }
 
     const response = await doFetch(url, init);
+    if (response.ok && method !== "GET" && options.invalidateOnSuccess !== false) notifyDashboardDataChanged();
 
     if (!response.ok) {
       const raw = await response.text();
@@ -190,6 +204,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     if (rawBody !== undefined) init.body = rawBody;
     else if (body !== undefined) init.body = JSON.stringify(body);
     const response = await doFetch(url, init);
+    if (response.ok && method !== "GET" && options.invalidateOnSuccess !== false) notifyDashboardDataChanged();
     if (!response.ok) {
       const raw = await response.text();
       let message = raw || `HTTP ${response.status}`;

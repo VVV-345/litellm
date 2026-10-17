@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { registerResponseCache } from "@/lib/http/responseCache";
@@ -11,7 +11,10 @@ vi.mock("@/app/(dashboard)/models-and-endpoints/page", () => ({}));
 vi.mock("@/app/(dashboard)/account-pool/page", () => ({}));
 vi.mock("@/app/(dashboard)/usage/page", () => ({}));
 vi.mock("@/app/(dashboard)/models-and-endpoints/preloadModels", () => ({ preloadModelsModules: async () => {} }));
-vi.mock("@/features/account-pool/preloadModules", () => ({ preloadAccountPoolModules: async () => {} }));
+vi.mock("@/features/account-pool/preloadModules", () => ({
+  ACCOUNT_POOL_MODULE_LOADERS: [],
+  preloadAccountPoolModules: async () => {},
+}));
 vi.mock("@/components/view_logs", () => ({
   preloadFullLogModule: async () => {},
   preloadOtherLogModules: async () => {},
@@ -66,6 +69,25 @@ describe("dashboard warmup wiring", () => {
     vi.useRealTimers();
   });
 
+  it("renders immediately and waits for idle before requesting other modules", async () => {
+    vi.useFakeTimers();
+    const idle = vi.fn(() => 1);
+    vi.stubGlobal("requestIdleCallback", idle);
+    vi.stubGlobal("cancelIdleCallback", vi.fn());
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <input aria-label="Current form" defaultValue="draft" />
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("textbox", { name: "Current form" })).toHaveValue("draft");
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(idle).toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("preloads only the first log pages even with fifty thousand historical records", async () => {
     const primaryRequests: string[] = [];
     const result = await runDashboardWarmup(
@@ -111,7 +133,7 @@ describe("dashboard warmup wiring", () => {
     expect(fetch).toHaveBeenCalledTimes(count);
   });
 
-  it("keeps the dashboard hidden and shows retry instead of 100 percent on a primary failure", async () => {
+  it("keeps the current page usable when a preload fails", async () => {
     fetch.mockRejectedValue(new Error("offline"));
     render(
       <QueryClientProvider client={client}>
@@ -120,10 +142,9 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "重试加载" })).toBeInTheDocument();
-    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
   });
 
   it("continues loading other log pages when the full-log service is unavailable", async () => {
@@ -147,6 +168,7 @@ describe("dashboard warmup wiring", () => {
   });
 
   it("does not periodically refetch inactive pages after warmup completes", async () => {
+    vi.useFakeTimers();
     const { unmount } = render(
       <QueryClientProvider client={client}>
         <DashboardWarmup>
@@ -154,9 +176,8 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    await screen.findByText("Dashboard content");
-    await waitFor(() => expect(screen.queryByText("后台加载中")).not.toBeInTheDocument(), { timeout: 3000 });
-    vi.useFakeTimers();
+    await act(() => vi.runAllTimersAsync());
+    expect(urls.some((url) => url.pathname === "/logs/full/sessions")).toBe(true);
     const count = fetch.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
     expect(fetch).toHaveBeenCalledTimes(count);

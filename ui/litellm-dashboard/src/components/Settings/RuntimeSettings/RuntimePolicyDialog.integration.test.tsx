@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { RuntimePolicyDialog } from "./RuntimePolicyDialog";
 import type { AccountPolicy, PolicyView } from "@/features/account-pool/api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 
 const getPolicy = vi.fn();
 const savePolicy = vi.fn();
@@ -69,6 +70,10 @@ const policyView = {
   card_id: environment.id,
   version: 3,
   policy: {
+    group: "",
+    tags: [],
+    excluded_models: [],
+    model_aliases: [],
     routing: { strategy: "plan" },
     transport: { websocket: "enabled", debug_log_enabled: true },
   },
@@ -93,6 +98,64 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   );
 
 describe("RuntimePolicyDialog", () => {
+  it("adopts a refreshed policy when there are no unsaved changes", async () => {
+    const pending = Promise.withResolvers<PolicyView>();
+    getPolicy.mockReturnValue(pending.promise);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(<QueryClientProvider client={client}><RuntimePolicyDialog accessToken="token" environment={environment} environments={[environment]} policies={[policyView]} onOpenRuntimeConfig={vi.fn()} onClose={vi.fn()} /></QueryClientProvider>);
+    await act(async () => { pending.resolve({ ...policyView, version: 4, policy: { ...policyView.policy!, routing: { ...policyView.policy!.routing!, quota_reserve_5h_percent: 42 } } }); });
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" })).toHaveValue(42));
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledOnce());
+    expect(savePolicy.mock.calls[0][2]).toBe(4);
+    unmount();
+    client.clear();
+  });
+
+  it("shows list-cached policy immediately and preserves edited fields and their version after refresh", async () => {
+    const pending = Promise.withResolvers<PolicyView>();
+    getPolicy.mockReturnValue(pending.promise);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><RuntimePolicyDialog accessToken="token" environment={environment} environments={[environment]} policies={[policyView]} onOpenRuntimeConfig={vi.fn()} onClose={vi.fn()} /></QueryClientProvider>);
+    const field = screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" });
+    fireEvent.change(field, { target: { value: "17" } });
+    await act(async () => pending.resolve({ ...policyView, version: 4, policy: { ...policyView.policy!, routing: { ...policyView.policy!.routing!, quota_reserve_5h_percent: 42 } } }));
+    await waitFor(() => expect(client.getQueryData<PolicyView>(accountPoolQueryKeys.policy("token", environment.id))?.version).toBe(4));
+    expect(screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" })).toHaveValue(17);
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    expect(savePolicy.mock.calls[0][2]).toBe(3);
+    expect(savePolicy.mock.calls[0][3].routing.quota_reserve_5h_percent).toBe(17);
+    client.clear();
+  });
+
+  it("keeps saved fields and version when an older background refresh finishes later", async () => {
+    const pending = Promise.withResolvers<PolicyView>();
+    getPolicy.mockReturnValue(pending.promise);
+    savePolicy.mockResolvedValue({
+      ...policyView,
+      version: 4,
+      policy: { ...policyView.policy!, routing: { ...policyView.policy!.routing!, quota_reserve_5h_percent: 17 } },
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <RuntimePolicyDialog accessToken="token" environment={environment} environments={[environment]} policies={[policyView]} onOpenRuntimeConfig={vi.fn()} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" }), { target: { value: "17" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /保存配置|Save configuration/i })).toBeEnabled());
+    await act(async () => pending.resolve(policyView));
+    expect(screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" })).toHaveValue(17);
+    expect(client.getQueryData<PolicyView>(accountPoolQueryKeys.policy("token", environment.id))?.version).toBe(4);
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(2));
+    expect(savePolicy.mock.calls[1][2]).toBe(4);
+    unmount();
+    client.clear();
+  });
+
   it("saves separate reserve windows and controlled passthrough without changing inherited protocols", async () => {
     renderDialog();
     fireEvent.change(await screen.findByRole("spinbutton", { name: "5 小时额度保留比例 (%)" }), { target: { value: "10" } });
