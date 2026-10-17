@@ -108,4 +108,19 @@ describe("account pool card ordering", () => {
     expect(names()).toEqual(["Beta", "Alpha", "Gamma"]);
     setItem.mockRestore();
   });
+
+  it("reorders only the current page without moving cards on hidden pages", () => {
+    const allCards = [...cards, { id: "d", name: "Delta" }, { id: "e", name: "Epsilon" }];
+    render(
+      <AccountPoolSortableCards supplier="openai_codex" cards={allCards} pagination={{ page: 2, pageSize: 2, onPageChange: vi.fn() }}>
+        {(card) => <p>{card.name}</p>}
+      </AccountPoolSortableCards>,
+    );
+    expect(names()).toEqual(["Gamma", "Delta"]);
+    fireEvent.keyDown(screen.getByRole("button", { name: /Delta/ }), { key: "ArrowUp" });
+    expect(names()).toEqual(["Delta", "Gamma"]);
+    expect(JSON.parse(window.localStorage.getItem("account-pool.card-order.openai_codex") ?? "[]")).toEqual(["a", "b", "d", "c", "e"]);
+    fireEvent.keyDown(screen.getByRole("button", { name: /Delta/ }), { key: "ArrowUp" });
+    expect(names()).toEqual(["Delta", "Gamma"]);
+  });
 });

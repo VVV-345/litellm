@@ -4,6 +4,7 @@ import type { ErrorStats } from "../api/AccountPoolManagementApi";
 import {
   accountPoolHiddenModelCount,
   accountPoolVisibleModels,
+  filterAccountPoolDashboardEnvironments,
   groupAccountPoolEnvironments,
   summarizeAccountPoolDashboard,
 } from "./accountPoolDashboardSelectors";
@@ -55,6 +56,29 @@ const stats = (total_requests: number, succeeded_requests: number, failed_reques
 });
 
 describe("account pool dashboard selectors", () => {
+  it("combines search, enabled state and runtime status without conflating disabled with an error", () => {
+    const ready = environment("ready", "openai_codex");
+    const error = { ...ready, id: "account-error", status: "error" as const };
+    const disabled = { ...error, id: "account-disabled", enabled: false };
+    expect(filterAccountPoolDashboardEnvironments([ready, error, disabled], { search: "account", enabled: "disabled", status: "error" })).toEqual([disabled]);
+    expect(filterAccountPoolDashboardEnvironments([ready, error, disabled], { search: "", enabled: "enabled", status: "error" })).toEqual([error]);
+    expect(filterAccountPoolDashboardEnvironments([ready, error, disabled], { search: "", enabled: "all", status: "all" })).toEqual([ready, error, disabled]);
+  });
+
+  it("searches names and IDs case insensitively and trims whitespace", () => {
+    const named = { ...environment("card-id", "kimi"), name: "My Account" };
+    expect(filterAccountPoolDashboardEnvironments([named], { search: " MY ACCOUNT ", enabled: "all", status: "all" })).toEqual([named]);
+    expect(filterAccountPoolDashboardEnvironments([named], { search: " CARD-ID ", enabled: "all", status: "all" })).toEqual([named]);
+  });
+
+  it("filters without mutating or reordering the source cards", () => {
+    const first = { ...environment("z", "kimi"), updated_at: "2026-01-01T00:00:00Z" };
+    const second = { ...environment("a", "kimi"), updated_at: "2026-10-01T00:00:00Z" };
+    const source = Object.freeze([first, second]);
+    expect(filterAccountPoolDashboardEnvironments(source, { search: "", enabled: "all", status: "ready" })).toEqual([first, second]);
+    expect(source).toEqual([first, second]);
+  });
+
   it("keeps historical requests from deleted accounts in the standard summary", () => {
     const summary = summarizeAccountPoolDashboard([environment("one", "kimi")], new Map(), stats(5, 3, 2));
     expect(summary.totalCards).toBe(1);

@@ -12,10 +12,12 @@ const mergeCardOrder = (order: readonly string[], cardIds: readonly string[]): r
 export function AccountPoolSortableCards<T extends { id: string; name: string }>({
   supplier,
   cards,
+  pagination,
   children,
 }: {
   supplier: string;
   cards: readonly T[];
+  pagination?: { page: number; pageSize: number; onPageChange: (page: number) => void };
   children: (card: T) => ReactNode;
 }) {
   const { t } = useTranslation();
@@ -55,6 +57,13 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
       ),
     [cards, orderIndex, resolvedOrder.length],
   );
+  const pageSize = pagination?.pageSize ?? Math.max(1, ordered.length);
+  const pageCount = Math.max(1, Math.ceil(ordered.length / pageSize));
+  const currentPage = Math.min(Math.max(1, pagination?.page ?? 1), pageCount);
+  const visible = ordered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => {
+    if (pagination && pagination.page !== currentPage) pagination.onPageChange(currentPage);
+  }, [currentPage, pagination]);
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -109,7 +118,7 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
   const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, cardId: string, index: number) => {
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
     event.preventDefault();
-    const next = ordered[index + (["ArrowUp", "ArrowLeft"].includes(event.key) ? -1 : 1)];
+    const next = visible[index + (["ArrowUp", "ArrowLeft"].includes(event.key) ? -1 : 1)];
     if (next) move(cardId, next.id);
   };
 
@@ -123,14 +132,14 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
       )}
       <ul className="m-0 grid list-none grid-cols-1 items-start gap-4 p-0 md:grid-cols-2 2xl:grid-cols-3">
         {!hydrated &&
-          cards.map((card) => (
+          visible.map((card) => (
             <li key={card.id} aria-hidden="true" className="relative min-w-0 rounded-xl">
               <div className="invisible">{children(card)}</div>
               <Skeleton className="absolute inset-0 h-full w-full rounded-xl" />
             </li>
           ))}
         {hydrated &&
-          ordered.map((card, index) => (
+          visible.map((card, index) => (
             <li
               key={card.id}
               className={`relative min-w-0 rounded-xl transition-shadow ${dragged === card.id ? "opacity-50" : ""} ${target === card.id && dragged !== card.id ? "ring-2 ring-primary" : ""}`}
@@ -156,6 +165,22 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
             </li>
           ))}
       </ul>
+      {pagination && ordered.length > 0 && (
+        <nav className="flex flex-wrap items-center justify-between gap-3" aria-label={t("accountPool.dashboard.supplierPagination", { supplier: t(`accountPool.supplier.${supplier}`) })}>
+          <p className="text-sm text-muted-foreground">
+            {t("accountPool.showing", { from: (currentPage - 1) * pageSize + 1, to: Math.min(currentPage * pageSize, ordered.length), count: ordered.length })}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={currentPage === 1} onClick={() => pagination.onPageChange(currentPage - 1)}>
+              {t("accountPool.previousPage")}
+            </Button>
+            <span className="text-sm text-muted-foreground">{t("accountPool.page", { current: currentPage, total: pageCount })}</span>
+            <Button type="button" variant="outline" size="sm" disabled={currentPage === pageCount} onClick={() => pagination.onPageChange(currentPage + 1)}>
+              {t("accountPool.nextPage")}
+            </Button>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

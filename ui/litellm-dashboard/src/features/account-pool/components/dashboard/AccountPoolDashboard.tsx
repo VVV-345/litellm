@@ -1,6 +1,6 @@
 /** 本文件渲染号池仪表盘的汇总指标和供应商分组，卡片操作由页面注入以保持权限边界。 */
 
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Activity, AlertTriangle, Gauge, Layers3, Radio, RefreshCw, TrafficCone } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -9,13 +9,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { formatDateTime } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolQuotaRefreshStatus, ErrorStats } from "../../api/AccountPoolManagementApi";
-import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolSupplier } from "../../utils/AccountPoolTypes";
 import { AccountPoolSortableCards } from "../cards/AccountPoolSortableCards";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
-import { groupAccountPoolEnvironments, summarizeAccountPoolDashboard } from "../../utils/accountPoolDashboardSelectors";
+import { filterAccountPoolDashboardEnvironments, groupAccountPoolEnvironments, summarizeAccountPoolDashboard, type AccountPoolDashboardFilters } from "../../utils/accountPoolDashboardSelectors";
 
 interface AccountPoolDashboardProps {
   environments: readonly AccountPoolEnvironment[];
@@ -31,6 +34,11 @@ interface AccountPoolDashboardProps {
 }
 
 const formatInteger = (value: number): string => new Intl.NumberFormat("zh-CN").format(value);
+const PAGE_SIZES = [4, 8, 12] as const;
+const STATUS_FILTERS: readonly AccountPoolDashboardFilters["status"][] = [
+  "all", "ready", "cooling_down", "awaiting_authorization", "error", "disabled", "provisioning", "validating", "deleting",
+];
+const DEFAULT_FILTERS: AccountPoolDashboardFilters = { search: "", enabled: "all", status: "all" };
 
 export const AccountPoolDashboard = ({
   environments,
@@ -45,6 +53,19 @@ export const AccountPoolDashboard = ({
   refreshingQuotas,
 }: AccountPoolDashboardProps) => {
   const { t, i18n } = useTranslation();
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [pageSize, setPageSize] = useState<number>(4);
+  const [pages, setPages] = useState<Partial<Record<AccountPoolSupplier, number>>>({});
+  const filtered = useMemo(() => filterAccountPoolDashboardEnvironments(environments, filters), [environments, filters]);
+  const visibleGroups = useMemo(() => groupAccountPoolEnvironments(filtered), [filtered]);
+  const updateFilter = <K extends keyof AccountPoolDashboardFilters>(field: K, value: AccountPoolDashboardFilters[K]) => {
+    setFilters((current) => ({ ...current, [field]: value }));
+    setPages({});
+  };
+  const clearFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+    setPages({});
+  };
   const summary = summarizeAccountPoolDashboard(environments, statsByCard, standardSummary);
   const groups = groupAccountPoolEnvironments(environments);
   const successRate =
@@ -196,12 +217,62 @@ export const AccountPoolDashboard = ({
         </CardContent>
       </Card>
 
-      {groups.length === 0 ? (
+      {environments.length > 0 && (
+        <div className="grid gap-3">
+          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_11rem_8rem_auto]">
+            <div className="grid gap-1.5">
+              <Label htmlFor="dashboard-card-search">{t("accountPool.dashboard.cardSearch")}</Label>
+              <Input id="dashboard-card-search" value={filters.search} placeholder={t("accountPool.dashboard.cardSearch")} onChange={(event) => updateFilter("search", event.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="dashboard-enabled-filter">{t("accountPool.dashboard.enabledFilter")}</Label>
+              <Select value={filters.enabled} onValueChange={(value) => {
+                if (value === "all" || value === "enabled" || value === "disabled") updateFilter("enabled", value);
+              }}>
+                <SelectTrigger id="dashboard-enabled-filter" aria-label={t("accountPool.dashboard.enabledFilter")} className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("accountPool.dashboard.allEnabledStates")}</SelectItem>
+                  <SelectItem value="enabled">{t("accountPool.dashboard.onlyEnabled")}</SelectItem>
+                  <SelectItem value="disabled">{t("accountPool.dashboard.onlyDisabled")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="dashboard-status-filter">{t("accountPool.dashboard.runtimeStatusFilter")}</Label>
+              <Select value={filters.status} onValueChange={(value) => {
+                const status = STATUS_FILTERS.find((item) => item === value);
+                if (status) updateFilter("status", status);
+              }}>
+                <SelectTrigger id="dashboard-status-filter" aria-label={t("accountPool.dashboard.runtimeStatusFilter")} className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {STATUS_FILTERS.map((status) => <SelectItem key={status} value={status}>{t(`accountPool.status.${status}`)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="dashboard-page-size">{t("accountPool.dashboard.cardsPerPage")}</Label>
+              <Select value={String(pageSize)} onValueChange={(value) => {
+                const size = PAGE_SIZES.find((item) => String(item) === value);
+                if (size) { setPageSize(size); setPages({}); }
+              }}>
+                <SelectTrigger id="dashboard-page-size" aria-label={t("accountPool.dashboard.cardsPerPage")} className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="button" variant="outline" onClick={clearFilters} disabled={!filters.search && filters.enabled === "all" && filters.status === "all"}>{t("accountPool.dashboard.clearFilters")}</Button>
+          </div>
+          <p className="text-sm text-muted-foreground">{t("accountPool.dashboard.filteredCards", { matched: filtered.length, total: environments.length })}</p>
+        </div>
+      )}
+
+      {visibleGroups.length === 0 ? (
         <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
-          {t("accountPool.dashboard.empty")}
+          {t(environments.length === 0 ? "accountPool.dashboard.empty" : "accountPool.noMatchingEnvironments")}
         </div>
       ) : (
-        groups.map((group) => (
+        visibleGroups.map((group) => (
           <section
             key={group.supplier}
             className="grid gap-3"
@@ -214,7 +285,7 @@ export const AccountPoolDashboard = ({
               </h2>
               <Badge variant="secondary">{group.environments.length}</Badge>
             </div>
-            <AccountPoolSortableCards supplier={group.supplier} cards={group.environments}>
+            <AccountPoolSortableCards supplier={group.supplier} cards={group.environments} pagination={{ page: pages[group.supplier] ?? 1, pageSize, onPageChange: (page) => setPages((current) => ({ ...current, [group.supplier]: page })) }}>
               {(environment) => renderCard(environment, statsByCard.get(environment.id))}
             </AccountPoolSortableCards>
           </section>

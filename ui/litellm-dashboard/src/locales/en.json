@@ -6775,6 +6775,16 @@
       }
     },
     "dashboard": {
+      "cardSearch": "Search card name or ID",
+      "enabledFilter": "Enabled state",
+      "allEnabledStates": "All enabled states",
+      "onlyEnabled": "Enabled only",
+      "onlyDisabled": "Disabled only",
+      "runtimeStatusFilter": "Runtime status",
+      "cardsPerPage": "Cards per page",
+      "clearFilters": "Clear filters",
+      "filteredCards": "Showing {{matched}} / {{total}} cards. Summary metrics are not filtered",
+      "supplierPagination": "{{supplier}} card pagination",
       "successRate": "Success rate",
       "failures": "Failures",
       "traffic": "Total traffic",

@@ -1,7 +1,25 @@
 /** 本文件计算号池仪表盘的聚合指标与供应商分组，数据只来自已加载的卡片和请求统计。 */
 
 import type { ErrorStats } from "../api/AccountPoolManagementApi";
-import type { AccountPoolEnvironment, AccountPoolSupplier } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolStatus, AccountPoolSupplier } from "./AccountPoolTypes";
+
+export interface AccountPoolDashboardFilters {
+  search: string;
+  enabled: "all" | "enabled" | "disabled";
+  status: "all" | AccountPoolStatus;
+}
+
+export const filterAccountPoolDashboardEnvironments = (
+  environments: readonly AccountPoolEnvironment[],
+  filters: AccountPoolDashboardFilters,
+): AccountPoolEnvironment[] => {
+  const search = filters.search.trim().toLocaleLowerCase();
+  return environments.filter((environment) =>
+    (filters.status === "all" || environment.status === filters.status) &&
+    (filters.enabled === "all" || environment.enabled === (filters.enabled === "enabled")) &&
+    (!search || [environment.name, environment.id].some((value) => value.toLocaleLowerCase().includes(search))),
+  );
+};
 
 interface AccountPoolDashboardSummary {
   totalCards: number;

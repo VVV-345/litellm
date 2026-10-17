@@ -6775,6 +6775,16 @@
       }
     },
     "dashboard": {
+      "cardSearch": "搜索卡片名称或 ID",
+      "enabledFilter": "启用状态",
+      "allEnabledStates": "全部启用状态",
+      "onlyEnabled": "仅已启用",
+      "onlyDisabled": "仅已停用",
+      "runtimeStatusFilter": "运行状态",
+      "cardsPerPage": "每页卡片数",
+      "clearFilters": "清除筛选",
+      "filteredCards": "显示 {{matched}} / {{total}} 张卡片，汇总指标不受筛选影响",
+      "supplierPagination": "{{supplier}} 卡片分页",
       "successRate": "成功率",
       "failures": "故障数",
       "traffic": "总流量",
