@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 import { renderWithProviders, screen, waitFor } from "../../../../tests/test-utils";
 import {
   makeBedrockResponse,
@@ -15,7 +16,8 @@ const PresidioPath = "@/components/view_logs/GuardrailViewer/PresidioDetectedEnt
 const BedrockPath = "@/components/view_logs/GuardrailViewer/BedrockGuardrailDetails";
 
 describe("GuardrailViewer", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.resetModules();
   });
 
