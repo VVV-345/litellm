@@ -79,7 +79,7 @@ export async function runPreloadStages(
 
   const runTask = async (task: PreloadTask, target: "primary" | "background") => {
     if (options.signal?.aborted) return;
-    await yieldBetweenTasks();
+    if (target === "background") await yieldBetweenTasks();
     await waitUntilVisible();
     if (options.signal?.aborted) return;
     let failed = false;
@@ -102,7 +102,7 @@ export async function runPreloadStages(
     options.onProgress?.(progress);
   };
 
-  for (const task of primaryTasks) await runTask(task, "primary");
+  await Promise.all(primaryTasks.map((task) => runTask(task, "primary")));
   if (options.signal?.aborted || primary.failed > 0) return progress;
   progress = { primary, background, stage: "background" };
   options.onProgress?.(progress);
@@ -144,7 +144,7 @@ export function schedulePreloads(loaders: readonly Preload[]): () => void {
 
   const cancelScheduled = () => {
     window.clearTimeout(timer);
-    if (idle !== undefined) window.cancelIdleCallback(idle);
+    if (idle !== undefined) window.cancelIdleCallback?.(idle);
     timer = undefined;
     idle = undefined;
   };

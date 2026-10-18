@@ -69,7 +69,7 @@ describe("dashboard warmup wiring", () => {
     vi.useRealTimers();
   });
 
-  it("renders immediately and waits for idle before requesting other modules", async () => {
+  it("renders immediately and starts primary warmup without waiting for idle", async () => {
     vi.useFakeTimers();
     const idle = vi.fn(() => 1);
     vi.stubGlobal("requestIdleCallback", idle);
@@ -82,9 +82,8 @@ describe("dashboard warmup wiring", () => {
       </QueryClientProvider>,
     );
     expect(screen.getByRole("textbox", { name: "Current form" })).toHaveValue("draft");
-    await act(() => vi.advanceTimersByTimeAsync(2000));
-    expect(idle).toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(fetch).toHaveBeenCalled();
     unmount();
   });
 
