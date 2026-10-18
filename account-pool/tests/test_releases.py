@@ -423,6 +423,23 @@ def test_batch_image_delete_requires_valid_backup_and_rechecks_container_use(set
     assert OLD in runtime.discover()
 
 
+@pytest.mark.parametrize("service", ("litellm", "account-pool"))
+def test_removal_reference_allows_project_and_backup_digest_tags(service: str) -> None:
+    from account_pool.release_runtime import removal_reference_allowed
+
+    repository: Final = {
+        "litellm": "ghcr.io/vvv-345/litellm",
+        "account-pool": "ghcr.io/vvv-345/account-pool-manager",
+    }[service]
+    digest: Final = "a" * 64
+    assert removal_reference_allowed(service, f"{repository}:tag")
+    assert removal_reference_allowed(service, f"{repository}@sha256:{digest}")
+    assert removal_reference_allowed(service, f"litellm-backup/{service}:tag")
+    assert removal_reference_allowed(service, f"litellm-backup/{service}@sha256:{digest}")
+    assert not removal_reference_allowed(service, f"other/{service}:tag")
+    assert not removal_reference_allowed(service, f"{repository}-other:tag")
+
+
 @pytest.mark.parametrize("problem", ("corrupt", "recovery"))
 def test_batch_image_delete_rejects_corruption_and_recovery_references(setup, problem) -> None:
     service, runtime, clock = setup

@@ -40,6 +40,18 @@ from account_pool.release_store import ReleaseDownloadError, ReleaseError, write
 REPOSITORIES: Final = {"litellm": "ghcr.io/vvv-345/litellm", "account-pool": "ghcr.io/vvv-345/account-pool-manager"}
 
 
+def removal_reference_allowed(service: str, reference: str) -> bool:
+    repository: Final = REPOSITORIES[service]
+    return reference.startswith(
+        (
+            repository + ":",
+            repository + "@sha256:",
+            "litellm-backup/" + service + ":",
+            "litellm-backup/" + service + "@sha256:",
+        )
+    )
+
+
 class ReleaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_RELEASE_", frozen=True)
     root: Path = Path("/var/lib/litellm-releases")
@@ -269,16 +281,7 @@ class DockerReleaseRuntime:
         if actual.image_id != image.image_id or actual.revision != image.revision:
             raise ReleaseError("镜像身份已变化，请重新扫描")
         references: Final = tuple(dict.fromkeys((*(inspected.tags or ()), *(inspected.digests or ()))))
-        if any(
-            not reference.startswith(
-                (
-                    REPOSITORIES[image.service] + ":",
-                    REPOSITORIES[image.service] + "@sha256:",
-                    "litellm-backup/" + image.service + ":",
-                )
-            )
-            for reference in references
-        ):
+        if any(not removal_reference_allowed(image.service, reference) for reference in references):
             raise ReleaseError("镜像还被其他仓库标签引用，不能删除")
         return inspected.tags or inspected.digests or (image.image_id,)
 
