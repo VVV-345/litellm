@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CircleHelp, Clock } from "lucide-react";
 import React, { useCallback, useMemo } from "react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 
 const STORE_PROMPTS_FIELD_NAME = "store_prompts_in_spend_logs";
 
@@ -158,6 +159,8 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
   isSaving,
   onSubmit,
 }) => {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   const form = useForm<LoggingSettingsFormValues>({ defaultValues: initialValues });
 
   return (
@@ -168,10 +171,12 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
             control={form.control}
             name={STORE_PROMPTS_FIELD_NAME}
             label={labelWithHint(
-              "Store Prompts in Spend Logs",
-              describeField(
-                STORE_PROMPTS_FIELD_NAME,
-                "When enabled, prompts will be stored in spend logs for tracking and analysis purposes.",
+              ui("Store Prompts in Spend Logs"),
+              ui(
+                describeField(
+                  STORE_PROMPTS_FIELD_NAME,
+                  "When enabled, prompts will be stored in spend logs for tracking and analysis purposes.",
+                ),
               ),
             )}
           >
@@ -185,7 +190,7 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
               key={field.name}
               control={form.control}
               name={field.name}
-              label={labelWithHint(field.label, describeField(field.name, field.fallbackTooltip))}
+              label={labelWithHint(ui(field.label), ui(describeField(field.name, field.fallbackTooltip)))}
             >
               {({ ref, onChange, onBlur, ...control }) =>
                 field.kind === "duration" ? (
@@ -195,7 +200,7 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
                       ref={ref}
                       onChange={(event) => onChange(event.target.value)}
                       onBlur={onBlur}
-                      placeholder={field.placeholder}
+                      placeholder={ui(field.placeholder)}
                     />
                     <InputGroupAddon>
                       <Clock />
@@ -211,7 +216,7 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
                       onChange(countDisplay(event.target.value));
                       onBlur();
                     }}
-                    placeholder={field.placeholder}
+                    placeholder={ui(field.placeholder)}
                   />
                 )
               }
@@ -221,7 +226,7 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
 
         <Button type="submit" className="mt-6" disabled={isSaving}>
           {isSaving && <UiLoadingSpinner role="img" aria-label="loading" className="size-4" />}
-          {isSaving ? "Saving..." : "Save Settings"}
+          {isSaving ? ui("Saving...") : ui("Save Settings")}
         </Button>
       </form>
     </TooltipProvider>
@@ -229,6 +234,8 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
 };
 
 const LoggingSettings: React.FC = () => {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   const { mutate, isPending } = useStoreRequestInSpendLogs();
   const { mutate: deleteField, isPending: isDeletingField } = useDeleteProxyConfigField();
   const { data: proxyConfigData, isLoading: isLoadingConfig } = useProxyConfig(ConfigType.GENERAL_SETTINGS);
@@ -295,8 +302,8 @@ const LoggingSettings: React.FC = () => {
     const updateParams = buildUpdateParams(formValues);
     const submitUpdate = () =>
       mutate(updateParams, {
-        onSuccess: () => toast.success("Spend logs settings updated successfully"),
-        onError: (error) => toast.fromError("Failed to save spend logs settings: " + parseErrorMessage(error)),
+        onSuccess: () => toast.success(ui("Spend logs settings updated successfully")),
+        onError: (error) => toast.fromError(ui("Failed to save spend logs settings: ") + parseErrorMessage(error)),
       });
 
     const fieldsToClear = omittedFieldNames(updateParams, isStored);
@@ -309,7 +316,7 @@ const LoggingSettings: React.FC = () => {
       if (failed.length > 0) {
         // Reporting an unqualified success here would tell the admin a setting
         // was reset to its default while the old value is still in force.
-        toast.fromError(`Failed to clear saved value for: ${failed.join(", ")}`);
+        toast.fromError(ui("Failed to clear saved value for: ") + failed.join(", "));
         return;
       }
       submitUpdate();
@@ -319,12 +326,12 @@ const LoggingSettings: React.FC = () => {
   return (
     <Card>
       <CardHeader className="border-b">
-        <CardTitle>Logging Settings</CardTitle>
+        <CardTitle>{ui("Logging Settings")}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="flex w-full flex-col gap-6">
           <p className="mb-0 text-muted-foreground">
-            Proxy-wide settings that control how request and response data are written to spend logs.
+            {ui("Proxy-wide settings that control how request and response data are written to spend logs.")}
           </p>
 
           {isLoadingConfig ? (

@@ -9,6 +9,7 @@ import { parseErrorMessage } from "@/components/shared/errorUtils";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { renderWithProviders } from "../../../../../tests/test-utils";
 import LoggingSettings from "./LoggingSettings";
 
@@ -96,7 +97,8 @@ describe("LoggingSettings", () => {
     }
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.resetAllMocks();
     mockUseStoreRequestInSpendLogs.mockReturnValue({
       mutate: mockMutate,
