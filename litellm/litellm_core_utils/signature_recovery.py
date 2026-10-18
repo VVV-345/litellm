@@ -27,6 +27,7 @@ _CONTENT: Final = frozenset(
         "redacted_thinking",
     )
 )
+_DROPPABLE: Final = frozenset(("additional_tools", "configuration_update", "compaction_trigger"))
 
 
 def client_tool(tool: JsonValue) -> bool:
@@ -120,8 +121,17 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
 def _history_issue(item: JsonValue, path: str) -> str | None:
     if not isinstance(item, dict):
         return f"unsupported_history:{path}:invalid_item"
-    if item.get("type") == "compaction":
+    if item.get("type") in ("compaction", "context_compaction"):
         return f"encrypted_compaction:{path}"
+    if item.get("type") == "additional_tools":
+        tools: Final = item.get("tools")
+        if tools is not None and (
+            not isinstance(tools, list) or not all(client_tool(tool) for tool in tools)
+        ):
+            return f"server_or_unknown_tools:{path}"
+        return None
+    if item.get("type") in _DROPPABLE:
+        return None
     if item.get("type") == "item_reference":
         return f"server_item_reference:{path}"
     if item.get("type") in (
@@ -192,6 +202,7 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
             for item in history
             if isinstance(item, dict)
             and item.get("type") != "reasoning"
+            and item.get("type") not in _DROPPABLE
             and item.get("role") not in ("system", "developer")
         ),
         None,
@@ -214,6 +225,17 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
     if signature_recovery_reason(payload) is not None:
         return None
     history: Final = payload.get("messages", payload.get("input"))
+    items: Final = _HISTORY.validate_python(history)
+    promoted: Final = next(
+        (
+            candidate
+            for item in reversed(items)
+            if item.get("type") == "additional_tools"
+            and isinstance(candidate := item.get("tools"), list)
+            and candidate
+        ),
+        None,
+    )
     normalized: Final = [
         {**item, "content": None}
         if item.get("role") == "assistant"
@@ -222,7 +244,7 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         and content
         and all(isinstance(block, dict) and block.get("type") in ("thinking", "redacted_thinking") for block in content)
         else item
-        for item in _HISTORY.validate_python(history)
+        for item in items
     ]
     stripped: Final = _HISTORY.validate_python(
         [
@@ -242,7 +264,7 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
             if key not in ("thinking_blocks", "reasoning_content", "encrypted_content")
         }
         for item in stripped
-        if item.get("type") != "reasoning"
+        if item.get("type") != "reasoning" and item.get("type") not in _DROPPABLE
     ]
     if cleaned_history == history:
         return None
@@ -250,4 +272,6 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         **{key: value for key, value in payload.items() if key != "thinking"},
         "messages" if "messages" in payload else "input": cleaned_history,
     }
+    if promoted is not None and not payload.get("tools"):
+        cleaned["tools"] = promoted
     return cleaned if cleaned != payload else None

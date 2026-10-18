@@ -181,9 +181,16 @@ def test_failover_rebuildable_allows_client_tools_without_signed_state() -> None
     assert failover_rebuildable({"model": "model-a", "input": [{"role": "user", "content": "hi"}], "tools": tools})
     assert failover_rebuildable({"model": "model-a", "input": "hi", "tools": tools})
     assert not failover_rebuildable({"model": "model-a", "previous_response_id": "resp_old", "input": "hi"})
-    assert not failover_rebuildable(
-        {"model": "model-a", "input": [{"type": "additional_tools", "role": "system", "tools": []}]}
+    assert failover_rebuildable(
+        {
+            "model": "model-a",
+            "input": [
+                {"type": "additional_tools", "role": "developer", "tools": tools},
+                {"role": "user", "content": "hi"},
+            ],
+        }
     )
+    assert not failover_rebuildable({"model": "model-a", "input": [{"type": "unknown_control"}, {"role": "user", "content": "hi"}]})
     assert not failover_rebuildable({"model": "model-a", "tools": [{"type": "web_search"}]})
 
 
@@ -286,7 +293,7 @@ def test_unknown_control_item_does_not_fail_over() -> None:
             json={
                 "model": "model-a",
                 "input": [
-                    {"type": "additional_tools", "role": "system", "tools": []},
+                    {"type": "unknown_control"},
                     {"role": "user", "content": "hello"},
                 ],
                 "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
@@ -2662,6 +2669,84 @@ def test_signature_recovery_keeps_complete_client_tool_history(stream, style):
     assert "signature_recovery" in control.finished[0].detail
 
 
+def test_signature_recovery_promotes_codex_additional_tools_and_drops_control_items() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    payload = {
+        "model": "model-a",
+        "input": [
+            {"type": "additional_tools", "role": "developer", "id": "at_1", "tools": tools},
+            {"type": "configuration_update", "reasoning": {"effort": "high"}},
+            {"type": "compaction_trigger"},
+            {"role": "user", "content": "hi"},
+            {"type": "reasoning", "encrypted_content": "foreign", "summary": []},
+            {"role": "assistant", "content": "ok"},
+        ],
+    }
+    recovered = recover_signature_history(payload)
+    assert recovered is not None
+    assert recovered["input"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "ok"},
+    ]
+    assert recovered["tools"] == tools
+    assert (
+        recover_signature_history(
+            {
+                "model": "model-a",
+                "input": [
+                    {"type": "additional_tools", "role": "developer", "tools": [{"type": "web_search"}]},
+                    {"role": "user", "content": "hi"},
+                ],
+            }
+        )
+        is None
+    )
+
+    kept = recover_signature_history(
+        {**payload, "tools": [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]}
+    )
+    assert kept is not None
+    assert kept["tools"] == [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]
+
+
+def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
+    requests: list[dict[str, object]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    payload = {
+        "model": "model-a",
+        "input": [
+            {"type": "additional_tools", "role": "developer", "id": "at_1", "tools": tools},
+            {"role": "user", "content": "hi"},
+            {"type": "reasoning", "encrypted_content": "foreign", "summary": []},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "continue"},
+        ],
+    }
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert response.status_code == 200
+    assert len(requests) == 2
+    retried = requests[1]
+    assert retried["tools"] == tools
+    assert all(item.get("type") != "additional_tools" for item in retried["input"])
+    assert all(item.get("type") != "reasoning" for item in retried["input"])
+    assert [item for item in retried["input"] if item.get("role") == "user"] == [
+        {"role": "user", "content": "hi"},
+        {"role": "user", "content": "continue"},
+    ]
+    assert "signature_recovery" in control.finished[0].detail
+
+
 @pytest.mark.parametrize(
     "history,tools",
     [
@@ -2777,6 +2862,7 @@ def test_cross_site_signature_recovery_preserves_visible_history_and_custom_tool
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("history_item,reason", [
     ({"type": "compaction", "encrypted_content": "foreign-secret"}, "encrypted_compaction"),
+    ({"type": "context_compaction", "encrypted_content": "foreign-secret"}, "encrypted_compaction"),
     ({"type": "item_reference", "id": "opaque-private-id"}, "server_item_reference"),
     ({"role": "assistant", "content": [{"type": "private-unknown-type", "text": "private-content"}]},
      "unsupported_content"),
