@@ -76,7 +76,7 @@ export function ModuleVisibilityPanel({ accessToken }: { accessToken: string }) 
         </div>
       </div>
       {settings.isError && (
-        <p role="alert" className="mt-3 text-sm text-destructive">
+        <p role="status" className="mt-3 text-sm text-destructive">
           读取失败，当前使用默认关闭列表
         </p>
       )}
