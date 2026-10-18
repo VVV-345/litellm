@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
 import { useUpdateUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUpdateUISettings";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
@@ -32,20 +34,24 @@ function SettingRow({
   muted = false,
   onCheckedChange,
 }: SettingRowProps) {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   return (
     <div className={indented ? "ml-8 flex items-start gap-3" : "flex items-start gap-3"}>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} aria-label={ariaLabel} />
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} aria-label={ui(ariaLabel)} />
       <div className="space-y-1">
         <p className={muted ? "text-sm font-medium text-muted-foreground" : "text-sm font-medium text-foreground"}>
-          {label}
+          {ui(label)}
         </p>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        {description && <p className="text-sm text-muted-foreground">{ui(description)}</p>}
       </div>
     </div>
   );
 }
 
 export default function UISettings() {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   const { accessToken } = useAuthorized();
   const { data, isLoading, isError, error } = useUISettings();
   const { mutate: updateSettings, isPending: isUpdating, error: updateError } = useUpdateUISettings(accessToken);
@@ -76,7 +82,7 @@ export default function UISettings() {
       { disable_model_add_for_internal_users: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -90,7 +96,7 @@ export default function UISettings() {
       { disable_team_admin_delete_team_user: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -102,7 +108,7 @@ export default function UISettings() {
   const handleUpdatePageVisibility = (settings: { enabled_ui_pages_internal_users: string[] | null }) => {
     updateSettings(settings, {
       onSuccess: () => {
-        toast.success("Page visibility settings updated successfully");
+        toast.success(ui("Page visibility settings updated successfully"));
       },
       onError: (error) => {
         toast.fromError(error);
@@ -115,7 +121,7 @@ export default function UISettings() {
       { forward_client_headers_to_llm_api: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -129,7 +135,7 @@ export default function UISettings() {
       { forward_llm_provider_auth_headers: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -143,7 +149,7 @@ export default function UISettings() {
       { enable_projects_ui: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully. Refreshing page...");
+          toast.success(ui("UI settings updated successfully. Refreshing page..."));
           setTimeout(() => window.location.reload(), 1000);
         },
         onError: (error) => {
@@ -158,7 +164,7 @@ export default function UISettings() {
       { enable_chat_ui: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully. Refreshing page...");
+          toast.success(ui("UI settings updated successfully. Refreshing page..."));
           setTimeout(() => window.location.reload(), 1000);
         },
         onError: (error) => {
@@ -173,7 +179,7 @@ export default function UISettings() {
       { require_auth_for_public_ai_hub: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -187,7 +193,7 @@ export default function UISettings() {
       { disable_agents_for_internal_users: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -201,7 +207,7 @@ export default function UISettings() {
       { allow_agents_for_team_admins: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -215,7 +221,7 @@ export default function UISettings() {
       { disable_vector_stores_for_internal_users: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -229,7 +235,7 @@ export default function UISettings() {
       { allow_vector_stores_for_team_admins: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -243,7 +249,7 @@ export default function UISettings() {
       { scope_user_search_to_org: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -257,7 +263,7 @@ export default function UISettings() {
       { disable_custom_api_keys: checked },
       {
         onSuccess: () => {
-          toast.success("UI settings updated successfully");
+          toast.success(ui("UI settings updated successfully"));
         },
         onError: (error) => {
           toast.fromError(error);
@@ -270,27 +276,27 @@ export default function UISettings() {
     <Card>
       <CardHeader>
         <CardTitle>
-          <h3>UI Settings</h3>
+          <h3>{ui("UI Settings")}</h3>
         </CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div role="status" aria-label="Loading UI settings" className="space-y-3">
+          <div role="status" aria-label={ui("Loading UI settings")} className="space-y-3">
             <Skeleton className="h-5 w-72" />
             <Skeleton className="h-16 w-full" />
             <Skeleton className="h-16 w-full" />
           </div>
         ) : isError ? (
           <Alert variant="error">
-            <AlertTitle>Could not load UI settings</AlertTitle>
+            <AlertTitle>{ui("Could not load UI settings")}</AlertTitle>
             {error instanceof Error && <AlertDescription>{error.message}</AlertDescription>}
           </Alert>
         ) : (
           <div className="space-y-6">
-            {schema?.description && <p className="text-sm text-foreground">{schema.description}</p>}
+            {schema?.description && <p className="text-sm text-foreground">{ui(schema.description)}</p>}
             {updateError && (
               <Alert variant="error">
-                <AlertTitle>Could not update UI settings</AlertTitle>
+                <AlertTitle>{ui("Could not update UI settings")}</AlertTitle>
                 {updateError instanceof Error && <AlertDescription>{updateError.message}</AlertDescription>}
               </Alert>
             )}

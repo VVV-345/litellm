@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 
 import { renderWithProviders, screen } from "@/../tests/test-utils";
 
@@ -14,6 +15,10 @@ vi.mock("@/components/page_utils", () => ({
 }));
 
 describe("PageVisibilitySettings", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("should render the not-set tag when enabledPagesInternalUsers is null", () => {
     renderWithProviders(
       <PageVisibilitySettings enabledPagesInternalUsers={null} isUpdating={false} onUpdate={vi.fn()} />,

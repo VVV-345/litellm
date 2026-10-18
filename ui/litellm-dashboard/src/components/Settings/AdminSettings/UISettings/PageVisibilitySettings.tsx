@@ -69,7 +69,9 @@ export default function PageVisibilitySettings({
           </Badge>
         </div>
         {enabledPagesPropertyDescription && (
-          <p className="text-sm text-muted-foreground">{enabledPagesPropertyDescription}</p>
+          <p className="text-sm text-muted-foreground">
+            {t(`ui.${enabledPagesPropertyDescription}`, { defaultValue: enabledPagesPropertyDescription })}
+          </p>
         )}
         <p className="text-xs italic text-muted-foreground">
           {t("ui.By default, all pages are visible to internal users. Select specific pages to restrict visibility.")}
@@ -91,7 +93,7 @@ export default function PageVisibilitySettings({
             {Object.entries(pagesByGroup).map(([groupName, pages]) => (
               <fieldset key={groupName} className="space-y-2">
                 <legend className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  {groupName}
+                  {t(`ui.${groupName}`, { defaultValue: groupName })}
                 </legend>
                 <div className="ml-4 space-y-2">
                   {pages.map((page) => {
@@ -104,8 +106,12 @@ export default function PageVisibilitySettings({
                           onCheckedChange={(checked) => togglePage(page.page, checked === true)}
                         />
                         <span className="space-y-0.5">
-                          <span className="block text-sm text-foreground">{page.label}</span>
-                          <span className="block text-xs text-muted-foreground">{page.description}</span>
+                          <span className="block text-sm text-foreground">
+                            {t(`ui.${page.label}`, { defaultValue: page.label })}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {t(`ui.${page.description}`, { defaultValue: page.description })}
+                          </span>
                         </span>
                       </label>
                     );

@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import UISettings from "./UISettings";
 import { toast } from "@/lib/toast";
 
@@ -49,7 +50,8 @@ const buildSettingsResponse = (overrides?: Partial<Record<string, unknown>>) => 
 });
 
 describe("UISettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     mockUseAuthorized.mockReturnValue({ accessToken: "test-token" });
     mockUseUISettings.mockReturnValue(buildSettingsResponse());
