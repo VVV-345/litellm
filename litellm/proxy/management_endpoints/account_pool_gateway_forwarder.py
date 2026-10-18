@@ -49,6 +49,7 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
     RetryStream,
     StreamBootstrap,
     backoff_seconds,
+    failover_rebuildable,
     replay_safe,
     retry_after,
     same_card_replay_safe,
@@ -341,6 +342,11 @@ async def forward(
     migrated: Final = getattr(request.state, "account_pool_conversation_replay", "disabled") == "migrated"
     allow_retry: Final = not migrated and (same_card_replay_safe(payload) or conversation_retry(request))
     allow_failover: Final = not migrated and replay_safe(payload)
+    failover_ready: Final = (
+        not migrated
+        and not getattr(request.state, "account_pool_model_test", False)
+        and failover_rebuildable(payload)
+    )
     configured_attempts: Final = min(
         routing.max_attempts, getattr(request.state, "account_pool_attempt_limit", 10),
         1 if getattr(request.state, "account_pool_model_test", False) else 10,
@@ -356,7 +362,7 @@ async def forward(
         else (*scoped, *(route for route in selected if route.account.id != resolution.card_id))
     )
     eligible: Final = (
-        ordered if routing.fallback_enabled and allow_failover
+        ordered if routing.fallback_enabled and (allow_failover or failover_ready)
         and not getattr(request.state, "account_pool_model_test", False) else scoped[:1]
     )
     request_id: Final = getattr(request.state, "account_pool_request_id", None) or uuid4()
@@ -381,6 +387,7 @@ async def forward(
         rejection_reasons=frozenset[AcquireRejectionReason](),
         same_card_attempt=1,
         deadline=asyncio.get_running_loop().time() + remaining,
+        failover_ready=failover_ready,
     )
     try:
         completed, rejections = (
@@ -452,6 +459,7 @@ async def forward_candidate(
     rejection_reasons: frozenset[AcquireRejectionReason],
     same_card_attempt: int = 1,
     deadline: float = float("inf"),
+    failover_ready: bool = False,
 ) -> tuple[bool, frozenset[AcquireRejectionReason]]:
     attempt_limit: Final = min(10, getattr(request.state, "account_pool_attempt_limit", 10))
     if route_index >= len(selected) or attempt_number > attempt_limit:
@@ -524,6 +532,7 @@ async def forward_candidate(
                 rejection_reasons,
                 same_card_attempt,
                 deadline,
+                failover_ready,
             )
         return await forward_candidate(
             request,
@@ -542,6 +551,7 @@ async def forward_candidate(
             rejection_reasons | frozenset((lease.reason,)),
             1,
             deadline,
+            failover_ready,
         )
     same_card_retry: Final = same_card_attempt < max_attempts
     next_index: Final = route_index if same_card_retry else route_index + 1
@@ -581,6 +591,7 @@ async def forward_candidate(
                 seconds,
                 deadline,
                 alternate_id=alternate_id,
+                failover_ready=failover_ready,
             )
         switch_unavailable: Final = (
             not completed
@@ -634,6 +645,7 @@ async def forward_candidate(
             frozenset[AcquireRejectionReason](),
             same_card_attempt + 1 if actual_next_index == route_index else 1,
             deadline,
+            failover_ready,
         )
     return True, frozenset[AcquireRejectionReason]()
 
@@ -650,6 +662,7 @@ async def execute(
     deadline: float = float("inf"),
     signature_recovered: bool = False,
     alternate_id: UUID | None = None,
+    failover_ready: bool = False,
 ) -> bool:
     read_seconds: Final = min(
         resolution.policy.transport.read_timeout_seconds or seconds,
@@ -756,6 +769,7 @@ async def execute(
                             seconds,
                             deadline,
                             signature_recovered=True,
+                            failover_ready=failover_ready,
                         )
                     if signature_error(error_payload):
                         attempt.outcome(
@@ -769,6 +783,16 @@ async def execute(
                     public_status: Final = response.status_code if response.status_code >= 400 else 502
                     failure: Final = classify_failure(public_status, error_payload, response.headers)
                     retry_target: Final = next_id if failure.same_account else alternate_id
+                    pre_execution: Final = failure.reason in (
+                        "quota_exhausted",
+                        "account_unavailable",
+                        "model_unavailable",
+                    )
+                    cross_allowed: Final = (
+                        not (retry_target is not None and retry_target != route.account.id)
+                        or replay_safe(payload)
+                        or (failover_ready and pre_execution)
+                    )
                     retryable: Final = (
                         not signature_error(error_payload)
                         and failure.retryable
@@ -789,7 +813,9 @@ async def execute(
                                 "rate_limit_error",
                                 "model_not_found",
                             )
+                            or (failover_ready and pre_execution)
                         )
+                        and cross_allowed
                         and asyncio.get_running_loop().time() < deadline
                     )
                     retry: Final = retry_target is not None and retryable
@@ -879,6 +905,7 @@ async def execute(
                                 deadline,
                                 bootstrap,
                                 alternate_id=alternate_id,
+                                failover_ready=failover_ready,
                             )
                             if attempt.stream_state.signature_rejected:
                                 attempt.outcome(
@@ -901,6 +928,7 @@ async def execute(
                         deadline,
                         signature_recovered=signature_recovered,
                         alternate_id=alternate_id,
+                        failover_ready=failover_ready,
                     )
                     if attempt.stream_state.signature_rejected:
                         stream_reason: Final = "output_started" if attempt.stream_state.meaningful else recovery_reason
@@ -1239,6 +1267,7 @@ async def guarded_stream_response(
     prepared: StreamBootstrap | None = None,
     signature_recovered: bool = False,
     alternate_id: UUID | None = None,
+    failover_ready: bool = False,
 ) -> bool:
     standard_accounting: Final = getattr(request.state, "account_pool_standard_accounting", False) is True
     if (next_id is None and not standard_accounting) or not (same_card_replay_safe(payload) or conversation_retry(request)):
@@ -1262,6 +1291,16 @@ async def guarded_stream_response(
                 response.headers,
             )
             retry_target: Final = next_id if failure.same_account else alternate_id
+            pre_execution: Final = failure.reason in (
+                "quota_exhausted",
+                "account_unavailable",
+                "model_unavailable",
+            )
+            cross_allowed: Final = (
+                not (retry_target is not None and retry_target != route.account.id)
+                or replay_safe(payload)
+                or (failover_ready and pre_execution)
+            )
             retryable: Final = (
                 failure.retryable
                 and (
@@ -1281,7 +1320,9 @@ async def guarded_stream_response(
                         "rate_limit_error",
                         "model_not_found",
                     )
+                    or (failover_ready and pre_execution)
                 )
+                and cross_allowed
                 and asyncio.get_running_loop().time() < deadline
             )
             retry: Final = retry_target is not None and retryable
@@ -1299,6 +1340,21 @@ async def guarded_stream_response(
             )
             if retry:
                 return False
+            if (
+                not standard_accounting
+                and next_id is not None
+                and next_id != route.account.id
+                and not cross_allowed
+            ):
+                await stream_response(
+                    request,
+                    response,
+                    attempt,
+                    cost_usd,
+                    bootstrap.replay(),
+                    resolution.sse_heartbeat_interval_seconds,
+                )
+                return True
             await JSONResponse(
                 {"error": bootstrap.state.public_error()},
                 status_code=bootstrap.state.error_status,

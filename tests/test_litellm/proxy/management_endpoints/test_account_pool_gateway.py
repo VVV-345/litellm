@@ -113,6 +113,129 @@ def test_account_pool_quota_rejection_switches_cards() -> None:
     assert control.finished[0].switched_account
 
 
+def test_failover_rebuildable_allows_client_tools_without_signed_state() -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import failover_rebuildable
+
+    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    assert failover_rebuildable({"model": "model-a", "input": [{"role": "user", "content": "hi"}], "tools": tools})
+    assert failover_rebuildable({"model": "model-a", "input": "hi", "tools": tools})
+    assert not failover_rebuildable({"model": "model-a", "previous_response_id": "resp_old", "input": "hi"})
+    assert not failover_rebuildable(
+        {"model": "model-a", "input": [{"type": "additional_tools", "role": "system", "tools": []}]}
+    )
+    assert not failover_rebuildable({"model": "model-a", "tools": [{"type": "web_search"}]})
+
+
+def test_quota_failure_with_client_tools_switches_cards() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        if len(calls) == 1:
+            return httpx.Response(429, json={"error": {"code": "usage_limit_reached"}})
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={
+                "model": "model-a",
+                "input": [{"role": "user", "content": "hello"}],
+                "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+            },
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert len(calls) == 2 and calls[0] != calls[1]
+    assert control.finished[0].failure_reason == "quota_exhausted"
+    assert control.finished[0].switched_account
+
+
+def test_quota_failure_strips_foreign_reasoning_on_next_card() -> None:
+    requests: list[tuple[str, dict[str, object]]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append((request.url.host, json.loads(request.content)))
+        if len(requests) == 1:
+            return httpx.Response(429, json={"error": {"code": "usage_limit_reached"}})
+        if len(requests) == 2:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    payload = {
+        "model": "model-a",
+        "input": [
+            {"role": "user", "content": "first"},
+            {"type": "reasoning", "summary": [], "encrypted_content": "foreign"},
+            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": "continue"},
+        ],
+        "tools": tools,
+    }
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post("/v1/responses", json=payload, headers={"Authorization": f"Bearer {_KEY}"})
+    assert result.status_code == 200
+    assert len(requests) == 3
+    assert requests[1][0] != requests[0][0]
+    assert requests[2][0] == requests[1][0]
+    assert all(item.get("type") != "reasoning" for item in requests[2][1]["input"])
+    assert requests[2][1]["tools"] == tools
+
+
+def test_cooling_card_with_client_tools_fails_over() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    first = control.resolution.candidates[0].id
+    second = control.resolution.candidates[1].id
+    control.cooldown_account_ids = frozenset({first})
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={
+                "model": "model-a",
+                "input": [{"role": "user", "content": "hello"}],
+                "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+            },
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert [item.account_id for item in control.acquisitions] == [first, second]
+    assert len(calls) == 1
+
+
+def test_unknown_control_item_does_not_fail_over() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(429, json={"error": {"code": "usage_limit_reached"}})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={
+                "model": "model-a",
+                "input": [
+                    {"type": "additional_tools", "role": "system", "tools": []},
+                    {"role": "user", "content": "hello"},
+                ],
+                "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+            },
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 429
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("quota", [False, True])
 def test_stream_quota_switches_but_transient_limit_retries_before_output(quota: bool) -> None:
     calls = []
@@ -477,6 +600,7 @@ class Control:
         self.exhausted = False
         self.budget_exhausted_account_ids: frozenset[UUID] = frozenset()
         self.unavailable_account_ids: frozenset[UUID] = frozenset()
+        self.cooldown_account_ids: frozenset[UUID] = frozenset()
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         if request.card_key != _KEY:
@@ -493,6 +617,8 @@ class Control:
             return AcquireRejected(reason="token_budget")
         if request.account_id in self.unavailable_account_ids:
             return AcquireRejected(reason="concurrency")
+        if request.account_id in self.cooldown_account_ids:
+            return AcquireRejected(reason="cooldown", retry_after_seconds=0)
         return Lease(
             lease_id=uuid4(),
             card_id=self.resolution.card_id,

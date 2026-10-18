@@ -44,6 +44,24 @@ def same_card_replay_safe(payload: Mapping[str, JsonValue]) -> bool:
     )
 
 
+def failover_rebuildable(payload: Mapping[str, JsonValue]) -> bool:
+    from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+
+    if any(payload.get(key) for key in ("previous_response_id", "conversation", "background", "functions")):
+        return False
+    if has_server_reference(payload):
+        return False
+    history: Final = payload.get("messages", payload.get("input"))
+    if isinstance(history, list) and history:
+        return signature_recovery_reason(payload) is None
+    tools: Final = payload.get("tools")
+    return (
+        (history is None or isinstance(history, str))
+        and (tools is None or isinstance(tools, list) and all(client_tool(tool) for tool in tools))
+        and not has_signed_history(dict(payload))
+    )
+
+
 class RetryStream:
     def __init__(self, request: Request, send: Send, request_id: UUID) -> None:
         self.request: Final = request
