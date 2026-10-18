@@ -15,8 +15,10 @@ import { UserBanner } from "@/components/UserBanner";
 import { MIGRATED_PAGES, migratedHref, legacyPageHref, legacyKeyForPathname } from "@/utils/migratedPages";
 import { PluginModeProvider, usePluginMode } from "@/contexts/PluginModeContext";
 import { createApiClient } from "@/lib/http/client";
-import { getProxyBaseUrl } from "@/components/networking";
+import { getProxyBaseUrl, getUISettings } from "@/components/networking";
+import { useQuery } from "@tanstack/react-query";
 import DashboardWarmup from "@/components/DashboardWarmup";
+import { disabledPagesOrDefault, isPageDisabled } from "@/lib/moduleVisibility";
 
 const pluginApiClient = createApiClient({ getBaseUrl: () => getProxyBaseUrl() ?? "" });
 
@@ -97,7 +99,24 @@ export function AgentControlPlaneView() {
   );
 }
 
-function DashboardShell({ children }: { children: React.ReactNode }) {
+function DisabledModule() {
+  return (
+    <div className="flex min-h-full items-center justify-center p-6">
+      <div className="max-w-md rounded-xl border bg-background p-6 text-center">
+        <p className="text-lg font-semibold">此模块未启用</p>
+        <p className="mt-2 text-sm text-muted-foreground">请到号池设置的模块开关中开启后再访问。</p>
+      </div>
+    </div>
+  );
+}
+
+function DashboardShell({
+  children,
+  disabledUiPages,
+}: {
+  children: React.ReactNode;
+  disabledUiPages: readonly string[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -107,6 +126,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const page = legacyKeyForPathname(pathname) || searchParams.get("page") || "api-keys";
   const isGateway = mode === "ai-gateway";
+  const pageDisabled = isPageDisabled(page, disabledUiPages);
 
   const navigateToPage = (newPage: string) => {
     const migratedRoute = MIGRATED_PAGES[newPage];
@@ -141,7 +161,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         setPage={navigateToPage}
         defaultSelectedKey={page}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+          onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+        disabledUiPages={disabledUiPages}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <DashboardHeader page={page} />
@@ -149,7 +170,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         <NoRedisWarningBanner accessToken={accessToken} />
         <LicenseExpiryBanner accessToken={accessToken} />
         <UserBanner accessToken={accessToken} />
-        <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto">{pageDisabled ? <DisabledModule /> : children}</main>
       </div>
     </div>
   );
@@ -160,6 +181,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const { accessToken, authLoading } = useAuth();
   const { mode } = usePluginMode();
+  const { data: uiSettings } = useQuery({
+    queryKey: ["uiSettings", "layout", accessToken],
+    queryFn: () => getUISettings(accessToken ?? ""),
+    enabled: Boolean(accessToken),
+    staleTime: 60 * 60 * 1000,
+  });
+  const disabledUiPages = disabledPagesOrDefault(uiSettings?.values?.disabled_ui_pages);
   const isInvitationFlow = Boolean(searchParams.get("invitation_id"));
 
   // Legacy invitation links point at /ui/?invitation_id=; the onboarding form now lives at its own
@@ -177,11 +205,11 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider accessToken={accessToken}>
       {mode === "ai-gateway" ? (
-        <DashboardWarmup>
-          <DashboardShell>{children}</DashboardShell>
+        <DashboardWarmup disabledPages={disabledUiPages}>
+          <DashboardShell disabledUiPages={disabledUiPages}>{children}</DashboardShell>
         </DashboardWarmup>
       ) : (
-        <DashboardShell>{children}</DashboardShell>
+        <DashboardShell disabledUiPages={disabledUiPages}>{children}</DashboardShell>
       )}
     </ThemeProvider>
   );

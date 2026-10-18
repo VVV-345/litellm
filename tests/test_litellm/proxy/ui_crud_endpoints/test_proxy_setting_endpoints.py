@@ -3144,3 +3144,15 @@ class TestPtuCostAttributionUISetting:
         assert response.status_code == 400
         assert "enable_ptu_cost_attribution" in str(response.json()["detail"])
         assert not mock_prisma.db.litellm_uisettings.upsert.called
+
+
+def test_disabled_ui_pages_setting_is_supported() -> None:
+    from litellm.proxy.ui_crud_endpoints.proxy_setting_endpoints import (
+        ALLOWED_UI_SETTINGS_FIELDS,
+        UISettings,
+    )
+
+    settings = UISettings(disabled_ui_pages=["llm-playground", "agents"])
+
+    assert settings.disabled_ui_pages == ["llm-playground", "agents"]
+    assert "disabled_ui_pages" in ALLOWED_UI_SETTINGS_FIELDS

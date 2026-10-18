@@ -49,6 +49,7 @@ import {
   requestLogsQueryOptions,
 } from "@/components/view_logs/log_filter_logic";
 import { dashboardBackgroundTasks } from "@/lib/dashboardBackground";
+import { DEFAULT_DISABLED_PAGES } from "@/lib/moduleVisibility";
 import { apiClient, modelAvailableCall, userGetInfoV2 } from "@/components/networking";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import { listAccountPoolProviderFamilies } from "@/features/account-pool/api/AccountPoolApi";
@@ -231,9 +232,13 @@ const createPrimaryTasks = (
 const batchesOfTwo = (tasks: readonly PreloadTask[]): PreloadTask[][] =>
   Array.from({ length: Math.ceil(tasks.length / 2) }, (_, index) => tasks.slice(index * 2, index * 2 + 2));
 
-const createBackgroundBatches = async (context: DashboardWarmupContext, signal: AbortSignal) => {
+const createBackgroundBatches = async (
+  context: DashboardWarmupContext,
+  signal: AbortSignal,
+  disabledPages: readonly string[],
+) => {
   const { queryClient, accessToken, userRole } = context;
-  const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal)];
+  const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal, disabledPages)];
   if (canManageAccountPool(userRole, false)) tasks.push(...ACCOUNT_POOL_MODULE_LOADERS.map((run, index) => task(`account-pool-module-${index}`, run)));
   tasks.push(task("other-log-modules", preloadOtherLogModules));
   if (canManageAccountPool(userRole, false)) {
@@ -274,11 +279,12 @@ export const runDashboardWarmup = async (
   context: DashboardWarmupContext,
   onProgress: (progress: PreloadStageProgress) => void,
   signal: AbortSignal,
+  disabledPages: readonly string[] = DEFAULT_DISABLED_PAGES,
 ) => {
   return runPreloadStages(createPrimaryTasks(context, signal), [], {
     onProgress,
     signal,
-    loadBackground: () => createBackgroundBatches(context, signal),
+    loadBackground: () => createBackgroundBatches(context, signal, disabledPages),
   });
 };
 
@@ -331,7 +337,13 @@ function WarmupProgress({
   );
 }
 
-export default function DashboardWarmup({ children }: { children: React.ReactNode }) {
+export default function DashboardWarmup({
+  children,
+  disabledPages = DEFAULT_DISABLED_PAGES,
+}: {
+  children: React.ReactNode;
+  disabledPages?: readonly string[];
+}) {
   const { accessToken, userID, userRole, token } = useAuth();
   const { mode } = usePluginMode();
   const queryClient = useQueryClient();
@@ -368,12 +380,13 @@ export default function DashboardWarmup({ children }: { children: React.ReactNod
         setState(next);
       },
       controller.signal,
+      disabledPages,
     );
     return () => {
       controller.abort();
       window.removeEventListener(SESSION_RESET_EVENT, stop);
     };
-  }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt]);
+  }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPages]);
 
   const retry = () => setAttempt((value) => value + 1);
   return (

@@ -6,6 +6,7 @@ import { $api } from "@/lib/http/api";
 import { teamListCall } from "@/app/(dashboard)/hooks/teams/useTeams";
 import { teamListScopeUserId } from "@/utils/roles";
 import { hasCapability, type Capability } from "@/utils/capabilities";
+import { isPageDisabled } from "./moduleVisibility";
 import type { PreloadTask } from "./progressivePreload";
 
 const routes = {
@@ -55,6 +56,7 @@ export const dashboardBackgroundTasks = (
     userRole: string;
   },
   signal: AbortSignal,
+  disabledPages: readonly string[] = [],
 ): PreloadTask[] => {
   const get = (path: string) => api.apiClient.get(path, { accessToken });
   const end = new Date();
@@ -189,24 +191,26 @@ export const dashboardBackgroundTasks = (
     "cost-optimization": "viewProxyWideCostData",
     "old-usage": "viewGlobalSpend",
   };
-  return Object.entries(routes).map(([page, load]) => ({
-    id: `page:${page}`,
-    run: async () => {
-      await load();
-      if (signal.aborted) return;
-      if (adminPages.has(page) && !all_admin_roles.includes(userRole)) return;
-      const capability = capabilities[page as keyof typeof routes];
-      if (capability && !hasCapability(userRole, capability)) return;
-      const loadData = initialData[page as keyof typeof routes];
-      if (loadData)
-        await queryClient.fetchQuery({
-          queryKey: ["dashboard-page-data", page],
-          queryFn: async () => {
-            await loadData();
-            return true;
-          },
-          meta: { dashboardWarmup: "background" },
-        });
-    },
-  }));
+  return Object.entries(routes)
+    .filter(([page]) => !isPageDisabled(page, disabledPages))
+    .map(([page, load]) => ({
+      id: `page:${page}`,
+      run: async () => {
+        await load();
+        if (signal.aborted) return;
+        if (adminPages.has(page) && !all_admin_roles.includes(userRole)) return;
+        const capability = capabilities[page as keyof typeof routes];
+        if (capability && !hasCapability(userRole, capability)) return;
+        const loadData = initialData[page as keyof typeof routes];
+        if (loadData)
+          await queryClient.fetchQuery({
+            queryKey: ["dashboard-page-data", page],
+            queryFn: async () => {
+              await loadData();
+              return true;
+            },
+            meta: { dashboardWarmup: "background" },
+          });
+      },
+    }));
 };

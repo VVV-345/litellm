@@ -4,9 +4,6 @@ import i18next from "@/i18n";
 import { renderWithProviders } from "../../tests/test-utils";
 import Sidebar, { menuGroups, getBreadcrumb } from "./leftnav";
 
-const router = { prefetch: vi.fn() };
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
-
 vi.mock("../utils/roles", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../utils/roles")>();
   return {
@@ -109,7 +106,6 @@ describe("Sidebar (leftnav)", () => {
   };
 
   beforeEach(async () => {
-    router.prefetch.mockClear();
     await i18next.changeLanguage("en");
   });
 
@@ -121,32 +117,20 @@ describe("Sidebar (leftnav)", () => {
     mockUseThemeImpl = unbrandedTheme;
   });
 
-  it("preloads common permitted routes first without loading every route at once", async () => {
-    vi.useFakeTimers();
-    renderWithProviders(<Sidebar {...defaultProps} />);
-    expect(router.prefetch).not.toHaveBeenCalled();
-    await act(() => vi.advanceTimersByTimeAsync(1500));
-    expect(router.prefetch.mock.calls).toEqual([["/ui/account-pool"]]);
-    await act(() => vi.advanceTimersByTimeAsync(1500));
-    expect(router.prefetch.mock.calls).toEqual([["/ui/account-pool"], ["/ui/logs"]]);
+  it("hides modules disabled by the account pool visibility settings", () => {
+    renderWithProviders(<Sidebar {...defaultProps} disabledUiPages={["guardrails", "policies"]} />);
+
+    expect(screen.queryByText("Guardrails")).not.toBeInTheDocument();
+    expect(screen.queryByText("Policies")).not.toBeInTheDocument();
+    expect(screen.getByText("Models + Endpoints")).toBeInTheDocument();
   });
 
-  it("does not preload routes hidden by the current role", async () => {
-    vi.useFakeTimers();
-    mockUseAuthorized.mockReturnValue({
-      userId: "reader",
-      accessToken: "reader-token",
-      userRole: "internal",
-      isViewOnly: false,
-      token: "reader-jwt",
-      userEmail: "reader@example.com",
-      premiumUser: false,
-      disabledPersonalKeyCreation: false,
-      showSSOBanner: false,
-    });
-    renderWithProviders(<Sidebar {...defaultProps} />);
-    await act(() => vi.advanceTimersByTimeAsync(1500));
-    expect(router.prefetch.mock.calls).toEqual([["/ui/logs"]]);
+  it("drops a parent group when every child module is disabled", () => {
+    renderWithProviders(
+      <Sidebar {...defaultProps} disabledUiPages={["search-tools", "vector-stores", "tool-policies"]} />,
+    );
+
+    expect(screen.queryByText("Tools")).not.toBeInTheDocument();
   });
 
   it("should link the logo to the UI home route rather than the proxy origin", () => {

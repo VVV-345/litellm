@@ -10,6 +10,7 @@ interface SidebarProviderProps {
   defaultSelectedKey: string;
   sidebarCollapsed: boolean;
   onToggleCollapsed?: () => void;
+  disabledUiPages: readonly string[];
 }
 
 const SidebarProvider = ({
@@ -17,6 +18,7 @@ const SidebarProvider = ({
   defaultSelectedKey,
   sidebarCollapsed,
   onToggleCollapsed,
+  disabledUiPages,
 }: SidebarProviderProps) => {
   const { accessToken } = useAuthorized();
   const [enabledPagesInternalUsers, setEnabledPagesInternalUsers] = useState<string[] | null>(null);
@@ -80,6 +82,7 @@ const SidebarProvider = ({
       allowAgentsForTeamAdmins={allowAgentsForTeamAdmins}
       disableVectorStoresForInternalUsers={disableVectorStoresForInternalUsers}
       allowVectorStoresForTeamAdmins={allowVectorStoresForTeamAdmins}
+      disabledUiPages={disabledUiPages}
     />
   );
 };

@@ -66,6 +66,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/cva.config";
+import { isPageDisabled } from "@/lib/moduleVisibility";
 import { rolesWithCapability } from "../utils/capabilities";
 import {
   all_admin_roles,
@@ -96,6 +97,7 @@ interface SidebarProps {
   allowAgentsForTeamAdmins?: boolean;
   disableVectorStoresForInternalUsers?: boolean;
   allowVectorStoresForTeamAdmins?: boolean;
+  disabledUiPages?: readonly string[];
 }
 
 interface MenuItem {
@@ -437,6 +439,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   allowAgentsForTeamAdmins,
   disableVectorStoresForInternalUsers,
   allowVectorStoresForTeamAdmins,
+  disabledUiPages = [],
 }) => {
   const { t } = useTranslation();
   const [prefetchKey, setPrefetchKey] = useState<string | null>(null);
@@ -514,9 +517,21 @@ const Sidebar_: React.FC<SidebarProps> = ({
       });
   };
 
+  const filterItemsByVisibility = (items: MenuItem[]): MenuItem[] =>
+    items.flatMap((item) => {
+      if (item.children) {
+        const children = filterItemsByVisibility(item.children);
+        return children.length ? [{ ...item, children }] : [];
+      }
+      return isPageDisabled(item.page, disabledUiPages) ? [] : [item];
+    });
+
   const visibleGroups = menuGroups
     .filter((group) => !group.roles || group.roles.includes(userRole))
-    .map((group) => ({ groupLabel: group.groupLabel, items: filterItemsByRole(group.items) }))
+    .map((group) => ({
+      groupLabel: group.groupLabel,
+      items: filterItemsByVisibility(filterItemsByRole(group.items)),
+    }))
     .filter((group) => group.items.length > 0);
 
   const toggleGroup = (key: string) => {

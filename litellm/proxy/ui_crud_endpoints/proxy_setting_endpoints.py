@@ -203,6 +203,11 @@ class UISettings(BaseModel):
         description="List of page keys that internal users (non-admins) can see in the UI sidebar. If not set, all pages are visible based on role permissions.",
     )
 
+    disabled_ui_pages: list[str] | None = Field(
+        default=None,
+        description="Page keys hidden from every dashboard sidebar and excluded from dashboard warmup. If not set, the dashboard applies its default disabled list.",
+    )
+
     require_auth_for_public_ai_hub: bool = Field(
         default=False,
         description="If true, requires authentication for accessing the public AI Hub.",
@@ -285,6 +290,7 @@ ALLOWED_UI_SETTINGS_FIELDS: Final = {
     "disable_model_add_for_internal_users",
     "disable_team_admin_delete_team_user",
     "enabled_ui_pages_internal_users",
+    "disabled_ui_pages",
     "require_auth_for_public_ai_hub",
     "allow_public_health_readiness_details",
     "forward_client_headers_to_llm_api",

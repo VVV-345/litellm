@@ -31,6 +31,7 @@ import { migratedHref } from "@/utils/migratedPages";
 import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePanel";
+import { ModuleVisibilityPanel } from "./ModuleVisibilityPanel";
 
 type SettingsGroup = {
   icon: LucideIcon;
@@ -396,6 +397,9 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         </p>
       )}
       <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="md:col-span-2 2xl:col-span-3">
+          <ModuleVisibilityPanel accessToken={accessToken} />
+        </div>
         <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />
         <OverviewCard
           icon={Workflow}
