@@ -15,7 +15,9 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     SupplierKind,
 )
 
-AcquireRejectionReason: TypeAlias = Literal["concurrency", "configuration", "cooldown", "session", "token_budget"]
+AcquireRejectionReason: TypeAlias = Literal[
+    "concurrency", "configuration", "cooldown", "model_cooldown", "session", "token_budget"
+]
 
 
 class ResolveRequest(BaseModel):

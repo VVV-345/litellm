@@ -60,9 +60,70 @@ def test_preflight_reports_typed_account_failure_without_upstream_attempt(reason
     )
     with client:
         result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
-    assert result.status_code == 503
+    assert result.status_code == (429 if reason == "quota_exhausted" else 503)
     assert result.json()["error"]["code"] == "account_pool_" + reason
     assert control.acquisitions == []
+
+
+def test_model_cooldown_rejection_returns_429() -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("cooldown must not call upstream"), retry=True, max_attempts=2)
+    control.model_cooldown_account_ids = frozenset(account.id for account in control.resolution.candidates)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 429
+    assert result.json()["error"]["code"] == "account_pool_quota_exhausted"
+    assert result.headers["x-account-pool-failure"] == "quota_exhausted"
+    assert [item.account_id for item in control.acquisitions] == [
+        account.id for account in control.resolution.candidates
+    ]
+
+
+def test_runtime_cooldown_rejection_returns_503() -> None:
+    client, control = setup_gateway(lambda _: pytest.fail("cooldown must not call upstream"), retry=True, max_attempts=2)
+    control.cooldown_account_ids = frozenset(account.id for account in control.resolution.candidates)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 503
+    assert result.json()["error"]["code"] == "account_pool_account_unavailable"
+
+
+def test_internal_forward_model_cooldown_stays_503(monkeypatch) -> None:
+    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    _, original = setup_gateway(lambda _: pytest.fail("cooldown must not call upstream"), max_attempts=1)
+    resolution = original.resolution.model_copy(update={"candidates": original.resolution.candidates[:1]})
+
+    class InternalControl(Control):
+        async def resolve(self, request: ResolveRequest) -> Resolution:
+            return self.resolution
+
+    control = InternalControl(resolution)
+    control.model_cooldown_account_ids = frozenset({resolution.candidates[0].id})
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(500))
+        ),
+    )
+    ticket = create_ticket(
+        PoolIdentity(key_hash="virtual-key", request_id=uuid4(), protocol="responses"),
+        resolution.card_id,
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            INTERNAL_PREFIX + str(resolution.card_id) + "/v1/responses",
+            json={"model": "model-a", "input": "hi"},
+            headers={"Authorization": "Bearer " + ticket},
+        )
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "account_pool_account_unavailable"
 
 
 @pytest.mark.parametrize("quota", [False, True])
@@ -601,6 +662,7 @@ class Control:
         self.budget_exhausted_account_ids: frozenset[UUID] = frozenset()
         self.unavailable_account_ids: frozenset[UUID] = frozenset()
         self.cooldown_account_ids: frozenset[UUID] = frozenset()
+        self.model_cooldown_account_ids: frozenset[UUID] = frozenset()
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         if request.card_key != _KEY:
@@ -617,6 +679,8 @@ class Control:
             return AcquireRejected(reason="token_budget")
         if request.account_id in self.unavailable_account_ids:
             return AcquireRejected(reason="concurrency")
+        if request.account_id in self.model_cooldown_account_ids:
+            return AcquireRejected(reason="model_cooldown", retry_after_seconds=1)
         if request.account_id in self.cooldown_account_ids:
             return AcquireRejected(reason="cooldown", retry_after_seconds=0)
         return Lease(

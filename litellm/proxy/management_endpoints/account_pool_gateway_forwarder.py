@@ -167,6 +167,7 @@ _RESPONSES_TO_CHAT: Final[_ResponsesRequestTransformer] = cast(
 )  # cast-ok: shared transformer returns a legacy dict with the validated fields read here
 _CONFIGURATION_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("configuration", "session"))
 _TOKEN_BUDGET_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("token_budget",))
+_MODEL_COOLDOWN_REJECTIONS: Final[frozenset[AcquireRejectionReason]] = frozenset(("model_cooldown",))
 _EMPTY_HEADERS: Final[Mapping[str, str]] = MappingProxyType({})
 _REBUILD_DISABLED_HEADERS: Final = MappingProxyType({"x-account-pool-rebuild": "disabled"})
 
@@ -412,12 +413,23 @@ async def forward(
     if completed:
         return
     budget_only: Final = rejections == _TOKEN_BUDGET_REJECTIONS
-    status: Final = 409 if rejections & _CONFIGURATION_REJECTIONS else 429 if budget_only else 503
+    quota_limited: Final = rejections == _MODEL_COOLDOWN_REJECTIONS and not getattr(
+        request.state, "account_pool_standard_accounting", False
+    )
+    status: Final = (
+        409
+        if rejections & _CONFIGURATION_REJECTIONS
+        else 429
+        if budget_only or quota_limited
+        else 503
+    )
     message: Final = (
         "Account pool configuration changed"
         if "configuration" in rejections
         else "The session-bound account is unavailable"
         if "session" in rejections
+        else "No bound account has available quota"
+        if quota_limited
         else "No bound account has available local token budget"
         if budget_only
         else "No bound account is currently available"
@@ -426,13 +438,19 @@ async def forward(
     classified: Final[_GatewayErrorDetail] = {
         "message": message,
         "type": "account_pool_error",
-        "code": "account_pool_account_unavailable",
+        "code": "account_pool_quota_exhausted" if quota_limited else "account_pool_account_unavailable",
     }
-    content: Final[_GatewayErrorEnvelope] = {"error": classified if status == 503 else plain}
+    content: Final[_GatewayErrorEnvelope] = {"error": classified if status == 503 or quota_limited else plain}
     response_headers: Final = MappingProxyType(
         {
             "x-request-id": str(request_id),
-            **(failure_headers("account_unavailable") if status == 503 else _EMPTY_HEADERS),
+            **(
+                failure_headers("quota_exhausted")
+                if quota_limited
+                else failure_headers("account_unavailable")
+                if status == 503
+                else _EMPTY_HEADERS
+            ),
         }
     )
     await JSONResponse(
@@ -534,6 +552,11 @@ async def forward_candidate(
                 deadline,
                 failover_ready,
             )
+        rejection: Final = (
+            "model_cooldown"
+            if lease.reason == "cooldown" and lease.retry_after_seconds > 0
+            else lease.reason
+        )
         return await forward_candidate(
             request,
             payload,
@@ -548,7 +571,7 @@ async def forward_candidate(
             route_index + 1,
             attempt_number,
             max_attempts,
-            rejection_reasons | frozenset((lease.reason,)),
+            rejection_reasons | frozenset((rejection,)),
             1,
             deadline,
             failover_ready,

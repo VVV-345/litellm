@@ -324,7 +324,13 @@ class AccountPoolGatewayMiddleware:
                 stream: Final = payload.get("stream") is True
                 selected: Final = routes(resolution, model, path, headers, has_images, stream)
                 if isinstance(selected, Rejected):
-                    await error_response(selected.status, selected.message, selected.code)(scope, receive, send)
+                    status: Final = (
+                        429
+                        if selected.code == "account_pool_quota_exhausted"
+                        and not isinstance(control, TrustedControl)
+                        else selected.status
+                    )
+                    await error_response(status, selected.message, selected.code)(scope, receive, send)
                     return
                 await forward(request, payload, key, session, resolution, selected, control, client, send)
         except ClientDisconnect:
