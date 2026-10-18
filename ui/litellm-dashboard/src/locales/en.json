@@ -7382,6 +7382,9 @@
     "to confirm deletion:": "to confirm deletion:",
     "Show fewer tags": "Show fewer tags",
     "Show all tags": "Show all tags",
-    "Number of top keys to show": "Number of top keys to show"
+    "Number of top keys to show": "Number of top keys to show",
+    "Cache Key": "Cache Key",
+    "{{count}} masked": "{{count}} masked",
+    "An error occurred": "An error occurred"
   }
 }

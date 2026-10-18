@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { LogDetailContent } from "./LogDetailContent";
 import type { LogEntry } from "../columns";
 
@@ -43,6 +44,10 @@ const createLogEntry = (overrides: Partial<LogEntry> = {}): LogEntry =>
   }) as LogEntry;
 
 describe("LogDetailContent", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("should render the component successfully", () => {
     render(<LogDetailContent logEntry={createLogEntry()} />);
 

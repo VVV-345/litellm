@@ -7382,6 +7382,9 @@
     "to confirm deletion:": "以确认删除：",
     "Show fewer tags": "收起标签",
     "Show all tags": "显示全部标签",
-    "Number of top keys to show": "显示的热门密钥数量"
+    "Number of top keys to show": "显示的热门密钥数量",
+    "Cache Key": "缓存键",
+    "{{count}} masked": "{{count}} 个已脱敏",
+    "An error occurred": "发生错误"
   }
 }
