@@ -1,6 +1,7 @@
 import { renderHook, screen, waitFor, renderWithProviders } from "../../../tests/test-utils";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import type { Team } from "../key_team_helpers/key_list";
 import type { CredentialItem } from "../networking";
 import { Providers } from "../provider_info_helpers";
@@ -175,6 +176,10 @@ const createTestProps = (userRole = "proxy_admin", userId = "user-1", isTeamAdmi
     userId,
   };
 };
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("AddModelForm", () => {
   it("should render", async () => {
