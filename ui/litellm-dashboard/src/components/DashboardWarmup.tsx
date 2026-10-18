@@ -50,6 +50,7 @@ import {
 } from "@/components/view_logs/log_filter_logic";
 import { dashboardBackgroundTasks } from "@/lib/dashboardBackground";
 import { DEFAULT_DISABLED_PAGES } from "@/lib/moduleVisibility";
+import { DashboardReadinessProvider } from "@/components/DashboardReadinessContext";
 import { apiClient, modelAvailableCall, userGetInfoV2 } from "@/components/networking";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import { listAccountPoolProviderFamilies } from "@/features/account-pool/api/AccountPoolApi";
@@ -389,12 +390,14 @@ export default function DashboardWarmup({
   }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPages]);
 
   const retry = () => setAttempt((value) => value + 1);
+  const primaryReady =
+    !shouldWarmup || (state.primary.total > 0 && state.primary.completed >= state.primary.total);
   return (
-    <>
+    <DashboardReadinessProvider value={primaryReady}>
       {children}
       {(shouldWarmup && (state.primary.failed > 0 || state.background.failed > 0)) && (
         <WarmupProgress state={state} primaryOnly={state.primary.failed > 0} retry={retry} />
       )}
-    </>
+    </DashboardReadinessProvider>
   );
 }

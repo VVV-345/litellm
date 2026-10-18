@@ -98,6 +98,7 @@ interface SidebarProps {
   disableVectorStoresForInternalUsers?: boolean;
   allowVectorStoresForTeamAdmins?: boolean;
   disabledUiPages?: readonly string[];
+  primaryReady?: boolean;
 }
 
 interface MenuItem {
@@ -406,6 +407,8 @@ const prettify = (key: string): string =>
 
 const labelText = (item: MenuItem): string => (typeof item.label === "string" ? item.label : prettify(item.key));
 
+const PRIMARY_PAGE_KEYS = new Set(["api-keys", "models", "account-pool", "logs", "new_usage"]);
+
 const groupTranslationKeys: Record<string, string> = {
   "AI GATEWAY": "nav.groups.aiGateway",
   OBSERVABILITY: "nav.groups.observability",
@@ -440,6 +443,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
   disableVectorStoresForInternalUsers,
   allowVectorStoresForTeamAdmins,
   disabledUiPages = [],
+  primaryReady = true,
 }) => {
   const { t } = useTranslation();
   const [prefetchKey, setPrefetchKey] = useState<string | null>(null);
@@ -526,11 +530,23 @@ const Sidebar_: React.FC<SidebarProps> = ({
       return isPageDisabled(item.page, disabledUiPages) ? [] : [item];
     });
 
+  const filterItemsByReadiness = (items: MenuItem[]): MenuItem[] => {
+    if (primaryReady) return items;
+    return items.flatMap((item) => {
+      if (item.page === "settings") return [item];
+      if (item.children) {
+        const children = filterItemsByReadiness(item.children);
+        return children.length ? [{ ...item, children }] : [];
+      }
+      return PRIMARY_PAGE_KEYS.has(item.page) ? [item] : [];
+    });
+  };
+
   const visibleGroups = menuGroups
     .filter((group) => !group.roles || group.roles.includes(userRole))
     .map((group) => ({
       groupLabel: group.groupLabel,
-      items: filterItemsByVisibility(filterItemsByRole(group.items)),
+      items: filterItemsByReadiness(filterItemsByVisibility(filterItemsByRole(group.items))),
     }))
     .filter((group) => group.items.length > 0);
 

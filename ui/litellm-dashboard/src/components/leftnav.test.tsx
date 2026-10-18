@@ -133,6 +133,21 @@ describe("Sidebar (leftnav)", () => {
     expect(screen.queryByText("Tools")).not.toBeInTheDocument();
   });
 
+  it("shows only primary modules until the primary warmup finishes", () => {
+    renderWithProviders(<Sidebar {...defaultProps} primaryReady={false} />);
+
+    expect(screen.getByText("Models + Endpoints")).toBeInTheDocument();
+    expect(screen.getByText("Logs")).toBeInTheDocument();
+    expect(screen.queryByText("Guardrails")).not.toBeInTheDocument();
+    expect(screen.queryByText("Playground")).not.toBeInTheDocument();
+  });
+
+  it("reveals secondary modules once the primary warmup finishes", () => {
+    renderWithProviders(<Sidebar {...defaultProps} primaryReady />);
+
+    expect(screen.getByText("Guardrails")).toBeInTheDocument();
+  });
+
   it("should link the logo to the UI home route rather than the proxy origin", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
 

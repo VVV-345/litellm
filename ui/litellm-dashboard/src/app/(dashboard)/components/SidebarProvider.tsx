@@ -2,6 +2,7 @@
 
 import Sidebar from "@/components/leftnav";
 import { getUISettings } from "@/components/networking";
+import { useDashboardReadiness } from "@/components/DashboardReadinessContext";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { useEffect, useState } from "react";
 
@@ -20,6 +21,7 @@ const SidebarProvider = ({
   onToggleCollapsed,
   disabledUiPages,
 }: SidebarProviderProps) => {
+  const primaryReady = useDashboardReadiness();
   const { accessToken } = useAuthorized();
   const [enabledPagesInternalUsers, setEnabledPagesInternalUsers] = useState<string[] | null>(null);
   const [enableProjectsUI, setEnableProjectsUI] = useState<boolean>(false);
@@ -83,6 +85,7 @@ const SidebarProvider = ({
       disableVectorStoresForInternalUsers={disableVectorStoresForInternalUsers}
       allowVectorStoresForTeamAdmins={allowVectorStoresForTeamAdmins}
       disabledUiPages={disabledUiPages}
+      primaryReady={primaryReady}
     />
   );
 };
