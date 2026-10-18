@@ -7391,6 +7391,7 @@
     "prompt tokens": "prompt tokens",
     "completion tokens": "completion tokens",
     "Discount ({{percent}}):": "Discount ({{percent}}):",
-    "Margin ({{percent}}):": "Margin ({{percent}}):"
+    "Margin ({{percent}}):": "Margin ({{percent}}):",
+    "threshold:": "threshold:"
   }
 }

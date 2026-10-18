@@ -7391,6 +7391,7 @@
     "prompt tokens": "提示词 Token",
     "completion tokens": "补全 Token",
     "Discount ({{percent}}):": "折扣（{{percent}}）：",
-    "Margin ({{percent}}):": "加价（{{percent}}）："
+    "Margin ({{percent}}):": "加价（{{percent}}）：",
+    "threshold:": "阈值："
   }
 }
