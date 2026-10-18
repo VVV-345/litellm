@@ -7385,6 +7385,12 @@
     "Number of top keys to show": "Number of top keys to show",
     "Cache Key": "Cache Key",
     "{{count}} masked": "{{count}} masked",
-    "An error occurred": "An error occurred"
+    "An error occurred": "An error occurred",
+    "(Cached)": "(Cached)",
+    "tokens": "tokens",
+    "prompt tokens": "prompt tokens",
+    "completion tokens": "completion tokens",
+    "Discount ({{percent}}):": "Discount ({{percent}}):",
+    "Margin ({{percent}}):": "Margin ({{percent}}):"
   }
 }

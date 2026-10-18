@@ -1,6 +1,7 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 import { renderWithProviders, screen } from "../../../tests/test-utils";
 import { CostBreakdownViewer, CostBreakdown } from "./CostBreakdownViewer";
 
@@ -10,6 +11,10 @@ async function expandCostBreakdown() {
 }
 
 describe("CostBreakdownViewer", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("renders nothing when costBreakdown is null", () => {
     const { container } = renderWithProviders(<CostBreakdownViewer costBreakdown={null} totalSpend={0} />);
 

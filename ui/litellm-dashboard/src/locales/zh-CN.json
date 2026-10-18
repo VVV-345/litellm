@@ -7385,6 +7385,12 @@
     "Number of top keys to show": "显示的热门密钥数量",
     "Cache Key": "缓存键",
     "{{count}} masked": "{{count}} 个已脱敏",
-    "An error occurred": "发生错误"
+    "An error occurred": "发生错误",
+    "(Cached)": "（已缓存）",
+    "tokens": "Token",
+    "prompt tokens": "提示词 Token",
+    "completion tokens": "补全 Token",
+    "Discount ({{percent}}):": "折扣（{{percent}}）：",
+    "Margin ({{percent}}):": "加价（{{percent}}）："
   }
 }
