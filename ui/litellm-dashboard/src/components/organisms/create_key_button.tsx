@@ -713,7 +713,7 @@ const CreateKey: React.FC<CreateKeyProps> = ({ team, teams, data, addKey, autoOp
                   <MountedFormField
                     label={
                       <span>
-                        User ID{" "}
+                        {t("ui.User ID")}{" "}
                         <SimpleTooltip
                           content={t("ui.The user who will own this key and be responsible for its usage")}
                         >

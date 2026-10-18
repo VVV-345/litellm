@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod/v4";
+import i18next from "@/i18n";
 import { TeamMetadataField } from "@/app/(dashboard)/hooks/teams/useTeamMetadataSchema";
 import { useZodForm } from "@/lib/forms/useZodForm";
 import MetadataKeyValueFields, {
@@ -11,6 +12,10 @@ import MetadataKeyValueFields, {
   metadataPairsSchema,
   metadataPairsToObject,
 } from "./MetadataKeyValueFields";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("metadataObjectToPairs", () => {
   it("returns an empty list for null or undefined metadata", () => {

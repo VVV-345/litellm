@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import { fireEvent, renderWithProviders, screen, waitFor } from "../../../tests/test-utils";
 import KeyLifecycleSettings from "./KeyLifecycleSettings";
 
@@ -54,7 +55,8 @@ const getDurationInput = (isCreateMode = true) =>
 const isRenderedSelection = (el: HTMLElement): boolean => !el.closest('[role="listbox"]');
 
 describe("KeyLifecycleSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
   });
 

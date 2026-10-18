@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import NewBadge from "./NewBadge";
 
 // Mock the hook directly
@@ -12,7 +13,8 @@ import { useDisableShowNewBadge } from "@/app/(dashboard)/hooks/useDisableShowNe
 const mockUseDisableShowNewBadge = vi.mocked(useDisableShowNewBadge);
 
 describe("NewBadge", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
   });
 

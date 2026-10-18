@@ -1,8 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import i18next from "@/i18n";
 import DefaultProxyAdminTag from "./DefaultProxyAdminTag";
 
 describe("DefaultProxyAdminTag", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("should render", () => {
     render(<DefaultProxyAdminTag userId="some-user" />);
     expect(screen.getByText("some-user")).toBeInTheDocument();

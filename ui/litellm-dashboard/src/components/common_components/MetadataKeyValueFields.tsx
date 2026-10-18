@@ -9,6 +9,7 @@ import {
   type UseFormGetValues,
 } from "react-hook-form";
 import { z } from "zod/v4";
+import { useTranslation } from "react-i18next";
 
 import { TeamMetadataField } from "@/app/(dashboard)/hooks/teams/useTeamMetadataSchema";
 import { FormField } from "@/components/shared/form/FormField";
@@ -85,6 +86,7 @@ const MetadataKeyValueFields = <TFieldValues extends FieldValues>({
   schemaFields = [],
   schemaLoading = false,
 }: MetadataKeyValueFieldsProps<TFieldValues>) => {
+  const { t } = useTranslation();
   const { fields, append, remove } = useFieldArray({ control, name });
   const seededRef = useRef(false);
 
@@ -118,18 +120,18 @@ const MetadataKeyValueFields = <TFieldValues extends FieldValues>({
         <div key={field.id} className="mb-2 flex items-start gap-2">
           <FormField control={control} name={`${name}.${index}.key` as FieldPath<TFieldValues>}>
             {({ ref, value, ...rest }) => (
-              <Input {...rest} ref={ref} value={(value as string) ?? ""} placeholder="Key" />
+              <Input {...rest} ref={ref} value={(value as string) ?? ""} placeholder={t("ui.Key")} />
             )}
           </FormField>
           <FormField control={control} name={`${name}.${index}.value` as FieldPath<TFieldValues>}>
             {({ ref, value, ...rest }) => (
-              <Input {...rest} ref={ref} value={(value as string) ?? ""} placeholder="Value" />
+              <Input {...rest} ref={ref} value={(value as string) ?? ""} placeholder={t("ui.Value")} />
             )}
           </FormField>
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Remove key-value pair"
+            aria-label={t("localization.Remove key-value pair")}
             className="mt-1 text-destructive"
             onClick={() => remove(index)}
           >
@@ -143,7 +145,7 @@ const MetadataKeyValueFields = <TFieldValues extends FieldValues>({
         onClick={() => append({ key: "", value: "" } as never, { shouldFocus: false })}
       >
         <Plus className="size-4" />
-        Add Key-Value Pair
+        {t("ui.Add Key-Value Pair")}
       </Button>
     </>
   );

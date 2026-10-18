@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 import { fireEvent, renderWithProviders, screen } from "../../../tests/test-utils";
 import DeleteResourceModal from "./DeleteResourceModal";
 
@@ -16,7 +17,8 @@ describe("DeleteResourceModal", () => {
     confirmLoading: false,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
   });
 

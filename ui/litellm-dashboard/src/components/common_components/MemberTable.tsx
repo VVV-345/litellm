@@ -41,33 +41,34 @@ export default function MemberTable({
   onEdit,
   onDelete,
   onAddMember,
-  roleColumnTitle = "Role",
+  roleColumnTitle,
   roleTooltip,
   extraColumns = [],
   showDeleteForMember,
   emptyText,
 }: MemberTableProps) {
   const { t } = useTranslation();
+  const resolvedRoleTitle = roleColumnTitle ?? t("ui.Role");
   return (
     <div className="flex w-full flex-col gap-2">
       <span className="inline-flex text-sm text-foreground">
-        {members.length} Member{members.length !== 1 ? "s" : ""}
+        {members.length} {t("localization.Member")}
       </span>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>User Email</TableHead>
-            <TableHead>User ID</TableHead>
+            <TableHead>{t("ui.User Email")}</TableHead>
+            <TableHead>{t("ui.User ID")}</TableHead>
             <TableHead>
               {roleTooltip ? (
                 <span className="inline-flex items-center gap-2">
-                  {roleColumnTitle}
+                  {resolvedRoleTitle}
                   <SimpleTooltip content={roleTooltip}>
                     <Info className="size-3.5" />
                   </SimpleTooltip>
                 </span>
               ) : (
-                roleColumnTitle
+                resolvedRoleTitle
               )}
             </TableHead>
             {extraColumns.map((column) => (
@@ -80,7 +81,7 @@ export default function MemberTable({
           {members.length === 0 ? (
             <TableRow>
               <TableCell colSpan={extraColumns.length + 4} className="text-center text-muted-foreground">
-                {emptyText ?? "No data"}
+                {emptyText ?? t("common.noData")}
               </TableCell>
             </TableRow>
           ) : (
@@ -89,7 +90,7 @@ export default function MemberTable({
                 <TableCell>{member.user_email || "-"}</TableCell>
                 <TableCell>
                   {member.user_id === "default_user_id" ? (
-                    <StatusBadge tone="info" label="Default Proxy Admin" />
+                    <StatusBadge tone="info" label={t("localization.Default Proxy Admin")} />
                   ) : (
                     member.user_id || "-"
                   )}
@@ -112,14 +113,14 @@ export default function MemberTable({
                     <span className="inline-flex items-center gap-2">
                       <TableIconActionButton
                         variant="Edit"
-                        tooltipText="Edit member"
+                        tooltipText={t("localization.Edit member")}
                         dataTestId="edit-member"
                         onClick={() => onEdit(member)}
                       />
                       {(!showDeleteForMember || showDeleteForMember(member)) && (
                         <TableIconActionButton
                           variant="Delete"
-                          tooltipText="Delete member"
+                          tooltipText={t("localization.Delete member")}
                           dataTestId="delete-member"
                           onClick={() => onDelete(member)}
                         />
@@ -135,7 +136,7 @@ export default function MemberTable({
       {onAddMember && canEdit && (
         <Button onClick={onAddMember} className="self-start">
           <UserPlus className="size-4" />
-          Add Member
+          {t("localization.Add Member")}
         </Button>
       )}
     </div>
