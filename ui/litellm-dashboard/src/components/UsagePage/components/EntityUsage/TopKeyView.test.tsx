@@ -2,6 +2,7 @@ import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { KeyResponse } from "../../../key_team_helpers/key_list";
 import * as transformKeyInfo from "../../../key_team_helpers/transform_key_info";
 import * as networking from "../../../networking";
@@ -55,7 +56,8 @@ describe("TopKeyView", () => {
     setTopKeysLimit: mockSetTopKeysLimit,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     mockUseAuthorized.mockReturnValue(mockAuth);
     mockSetTopKeysLimit.mockClear();
     mockKeyInfoV1Call.mockClear();

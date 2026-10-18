@@ -7379,6 +7379,9 @@
     "Automatic key rotation settings and status for this key": "Automatic key rotation settings and status for this key",
     "at": "at",
     "Type": "Type",
-    "to confirm deletion:": "to confirm deletion:"
+    "to confirm deletion:": "to confirm deletion:",
+    "Show fewer tags": "Show fewer tags",
+    "Show all tags": "Show all tags",
+    "Number of top keys to show": "Number of top keys to show"
   }
 }

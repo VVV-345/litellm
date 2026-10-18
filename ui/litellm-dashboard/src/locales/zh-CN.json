@@ -7379,6 +7379,9 @@
     "Automatic key rotation settings and status for this key": "此密钥的自动轮换设置和状态",
     "at": "于",
     "Type": "输入",
-    "to confirm deletion:": "以确认删除："
+    "to confirm deletion:": "以确认删除：",
+    "Show fewer tags": "收起标签",
+    "Show all tags": "显示全部标签",
+    "Number of top keys to show": "显示的热门密钥数量"
   }
 }
