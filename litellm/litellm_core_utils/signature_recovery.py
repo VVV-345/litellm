@@ -1,5 +1,6 @@
 """校验可重放的客户端工具历史，复用原生思考块清理，不重放服务端工具。"""
 
+import re
 from collections.abc import Mapping
 from typing import Final
 
@@ -28,6 +29,9 @@ _CONTENT: Final = frozenset(
     )
 )
 _DROPPABLE: Final = frozenset(("additional_tools", "configuration_update", "compaction_trigger"))
+_THOUGHT_SEPARATOR: Final = "__thought__"
+_SIGNATURE_FIELDS: Final = frozenset(("thought_signature", "thoughtSignature"))
+_PROVIDER_SIGNATURE_FIELDS: Final = frozenset(("thought_signature", "thoughtSignature", "signature"))
 
 
 def client_tool(tool: JsonValue) -> bool:
@@ -132,6 +136,19 @@ def _history_issue(item: JsonValue, path: str) -> str | None:
         return None
     if item.get("type") in _DROPPABLE:
         return None
+    if item.get("type") == "agent_message":
+        message_content: Final = item.get("content")
+        if not isinstance(message_content, list) or not message_content:
+            return f"unsupported_history:{path}:invalid_item_or_tools"
+        invalid_message: Final = next(
+            (
+                index
+                for index, block in enumerate(message_content)
+                if not isinstance(block, dict) or block.get("type") not in ("input_text", "encrypted_content")
+            ),
+            None,
+        )
+        return None if invalid_message is None else f"unsupported_content:{path}.content[{invalid_message}]"
     if item.get("type") == "item_reference":
         return f"server_item_reference:{path}"
     if item.get("type") in (
@@ -175,6 +192,9 @@ def _history_issue(item: JsonValue, path: str) -> str | None:
         )
         if invalid is not None:
             return f"unsupported_content:{path}.content[{invalid}]"
+    kind: Final = item.get("type")
+    if isinstance(kind, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", kind):
+        return f"unsupported_history:{path}:{kind}"
     return f"unsupported_history:{path}:invalid_item_or_tools"
 
 
@@ -201,7 +221,7 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
             item
             for item in history
             if isinstance(item, dict)
-            and item.get("type") != "reasoning"
+            and item.get("type") not in ("reasoning", "agent_message")
             and item.get("type") not in _DROPPABLE
             and item.get("role") not in ("system", "developer")
         ),
@@ -219,6 +239,46 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if any(positions[identifier] >= index for index, (kind, identifier) in enumerate(events) if kind == "result"):
         return "out_of_order_tool_history"
     return None
+
+
+def _clean_agent_message(item: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
+    if item.get("type") != "agent_message":
+        return item
+    content: Final = item.get("content")
+    if not isinstance(content, list):
+        return None
+    kept: Final[list[JsonValue]] = [
+        block
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "input_text" and isinstance(block.get("text"), str)
+    ]
+    return {**item, "content": kept} if kept else None
+
+
+def _strip_signature_entry(key: str, value: JsonValue) -> tuple[str, JsonValue] | None:
+    if key in _SIGNATURE_FIELDS:
+        return None
+    if key == "provider_specific_fields" and isinstance(value, dict):
+        cleaned: Final = {
+            nested_key: _strip_thought_signatures(nested_value)
+            for nested_key, nested_value in value.items()
+            if nested_key not in _PROVIDER_SIGNATURE_FIELDS
+        }
+        return (key, cleaned) if cleaned else None
+    if key in ("id", "tool_call_id") and isinstance(value, str) and _THOUGHT_SEPARATOR in value:
+        return key, value.split(_THOUGHT_SEPARATOR, 1)[0]
+    return key, _strip_thought_signatures(value)
+
+
+def _strip_thought_signatures(value: JsonValue) -> JsonValue:
+    if isinstance(value, list):
+        return [_strip_thought_signatures(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    entries: Final = tuple(
+        entry for entry in (_strip_signature_entry(key, item) for key, item in value.items()) if entry is not None
+    )
+    return {key: item for key, item in entries}
 
 
 def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
@@ -257,13 +317,18 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
             )
         ]
     )
+    with_agent_messages: Final = tuple(
+        cleaned_message for item in stripped if (cleaned_message := _clean_agent_message(item)) is not None
+    )
     cleaned_history: Final[list[JsonValue]] = [
-        {
-            key: value
-            for key, value in item.items()
-            if key not in ("thinking_blocks", "reasoning_content", "encrypted_content")
-        }
-        for item in stripped
+        _strip_thought_signatures(
+            {
+                key: value
+                for key, value in item.items()
+                if key not in ("thinking_blocks", "reasoning_content", "encrypted_content")
+            }
+        )
+        for item in with_agent_messages
         if item.get("type") != "reasoning" and item.get("type") not in _DROPPABLE
     ]
     if cleaned_history == history:

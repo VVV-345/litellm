@@ -2747,6 +2747,108 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
     assert "signature_recovery" in control.finished[0].detail
 
 
+def test_signature_recovery_strips_gemini_thought_signatures() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    payload = {
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1__thought__signature",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": "{}",
+                            "provider_specific_fields": {"thought_signature": "signature"},
+                        },
+                        "provider_specific_fields": {"thought_signature": "signature"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1__thought__signature", "content": "ok"},
+            {"role": "user", "content": "continue"},
+        ]
+    }
+    recovered = recover_signature_history(payload)
+    assert recovered is not None
+    call = recovered["messages"][1]["tool_calls"][0]
+    assert call["id"] == "call_1"
+    assert call["function"] == {"name": "lookup", "arguments": "{}"}
+    assert recovered["messages"][2]["tool_call_id"] == "call_1"
+
+
+def test_signature_recovery_keeps_readable_agent_message() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    agent = {
+        "type": "agent_message",
+        "author": "a",
+        "recipient": "b",
+        "content": [{"type": "input_text", "text": "visible"}],
+    }
+    recovered = recover_signature_history(
+        {"input": [agent, {"type": "reasoning", "encrypted_content": "foreign"}, {"role": "user", "content": "continue"}]}
+    )
+    assert recovered is not None
+    assert recovered["input"] == [agent, {"role": "user", "content": "continue"}]
+
+
+def test_signature_recovery_drops_encrypted_agent_message() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    recovered = recover_signature_history(
+        {
+            "input": [
+                {"type": "agent_message", "content": [{"type": "encrypted_content", "encrypted_content": "foreign"}]},
+                {"role": "user", "content": "hi"},
+            ]
+        }
+    )
+    assert recovered is not None
+    assert recovered["input"] == [{"role": "user", "content": "hi"}]
+
+
+def test_responses_signature_recovery_preserves_agent_message() -> None:
+    requests: list[dict[str, object]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
+        return httpx.Response(200, json={"id": "resp_success"})
+
+    agent = {
+        "type": "agent_message",
+        "author": "a",
+        "recipient": "b",
+        "content": [{"type": "input_text", "text": "visible"}],
+    }
+    payload = {
+        "model": "model-a",
+        "input": [agent, {"type": "reasoning", "encrypted_content": "foreign"}, {"role": "user", "content": "continue"}],
+    }
+    client, control = setup_gateway(upstream, max_attempts=3)
+    with client:
+        response = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json=payload)
+    assert response.status_code == 200
+    assert len(requests) == 2
+    assert requests[1]["input"] == [agent, {"role": "user", "content": "continue"}]
+    assert "signature_recovery" in control.finished[0].detail
+
+
+def test_signature_recovery_reports_unknown_item_type() -> None:
+    from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
+
+    assert (
+        signature_recovery_reason({"input": [{"type": "mystery_item"}, {"role": "user", "content": "hi"}]})
+        == "unsupported_history:input[0]:mystery_item"
+    )
+
+
 @pytest.mark.parametrize(
     "history,tools",
     [
