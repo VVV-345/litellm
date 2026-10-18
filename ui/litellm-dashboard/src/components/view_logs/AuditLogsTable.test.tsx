@@ -1,10 +1,15 @@
 import type { ColumnFiltersState, PaginationState } from "@tanstack/react-table";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import { AuditLogsTable } from "./AuditLogsTable";
 import type { AuditLogEntry } from "./AuditLogsTableColumns";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 const ROWS: AuditLogEntry[] = [
   {

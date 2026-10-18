@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import moment from "moment";
 import { AuditLogDrawer } from "./AuditLogDrawer";
@@ -31,7 +32,8 @@ function blockNamed(label: string) {
 }
 
 describe("AuditLogDrawer", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
   });
 
