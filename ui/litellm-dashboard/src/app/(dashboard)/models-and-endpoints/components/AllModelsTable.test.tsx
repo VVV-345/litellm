@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import { ModelData } from "@/components/model_dashboard/types";
 
@@ -29,6 +30,10 @@ const makeModel = (overrides: Partial<ModelData> = {}): ModelData =>
       ...(overrides.model_info ?? {}),
     },
   }) as ModelData;
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 const baseProps = {
   data: [makeModel()],

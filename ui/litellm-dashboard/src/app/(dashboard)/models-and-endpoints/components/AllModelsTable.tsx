@@ -142,9 +142,10 @@ export function AllModelsTable({
       onDeleteClick,
       onTogglePauseClick,
       pausingModelId,
+      ui,
     };
     return getModelsTableColumns(columnDeps);
-  }, [userRole, userID, onModelIdClick, onTeamIdClick, onDeleteClick, onTogglePauseClick, pausingModelId]);
+  }, [userRole, userID, onModelIdClick, onTeamIdClick, onDeleteClick, onTogglePauseClick, pausingModelId, ui]);
 
   const modelGroupOptions = useMemo(
     () => [

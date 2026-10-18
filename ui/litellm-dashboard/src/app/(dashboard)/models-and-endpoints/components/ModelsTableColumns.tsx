@@ -73,7 +73,7 @@ function ModelInformationCell({ model, displayName }: { model: ModelData; displa
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             {model.provider ? <ProviderLogo provider={model.provider} className="size-4 shrink-0" /> : null}
-            <span className="truncate text-xs text-muted-foreground">{model.provider || "Unknown provider"}</span>
+            <span className="truncate text-xs text-muted-foreground">{model.provider || t("ui.Unknown provider")}</span>
           </div>
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-muted-foreground">{t("ui.Public Model Name")}</span>
@@ -92,7 +92,7 @@ function ModelInformationCell({ model, displayName }: { model: ModelData; displa
                 aria-label={t("ui.Copy LiteLLM model name")}
                 data-testid={`copy-litellm-model-name-${model.model_info.id}`}
                 className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-                onClick={() => void copyToClipboard(litellmModelName, "LiteLLM model name copied")}
+                onClick={() => void copyToClipboard(litellmModelName, t("ui.LiteLLM model name copied"))}
               >
                 <Copy className="size-3.5" />
               </button>
@@ -170,10 +170,11 @@ function CredentialsCell({ credentialName }: { credentialName: string | undefine
 }
 
 function CreatedByCell({ model }: { model: ModelData }) {
+  const { t } = useTranslation();
   const isConfigModel = !model.model_info?.db_model;
   const createdAt = formatShortDate(model.model_info.created_at);
-  const primary = isConfigModel ? "Defined in config" : model.model_info.created_by || "Unknown";
-  const secondaryForDbModel = createdAt ?? "Unknown date";
+  const primary = isConfigModel ? t("ui.Defined in config") : model.model_info.created_by || t("ui.Unknown");
+  const secondaryForDbModel = createdAt ?? t("ui.Unknown date");
 
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
@@ -276,17 +277,19 @@ function ModelRowActions({
 
   const resolvePauseTooltip = (): string => {
     if (isConfigModel) {
-      return "Config models cannot be paused from the dashboard. Pause is DB-backed.";
+      return t("ui.Config models cannot be paused from the dashboard. Pause is DB-backed.");
     }
     if (!isAdmin) {
-      return "Only proxy admins can pause or resume a model.";
+      return t("ui.Only proxy admins can pause or resume a model.");
     }
-    return isBlocked ? "Resume model — restore normal routing." : "Pause model — stop routing requests until resumed.";
+    return isBlocked
+      ? t("ui.Resume model — restore normal routing.")
+      : t("ui.Pause model — stop routing requests until resumed.");
   };
 
   const deleteTooltip = isConfigModel
-    ? "Config model cannot be deleted on the dashboard. Please delete it from the config file."
-    : "Delete model";
+    ? t("ui.Config model cannot be deleted on the dashboard. Please delete it from the config file.")
+    : t("ui.Delete model");
 
   return (
     <div className="flex items-center justify-end gap-1.5">
@@ -305,7 +308,7 @@ function ModelRowActions({
                   size="sm"
                   checked={!isBlocked}
                   disabled={!isPauseToggleable}
-                  aria-label={isBlocked ? "Resume model" : "Pause model"}
+                  aria-label={isBlocked ? t("ui.Resume model") : t("ui.Pause model")}
                   data-testid={`model-pause-toggle-${modelId}`}
                   onCheckedChange={(nextChecked) => {
                     if (isPauseToggleable && onTogglePauseClick && modelId) {
@@ -352,6 +355,7 @@ export interface ModelsTableColumnDeps {
   onDeleteClick?: (modelId: string) => void;
   onTogglePauseClick?: (modelId: string, blocked: boolean) => void | Promise<void>;
   pausingModelId?: string | null;
+  ui: (value: string) => string;
 }
 
 export const getModelsTableColumns = ({
@@ -362,12 +366,13 @@ export const getModelsTableColumns = ({
   onDeleteClick,
   onTogglePauseClick,
   pausingModelId,
+  ui,
 }: ModelsTableColumnDeps): ColumnDef<ModelData>[] => [
   {
     id: MODEL_ID_COLUMN_ID,
     accessorFn: (row) => row.model_info.id,
-    meta: { title: "Model ID" },
-    header: "Model ID",
+    meta: { title: ui("Model ID") },
+    header: ui("Model ID"),
     enableSorting: false,
     size: 140,
     minSize: 90,
@@ -382,8 +387,8 @@ export const getModelsTableColumns = ({
   {
     id: MODEL_NAME_COLUMN_ID,
     accessorFn: (row) => row.model_name ?? "",
-    meta: { title: "Model Information", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Model Information" />,
+    meta: { title: ui("Model Information"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Model Information")} />,
     enableSorting: true,
     size: 280,
     minSize: 160,
@@ -404,8 +409,8 @@ export const getModelsTableColumns = ({
   {
     id: CREATED_BY_COLUMN_ID,
     accessorFn: (row) => row.model_info.created_by ?? "",
-    meta: { title: "Created By", skeleton: "twoLine" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created By" />,
+    meta: { title: ui("Created By"), skeleton: "twoLine" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Created By")} />,
     enableSorting: true,
     size: 180,
     minSize: 110,
@@ -414,8 +419,8 @@ export const getModelsTableColumns = ({
   {
     id: UPDATED_AT_COLUMN_ID,
     accessorFn: (row) => row.model_info.updated_at ?? "",
-    meta: { title: "Updated At" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Updated At" />,
+    meta: { title: ui("Updated At") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Updated At")} />,
     enableSorting: true,
     size: 140,
     minSize: 100,
@@ -424,8 +429,8 @@ export const getModelsTableColumns = ({
   {
     id: COSTS_COLUMN_ID,
     accessorFn: (row) => row.input_cost,
-    meta: { title: "Costs" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Costs" />,
+    meta: { title: ui("Costs") },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Costs")} />,
     enableSorting: true,
     size: 130,
     minSize: 90,
@@ -434,8 +439,8 @@ export const getModelsTableColumns = ({
   {
     id: TEAM_ID_COLUMN_ID,
     accessorFn: (row) => row.model_info.team_id ?? "",
-    meta: { title: "Team ID" },
-    header: "Team ID",
+    meta: { title: ui("Team ID") },
+    header: ui("Team ID"),
     enableSorting: false,
     size: 140,
     minSize: 90,
@@ -450,8 +455,8 @@ export const getModelsTableColumns = ({
   {
     id: ACCESS_GROUPS_COLUMN_ID,
     accessorFn: (row) => row.model_info.access_groups ?? [],
-    meta: { title: "Model Access Group", skeleton: "chips" },
-    header: "Model Access Group",
+    meta: { title: ui("Model Access Group"), skeleton: "chips" },
+    header: ui("Model Access Group"),
     enableSorting: false,
     size: 200,
     minSize: 120,
@@ -460,22 +465,22 @@ export const getModelsTableColumns = ({
   {
     id: STATUS_COLUMN_ID,
     accessorFn: (row) => row.model_info.db_model,
-    meta: { title: "Source", skeleton: "badge" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Source" />,
+    meta: { title: ui("Source"), skeleton: "badge" },
+    header: ({ column }) => <DataTableSortHeader column={column} title={ui("Source")} />,
     enableSorting: true,
     size: 140,
     minSize: 100,
     cell: ({ row }) =>
       row.original.model_info.db_model ? (
-        <StatusBadge tone="info" label="DB Model" />
+        <StatusBadge tone="info" label={ui("DB Model")} />
       ) : (
-        <StatusBadge tone="neutral" label="Config Model" />
+        <StatusBadge tone="neutral" label={ui("Config Model")} />
       ),
   },
   {
     id: "actions",
-    meta: { title: "Actions", className: "text-right", headerClassName: "text-right" },
-    header: "Actions",
+    meta: { title: ui("Actions"), className: "text-right", headerClassName: "text-right" },
+    header: ui("Actions"),
     enableSorting: false,
     enableHiding: false,
     enableResizing: false,
