@@ -1,11 +1,16 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import userEvent from "@testing-library/user-event";
+import i18next from "@/i18n";
 import PresidioDetectedEntities from "@/components/view_logs/GuardrailViewer/PresidioDetectedEntities";
 import { renderWithProviders, screen } from "../../../../tests/test-utils";
 import { makeEntity } from "@/components/view_logs/GuardrailViewer/__tests__/fixtures";
 
 describe("PresidioDetectedEntities", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("renders null when entities empty", () => {
     const { container } = renderWithProviders(<PresidioDetectedEntities entities={[]} />);
     expect(container).toBeEmptyDOMElement();
