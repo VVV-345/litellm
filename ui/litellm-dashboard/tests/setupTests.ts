@@ -4,7 +4,7 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 beforeEach(async () => {
-  await i18n.changeLanguage("en");
+  await i18n.changeLanguage("zh-CN");
 });
 
 const ensureTestLocalStorage = () => {
