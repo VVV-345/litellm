@@ -15,6 +15,39 @@ from litellm.proxy.management_endpoints.account_pool_reconciler import (
     reconcile,
 )
 
+def test_reconciler_status_reports_snapshot_age_and_staleness() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from litellm.proxy.management_endpoints.account_pool_reconciler import ReconcilerHealth
+
+    health: Final = ReconcilerHealth()
+    start: Final = datetime.now(timezone.utc)
+    health.success(start)
+
+    fresh: Final = health.status(30.0, start + timedelta(seconds=20))
+    assert fresh.age_seconds == 20
+    assert fresh.stale is False
+    assert fresh.last_error is None
+
+    stale: Final = health.status(30.0, start + timedelta(seconds=600))
+    assert stale.stale is True
+
+    health.failure(RuntimeError("manager unreachable"), start + timedelta(seconds=610))
+    failed: Final = health.status(30.0, start + timedelta(seconds=620))
+    assert failed.last_error == "manager unreachable"
+    assert failed.last_failure_at is not None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [(None, 30.0), ("0", 5.0), ("30", 30.0), ("3600", 60.0), ("abc", 30.0), ("nan", 30.0)],
+)
+def test_reconcile_interval_stays_within_a_safe_range(raw: str | None, expected: float) -> None:
+    from litellm.proxy.management_endpoints.account_pool_reconciler import _poll_interval
+
+    assert _poll_interval(raw) == expected
+
+
 
 class FakeGatewayClient:
     def __init__(self, environments: tuple[GatewayEnvironment, ...]) -> None:

@@ -7,6 +7,7 @@ import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -28,6 +29,8 @@ _MANAGED_BY: Final = "account_pool"
 _CREATED_BY: Final = "account-pool-reconciler"
 _DEFAULT_MANAGER_URL: Final = "http://account-pool:8091"
 _DEFAULT_INTERVAL_SECONDS: Final = 30.0
+_MIN_INTERVAL_SECONDS: Final = 5.0
+_MAX_INTERVAL_SECONDS: Final = 60.0
 
 
 class QuotaWindow(BaseModel):
@@ -363,11 +366,62 @@ async def stop_reconciliation_loop(task: asyncio.Task[None] | None) -> None:
         return
 
 
+class ReconcilerStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    last_success_at: AwareDatetime | None = None
+    last_failure_at: AwareDatetime | None = None
+    last_error: str | None = None
+    interval_seconds: float
+    age_seconds: float | None
+    stale: bool
+    snapshots: int
+
+
+class ReconcilerHealth:
+    def __init__(self) -> None:
+        self.last_success_at: datetime | None = None
+        self.last_failure_at: datetime | None = None
+        self.last_error: str | None = None
+
+    def success(self, now: datetime) -> None:
+        self.last_success_at = now
+        self.last_error = None
+
+    def failure(self, error: Exception, now: datetime) -> None:
+        self.last_failure_at = now
+        self.last_error = str(error)[:500]
+
+    def status(self, interval_seconds: float, now: datetime) -> ReconcilerStatus:
+        age: Final = (
+            None if self.last_success_at is None else max(0.0, (now - self.last_success_at).total_seconds())
+        )
+        return ReconcilerStatus(
+            last_success_at=self.last_success_at,
+            last_failure_at=self.last_failure_at,
+            last_error=self.last_error,
+            interval_seconds=interval_seconds,
+            age_seconds=age,
+            stale=age is None or age > max(60.0, interval_seconds * 3),
+            snapshots=len(snapshots.values),
+        )
+
+
+reconciler_health: Final = ReconcilerHealth()
+
+
+def reconciler_status(now: datetime | None = None) -> ReconcilerStatus:
+    """路由快照的新鲜度，用于判断对账是否落后于真实额度。"""
+    interval: Final = _poll_interval(os.getenv("ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS"))
+    return reconciler_health.status(interval, now or datetime.now(timezone.utc))
+
+
 async def _reconciliation_loop(interval_seconds: float) -> None:
     while True:
         try:
             await reconcile_configured_account_pool()
+            reconciler_health.success(datetime.now(timezone.utc))
         except Exception as error:
+            reconciler_health.failure(error, datetime.now(timezone.utc))
             verbose_proxy_logger.warning("Account pool deployment reconciliation failed: %s", error)
         try:
             from litellm.proxy.management_endpoints.account_pool_full_log_api import full_log_maintenance
@@ -460,4 +514,10 @@ def _poll_interval(raw: str | None) -> float:
         return _DEFAULT_INTERVAL_SECONDS
     if not math.isfinite(parsed):
         return _DEFAULT_INTERVAL_SECONDS
-    return max(5.0, min(parsed, 3600.0))
+    clamped: Final = max(_MIN_INTERVAL_SECONDS, min(parsed, _MAX_INTERVAL_SECONDS))
+    if clamped != parsed:
+        # 间隔过长会让路由快照滞后于真实额度，把请求继续发给已耗尽的卡片。
+        verbose_proxy_logger.warning(
+            "ACCOUNT_POOL_RECONCILE_INTERVAL_SECONDS=%s is out of range; using %s seconds", raw, clamped
+        )
+    return clamped

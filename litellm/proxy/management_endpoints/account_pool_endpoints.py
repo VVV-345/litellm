@@ -27,7 +27,11 @@ from litellm.proxy.management_endpoints.account_pool_management import create_ma
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
-from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
+from litellm.proxy.management_endpoints.account_pool_reconciler import (
+    ReconcilerStatus,
+    reconcile_configured_account_pool,
+    reconciler_status,
+)
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
 from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
@@ -643,6 +647,13 @@ def create_account_pool_router(
     ) -> AccountPoolDashboardStats:
         _require_proxy_admin(user_api_key_dict)
         return await dashboard_reader()
+
+    @router.get("/reconciler", response_model=ReconcilerStatus)
+    async def reconciler_health(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> ReconcilerStatus:
+        _require_proxy_admin(user_api_key_dict)
+        return reconciler_status()
 
     @router.post("/quotas/refresh", response_model=AccountPoolQuotaRefreshResult)
     async def refresh_quotas(
